@@ -1,35 +1,7 @@
 import type { NativeFrozenStrings } from '../../vector/native/types/frozen-segments'
 import type { NativeKeywordMergeInput, NativeKeywordMergeOutput } from '../../vector/native/types/segment-merge'
-import { requireRoom } from '../segment-writes/status'
 import type { KeywordMergePlan } from './plan'
 import type { MergeString } from './strings'
-
-function fits(table: NativeFrozenStrings, count: number, bytes: number, stride: number): boolean {
-  return table.counts.length >= count && table.text.length >= bytes && table.offsets.length >= count * stride + 1
-}
-
-export function checkCapacity(
-  plan: KeywordMergePlan,
-  documentCount: number,
-  fieldCount: number,
-  output: NativeKeywordMergeOutput,
-): void {
-  const sizes = plan.sizes
-  requireRoom(
-    fits(output.terms, sizes[0], sizes[1], 1) &&
-      fits(output.surfaces, sizes[5], sizes[6], 2) &&
-      fits(output.spellings, sizes[7], sizes[8], 2) &&
-      output.postingOffsets.length > sizes[0] &&
-      output.postingDocuments.length >= sizes[2] &&
-      output.fieldLengths.length >= documentCount * fieldCount &&
-      output.totalFieldLengths.length >= fieldCount &&
-      (!plan.hasPositions ||
-        (output.positionOffsets !== null &&
-          output.positionValues !== null &&
-          output.positionOffsets.length > sizes[2] &&
-          output.positionValues.length >= sizes[3])),
-  )
-}
 
 function strings(entries: readonly MergeString[], output: NativeFrozenStrings): void {
   let written = 0
@@ -46,35 +18,40 @@ function strings(entries: readonly MergeString[], output: NativeFrozenStrings): 
   }
 }
 
+function positions(plan: KeywordMergePlan, offsets: Uint32Array, values: Uint32Array): void {
+  const { rows } = plan
+  let positionAt = 0
+  for (let row = 0; row < rows.count; row++) {
+    offsets[row] = positionAt
+    const count = rows.positionCounts[row]
+    const source = rows.positionValues[rows.sources[row]]
+    if (count === 0 || source === null) continue
+    const start = rows.positionStarts[row]
+    for (let at = 0; at < count; at++) values[positionAt + at] = source[start + at]
+    positionAt += count
+  }
+  offsets[rows.count] = positionAt
+}
+
 function postings(plan: KeywordMergePlan, output: NativeKeywordMergeOutput): void {
+  const { rows } = plan
   let termAt = 0
   let textAt = 0
-  let rowAt = 0
-  let positionAt = 0
   output.terms.offsets[0] = 0
   output.postingOffsets[0] = 0
   for (const term of plan.terms) {
     output.terms.text.set(term.bytes, textAt)
     textAt += term.bytes.length
     output.terms.counts[termAt] = term.documents
-    for (const row of term.postings) {
-      output.postingDocuments[rowAt] = row.target
-      output.postingFrequencies[rowAt] = row.frequency
-      output.postingFields[rowAt] = row.input.fieldMapping[row.field]
-      if (plan.hasPositions && output.positionOffsets !== null && output.positionValues !== null) {
-        output.positionOffsets[rowAt] = positionAt
-        const source = row.positions
-        if (source !== null) {
-          for (let at = 0; at < row.positionCount; at++)
-            output.positionValues[positionAt++] = source[row.positionStart + at]
-        }
-      }
-      rowAt++
-    }
     output.terms.offsets[++termAt] = textAt
-    output.postingOffsets[termAt] = rowAt
+    output.postingOffsets[termAt] = term.rowEnd
   }
-  if (plan.hasPositions && output.positionOffsets !== null) output.positionOffsets[rowAt] = positionAt
+  output.postingDocuments.set(rows.targets.subarray(0, rows.count))
+  output.postingFrequencies.set(rows.frequencies.subarray(0, rows.count))
+  output.postingFields.set(rows.fields.subarray(0, rows.count))
+  if (plan.hasPositions && output.positionOffsets !== null && output.positionValues !== null) {
+    positions(plan, output.positionOffsets, output.positionValues)
+  }
 }
 
 export function publishMerge(

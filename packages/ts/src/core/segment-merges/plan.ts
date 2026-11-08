@@ -1,32 +1,27 @@
 import type { NativeFrozenStrings } from '../../vector/native/types/frozen-segments'
 import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
-import { compareCodePoints } from '../ordering'
 import { rowRemoved } from '../segment-writes/postings'
 import { requireSegment } from '../segment-writes/status'
-import { sourcePosting, sourceTerm, sourceTermCount } from './source'
+import { createMergeRows, type MergeRows, type MergeTermSource, mergeRows, mergeTermSources } from './rows'
 import { mergeStrings } from './strings'
-import { mergeText } from './text'
-
-export interface MergePosting {
-  input: NativeKeywordMergeInput
-  row: number
-  target: number
-  source: number
-  positionStart: number
-  positionCount: number
-  positions: Uint32Array | null
-  frequency: number
-  field: number
-}
+import { compareMergeBytes, decodeMergeText, mergeText } from './text'
 
 export interface MergeTerm {
-  text: string
+  text: string | null
   bytes: Uint8Array
-  postings: MergePosting[]
+  rowStart: number
+  rowEnd: number
   documents: number
 }
 
-const encoder = new TextEncoder()
+function termText(term: MergeTerm): string {
+  return term.text ?? decodeMergeText(term.bytes)
+}
+
+function keptTermsOf(inputs: readonly NativeKeywordMergeInput[], terms: readonly MergeTerm[]): ReadonlySet<string> {
+  if (inputs.every(input => input.spellings === null)) return new Set()
+  return new Set(terms.map(termText))
+}
 
 function checkMappings(inputs: readonly NativeKeywordMergeInput[], documentCount: number, fieldCount: number): void {
   const mapped = new Uint32Array(Math.max(1, Math.ceil(documentCount / 32)))
@@ -51,43 +46,18 @@ function checkMappings(inputs: readonly NativeKeywordMergeInput[], documentCount
   requireSegment(count === documentCount)
 }
 
-function compareRows(left: MergePosting, right: MergePosting): number {
-  return left.target - right.target || left.source - right.source || left.row - right.row
-}
-
-function collectTerms(inputs: readonly NativeKeywordMergeInput[]): MergeTerm[] {
-  const terms = new Map<string, MergePosting[]>()
-  for (let source = 0; source < inputs.length; source++) {
-    const input = inputs[source]
-    for (let ordinal = 0; ordinal < sourceTermCount(input); ordinal++) {
-      const term = sourceTerm(input, ordinal)
-      if (term === null) continue
-      const { text, start, end } = term
-      let rows = terms.get(text)
-      if (rows === undefined) {
-        rows = []
-        terms.set(text, rows)
-      }
-      for (let row = start; row < end; row++) {
-        const posting = sourcePosting(input, source, ordinal, row)
-        if (posting !== null) rows.push(posting)
-      }
-    }
+function collectTerms(sources: readonly MergeTermSource[], rows: MergeRows): MergeTerm[] {
+  const terms: MergeTerm[] = []
+  for (let start = 0; start < sources.length; ) {
+    const { text, bytes } = sources[start]
+    let end = start + 1
+    while (end < sources.length && compareMergeBytes(sources[end].bytes, bytes) === 0) end++
+    const rowStart = rows.count
+    const documents = mergeRows(sources, start, end, rows)
+    if (rows.count > rowStart) terms.push({ text, bytes, rowStart, rowEnd: rows.count, documents })
+    start = end
   }
-  const result: MergeTerm[] = []
-  for (const [text, postings] of terms) {
-    if (postings.length === 0) continue
-    postings.sort(compareRows)
-    let previous = -1
-    let documents = 0
-    for (const row of postings) {
-      if (row.target !== previous) documents++
-      previous = row.target
-    }
-    result.push({ text, bytes: encoder.encode(text), postings, documents })
-  }
-  result.sort((left, right) => compareCodePoints(left.text, right.text))
-  return result
+  return terms
 }
 
 function retainedRows(
@@ -108,12 +78,14 @@ function retainedRows(
   for (let at = 0; at < retained.counts.length; at++) {
     const text = mergeText(retained, at)
     requireSegment(text !== null && retained.counts[at] > 0 && retained.counts[at] <= documentCount)
-    requireSegment(at === 0 || compareCodePoints(terms[at - 1].text, text) < 0)
+    const bytes = retained.text.subarray(retained.offsets[at], retained.offsets[at + 1])
+    requireSegment(at === 0 || compareMergeBytes(terms[at - 1].bytes, bytes) < 0)
     terms.push({
       text,
-      bytes: retained.text.subarray(retained.offsets[at], retained.offsets[at + 1]),
+      bytes,
       documents: retained.counts[at],
-      postings: [],
+      rowStart: 0,
+      rowEnd: 0,
     })
   }
   return terms
@@ -126,19 +98,17 @@ export function prepareMerge(
   retained: NativeFrozenStrings | null = null,
 ) {
   checkMappings(inputs, documentCount, fieldCount)
-  const terms = retained === null ? collectTerms(inputs) : retainedRows(inputs, retained, documentCount)
+  const sources = retained === null ? mergeTermSources(inputs) : []
+  const rows = createMergeRows(inputs, sources)
+  const terms = retained === null ? collectTerms(sources, rows) : retainedRows(inputs, retained, documentCount)
   let termBytes = 0
-  let postingCount = 0
   let positionCount = 0
-  for (const term of terms) {
-    termBytes += term.bytes.length
-    postingCount += term.postings.length
-    for (const row of term.postings) positionCount += row.positionCount
-  }
+  for (const term of terms) termBytes += term.bytes.length
+  for (let row = 0; row < rows.count; row++) positionCount += rows.positionCounts[row]
   requireSegment(
-    terms.length <= 0xffffffff && termBytes <= 0xffffffff && postingCount <= 0xffffffff && positionCount <= 0xffffffff,
+    terms.length <= 0xffffffff && termBytes <= 0xffffffff && rows.count <= 0xffffffff && positionCount <= 0xffffffff,
   )
-  const keptTerms = new Set(terms.map(term => term.text))
+  const keptTerms = keptTermsOf(inputs, terms)
   const surfaces = mergeStrings(inputs, keptTerms, false)
   const spellings = mergeStrings(inputs, keptTerms, true)
   const hasPositions =
@@ -147,7 +117,7 @@ export function prepareMerge(
   const sizes = new Uint32Array([
     terms.length,
     termBytes,
-    postingCount,
+    rows.count,
     positionCount,
     Number(hasPositions),
     surfaces.entries.length,
@@ -155,7 +125,7 @@ export function prepareMerge(
     spellings.entries.length,
     spellings.bytes,
   ])
-  return { terms, surfaces: surfaces.entries, spellings: spellings.entries, sizes, hasPositions }
+  return { terms, rows, surfaces: surfaces.entries, spellings: spellings.entries, sizes, hasPositions }
 }
 
 export type KeywordMergePlan = ReturnType<typeof prepareMerge>

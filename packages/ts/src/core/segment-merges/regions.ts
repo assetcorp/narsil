@@ -1,5 +1,5 @@
 import type { NativeFrozenStrings } from '../../vector/native/types/frozen-segments'
-import type { NativeKeywordMergeInput, NativeKeywordMergeOutput } from '../../vector/native/types/segment-merge'
+import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
 import { regionsOverlap } from '../regions'
 import { captureSegment, readMergeSegment } from '../segment-writes/regions'
 import { requireSegment } from '../segment-writes/status'
@@ -33,16 +33,6 @@ export function captureInputs(inputs: readonly NativeKeywordMergeInput[]): Nativ
       fieldLengths: [...value.fieldLengths],
     }
   })
-}
-
-export function captureOutput(input: NativeKeywordMergeOutput): NativeKeywordMergeOutput {
-  const value = captureMergeObject(input)
-  return {
-    ...value,
-    terms: captureMergeObject(value.terms),
-    surfaces: captureMergeObject(value.surfaces),
-    spellings: captureMergeObject(value.spellings),
-  }
 }
 
 export function uint32(value: number): void {
@@ -118,22 +108,6 @@ export class MergeRegions {
       surfaces: input.surfaces === null ? null : this.strings(input.surfaces, 2),
       spellings: input.spellings === null ? null : this.strings(input.spellings, 2),
       ...positions,
-    }
-  }
-
-  output(input: NativeKeywordMergeOutput): NativeKeywordMergeOutput {
-    const postingDocuments = this.read(input.postingDocuments, 'Uint32Array', undefined, true)
-    return {
-      terms: this.strings(input.terms, 1, true),
-      surfaces: this.strings(input.surfaces, 2, true),
-      spellings: this.strings(input.spellings, 2, true),
-      postingDocuments,
-      postingOffsets: this.read(input.postingOffsets, 'Uint32Array', undefined, true),
-      postingFrequencies: this.read(input.postingFrequencies, 'Uint16Array', postingDocuments.length, true),
-      postingFields: this.read(input.postingFields, 'Uint16Array', postingDocuments.length, true),
-      fieldLengths: this.read(input.fieldLengths, 'Uint32Array', undefined, true),
-      totalFieldLengths: this.read(input.totalFieldLengths, 'Float64Array', undefined, true),
-      ...this.positions(input, true),
     }
   }
 

@@ -1,8 +1,7 @@
 import type { NativeKeywordMergeInput, NativeSegmentMergeCore } from '../../vector/native/types/segment-merge'
 import { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/status'
-import type { MergePosting } from './plan'
 import { captureInputs, MergeRegions, uint32 } from './regions'
-import { sourcePosting } from './source'
+import { type MergePosting, sourcePosting } from './source'
 
 function compareRows(left: MergePosting, right: MergePosting): number {
   return (
