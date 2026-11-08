@@ -1,3 +1,4 @@
+import { readBoundedText } from '@delali/narsil-example-shared/lib/bounded-read'
 import { createFileRoute } from '@tanstack/react-router'
 
 function plainTextErrorResponse(status: number, message: string): Response {
@@ -9,31 +10,6 @@ function plainTextErrorResponse(status: number, message: string): Response {
 
 const MAX_BODY_BYTES = 64 * 1024
 
-async function readBoundedBody(request: Request, maxBytes: number): Promise<string | null> {
-  const body = request.body
-  if (!body) return ''
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    totalBytes += value.byteLength
-    if (totalBytes > maxBytes) {
-      await reader.cancel()
-      return null
-    }
-    chunks.push(value)
-  }
-  const joined = new Uint8Array(totalBytes)
-  let offset = 0
-  for (const chunk of chunks) {
-    joined.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(joined)
-}
-
 export const Route = createFileRoute('/api/ask')({
   server: {
     handlers: {
@@ -42,7 +18,7 @@ export const Route = createFileRoute('/api/ask')({
         if (contentLength > MAX_BODY_BYTES) {
           return plainTextErrorResponse(413, 'The request payload is too large.')
         }
-        const bodyText = await readBoundedBody(request, MAX_BODY_BYTES)
+        const bodyText = await readBoundedText(request, MAX_BODY_BYTES)
         if (bodyText === null) {
           return plainTextErrorResponse(413, 'The request payload is too large.')
         }

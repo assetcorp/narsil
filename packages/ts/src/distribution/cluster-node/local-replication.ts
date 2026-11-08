@@ -1,6 +1,8 @@
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { EngineCore } from '../../engine/core'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { PartitionLogPosition } from '../../persistence/durability/types'
+import type { WorkerAction } from '../../workers/protocol'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from '../replication/types'
@@ -46,7 +48,35 @@ export async function seedReopenedPrimaryLogs(input: ReopenReplicationInput): Pr
   }
 }
 
-type RemovedSpellings = ReturnType<PartitionManager['removedSpellingsOf']>
+function requestIdOf(kind: WorkerAction['type'], entry: ReplicationLogEntry): string {
+  return `replicate-entry-${kind}-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`
+}
+
+function publishIndexEntry(core: EngineCore, manager: PartitionManager, entry: ReplicationLogEntry): void {
+  const document = entry.document === null ? undefined : manager.getRef(entry.documentId)
+  if (document === undefined) return
+  core.orchestrator.publishToWorkers({
+    type: 'update',
+    indexName: entry.indexName,
+    docId: entry.documentId,
+    document,
+    requestId: requestIdOf('update', entry),
+  })
+}
+
+function publishRemoval(
+  core: EngineCore,
+  entry: ReplicationLogEntry,
+  removedSpellings: RemovedSpellings | undefined,
+): void {
+  core.orchestrator.publishToWorkers({
+    type: 'remove',
+    indexName: entry.indexName,
+    docId: entry.documentId,
+    requestId: requestIdOf('remove', entry),
+    removedSpellings,
+  })
+}
 
 export interface AppliedReplicationEntries {
   applied: number
@@ -91,22 +121,24 @@ export async function applyLocalReplicationEntries(
     const indexEntry = core.requireIndex(first.indexName)
     const manager = core.requireManager(first.indexName)
     const vecIndexes = manager.getVectorIndexes()
-    const removedSpellings: RemovedSpellings[] = []
     let stopped: unknown = null
     const applyAt = (position: number): Promise<void> =>
       manager.publication.write(() => {
         if (stopped !== null) throw stopped
         const entry = entries[position]
+        const held = manager.has(entry.documentId)
+        const removedSpellings = held ? manager.removedSpellingsOf(entry.documentId) : undefined
         try {
           if (entry.operation === 'INDEX') {
             applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes, false)
           } else {
-            removedSpellings[position] = manager.removedSpellingsOf(entry.documentId)
-            applyDeleteEntry(entry, manager, vecIndexes, removedSpellings[position])
+            applyDeleteEntry(entry, manager, vecIndexes, removedSpellings)
           }
           writeRecords.applied(entry)
-          replicateEntryToWorkers(core, manager, entry, removedSpellings[position])
+          if (entry.operation === 'INDEX') publishIndexEntry(core, manager, entry)
+          else if (held) publishRemoval(core, entry, removedSpellings)
         } catch (err) {
+          if (held && !manager.has(entry.documentId)) publishRemoval(core, entry, removedSpellings)
           stopped = err
           throw err
         }
@@ -145,35 +177,9 @@ export async function applyLocalReplicationEntries(
     if (applied > 0) {
       for (const vector of vecIndexes.values()) vector.scheduleBuild()
     }
+    await core.orchestrator.settlePublications(first.indexName)
     return { applied, error }
   } finally {
     release()
   }
-}
-
-function replicateEntryToWorkers(
-  core: EngineCore,
-  manager: PartitionManager,
-  entry: ReplicationLogEntry,
-  removedSpellings: RemovedSpellings,
-): void {
-  if (entry.operation === 'INDEX') {
-    const appliedDocument = manager.getRef(entry.documentId)
-    if (appliedDocument === undefined) return
-    core.orchestrator.publishToWorkers({
-      type: 'update',
-      indexName: entry.indexName,
-      docId: entry.documentId,
-      document: appliedDocument,
-      requestId: `replicate-entry-insert-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-    })
-    return
-  }
-  core.orchestrator.publishToWorkers({
-    type: 'remove',
-    indexName: entry.indexName,
-    docId: entry.documentId,
-    requestId: `replicate-entry-remove-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-    removedSpellings,
-  })
 }

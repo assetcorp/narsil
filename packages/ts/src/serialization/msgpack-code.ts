@@ -1,3 +1,4 @@
+import { getNestedValue } from '../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../errors'
 import {
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
@@ -19,6 +20,7 @@ export function loadMessagePack(): Promise<MessagePackCode> {
         DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
         DOCUMENT_REPLY_ENVELOPE_DEPTH,
         ErrorCodes,
+        getNestedValue,
         MAX_DOCUMENT_ENCODING_DEPTH,
         NarsilError,
       })

@@ -2214,6 +2214,29 @@ class SyncSetting(ApiModel):
     """
 
 
+class SyncStatus(ApiModel):
+    """The device sync state of one index, which SyncOperations.getSync returns."""
+
+    active: bool
+    """This is true once a device has asked for the published snapshot, from when the server keeps
+    history.
+    """
+    epoch: str | None
+    """This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."""
+    enabled: bool
+    """This turns sync on or off. Turning it on gives the index a new epoch, so every synced device
+    loads a new copy.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the server deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the server deletes the oldest log segment from history.
+    It defaults to the length of the published snapshot.
+    """
+
+
 class SynonymSetBody(ApiModel):
     """The body of `GET /indexes/{name}/synonyms`, and the body that `POST
     /indexes/{name}/synonyms` takes.
@@ -2534,6 +2557,7 @@ __all__ = [
     "SuggestResult",
     "SuggestResultTermsItem",
     "SyncSetting",
+    "SyncStatus",
     "SynonymRule",
     "SynonymSetBody",
     "TaskListPage",

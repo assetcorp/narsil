@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { loadUmapData, type UmapBounds, type UmapData } from '../../lib/umap-loader'
 import { Badge } from '../ui/badge'
+import './three-elements'
 
 const GENRE_COLORS: Record<string, [number, number, number]> = {
   Action: [0.91, 0.3, 0.24],

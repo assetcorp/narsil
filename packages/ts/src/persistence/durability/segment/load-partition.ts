@@ -81,15 +81,42 @@ async function attachPagedSegment(
   partitionId: number,
   manager: PartitionManager,
   options: PartitionLoadOptions,
-): Promise<void> {
+): Promise<FrozenSegment | null> {
   if (options.decodesEveryDocument) await checkPagedSegmentFully(directory, ref)
   const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
   requireAgreedSchema(options.schema, snapshot.schema, ref.key)
   const segment = createPagedFrozenSegment(snapshot)
   removeFromPartition(manager, partitionId, snapshot.tombstones)
   options.writeRecords?.loadPagedSegment(manager.indexName, partitionId, segment)
-  if (snapshot.documentCount > 0) manager.attachFrozenSegment(partitionId, segment)
-  else segment.paged?.close()
+  if (snapshot.documentCount > 0) {
+    manager.attachFrozenSegment(partitionId, segment)
+    return segment
+  }
+  segment.paged?.close()
+  return null
+}
+
+function documentsHeldBefore(manager: PartitionManager, partitionId: number): string[] {
+  const held = manager.partitionAt(partitionId)
+  return held === undefined ? [] : [...held.docIds()]
+}
+
+function removeDocumentsMissingFromLoadedSegments(
+  manager: PartitionManager,
+  partitionId: number,
+  heldBefore: readonly string[],
+  loaded: readonly FrozenSegment[],
+): void {
+  const absent = heldBefore.filter(
+    docId => manager.partitionIdOf(docId) === partitionId && !loaded.some(segment => segment.hasDocument(docId)),
+  )
+  if (absent.length === 0) return
+  manager.beginBatchRemove()
+  try {
+    for (const docId of absent) manager.remove(docId)
+  } finally {
+    manager.endBatchRemove()
+  }
 }
 
 export async function loadPartitionSegments(
@@ -98,11 +125,24 @@ export async function loadPartitionSegments(
   manager: PartitionManager,
   options: PartitionLoadOptions,
 ): Promise<void> {
+  const heldBefore = documentsHeldBefore(manager, partition.partitionId)
+  const loaded = await attachPartitionSegments(store, partition, manager, options)
+  removeDocumentsMissingFromLoadedSegments(manager, partition.partitionId, heldBefore, loaded)
+}
+
+async function attachPartitionSegments(
+  store: CheckpointStore,
+  partition: PartitionManifestEntry,
+  manager: PartitionManager,
+  options: PartitionLoadOptions,
+): Promise<FrozenSegment[]> {
+  const loaded: FrozenSegment[] = []
   const { directory } = store
   for (const ref of partition.segments) {
     if (manager.config.textStorage === 'disk' && directory !== undefined) {
       if (await isPagedSegmentFile(directory, ref.key)) {
-        await attachPagedSegment(directory, ref, partition.partitionId, manager, options)
+        const paged = await attachPagedSegment(directory, ref, partition.partitionId, manager, options)
+        if (paged !== null) loaded.push(paged)
         await yieldToEventLoop()
         continue
       }
@@ -113,7 +153,11 @@ export async function loadPartitionSegments(
     const segment = createSharedFrozenSegment(shareSegmentArrays(contents.arrays, manager.partialWordAnalysis))
     removeWhatTheSegmentReplaces(manager, segment, contents)
     options.writeRecords?.loadSegment(manager.indexName, partition.partitionId, segment, contents)
-    if (contents.arrays.documentCount > 0) manager.attachFrozenSegment(partition.partitionId, segment)
+    if (contents.arrays.documentCount > 0) {
+      manager.attachFrozenSegment(partition.partitionId, segment)
+      loaded.push(segment)
+    }
     await yieldToEventLoop()
   }
+  return loaded
 }

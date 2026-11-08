@@ -552,6 +552,7 @@ export interface SyncSetting {
 
 // @public
 export interface SyncSettingOperations {
+    getSync(indexName: string, options?: RequestOptions): Promise<SyncStatus>;
     syncSnapshot(indexName: string, resume?: SyncSnapshotResume, options?: RequestOptions): Promise<SyncSnapshotDownload>;
     updateSync(indexName: string, setting: SyncSetting, options?: RequestOptions): Promise<void>;
 }
@@ -568,6 +569,12 @@ export interface SyncSnapshotDownload {
 export interface SyncSnapshotResume {
     entityTag: string;
     offset: number;
+}
+
+// @public
+export interface SyncStatus extends SyncSetting {
+    active: boolean;
+    epoch: string | null;
 }
 
 // @public

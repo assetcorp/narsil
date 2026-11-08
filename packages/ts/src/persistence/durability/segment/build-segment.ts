@@ -7,11 +7,11 @@ import {
   decodeMapWithoutFields,
   prepareDocumentVectors,
   resolvePartitionInsertOptions,
+  restoreVectorFields,
 } from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import type { SegmentDocument } from '../../../core/partition/segment-builder'
-import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import type { SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
 import type { LanguageModule } from '../../../types/language'

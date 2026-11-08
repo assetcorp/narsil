@@ -1,4 +1,4 @@
-import type { QueryParams, QueryResult, SuggestParams, SuggestResult } from '@delali/narsil'
+import type { ListParams, ListResult, QueryParams, QueryResult, SuggestParams, SuggestResult } from '@delali/narsil'
 import { createContext, useContext } from 'react'
 
 /** Runs one search and answers with the engine's own result. */
@@ -6,6 +6,8 @@ export type QueryRunner = (indexName: string, params: QueryParams, signal?: Abor
 
 /** Completes one prefix against an index. */
 export type SuggestRunner = (indexName: string, params: SuggestParams, signal?: AbortSignal) => Promise<SuggestResult>
+
+export type ListRunner = (indexName: string, params: ListParams, signal?: AbortSignal) => Promise<ListResult>
 
 /**
  * The two calls the panels fire in bursts rather than through a hook. Each app
@@ -15,6 +17,7 @@ export type SuggestRunner = (indexName: string, params: SuggestParams, signal?: 
 export interface SearchRunners {
   query: QueryRunner
   suggest: SuggestRunner
+  list: ListRunner
 }
 
 export const SearchRunnersContext = createContext<SearchRunners | null>(null)
@@ -33,4 +36,8 @@ export function useQueryRunner(): QueryRunner {
 
 export function useSuggestRunner(): SuggestRunner {
   return useSearchRunners().suggest
+}
+
+export function useListRunner(): ListRunner {
+  return useSearchRunners().list
 }

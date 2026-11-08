@@ -25,7 +25,6 @@ export async function releaseIndexCopies(
   if (pool === null) return reloads
   pool.removeIndex(indexName)
   state.segmentLedger.delete(indexName)
-  state.unbroadcastSegments.delete(indexName)
   await Promise.all(
     pool.executorEntries().map(({ executor }) =>
       executor

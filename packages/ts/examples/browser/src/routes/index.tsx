@@ -2,6 +2,7 @@ import type { DatasetId, LoadDatasetRequest } from '@delali/narsil-example-share
 import { useIndexWorkspace } from '@delali/narsil-example-shared'
 import { CustomConfig, type CustomDatasetConfig } from '@delali/narsil-example-shared/components/CustomConfig'
 import { DatasetCard, datasetMeta } from '@delali/narsil-example-shared/components/datasets/DatasetCard'
+import { PlacesConfig } from '@delali/narsil-example-shared/components/datasets/PlacesConfig'
 import { writeDisplayFields } from '@delali/narsil-example-shared/lib/display-fields'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useCallback, useState } from 'react'
@@ -43,6 +44,9 @@ function HomePage() {
           break
         case 'scifact':
           request = { datasetId: 'scifact' }
+          break
+        case 'places':
+          request = { datasetId: 'places' }
           break
         case 'custom': {
           if (customConfig === null) return
@@ -86,6 +90,7 @@ function HomePage() {
     tmdb: <TmdbConfig tier={tmdbTier} setTier={setTmdbTier} />,
     wikipedia: <WikiConfig selected={wikiLanguages} toggle={toggleWikiLanguage} />,
     scifact: <ScifactConfig />,
+    places: <PlacesConfig />,
     custom: <CustomConfig onReady={setCustomConfig} />,
   }
 

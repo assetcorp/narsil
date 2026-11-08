@@ -436,6 +436,7 @@ export interface HttpWireTypes {
     SuggestParams: SuggestParams;
     SuggestResult: SuggestResult;
     SyncSetting: SyncSetting;
+    SyncStatus: SyncStatus;
     SynonymSetBody: SynonymSetBody;
     TaskListPage: TaskListPage;
     TaskListQuery: TaskListQuery;

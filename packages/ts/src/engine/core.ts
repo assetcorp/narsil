@@ -256,28 +256,27 @@ export async function createEngineCore(
           engineCore: () => engineCore,
         })
 
+  const invalidationCode = config?.invalidation === undefined ? null : (durabilityWiring ?? (await loadStorageCode()))
   invalidation =
-    config?.invalidation === undefined
-      ? null
-      : (durabilityWiring ?? (await loadStorageCode())).createInvalidationFromConfig(
-          config,
-          durabilityTier?.kind ?? null,
-          {
-            getManager: indexName => executor.getManager(indexName) ?? undefined,
-            reloadIndex: indexName =>
-              emitWriteEventAfter(
-                { eventHandlers, mutationCtx },
-                indexName,
-                durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
-              ),
-            onError(error: Error) {
-              if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
-                console.warn('Invalidation error:', error)
-              }
-            },
-          },
-          indexRegistry,
-        )
+    invalidationCode?.createInvalidationFromConfig(
+      config,
+      durabilityTier?.kind ?? null,
+      {
+        getManager: indexName => executor.getManager(indexName) ?? undefined,
+        reloadIndex: indexName =>
+          emitWriteEventAfter(
+            { eventHandlers, mutationCtx },
+            indexName,
+            invalidationCode.reloadIndexAndCopies(orchestrator, durability, indexName),
+          ),
+        onError(error: Error) {
+          if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
+            console.warn('Invalidation error:', error)
+          }
+        },
+      },
+      indexRegistry,
+    ) ?? null
 
   const notifierWiring: NotifierWiring = {
     eventHandlers,

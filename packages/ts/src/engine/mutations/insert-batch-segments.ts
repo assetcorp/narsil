@@ -117,7 +117,7 @@ async function recordMergedDocuments(
   admitted: AdmittedInsert[],
   options: InsertOptions | undefined,
   failed: BatchResult['failed'],
-): Promise<IngestOutcome & { failedDocIds: Set<string> }> {
+): Promise<IngestOutcome> {
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const succeededIds = new Set<string>()
   const errorOf = new Map<string, unknown>()
@@ -185,17 +185,15 @@ async function recordMergedDocuments(
   }
 
   const succeeded: string[] = []
-  const failedDocIds = new Set<string>()
   for (const doc of admitted) {
     if (succeededIds.has(doc.docId)) {
       succeeded.push(doc.docId)
       continue
     }
     if (!errorOf.has(doc.docId)) continue
-    failedDocIds.add(doc.docId)
     failed.push({ docId: doc.docId, error: asBatchInsertError(errorOf.get(doc.docId)) })
   }
-  return { succeeded, touchedVectorFields, failedDocIds }
+  return { succeeded, touchedVectorFields }
 }
 
 function frozenSegmentOf(
@@ -275,25 +273,7 @@ async function ingestAdmitted(
   for (const doc of admitted) {
     if (manager.has(doc.docId)) return applyIndividually(ctx, indexName, admitted, options, failed)
   }
-  const segmentIds = built.map(segment => segment.segmentId)
-  ctx.orchestrator.holdUnbroadcastSegments(indexName, segmentIds)
-
-  try {
-    const recorded = await recordMergedDocuments(
-      ctx,
-      indexName,
-      partitionCount,
-      built,
-      frozen,
-      memberIndexes,
-      admitted,
-      options,
-      failed,
-    )
-    return { succeeded: recorded.succeeded, touchedVectorFields: recorded.touchedVectorFields }
-  } finally {
-    ctx.orchestrator.releaseUnbroadcastSegments(indexName, segmentIds)
-  }
+  return recordMergedDocuments(ctx, indexName, partitionCount, built, frozen, memberIndexes, admitted, options, failed)
 }
 
 export async function insertBatchViaSegments(

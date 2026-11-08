@@ -23,8 +23,6 @@ export function createLocalOrchestrator(config: NarsilConfig | undefined, indexe
     isIndexBusy: () => false,
     buildSegments: () => Promise.resolve(null),
     segmentBuildConcurrency: () => 0,
-    holdUnbroadcastSegments: unchanged,
-    releaseUnbroadcastSegments: unchanged,
     searchViaWorker: () => Promise.resolve(null),
     hasWorkerPool: () => false,
     mainCopyQueries: () => mainCopyQueries ?? 'lone',
