@@ -1,7 +1,5 @@
+import { lowerBound, regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeFacetCore } from '../../vector/native/types/facets'
-import { lowerBound } from '../field-index/numeric/storage'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 
 let seen = new Uint32Array(0)
 

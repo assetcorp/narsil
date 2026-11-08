@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { threadSlotGone } from '../../workers/thread-slot'
+import { ErrorCodes, NarsilError, threadSlotGone } from '#platform/vector-core-host'
 import {
   GRAPH_LOCK_WAIT_DEADLINE_MS,
   GRAPH_LOCK_WAIT_SLICE_MS,

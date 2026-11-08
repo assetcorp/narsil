@@ -214,7 +214,7 @@ export async function runBuild(
 ): Promise<BuildOutcome> {
   const setting = enabledSetting(ctx.host, indexName)
   const merged = await mergeHistory(ctx, indexName, setting, now)
-  const sourcesDigest = sourcesDigestOf(merged.sources)
+  const sourcesDigest = await sourcesDigestOf(merged.sources)
   if (lastCompleted !== null && sameBytes(lastCompleted.sourcesDigest, sourcesDigest)) {
     return { status: 'skipped', published: 0, removed: 0, discarded: 0, sourcesDigest }
   }

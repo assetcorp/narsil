@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import { adjacencySlots, createNode, layerArray, layerBase, writeNeighbors } from './adjacency'
 import { leaveIncomingUncounted } from './connect-unreached'

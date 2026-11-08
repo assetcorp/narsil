@@ -1,13 +1,17 @@
+import {
+  bitsetSet,
+  compareCodePoints,
+  createBitSet,
+  getFlatSchema,
+  keptFacetValues,
+  storedValuesOf,
+} from '../../engine/optional-reads-host-bindings'
 import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
-import { bitsetSet, createBitSet } from '../bitset'
 import { countRangeFacets } from '../facets/adapter'
 import { countStoredFacet, countStoredRanges } from '../facets/stored-adapter'
-import { compareCodePoints } from '../ordering'
-import { storedValuesOf } from '../stored-values/columns'
-import { keptFacetValues } from './facet-limit'
-import { getFlatSchema, type PartitionReadState, type PartitionState } from './utils'
+import type { PartitionReadState, PartitionState } from './utils'
 
 type FacetRange = { from: number; to: number }
 

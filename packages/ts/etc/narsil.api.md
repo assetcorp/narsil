@@ -758,7 +758,8 @@ export interface NarsilPlugin {
 //
 // @internal
 export interface NativeAnalysisCore {
-    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array, units?: Uint16Array): string | number | null;
+    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array): string | number | null;
+    analysePacked(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null): Uint16Array | number;
     createStopWordSet(words: string[]): NativeStopWordSetHandle;
     languageCount(): number;
     languageName(language: number): string;

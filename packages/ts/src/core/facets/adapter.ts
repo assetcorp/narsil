@@ -1,5 +1,5 @@
 import { booleanFacet, enumFacet, numberFacet, rangeFacet } from '#platform/facet-count'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../../engine/optional-reads-host-bindings'
 import type { NumericRegions } from '../field-index/numeric/storage'
 
 const counts = new Uint32Array(2)

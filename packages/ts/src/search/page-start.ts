@@ -1,5 +1,4 @@
-import { compareScores } from '../core/ordering/scores'
-import { typedRegion } from '../core/stored-values/regions'
+import { compareScores, typedRegion } from '../engine/optional-reads-host-bindings'
 
 export function pageStart(
   count: number,

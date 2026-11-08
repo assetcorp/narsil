@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { MAX_DOCUMENT_NESTING_DEPTH } from '../../schema/constants'
 import { decodeExactBase64 } from '../../serialization/base64'
 

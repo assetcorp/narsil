@@ -1,14 +1,14 @@
-import { bitsetSet } from '../core/bitset'
 import type { FilterField } from '../core/filters/fields'
-import * as L from '../core/filters/layout'
+import type { FilterProgram } from '../core/filters/layout'
 import { coveringRanges } from './cells'
+import { bitsetSet, FILTER_RADIUS } from './geo-host-bindings'
 import { polygonBoxes, polygonContainment } from './polygon'
 import { radiusBoxes, radiusCandidateTest } from './radius'
 import { firstGeoAtOrAfter } from './storage'
 
 export function filterGeoRegions(
   field: Extract<FilterField, { kind: 4 }>,
-  program: L.FilterProgram,
+  program: FilterProgram,
   operator: number,
   operand: number,
   into: Uint32Array,
@@ -16,7 +16,7 @@ export function filterGeoRegions(
   const values = program.numbers
   let boxes: ReturnType<typeof radiusBoxes>
   let passes: (lat: number, lon: number) => boolean
-  if (operator === L.FILTER_RADIUS) {
+  if (operator === FILTER_RADIUS) {
     const [lat, lon, distance, precise] = values.subarray(operand, operand + 4)
     boxes = radiusBoxes(lat, lon, distance)
     passes = radiusCandidateTest(lat, lon, distance, precise === 1)

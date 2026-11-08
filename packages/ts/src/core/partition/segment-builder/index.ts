@@ -1,27 +1,29 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { createLoadedGeoIndex } from '../../../geo/geo-code'
-import type { GeoIndex } from '../../../geo/geo-index'
-import { validateDocument, validateDocumentStrict } from '../../../schema/validator/document'
-import { type BaseFieldType, isWordIndexedBase } from '../../../schema/validator/field-type'
-import { schemaFieldsOf } from '../../../schema/validator/schema'
-import type { LanguageModule } from '../../../types/language'
-import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import {
-  type BooleanFieldIndex,
   createBooleanIndex,
   createEnumIndex,
+  createLoadedGeoIndex,
   createNumericIndex,
-  type EnumFieldIndex,
-  type NumericFieldIndex,
-} from '../../field-index'
-import { patternIndexOf } from '../../pattern-index/host'
+  ErrorCodes,
+  encodeFieldIndexes,
+  getNestedValue,
+  isWordIndexedBase,
+  NarsilError,
+  patternIndexOf,
+  prepareDocumentText,
+  recordValueSize,
+  SegmentRefusal,
+  schemaFieldsOf,
+  validateDocument,
+  validateDocumentStrict,
+} from '#platform/segment-merge-host'
+import type { GeoIndex } from '../../../geo/geo-index'
+import type { BaseFieldType } from '../../../schema/validator/field-type'
+import type { LanguageModule } from '../../../types/language'
+import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
+import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../../field-index'
 import type { PatternIndexWriter } from '../../pattern-index/types'
-import { SegmentRefusal } from '../../segment-writes/status'
-import { prepareDocumentText } from '../prepared-text'
-import { encodeFieldIndexes } from '../segment-field-indexes'
 import type { SegmentPayload } from '../segment-payload'
-import { getNestedValue, type PartitionInsertOptions } from '../utils'
-import { recordValueSize } from '../value-sizes'
+import type { PartitionInsertOptions } from '../utils'
 import { SegmentKeywords } from './keywords'
 
 export interface SegmentDocument {

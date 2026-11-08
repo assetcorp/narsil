@@ -1,14 +1,22 @@
-import { resolveIndexAnalysis } from '../../../analysis/registry'
+import {
+  ErrorCodes,
+  extractVectorFieldsFromSchema,
+  getLanguage,
+  manifestKey,
+  manifestReferencedKeys,
+  NarsilError,
+  partialFieldsOf,
+  reconstructSchemaFromMetadata,
+  resolveIndexAnalysis,
+  resolvePartitionInsertOptions,
+  segmentsPrefix,
+  snapshotBundleKey,
+} from '#platform/storage-host'
 import type { PartitionInsertOptions } from '../../../core/partition'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { getLanguage } from '../../../languages/registry'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import { extractVectorFieldsFromSchema, partialFieldsOf } from '../../../schema/validator/schema'
 import type { IndexMetadata } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
@@ -19,16 +27,8 @@ import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
 import { type CapturedWholePartition, contentsOfCaptured, type PartitionContents } from './captured-partition'
 import { compactPartitionSegments } from './compaction'
-import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
-import {
-  MAX_SEGMENTS_PER_PARTITION,
-  manifestReferencedKeys,
-  type PartitionManifestEntry,
-  SEGMENT_MANIFEST_VERSION,
-  type SegmentManifest,
-  type SegmentRef,
-  type VectorFieldRef,
-} from './manifest'
+import type { PartitionManifestEntry, SegmentManifest, SegmentRef, VectorFieldRef } from './manifest'
+import { MAX_SEGMENTS_PER_PARTITION, SEGMENT_MANIFEST_VERSION } from './manifest'
 import { encodeSegmentManifest } from './manifest-encode'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'
@@ -134,7 +134,7 @@ async function tombstonesOfDelta(
 ): Promise<string[]> {
   const { directory } = context.input.store
   if (context.input.metadata.textStorage !== 'disk' || directory === undefined) return deleted
-  const { pagedTombstonesFor } = await import('../../paged/module')
+  const { pagedTombstonesFor } = await import('../../storage-leaf')
   return pagedTombstonesFor(
     directory,
     older,

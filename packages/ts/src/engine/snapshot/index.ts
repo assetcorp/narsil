@@ -1,11 +1,12 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { createByteReader, ErrorCodes, hasNrslMagic, NarsilError, readHeader } from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
-import { type ByteSource, createByteReader } from '../../persistence/archive/byte-reader'
+import type { ByteSource } from '../../persistence/archive/byte-reader'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
 import { type ArchiveEntry, archiveStream } from '../../persistence/archive/write'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
+import { historyArchiveEntries } from '../../query-suggestions/archive-history'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
-import { HEADER_SIZE, hasNrslMagic, readHeader } from '../../serialization/header'
+import { HEADER_SIZE } from '../../serialization/header'
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import { indexMetadataOf } from '../durability-metadata'
@@ -40,7 +41,6 @@ export async function checkpointForArchive(deps: SnapshotDeps): Promise<ArchiveC
 }
 
 async function* queryHistoryEntries(core: EngineCore, indexName: string): AsyncGenerator<ArchiveEntry> {
-  const { historyArchiveEntries } = await import('../../query-suggestions/archive-history')
   yield* historyArchiveEntries(core, indexName)
 }
 

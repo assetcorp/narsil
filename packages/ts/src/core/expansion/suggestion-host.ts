@@ -1,13 +1,17 @@
 import { suggestTerms } from '#platform/term-suggestions'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  ErrorCodes,
+  expansionSource,
+  mergeText,
+  NarsilError,
+  storedText,
+  termCount,
+  termText,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionSegment } from '../../vector/native/types/expansion'
 import type { PartitionReadState } from '../partition/read-state'
 import type { PartitionSuggestion } from '../partition/suggestions'
-import { mergeText } from '../segment-merges/text'
-import { storedText } from '../stored-values/text'
-import { termCount, termText } from '../term-table/read'
 import { expansionDictionary } from './source'
-import { expansionSource } from './sources'
 
 function units(text: string): Uint16Array {
   return Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at))

@@ -1,12 +1,15 @@
-import { extractVectorFieldsFromSchema } from '../../schema/validator'
+import {
+  alreadyPresentOnWorker,
+  extractVectorFieldsFromSchema,
+  prepareDocumentVectors,
+  toError,
+  yieldToEventLoop,
+} from '#platform/worker-copies-host'
 import type { AnyDocument } from '../../types/schema'
 import { executeRetained } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
-import { prepareDocumentVectors } from '../vector-coordinator'
 import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
-import { alreadyPresentOnWorker, toError } from './eligibility'
 import { releasePublicationOf, retainPublicationOf } from './publication-code'
-import { yieldToEventLoop } from './turn'
 import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {

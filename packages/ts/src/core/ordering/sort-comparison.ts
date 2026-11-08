@@ -1,5 +1,6 @@
+import { toComparableSortValue } from '../../engine/optional-reads-host-bindings'
 import { compareSortStrings } from './fold-compare'
-import { type ComparableSortValue, type SortDirection, toComparableSortValue } from './sort-values'
+import type { ComparableSortValue, SortDirection } from './sort-values'
 
 function typeRank(value: string | number | boolean): number {
   if (typeof value === 'number') return 0

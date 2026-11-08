@@ -1,7 +1,15 @@
+import {
+  mayFree,
+  nextSequence,
+  oldestHeldPin,
+  publishSequence,
+  retiredAtOf,
+  STORE_LIVE_COUNT,
+  stampBorn,
+  stampRetired,
+} from '#platform/vector-host'
 import type { DocIdMap } from '../../core/doc-id-tables/types'
-import { STORE_LIVE_COUNT } from './handles'
 import { claimSlot, type OpenStore, publishOrdinal, writeVector } from './open-store'
-import { mayFree, nextSequence, oldestHeldPin, publishSequence, retiredAtOf, stampBorn, stampRetired } from './pins'
 import type { RetiredVectorPins } from './retired-pins'
 
 export const UNKNOWN_PARTITION = -1

@@ -1,6 +1,11 @@
 import { type LocationBox, longitudeBoxes } from './cells'
-import { ANTIMERIDIAN_SPAN_DEGREES, FULL_TURN_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POLYGON_POINTS } from './constants'
 import { buildLongitudeEdgeTree, forEachEdgeSpanning } from './edge-tree'
+import {
+  ANTIMERIDIAN_SPAN_DEGREES,
+  FULL_TURN_DEGREES,
+  MAX_LONGITUDE_DEGREES,
+  MIN_POLYGON_POINTS,
+} from './geo-host-bindings'
 
 type GeoPoint = { lat: number; lon: number }
 

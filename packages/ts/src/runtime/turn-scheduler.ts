@@ -2,7 +2,7 @@ import {
   UI_THREAD_BACKGROUND_SLICE_DURING_WRITES_MS,
   UI_THREAD_HOP_BEFORE_TURN_WITHIN_MS,
   UI_THREAD_TURN_BUDGET_MS,
-} from './constants'
+} from '#platform/vector-host'
 import { createWriteGate } from './write-gate'
 
 export type ScheduleHop = (run: () => void) => void

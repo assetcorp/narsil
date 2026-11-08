@@ -1,9 +1,8 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { createRequestId, ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { PartitionWriteLog } from '../../partitioning/manager/write-log'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexMetadata } from '../../types/internal'
-import { createRequestId } from '../../workers/protocol'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import {
   aTargetFailed,
@@ -168,7 +167,7 @@ async function adoptWrittenSegments(
 ): Promise<readonly string[]> {
   const { indexName, indexState, hooks } = input
   const { actionPartitionsOf, closeUnusedSegments, prepareDiskAdoption, swapPreparedPartitions } = await import(
-    '../paged/module'
+    '../storage-leaf'
   )
   const adoption = await prepareDiskAdoption(input.directory, manager, partitions)
   if (adoption === null) return []
@@ -242,7 +241,7 @@ async function finishBoundedCheckpoint(
     const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage)
     const stillRead =
       metadata.textStorage === 'disk'
-        ? (await import('../paged/module')).keysThatSegmentsStillRead(manager)
+        ? (await import('../storage-leaf')).keysThatSegmentsStillRead(manager)
         : new Set<string>()
     const keptForSync = await input.keepsCheckpointKey()
     await removeCheckpointGarbage(

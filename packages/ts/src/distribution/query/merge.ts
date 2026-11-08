@@ -1,7 +1,6 @@
 import { mergeEntries } from '../../core/merges/entries'
-import { mergeFacetBuckets } from '../../core/merges/facet-buckets'
 import { compareCodePoints, type SortDirection } from '../../core/ordering'
-import { compareSortValues } from '../../core/ordering/sort-comparison'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import type { FacetBucket, ScoredEntry } from '../transport/types'
 import { DEFAULT_MAX_FACET_BUCKETS } from './constants'
 
@@ -18,6 +17,7 @@ export function mergeAndTruncateSortedEntries(
   limit: number,
   directions: readonly SortDirection[],
 ): ScoredEntry[] {
+  const { compareSortValues } = requireLoadedOptionalReads()
   return mergeEntries(
     arrays,
     limit,
@@ -65,7 +65,7 @@ export function mergeDistributedFacets(
     const count = Math.max(allFacets.length, allBounds.length)
     const lists = Array.from({ length: count }, (_, source) => ownField(allFacets[source], field) ?? [])
     const bounds = Array.from({ length: count }, (_, source) => ownField(allBounds[source], field) ?? 0)
-    const merged = mergeFacetBuckets(lists, bounds, ascending.has(field), maxBuckets)
+    const merged = requireLoadedOptionalReads().mergeFacetBuckets(lists, bounds, ascending.has(field), maxBuckets)
     facets[field] = merged.buckets
     undercounts[field] = merged.undercount
     errorBounds[field] = merged.errorBound

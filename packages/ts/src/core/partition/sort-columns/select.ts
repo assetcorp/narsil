@@ -1,12 +1,11 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { sortSelect } from '../../../search/sorting-code'
+import { sortSelect } from '#platform/sort-value'
 import {
-  type ComparableSortValue,
   compareCodePoints,
   defaultSortMode,
-  type SortDirection,
-  type SortMode,
-} from '../../ordering'
+  ErrorCodes,
+  NarsilError,
+} from '../../../engine/optional-reads-host-bindings'
+import type { ComparableSortValue, SortDirection, SortMode } from '../../ordering'
 import { compareComparableKeys } from '../../ordering/sort-comparison'
 import type { PartitionFilterMatches } from '../filters'
 import type { PartitionReadState } from '../utils'

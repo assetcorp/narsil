@@ -1,5 +1,5 @@
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
-import { ErrorCodes, NarsilError } from '../../errors'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
 import { checkSegmentHeader, readDurableRegion, readTailBeyondFrontier } from './wal-framing'

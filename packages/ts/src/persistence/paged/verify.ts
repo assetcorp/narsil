@@ -1,6 +1,5 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
-import { HEADER_SIZE, readHeader } from '../../serialization/header'
+import { crc32Final, crc32Init, crc32Update, ErrorCodes, NarsilError, readHeader } from '#platform/storage-host'
+import { HEADER_SIZE } from '../../serialization/header'
 import type { DurableDirectory } from '../durability/durable-filesystem'
 import { FILE_ASSEMBLY_CHUNK_BYTES } from './constants'
 import { loadFailed, PAGED_SEGMENT_ENVELOPE_VERSION } from './format'

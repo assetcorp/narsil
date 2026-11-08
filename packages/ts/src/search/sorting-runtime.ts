@@ -1,24 +1,30 @@
-import { type ComparableSortValue, compareCodePoints, isSortMode, SORT_MODES } from '../core/ordering'
-import { SORT_VALUE_MAX_CODE_POINTS } from '../core/ordering/constants'
+import type { ComparableSortValue } from '../core/ordering'
 import { compareComparableKeys } from '../core/ordering/sort-comparison'
-import { ErrorCodes, NarsilError } from '../errors'
-import { undeclaredFieldOnStrictIndex } from '../filters/operands'
-import { flattenSchema } from '../schema/validator'
-import { isStringValuedBase, parsedTypeOf, withSortableOption } from '../schema/validator/field-type'
-import { isGeopointOrVectorType } from '../schema/validator/shared'
+import {
+  compareCodePoints,
+  ErrorCodes,
+  flattenSchema,
+  isGeopointOrVectorType,
+  isSortMode,
+  isStringValuedBase,
+  NarsilError,
+  normalizeSort,
+  parsedTypeOf,
+  SORT_MODES,
+  SORT_VALUE_MAX_CODE_POINTS,
+  undeclaredFieldOnStrictIndex,
+  withSortableOption,
+} from '../engine/optional-reads-host-bindings'
 import type { Hit } from '../types/results'
 import type { AnyDocument, SchemaDefinition } from '../types/schema'
 import type { SortField, SortSpec } from '../types/search'
-import { normalizeSort } from './sorting'
 
 export { buildSortOrder, reduceSortValue, reduceStoredSortValue, sortSelect, textRange } from '#platform/sort-value'
 export { compositeSortedPage } from '../core/partition/composite/sorted-page'
-export { applyPartitionFilters, applyPartitionFiltersBitset, partitionFilterMatches } from '../core/partition/filters'
 export { createSortColumnSet } from '../core/partition/sort-columns'
 export { selectTextRange } from '../core/partition/sort-columns/range'
 export { selectSortedPage } from '../core/partition/sort-columns/select'
 export { executeSortedQueryPage, sortsWithoutScores } from '../engine/query/sorted'
-export { validatedFilterOf } from '../filters/operands'
 
 function requireSortMode(entry: SortField, fieldType: string | undefined): void {
   if (entry.mode === undefined) return

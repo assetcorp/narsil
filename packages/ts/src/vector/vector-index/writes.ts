@@ -1,8 +1,8 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, handOverBuildTurns, NarsilError, threadsHoldCurrentLayout } from '#platform/vector-host'
 import { coldInsert, coldRemove } from './cold'
 import { afterGraphPass } from './graph-pass'
 import { noteBeforeWrite, noteSearchedDocWritten } from './search-writes'
-import { handOverBuildTurns, threadsHoldCurrentLayout, type VectorIndexState } from './shared'
+import type { VectorIndexState } from './shared'
 import { noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
 export interface VectorWrites {

@@ -1,27 +1,29 @@
-import { compareCodePoints } from '../../core/ordering'
 import { compareComparableKeys } from '../../core/ordering/sort-comparison'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
-import { createPatternWorkMeter } from '../../core/pattern-index/work-meter'
-import { resolveProjection } from '../../core/projection'
-import { validQueryFilter } from '../../filters/query'
 import type { PartitionManager } from '../../partitioning/manager'
-import { flattenSchema } from '../../schema/validator'
-import {
-  decodePageCursor,
-  encodePageCursor,
-  type PageCursor,
-  requireMatchingCursor,
-  sortSignatureOf,
-} from '../../search/cursor'
-import { listBindingOf } from '../../search/cursor-binding'
-import { requireWithinResultWindow } from '../../search/pagination'
-import { normalizeSort, sortModesOf } from '../../search/sorting'
+import type { PageCursor } from '../../search/cursor'
 import { requireSortableFields } from '../../search/sorting-runtime'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
-import { clampLimit, now } from '../validation'
+import {
+  clampLimit,
+  compareCodePoints,
+  createPatternWorkMeter,
+  decodePageCursor,
+  encodePageCursor,
+  flattenSchema,
+  listBindingOf,
+  normalizeSort,
+  now,
+  requireMatchingCursor,
+  requireWithinResultWindow,
+  resolveProjection,
+  sortModesOf,
+  sortSignatureOf,
+  validQueryFilter,
+} from '../optional-reads-host-bindings'
 
 export interface ListContext {
   manager: PartitionManager

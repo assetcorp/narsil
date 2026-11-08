@@ -1,5 +1,5 @@
+import { createFixedBuffer } from '#platform/storage-host'
 import type { NativePageCache } from '../../vector/native/types/paged'
-import { createFixedBuffer } from '../../vector/shared-buffers/growable'
 
 const SLOT_BYTES = 65_536
 const SLOT_METADATA_BYTES = 3 * BigUint64Array.BYTES_PER_ELEMENT + 2 * Uint32Array.BYTES_PER_ELEMENT

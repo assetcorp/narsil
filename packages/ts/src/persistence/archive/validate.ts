@@ -1,6 +1,4 @@
-import { decodeEveryStoredDocument } from '../../core/partition/frozen/document-source'
-import { parseVectorDimension } from '../../core/partition/utils'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { decodeEveryStoredDocument, ErrorCodes, NarsilError, parseVectorDimension } from '#platform/storage-host'
 import type { SegmentManifest } from '../durability/segment/manifest'
 import { readSegmentFile } from '../durability/segment/segment-file'
 import type { CheckpointStore } from '../durability/segment/store'
@@ -32,7 +30,7 @@ export async function validateStagedCheckpoint(store: CheckpointStore, manifest:
     for (const ref of partition.segments) {
       const { directory } = store
       if (directory !== undefined) {
-        const { checkPagedSegmentFully, isPagedSegmentFile } = await import('../paged/module')
+        const { checkPagedSegmentFully, isPagedSegmentFile } = await import('../storage-leaf')
         if (await isPagedSegmentFile(directory, ref.key)) {
           requireSchemaOfManifest(ref.key, await checkPagedSegmentFully(directory, ref), manifest)
           continue

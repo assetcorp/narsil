@@ -1,4 +1,5 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, yieldTurn } from '#platform/optional-writes-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { AnyDocument } from '../../types/schema'
 import type { ApplyMutation, MutationContext } from './context'
 

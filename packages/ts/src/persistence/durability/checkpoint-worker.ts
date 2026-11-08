@@ -1,3 +1,4 @@
+import { importOptionalReads } from '../../engine/optional-reads-code'
 import { loadGeoCodeFor } from '../../geo/geo-code'
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
@@ -76,6 +77,7 @@ async function setupAsync(): Promise<void> {
     return
   }
 
+  await importOptionalReads()
   const port = parentPort
   port.on('message', (raw: unknown) => {
     const heartbeat = setInterval(

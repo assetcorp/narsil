@@ -1,16 +1,25 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
-import { type ComparableSortValue, compareCodePoints } from '../../core/ordering'
+import type { ComparableSortValue } from '../../core/ordering'
 import { compareComparableKeys } from '../../core/ordering/sort-comparison'
 import type { SortedPageEntry } from '../../core/partition'
-import { partitionsIn } from '../../partitioning/partition-selection'
-import { flattenSchema } from '../../schema/validator'
-import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
-import { everyValueFacetConfig, mergeFacets } from '../../search/facets'
-import { type FulltextSearchOptions, fulltextMatches } from '../../search/fulltext'
-import { normalizeSort, sortModesOf } from '../../search/sorting'
+import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { FacetResult, Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+import {
+  compareCodePoints,
+  decodePageCursor,
+  encodePageCursor,
+  everyValueFacetConfig,
+  flattenSchema,
+  fulltextMatches,
+  mergeFacets,
+  normalizeSort,
+  partitionsIn,
+  requireMatchingCursor,
+  sortModesOf,
+  turnIsSpent,
+  yieldTurn,
+} from '../optional-reads-host-bindings'
 import type { SearchContext } from './shared'
 
 /**

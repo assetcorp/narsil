@@ -1,17 +1,18 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { encodeDocument } from '../../../serialization/document-encoding'
-import { decode } from '../../../serialization/msgpack'
-import { encodePathSegments, readEncodedPath } from '../../../serialization/msgpack-path'
-import type { AnyDocument } from '../../../types/schema'
-import { documentWithOwnBuffers, valueWithOwnBuffers } from '../../document-store'
 import {
   cloneProjected,
-  type ProjectedPathRead,
+  decode,
+  documentWithOwnBuffers,
+  ErrorCodes,
+  encodeDocument,
+  getNestedValue,
+  NarsilError,
   projectIncludedPaths,
-  type ResolvedProjection,
   readProjectedPath,
-} from '../../projection'
-import { getNestedValue } from '../utils'
+  valueWithOwnBuffers,
+} from '#platform/segment-codec-host'
+import { encodePathSegments, readEncodedPath } from '../../../serialization/msgpack-path'
+import type { AnyDocument } from '../../../types/schema'
+import type { ProjectedPathRead, ResolvedProjection } from '../../projection'
 
 export interface FrozenDocumentSource {
   readonly count: number

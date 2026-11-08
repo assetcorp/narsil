@@ -1,4 +1,5 @@
 import type * as Mutations from '../mutations'
+import { loadOptionalWrites } from '../optional-writes-code'
 
 export { dropEngineIndex } from '../index-lifecycle'
 export { insertDocument } from '../mutations/insert'
@@ -6,7 +7,7 @@ export { insertDocument } from '../mutations/insert'
 let mutations: typeof Mutations | undefined
 
 async function loadMutations(): Promise<typeof Mutations> {
-  mutations ??= await import('../mutations')
+  mutations ??= await loadOptionalWrites()
   return mutations
 }
 

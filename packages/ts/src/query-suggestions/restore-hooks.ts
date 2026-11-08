@@ -1,16 +1,20 @@
-import { removeDocumentBatch } from '#platform/memory-guarded-writes'
+import {
+  attachedRuntimeOf,
+  clearLeftoversOfName,
+  ErrorCodes,
+  emitEngineEvent,
+  installSuggestionHooks,
+  NarsilError,
+  RestoredHistory,
+  removeDocumentBatch,
+  unionOfBans,
+  withState,
+} from '#platform/restore-queue-host'
 import type { EngineCore, IndexRegistryEntry } from '../engine/core'
-import { emitEngineEvent } from '../engine/events'
 import type { RestoredHistorySink, RestoreSuggestionHooks } from '../engine/snapshot/restore-setup'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../types/engine'
 import type { QuerySuggestionsWarningEvent } from '../types/query-suggestions'
-import { attachedRuntimeOf } from './attached'
-import { unionOfBans } from './bans'
 import { BUILD_WRITE_BATCH } from './constants'
-import { clearLeftoversOfName, installSuggestionHooks } from './engine-hooks'
-import { RestoredHistory } from './restored-history'
-import { withState } from './stored-state'
 
 function warn(core: EngineCore, event: QuerySuggestionsWarningEvent): void {
   if (emitEngineEvent(core.eventHandlers, 'querySuggestionsWarning', event) > 0) return

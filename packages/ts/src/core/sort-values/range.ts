@@ -1,9 +1,11 @@
+import {
+  regionsOverlap,
+  SORT_VALUE_MAX_CODE_POINTS,
+  truncateSortString,
+  typedRegion,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeSortColumn, NativeSortCore, NativeSortValues } from '../../vector/native/types/sort'
-import { SORT_VALUE_MAX_CODE_POINTS } from '../ordering/constants'
 import { compareComparableValues } from '../ordering/sort-comparison'
-import { truncateSortString } from '../ordering/sort-values'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 import { captureSortValues, readSortRegions, sortValueAt, validSortValue } from './regions'
 
 function captureColumn(column: NativeSortColumn) {

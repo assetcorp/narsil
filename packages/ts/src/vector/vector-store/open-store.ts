@@ -1,22 +1,31 @@
-import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
-import type { OsqBits } from '../osq/quantize'
-import { type GrowableBuffer, growBufferTo, grownByteLength } from '../shared-buffers/growable'
-import { magnitude } from '../similarity'
-import { blocksGrowthBytes, createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
-import { appendDocId } from './doc-ids'
 import {
+  addToOrdinalFilter,
+  blocksGrowthBytes,
+  createOrdinalFilter,
   createSharedVectorStoreHandles,
+  createVectorBlock,
+  ErrorCodes,
+  ensureBlockSlots,
+  growBufferTo,
+  grownByteLength,
   IN_MEMORY,
-  type SharedVectorStoreHandles,
+  magnitude,
+  NarsilError,
   STORE_BLOCK_COUNT,
   STORE_CODE_BLOCK_COUNT,
   STORE_DOC_ID_BYTES,
   STORE_SLOTS,
+  sequenceWritesOf,
+  slotByteOffset,
   unplacedChunkCount,
-} from './handles'
-import { type SequenceWrites, sequenceWritesOf } from './pins'
+  VECTOR_MEMORY_LIMITS,
+} from '#platform/vector-host'
+import type { OrdinalFilter } from '../ordinal-filter'
+import type { OsqBits } from '../osq/quantize'
+import type { GrowableBuffer } from '../shared-buffers/growable'
+import { appendDocId } from './doc-ids'
+import type { SharedVectorStoreHandles } from './handles'
+import type { SequenceWrites } from './pins'
 import type { DiskLocation } from './types'
 import { openSharedVectorStore, type SharedVectorStoreView } from './view'
 

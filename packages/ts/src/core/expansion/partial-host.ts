@@ -6,8 +6,7 @@ import type { AddedWord, PartialWordRequest } from '../partition/partial-words/t
 import type { PartitionReadState } from '../partition/read-state'
 import { SpellingTable } from '../segment-writes/spelling-table'
 import { termText } from '../term-table/read'
-import { PARTIAL_BUDGET } from './constants'
-import { expansionDictionary } from './source'
+import { expansionDictionary, PARTIAL_BUDGET } from './partial-bindings'
 import { expansionSource } from './sources'
 
 function sourceOf(state: PartitionReadState, analysis: PartialWordAnalysis): NativePartialSource | null {

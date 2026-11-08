@@ -1,4 +1,4 @@
-import { crc32 } from '../../serialization/crc32'
+import { crc32 } from '#platform/storage-host'
 import type { AppendHandle, DurableDirectory } from '../durability/durable-filesystem'
 import { SECTION_WRITE_BUFFER_BYTES } from './constants'
 import { SEGMENT_PAGE_BYTES } from './format'

@@ -1,5 +1,5 @@
 import { resolveWorkerEntryPoint } from '#platform/search-worker-entry'
-import { resolveWorkerCount } from '../../workers/worker-count'
+import { resolveWorkerCount } from '#platform/vector-host'
 import type { VectorMetric } from '../brute-force'
 import {
   VECTOR_INSERT_TIMEOUT_MS,

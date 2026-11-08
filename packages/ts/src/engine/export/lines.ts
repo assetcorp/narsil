@@ -1,4 +1,5 @@
-import { type ByteSource, chunksOf } from '../../persistence/archive/byte-reader'
+import { chunksOf } from '#platform/storage-host'
+import type { ByteSource } from '../../persistence/archive/byte-reader'
 
 const NEWLINE = 0x0a
 

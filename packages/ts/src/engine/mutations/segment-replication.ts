@@ -1,5 +1,4 @@
-import { fnv1a } from '../../core/hash'
-import { generateId } from '../../core/id-generator'
+import { fnv1a, generateId } from '#platform/optional-writes-host'
 import type { AnyDocument } from '../../types/schema'
 import type { SegmentBuildRequest } from '../orchestration/segments'
 

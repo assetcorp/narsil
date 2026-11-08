@@ -1,5 +1,5 @@
 import { applyProjection, type ResolvedProjection } from '../../../core/projection'
-import { foldGroupReducer, hitsKeptPerGroup } from '../../../search/grouping'
+import { requireLoadedOptionalReads } from '../../../engine/optional-reads-code'
 import type { GroupResult, Hit } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { GroupReducer, QueryParams } from '../../../types/search'
@@ -33,7 +33,7 @@ export async function assembleDistributedGroups(
 
   const reduce = group.reduce
   const needsDocuments = reduce !== undefined || projection.kind !== 'none'
-  const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
+  const keptPerGroup = requireLoadedOptionalReads().hitsKeptPerGroup(group.maxPerGroup)
   const docIdsRead = (entry: WireGroupEntry): string[] =>
     (reduce === undefined ? entry.scored.slice(0, keptPerGroup) : entry.scored).map(scored => scored.docId)
 
@@ -75,7 +75,7 @@ function assembleGroup(
   }))
   const result: GroupResult = { values: entry.values, hits }
   if (reduce === undefined) return result
-  const folded = foldGroupReducer(
+  const folded = requireLoadedOptionalReads().foldGroupReducer(
     reduce,
     entry.scored.map(scored => ({ document: documents.get(scored.docId), score: scored.score ?? 0 })),
   )

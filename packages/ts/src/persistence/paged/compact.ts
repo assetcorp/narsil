@@ -1,6 +1,5 @@
+import { createSharedFrozenSegment, shareSegmentArrays } from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
-import { shareSegmentArrays } from '../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentWriteRecords } from '../../serialization/keyword-segment/types'

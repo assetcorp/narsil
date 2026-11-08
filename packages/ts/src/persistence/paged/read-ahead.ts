@@ -1,5 +1,5 @@
+import { decode } from '#platform/storage-host'
 import { HEADER_SIZE } from '../../serialization/header'
-import { decode } from '../../serialization/msgpack'
 import type { DurableDirectory } from '../durability/durable-filesystem'
 import type { FileRef, SegmentManifest } from '../durability/segment/manifest'
 import { READ_AHEAD_CHUNK_BYTES, READS_AHEAD_AT_ONCE } from './constants'

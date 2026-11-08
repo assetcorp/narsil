@@ -1,5 +1,5 @@
+import { typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeSortColumn, NativeSortValues } from '../../vector/native/types/sort'
-import { typedRegion } from '../stored-values/regions'
 import { captureSortValues, readSortRegions } from './regions'
 
 export function captureColumn(column: NativeSortColumn) {

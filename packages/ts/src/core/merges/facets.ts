@@ -1,4 +1,4 @@
-import { regionsOverlap } from '../regions'
+import { regionsOverlap } from '../../engine/optional-reads-host-bindings'
 
 export function mergeFacets(
   offsets: Uint32Array,

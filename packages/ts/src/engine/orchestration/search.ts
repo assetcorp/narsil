@@ -1,21 +1,27 @@
+import {
+  afterCurrentTurn,
+  createRequestId,
+  ErrorCodes,
+  kWayMerge,
+  mergeFacets,
+  NarsilError,
+  oversampledFacetConfig,
+  returnsEveryMatch,
+} from '#platform/worker-copies-host'
 import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
 import { largestPatternFootprint } from '../../core/pattern-index/query-positions'
 import type { PatternWorkFork, SearchPatternWork, SharedPatternWork } from '../../core/pattern-index/work-meter'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
+import type { FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
-import { mergeFacets, oversampledFacetConfig } from '../../search/facets'
-import { returnsEveryMatch } from '../../search/fulltext'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
 import type { AnyDocument, BM25Params } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import { copyGenerationOf } from '../../workers/copy-generation'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
-import { createRequestId, type WorkerHitReads } from '../../workers/protocol'
+import type { WorkerHitReads } from '../../workers/protocol'
 import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from './constants'
 import { awaitReplicationIdle } from './replication'
-import { afterCurrentTurn } from './turn'
 import type { OrchestratorState } from './types'
 
 function partitionsPerLease(scope: number[], leaseCount: number): number[][] {

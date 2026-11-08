@@ -1,10 +1,13 @@
 import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { holdsStringArrayField } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
+import { importOptionalReads } from '../engine/optional-reads-code'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { executePreflight, executeQuery, loadQueryCode } from '../engine/query'
+import { loadRerankRuntime } from '../engine/query/fixed-depth-code'
 import { answerFromOneState } from '../engine/query/state'
 import type { IndexRegistryEntry } from '../engine/registry-entry'
+import { loadResolveVectorText } from '../engine/resolve-vector-text-code'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
@@ -36,7 +39,7 @@ async function resolveVectorText(
   signal: AbortSignal,
 ): Promise<QueryParams> {
   if (params.vector?.text === undefined) return params
-  const { resolveVectorText: embedQueryText } = await import('../engine/resolve-vector-text')
+  const { resolveVectorText: embedQueryText } = await loadResolveVectorText()
   return embedQueryText(params, entry.embeddingAdapter, signal, entry.embeddingAdapterName)
 }
 
@@ -88,7 +91,7 @@ export async function runEngineQuery<T = AnyDocument>(
       await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
     }
 
-    const rerank = scoped.rerank === undefined ? undefined : await import('../rerank/runtime')
+    const rerank = scoped.rerank === undefined ? undefined : await loadRerankRuntime()
     const preparedParams = rerank === undefined ? scoped : rerank.withRerankQueryText(scoped)
     const resolvedParams =
       preparedParams.vector?.text === undefined
@@ -214,7 +217,7 @@ export async function runEngineSuggest(
   params: SuggestParams,
   partitionIds?: number[],
 ): Promise<SuggestResult> {
-  const { executeSuggest } = await import('../engine/suggest')
+  const { executeSuggest } = await importOptionalReads()
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
@@ -304,7 +307,7 @@ export async function runEngineListDocuments<T = AnyDocument>(
   params: ListParams,
   partitionIds?: number[],
 ): Promise<ListResult<T>> {
-  const { executeListDocuments } = await import('../engine/list-documents')
+  const { executeListDocuments } = await importOptionalReads()
   const loading = loadSortingFor(params.sort, params.filters)
   if (loading !== null) await loading
   await enterRead(core, indexName)

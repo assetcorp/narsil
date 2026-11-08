@@ -1,7 +1,11 @@
+import {
+  compareCodePoints,
+  liveFrequency,
+  requireRoom,
+  SegmentRefusal,
+  termText,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionCore } from '../../vector/native/types/expansion'
-import { compareCodePoints } from '../ordering'
-import { requireRoom, SegmentRefusal } from '../segment-writes/status'
-import { liveFrequency, termText } from '../term-table/read'
 import { PREFIX_BUDGET } from './constants'
 import { readExpansion } from './regions'
 import {

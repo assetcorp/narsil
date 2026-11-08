@@ -1,8 +1,10 @@
+import {
+  codePointCount,
+  compareCodePoints,
+  partitionDocumentFrequency,
+} from '../../engine/optional-reads-host-bindings'
 import { completePrefix, type PrefixCompletion } from '../expansion/host'
 import { suggestPartitionTerms } from '../expansion/suggestion-host'
-import { compareCodePoints } from '../ordering'
-import { codePointCount } from '../ordering/code-points'
-import { partitionDocumentFrequency } from './document-frequency'
 import type { PartitionReadState } from './utils'
 
 export interface PartitionSuggestion {

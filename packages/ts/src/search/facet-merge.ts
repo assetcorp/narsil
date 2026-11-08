@@ -1,8 +1,11 @@
 import { type FacetBucket, mergeFacetBuckets } from '../core/merges/facet-buckets'
-import { keptFacetValues } from '../core/partition/facet-limit'
-import { ErrorCodes, NarsilError } from '../errors'
-import { undeclaredFieldOnStrictIndex } from '../filters/operands'
-import { isGeopointOrVectorType } from '../schema/validator/shared'
+import {
+  ErrorCodes,
+  isGeopointOrVectorType,
+  keptFacetValues,
+  NarsilError,
+  undeclaredFieldOnStrictIndex,
+} from '../engine/optional-reads-host-bindings'
 import type { FacetResult } from '../types/results'
 import type { FacetConfig } from '../types/search'
 

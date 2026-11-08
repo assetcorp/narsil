@@ -1,12 +1,16 @@
-import { compareCodePoints } from '../core/ordering'
-import { loadSuggestions } from '../core/partition/suggestion-code'
-import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
-import { clampRowCount } from '../search/pagination'
 import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
-import { DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from './constants'
+import {
+  clampRowCount,
+  compareCodePoints,
+  DEFAULT_SUGGEST_LIMIT,
+  loadSuggestions,
+  MAX_SUGGEST_LIMIT,
+  MAX_SUGGEST_SCATTER_LIMIT,
+  tokenize,
+} from './optional-reads-host-bindings'
 
 interface MergedSuggestion {
   documentFrequency: number

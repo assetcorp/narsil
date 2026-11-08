@@ -1,16 +1,23 @@
-import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
+import {
+  awaitWriteVisibility,
+  ErrorCodes,
+  indexChangeOutsideExternalWaits,
+  NarsilError,
+  removeDocumentVectors,
+  turnIsSpent,
+  validateBatchList,
+  validateDocId,
+  yieldTurn,
+} from '#platform/optional-writes-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
-import { validateBatchList, validateDocId } from '../validation'
-import { removeDocumentVectors } from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackRemovedDocument } from './durable-rollback'
 import { recordChunk } from './record-batch'
-import { awaitWriteVisibility } from './write-visibility'
 
 interface PreparedRemoval {
   preparedText?: PreparedTextChange

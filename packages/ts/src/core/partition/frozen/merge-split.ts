@@ -1,8 +1,13 @@
-import { SegmentRefusal } from '../../segment-writes/status'
+import {
+  freezeEncodedSegmentShared,
+  mergeSegmentContents,
+  SegmentRefusal,
+  selectionKeeps,
+} from '#platform/worker-copies-host'
 import type { PartialWordAnalysis } from '../partial-words/spellings'
 import type { FrozenSegment } from './index'
-import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from './merge'
-import { freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
+import type { SegmentSelection } from './merge'
+import type { SharedSegmentSnapshot } from './shared-snapshot'
 import type { TextAnalysis } from './surface-slot'
 
 export function splitMergeSelections(

@@ -1,10 +1,13 @@
+import {
+  readStoredFields,
+  regionsOverlap,
+  SORT_VALUE_MAX_CODE_POINTS,
+  typedRegion,
+  validStoredValue,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeSortCore } from '../../vector/native/types/sort'
 import type { NativeStoredValues } from '../../vector/native/types/stored-values'
-import { SORT_VALUE_MAX_CODE_POINTS } from '../ordering/constants'
 import { compareSortStrings } from '../ordering/fold-compare'
-import { regionsOverlap } from '../regions'
-import { readStoredFields, validStoredValue } from '../stored-values/read'
-import { typedRegion } from '../stored-values/regions'
 
 function textLength(values: NativeStoredValues, index: number): number {
   const start = values.textStart[index]

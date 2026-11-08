@@ -1,9 +1,13 @@
-import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
-import { writePartitionDocument } from '../core/partition/rollover'
-import { yieldToEventLoop } from '../engine/orchestration/turn'
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  createPartitionIndex,
+  ErrorCodes,
+  NarsilError,
+  REBALANCE_CHUNK_SIZE,
+  writePartitionDocument,
+  yieldToEventLoop,
+} from '#platform/storage-host'
+import type { PartitionIndex, PartitionInsertOptions } from '../core/partition'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
-import { REBALANCE_CHUNK_SIZE } from './constants'
 import type { PartitionManager } from './manager'
 import type { PartitionRouter } from './router'
 

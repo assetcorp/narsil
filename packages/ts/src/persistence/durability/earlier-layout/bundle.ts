@@ -1,12 +1,15 @@
-import { deserializePartition } from '../../../core/partition/serialization'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { requireValidFieldTypes } from '../../../schema/validator/schema'
+import {
+  decode,
+  decodeVectorIndexParts,
+  deserializePartition,
+  ErrorCodes,
+  NarsilError,
+  requireValidFieldTypes,
+} from '#platform/storage-host'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
-import { decode } from '../../../serialization/msgpack'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
 import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
-import { decodeVectorIndexParts } from '../../../vector/vector-index/payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { EarlierLoadDeps } from './load'
 

@@ -1,4 +1,4 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints } from '#platform/storage-host'
 import type { ExternalIdTable } from '../../core/partition/frozen/external-ids'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import { loadFailed } from './format'

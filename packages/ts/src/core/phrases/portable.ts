@@ -1,6 +1,5 @@
+import { regionsOverlap, typedRegion } from '../../search/phrase-host-bindings'
 import type { NativePhraseCore } from '../../vector/native/types/phrases'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 import { NANOSECONDS_PER_MILLISECOND } from './constants'
 import { matchPrepared } from './matching'
 import { bitmapWords, phraseReadRegions, phraseRowCapacity, readPhraseRequest } from './regions'

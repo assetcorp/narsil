@@ -1,8 +1,16 @@
-import { holdWritesAndBackgroundWork, turnsAreBudgeted } from '#platform/shared-turns'
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import {
+  filterForOptions,
+  holdWritesAndBackgroundWork,
+  liveSize,
+  SEARCH_ATTEMPTS_BEFORE_HOLDING_WRITES,
+  SEARCH_REFILL_RESERVE,
+  SEARCH_SCAN_CHUNK_VECTORS,
+  STORE_ORDINAL_LAYOUT_GENERATION,
+  turnIsSpent,
+  turnsAreBudgeted,
+  yieldTurn,
+} from '#platform/vector-host'
 import type { OrdinalFilter } from '../ordinal-filter'
-import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
-import { SEARCH_ATTEMPTS_BEFORE_HOLDING_WRITES, SEARCH_REFILL_RESERVE, SEARCH_SCAN_CHUNK_VECTORS } from './constants'
 import { mergeResults } from './merge-results'
 import {
   bruteForceSearch,
@@ -16,14 +24,7 @@ import {
   searchWithFilter,
 } from './search'
 import { type SearchWatch, watchingSearch } from './search-writes'
-import {
-  filterForOptions,
-  liveSize,
-  type VectorIndexState,
-  type VectorScoredResult,
-  type VectorSearchOptions,
-  type VectorSearchOutcome,
-} from './shared'
+import type { VectorIndexState, VectorScoredResult, VectorSearchOptions, VectorSearchOutcome } from './shared'
 
 interface ScanInTurns {
   kept: VectorScoredResult[]

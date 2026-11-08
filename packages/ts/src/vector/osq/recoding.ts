@@ -1,9 +1,9 @@
+import { writeRecord } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import { slotByteOffset } from '../vector-store/blocks'
 import type { VectorCodeBlockLayout } from '../vector-store/code-blocks'
 import type { SharedVectorStoreView } from '../vector-store/view'
 import { createOsqScratch, osqQuantize } from './quantize'
-import { writeRecord } from './record'
 
 export interface CodeRecoding {
   readonly centroid: Float32Array

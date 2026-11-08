@@ -1,10 +1,8 @@
-import { countWrite } from '#platform/turn-budget'
+import { countWrite, ErrorCodes, NarsilError, updateDocumentVectors } from '#platform/storage-host'
 import type { PartitionInsertOptions } from '../core/partition'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { WAQEntry, WriteAheadQueue } from '../partitioning/write-ahead-queue'
 import type { RebalanceContext } from './rebalance-executor'
-import { updateDocumentVectors } from './vector-coordinator'
 
 function applyEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceContext): Promise<void> | undefined {
   const { docId, indexName, partitionDoc, previousPartitionDoc, text, removedSpellings } = entry

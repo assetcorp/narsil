@@ -1,7 +1,12 @@
+import {
+  compareCodePoints,
+  DEFAULT_VECTOR_METRIC,
+  defaultQuantizationFor,
+  flattenSchema,
+  rulesOfStoredSynonyms,
+} from '#platform/storage-host'
 import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
-import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
-import { flattenSchema } from '../schema/validator'
 import type {
   IndexEmbeddingMetadata,
   IndexMetadata,
@@ -11,10 +16,7 @@ import type {
 } from '../types/internal'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
-import { DEFAULT_VECTOR_METRIC } from '../vector/vector-index/constants'
-import { defaultQuantizationFor } from '../vector/vector-index/default-quantization'
 import type { IndexRegistryEntry } from './core'
-import { rulesOfStoredSynonyms } from './synonym-sets'
 
 export interface MetadataConfig {
   indexUuid?: string

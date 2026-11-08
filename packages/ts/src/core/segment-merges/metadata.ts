@@ -1,10 +1,14 @@
+import {
+  mergedPartialSpellings,
+  mergeKeywordSources,
+  mergeSourceSpellings,
+  mergeSourceSurfaces,
+} from '#platform/storage-host'
 import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
 import type { SegmentRemap } from '../partition/frozen/merge-postings'
 import type { TextAnalysis } from '../partition/frozen/surface-slot'
 import type { FrozenTokenTableData } from '../partition/frozen/token-table'
 import type { PartialWordAnalysis } from '../partition/partial-words/spellings'
-import { mergedPartialSpellings, mergeSourceSpellings, mergeSourceSurfaces } from './host'
-import { mergeKeywordSources } from './output'
 
 function emptySource(input: SegmentRemap): NativeKeywordMergeInput {
   return {

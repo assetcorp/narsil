@@ -1,0 +1,8 @@
+export { bindWorkerCopiesHost } from '#platform/worker-copies-host'
+export * from '../workers/pool'
+export * from '../workers/segment-actions'
+export * from '../workers/worker-executor'
+export * from './orchestration'
+export * from './orchestration/publication'
+export * from './orchestration/release'
+export * from './worker-resync'

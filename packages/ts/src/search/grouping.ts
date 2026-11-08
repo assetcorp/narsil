@@ -1,14 +1,17 @@
 import { groupHits } from '#platform/group-hits'
-import { compareCodePoints } from '../core/ordering'
 import { gatheredStoredFields } from '../core/stored-values/gather'
 import type { StoredFieldReference } from '../core/stored-values/references'
-import { ErrorCodes, NarsilError } from '../errors'
-import { undeclaredFieldOnStrictIndex } from '../filters/operands'
-import { VECTOR_PATTERN } from '../schema/validator/shared'
+import {
+  compareCodePoints,
+  DEFAULT_MAX_PER_GROUP,
+  ErrorCodes,
+  NarsilError,
+  undeclaredFieldOnStrictIndex,
+  VECTOR_PATTERN,
+} from '../engine/optional-reads-host-bindings'
 import type { GroupResult, Hit } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { GroupConfig } from '../types/search'
-import { DEFAULT_MAX_PER_GROUP } from './constants'
 
 export function requireGroupableFields(
   fields: readonly string[],

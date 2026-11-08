@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../engine/optional-reads-host-bindings'
 import type { NativeSortValues } from '../../../vector/native/types/sort'
 import type { ComparableSortValue } from '../../ordering'
 import { sortValueAt } from '../../sort-values/regions'

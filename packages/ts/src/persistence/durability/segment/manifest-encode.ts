@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
-import { type PackedEnvelope, packChecksummedEnvelope } from '../../../serialization/envelope-file'
+import { packChecksummedEnvelope } from '#platform/storage-host'
+import type { PackedEnvelope } from '../../../serialization/envelope-file'
 import { type FileRef, MANIFEST_ENVELOPE_VERSION, SEGMENT_MANIFEST_VERSION, type SegmentManifest } from './manifest'
 
 function fileRefOnTheWire(ref: FileRef): FileRef {

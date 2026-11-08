@@ -1,5 +1,5 @@
 import { clockNow, matchPhrases as matchCore } from '#platform/phrase-core'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, GrowableUint32, NarsilError } from '../../search/phrase-host-bindings'
 import type { AnalysedPhrase, PostingListView } from '../../types/internal'
 import type { NativePhrasePostings, NativePhraseRequest } from '../../vector/native/types/phrases'
 import type { InvertedIndexReader } from '../inverted-index'
@@ -7,7 +7,6 @@ import type { PatternWorkMeter } from '../pattern-index/types'
 import { NANOSECONDS_PER_MILLISECOND } from '../phrases/constants'
 import { markRemoved, phrasePostings } from '../phrases/postings'
 import { bitmapWords, phraseRowCapacity } from '../phrases/regions'
-import { GrowableUint32 } from './growable-uint32'
 
 const INT64_MAX = 0x7fffffffffffffffn
 const UINT64_MAX = 0xffffffffffffffffn

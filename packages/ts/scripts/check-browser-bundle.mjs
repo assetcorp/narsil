@@ -198,6 +198,72 @@ if (optionalCode.size > 0) {
 }
 console.log(`ok  ${SIZE_APP} downloads no vector, durability, or phrase code at start-up`)
 
+const LEAF_CHECK_ENTRIES = BROWSER_ENTRIES.filter(entry => !entry.includes('react-native'))
+const LEAF_CHECK_OUTDIR = 'dist/lazy-leaves'
+const APP_OWNED_PACKAGES = Object.keys(
+  JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8')).peerDependencies ?? {},
+)
+
+async function lazyChunksReachingOtherChunks() {
+  const { metafile } = await build({
+    absWorkingDir: packageRoot,
+    entryPoints: LEAF_CHECK_ENTRIES,
+    bundle: true,
+    minify: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    conditions: ['browser', 'import'],
+    splitting: true,
+    outdir: LEAF_CHECK_OUTDIR,
+    external: APP_OWNED_PACKAGES,
+    metafile: true,
+    write: false,
+    logLevel: 'error',
+  })
+  const outputs = metafile.outputs
+  const staticallyReached = new Set()
+  const queue = Object.keys(outputs).filter(path => LEAF_CHECK_ENTRIES.includes(outputs[path].entryPoint ?? ''))
+  while (queue.length > 0) {
+    const path = queue.pop()
+    if (staticallyReached.has(path)) continue
+    staticallyReached.add(path)
+    for (const imported of outputs[path].imports) {
+      if (imported.kind === 'import-statement' && outputs[imported.path] !== undefined) queue.push(imported.path)
+    }
+  }
+  const offenders = []
+  for (const [path, output] of Object.entries(outputs)) {
+    if (staticallyReached.has(path) || !path.endsWith('.js')) continue
+    const reachedChunks = output.imports.filter(
+      imported => imported.kind === 'import-statement' && outputs[imported.path] !== undefined,
+    )
+    if (reachedChunks.length === 0) continue
+    const lazyInputs = Object.keys(output.inputs).filter(input => output.inputs[input].bytesInOutput > 0)
+    offenders.push({
+      lazyInputs: lazyInputs.length > 0 ? lazyInputs : [path],
+      reachedChunks: reachedChunks.map(imported => imported.path),
+    })
+  }
+  return offenders
+}
+
+const offenders = await lazyChunksReachingOtherChunks()
+if (offenders.length > 0) {
+  console.error(
+    `FAIL ${offenders.length} chunk(s) that only a dynamic import reaches import another chunk, so an app that awaits the engine at the top level of its entry can wait forever on one under Rollup:`,
+  )
+  for (const { lazyInputs, reachedChunks } of offenders) {
+    console.error(`  ${lazyInputs.slice(0, 3).join(', ')}${lazyInputs.length > 3 ? ', ...' : ''}`)
+    console.error(`    imports ${reachedChunks.join(', ')}`)
+  }
+  console.error(
+    'Make the lazily loaded module import only its own files, and pass it the shared engine code it needs when the engine loads it.',
+  )
+  process.exit(1)
+}
+console.log(`ok  every chunk that only a dynamic import reaches imports no other chunk`)
+
 const measured = await gzippedAppBytes()
 const baselinePath = resolve(packageRoot, SIZE_BASELINE)
 const described = `${SIZE_APP} downloads ${measured.gzipped} bytes gzipped at start-up (${measured.minified} bytes minified)`

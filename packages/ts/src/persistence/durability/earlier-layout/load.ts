@@ -1,22 +1,23 @@
-import { createSharedFrozenSegment } from '../../../core/partition/frozen/shared'
-import { freezeSegmentShared } from '../../../core/partition/frozen/shared-snapshot'
-import { buildSegmentPayloads } from '../../../core/partition/segment-builder'
-import { deserializePartition } from '../../../core/partition/serialization'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import type { PartitionManager } from '../../../partitioning/manager'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { HEADER_SIZE } from '../../../serialization/header'
-import { decode } from '../../../serialization/msgpack'
-import { MIN_M } from '../../../vector/hnsw/constants'
-import type { VectorIndex } from '../../../vector/vector-index'
 import {
+  buildSegmentPayloads,
+  countDead,
+  createSharedFrozenSegment,
+  decode,
   decodeVectorFilePayload,
   decodeVectorGraphPayload,
+  deserializePartition,
+  ErrorCodes,
+  freezeSegmentShared,
   graphPartsOfEarlierPayload,
-  type VectorGraphParts,
-} from '../../../vector/vector-index/checkpoint-payload'
-import { countDead } from '../../../vector/vector-index/dead-bits'
+  NarsilError,
+  openChecksummedEnvelope,
+  resolvePartitionInsertOptions,
+} from '#platform/storage-host'
+import type { PartitionManager } from '../../../partitioning/manager'
+import { HEADER_SIZE } from '../../../serialization/header'
+import { MIN_M } from '../../../vector/hnsw/constants'
+import type { VectorIndex } from '../../../vector/vector-index'
+import type { VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import { growPartitionsTo } from '../segment/load'
 import type { FileRef } from '../segment/manifest'

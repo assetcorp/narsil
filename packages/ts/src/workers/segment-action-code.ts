@@ -1,3 +1,4 @@
+import { loadWorkerCopies } from '../engine/worker-copies-code'
 import type { PartitionManager } from '../partitioning/manager'
 import type { WorkerAction } from './protocol'
 import type * as Segments from './segment-actions'
@@ -35,6 +36,6 @@ export function growPartitionsTo(manager: PartitionManager, partitionId: number)
 }
 
 export const runSegmentAction: typeof Segments.runSegmentAction = async (...args) => {
-  const code = await import('./segment-actions')
+  const code = await loadWorkerCopies()
   return code.runSegmentAction(...args)
 }

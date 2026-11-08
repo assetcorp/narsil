@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { MAX_HYBRID_DEPTH, MIN_HYBRID_DEPTH } from './constants'
+import { ErrorCodes, MAX_HYBRID_DEPTH, MIN_HYBRID_DEPTH, NarsilError } from '../rerank/rerank-host-bindings'
 
 export function fixedHybridDepthOf(hybrid: { depth?: number | null } | null | undefined): number | undefined {
   const depth = hybrid?.depth

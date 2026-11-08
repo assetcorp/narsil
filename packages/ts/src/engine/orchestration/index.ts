@@ -1,5 +1,11 @@
+import {
+  ErrorCodes,
+  NarsilError,
+  resolveWorkerCount,
+  splitWorkerBudget,
+  workersEnabledByDefault,
+} from '#platform/worker-copies-host'
 import type { SearchPatternWork } from '../../core/pattern-index/work-meter'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
@@ -10,7 +16,6 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
-import { resolveWorkerCount, splitWorkerBudget } from '../../workers/worker-count'
 import {
   awaitCompactions,
   cancelIdleMerge,
@@ -22,7 +27,6 @@ import {
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
-import { workersEnabledByDefault } from './loader'
 import { publishToWorkers } from './publication-code'
 import { trackPublicationStores } from './publication-stores'
 import type { CopyReleaseSteps } from './release'
@@ -206,7 +210,7 @@ export function createWorkerOrchestrator(
     const manager = executor.getManager(indexName)
     if (pool !== null && entry !== undefined && manager !== undefined) {
       try {
-        const { transferIndexToPool } = await import('../worker-resync')
+        const { transferIndexToPool } = await import('../worker-copies')
         const copyLoad = await transferIndexToPool(
           indexName,
           pool,
@@ -344,11 +348,11 @@ export function createWorkerOrchestrator(
       if (hold === undefined) state.copyReleaseHolds.set(indexName, { holders: 1, reloads: false })
       else hold.holders += 1
       state.desyncedIndexes.add(indexName)
-      const { releaseIndexCopies } = await import('./release')
+      const { releaseIndexCopies } = await import('../worker-copies')
       return releaseIndexCopies(state, indexName, copyReleaseSteps)
     },
     async endCopyRelease(indexName: string, reloads: boolean): Promise<void> {
-      const { endCopyRelease } = await import('./release')
+      const { endCopyRelease } = await import('../worker-copies')
       await endCopyRelease(state, indexName, reloads, copyReleaseSteps)
     },
     resyncIndex,

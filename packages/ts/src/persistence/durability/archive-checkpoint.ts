@@ -1,11 +1,9 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { decodeSegmentManifest, ErrorCodes, manifestKey, NarsilError } from '#platform/storage-host'
 import type { DurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { directoryRestoreStorage } from './restore-directory'
 import { createRestoreStaging, type RestoreStaging } from './restore-staging'
-import { manifestKey } from './segment/layout'
 import type { FileRef, SegmentManifest } from './segment/manifest'
-import { decodeSegmentManifest } from './segment/manifest-decode'
 import { directoryCheckpointStore, readListedFile } from './segment/store'
 
 export interface ArchiveCheckpoint {

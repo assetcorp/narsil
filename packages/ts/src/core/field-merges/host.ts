@@ -1,6 +1,6 @@
 import { measureFieldMerge, writeFieldMerge } from '#platform/field-merges'
+import { mergeFieldRegionsWith } from '#platform/segment-merge-host'
 import type { NativeFieldMergeRegion, NativeFieldMergeSource } from '../../vector/native/types/field-merge'
-import { mergeFieldRegionsWith } from './output'
 
 export function mergeFieldRegions(
   kind: number,

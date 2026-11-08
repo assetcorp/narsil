@@ -1,8 +1,8 @@
+import { snapshotBundleKey } from '#platform/storage-host'
 import { countSnapshotBundleDocuments as countBundle, decodeSnapshotBundle } from './earlier-layout/bundle'
 import { decodeEarlierManifest } from './earlier-layout/manifest'
 import { countLiveDocuments } from './earlier-layout/merge'
 import { type EarlierSegmentContents, readEarlierSegmentContents } from './earlier-layout/segment'
-import { snapshotBundleKey } from './segment/layout'
 import { readSegmentManifest } from './segment/load'
 import type { PartitionManifestEntry, SegmentManifest } from './segment/manifest'
 import { readSegmentFile } from './segment/segment-file'
@@ -13,7 +13,7 @@ const decoder = new TextDecoder()
 async function countPagedPartition(store: CheckpointStore, partition: PartitionManifestEntry): Promise<number | null> {
   const { directory } = store
   if (directory === undefined || partition.segments.length === 0) return null
-  const { countsAsLatestHolder, isPagedSegmentFile, openPagedSegmentScan } = await import('../paged/module')
+  const { countsAsLatestHolder, isPagedSegmentFile, openPagedSegmentScan } = await import('../storage-leaf')
   for (const ref of partition.segments) if (!(await isPagedSegmentFile(directory, ref.key))) return null
   const scans = []
   try {

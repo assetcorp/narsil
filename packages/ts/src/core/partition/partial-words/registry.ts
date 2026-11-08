@@ -1,4 +1,5 @@
 import { platformPartialWordSearch } from '#platform/partial-word-search'
+import { requireLoadedOptionalReads } from '../../../engine/optional-reads-code'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartialWordHighlight } from '../../../highlighting/highlighter'
 import { partialFieldsOf } from '../../../schema/validator/schema'
@@ -25,8 +26,10 @@ import type {
 } from './types'
 
 let registered: PartialWordSearchModule | null = null
+let boundModule: PartialWordSearchModule | null = null
 
 const MODULE_FUNCTIONS = [
+  'bindExpansionCode',
   'createSpellingTable',
   'prepareSpellingRuns',
   'prepareSpellingRemoval',
@@ -163,7 +166,12 @@ export function expandPartialWords(
   requests: readonly PartialWordRequest[],
 ): AddedWord[][] {
   const module = availablePartialWordSearch()
-  return module === null ? requests.map(() => []) : module.expand(subs, analysis, requests)
+  if (module === null) return requests.map(() => [])
+  if (boundModule !== module) {
+    module.bindExpansionCode(requireLoadedOptionalReads())
+    boundModule = module
+  }
+  return module.expand(subs, analysis, requests)
 }
 
 export function countPartialSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void {

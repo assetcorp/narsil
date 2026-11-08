@@ -1,22 +1,26 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
-import { validateBatchList, validateDocId } from '../validation'
-import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
-import type { MutationContext } from './context'
 import {
   admitInsert,
   asBatchInsertError,
+  awaitWriteVisibility,
   collectRequiredFieldFailures,
   embedChunkDocuments,
+  prepareDocumentVectors,
   providedDocId,
   requireDocumentObject,
-} from './insert-admission'
+  turnIsSpent,
+  validateBatchList,
+  validateDocId,
+  validateVectorDimensions,
+  yieldTurn,
+} from '#platform/optional-writes-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
+import type { BatchResult } from '../../types/results'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
+import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
+import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { insertBatchViaSegments } from './insert-batch-segments'
-import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,

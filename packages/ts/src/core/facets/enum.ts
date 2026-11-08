@@ -1,6 +1,5 @@
+import { regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeFacetCore } from '../../vector/native/types/facets'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 import { countSpan, prepareSeen } from './numeric'
 
 export const enumFacet: NativeFacetCore['enumFacet'] = (offsetsInput, postingsInput, matchedInput, countsOutput) => {

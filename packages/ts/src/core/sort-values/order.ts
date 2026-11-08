@@ -1,7 +1,6 @@
+import { regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeSortCore } from '../../vector/native/types/sort'
 import { compareComparableValues } from '../ordering/sort-comparison'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 import { captureSortValues, readSortRegions, sortValueAt, validSortValue } from './regions'
 
 export const buildSortOrder: NativeSortCore['buildSortOrder'] = (

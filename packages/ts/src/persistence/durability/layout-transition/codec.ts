@@ -1,9 +1,15 @@
 import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { decode } from '../../../serialization/msgpack'
+import {
+  decode,
+  ErrorCodes,
+  isRecord,
+  isSequenceNumber,
+  isUint32,
+  NarsilError,
+  openChecksummedEnvelope,
+  packChecksummedEnvelope,
+} from '#platform/storage-host'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
-import { isRecord, isSequenceNumber, isUint32 } from '../segment/manifest-fields'
 import type { CheckpointStore } from '../segment/store'
 
 const LAYOUT_TRANSITION_VERSION = 1

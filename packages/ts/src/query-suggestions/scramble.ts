@@ -1,11 +1,4 @@
-import {
-  compressSha256Block,
-  paddedSha256Message,
-  SHA256_BLOCK_BYTES,
-  SHA256_INITIAL_STATE,
-  sha256,
-  sha256Digest,
-} from '../persistence/durability/sha256'
+import type { Digest } from '../persistence/digest-code'
 import { KEY_FINGERPRINT_BYTES, KEY_FINGERPRINT_LABEL, SCRAMBLED_ID_BYTES } from './constants'
 
 const INNER_PAD = 0x36
@@ -16,29 +9,30 @@ export interface PersonScrambler {
   scramble(person: string): Uint8Array
 }
 
-function padState(key: Uint8Array, pad: number, words: Uint32Array): Uint32Array {
-  const block = new Uint8Array(SHA256_BLOCK_BYTES)
-  for (let i = 0; i < SHA256_BLOCK_BYTES; i++) block[i] = (key[i] ?? 0) ^ pad
-  const state = Uint32Array.from(SHA256_INITIAL_STATE)
-  compressSha256Block(state, new DataView(block.buffer), 0, words)
+function padState(digest: Digest, key: Uint8Array, pad: number, words: Uint32Array): Uint32Array {
+  const block = new Uint8Array(digest.SHA256_BLOCK_BYTES)
+  for (let i = 0; i < digest.SHA256_BLOCK_BYTES; i++) block[i] = (key[i] ?? 0) ^ pad
+  const state = Uint32Array.from(digest.SHA256_INITIAL_STATE)
+  digest.compressSha256Block(state, new DataView(block.buffer), 0, words)
   return state
 }
 
-export function createPersonScrambler(key: Uint8Array): PersonScrambler {
+export function createPersonScrambler(key: Uint8Array, digest: Digest): PersonScrambler {
+  const blockBytes = digest.SHA256_BLOCK_BYTES
   const words = new Uint32Array(64)
-  const blockKey = key.byteLength > SHA256_BLOCK_BYTES ? sha256(key) : key
-  const innerState = padState(blockKey, INNER_PAD, words)
-  const outerState = padState(blockKey, OUTER_PAD, words)
+  const blockKey = key.byteLength > blockBytes ? digest.sha256(key) : key
+  const innerState = padState(digest, blockKey, INNER_PAD, words)
+  const outerState = padState(digest, blockKey, OUTER_PAD, words)
   const working = new Uint32Array(8)
   const encoder = new TextEncoder()
 
   function digestAfter(prefixState: Uint32Array, message: Uint8Array): Uint8Array {
     working.set(prefixState)
-    const view = paddedSha256Message(message, SHA256_BLOCK_BYTES)
-    for (let block = 0; block < view.byteLength; block += SHA256_BLOCK_BYTES) {
-      compressSha256Block(working, view, block, words)
+    const view = digest.paddedSha256Message(message, blockBytes)
+    for (let block = 0; block < view.byteLength; block += blockBytes) {
+      digest.compressSha256Block(working, view, block, words)
     }
-    return sha256Digest(working)
+    return digest.sha256Digest(working)
   }
 
   function hmac(message: Uint8Array): Uint8Array {

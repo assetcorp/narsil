@@ -1,4 +1,4 @@
-import { regionsOverlap } from '../core/regions'
+import { regionsOverlap } from '../engine/optional-reads-host-bindings'
 
 const MAX_ENTRIES = 0x7fffffff
 const EMPTY_SLOT = -0x80000000

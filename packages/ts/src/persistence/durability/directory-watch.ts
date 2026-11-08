@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { DIRECTORY_IDENTITY_CHECK_INTERVAL_MS } from './constants'
 import type { DirectoryLock } from './directory-lock'
 import type { DurableDirectory } from './durable-filesystem'

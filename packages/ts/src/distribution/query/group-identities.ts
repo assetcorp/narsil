@@ -1,5 +1,5 @@
-import { groupHits } from '#platform/group-hits'
 import { buildStoredValues } from '../../core/stored-values/build'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { WireGroupEntry } from '../transport/types'
 
@@ -15,7 +15,18 @@ export function groupIdentities(
   const offsets = new Uint32Array(count + 1)
   const positions = new Uint32Array(count)
   const members = new Uint32Array(count)
-  const found = groupHits(stored, ordinals, scores, ordinals, count, null, heads, offsets, positions, members)
+  const found = requireLoadedOptionalReads().groupHits(
+    stored,
+    ordinals,
+    scores,
+    ordinals,
+    count,
+    null,
+    heads,
+    offsets,
+    positions,
+    members,
+  )
   if (found < 0)
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The group values cannot be compared', { status: found })
   const keys = new Uint32Array(count)

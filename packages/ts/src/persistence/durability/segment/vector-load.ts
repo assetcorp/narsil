@@ -1,17 +1,20 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { HEADER_SIZE } from '../../../serialization/header'
-import { decode } from '../../../serialization/msgpack'
-import type { VectorIndex } from '../../../vector/vector-index'
 import {
   assembleGraphParts,
+  countDead,
+  decode,
   decodeVectorFilePayload,
   decodeVectorGraphPartPayload,
-  type VectorFilePayload,
-  type VectorGraphPartPayload,
-  type VectorGraphParts,
+  ErrorCodes,
+  NarsilError,
+  openChecksummedEnvelope,
+} from '#platform/storage-host'
+import { HEADER_SIZE } from '../../../serialization/header'
+import type { VectorIndex } from '../../../vector/vector-index'
+import type {
+  VectorFilePayload,
+  VectorGraphPartPayload,
+  VectorGraphParts,
 } from '../../../vector/vector-index/checkpoint-payload'
-import { countDead } from '../../../vector/vector-index/dead-bits'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
 import { type CheckpointStore, readListedFile, requireListedChecksum, requireListedSize } from './store'
 
@@ -95,9 +98,7 @@ async function loadFieldOnDemand(
 ): Promise<boolean> {
   const { pathOf } = store
   if (pathOf === undefined || vectorIndex.storage !== 'disk' || !holdsEveryHead(ref)) return false
-  const { loadFilesByParts, openColdVectorField, osqBitsOf, waitBeforeColdLoad } = await import(
-    '../../paged/cold-module'
-  )
+  const { loadFilesByParts, openColdVectorField, osqBitsOf, waitBeforeColdLoad } = await import('../../storage-leaf')
   await Promise.all([
     ...ref.files.map(file => requireListedSize(store, file.key, { bytes: file.bytes, what: 'vector file' })),
     ...ref.graphParts.map(part => requireListedSize(store, part.key, { bytes: part.bytes, what: 'graph part' })),

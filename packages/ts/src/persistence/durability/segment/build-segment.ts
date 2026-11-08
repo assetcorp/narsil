@@ -1,15 +1,19 @@
-import { createFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import {
+  buildSegmentPayloads,
+  createFrozenSegment,
+  createPartitionManager,
+  createPartitionRouter,
+  decode,
+  decodeMapWithoutFields,
+  prepareDocumentVectors,
+  resolvePartitionInsertOptions,
+} from '#platform/storage-host'
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
-import { buildSegmentPayloads, type SegmentDocument } from '../../../core/partition/segment-builder'
+import type { SegmentDocument } from '../../../core/partition/segment-builder'
 import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { prepareDocumentVectors } from '../../../engine/vector-coordinator'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import { createPartitionManager } from '../../../partitioning/manager'
-import { createPartitionRouter } from '../../../partitioning/router'
 import type { SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
-import { decode } from '../../../serialization/msgpack'
-import { decodeMapWithoutFields } from '../../../serialization/msgpack-without-fields'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 

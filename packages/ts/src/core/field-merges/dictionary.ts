@@ -1,6 +1,6 @@
+import { embedded, storedText, uint32, words } from '#platform/segment-merge-host'
 import type { NativeFieldMergeSource } from '../../vector/native/types/field-merge'
-import { storedText } from '../stored-values/text'
-import { embedded, type FieldMergePlan, uint32, words } from './regions'
+import type { FieldMergePlan } from './regions'
 
 interface Key {
   text: string

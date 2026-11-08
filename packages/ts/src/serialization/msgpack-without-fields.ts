@@ -1,7 +1,7 @@
-import { decode } from './msgpack'
-import { headerAt, MAP_TAGS } from './msgpack-header'
+import { decode, headerAt, MAP_TAGS } from '#platform/segment-codec-host'
 
-export { headerAt, type ValueHeader } from './msgpack-header'
+export { headerAt } from '#platform/segment-codec-host'
+export type { ValueHeader } from './msgpack-header'
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const keyDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })

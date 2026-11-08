@@ -1,6 +1,5 @@
+import { regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeFacetCore } from '../../vector/native/types/facets'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 
 function countMatches(bits: Uint32Array, matched: Uint32Array): number {
   let count = 0

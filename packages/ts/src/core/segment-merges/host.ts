@@ -1,15 +1,19 @@
+import {
+  createSurfaceRegistry,
+  decodeSurfaceTable,
+  encodePartialSpellingsOf,
+  encodeStringBlob,
+  encodeSurfaceTable,
+  mergeKeywordSources,
+  mergeTextAt,
+  SegmentRefusal,
+} from '#platform/segment-merge-host'
 import type { NativeFrozenStrings } from '../../vector/native/types/frozen-segments'
 import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
 import type { SegmentRemap } from '../partition/frozen/merge-postings'
-import { encodeStringBlob } from '../partition/frozen/string-blob'
 import type { TextAnalysis } from '../partition/frozen/surface-slot'
-import { decodeSurfaceTable, encodeSurfaceTable } from '../partition/frozen/surface-table'
-import { encodePartialSpellingsOf } from '../partition/partial-words/registry'
 import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from '../partition/partial-words/spellings'
 import type { SegmentPayload } from '../partition/segment-payload'
-import { SegmentRefusal } from '../segment-writes/status'
-import { createSurfaceRegistry } from '../surface-registry'
-import { mergeKeywordSources, mergeTextAt } from './output'
 
 export function mergeSourceSurfaces(input: SegmentRemap, analysis: TextAnalysis | null): NativeFrozenStrings {
   const registry = createSurfaceRegistry()

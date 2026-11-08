@@ -1,9 +1,8 @@
+import { DEFAULT_WRITE_AHEAD_QUEUE_MAX_SIZE, ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../core/partition/prepared-text'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { AnyDocument } from '../types/schema'
 import { RebalanceCheckpointHeld } from './checkpoint-hold'
-import { DEFAULT_WRITE_AHEAD_QUEUE_MAX_SIZE } from './constants'
 
 export interface BufferedMutation {
   action: 'insert' | 'remove' | 'update'

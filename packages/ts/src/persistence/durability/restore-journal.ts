@@ -1,10 +1,14 @@
-import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  decodeSegmentManifest,
+  ErrorCodes,
+  INDEX_NAME_PATTERN,
+  manifestFileRefs,
+  manifestKey,
+  NarsilError,
+  sha256,
+} from '#platform/storage-host'
+import { MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import type { DurableDirectory } from './durable-filesystem'
-import { manifestKey } from './segment/layout'
-import { manifestFileRefs } from './segment/manifest'
-import { decodeSegmentManifest } from './segment/manifest-decode'
-import { sha256 } from './sha256'
 
 export const RESTORE_JOURNAL_PREFIX = '.swap-'
 export const RESTORE_STAGING_PREFIX = '.restore-'

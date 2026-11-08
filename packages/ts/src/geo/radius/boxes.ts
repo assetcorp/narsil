@@ -1,5 +1,5 @@
 import { type LocationBox, longitudeBoxes } from '../cells'
-import { DEG_TO_RAD, EARTH_RADIUS_METERS, MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES } from '../constants'
+import { DEG_TO_RAD, EARTH_RADIUS_METERS, MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES } from '../geo-host-bindings'
 import { RADIUS_BOX_MARGIN_RADIANS, RADIUS_BOX_MARGIN_RATIO } from './constants'
 
 export function radiusBoxes(lat: number, lon: number, distanceMeters: number): LocationBox[] {

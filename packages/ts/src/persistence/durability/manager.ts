@@ -1,4 +1,4 @@
-import { toError } from '../../engine/orchestration/eligibility'
+import { toError } from '#platform/storage-host'
 import { holdScheduledCheckpoint } from '../../partitioning/checkpoint-hold'
 import { requireCheckpointLayout } from '../../partitioning/manager/checkpoint-prefix'
 import { writeMetadataEnvelope } from '../../serialization/envelope'

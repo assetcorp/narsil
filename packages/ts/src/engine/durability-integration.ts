@@ -1,5 +1,5 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import { fnv1a } from '../core/hash'
+import { encodeDocument, fnv1a, turnIsSpent, yieldTurn } from '#platform/storage-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { ReplicationOperation } from '../distribution/replication/types'
 import { metadataPartitionCount } from '../partitioning/manager/checkpoint-prefix'
 import { admitDurableWrite } from '../partitioning/wal-routing'
@@ -13,7 +13,6 @@ import type {
   MutationOutcome,
   MutationRecord,
 } from '../persistence/durability/types'
-import { encodeDocument } from '../serialization/document-encoding'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'

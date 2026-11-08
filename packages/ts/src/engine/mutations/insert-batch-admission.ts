@@ -1,21 +1,24 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { validateDocument, validateDocumentStrict } from '../../schema/validator'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
-import { validateDocId } from '../validation'
-import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
-import type { MutationContext } from './context'
 import {
   admitInsert,
   asBatchInsertError,
   collectRequiredFieldFailures,
   createPendingAdmissions,
+  ErrorCodes,
   embedChunkDocuments,
+  NarsilError,
+  prepareDocumentVectors,
   providedDocId,
   recordPendingAdmission,
   requireDocumentObject,
-} from './insert-admission'
+  validateDocId,
+  validateDocument,
+  validateDocumentStrict,
+  validateVectorDimensions,
+} from '#platform/optional-writes-host'
+import type { BatchResult } from '../../types/results'
+import type { AnyDocument } from '../../types/schema'
+import { BATCH_CHUNK_SIZE } from '../constants'
+import type { MutationContext } from './context'
 
 export interface AdmittedInsert {
   docId: string

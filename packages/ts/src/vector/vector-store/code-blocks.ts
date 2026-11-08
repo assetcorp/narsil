@@ -1,8 +1,8 @@
+import { osqCodeBytes, osqRecordBytes, osqStagedQueryBytes } from '#platform/vector-core-host'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { VECTOR_SCRATCH_SLOTS } from '../constants'
 import { osqQueryBits } from '../osq/estimate'
 import type { OsqBits } from '../osq/quantize'
-import { osqCodeBytes, osqRecordBytes, osqStagedQueryBytes } from '../osq/record'
 import { alignUp, BLOCK_MAX_BYTES, type BlockGeometry } from './blocks'
 
 /**

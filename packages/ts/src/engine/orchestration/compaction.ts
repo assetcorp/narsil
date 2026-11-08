@@ -1,16 +1,16 @@
-import { type CompositePartition, isCompositePartition } from '../../core/partition/composite'
+import {
+  createRequestId,
+  createSharedFrozenSegment,
+  ErrorCodes,
+  isCompositePartition,
+  LIVE_TAIL_FREEZE_FLOOR,
+  NarsilError,
+} from '#platform/worker-copies-host'
+import type { CompositePartition } from '../../core/partition/composite'
 import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
 import { mergeFrozenSegmentOutputs } from '../../core/partition/frozen/merge-split'
-import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { createRequestId } from '../../workers/protocol'
-import {
-  COMPACTION_SEGMENT_TRIGGER,
-  IDLE_MERGE_DELAY_MS,
-  LIVE_TAIL_FREEZE_FLOOR,
-  SEGMENTS_PER_MERGE,
-} from './constants'
+import { COMPACTION_SEGMENT_TRIGGER, IDLE_MERGE_DELAY_MS, SEGMENTS_PER_MERGE } from './constants'
 import { freezeLiveTail } from './live-tail'
 import { publishToWorkers } from './publication-code'
 import { awaitReplicationIdle } from './replication'

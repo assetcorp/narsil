@@ -1,3 +1,4 @@
+import { readTrailer, stageQueryLevels, writeRecord } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'
 import { nativeMeasure, nativeQuantise } from '../native/store'
@@ -18,7 +19,7 @@ import {
   osqQuantize,
 } from './quantize'
 import { type CodeRecoding, createCodeRecoding } from './recoding'
-import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
+import type { OsqTrailer } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
 
 export interface SharedQuantizerView extends QuantizerSearchReader {

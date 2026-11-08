@@ -1,4 +1,5 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
+import { loadSegmentMerge } from '../../core/segment-merge-code'
 import { synonymModule } from '../../core/synonyms/registry'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -336,13 +337,12 @@ export function createDirectExecutor(
       }
 
       case 'serialize': {
-        const { serializePartition } = await import('../../core/partition/serialization')
-        const entry = requireIndex(action.indexName)
-        return entry.manager.serializePartition(action.partitionId, serializePartition) as T
+        const { serializePartition } = await loadSegmentMerge()
+        return requireIndex(action.indexName).manager.serializePartition(action.partitionId, serializePartition) as T
       }
 
       case 'deserialize': {
-        const { deserializePartition } = await import('../../core/partition/serialization')
+        const { deserializePartition } = await loadSegmentMerge()
         const entry = requireIndex(action.indexName)
         growPartitionsTo(entry.manager, action.partitionId)
         entry.manager.deserializePartition(action.partitionId, action.data, deserializePartition)

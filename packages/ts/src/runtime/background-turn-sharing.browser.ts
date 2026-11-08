@@ -1,4 +1,4 @@
-import { adoptBackgroundScheduler } from './shared-turns.browser'
+import { adoptBackgroundScheduler } from '../vector/vector-host/index.browser'
 import { createTurnScheduler, type ScheduleHop } from './turn-scheduler'
 
 function messageChannelHop(): ScheduleHop {

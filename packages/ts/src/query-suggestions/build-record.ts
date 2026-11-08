@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../core/ordering'
-import { sha256 } from '../persistence/durability/sha256'
+import { loadDigest } from '../persistence/digest-code'
 import { crc32 } from '../serialization/crc32'
 import { openChecksummedEnvelope, packEnvelopeWithChecksum } from '../serialization/envelope-file'
 import { decode } from '../serialization/msgpack'
@@ -32,10 +32,11 @@ const TRIGGERS = new Set<string>(['schedule', 'missed', 'caller'])
 const STATUSES = new Set<string>(['running', 'completed', 'failed', 'skipped'])
 const WHAT = 'query suggestions build record'
 
-export function sourcesDigestOf(sources: readonly MergedSource[]): Uint8Array {
+export async function sourcesDigestOf(sources: readonly MergedSource[]): Promise<Uint8Array> {
   const sorted = [...sources].sort(
     (left, right) => compareCodePoints(left.nodeId, right.nodeId) || compareCodePoints(left.key, right.key),
   )
+  const { sha256 } = await loadDigest()
   return sha256(encode(sorted.map(source => [source.nodeId, source.key, source.savedAt])))
 }
 

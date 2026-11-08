@@ -1,13 +1,17 @@
+import {
+  createPartitionIndex,
+  resolvePartialWordAnalysis,
+  resolvePartitionInsertOptions,
+  writePartitionDocument,
+  yieldToEventLoop,
+} from '#platform/segment-codec-host'
 import type { ResolvedAnalysis } from '../analysis/registry'
-import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
+import type { PartitionIndex, PartitionInsertOptions } from '../core/partition'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
-import { writePartitionDocument } from '../core/partition/rollover'
-import { yieldToEventLoop } from '../engine/orchestration/turn'
 import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import { TEXT_REBUILD_CHUNK_DOCUMENTS, TEXT_REBUILD_SWITCH_BACKLOG_DOCUMENTS } from './constants'
-import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from './insert-options'
 import type { PartitionManager } from './manager'
 import type { PartitionWriteLog } from './manager/write-log'
 import { rewriteSpillOf } from './rewrite-spill-of'

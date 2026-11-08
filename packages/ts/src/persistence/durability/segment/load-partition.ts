@@ -1,8 +1,11 @@
+import {
+  createSharedFrozenSegment,
+  decodeEveryStoredDocument,
+  ErrorCodes,
+  NarsilError,
+  shareSegmentArrays,
+} from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
-import { decodeEveryStoredDocument } from '../../../core/partition/frozen/document-source'
-import { createSharedFrozenSegment } from '../../../core/partition/frozen/shared'
-import { shareSegmentArrays } from '../../../core/partition/frozen/shared-snapshot'
-import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
 import type { DurableDirectory } from '../durable-filesystem'
@@ -76,7 +79,7 @@ async function attachPagedSegment(
   options: PartitionLoadOptions,
 ): Promise<void> {
   const { checkPagedSegmentFully, createPagedFrozenSegment, openPagedSnapshot, pagedListingOf } = await import(
-    '../../paged/module'
+    '../../storage-leaf'
   )
   if (options.decodesEveryDocument) await checkPagedSegmentFully(directory, ref)
   const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
@@ -97,7 +100,7 @@ export async function loadPartitionSegments(
   const { directory } = store
   for (const ref of partition.segments) {
     if (manager.config.textStorage === 'disk' && directory !== undefined) {
-      const { isPagedSegmentFile } = await import('../../paged/module')
+      const { isPagedSegmentFile } = await import('../../storage-leaf')
       if (await isPagedSegmentFile(directory, ref.key)) {
         await attachPagedSegment(directory, ref, partition.partitionId, manager, options)
         await yieldToEventLoop()

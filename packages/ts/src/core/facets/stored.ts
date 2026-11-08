@@ -1,8 +1,6 @@
+import { readStoredFields, regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeFacetCore } from '../../vector/native/types/facets'
-import { regionsOverlap } from '../regions'
 import { compareStoredElements } from '../stored-values/compare'
-import { readStoredFields } from '../stored-values/read'
-import { typedRegion } from '../stored-values/regions'
 
 export const valueFacet: NativeFacetCore['valueFacet'] = (valuesInput, matchedInput, valuesOutput, countsOutput) => {
   const fields = readStoredFields([valuesInput])

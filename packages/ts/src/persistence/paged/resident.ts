@@ -1,10 +1,15 @@
-import { generateId } from '../../core/id-generator'
-import { compareCodePoints } from '../../core/ordering'
+import {
+  compareCodePoints,
+  crc32,
+  decode,
+  ErrorCodes,
+  generateId,
+  NarsilError,
+  readHeader,
+  VECTOR_PATTERN,
+} from '#platform/storage-host'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { VECTOR_PATTERN } from '../../schema/validator/shared'
-import { crc32 } from '../../serialization/crc32'
-import { HEADER_SIZE, readHeader } from '../../serialization/header'
+import { HEADER_SIZE } from '../../serialization/header'
 import {
   type ColumnContext,
   decodeBooleanColumns,
@@ -17,7 +22,6 @@ import {
 } from '../../serialization/keyword-segment/decode-columns'
 import { uint32sFrom } from '../../serialization/keyword-segment/little-endian'
 import { requireEntriesAscend, requireOffsets, requireUtf8Entries } from '../../serialization/keyword-segment/validate'
-import { decode } from '../../serialization/msgpack'
 import { requireBlockSummaryList, requirePagedColumnLengths } from './column-layout'
 import {
   BLOCK_SUMMARY_BYTES,

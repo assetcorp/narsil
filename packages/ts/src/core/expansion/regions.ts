@@ -1,10 +1,14 @@
+import {
+  captureFrozen,
+  captureSegment,
+  readFrozenSource,
+  readMergeSegment,
+  regionsOverlap,
+  requireSegment,
+  storedText,
+  typedRegion,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionSegment } from '../../vector/native/types/expansion'
-import { captureFrozen, readFrozenSource } from '../frozen-writes/regions'
-import { regionsOverlap } from '../regions'
-import { captureSegment, readMergeSegment } from '../segment-writes/regions'
-import { requireSegment } from '../segment-writes/status'
-import { typedRegion } from '../stored-values/regions'
-import { storedText } from '../stored-values/text'
 
 export function expansionText(input: Uint16Array): string {
   const value = typedRegion(input, 'Uint16Array')

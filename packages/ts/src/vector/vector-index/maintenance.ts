@@ -1,5 +1,14 @@
+import {
+  adoptGraph,
+  allLiveDocIds,
+  ESTIMATED_MS_PER_TOMBSTONE,
+  ESTIMATED_MS_PER_VECTOR_REBUILD,
+  graphNeedsRebuild,
+  liveSize,
+  nativeStoreScratchBytes,
+  releaseReplacedVectors,
+} from '#platform/vector-host'
 import type { HNSWIndex } from '../hnsw'
-import { nativeStoreScratchBytes } from '../native/store'
 import {
   buildExclusively,
   buildGraphFromStore,
@@ -9,16 +18,7 @@ import {
 } from './build'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
-import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
-import {
-  adoptGraph,
-  allLiveDocIds,
-  graphNeedsRebuild,
-  liveSize,
-  type MaintenanceStatus,
-  releaseReplacedVectors,
-  type VectorIndexState,
-} from './shared'
+import type { MaintenanceStatus, VectorIndexState } from './shared'
 import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {

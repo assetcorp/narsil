@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { encodeBase64 } from '../../serialization/base64'
 import {
   BYTES_TAG,

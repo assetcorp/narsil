@@ -1,4 +1,4 @@
-import { DEG_TO_RAD } from '../constants'
+import { DEG_TO_RAD } from '../geo-host-bindings'
 import { COSINE_BOUND_ABSOLUTE_SLACK, HALF_CHORD_BOUND_MAX_SQUARE, HALF_CHORD_BOUND_RELATIVE_SLACK } from './constants'
 
 const COSINE_SECOND = -1 / 2

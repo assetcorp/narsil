@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { createRequestId, ErrorCodes, isValidWorkerResponse, NarsilError } from '#platform/worker-copies-host'
 import {
   CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
   DEFAULT_BACKPRESSURE_LIMIT,
@@ -7,7 +7,6 @@ import {
 } from './constants'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
-import { createRequestId, isValidWorkerResponse } from './protocol'
 
 export interface WorkerExecutorConfig {
   backpressureLimit?: number

@@ -1,6 +1,5 @@
-import { mergePostings } from '#platform/segment-merges'
+import { ErrorCodes, mergePostings, NarsilError } from '#platform/storage-host'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
 import { POSTING_WRITE_POSITIONS, POSTING_WRITE_ROWS } from './constants'
 
