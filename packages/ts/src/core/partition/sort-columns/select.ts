@@ -1,15 +1,17 @@
+import { ErrorCodes, NarsilError } from '../../../errors'
+import { sortSelect } from '../../../search/sorting-code'
 import {
   type ComparableSortValue,
   compareCodePoints,
-  compareComparableValues,
   defaultSortMode,
   type SortDirection,
   type SortMode,
 } from '../../ordering'
+import { compareComparableKeys } from '../../ordering/sort-comparison'
 import type { PartitionFilterMatches } from '../filters'
 import type { PartitionReadState } from '../utils'
-import type { SortColumn } from './index'
-import { MISSING_RANK, rankIsBetweenValues, rankOfValue } from './order'
+import { rankOfValue } from './order'
+import { createValueStore } from './values'
 
 export interface SortPageRequest {
   fields: readonly string[]
@@ -27,212 +29,55 @@ export interface SortedPageEntry {
   key: ComparableSortValue[]
 }
 
-interface Candidate {
-  internalId: number
-  externalId: string
-  leadingRank: number
-  key: ComparableSortValue[]
-}
-
-function rankOrdersAfter(rank: number, other: number, direction: SortDirection): boolean {
-  if (rank === MISSING_RANK) return other !== MISSING_RANK
-  if (other === MISSING_RANK) return false
-  return direction === 'asc' ? rank > other : rank < other
-}
-
-function compareColumnValue(column: SortColumn, aId: number, bId: number, direction: SortDirection): number {
-  const aRank = column.rankOf(aId)
-  const bRank = column.rankOf(bId)
-  if (aRank === MISSING_RANK && bRank === MISSING_RANK) return 0
-  if (aRank === MISSING_RANK) return 1
-  if (bRank === MISSING_RANK) return -1
-  if (aRank !== bRank) {
-    const ascending = aRank < bRank ? -1 : 1
-    return direction === 'desc' ? -ascending : ascending
-  }
-  if (!rankIsBetweenValues(aRank)) return 0
-  return compareComparableValues(column.valueOf(aId), column.valueOf(bId), direction)
-}
-
-function compareCandidates(
-  columns: readonly SortColumn[],
-  directions: readonly SortDirection[],
-  a: Candidate,
-  b: Candidate,
-): number {
-  for (let i = 0; i < columns.length; i++) {
-    const comparison = compareColumnValue(columns[i], a.internalId, b.internalId, directions[i])
-    if (comparison !== 0) return comparison
-  }
-  return compareCodePoints(a.externalId, b.externalId)
-}
-
-function compareWithAnchor(
-  columns: readonly SortColumn[],
-  directions: readonly SortDirection[],
-  candidate: Candidate,
-  anchorKey: readonly ComparableSortValue[],
-  anchorId: string,
-): number {
-  for (let i = 0; i < columns.length; i++) {
-    const comparison = compareComparableValues(candidate.key[i], anchorKey[i] ?? null, directions[i])
-    if (comparison !== 0) return comparison
-  }
-  return compareCodePoints(candidate.externalId, anchorId)
-}
-
-function insertOrdered(
-  page: Candidate[],
-  entry: Candidate,
-  columns: readonly SortColumn[],
-  directions: readonly SortDirection[],
-): void {
-  let low = 0
-  let high = page.length
-  while (low < high) {
-    const mid = (low + high) >>> 1
-    if (compareCandidates(columns, directions, page[mid], entry) <= 0) low = mid + 1
-    else high = mid
-  }
-  page.splice(low, 0, entry)
-}
-
-function seekDirtyPosition(column: SortColumn, present: Int32Array, rank: number, direction: SortDirection): number {
-  let low = 0
-  let high = present.length
-  if (direction === 'asc') {
-    while (low < high) {
-      const mid = (low + high) >>> 1
-      if (column.rankOf(present[mid]) < rank) low = mid + 1
-      else high = mid
-    }
-    return low
-  }
-  while (low < high) {
-    const mid = (low + high) >>> 1
-    if (column.rankOf(present[mid]) <= rank) low = mid + 1
-    else high = mid
-  }
-  return low - 1
-}
-
-function createStream(column: SortColumn, direction: SortDirection, anchorRank: number | null): () => number {
-  const ordered = column.order.ordered
-  const dirty = column.dirtyStream()
-  const step = direction === 'asc' ? 1 : -1
-  const anchorIsMissing = anchorRank === MISSING_RANK
-
-  let builtIndex = direction === 'asc' ? 0 : ordered.length - 1
-  let dirtyIndex = direction === 'asc' ? 0 : dirty.present.length - 1
-  if (anchorRank !== null && !anchorIsMissing) {
-    builtIndex = column.seek(anchorRank, direction)
-    dirtyIndex = seekDirtyPosition(column, dirty.present, anchorRank, direction)
-  }
-
-  let presentExhausted = anchorIsMissing
-  let builtMissingIndex = 0
-  let dirtyMissingIndex = 0
-
-  function peekBuilt(): number {
-    while (builtIndex >= 0 && builtIndex < ordered.length) {
-      if (!column.isDirty(ordered[builtIndex])) return ordered[builtIndex]
-      builtIndex += step
-    }
-    return -1
-  }
-
-  function peekDirty(): number {
-    if (dirtyIndex < 0 || dirtyIndex >= dirty.present.length) return -1
-    return dirty.present[dirtyIndex]
-  }
-
-  function nextMissing(): number {
-    const builtMissing = column.order.missing
-    while (builtMissingIndex < builtMissing.length) {
-      const internalId = builtMissing[builtMissingIndex]
-      builtMissingIndex++
-      if (!column.isDirty(internalId)) return internalId
-    }
-    if (dirtyMissingIndex < dirty.missing.length) {
-      const internalId = dirty.missing[dirtyMissingIndex]
-      dirtyMissingIndex++
-      return internalId
-    }
-    return -1
-  }
-
-  return function next(): number {
-    if (!presentExhausted) {
-      const builtId = peekBuilt()
-      const dirtyId = peekDirty()
-      if (builtId === -1 && dirtyId === -1) {
-        presentExhausted = true
-      } else if (dirtyId === -1) {
-        builtIndex += step
-        return builtId
-      } else if (builtId === -1) {
-        dirtyIndex += step
-        return dirtyId
-      } else if (rankOrdersAfter(column.rankOf(dirtyId), column.rankOf(builtId), direction)) {
-        builtIndex += step
-        return builtId
-      } else {
-        dirtyIndex += step
-        return dirtyId
-      }
-    }
-    return nextMissing()
-  }
-}
+const emptyMatches = new Uint32Array(1)
 
 export function selectSortedPage(state: PartitionReadState, request: SortPageRequest): SortedPageEntry[] {
   const { fields, directions, fieldTypes, modes, limit, anchorKey, anchorId, matches } = request
-  if (limit <= 0 || fields.length === 0) return []
-
+  if (limit <= 0 || fields.length === 0 || state.sortColumns === null) return []
   const set = state.sortColumns
-  if (set === null) return []
-
   const columns = fields.map((field, index) =>
     set.column(field, fieldTypes[index], modes[index] ?? defaultSortMode(directions[index] ?? 'asc')),
   )
-  const resolver = state.docStore.resolver()
-  const leading = columns[0]
-  const leadingDirection = directions[0]
-
-  const anchorRank = anchorKey === null || anchorId === null ? null : rankOfValue(leading.order, anchorKey[0] ?? null)
-  const next = createStream(leading, leadingDirection, anchorRank)
-
-  const page: Candidate[] = []
-
-  for (;;) {
-    const internalId = next()
-    if (internalId === -1) break
-
-    if (matches !== null && !matches.hasInternal(internalId)) continue
-
-    const externalId = resolver.toExternal(internalId)
-    if (externalId === undefined) continue
-
-    const leadingRank = leading.rankOf(internalId)
-    if (page.length === limit && rankOrdersAfter(leadingRank, page[limit - 1].leadingRank, leadingDirection)) {
-      break
+  const regions = columns.map(column => column.regions())
+  const orders = Uint8Array.from(directions, direction => (direction === 'desc' ? 1 : 0))
+  const live = set.liveBitset()
+  const matched = matches === null ? live : matches.ordinalBitset()
+  const filter = matched.length === 0 ? emptyMatches : matched
+  const anchorStore = anchorKey === null || anchorId === null ? null : createValueStore()
+  const anchorRanks = anchorStore === null ? null : new Int32Array(columns.length)
+  if (anchorStore !== null && anchorRanks !== null && anchorKey !== null) {
+    for (let field = 0; field < columns.length; field++) {
+      const value = anchorKey[field] ?? null
+      anchorStore.set(field, value)
+      anchorRanks[field] = rankOfValue(columns[field].order, value)
     }
-
-    const key: ComparableSortValue[] = new Array(columns.length)
-    for (let i = 0; i < columns.length; i++) key[i] = columns[i].valueOf(internalId)
-    const candidate: Candidate = { internalId, externalId, leadingRank, key }
-
-    if (anchorKey !== null && anchorId !== null) {
-      if (compareWithAnchor(columns, directions, candidate, anchorKey, anchorId) <= 0) continue
-    }
-
-    if (page.length === limit) {
-      if (compareCandidates(columns, directions, candidate, page[limit - 1]) >= 0) continue
-      page.pop()
-    }
-
-    insertOrdered(page, candidate, columns, directions)
   }
-
-  return page.map(entry => ({ id: entry.externalId, key: entry.key }))
+  const anchor = anchorStore?.regions(columns.length) ?? null
+  const capacity = state.docStore.count()
+  const output = new Uint32Array(capacity)
+  const resolver = state.docStore.resolver()
+  let requested = Math.min(limit, capacity)
+  for (;;) {
+    const count = sortSelect(regions, orders, filter, live, requested, anchorRanks, anchor, output)
+    if (count < 0) {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The sorted page could not be selected', { status: -count })
+    }
+    const page: SortedPageEntry[] = []
+    for (let at = 0; at < count; at++) {
+      const ordinal = output[at]
+      const id = resolver.toExternal(ordinal)
+      if (id === undefined) continue
+      const key = columns.map(column => column.valueOf(ordinal))
+      if (anchorKey !== null && anchorId !== null) {
+        const order = compareComparableKeys(key, anchorKey, directions)
+        if (order < 0 || (order === 0 && compareCodePoints(id, anchorId) <= 0)) continue
+      }
+      page.push({ id, key })
+    }
+    page.sort(
+      (left, right) => compareComparableKeys(left.key, right.key, directions) || compareCodePoints(left.id, right.id),
+    )
+    if (page.length >= limit || count < requested || requested === capacity) return page.slice(0, limit)
+    requested = Math.min(capacity, Math.max(requested * 2, requested + limit - page.length))
+  }
 }

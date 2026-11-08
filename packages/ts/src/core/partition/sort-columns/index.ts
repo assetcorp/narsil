@@ -1,15 +1,14 @@
 import { isListBase, parsedTypeOf } from '../../../schema/validator/field-type'
+import { reduceStoredSortValue } from '../../../search/sorting-code'
+import type { NativeSortColumn } from '../../../vector/native/types/sort'
+import { bitsetClear, bitsetFromSet, bitsetSet, createBitSet } from '../../bitset'
 import type { DocumentStoreReader } from '../../document-store'
-import {
-  type ComparableSortValue,
-  compareComparableValues,
-  readSortField,
-  type SortMode,
-  toReducedSortValue,
-} from '../../ordering'
+import type { ComparableSortValue, SortMode } from '../../ordering'
+import { compareComparableValues } from '../../ordering/sort-comparison'
+import { storedValuesOf } from '../../stored-values/columns'
 import { SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD, SORT_COLUMN_REBUILD_FRACTION_SHIFT } from '../constants'
 import { buildOrder, estimateOrderBytes, MISSING_RANK, rankOfValue, type SortColumnOrder, seekPosition } from './order'
-import { createValueStore, kindForFieldType, type ValueStore } from './values'
+import { createValueStore, type ValueStore } from './values'
 
 export type { SortColumnOrder } from './order'
 export { MISSING_RANK, rankIsBetweenValues, seekPosition } from './order'
@@ -27,6 +26,7 @@ export interface SortColumn {
   isDirty(internalId: number): boolean
   dirtyStream(): DirtyStream
   seek(rank: number, direction: 'asc' | 'desc'): number
+  regions(): NativeSortColumn
 }
 
 export interface SortColumnSet {
@@ -37,6 +37,7 @@ export interface SortColumnSet {
   refresh(): void
   fieldCount(): number
   estimateBytes(): number
+  liveBitset(): Uint32Array
 }
 
 interface ColumnEntry {
@@ -65,6 +66,8 @@ function liveInternalIds(docStore: DocumentStoreReader): number[] {
 
 export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSet {
   const columns = new Map<string, ColumnEntry>()
+  let live = createBitSet(docStore.internalIdCapacity())
+  for (const ordinal of docStore.allInternalIds()) bitsetSet(live, ordinal)
 
   function rebuildThreshold(): number {
     const count = docStore.count()
@@ -78,11 +81,11 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
     entry.dirtyStream = null
   }
 
-  function backfill(key: string, field: string, fieldType: string | undefined, mode: SortMode): ColumnEntry {
-    const store = createValueStore(kindForFieldType(fieldType))
-    const read = docStore.fieldReader(field)
+  function backfill(key: string, field: string, mode: SortMode): ColumnEntry {
+    const store = createValueStore()
+    const values = storedValuesOf(docStore, field)
     for (const internalId of docStore.allInternalIds()) {
-      store.set(internalId, toReducedSortValue(read(internalId), mode))
+      store.set(internalId, reduceStoredSortValue(values, internalId, mode))
     }
     const entry: ColumnEntry = {
       field,
@@ -147,6 +150,16 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
       seek(rank: number, direction: 'asc' | 'desc'): number {
         return seekPosition(entry.order, rank, direction)
       },
+      regions(): NativeSortColumn {
+        const capacity = docStore.internalIdCapacity()
+        return {
+          current: entry.store.regions(capacity),
+          values: entry.order.dictionary,
+          ranks: entry.order.ranks,
+          ordered: entry.order.ordered,
+          dirty: bitsetFromSet(entry.dirty, capacity),
+        }
+      },
     }
   }
 
@@ -159,22 +172,32 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
       const key = columnKeyOf(field, fieldType, mode)
       let entry = columns.get(key)
       if (entry === undefined) {
-        entry = backfill(key, field, fieldType, mode)
+        entry = backfill(key, field, mode)
       } else if (entry.dirty.size > rebuildThreshold()) {
         rebuild(entry)
       }
       return viewOf(entry)
     },
 
-    record(internalId: number, document: Record<string, unknown>): void {
+    record(internalId: number): void {
+      if (internalId >>> 5 >= live.length) {
+        const grown = createBitSet(docStore.internalIdCapacity())
+        grown.set(live)
+        live = grown
+      }
+      bitsetSet(live, internalId)
       for (const entry of columns.values()) {
-        entry.store.set(internalId, toReducedSortValue(readSortField(document, entry.field), entry.mode))
+        entry.store.set(
+          internalId,
+          reduceStoredSortValue(storedValuesOf(docStore, entry.field), internalId, entry.mode),
+        )
         entry.dirty.add(internalId)
         entry.dirtyStream = null
       }
     },
 
     forget(internalId: number): void {
+      bitsetClear(live, internalId)
       for (const entry of columns.values()) {
         entry.store.clear(internalId)
         entry.dirty.delete(internalId)
@@ -194,11 +217,14 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
     },
 
     estimateBytes(): number {
-      let bytes = 0
+      let bytes = live.byteLength
       for (const entry of columns.values()) {
         bytes += entry.store.estimateBytes() + estimateOrderBytes(entry.order)
       }
       return bytes
+    },
+    liveBitset(): Uint32Array {
+      return live
     },
   }
 }

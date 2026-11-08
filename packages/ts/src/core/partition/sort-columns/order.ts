@@ -1,5 +1,11 @@
-import { type ComparableSortValue, compareComparableValues } from '../../ordering'
-import type { ValueStore } from './values'
+import { ErrorCodes, NarsilError } from '../../../errors'
+import { buildSortOrder } from '../../../search/sorting-code'
+import type { NativeSortValues } from '../../../vector/native/types/sort'
+import { bitsetSet, createBitSet } from '../../bitset'
+import type { ComparableSortValue } from '../../ordering'
+import { compareComparableValues } from '../../ordering/sort-comparison'
+import { sortValueAt } from '../../sort-values/regions'
+import { allocateSortValues, type ValueStore } from './values'
 
 export const MISSING_RANK = -1
 
@@ -8,8 +14,9 @@ const BYTES_PER_ORDERED_ENTRY = 4
 
 export interface SortColumnOrder {
   values: ComparableSortValue[]
+  dictionary: NativeSortValues
   ranks: Int32Array
-  ordered: Int32Array
+  ordered: Uint32Array
   missing: Int32Array
 }
 
@@ -18,46 +25,44 @@ function compareAscending(a: ComparableSortValue, b: ComparableSortValue): numbe
 }
 
 export function buildOrder(store: ValueStore, liveIds: Iterable<number>, capacity: number): SortColumnOrder {
-  const counts = new Map<ComparableSortValue, number>()
-  const present: number[] = []
+  const current = store.regions(capacity)
+  const live = createBitSet(capacity)
   const missing: number[] = []
-
+  let present = 0
+  let unitCount = 0
   for (const internalId of liveIds) {
-    const value = store.get(internalId)
-    if (value === null) {
+    bitsetSet(live, internalId)
+    const kind = current.kinds[internalId]
+    if (kind === 0) {
       missing.push(internalId)
       continue
     }
-    present.push(internalId)
-    counts.set(value, (counts.get(value) ?? 0) + 1)
+    present++
+    if (kind === 2) unitCount += current.textLength[internalId]
   }
-
-  const values = Array.from(counts.keys())
-  values.sort(compareAscending)
-
-  const indexOfValue = new Map<ComparableSortValue, number>()
-  for (let i = 0; i < values.length; i++) indexOfValue.set(values[i], i)
-
+  const dictionary = allocateSortValues(present, unitCount)
   const ranks = new Int32Array(capacity)
-  ranks.fill(MISSING_RANK)
-
-  const offsets = new Int32Array(values.length + 1)
-  for (let i = 0; i < values.length; i++) {
-    offsets[i + 1] = offsets[i] + (counts.get(values[i]) ?? 0)
+  const ordered = new Uint32Array(present)
+  const dirty = createBitSet(capacity)
+  const counts = new Uint32Array(2)
+  const status = buildSortOrder(current, live, dictionary, ranks, ordered, dirty, counts)
+  if (status !== 0) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The sort order could not be built', { status: -status })
   }
-
-  const cursors = offsets.slice(0, values.length)
-  const ordered = new Int32Array(present.length)
-  for (const internalId of present) {
-    const value = store.get(internalId)
-    const valueIndex = indexOfValue.get(value)
-    if (valueIndex === undefined) continue
-    ranks[internalId] = rankOfValueIndex(valueIndex)
-    ordered[cursors[valueIndex]] = internalId
-    cursors[valueIndex]++
+  const values = Array.from({ length: counts[0] }, (_, index) => sortValueAt(dictionary, index))
+  return {
+    values,
+    dictionary: {
+      kinds: dictionary.kinds.subarray(0, counts[0]),
+      numbers: dictionary.numbers.subarray(0, counts[0]),
+      textStart: dictionary.textStart.subarray(0, counts[0]),
+      textLength: dictionary.textLength.subarray(0, counts[0]),
+      units: dictionary.units,
+    },
+    ranks,
+    ordered,
+    missing: Int32Array.from(missing),
   }
-
-  return { values, ranks, ordered, missing: Int32Array.from(missing) }
 }
 
 export function rankOfValueIndex(valueIndex: number): number {
@@ -108,5 +113,10 @@ export function seekPosition(order: SortColumnOrder, rank: number, direction: 'a
 }
 
 export function estimateOrderBytes(order: SortColumnOrder): number {
-  return order.ranks.length * BYTES_PER_RANK + (order.ordered.length + order.missing.length) * BYTES_PER_ORDERED_ENTRY
+  const dictionaryBytes = Object.values(order.dictionary).reduce((bytes, region) => bytes + region.buffer.byteLength, 0)
+  return (
+    dictionaryBytes +
+    order.ranks.length * BYTES_PER_RANK +
+    (order.ordered.length + order.missing.length) * BYTES_PER_ORDERED_ENTRY
+  )
 }

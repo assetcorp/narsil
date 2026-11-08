@@ -2,16 +2,16 @@ import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { bitsetSet, createBitSet } from '../bitset'
+import { countRangeFacets } from '../facets/adapter'
+import { countStoredFacet, countStoredRanges } from '../facets/stored-adapter'
 import { compareCodePoints } from '../ordering'
+import { storedValuesOf } from '../stored-values/columns'
+import { keptFacetValues } from './facet-limit'
 import { getFlatSchema, type PartitionReadState, type PartitionState } from './utils'
 
 type FacetRange = { from: number; to: number }
 
 const UNDECLARED_FIELD_TYPE = ''
-
-export function keptFacetValues(limit: number | undefined): number | undefined {
-  return limit !== undefined && limit > 0 ? Math.floor(limit) : undefined
-}
 
 export interface FacetOrdinalSet {
   readonly ordinalBitset: Uint32Array
@@ -29,92 +29,32 @@ function ordinalBitsetOf(state: PartitionReadState, matched: FacetMatchSet): Uin
   return bitset
 }
 
-function* matchedFieldValues(state: PartitionReadState, fieldPath: string, matched: FacetMatchSet): Generator<unknown> {
-  const read = state.docStore.fieldReader(fieldPath)
-  if ('ordinalBitset' in matched) {
-    const bits = matched.ordinalBitset
-    for (let wordIndex = 0; wordIndex < bits.length; wordIndex++) {
-      let word = bits[wordIndex]
-      if (word === 0) continue
-      const base = wordIndex << 5
-      while (word !== 0) {
-        const trailingZeros = Math.clz32(word & -word) ^ 31
-        yield read(base + trailingZeros)
-        word &= word - 1
-      }
-    }
-    return
-  }
-  for (const docId of matched) {
-    const internalId = state.docStore.getInternalId(docId)
-    yield internalId === undefined ? undefined : read(internalId)
-  }
-}
-
 function countValuesFromDocuments(
   state: PartitionReadState,
   fieldPath: string,
   matched: FacetMatchSet,
 ): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const value of matchedFieldValues(state, fieldPath, matched)) {
-    if (value === undefined || value === null) continue
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const key = String(item)
-        counts.set(key, (counts.get(key) ?? 0) + 1)
-      }
-    } else {
-      const key = String(value)
-      counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-  }
-  return counts
-}
-
-function countRangeFromDocuments(
-  state: PartitionReadState,
-  fieldPath: string,
-  fieldType: string,
-  range: FacetRange,
-  matched: FacetMatchSet,
-): number {
-  let count = 0
-  for (const value of matchedFieldValues(state, fieldPath, matched)) {
-    if ((fieldType === 'number[]' || fieldType === UNDECLARED_FIELD_TYPE) && Array.isArray(value)) {
-      for (const v of value as number[]) {
-        if (v >= range.from && v < range.to) {
-          count++
-          break
-        }
-      }
-    } else if (typeof value === 'number' && value >= range.from && value < range.to) {
-      count++
-    }
-  }
-  return count
+  return countStoredFacet(storedValuesOf(state.docStore, fieldPath), ordinalBitsetOf(state, matched))
 }
 
 function countNumericRanges(
   state: PartitionReadState,
   fieldPath: string,
-  fieldType: string,
   ranges: readonly FacetRange[],
   bitset: () => Uint32Array,
-  matched: FacetMatchSet,
 ): Map<string, number> {
   const counts = new Map<string, number>()
   const index = state.numericIndexes.get(fieldPath)
-  for (const range of ranges) {
-    const label = `${range.from}-${range.to}`
-    if (index === undefined) {
-      counts.set(label, countRangeFromDocuments(state, fieldPath, fieldType, range, matched))
-    } else if (Number.isNaN(range.from) || Number.isNaN(range.to)) {
-      counts.set(label, 0)
-    } else {
-      counts.set(label, index.facetRangeCount(range.from, range.to, bitset()))
-    }
+  const bounds = new Float64Array(ranges.length * 2)
+  for (let at = 0; at < ranges.length; at++) {
+    bounds[at * 2] = ranges[at].from
+    bounds[at * 2 + 1] = ranges[at].to
   }
+  const totals =
+    index === undefined
+      ? countStoredRanges(storedValuesOf(state.docStore, fieldPath), bitset(), bounds)
+      : countRangeFacets(index.regions(), bitset(), bounds)
+  for (let at = 0; at < ranges.length; at++) counts.set(`${ranges[at].from}-${ranges[at].to}`, totals[at])
   return counts
 }
 
@@ -179,7 +119,7 @@ export function computeFacets(
 
     const valueCounts =
       facetOpts.ranges && (fieldType === 'number' || fieldType === 'number[]' || fieldType === UNDECLARED_FIELD_TYPE)
-        ? countNumericRanges(state, fieldPath, fieldType, facetOpts.ranges, bitset, matched)
+        ? countNumericRanges(state, fieldPath, facetOpts.ranges, bitset)
         : countFieldValues(state, fieldPath, fieldType, bitset, matched)
 
     const ordered = Array.from(valueCounts.entries())
@@ -194,7 +134,7 @@ export function computeFacets(
       if (ordered[index][1] > errorBound) errorBound = ordered[index][1]
     }
 
-    const values: Record<string, number> = {}
+    const values: Record<string, number> = Object.create(null)
     for (const [key, count] of entries) {
       values[key] = count
     }

@@ -3,6 +3,7 @@ import type { PatternMatchRequest, PatternTolerance, PatternWorkMeter } from '..
 import type { FilterExpression } from '../types/filters'
 
 const slotsBySearch = new WeakMap<PatternWorkMeter, ReadonlyMap<string, number>>()
+const localClaims = new WeakMap<PatternWorkMeter, Set<string>>()
 
 function typoTestKey(caseFold: boolean, tolerance: PatternTolerance, text: string): string {
   return `${caseFold}|${tolerance}|${text}`
@@ -33,9 +34,17 @@ function slotsOf(meter: PatternWorkMeter): ReadonlyMap<string, number> {
 
 export function claimsTypoPreparation(request: PatternMatchRequest): boolean {
   const { meter, caseFold, tolerance, text } = request
+  let known = localClaims.get(meter)
+  if (known === undefined) {
+    known = new Set()
+    localClaims.set(meter, known)
+  }
+  const key = typoTestKey(caseFold, tolerance, text)
+  if (known.has(key)) return false
+  known.add(key)
   if (meter.preparedTypoTests === null) return true
   const claimed = new Int32Array(meter.preparedTypoTests)
-  const slot = slotsOf(meter).get(typoTestKey(caseFold, tolerance, text))
+  const slot = slotsOf(meter).get(key)
   if (slot === undefined || slot >= claimed.length * TYPO_CLAIM_SLOTS_PER_WORD) return true
   const bit = 1 << (slot % TYPO_CLAIM_SLOTS_PER_WORD)
   return (Atomics.or(claimed, Math.floor(slot / TYPO_CLAIM_SLOTS_PER_WORD), bit) & bit) === 0

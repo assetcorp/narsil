@@ -1,164 +1,116 @@
-import { parsedTypeOf } from '../../../schema/validator/field-type'
+import { ErrorCodes, NarsilError } from '../../../errors'
+import type { NativeSortValues } from '../../../vector/native/types/sort'
 import type { ComparableSortValue } from '../../ordering'
-import { SORT_VALUE_MAX_CODE_POINTS } from '../../ordering/constants'
-
-export type ValueStoreKind = 'number' | 'boolean' | 'mixed'
-
-const BOOLEAN_FALSE = 0
-const BOOLEAN_TRUE = 1
-const BOOLEAN_MISSING = 2
-
-const BYTES_PER_NUMBER_SLOT = 8
-const BYTES_PER_BOOLEAN_SLOT = 1
-const BYTES_PER_MIXED_SLOT = 8
-const BYTES_PER_STRING_CODE_UNIT = 2
-const STRING_HEADER_BYTES = 24
+import { sortValueAt } from '../../sort-values/regions'
+import { SORT_TEXT_INITIAL_CAPACITY, SORT_VALUES_INITIAL_CAPACITY } from './constants'
 
 export interface ValueStore {
-  readonly kind: ValueStoreKind
   set(internalId: number, comparable: ComparableSortValue): void
   clear(internalId: number): void
   get(internalId: number): ComparableSortValue
+  regions(capacity: number): NativeSortValues
   estimateBytes(): number
 }
 
-function grow(length: number, wanted: number): number {
-  let next = length === 0 ? 64 : length
-  while (next <= wanted) next *= 2
-  return next
+export function allocateSortValues(capacity: number, units: number): NativeSortValues {
+  return {
+    kinds: new Uint8Array(capacity),
+    numbers: new Float64Array(capacity),
+    textStart: new Uint32Array(capacity),
+    textLength: new Uint32Array(capacity),
+    units: new Uint16Array(units),
+  }
 }
 
-export function kindForFieldType(fieldType: string | undefined): ValueStoreKind {
-  const base = parsedTypeOf(fieldType)?.base
-  if (base === 'number') return 'number'
-  if (base === 'boolean') return 'boolean'
-  return 'mixed'
-}
+export function createValueStore(): ValueStore {
+  let held = allocateSortValues(0, 0)
+  let usedUnits = 0
+  let liveUnits = 0
 
-export function createValueStore(initialKind: ValueStoreKind): ValueStore {
-  let kind = initialKind
-  let numbers = initialKind === 'number' ? new Float64Array(0) : null
-  let booleans = initialKind === 'boolean' ? new Uint8Array(0) : null
-  let mixed: ComparableSortValue[] = []
+  function grow(capacity: number): void {
+    if (capacity <= held.kinds.length) return
+    const next = allocateSortValues(Math.max(capacity, held.kinds.length * 2, SORT_VALUES_INITIAL_CAPACITY), 0)
+    next.kinds.set(held.kinds)
+    next.numbers.set(held.numbers)
+    next.textStart.set(held.textStart)
+    next.textLength.set(held.textLength)
+    next.units = held.units
+    held = next
+  }
 
-  function demote(): void {
-    const promoted: ComparableSortValue[] = []
-    if (numbers !== null) {
-      for (let id = 0; id < numbers.length; id++) {
-        promoted[id] = Number.isNaN(numbers[id]) ? null : numbers[id]
-      }
-    } else if (booleans !== null) {
-      for (let id = 0; id < booleans.length; id++) {
-        promoted[id] = booleans[id] === BOOLEAN_MISSING ? null : booleans[id] === BOOLEAN_TRUE
-      }
+  function compact(): void {
+    const units = new Uint16Array(Math.max(liveUnits, SORT_TEXT_INITIAL_CAPACITY))
+    let at = 0
+    for (let ordinal = 0; ordinal < held.kinds.length; ordinal++) {
+      if (held.kinds[ordinal] !== 2) continue
+      const start = held.textStart[ordinal]
+      const length = held.textLength[ordinal]
+      units.set(held.units.subarray(start, start + length), at)
+      held.textStart[ordinal] = at
+      at += length
     }
-    numbers = null
-    booleans = null
-    mixed = promoted
-    kind = 'mixed'
+    held.units = units
+    usedUnits = at
   }
 
-  function setNumber(internalId: number, value: number): void {
-    if (numbers === null) return
-    if (internalId >= numbers.length) {
-      const grown = new Float64Array(grow(numbers.length, internalId))
-      grown.fill(Number.NaN, numbers.length)
-      grown.set(numbers)
-      numbers = grown
+  function reserveText(length: number): void {
+    if (usedUnits - liveUnits > liveUnits && usedUnits > SORT_TEXT_INITIAL_CAPACITY) compact()
+    const needed = usedUnits + length
+    if (needed > 0xffffffff) {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The sort strings exceed the native value layout')
     }
-    numbers[internalId] = value
+    if (needed <= held.units.length) return
+    const units = new Uint16Array(
+      Math.max(needed, Math.min(0xffffffff, held.units.length * 2), SORT_TEXT_INITIAL_CAPACITY),
+    )
+    units.set(held.units.subarray(0, usedUnits))
+    held.units = units
   }
 
-  function setBoolean(internalId: number, value: number): void {
-    if (booleans === null) return
-    if (internalId >= booleans.length) {
-      const grown = new Uint8Array(grow(booleans.length, internalId))
-      grown.fill(BOOLEAN_MISSING, booleans.length)
-      grown.set(booleans)
-      booleans = grown
-    }
-    booleans[internalId] = value
-  }
-
-  function setMixed(internalId: number, value: ComparableSortValue): void {
-    while (mixed.length <= internalId) mixed.push(null)
-    mixed[internalId] = value
-  }
-
-  const store: ValueStore = {
-    get kind() {
-      return kind
-    },
-
-    set(internalId: number, comparable: ComparableSortValue): void {
-      if (kind === 'number') {
-        if (comparable === null) {
-          setNumber(internalId, Number.NaN)
-          return
-        }
-        if (typeof comparable !== 'number') {
-          demote()
-          setMixed(internalId, comparable)
-          return
-        }
-        setNumber(internalId, comparable)
+  return {
+    set(internalId, value) {
+      grow(internalId + 1)
+      const isText = held.kinds[internalId] === 2
+      const oldLength = isText ? held.textLength[internalId] : 0
+      if (typeof value === 'string') {
+        if (!isText || value.length > oldLength) reserveText(value.length)
+        const start = isText && value.length <= oldLength ? held.textStart[internalId] : usedUnits
+        if (!isText || value.length > oldLength) usedUnits += value.length
+        for (let index = 0; index < value.length; index++) held.units[start + index] = value.charCodeAt(index)
+        held.textStart[internalId] = start
+        held.textLength[internalId] = value.length
+        held.kinds[internalId] = 2
+        liveUnits += value.length - oldLength
         return
       }
-      if (kind === 'boolean') {
-        if (comparable === null) {
-          setBoolean(internalId, BOOLEAN_MISSING)
-          return
-        }
-        if (typeof comparable !== 'boolean') {
-          demote()
-          setMixed(internalId, comparable)
-          return
-        }
-        setBoolean(internalId, comparable ? BOOLEAN_TRUE : BOOLEAN_FALSE)
-        return
-      }
-      setMixed(internalId, comparable)
+      liveUnits -= oldLength
+      held.textStart[internalId] = 0
+      held.textLength[internalId] = 0
+      held.kinds[internalId] = value === null ? 0 : typeof value === 'number' ? 1 : value ? 4 : 3
+      held.numbers[internalId] = typeof value === 'number' ? value : 0
     },
-
-    clear(internalId: number): void {
-      if (numbers !== null) {
-        if (internalId < numbers.length) numbers[internalId] = Number.NaN
-        return
-      }
-      if (booleans !== null) {
-        if (internalId < booleans.length) booleans[internalId] = BOOLEAN_MISSING
-        return
-      }
-      if (internalId < mixed.length) mixed[internalId] = null
+    clear(internalId) {
+      if (internalId >= held.kinds.length) return
+      if (held.kinds[internalId] === 2) liveUnits -= held.textLength[internalId]
+      held.kinds[internalId] = 0
+      held.textStart[internalId] = 0
+      held.textLength[internalId] = 0
     },
-
-    get(internalId: number): ComparableSortValue {
-      if (numbers !== null) {
-        if (internalId >= numbers.length) return null
-        const value = numbers[internalId]
-        return Number.isNaN(value) ? null : value
-      }
-      if (booleans !== null) {
-        if (internalId >= booleans.length) return null
-        const value = booleans[internalId]
-        return value === BOOLEAN_MISSING ? null : value === BOOLEAN_TRUE
-      }
-      if (internalId >= mixed.length) return null
-      return mixed[internalId]
+    get(internalId) {
+      return internalId >= held.kinds.length ? null : sortValueAt(held, internalId)
     },
-
-    estimateBytes(): number {
-      if (numbers !== null) return numbers.length * BYTES_PER_NUMBER_SLOT
-      if (booleans !== null) return booleans.length * BYTES_PER_BOOLEAN_SLOT
-      let bytes = mixed.length * BYTES_PER_MIXED_SLOT
-      for (const value of mixed) {
-        if (typeof value !== 'string') continue
-        if (value.length < SORT_VALUE_MAX_CODE_POINTS) continue
-        bytes += STRING_HEADER_BYTES + value.length * BYTES_PER_STRING_CODE_UNIT
+    regions(capacity) {
+      grow(capacity)
+      return {
+        kinds: held.kinds.subarray(0, capacity),
+        numbers: held.numbers.subarray(0, capacity),
+        textStart: held.textStart.subarray(0, capacity),
+        textLength: held.textLength.subarray(0, capacity),
+        units: held.units.subarray(0, usedUnits),
       }
-      return bytes
+    },
+    estimateBytes() {
+      return Object.values(held).reduce((bytes, region) => bytes + region.byteLength, 0)
     },
   }
-
-  return store
 }
