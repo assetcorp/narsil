@@ -94,12 +94,18 @@ export function kthBestScore(
   resolver: Pick<InternalIdResolver, 'isLive'>,
 ): number {
   const wanted = selection.length
+  if (wanted === 0) return Number.NEGATIVE_INFINITY
   const { touched, touchedCount, scores } = buffer
   let size = 0
+  let unordered = 0
   for (let index = 0; index < touchedCount; index++) {
     const internalId = touched[index]
     const score = scores[internalId]
     if (size === wanted && score <= selection[0]) continue
+    if (Number.isNaN(score)) {
+      if (size < wanted && resolver.isLive(internalId)) unordered++
+      continue
+    }
     if (!resolver.isLive(internalId)) continue
     let at = 0
     if (size < wanted) {
@@ -123,7 +129,8 @@ export function kthBestScore(
     }
     selection[at] = score
   }
-  return wanted > 0 && size === wanted ? selection[0] : Number.NEGATIVE_INFINITY
+  if (size === wanted) return selection[0]
+  return size + unordered >= wanted ? Number.NaN : Number.NEGATIVE_INFINITY
 }
 
 /**
@@ -167,7 +174,7 @@ export function topKFromBuffer(
   for (let index = 0; index < touchedCount; index++) {
     const internalId = touched[index]
     const score = scores[internalId]
-    if (full && score < threshold) continue
+    if (full && (score < threshold || (Number.isNaN(score) && !Number.isNaN(threshold)))) continue
 
     const externalId = resolver.toExternal(internalId)
     if (externalId === undefined) continue

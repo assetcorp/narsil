@@ -3,6 +3,7 @@ export const DEFAULT_PAGE_SIZE = 10
 export const BM25_DISPLAYED_NAME_LENGTH = 64
 
 export const MAX_CURSOR_LENGTH = 40_960
+export const CURSOR_BINDING_BUFFER_BYTES = 256
 export const MAX_SORT_FIELDS = 8
 export const MAX_SORT_FIELD_NAME_LENGTH = 255
 export const MAX_CURSOR_ANCHOR_CODE_POINTS = 512
