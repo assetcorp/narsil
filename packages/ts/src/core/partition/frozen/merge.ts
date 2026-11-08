@@ -2,12 +2,11 @@ import { encodeDocument, mergeStoredFields, SegmentRefusal, topLevelMapKeys } fr
 import { mergeKeywordColumns } from '../../segment-merges/host'
 import type { PartialWordAnalysis } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
-import type { SegmentPayload } from '../segment-payload'
 import type { EncodedDocumentTableData } from './document-source'
 import type { FrozenSegment } from './index'
 import { mergeFieldIndexes } from './merge-fields'
 import type { SegmentRemap } from './merge-postings'
-import { freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
+import { type EncodedSegmentPayload, freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
 import type { TextAnalysis } from './surface-slot'
 
 export interface SegmentSelection {
@@ -16,7 +15,7 @@ export interface SegmentSelection {
 }
 
 export interface MergedSegmentContents {
-  payload: SegmentPayload
+  payload: EncodedSegmentPayload
   documents: EncodedDocumentTableData
   reusedPartialWords: PartialWordTableData | null
 }
@@ -136,7 +135,7 @@ export function mergeSegmentContents(
   const documentCount = docIds.length
   const keyword = mergeKeywordColumns(inputs, documentCount, fieldNames, analysis, textAnalysis)
 
-  const payload: SegmentPayload = {
+  const payload: EncodedSegmentPayload = {
     documentCount,
     docIds,
     fieldNames,

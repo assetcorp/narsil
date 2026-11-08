@@ -1,6 +1,5 @@
 import {
   createSurfaceRegistry,
-  decodeSurfaceTable,
   encodePartialSpellingsOf,
   encodeStringBlob,
   encodeSurfaceTable,
@@ -11,9 +10,9 @@ import {
 import type { NativeFrozenStrings } from '../../vector/native/types/frozen-segments'
 import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
 import type { SegmentRemap } from '../partition/frozen/merge-postings'
+import type { EncodedSegmentPayload } from '../partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from '../partition/partial-words/spellings'
-import type { SegmentPayload } from '../partition/segment-payload'
 
 export function mergeSourceSurfaces(input: SegmentRemap, analysis: TextAnalysis | null): NativeFrozenStrings {
   const registry = createSurfaceRegistry()
@@ -92,9 +91,8 @@ export function mergeKeywordColumns(
   analysis: PartialWordAnalysis | null,
   textAnalysis: TextAnalysis | null,
 ): Pick<
-  SegmentPayload,
-  | 'tokens'
-  | 'docFrequencies'
+  EncodedSegmentPayload,
+  | 'tokenTable'
   | 'postingOffsets'
   | 'postingDocIds'
   | 'postingFrequencies'
@@ -104,18 +102,14 @@ export function mergeKeywordColumns(
   | 'fieldLengthNames'
   | 'fieldLengthColumns'
   | 'totalFieldLengths'
-  | 'surfaceForms'
+  | 'surfaceTable'
   | 'partialSpellings'
 > {
   const sources = inputs.map(input => source(input, analysis, textAnalysis))
   const output = mergeKeywordSources(sources, documentCount, fieldNames.length)
-  const tokens: string[] = []
-  const docFrequencies: Record<string, number> = Object.create(null)
-  for (let at = 0; at < output.terms.counts.length; at++) {
-    const token = mergeTextAt(output.terms, at)
-    tokens.push(token)
-    docFrequencies[token] = output.terms.counts[at]
-  }
+  const termCount = output.terms.counts.length
+  const payloadSlots = new Uint32Array(termCount)
+  for (let at = 0; at < termCount; at++) payloadSlots[at] = at
   const fieldLengthNames: string[] = []
   const fieldLengthColumns: Uint32Array[] = []
   const totalFieldLengths: Record<string, number> = Object.create(null)
@@ -129,8 +123,12 @@ export function mergeKeywordColumns(
     }
   }
   return {
-    tokens,
-    docFrequencies,
+    tokenTable: {
+      blob: output.terms.text,
+      offsets: output.terms.offsets,
+      payloadSlots,
+      documentFrequencies: output.terms.counts,
+    },
     fieldLengthNames,
     fieldLengthColumns,
     totalFieldLengths,
@@ -140,14 +138,10 @@ export function mergeKeywordColumns(
     postingFieldIndices: output.postingFields,
     positionOffsets: output.positionOffsets,
     positionValues: output.positionValues,
-    surfaceForms:
+    surfaceTable:
       output.surfaces.counts.length === 0
         ? null
-        : decodeSurfaceTable({
-            blob: output.surfaces.text,
-            offsets: output.surfaces.offsets,
-            counts: output.surfaces.counts,
-          }),
+        : { blob: output.surfaces.text, offsets: output.surfaces.offsets, counts: output.surfaces.counts },
     partialSpellings: mergedPartialSpellings(output.spellings, analysis),
   }
 }

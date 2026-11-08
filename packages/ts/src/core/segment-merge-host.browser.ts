@@ -18,7 +18,6 @@ type EngineNames = Pick<
   | 'createNumericIndex'
   | 'createSpellingTable'
   | 'createSurfaceRegistry'
-  | 'decodeSurfaceTable'
   | 'documentsOf'
   | 'embedded'
   | 'encodeExternalIdTableData'
@@ -76,7 +75,6 @@ export let createLoadedGeoIndex: EngineNames['createLoadedGeoIndex']
 export let createNumericIndex: EngineNames['createNumericIndex']
 export let createSpellingTable: EngineNames['createSpellingTable']
 export let createSurfaceRegistry: EngineNames['createSurfaceRegistry']
-export let decodeSurfaceTable: EngineNames['decodeSurfaceTable']
 export let documentsOf: EngineNames['documentsOf']
 export let embedded: EngineNames['embedded']
 export let encodeExternalIdTableData: EngineNames['encodeExternalIdTableData']
@@ -130,7 +128,6 @@ export function bindSegmentMergeHost(host: EngineNames, msgpack: MsgpackNames, s
     createNumericIndex,
     createSpellingTable,
     createSurfaceRegistry,
-    decodeSurfaceTable,
     documentsOf,
     embedded,
     encodeExternalIdTableData,
