@@ -1,6 +1,5 @@
-import { resolveRequestThreadCount, resolveWorkerCount } from '#platform/worker-copies-host'
+import { LONG_QUERY_THREADS, resolveRequestThreadCount, resolveWorkerCount } from '#platform/worker-copies-host'
 import type { WorkerPool } from '../../workers/pool'
-import { LONG_QUERY_THREADS } from './constants'
 import { retirePool } from './repair'
 import { copyThresholdReason, ensurePool, indexReadyForCopies, scaleOutIndex, scaleOutReadyIndexes } from './scale-out'
 import type { OrchestratorState, RequestThreadListener } from './types'

@@ -10,7 +10,6 @@ export const MAX_COUNTS_STREAM_KEY_BYTES = 64
 export const COUNTS_STREAM_CHUNK_BYTES = 1_048_576
 export const MAX_INDEX_UUID_LENGTH = 255
 export const KEY_FINGERPRINT_LABEL = 'narsil.query-suggestions.key'
-export const SUGGESTIONS_INDEX_INFIX = '.suggestions.'
 
 export const MIN_KEY_BYTES = 32
 export const SCRAMBLED_ID_BYTES = 16
@@ -65,7 +64,6 @@ export const MAX_BAN_LIST_BYTES = 262_144
 export const MAX_BANNED_PHRASE_CODE_POINTS = 150
 export const MAX_SOURCE_INDEX_NAME_LENGTH = 210
 export const MAX_PERSON_UTF16_UNITS = 256
-export const MAX_GROUP_LENGTH = 32
 export const RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT = 8
 
 export const PAIR_BLOCK_SLOTS = 16

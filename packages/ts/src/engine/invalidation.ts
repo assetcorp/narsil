@@ -1,9 +1,15 @@
-import { ErrorCodes, generateId, mergePartitionStats, NarsilError } from '#platform/storage-host'
+import {
+  ErrorCodes,
+  FOREIGN_STATS_TTL_MS,
+  generateId,
+  mergePartitionStats,
+  NarsilError,
+  STATISTICS_BROADCAST_INTERVAL_MS,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import type { InvalidationAdapter, InvalidationEvent, PartitionStatistics } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { GlobalStatistics } from '../types/internal'
-import { FOREIGN_STATS_TTL_MS, STATISTICS_BROADCAST_INTERVAL_MS } from './constants'
 import type { IndexRegistryEntry } from './registry-entry'
 
 export interface InvalidationIntegrationDeps {

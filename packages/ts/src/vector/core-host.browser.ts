@@ -2,59 +2,119 @@ import type { OptionalCodeHost } from '../engine/optional-code-host'
 
 type EngineNames = Pick<
   OptionalCodeHost,
+  | 'COMPACTION_ABSOLUTE_THRESHOLD'
+  | 'COMPACTION_TOMBSTONE_RATIO'
+  | 'CONNECT_RESTARTS_BEFORE_ONE_PASS'
+  | 'CONNECT_STEPS_BETWEEN_CLOCK_CHECKS'
+  | 'DEFAULT_EF_SEARCH'
+  | 'EARLIER_RELEASE_MIN_M'
   | 'ErrorCodes'
+  | 'FARTHEST_REJECTED_LINKS_KEPT'
+  | 'GRAPH_LOCK_WAIT_DEADLINE_MS'
+  | 'GRAPH_LOCK_WAIT_SLICE_MS'
+  | 'INITIAL_LIST_CAPACITY'
+  | 'INITIAL_UPPER_SLOTS'
+  | 'LOCK_SPIN_ITERATIONS'
+  | 'LOCK_WAIT_SLICE_MS'
+  | 'MAX_DOC_ID_LENGTH'
+  | 'MAX_DOC_ID_TABLE_BYTES'
+  | 'MAX_FILE_BYTES'
+  | 'MAX_LAYER_CAP'
+  | 'MAX_M'
+  | 'MAX_VECTOR_ORDINALS'
+  | 'MAX_WASM_PAGES'
+  | 'MIN_M'
+  | 'NATIVE_ATTACH_RETRY_MS'
+  | 'NATIVE_THREAD_SEARCH_SLOTS'
+  | 'NEAREST_LINK_FALLBACK_HOSTS'
   | 'NarsilError'
-  | 'VECTOR_FILE_MAX_VECTORS'
+  | 'PLACEMENT_ROOM_REQUESTS'
+  | 'UNPLACED_FLAG_CHUNK_ORDINALS'
+  | 'VECTOR_BLOCK_INITIAL_SLOTS'
+  | 'VECTOR_BLOCK_MAX_BYTES'
+  | 'VECTOR_SCRATCH_SLOTS'
+  | 'VECTOR_STORE_INITIAL_CAPACITY'
+  | 'WASM_PAGE_BYTES'
   | 'adoptSharedTurns'
-  | 'bytesToVectors'
   | 'compareCodePoints'
-  | 'deadBitsWhere'
-  | 'osqCodeBytes'
-  | 'osqRecordBytes'
-  | 'osqStagedQueryBytes'
-  | 'readTrailer'
-  | 'stageQueryLevels'
   | 'threadSlotGone'
-  | 'unpackLevels'
-  | 'vectorsToBytes'
-  | 'writeRecord'
 >
 
+export let COMPACTION_ABSOLUTE_THRESHOLD: EngineNames['COMPACTION_ABSOLUTE_THRESHOLD']
+export let COMPACTION_TOMBSTONE_RATIO: EngineNames['COMPACTION_TOMBSTONE_RATIO']
+export let CONNECT_RESTARTS_BEFORE_ONE_PASS: EngineNames['CONNECT_RESTARTS_BEFORE_ONE_PASS']
+export let CONNECT_STEPS_BETWEEN_CLOCK_CHECKS: EngineNames['CONNECT_STEPS_BETWEEN_CLOCK_CHECKS']
+export let DEFAULT_EF_SEARCH: EngineNames['DEFAULT_EF_SEARCH']
+export let EARLIER_RELEASE_MIN_M: EngineNames['EARLIER_RELEASE_MIN_M']
 export let ErrorCodes: EngineNames['ErrorCodes']
+export let FARTHEST_REJECTED_LINKS_KEPT: EngineNames['FARTHEST_REJECTED_LINKS_KEPT']
+export let GRAPH_LOCK_WAIT_DEADLINE_MS: EngineNames['GRAPH_LOCK_WAIT_DEADLINE_MS']
+export let GRAPH_LOCK_WAIT_SLICE_MS: EngineNames['GRAPH_LOCK_WAIT_SLICE_MS']
+export let INITIAL_LIST_CAPACITY: EngineNames['INITIAL_LIST_CAPACITY']
+export let INITIAL_UPPER_SLOTS: EngineNames['INITIAL_UPPER_SLOTS']
+export let LOCK_SPIN_ITERATIONS: EngineNames['LOCK_SPIN_ITERATIONS']
+export let LOCK_WAIT_SLICE_MS: EngineNames['LOCK_WAIT_SLICE_MS']
+export let MAX_DOC_ID_LENGTH: EngineNames['MAX_DOC_ID_LENGTH']
+export let MAX_DOC_ID_TABLE_BYTES: EngineNames['MAX_DOC_ID_TABLE_BYTES']
+export let MAX_FILE_BYTES: EngineNames['MAX_FILE_BYTES']
+export let MAX_LAYER_CAP: EngineNames['MAX_LAYER_CAP']
+export let MAX_M: EngineNames['MAX_M']
+export let MAX_VECTOR_ORDINALS: EngineNames['MAX_VECTOR_ORDINALS']
+export let MAX_WASM_PAGES: EngineNames['MAX_WASM_PAGES']
+export let MIN_M: EngineNames['MIN_M']
+export let NATIVE_ATTACH_RETRY_MS: EngineNames['NATIVE_ATTACH_RETRY_MS']
+export let NATIVE_THREAD_SEARCH_SLOTS: EngineNames['NATIVE_THREAD_SEARCH_SLOTS']
+export let NEAREST_LINK_FALLBACK_HOSTS: EngineNames['NEAREST_LINK_FALLBACK_HOSTS']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
-export let VECTOR_FILE_MAX_VECTORS: EngineNames['VECTOR_FILE_MAX_VECTORS']
+export let PLACEMENT_ROOM_REQUESTS: EngineNames['PLACEMENT_ROOM_REQUESTS']
+export let UNPLACED_FLAG_CHUNK_ORDINALS: EngineNames['UNPLACED_FLAG_CHUNK_ORDINALS']
+export let VECTOR_BLOCK_INITIAL_SLOTS: EngineNames['VECTOR_BLOCK_INITIAL_SLOTS']
+export let VECTOR_BLOCK_MAX_BYTES: EngineNames['VECTOR_BLOCK_MAX_BYTES']
+export let VECTOR_SCRATCH_SLOTS: EngineNames['VECTOR_SCRATCH_SLOTS']
+export let VECTOR_STORE_INITIAL_CAPACITY: EngineNames['VECTOR_STORE_INITIAL_CAPACITY']
+export let WASM_PAGE_BYTES: EngineNames['WASM_PAGE_BYTES']
 export let adoptSharedTurns: EngineNames['adoptSharedTurns']
-export let bytesToVectors: EngineNames['bytesToVectors']
 export let compareCodePoints: EngineNames['compareCodePoints']
-export let deadBitsWhere: EngineNames['deadBitsWhere']
-export let osqCodeBytes: EngineNames['osqCodeBytes']
-export let osqRecordBytes: EngineNames['osqRecordBytes']
-export let osqStagedQueryBytes: EngineNames['osqStagedQueryBytes']
-export let readTrailer: EngineNames['readTrailer']
-export let stageQueryLevels: EngineNames['stageQueryLevels']
 export let threadSlotGone: EngineNames['threadSlotGone']
-export let unpackLevels: EngineNames['unpackLevels']
-export let vectorsToBytes: EngineNames['vectorsToBytes']
-export let writeRecord: EngineNames['writeRecord']
 
 export function bindVectorCoreHost(host: EngineNames): void {
   ;({
+    COMPACTION_ABSOLUTE_THRESHOLD,
+    COMPACTION_TOMBSTONE_RATIO,
+    CONNECT_RESTARTS_BEFORE_ONE_PASS,
+    CONNECT_STEPS_BETWEEN_CLOCK_CHECKS,
+    DEFAULT_EF_SEARCH,
+    EARLIER_RELEASE_MIN_M,
     ErrorCodes,
+    FARTHEST_REJECTED_LINKS_KEPT,
+    GRAPH_LOCK_WAIT_DEADLINE_MS,
+    GRAPH_LOCK_WAIT_SLICE_MS,
+    INITIAL_LIST_CAPACITY,
+    INITIAL_UPPER_SLOTS,
+    LOCK_SPIN_ITERATIONS,
+    LOCK_WAIT_SLICE_MS,
+    MAX_DOC_ID_LENGTH,
+    MAX_DOC_ID_TABLE_BYTES,
+    MAX_FILE_BYTES,
+    MAX_LAYER_CAP,
+    MAX_M,
+    MAX_VECTOR_ORDINALS,
+    MAX_WASM_PAGES,
+    MIN_M,
+    NATIVE_ATTACH_RETRY_MS,
+    NATIVE_THREAD_SEARCH_SLOTS,
+    NEAREST_LINK_FALLBACK_HOSTS,
     NarsilError,
-    VECTOR_FILE_MAX_VECTORS,
+    PLACEMENT_ROOM_REQUESTS,
+    UNPLACED_FLAG_CHUNK_ORDINALS,
+    VECTOR_BLOCK_INITIAL_SLOTS,
+    VECTOR_BLOCK_MAX_BYTES,
+    VECTOR_SCRATCH_SLOTS,
+    VECTOR_STORE_INITIAL_CAPACITY,
+    WASM_PAGE_BYTES,
     adoptSharedTurns,
-    bytesToVectors,
     compareCodePoints,
-    deadBitsWhere,
-    osqCodeBytes,
-    osqRecordBytes,
-    osqStagedQueryBytes,
-    readTrailer,
-    stageQueryLevels,
     threadSlotGone,
-    unpackLevels,
-    vectorsToBytes,
-    writeRecord,
   } = host)
 }

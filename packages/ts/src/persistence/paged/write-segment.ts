@@ -7,6 +7,7 @@ import {
   ErrorCodes,
   engineVersionParts,
   fieldIndexRemapOf,
+  HEADER_SIZE,
   mergeFieldIndexes,
   NarsilError,
   requireWithinFileLimit,
@@ -20,7 +21,6 @@ import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import { mergePagedLengths, mergePagedStrings } from '../../core/segment-merges/metadata'
-import { HEADER_SIZE } from '../../serialization/header'
 import {
   writeBooleanColumns,
   writeEnumColumns,

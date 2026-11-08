@@ -3,7 +3,9 @@ import type { OptionalCodeHost } from './optional-code-host'
 
 type EngineNames = Pick<
   OptionalCodeHost,
+  | 'BATCH_CHUNK_SIZE'
   | 'ErrorCodes'
+  | 'MIN_DOCUMENTS_FOR_SEGMENTS'
   | 'NarsilError'
   | 'admitBufferedUpsert'
   | 'admitInsert'
@@ -44,6 +46,7 @@ type EngineNames = Pick<
   | 'requireSurfaceFormsForPartialFields'
   | 'storedBM25Params'
   | 'turnIsSpent'
+  | 'turnsAreBudgeted'
   | 'updateDocumentVectors'
   | 'validateBM25Params'
   | 'validateBatchList'
@@ -63,7 +66,9 @@ type EngineNames = Pick<
 >
 type SegmentCodecNames = Pick<typeof SegmentCodecCode, 'createSharedFrozenSegment' | 'reconstructSchemaFromMetadata'>
 
+export let BATCH_CHUNK_SIZE: EngineNames['BATCH_CHUNK_SIZE']
 export let ErrorCodes: EngineNames['ErrorCodes']
+export let MIN_DOCUMENTS_FOR_SEGMENTS: EngineNames['MIN_DOCUMENTS_FOR_SEGMENTS']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let admitBufferedUpsert: EngineNames['admitBufferedUpsert']
@@ -105,6 +110,7 @@ export let requireMatchingDocId: EngineNames['requireMatchingDocId']
 export let requireSurfaceFormsForPartialFields: EngineNames['requireSurfaceFormsForPartialFields']
 export let storedBM25Params: EngineNames['storedBM25Params']
 export let turnIsSpent: EngineNames['turnIsSpent']
+export let turnsAreBudgeted: EngineNames['turnsAreBudgeted']
 export let updateDocumentVectors: EngineNames['updateDocumentVectors']
 export let validateBM25Params: EngineNames['validateBM25Params']
 export let validateBatchList: EngineNames['validateBatchList']
@@ -126,7 +132,9 @@ export let reconstructSchemaFromMetadata: SegmentCodecNames['reconstructSchemaFr
 
 export function bindOptionalWritesHost(host: EngineNames, segmentCodec: SegmentCodecNames): void {
   ;({
+    BATCH_CHUNK_SIZE,
     ErrorCodes,
+    MIN_DOCUMENTS_FOR_SEGMENTS,
     NarsilError,
     admitBufferedUpsert,
     admitInsert,
@@ -167,6 +175,7 @@ export function bindOptionalWritesHost(host: EngineNames, segmentCodec: SegmentC
     requireSurfaceFormsForPartialFields,
     storedBM25Params,
     turnIsSpent,
+    turnsAreBudgeted,
     updateDocumentVectors,
     validateBM25Params,
     validateBatchList,

@@ -1,6 +1,7 @@
 import {
   admitBufferedUpsert,
   awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
   deleteNestedValue,
   ErrorCodes,
   extractVectorFromDoc,
@@ -11,6 +12,7 @@ import {
   requireDocumentWithinSizeLimit,
   requireMatchingDocId,
   turnIsSpent,
+  turnsAreBudgeted,
   updateDocumentVectors,
   validateBatchList,
   validateDocId,
@@ -18,12 +20,10 @@ import {
   validateVectorDimensions,
   yieldTurn,
 } from '#platform/optional-writes-host'
-import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
 import { recordChunk } from './record-batch'

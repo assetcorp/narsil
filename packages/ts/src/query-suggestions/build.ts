@@ -1,16 +1,23 @@
-import { compareCodePoints } from '../core/ordering'
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  compareCodePoints,
+  DAY_MS,
+  dayOf,
+  ErrorCodes,
+  historyFileOf,
+  listHistoryFolder,
+  MS_PER_SECOND,
+  NarsilError,
+  resolveSetting,
+  sameBytes,
+} from '#platform/suggestions-host'
 import type { QuerySuggestionsWarningReason } from '../types/query-suggestions'
 import { type BuildRecord, type MergedSource, sourcesDigestOf } from './build-record'
-import { DAY_MS, MS_PER_SECOND } from './constants'
-import { sameBytes } from './counts-file'
-import { dayOf } from './day-store'
-import { type HistoryFileName, historyFileOf, listHistoryFolder } from './history-files'
+import type { HistoryFileName } from './history-files'
 import type { SuggestionsHost } from './host'
 import type { DuePhrase, MergeResult } from './merge'
 import { type MergeSession, startMerge } from './merge-run'
 import type { PersonScrambler } from './scramble'
-import { type ResolvedSetting, resolveSetting } from './setting'
+import type { ResolvedSetting } from './setting'
 import {
   ensureSuggestionsIndex,
   markedSuggestionIndexes,

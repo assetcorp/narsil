@@ -1,7 +1,6 @@
 import {
   ANALYSIS_CHANGE_MEMBERS,
   compareCodePoints,
-  configUnderAnalysis,
   ErrorCodes,
   getLanguage,
   NarsilError,
@@ -16,6 +15,7 @@ import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { DurableAnalysis, IndexRegistryEntry } from '../core'
 import type { AnalysisTarget } from './pending-target'
+import { configUnderAnalysis } from './pending-target'
 
 export type { AnalysisTarget } from './pending-target'
 

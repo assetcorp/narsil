@@ -4,6 +4,8 @@ import {
   eligibleIndexNames,
   isDeterministicFailure,
   NarsilError,
+  POOL_RESTART_DELAY_MS,
+  RETIRED_THREADS_EXIT_WAIT_MS,
   reportIneligible,
   toError,
   workerIneligibility,
@@ -11,7 +13,6 @@ import {
 import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { scheduleIdleMerge } from './compaction'
-import { POOL_RESTART_DELAY_MS, RETIRED_THREADS_EXIT_WAIT_MS } from './constants'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { loadPublicationCode, releasePublicationOf } from './publication-code'
 import { trackPublicationStores } from './publication-stores'

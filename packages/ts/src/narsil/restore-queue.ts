@@ -5,7 +5,7 @@ import type { RestoreDeps } from '../engine/snapshot'
 import type { RestoreSuggestionHooks } from '../engine/snapshot/restore-setup'
 import { restoreSuggestionHooksOf } from '../query-suggestions/restore-hooks'
 
-export { bindRestoreQueueHost } from '#platform/restore-queue-host'
+export { bindRestoreQueueHost, startQuerySuggestions } from '#platform/restore-queue-host'
 export { abandonChangeOf, resumeChangeOf, resumeEveryChange } from '../engine/analysis-change-entry'
 
 import type { ByteSource } from '../types/byte-source'

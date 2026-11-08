@@ -1,3 +1,4 @@
+import { PLACEMENT_ROOM_REQUESTS } from '#platform/vector-core-host'
 import { noteFallback } from '../native/backend'
 import { nativeFieldFor } from '../native/field'
 import { nativeCompact, nativePlace, nativeRemove } from '../native/writes'
@@ -23,7 +24,6 @@ import {
   connectAfterRemoval,
   countIncomingBeforeWriting,
 } from './connect-unreached'
-import { PLACEMENT_ROOM_REQUESTS } from './constants'
 import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
   GRAPH_ENTRY_POINT,

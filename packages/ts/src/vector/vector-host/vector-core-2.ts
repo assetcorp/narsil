@@ -15,6 +15,7 @@ type VectorCore2Names = Pick<
   | 'holdAdmission'
   | 'holdWritesAndBackgroundWork'
   | 'insertNode'
+  | 'isDead'
   | 'liveOrdinals'
   | 'liveSize'
   | 'magnitude'
@@ -87,6 +88,7 @@ export let handOverBuildTurns: VectorCore2Names['handOverBuildTurns']
 export let holdAdmission: VectorCore2Names['holdAdmission']
 export let holdWritesAndBackgroundWork: VectorCore2Names['holdWritesAndBackgroundWork']
 export let insertNode: VectorCore2Names['insertNode']
+export let isDead: VectorCore2Names['isDead']
 export let liveOrdinals: VectorCore2Names['liveOrdinals']
 export let liveSize: VectorCore2Names['liveSize']
 export let magnitude: VectorCore2Names['magnitude']
@@ -160,6 +162,7 @@ export function bindVectorCore2Names(vectorCore: VectorCore2Names): void {
     holdAdmission,
     holdWritesAndBackgroundWork,
     insertNode,
+    isDead,
     liveOrdinals,
     liveSize,
     magnitude,

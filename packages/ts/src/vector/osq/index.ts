@@ -1,7 +1,7 @@
-import { unpackLevels } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import type { VectorStore } from '../vector-store'
 import type { OsqBits } from './quantize'
+import { unpackLevels } from './record'
 import type { OsqQuantizer } from './types'
 import { openSharedQuantizer, type SharedQuantizerView } from './view'
 

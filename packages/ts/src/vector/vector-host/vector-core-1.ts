@@ -18,6 +18,7 @@ type VectorCore1Names = Pick<
   | 'MIN_OVERSAMPLE'
   | 'NATIVE_OK'
   | 'NOTHING_STAGED'
+  | 'NO_LIVE_VECTOR_AT_POSITION'
   | 'QUERY_STAGED'
   | 'RECALIBRATION_CHUNK_VECTORS'
   | 'RECALIBRATION_DRIFT_RATIO'
@@ -56,6 +57,7 @@ type VectorCore1Names = Pick<
   | 'assignStorePartitions'
   | 'backgroundTurnIsSpent'
   | 'blocksGrowthBytes'
+  | 'bytesToVectors'
   | 'centroidOfCentroidSums'
   | 'collectAndReturnPages'
   | 'collectYoungGeneration'
@@ -90,6 +92,7 @@ export let IN_MEMORY: VectorCore1Names['IN_MEMORY']
 export let MIN_OVERSAMPLE: VectorCore1Names['MIN_OVERSAMPLE']
 export let NATIVE_OK: VectorCore1Names['NATIVE_OK']
 export let NOTHING_STAGED: VectorCore1Names['NOTHING_STAGED']
+export let NO_LIVE_VECTOR_AT_POSITION: VectorCore1Names['NO_LIVE_VECTOR_AT_POSITION']
 export let QUERY_STAGED: VectorCore1Names['QUERY_STAGED']
 export let RECALIBRATION_CHUNK_VECTORS: VectorCore1Names['RECALIBRATION_CHUNK_VECTORS']
 export let RECALIBRATION_DRIFT_RATIO: VectorCore1Names['RECALIBRATION_DRIFT_RATIO']
@@ -128,6 +131,7 @@ export let arenaFloat32Distance: VectorCore1Names['arenaFloat32Distance']
 export let assignStorePartitions: VectorCore1Names['assignStorePartitions']
 export let backgroundTurnIsSpent: VectorCore1Names['backgroundTurnIsSpent']
 export let blocksGrowthBytes: VectorCore1Names['blocksGrowthBytes']
+export let bytesToVectors: VectorCore1Names['bytesToVectors']
 export let centroidOfCentroidSums: VectorCore1Names['centroidOfCentroidSums']
 export let collectAndReturnPages: VectorCore1Names['collectAndReturnPages']
 export let collectYoungGeneration: VectorCore1Names['collectYoungGeneration']
@@ -163,6 +167,7 @@ export function bindVectorCore1Names(vectorCore: VectorCore1Names): void {
     MIN_OVERSAMPLE,
     NATIVE_OK,
     NOTHING_STAGED,
+    NO_LIVE_VECTOR_AT_POSITION,
     QUERY_STAGED,
     RECALIBRATION_CHUNK_VECTORS,
     RECALIBRATION_DRIFT_RATIO,
@@ -201,6 +206,7 @@ export function bindVectorCore1Names(vectorCore: VectorCore1Names): void {
     assignStorePartitions,
     backgroundTurnIsSpent,
     blocksGrowthBytes,
+    bytesToVectors,
     centroidOfCentroidSums,
     collectAndReturnPages,
     collectYoungGeneration,

@@ -3,6 +3,7 @@ import {
   admissionAt,
   createOrdinalFilter,
   ErrorCodes,
+  MAX_RENUMBERED_SEARCH_ATTEMPTS,
   magnitude,
   NarsilError,
   nativeScoresOf,
@@ -21,7 +22,6 @@ import { createBoundedMaxHeap } from '../../core/heap'
 import type { SearchClock } from '../../core/search-clock'
 import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
-import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
 import type { OrdinalSpace } from '../filter-ordinals'
 import type { OrdinalFilter } from '../ordinal-filter'
 import { highScoreFirst, mergeResults } from '../vector-index/merge-results'

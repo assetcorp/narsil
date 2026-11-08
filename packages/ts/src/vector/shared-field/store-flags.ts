@@ -1,5 +1,9 @@
-import { STORE_LIVE_COUNT, STORE_REMOVED_COUNT, STORE_UNPLACED_COUNT } from '#platform/vector-host'
-import { UNPLACED_FLAG_CHUNK_ORDINALS } from '../constants'
+import {
+  STORE_LIVE_COUNT,
+  STORE_REMOVED_COUNT,
+  STORE_UNPLACED_COUNT,
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+} from '#platform/vector-host'
 import type { GrowableBuffer } from '../shared-buffers/growable'
 import type { SharedVectorStoreView } from '../vector-store/view'
 

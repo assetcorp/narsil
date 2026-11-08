@@ -1,5 +1,9 @@
+import {
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+  VECTOR_SCRATCH_SLOTS,
+  VECTOR_STORE_INITIAL_CAPACITY,
+} from '#platform/vector-core-host'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { UNPLACED_FLAG_CHUNK_ORDINALS, VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import type { OsqBits } from '../osq/quantize'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
 import { blockBuffer, computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'

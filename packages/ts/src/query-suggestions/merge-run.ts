@@ -1,7 +1,6 @@
-import { type NodeWorkerHandle, spawnNodeWorker } from '#platform/node-worker'
+import type { NodeWorkerHandle } from '#platform/node-worker'
 import { resolveMergeWorkerEntry } from '#platform/query-merge-worker-entry'
-import { ErrorCodes, NarsilError } from '../errors'
-import { BYTES_PER_MIB } from './constants'
+import { BYTES_PER_MIB, ErrorCodes, NarsilError, spawnNodeWorker } from '#platform/suggestions-host'
 import { type FileOutcome, type MergeResult, Merger, type MergeSettings } from './merge'
 import type { MergeReply, MergeRequest } from './merge-worker'
 

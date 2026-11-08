@@ -1,5 +1,4 @@
-import { encodeDocument, fnv1a, turnIsSpent, yieldTurn } from '#platform/storage-host'
-import { turnsAreBudgeted } from '#platform/turn-budget'
+import { encodeDocument, fnv1a, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/storage-host'
 import type { ReplicationOperation } from '../distribution/replication/types'
 import { metadataPartitionCount } from '../partitioning/manager/checkpoint-prefix'
 import { admitDurableWrite } from '../partitioning/wal-routing'

@@ -1,6 +1,12 @@
-import { crc32, createFixedBuffer, createVectorFileReader, ErrorCodes, NarsilError } from '#platform/storage-host'
+import {
+  crc32,
+  createFixedBuffer,
+  createVectorFileReader,
+  ErrorCodes,
+  HEADER_SIZE,
+  NarsilError,
+} from '#platform/storage-host'
 import type { VectorFileReader } from '#platform/vector-file'
-import { HEADER_SIZE } from '../../serialization/header'
 import type { NativePageSection } from '../../vector/native/types/paged'
 import type { FileSection } from './format'
 import { type NativeOpenFile, nativeSection, openNativePagedFile, requireNativePage } from './native-file'

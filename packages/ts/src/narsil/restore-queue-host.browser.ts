@@ -1,16 +1,18 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as SuggestionStoreCode from '../query-suggestions/store-leaf'
 
 type EngineNames = Pick<
   OptionalCodeHost,
-  | 'ErrorCodes'
-  | 'NarsilError'
+  'ErrorCodes' | 'NarsilError' | 'emitEngineEvent' | 'loadStorageCode' | 'removeDocumentBatch'
+>
+type SuggestionStoreNames = Pick<
+  typeof SuggestionStoreCode,
+  | 'BUILD_WRITE_BATCH'
   | 'RestoredHistory'
   | 'attachedRuntimeOf'
   | 'clearLeftoversOfName'
-  | 'emitEngineEvent'
   | 'installSuggestionHooks'
-  | 'loadStorageCode'
-  | 'removeDocumentBatch'
+  | 'startQuerySuggestions'
   | 'unionOfBans'
   | 'withState'
 >
@@ -18,29 +20,29 @@ type EngineNames = Pick<
 export let ErrorCodes: EngineNames['ErrorCodes']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
-export let RestoredHistory: EngineNames['RestoredHistory']
-export type RestoredHistory = InstanceType<EngineNames['RestoredHistory']>
-export let attachedRuntimeOf: EngineNames['attachedRuntimeOf']
-export let clearLeftoversOfName: EngineNames['clearLeftoversOfName']
 export let emitEngineEvent: EngineNames['emitEngineEvent']
-export let installSuggestionHooks: EngineNames['installSuggestionHooks']
 export let loadStorageCode: EngineNames['loadStorageCode']
 export let removeDocumentBatch: EngineNames['removeDocumentBatch']
-export let unionOfBans: EngineNames['unionOfBans']
-export let withState: EngineNames['withState']
+export let BUILD_WRITE_BATCH: SuggestionStoreNames['BUILD_WRITE_BATCH']
+export let RestoredHistory: SuggestionStoreNames['RestoredHistory']
+export type RestoredHistory = InstanceType<SuggestionStoreNames['RestoredHistory']>
+export let attachedRuntimeOf: SuggestionStoreNames['attachedRuntimeOf']
+export let clearLeftoversOfName: SuggestionStoreNames['clearLeftoversOfName']
+export let installSuggestionHooks: SuggestionStoreNames['installSuggestionHooks']
+export let startQuerySuggestions: SuggestionStoreNames['startQuerySuggestions']
+export let unionOfBans: SuggestionStoreNames['unionOfBans']
+export let withState: SuggestionStoreNames['withState']
 
-export function bindRestoreQueueHost(host: EngineNames): void {
+export function bindRestoreQueueHost(host: EngineNames, suggestionStore: SuggestionStoreNames): void {
+  ;({ ErrorCodes, NarsilError, emitEngineEvent, loadStorageCode, removeDocumentBatch } = host)
   ;({
-    ErrorCodes,
-    NarsilError,
+    BUILD_WRITE_BATCH,
     RestoredHistory,
     attachedRuntimeOf,
     clearLeftoversOfName,
-    emitEngineEvent,
     installSuggestionHooks,
-    loadStorageCode,
-    removeDocumentBatch,
+    startQuerySuggestions,
     unionOfBans,
     withState,
-  } = host)
+  } = suggestionStore)
 }

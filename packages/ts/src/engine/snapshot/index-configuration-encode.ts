@@ -1,7 +1,7 @@
-import { encode } from '@msgpack/msgpack'
 import {
   configurationPayloadOf,
   ErrorCodes,
+  encode,
   NarsilError,
   packChecksummedEnvelope,
   rulesOfStoredSynonyms,

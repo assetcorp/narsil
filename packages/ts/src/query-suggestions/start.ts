@@ -1,8 +1,7 @@
+import { attachedRuntimeOf, attachRuntime, installSuggestionHooks } from '#platform/suggestions-host'
 import type { EngineCore } from '../engine/core'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
-import { attachedRuntimeOf, attachRuntime } from './attached'
-import { installSuggestionHooks } from './engine-hooks'
 import { createLocalHost } from './local-host'
 import { createQuerySuggestionsRuntime, keyBytesOf, type QuerySuggestionsRuntime } from './runtime'
 

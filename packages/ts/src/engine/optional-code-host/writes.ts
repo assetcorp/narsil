@@ -1,5 +1,9 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
-import { changeIndexOutsideExternalWaits, indexChangeOutsideExternalWaits } from '#platform/turn-budget'
+import {
+  changeIndexOutsideExternalWaits,
+  indexChangeOutsideExternalWaits,
+  turnsAreBudgeted,
+} from '#platform/turn-budget'
 import { fnv1a } from '../../core/hash'
 import { generateId } from '../../core/id-generator'
 import { createFrozenSegment } from '../../core/partition/frozen'
@@ -19,6 +23,7 @@ import { storedBM25Params, validateBM25Params } from '../../search/bm25-params'
 import { isSyncEpoch, newSyncEpoch } from '../../sync/epoch'
 import { loadSchemaCodeFor } from '../../workers/schema-code'
 import { arrayPositionsAreStale } from '../array-positions'
+import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import { loadEmbedCode } from '../embed-code'
 import { insertDocument } from '../mutations/insert'
 import {
@@ -57,6 +62,8 @@ import { getVectorFieldPaths } from '../vector-fields'
 
 export function writesHostPart() {
   return {
+    BATCH_CHUNK_SIZE,
+    MIN_DOCUMENTS_FOR_SEGMENTS,
     admitBufferedUpsert,
     admitInsert,
     arrayPositionsAreStale,
@@ -95,6 +102,7 @@ export function writesHostPart() {
     requireMatchingDocId,
     requireSurfaceFormsForPartialFields,
     storedBM25Params,
+    turnsAreBudgeted,
     updateDocumentVectors,
     validateBM25Params,
     validateBatchList,

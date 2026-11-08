@@ -1,4 +1,4 @@
-import { CONNECT_STEPS_BETWEEN_CLOCK_CHECKS } from './constants'
+import { CONNECT_STEPS_BETWEEN_CLOCK_CHECKS } from '#platform/vector-core-host'
 
 export type Steps<T = void> = Generator<void, T, undefined>
 

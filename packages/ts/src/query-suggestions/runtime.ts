@@ -1,15 +1,22 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { loadDigest } from '../persistence/digest-code'
+import {
+  acceptedPhrase,
+  DayStore,
+  dayOf,
+  ErrorCodes,
+  isGroup,
+  isPerson,
+  loadDigest,
+  MIN_KEY_BYTES,
+  NarsilError,
+  RestoredHistory,
+  removeHistoryFolder,
+  resolveSetting,
+} from '#platform/suggestions-host'
 import type { QuerySuggestionsSetting, RecordedQuery, RecordQueryResult } from '../types/query-suggestions'
 import { BuildRunner } from './build-runner'
-import { MIN_KEY_BYTES } from './constants'
-import { DayStore, dayOf } from './day-store'
-import { removeHistoryFolder } from './history-files'
 import type { SuggestionsHost } from './host'
-import { acceptedPhrase, isGroup, isPerson } from './phrase'
-import { RestoredHistory } from './restored-history'
 import { createPersonScrambler, type PersonScrambler } from './scramble'
-import { type ResolvedSetting, resolveSetting } from './setting'
+import type { ResolvedSetting } from './setting'
 import { markedSuggestionIndexes } from './suggestions-writer'
 import { SuggestionTimers } from './timers'
 

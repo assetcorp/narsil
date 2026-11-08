@@ -1,5 +1,4 @@
-import { osqRecordBytes } from '#platform/storage-host'
-import { MAX_LAYER_CAP } from '../../../vector/hnsw/constants'
+import { MAX_LAYER_CAP, osqRecordBytes } from '#platform/storage-host'
 import { COLD_GRAPH_PART_VECTORS } from '../constants'
 import { loadFailed } from '../format'
 import type { ColdGraph, ColdGraphPart, ColdVectorFieldInput, OpenedFiles } from './open-files'

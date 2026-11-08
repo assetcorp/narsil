@@ -3,11 +3,11 @@ import {
   createSharedFrozenSegment,
   freezeSegmentShared,
   isCompositePartition,
+  LIVE_TAIL_FLUSH_DOCUMENTS,
   LIVE_TAIL_FREEZE_FLOOR,
 } from '#platform/worker-copies-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
-import { LIVE_TAIL_FLUSH_DOCUMENTS } from './constants'
 import { publishToWorkers } from './publication-code'
 import type { OrchestratorState } from './types'
 

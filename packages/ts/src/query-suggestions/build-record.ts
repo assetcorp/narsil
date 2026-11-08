@@ -1,9 +1,12 @@
-import { encode } from '@msgpack/msgpack'
-import { compareCodePoints } from '../core/ordering'
-import { loadDigest } from '../persistence/digest-code'
-import { crc32 } from '../serialization/crc32'
-import { openChecksummedEnvelope, packEnvelopeWithChecksum } from '../serialization/envelope-file'
-import { decode } from '../serialization/msgpack'
+import {
+  compareCodePoints,
+  crc32,
+  decode,
+  encode,
+  loadDigest,
+  openChecksummedEnvelope,
+  packEnvelopeWithChecksum,
+} from '#platform/suggestions-host'
 import type { QuerySuggestionsBuild, QuerySuggestionsBuildTrigger } from '../types/query-suggestions'
 
 const BUILD_RECORD_FORMAT_VERSION = 1

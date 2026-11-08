@@ -1,5 +1,4 @@
-import { encode } from '@msgpack/msgpack'
-import { decode, ErrorCodes, NarsilError } from '#platform/storage-host'
+import { decode, ErrorCodes, encode, NarsilError } from '#platform/storage-host'
 import { validateEntryPayload } from '../../distribution/replication/codec'
 import { computeEntryChecksum } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'

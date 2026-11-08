@@ -1,5 +1,4 @@
-import { ErrorCodes, fnv1a, NarsilError, resolveWorkerCount } from '#platform/worker-copies-host'
-import { SHUTDOWN_TIMEOUT_MS } from './constants'
+import { ErrorCodes, fnv1a, NarsilError, resolveWorkerCount, SHUTDOWN_TIMEOUT_MS } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import { type MemoryStats, memoryStatsOf } from './pool-memory'
 

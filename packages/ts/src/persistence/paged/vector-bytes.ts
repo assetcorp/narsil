@@ -1,5 +1,4 @@
-import { encode } from '@msgpack/msgpack'
-import { compareCodePoints, crc32 } from '#platform/storage-host'
+import { compareCodePoints, crc32, encode } from '#platform/storage-host'
 import { crc32Combine } from '../../serialization/crc32-combine'
 import type { NumberedHnswGraph } from '../../vector/hnsw'
 import type { VectorFilePayload, VectorGraphPartPayload } from '../../vector/vector-index/checkpoint-payload'

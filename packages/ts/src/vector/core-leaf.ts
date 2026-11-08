@@ -53,6 +53,7 @@ export {
   osqQuantize,
   squaredLengthsOfCentroidSums,
 } from './osq/quantize'
+export { osqRecordBytes, readTrailer, stageQueryLevels } from './osq/record'
 export { openSharedQuantizer } from './osq/view'
 export { defaultEfSearch, defaultRescoreDepth } from './search-depth'
 export {
@@ -64,6 +65,15 @@ export {
 } from './shared-buffers/growable'
 export { arenaFloat32Distance, simdModuleLoaded } from './simd'
 export { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
+export {
+  assembleGraphParts,
+  decodeVectorFilePayload,
+  decodeVectorGraphPartPayload,
+  decodeVectorGraphPayload,
+  graphPartsOfEarlierPayload,
+  VECTOR_FILE_MAX_VECTORS,
+  VECTOR_FILE_PAYLOAD_VERSION,
+} from './vector-index/checkpoint-payload'
 export { planCheckpoint, recordCheckpoint, signatureOf, vectorsPerFile } from './vector-index/checkpoint-plan'
 export {
   BUILD_CHUNK_SIZE,
@@ -85,7 +95,9 @@ export {
   SHUFFLED_REBUILD_MEMORY_RETRY_MS,
   WORKER_COPY_MIN_VECTORS,
 } from './vector-index/constants'
+export { countDead, deadBytesFor, isDead, NO_LIVE_VECTOR_AT_POSITION } from './vector-index/dead-bits'
 export { defaultQuantizationFor } from './vector-index/default-quantization'
+export { bytesToVectors, decodeVectorIndexParts, vectorsToBytes } from './vector-index/payload'
 export { deserialize } from './vector-index/persistence'
 export {
   adoptGraph,

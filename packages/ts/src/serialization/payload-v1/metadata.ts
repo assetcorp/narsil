@@ -1,14 +1,15 @@
-import { encode } from '@msgpack/msgpack'
 import {
+  DEFAULT_BM25_B,
+  DEFAULT_BM25_K1,
   decode,
   ErrorCodes,
+  encode,
   isQuantizationMode,
   isStorageMode,
   NarsilError,
   storedStateFromWire,
   storedStateToWire,
 } from '#platform/storage-host'
-import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndexConfig } from '../../types/schema'
 import { type RawSyncMetadata, syncMetadataFromWire, syncMetadataToWire } from './sync-metadata'

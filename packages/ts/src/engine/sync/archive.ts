@@ -1,5 +1,5 @@
-import { manifestFileRefs } from '#platform/storage-host'
 import { type ArchiveLayout, archiveLayout } from '../../persistence/archive/range-layout'
+import { manifestFileRefs } from '../../persistence/durability/segment/manifest'
 import type { PublishedSnapshot, SyncStorage } from '../../persistence/durability/sync/storage'
 
 export function publishedArchiveLayout(

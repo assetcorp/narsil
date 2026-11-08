@@ -1,9 +1,11 @@
-import { bytesToVectors, ErrorCodes, NarsilError, writeRecord } from '#platform/vector-core-host'
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { type OsqQuantizer, osqBitsOf } from '../osq'
 import { createOsqScratch, osqQuantize } from '../osq/quantize'
+import { writeRecord } from '../osq/record'
 import { NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import type { VectorIndexCodes, VectorIndexPayload } from './payload'
+import { bytesToVectors } from './payload'
 import { adoptGraph, emptyFieldBeforeRestore, recalibrateFromStore, type VectorIndexState } from './shared'
 
 function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: string): Uint8Array | undefined {

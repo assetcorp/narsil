@@ -1,12 +1,13 @@
-import { ErrorCodes, NarsilError } from '#platform/vector-host'
-import type { ScoredDocument } from '../types/internal'
 import {
   DEFAULT_LINEAR_ALPHA,
   DEFAULT_RANK_CONSTANT,
+  ErrorCodes,
   MAX_LINEAR_ALPHA,
   MIN_LINEAR_ALPHA,
   MIN_RANK_CONSTANT,
-} from './constants'
+  NarsilError,
+} from '#platform/vector-host'
+import type { ScoredDocument } from '../types/internal'
 import { fuseRankings } from './fusion-rankings'
 
 export interface RRFOptions {

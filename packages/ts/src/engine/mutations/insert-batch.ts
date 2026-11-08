@@ -2,21 +2,22 @@ import {
   admitInsert,
   asBatchInsertError,
   awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
   collectRequiredFieldFailures,
   embedChunkDocuments,
+  MIN_DOCUMENTS_FOR_SEGMENTS,
   prepareDocumentVectors,
   providedDocId,
   requireDocumentObject,
   turnIsSpent,
+  turnsAreBudgeted,
   validateBatchList,
   validateDocId,
   validateVectorDimensions,
   yieldTurn,
 } from '#platform/optional-writes-host'
-import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
