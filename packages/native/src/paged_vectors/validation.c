@@ -113,6 +113,24 @@ static narsil_status parts_valid(const narsil_paged_vector_field *field, narsil_
   return next == field->total ? NARSIL_OK : NARSIL_INVALID_ARGUMENT;
 }
 
+static int field_settings_invalid(const narsil_paged_vector_field *field) {
+  return field->dimension == 0 || !is_metric(field->metric) || !is_code_width(field->bits) ||
+         field->max_layer > PAGED_MAX_LAYER || field->has_entry_point < 0 || field->has_entry_point > 1 ||
+         (field->has_entry_point && field->entry_point >= field->total) ||
+         (field->total == 0 && (field->file_count != 0 || field->part_count != 0)) ||
+         (field->bits == 0 ? field->centroid_count != 0 : field->centroid_count != field->dimension);
+}
+
+static int request_settings_invalid(const narsil_paged_vector_field *field, const narsil_paged_vector_request *request) {
+  size_t words = field->total == 0 ? 1 : (((size_t)field->total - 1) / PAGED_BIT_WORD_BITS) + 1;
+  return request->query_count != field->dimension || request->explicit_rescore_window < 0 ||
+         request->explicit_rescore_window > 1 || request->rescore_depth > request->ef ||
+         (field->total != 0 && request->ef == 0) || isnan(request->min_similarity) ||
+         request->min_similarity == HUGE_VAL ||
+         (request->accepted == NULL ? request->accepted_words != 0 : request->accepted_words < words) ||
+         (request->excluded == NULL ? request->excluded_words != 0 : request->excluded_words < words);
+}
+
 narsil_status paged_vector_validate(const segment_regions *regions, const narsil_paged_vector_field *field,
                                     const narsil_paged_vector_request *request, narsil_page_fault *fault) {
   if (!field_inputs(regions, field) ||
@@ -121,20 +139,7 @@ narsil_status paged_vector_validate(const segment_regions *regions, const narsil
       !input(regions, request->excluded, request->excluded_words, sizeof *request->excluded, _Alignof(uint32_t))) {
     return NARSIL_INVALID_ARGUMENT;
   }
-  size_t words = field->total == 0 ? 1 : (((size_t)field->total - 1) / PAGED_BIT_WORD_BITS) + 1;
-  if (field->dimension == 0 || !is_metric(field->metric) || !is_code_width(field->bits) ||
-      field->max_layer > PAGED_MAX_LAYER || field->has_entry_point < 0 || field->has_entry_point > 1 ||
-      (field->has_entry_point && field->entry_point >= field->total) ||
-      (field->total == 0 && (field->file_count != 0 || field->part_count != 0)) ||
-      (field->bits == 0 ? field->centroid_count != 0 : field->centroid_count != field->dimension) ||
-      request->query_count != field->dimension || request->explicit_rescore_window < 0 ||
-      request->explicit_rescore_window > 1 || request->rescore_depth > request->ef ||
-      (field->total != 0 && request->ef == 0) || isnan(request->min_similarity) ||
-      request->min_similarity == HUGE_VAL ||
-      (request->accepted == NULL ? request->accepted_words != 0 : request->accepted_words < words) ||
-      (request->excluded == NULL ? request->excluded_words != 0 : request->excluded_words < words)) {
-    return NARSIL_INVALID_ARGUMENT;
-  }
+  if (field_settings_invalid(field) || request_settings_invalid(field, request)) { return NARSIL_INVALID_ARGUMENT; }
   for (size_t at = 0; at < request->query_count; at++) {
     if (!isfinite(request->query[at])) { return NARSIL_INVALID_ARGUMENT; }
   }
