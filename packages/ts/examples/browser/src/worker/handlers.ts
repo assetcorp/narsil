@@ -8,7 +8,7 @@ import {
 } from '@delali/narsil'
 import { readStreamBytes } from '@delali/narsil-example-shared/lib/bounded-read'
 import { loadDataset } from './datasets'
-import { describeSessions, isSyncedElsewhere, startSync, stopSync, writeThroughSync } from './device-sync'
+import { describeSessions, isSyncedElsewhere, pauseSync, startSync, stopSync, writeThroughSync } from './device-sync'
 import type { QueryExtras, WorkerArgs, WorkerMethod } from './protocol'
 import { relayWrite } from './sync-relay'
 
@@ -112,5 +112,16 @@ export function createHandlers(report: ProgressSink): Handlers {
     startSync: (engine, [request]) => startSync(engine, request),
     stopSync: (_engine, [indexName]) => stopSync(indexName),
     syncStatus: () => Promise.resolve(describeSessions()),
+    openNotes: async (engine, [request]) => {
+      if (!engine.listIndexes().some(index => index.name === request.indexName)) {
+        await engine.createIndex(request.indexName, {
+          schema: { title: 'string', body: 'string' },
+          language: 'english',
+        })
+        await engine.checkpoint(request.indexName)
+      }
+      return startSync(engine, request)
+    },
+    pauseSync: (_engine, [indexName, paused]) => pauseSync(indexName, paused),
   }
 }

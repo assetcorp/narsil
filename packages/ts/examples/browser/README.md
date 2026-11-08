@@ -1,6 +1,6 @@
 # Narsil in the browser
 
-This example loads the whole Narsil engine into the page, so your browser answers every search and your data stays on your own machine. A Web Worker holds the engine and indexes your documents there, which keeps the page responsive throughout. Because the IndexedDB adapter stores each index, an index that you build on one visit is still there on your next one.
+This example answers searches locally in a Web Worker and stores its indexes in IndexedDB between visits. Dataset documents stay in the browser. The Sync page sends demo notes to the server so that two devices can search and edit separate local copies.
 
 ## Run it
 
@@ -21,7 +21,7 @@ Start on **Datasets**, which loads a corpus and unlocks the other tabs. The **Wo
 - **Documents** pages through the stored records under filters that you join with "all" or "any" and can negate one by one, and a field that allows patterns takes a wildcard or a regular expression. It also adds, edits, and deletes documents, and every other open tab shows each change.
 - **Relevance** sets k1, b, and the field boosts for a single query, and it shows the default ranking and the tuned ranking side by side with each score broken down by field.
 - **Map** finds the places within a distance of a point or inside a polygon that you click or type, and draws them on a world map that needs no map service.
-- **Sync** keeps an index in this browser in step with the same index in the server app, as the next section describes.
+- **Sync** searches and edits personal demo notes across two devices, with separate local storage for each device.
 - **Benchmark** sends the 300 SciFact claim queries to the index and reports nDCG@10, P@10, MAP, and MRR against the expert judgments.
 - **Inspector** reports the schema, the partitions, the document counts, and the state of each vector field's graph. Its **Manage** tab edits synonyms, changes the language or the stop words of a live index, compacts and optimises the vector graphs, rebalances the partitions, and downloads or restores a snapshot or an export.
 
@@ -38,7 +38,11 @@ pnpm --filter @delali/narsil-example-server-app dev
 pnpm --filter @delali/narsil-example-browser dev
 ```
 
-The browser app passes every request under `/server-app` on to the server app at `http://localhost:3000`, and `NARSIL_SERVER_APP_URL` moves that address. Load a dataset in the server app, turn sync on for its index under **Inspector**, then **Manage**, and start sync for the same index name on this app's **Sync** page. The browser downloads the index, edits on either side reach the other, and a second tab of this app sends its edits through the tab that syncs. The server app signs a short-lived grant for one index at a time, and the search server refuses the sync feed to anyone without one.
+Open **Sync** and give this tab a device name, such as `laptop`. The app creates a notes space and turns sync on, separately from the public datasets. Open the device menu beside the name and choose **Open another device in a new tab**, then name that tab `phone`. Each device keeps a separate index and upload queue in IndexedDB, and a tab lock stops two tabs from opening the same device.
+
+Save a note on `laptop` and watch it arrive on `phone`. Then turn the **Sync** switch off on one device, edit a note, and search for it there; the status strip counts the edit under **Queued to push**. Turning the switch back on delivers the queued edit through the server to the other device. Local reads and writes also continue while an open page has no network connection, and sync retries when the connection returns. Queued edits survive a reload, which starts sync again.
+
+The browser forwards requests under `/server-app` to the server app at `http://localhost:3000`; `NARSIL_SERVER_APP_URL` changes that address. The server creates a notes space and binds it to this browser with a signed HttpOnly cookie. All tabs in this browser share the space. A short-lived grant admits uploads, snapshot reads, and the sync feed for that space, while the dataset proxy hides notes indexes and refuses their administrative routes. Opening a second browser creates a separate notes space.
 
 ## Scripts
 

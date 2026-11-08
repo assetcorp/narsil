@@ -18,6 +18,7 @@ import { Route as MapRouteImport } from './routes/map'
 import { Route as RelevanceRouteImport } from './routes/relevance'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as ApiAskRouteImport } from './routes/api/ask'
+import { Route as ApiNotesSpaceRouteImport } from './routes/api/notes-space'
 import { Route as ApiSyncGrantRouteImport } from './routes/api/sync-grant'
 import { Route as ApiNarsilSplatRouteImport } from './routes/api/narsil.$'
 
@@ -66,6 +67,11 @@ const ApiAskRoute = ApiAskRouteImport.update({
   path: '/api/ask',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotesSpaceRoute = ApiNotesSpaceRouteImport.update({
+  id: '/api/notes-space',
+  path: '/api/notes-space',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSyncGrantRoute = ApiSyncGrantRouteImport.update({
   id: '/api/sync-grant',
   path: '/api/sync-grant',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
   '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
@@ -100,6 +107,7 @@ export interface FileRoutesByTo {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
   '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
   '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
@@ -129,6 +138,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
     | '/api/sync-grant'
     | '/api/narsil/$'
   fileRoutesByTo: FileRoutesByTo
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
     | '/api/sync-grant'
     | '/api/narsil/$'
   id:
@@ -155,6 +166,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
     | '/api/sync-grant'
     | '/api/narsil/$'
   fileRoutesById: FileRoutesById
@@ -169,6 +181,7 @@ export interface RootRouteChildren {
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
   ApiAskRoute: typeof ApiAskRoute
+  ApiNotesSpaceRoute: typeof ApiNotesSpaceRoute
   ApiSyncGrantRoute: typeof ApiSyncGrantRoute
   ApiNarsilSplatRoute: typeof ApiNarsilSplatRoute
 }
@@ -238,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAskRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notes-space': {
+      id: '/api/notes-space'
+      path: '/api/notes-space'
+      fullPath: '/api/notes-space'
+      preLoaderRoute: typeof ApiNotesSpaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sync-grant': {
       id: '/api/sync-grant'
       path: '/api/sync-grant'
@@ -265,6 +285,7 @@ const rootRouteChildren: RootRouteChildren = {
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
   ApiAskRoute: ApiAskRoute,
+  ApiNotesSpaceRoute: ApiNotesSpaceRoute,
   ApiSyncGrantRoute: ApiSyncGrantRoute,
   ApiNarsilSplatRoute: ApiNarsilSplatRoute,
 }

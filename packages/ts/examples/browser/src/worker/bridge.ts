@@ -1,5 +1,6 @@
 import { ClientErrorCodes, NarsilError } from '@delali/narsil'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared'
+import { CHANGE_COALESCE_MS } from './constants'
 import {
   transferableBuffersIn,
   type WorkerArgs,
@@ -8,8 +9,6 @@ import {
   type WorkerRequest,
   type WorkerResult,
 } from './protocol'
-
-const CHANGE_COALESCE_MS = 150
 
 interface PendingCall {
   resolve: (value: unknown) => void
@@ -22,6 +21,16 @@ interface PendingCall {
  * engine threw, under the code it carried.
  */
 export class NarsilWorkerClient {
+  constructor(private readonly notesDevice?: string) {}
+
+  close(): void {
+    this.worker?.terminate()
+    this.worker = null
+    if (this.changeTimer !== null) clearTimeout(this.changeTimer)
+    this.changeTimer = null
+    this.failAll('The notes device closed')
+    this.changeListeners.clear()
+  }
   private worker: Worker | null = null
   private nextId = 0
   private readonly pending = new Map<string, PendingCall>()
@@ -35,7 +44,10 @@ export class NarsilWorkerClient {
   private connect(): Worker {
     if (this.worker !== null) return this.worker
 
-    const worker = new Worker(new URL('./narsil-worker.ts', import.meta.url), { type: 'module' })
+    const worker = new Worker(new URL('./narsil-worker.ts', import.meta.url), {
+      type: 'module',
+      name: this.notesDevice ?? '',
+    })
     worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       this.receive(event.data)
     }

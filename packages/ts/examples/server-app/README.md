@@ -2,7 +2,7 @@
 
 This example is a TanStack Start web application that reads from a Narsil HTTP server through `@delali/narsil/client`, with every page built on the hooks in `@delali/narsil/react`.
 
-The browser calls this app, where `src/routes/api/narsil.$.ts` passes each request on to the search server with the API key attached, so every credential stays on the server.
+The browser calls this app, where `src/routes/api/narsil.$.ts` forwards public dataset requests with the server's API key. Personal notes use a separate grant for their uploads, snapshot reads, and sync feed. The proxy passes that grant unchanged, and the search server checks its index and expiry.
 
 ```text
 Browser (@delali/narsil/react)  ->  this app (/api/narsil)  ->  Narsil HTTP server
@@ -29,7 +29,9 @@ Each page is a short route file over the hooks, so `src/routes/search.tsx` is `u
 - **Relevance** sets k1, b, and the field boosts for a single query and compares the tuned ranking with the default one.
 - **Map** finds the places within a distance of a point or inside a polygon.
 - **Benchmark** scores SciFact against its relevance judgments.
-- **Inspector** reports the partitions and each vector field's graph. Its **Manage** tab edits synonyms, changes the analysis, maintains the vector graphs, rebalances the partitions, takes and restores snapshots and exports, and turns device sync on or off for the browser example.
+- **Inspector** reports the partitions and each vector field's graph. Its **Manage** tab edits synonyms, changes the analysis, maintains the vector graphs, rebalances the partitions, and takes and restores snapshots and exports.
+
+The browser example's **Sync** page creates its notes space automatically. A signed HttpOnly cookie binds the space to one browser, whose named tabs keep separate local copies. The cookie uses SameSite=Strict and Secure over HTTPS. The grant route accepts only same-origin requests and grants only the cookie's space. Notes indexes stay out of the public index list, task records, memory reports, and Ask. The demo stores its signing key beside its indexes so that a restart preserves the browser's access.
 
 ## Ask a question of your dataset
 
@@ -59,7 +61,7 @@ Your own server needs two things. Because the Wikipedia dataset creates one inde
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `NARSIL_SERVER_URL` | unset | Uses this Narsil server and skips the demo server |
-| `NARSIL_API_KEY` | unset | Travels as `Authorization: Bearer` on every request, and the demo server enforces it when set |
+| `NARSIL_API_KEY` | generated for the bundled server | Admits dataset administration; notes requests use a scoped grant |
 | `NARSIL_DATA_DIR` | `.narsil-data` here | Puts the demo server's indexes somewhere else |
 | `NARSIL_PORT` | ephemeral | Pins the demo server to a fixed port |
 | `OPENAI_API_KEY` | unset | Turns on the Ask view and document embedding |
@@ -70,7 +72,7 @@ Your own server needs two things. Because the Wikipedia dataset creates one inde
 | `ASK_EMBEDDING_DIMENSIONS` | `1536` | Sets the vector width, which must match the model |
 | `ASK_EMBEDDING_BASE_URL` | `https://api.openai.com/v1` | Takes any OpenAI-compatible embeddings endpoint |
 | `ASK_EMBEDDING_API_KEY` | `OPENAI_API_KEY` | Gives the embedding model a separate key |
-| `NARSIL_SYNC_GRANT_SECRET` | a new random value at each start | Signs the device sync grants, and it needs at least 32 characters |
+| `NARSIL_SYNC_GRANT_SECRET` | persisted in `notes-cookie.key` beside the indexes | Signs notes cookies and device sync grants, and it needs at least 32 characters |
 | `NARSIL_SYNC_GRANT_MS` | `900000` | Sets how long a device sync grant lasts, from 1 second to 24 hours |
 
 ## Scripts

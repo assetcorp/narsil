@@ -3,9 +3,12 @@ import http from 'node:http'
 import https from 'node:https'
 import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
+import { NOTES_INDEX_PREFIX } from './src/lib/constants.ts'
 import { demoServerPromise } from './src/lib/demo-server-state.ts'
+import { notesSpaceFromCookie } from './src/lib/notes-access.ts'
+import { notesRequestScope, validProxyPath } from './src/lib/notes-scope.ts'
 import { readServerConfig } from './src/lib/server-config.ts'
-import { offeredFeedCredential, SYNC_SUBPROTOCOL } from './src/lib/sync-grant.ts'
+import { offeredFeedCredential, SYNC_SUBPROTOCOL, syncGrantSecretFromEnv } from './src/lib/sync-grant.ts'
 
 const PROXY_PREFIX = '/api/narsil/'
 const SYNC_FEED_PATH = /^\/api\/narsil\/indexes\/([^/]+)\/sync\/feed$/
@@ -98,7 +101,6 @@ async function forwardFeed(
     upgrade: 'websocket',
     'sec-websocket-protocol': subprotocols,
   }
-  if (config.apiKey !== undefined) headers.authorization = `Bearer ${config.apiKey}`
   for (const name of FORWARDED_UPGRADE_HEADERS) {
     const value = request.headers[name]
     if (typeof value === 'string') headers[name] = value
@@ -151,13 +153,27 @@ function handleUpgrade(request: IncomingMessage, client: Duplex, head: Buffer): 
 
   const match = SYNC_FEED_PATH.exec(url.pathname)
   const indexSegment = match?.[1]
-  if (indexSegment === undefined || url.search.length > 0) {
+  if (indexSegment === undefined || url.search.length > 0 || !validProxyPath(url.pathname)) {
     refuse(client, 404, 'Only the device sync feed accepts a WebSocket here')
     return
   }
   const subprotocols = syncSubprotocols(request.headers['sec-websocket-protocol'])
   if (subprotocols === null) {
     refuse(client, 400, `The upgrade must offer the subprotocol ${SYNC_SUBPROTOCOL} and at most one credential`)
+    return
+  }
+
+  const secret = syncGrantSecretFromEnv(process.env)
+  const space = secret === null ? null : notesSpaceFromCookie(request.headers.cookie ?? null, secret)
+  let scope: ReturnType<typeof notesRequestScope>
+  try {
+    scope = notesRequestScope(`/indexes/${indexSegment}/sync/feed`, 'GET')
+  } catch {
+    refuse(client, 400, 'The notes path is malformed')
+    return
+  }
+  if (space === null || scope?.indexName !== `${NOTES_INDEX_PREFIX}${space}`) {
+    refuse(client, 401, 'A valid notes cookie for this index is required')
     return
   }
 
