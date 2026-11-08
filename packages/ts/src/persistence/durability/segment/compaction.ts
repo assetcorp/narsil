@@ -1,6 +1,5 @@
+import { createSharedFrozenSegment, shareSegmentArrays } from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
-import { createSharedFrozenSegment } from '../../../core/partition/frozen/shared'
-import { shareSegmentArrays } from '../../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
@@ -133,7 +132,7 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
   if (paged) {
     const { directory } = input.store
     if (directory === undefined) return { segments, nextSegmentId: input.nextSegmentId }
-    const { mergePagedWindow } = await import('../../paged/module')
+    const { mergePagedWindow } = await import('../../storage-leaf')
     return replacing(
       await mergePagedWindow({
         store: input.store,

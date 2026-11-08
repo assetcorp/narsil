@@ -3,10 +3,12 @@ import { ARRAY_POSITION_GAP } from '../core/constants'
 import { generateId } from '../core/id-generator'
 import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
+import { loadRestoreQueue } from '../narsil/restore-queue-code'
 import type { PartitionManager } from '../partitioning/manager'
 import type { CapacityScope } from '../partitioning/manager/capacity'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { BufferedMutation, createWriteAheadQueue, QueuedWrite } from '../partitioning/write-ahead-queue'
+import { loadStorageCode } from '../persistence/storage-code'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
 import { DEFAULT_MAX_RERANK_WINDOW, DEFAULT_RERANK_TIMEOUT_MS } from '../rerank/constants'
 import { validateRerankAdapter } from '../rerank/registry'
@@ -20,6 +22,7 @@ import { createDirectExecutor, type DirectExecutorExtensions, type IndexReplacem
 import type { Executor } from '../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../workers/worker-count'
 import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
+import { loadDurabilityConfig } from './durability-config-code'
 import type { DurabilityIntegration } from './durability-integration'
 import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
@@ -28,8 +31,10 @@ import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import type { InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
+import { loadOptionalWrites } from './optional-writes-code'
 import type { WorkerOrchestrator } from './orchestration'
 import { createWorkerOrchestrator, workersEnabledByDefault } from './orchestration/loader'
+import { loadRerankRuntime } from './query/fixed-depth-code'
 import type { RebalanceContext } from './rebalance-executor'
 import type { IndexRegistryEntry } from './registry-entry'
 import { validateWorkerConfig } from './validation'
@@ -90,7 +95,7 @@ export async function createEngineCore(
   const rerankSettings: RerankSettings =
     config?.rerankTimeout === undefined && config?.maxRerankWindow === undefined
       ? { timeoutMs: DEFAULT_RERANK_TIMEOUT_MS, maxWindow: DEFAULT_MAX_RERANK_WINDOW }
-      : (await import('../rerank/runtime')).resolveRerankSettings(config)
+      : (await loadRerankRuntime()).resolveRerankSettings(config)
   const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {
@@ -99,12 +104,12 @@ export async function createEngineCore(
   }
   const durabilityTier =
     config !== undefined && (config.durability || config.persistence !== undefined)
-      ? (await import('./durability-config')).resolveDurabilityTier(config)
+      ? (await loadDurabilityConfig()).resolveDurabilityTier(config)
       : null
   if (config?.lifecycle !== undefined && durabilityTier === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
   }
-  const durabilityWiring = durabilityTier === null ? null : await import('./durability-wiring')
+  const durabilityWiring = durabilityTier === null ? null : await loadStorageCode()
   const filesystemDurability = durabilityTier?.kind === 'wal'
   const executor: Executor & DirectExecutorExtensions & IndexReplacement = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,
@@ -204,7 +209,7 @@ export async function createEngineCore(
   }
 
   async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
-    const { createIndexFromMetadata: createIndexFromMetadataOp } = await import('./index-from-metadata')
+    const { createIndexFromMetadata: createIndexFromMetadataOp } = await loadOptionalWrites()
     return createIndexFromMetadataOp(
       {
         config,
@@ -254,7 +259,7 @@ export async function createEngineCore(
   invalidation =
     config?.invalidation === undefined
       ? null
-      : (durabilityWiring ?? (await import('./durability-wiring'))).createInvalidationFromConfig(
+      : (durabilityWiring ?? (await loadStorageCode())).createInvalidationFromConfig(
           config,
           durabilityTier?.kind ?? null,
           {
@@ -310,7 +315,7 @@ export async function createEngineCore(
     requireManager,
     resumeChange: async indexName => {
       if ((indexRegistry.get(indexName)?.pendingAnalysis ?? null) === null) return
-      await (await import('./analysis-change-entry')).resumeChangeOf(engineCore, indexName)
+      await (await loadRestoreQueue()).resumeChangeOf(engineCore, indexName)
     },
     onClose: hooks?.onIndexClose,
     onOpen: indexName => {

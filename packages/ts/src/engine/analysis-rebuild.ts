@@ -1,3 +1,4 @@
+import { loadSegmentCodec } from '../core/segment-codec-code'
 import type { PartitionManager } from '../partitioning/manager'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
@@ -109,7 +110,7 @@ export function createAnalysisRebuildCoordinator(
     const wasPromoted = deps.desyncIndex(indexName)
     let spill: RewriteSpill | null = null
     try {
-      const { rebuildTextIndexes } = await import('../partitioning/text-rebuild')
+      const { rebuildTextIndexes } = await loadSegmentCodec()
       const rebuilt = await rebuildTextIndexes(manager, {
         rewriteStorage: () => deps.rewriteStorage?.(),
         onRewriteSpill(kept) {

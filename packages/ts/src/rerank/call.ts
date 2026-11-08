@@ -1,5 +1,5 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { RerankAdapter } from '../types/adapters'
+import { ErrorCodes, NarsilError } from './rerank-host-bindings'
 
 function unregistered(adapters: ReadonlyMap<string, RerankAdapter>, name: string): NarsilError {
   const registered = [...adapters.keys()].sort()

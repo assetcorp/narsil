@@ -3,6 +3,7 @@ import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { loadEmbedCode } from '../embed-code'
+import { loadOptionalWrites } from '../optional-writes-code'
 import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
@@ -115,7 +116,7 @@ export async function insertDocument(
     insertManager.publication.write(indexChangeOutsideExternalWaits(insertIntoIndex))
 
   if (ctx.durability) {
-    const { rollbackInsertedDocument } = await import('./durable-rollback')
+    const { rollbackInsertedDocument } = await loadOptionalWrites()
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
     } catch (err) {

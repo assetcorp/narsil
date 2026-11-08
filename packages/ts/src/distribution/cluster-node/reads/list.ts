@@ -4,8 +4,8 @@ import {
   type SortMode,
   toComparableSortValue,
 } from '../../../core/ordering'
-import { compareComparableKeys } from '../../../core/ordering/sort-comparison'
 import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
+import { requireLoadedOptionalReads } from '../../../engine/optional-reads-code'
 import { clampLimit, now } from '../../../engine/validation'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../../search/cursor'
 import { listBindingOf } from '../../../search/cursor-binding'
@@ -138,6 +138,7 @@ export async function listCluster<T = AnyDocument>(
     }
   }
 
+  const { compareComparableKeys } = requireLoadedOptionalReads()
   merged.sort((a, b) => {
     if (sortFieldNames !== null) {
       const byKey = compareComparableKeys(a.key ?? [], b.key ?? [], directions)

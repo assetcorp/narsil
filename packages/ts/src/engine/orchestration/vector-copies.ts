@@ -1,9 +1,12 @@
+import {
+  createRequestId,
+  noteThreadSlotGone,
+  requireLoadedVectorCode,
+  threadSlotOfWorker,
+} from '#platform/worker-copies-host'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import type { SharedCopyHost } from '../../vector/vector-index/shared'
 import type { WorkerLease } from '../../workers/pool'
-import { createRequestId } from '../../workers/protocol'
-import { noteThreadSlotGone, threadSlotOfWorker } from '../../workers/thread-slot'
-import { requireLoadedVectorCode } from '../../workers/vector-code'
 import { awaitWritesApplied, replicateToWorkers } from './replication'
 import type { OrchestratorState } from './types'
 

@@ -1,8 +1,7 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, emitEngineEvent, NarsilError, rewriteSpillOf } from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import { registerCheckpointQueue, releaseCheckpointQueue } from '../partitioning/manager/checkpoint-prefix'
 import { createRebalancer } from '../partitioning/rebalancer'
-import { rewriteSpillOf } from '../partitioning/rewrite-spill-of'
 import type { PartitionRouter } from '../partitioning/router'
 import { beginDurableRebalance, finishDurableRebalance } from '../partitioning/wal-routing'
 import { createWriteAheadQueue, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
@@ -12,7 +11,6 @@ import type { PluginRegistry } from '../plugins/registry'
 import type { PendingAnalysisMetadata } from '../types/internal'
 import type { IndexConfig } from '../types/schema'
 import type { DurableAnalysis, EventHandler } from './core'
-import { emitEngineEvent } from './events'
 import type { WorkerOrchestrator } from './orchestration'
 import { bufferPreparedMutation } from './queued-mutation'
 import { replayQueued } from './rebalance-replay'
@@ -122,7 +120,7 @@ export async function executeRebalance(
 
     if (registry === undefined) await replayQueued(manager, waq, ctx)
     else {
-      const { transitionWalLayout } = await import('../persistence/durability/layout-transition')
+      const { transitionWalLayout } = await import('../persistence/storage-leaf')
       const hooks: Array<() => Promise<void>> = []
       await transitionWalLayout(registry, indexName, manager, () => replayQueued(manager, waq, ctx, hooks))
       for (const hook of hooks) await hook()

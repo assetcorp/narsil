@@ -1,10 +1,13 @@
-import { isCompositePartition } from '../../core/partition/composite'
+import {
+  createRequestId,
+  createSharedFrozenSegment,
+  freezeSegmentShared,
+  isCompositePartition,
+  LIVE_TAIL_FREEZE_FLOOR,
+} from '#platform/worker-copies-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
-import { freezeSegmentShared } from '../../core/partition/frozen/shared-snapshot'
 import type { PartitionManager } from '../../partitioning/manager'
-import { createRequestId } from '../../workers/protocol'
-import { LIVE_TAIL_FLUSH_DOCUMENTS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
+import { LIVE_TAIL_FLUSH_DOCUMENTS } from './constants'
 import { publishToWorkers } from './publication-code'
 import type { OrchestratorState } from './types'
 

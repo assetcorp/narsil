@@ -1,0 +1,22 @@
+import type { OptionalCodeHost } from '../engine/optional-code-host'
+
+export { yieldToEventLoop } from '../engine/orchestration/turn'
+export { ErrorCodes, NarsilError } from '../errors'
+export { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../partitioning/insert-options'
+export { loadStorageCode } from '../persistence/storage-code'
+export { raiseEarlierReleaseGraphSetting } from '../schema/validator'
+export { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
+export { encodeDocument } from '../serialization/document-encoding'
+export { Decoder, decode } from '../serialization/msgpack'
+export { headerAt, MAP_TAGS } from '../serialization/msgpack-header'
+export { documentWithOwnBuffers, valueWithOwnBuffers } from './document-store'
+export { createPartitionIndex } from './partition'
+export { assembleFrozenSegment } from './partition/frozen'
+export { wrapExternalIdTable } from './partition/frozen/external-ids'
+export { decodeSurfaceTable } from './partition/frozen/surface-table'
+export { wrapFrozenTokenTable } from './partition/frozen/token-table'
+export { writePartitionDocument } from './partition/rollover'
+export { getNestedValue } from './partition/utils'
+export { cloneProjected, projectIncludedPaths, readProjectedPath } from './projection'
+
+export function bindSegmentCodecHost(_host: OptionalCodeHost): void {}

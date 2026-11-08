@@ -15,6 +15,7 @@ import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
 import { vectorGrowthBytesOf, writeAnalysisOf } from '../../engine/memory/write-analysis'
+import { importOptionalReads } from '../../engine/optional-reads-code'
 import type { IndexSyncState } from '../../engine/registry-entry'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
 import { adoptIndexSyncState } from '../../engine/sync/adopt'
@@ -151,6 +152,7 @@ export async function createClusterLocalEngine(
   },
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
+  await importOptionalReads()
   const runnableConfig = await resolveRunnableConfig(config)
   const writeRecords = createClusterWriteRecords()
   const core = await createEngineCore(

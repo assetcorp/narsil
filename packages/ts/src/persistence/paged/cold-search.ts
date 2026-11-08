@@ -1,16 +1,24 @@
-import { compareCodePoints } from '../../core/ordering'
-import { compareScores } from '../../core/ordering/scores'
+import {
+  compareCodePoints,
+  compareScores,
+  computeCodeBlockLayout,
+  createOsqScratch,
+  defaultEfSearch,
+  defaultRescoreDepth,
+  magnitude,
+  osqDistance,
+  osqEstimate,
+  osqQuantize,
+  readTrailer,
+  scalarQueryProducts,
+  stageQueryLevels,
+  toDistance,
+  toScore,
+} from '#platform/storage-host'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorMetric } from '../../vector/brute-force'
-import { toDistance, toScore } from '../../vector/hnsw/shared'
-import { osqDistance, osqEstimate } from '../../vector/osq/estimate'
-import { scalarQueryProducts } from '../../vector/osq/products'
-import { createOsqScratch, osqQuantize } from '../../vector/osq/quantize'
-import { type OsqTrailer, readTrailer, stageQueryLevels } from '../../vector/osq/record'
-import { defaultEfSearch, defaultRescoreDepth } from '../../vector/search-depth'
-import { magnitude } from '../../vector/similarity'
+import type { OsqTrailer } from '../../vector/osq/record'
 import type { VectorScoredResult } from '../../vector/vector-index/shared'
-import { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
 import { COLD_GRAPH_PART_VECTORS, type ColdFieldData } from './cold-field'
 import { type MinHeap, negated, popMin, pushMin } from './cold-heap'
 import { searchNativeColdGraph, searchNativeColdGraphConcurrently } from './cold-native'

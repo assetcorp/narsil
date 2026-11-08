@@ -1,15 +1,17 @@
-import { createDocIdMap } from '#platform/doc-id-tables'
-import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { OrdinalFilter } from '../ordinal-filter'
-import type { OsqBits } from '../osq/quantize'
 import {
+  createDocIdMap,
+  ErrorCodes,
   IN_MEMORY,
+  NarsilError,
   STORE_LIVE_COUNT,
   STORE_ORDINAL_LAYOUT_GENERATION,
   STORE_RELEASED_VECTORS_TO_DISK,
   sharedVectorStoreBytes,
-} from './handles'
+  VECTOR_MEMORY_LIMITS,
+  writeSequenceOf,
+} from '#platform/vector-host'
+import type { OrdinalFilter } from '../ordinal-filter'
+import type { OsqBits } from '../osq/quantize'
 import { docIdsOf, entriesOf, snapshotOf } from './listing'
 import { loadColdVector, loadReplacedVector, loadSnapshot } from './load'
 import {
@@ -24,7 +26,6 @@ import {
   relocateFiles,
 } from './open-store'
 import { createOrdinalReads, entryAt } from './ordinal-reads'
-import { writeSequenceOf } from './pins'
 import { createRetiredVectorPins, pinnedReads } from './retired-pins'
 import {
   appendOrdinal,

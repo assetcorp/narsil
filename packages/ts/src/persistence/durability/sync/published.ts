@@ -1,11 +1,16 @@
 import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { decode } from '../../../serialization/msgpack'
+import {
+  decode,
+  decodeSegmentManifest,
+  ErrorCodes,
+  manifestReferencedKeys,
+  NarsilError,
+  openChecksummedEnvelope,
+  packChecksummedEnvelope,
+  sha256,
+} from '#platform/storage-host'
 import type { DurableDirectory } from '../durable-filesystem'
-import { manifestReferencedKeys, type SegmentManifest } from '../segment/manifest'
-import { decodeSegmentManifest } from '../segment/manifest-decode'
-import { sha256 } from '../sha256'
+import type { SegmentManifest } from '../segment/manifest'
 import { publishedSnapshotKey } from './layout'
 
 const PUBLISHED_SNAPSHOT_ENVELOPE_VERSION = 1

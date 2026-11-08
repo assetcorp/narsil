@@ -1,14 +1,15 @@
-import { changeIndexOutsideExternalWaits } from '#platform/turn-budget'
-import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
-import type { PreparedTextChange } from '../../core/partition/prepared-text'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { AnyDocument } from '../../types/schema'
 import {
+  changeIndexOutsideExternalWaits,
+  ErrorCodes,
   insertDocumentVectors,
+  NarsilError,
   prepareDocumentVectors,
   removeDocumentVectors,
   updateDocumentVectors,
-} from '../vector-coordinator'
+} from '#platform/optional-writes-host'
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
+import type { AnyDocument } from '../../types/schema'
 import type { MutationContext } from './context'
 
 function rollbackFailed(docId: string, originalError: unknown, rollbackError: unknown): never {

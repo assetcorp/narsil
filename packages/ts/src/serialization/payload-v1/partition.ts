@@ -1,8 +1,5 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { requireValidFieldTypes } from '../../schema/validator/schema'
+import { decode, ErrorCodes, NarsilError, requireValidFieldTypes, VALID_HNSW_METRICS } from '#platform/storage-host'
 import type { SerializablePartition, SerializedPatternIndex, SerializedSurfaceForms } from '../../types/internal'
-import { VALID_HNSW_METRICS } from '../constants'
-import { decode } from '../msgpack'
 import { dropStoredVectorValues } from '../stored-vector-values'
 
 export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | undefined {

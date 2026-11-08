@@ -1,11 +1,19 @@
 import { PENDING_REMOVAL_MERGE_DIVISOR, PENDING_REMOVAL_MERGE_FLOOR } from '../core/constants'
+import { optionalCodeHost } from '../engine/optional-code-host'
 import { codeLoader } from '../workers/code-loader'
 import type * as GeoIndexModule from './geo-index'
 import type { GeoIndex } from './geo-index'
 
 export type GeoCode = typeof GeoIndexModule
 
-const geoCode = codeLoader<GeoCode>(() => import('./geo-index'), 'geopoint')
+const geoCode = codeLoader<GeoCode>(
+  () =>
+    import('./geo-index').then(code => {
+      code.bindGeoHost(optionalCodeHost())
+      return code
+    }),
+  'geopoint',
+)
 
 export const loadGeoCode = geoCode.load
 export const loadGeoCodeFor = geoCode.loadFor

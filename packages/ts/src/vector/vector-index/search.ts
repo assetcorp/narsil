@@ -1,23 +1,26 @@
-import { type BinaryHeap, createBoundedMaxHeap } from '../../core/heap'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { VectorMetric } from '../brute-force'
-import { toScore } from '../hnsw/shared'
-import { noteFallback } from '../native/backend'
-import { nativeScoresOf } from '../native/store'
-import { type OrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
-import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
-import { scheduleBuild } from './build'
-import { highScoreFirst, mergeResults } from './merge-results'
 import {
   allLiveDocIds,
+  cosineSimilarityWithMagnitudes,
+  dotProduct,
+  ErrorCodes,
+  euclideanDistance,
   filterForOptions,
   handOverBuildTurns,
   liveSize,
-  type VectorIndexState,
-  type VectorScoredResult,
-  type VectorSearchOptions,
-  type VectorSearchOutcome,
-} from './shared'
+  magnitude,
+  NarsilError,
+  nativeScoresOf,
+  noteFallback,
+  ordinalFilterHas,
+  ordinalFilterValues,
+  toScore,
+} from '#platform/vector-host'
+import { type BinaryHeap, createBoundedMaxHeap } from '../../core/heap'
+import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { scheduleBuild } from './build'
+import { highScoreFirst, mergeResults } from './merge-results'
+import type { VectorIndexState, VectorScoredResult, VectorSearchOptions, VectorSearchOutcome } from './shared'
 
 export function* bufferCandidates(
   state: VectorIndexState,

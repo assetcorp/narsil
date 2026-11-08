@@ -1,6 +1,6 @@
 import { bm25SetsValue } from '../../core/scorer'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
-import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
@@ -200,7 +200,8 @@ function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig |
   }
   return {
     fields: [...group.fields],
-    maxPerGroup: group.reduce !== undefined ? MAX_LIMIT : hitsKeptPerGroup(group.maxPerGroup),
+    maxPerGroup:
+      group.reduce !== undefined ? MAX_LIMIT : requireLoadedOptionalReads().hitsKeptPerGroup(group.maxPerGroup),
     limit: group.limit ?? null,
   }
 }

@@ -1,8 +1,8 @@
-import { compareCodePoints } from '../../ordering'
+import { compareCodePoints, sortedPageOf, subMatchesView } from '../../../engine/optional-reads-host-bindings'
 import { compareComparableKeys } from '../../ordering/sort-comparison'
 import type { PartitionReadState } from '../read-state'
-import { type SortedPageEntry, type SortPageRequest, sortedPageOf } from '../sorting'
-import { type OrdinalLayout, subMatchesView } from './filters'
+import type { SortedPageEntry, SortPageRequest } from '../sorting'
+import type { OrdinalLayout } from './filters'
 
 export function compositeSortedPage(
   subs: readonly PartitionReadState[],

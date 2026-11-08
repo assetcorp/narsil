@@ -1,12 +1,18 @@
-import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
+import {
+  admitInsert,
+  createPendingAdmissions,
+  ErrorCodes,
+  indexChangeOutsideExternalWaits,
+  insertDocumentVectors,
+  NarsilError,
+  recordPendingAdmission,
+  removeDocumentVectors,
+} from '#platform/optional-writes-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { InsertOptions } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
-import { insertDocumentVectors, removeDocumentVectors } from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
-import { admitInsert, createPendingAdmissions, recordPendingAdmission } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertDocument, type InsertProgress } from './insert-batch-apply'
 

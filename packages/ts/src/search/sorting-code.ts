@@ -1,15 +1,16 @@
+import { importOptionalReads } from '../engine/optional-reads-code'
+import { filtersHoldTextRange } from '../filters/text-range'
 import type { QueryParams, SortSpec } from '../types/search'
 import { lazyCode } from './lazy-code'
 import type * as Sorting from './sorting-runtime'
 
-const code = lazyCode('sorting', () => import('./sorting-runtime'))
+const code = lazyCode('sorting', importOptionalReads)
 
 export function loadSortingFor(sort: SortSpec | undefined, filters?: QueryParams['filters']): Promise<void> | null {
-  return sort === undefined && filters === undefined ? null : code.load()
+  return sort === undefined && !filtersHoldTextRange(filters) ? null : code.load()
 }
 
 export const applySorting: typeof Sorting.applySorting = (...args) => code.get().applySorting(...args)
-export const validatedFilterOf: typeof Sorting.validatedFilterOf = (...args) => code.get().validatedFilterOf(...args)
 
 export const reduceSortValue: typeof Sorting.reduceSortValue = (...args) => code.get().reduceSortValue(...args)
 export const reduceStoredSortValue: typeof Sorting.reduceStoredSortValue = (...args) =>
@@ -22,12 +23,6 @@ export const createSortColumnSet: typeof Sorting.createSortColumnSet = (...args)
   code.get().createSortColumnSet(...args)
 export const selectTextRange: typeof Sorting.selectTextRange = (...args) => code.get().selectTextRange(...args)
 export const selectSortedPage: typeof Sorting.selectSortedPage = (...args) => code.get().selectSortedPage(...args)
-export const applyPartitionFilters: typeof Sorting.applyPartitionFilters = (...args) =>
-  code.get().applyPartitionFilters(...args)
-export const applyPartitionFiltersBitset: typeof Sorting.applyPartitionFiltersBitset = (...args) =>
-  code.get().applyPartitionFiltersBitset(...args)
-export const partitionFilterMatches: typeof Sorting.partitionFilterMatches = (...args) =>
-  code.get().partitionFilterMatches(...args)
 export const compositeSortedPage: typeof Sorting.compositeSortedPage = (...args) =>
   code.get().compositeSortedPage(...args)
 

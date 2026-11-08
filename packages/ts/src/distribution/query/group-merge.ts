@@ -1,6 +1,6 @@
 import { mergeGroups } from '#platform/group-merge'
 import { compareCodePoints, type SortDirection } from '../../core/ordering'
-import { compareSortValues } from '../../core/ordering/sort-comparison'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredEntry, SortField, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { groupIdentities } from './group-identities'
@@ -42,6 +42,7 @@ export function mergeDistributedGroups(
   limit: number | null,
   sortDirections: readonly SortDirection[] | null,
 ): WireGroupEntry[] {
+  const { compareSortValues } = requireLoadedOptionalReads()
   const sources: WireGroupEntry[] = []
   let count = 0
   for (const groups of perNode) {

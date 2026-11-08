@@ -1,9 +1,13 @@
-import { ErrorCodes } from '../errors'
-import { storedBM25Params, validateBM25Params } from '../search/bm25-params'
+import {
+  ErrorCodes,
+  emitSyncChange,
+  oneAtATime,
+  storedBM25Params,
+  validateBM25Params,
+  withOpenIndex,
+} from '#platform/optional-writes-host'
 import type { BM25Params } from '../types/schema'
 import type { EngineCore } from './core'
-import { oneAtATime, withOpenIndex } from './serial-index-update'
-import { emitSyncChange } from './sync-notify'
 
 async function replaceNow(core: EngineCore, indexName: string, bm25: BM25Params | undefined): Promise<void> {
   const { config } = core.requireIndex(indexName)

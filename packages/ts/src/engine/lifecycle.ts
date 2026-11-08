@@ -1,7 +1,9 @@
+import { loadRestoreQueue } from '../narsil/restore-queue-code'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { EngineCore } from './core'
 import { checkHeapAfterRecovery } from './notifiers'
+import { loadRerankRuntime } from './query/fixed-depth-code'
 
 export async function startEngineCore(core: EngineCore, config: NarsilConfig | undefined): Promise<void> {
   try {
@@ -10,7 +12,7 @@ export async function startEngineCore(core: EngineCore, config: NarsilConfig | u
       checkHeapAfterRecovery(core)
     }
     if (core.invalidation) await core.invalidation.start()
-    if (core.durability) await (await import('./analysis-change-entry')).resumeEveryChange(core)
+    if (core.durability) await (await loadRestoreQueue()).resumeEveryChange(core)
     if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
   } catch (err) {
     await core.durability?.manager.shutdown().catch(() => undefined)
@@ -55,7 +57,7 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
   }
 
   if (core.rerankAdapters.size > 0) {
-    await (await import('../rerank/runtime')).shutdownRerankAdapters(core.rerankAdapters)
+    await (await loadRerankRuntime()).shutdownRerankAdapters(core.rerankAdapters)
   }
 
   await orchestrator.shutdown()

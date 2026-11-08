@@ -1,10 +1,8 @@
-import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
+import { admitInsert, indexChangeOutsideExternalWaits, insertDocumentVectors } from '#platform/optional-writes-host'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { insertDocumentVectors } from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-import { admitInsert } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { recordChunk } from './record-batch'
 

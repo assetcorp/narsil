@@ -1,12 +1,11 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { HitReads } from '../../partitioning/manager/state-pins'
 import type { RuntimeHost } from '../../rerank/host'
 import { rerankTextOf } from '../../rerank/params'
 import { runRerankedQuery } from '../../rerank/pipeline'
+import { applyHighlights, ErrorCodes, NarsilError } from '../../rerank/rerank-host-bindings'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { applyHighlights } from './highlight'
 import type { PinnedQueryContext } from './shared'
 
 type FirstStage<T> = (params: QueryParams, context: PinnedQueryContext) => Promise<QueryResult<T>>

@@ -1,3 +1,4 @@
+import { loadWorkerCopies } from '../engine/worker-copies-code'
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
 import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
@@ -20,7 +21,7 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWebWorkers) {
-    const { createWorkerExecutor } = await import('./worker-executor')
+    const { createWorkerExecutor } = await loadWorkerCopies()
     return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
       return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })

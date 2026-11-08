@@ -1,17 +1,20 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  decodeIndexConfiguration,
+  ErrorCodes,
+  flattenSchema,
+  manifestKey,
+  NarsilError,
+  readSnapshotArchive,
+} from '#platform/storage-host'
 import type { ByteReader } from '../../persistence/archive/byte-reader'
 import { writeArchiveFile } from '../../persistence/archive/file-entry'
 import { memoryCheckpointStore } from '../../persistence/archive/memory-store'
-import { readSnapshotArchive } from '../../persistence/archive/read'
 import { validateStagedCheckpoint } from '../../persistence/archive/validate'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
-import { manifestKey } from '../../persistence/durability/segment/layout'
 import { loadSegmentedCheckpoint } from '../../persistence/durability/segment/load'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
-import { flattenSchema } from '../../schema/validator'
-import { decodeIndexConfiguration } from './index-configuration-decode'
 import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
 import {
@@ -114,7 +117,7 @@ async function stageArchive(
   if (manifest === null) missingPart('manifest')
   const { directory } = staging
   if (keepsTextOnDisk(prepared, staging) && directory !== undefined) {
-    const { bytesThatSegmentsHoldInMemory } = await import('../../persistence/paged/module')
+    const { bytesThatSegmentsHoldInMemory } = await import('../../persistence/storage-leaf')
     const replacesIndex = deps.indexRegistry.has(indexName)
     const segmentBytes = await bytesThatSegmentsHoldInMemory(directory, manifest)
     requireRestoreMemory(indexName, archiveFootprint(prepared, manifest, replacesIndex, segmentBytes), replacesIndex)

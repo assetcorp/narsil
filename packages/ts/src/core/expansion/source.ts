@@ -1,10 +1,14 @@
+import {
+  lookupExact,
+  lookupPrefix,
+  mergeText,
+  requireSegment,
+  storedText,
+  termCount,
+  termText,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionSegment } from '../../vector/native/types/expansion'
 import type { NativeTermDictionary } from '../../vector/native/types/terms'
-import { mergeText } from '../segment-merges/text'
-import { requireSegment } from '../segment-writes/status'
-import { storedText } from '../stored-values/text'
-import { lookupExact, lookupPrefix } from '../term-table/portable'
-import { termCount, termText } from '../term-table/read'
 
 const EMPTY_BYTES = new Uint8Array(0)
 const EMPTY_WORDS = new Uint32Array(0)

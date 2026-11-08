@@ -1,5 +1,5 @@
+import { createPublicationGate } from '#platform/storage-host'
 import type { PartitionManager } from './manager'
-import { createPublicationGate } from './manager/publication-gate'
 
 interface DurableRouting {
   gate: ReturnType<typeof createPublicationGate>

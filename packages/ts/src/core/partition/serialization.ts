@@ -1,11 +1,16 @@
-import { createLoadedGeoIndex } from '../../geo/geo-code'
+import {
+  createBooleanIndex,
+  createEnumIndex,
+  createLoadedGeoIndex,
+  createNumericIndex,
+  getFlatSchema,
+  rebuildSizeIndexes,
+} from '#platform/segment-merge-host'
 import type { SerializablePartition } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
-import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
 import type { SerializedPartitionStats } from '../statistics'
 import { loadPatternIndexes, serializePatternIndexes } from './pattern-snapshot'
-import { getFlatSchema, type PartitionState } from './utils'
-import { rebuildSizeIndexes } from './value-sizes'
+import type { PartitionState } from './utils'
 
 export function serializePartition(
   state: PartitionState,

@@ -1,14 +1,25 @@
-import { turnsAreBudgeted, yieldBackgroundTurn } from '#platform/shared-turns'
-import { ErrorCodes, isNarsilError } from '../../errors'
-import { createHNSWIndex, type HNSWIndex } from '../hnsw'
-import { shuffleInPlace } from '../hnsw/insertion-order'
+import {
+  adoptGraph,
+  allLiveDocIds,
+  BUILD_RETRY_FIRST_DELAY_MS,
+  BUILD_RETRY_MAX_DELAY_MS,
+  createHNSWIndex,
+  ErrorCodes,
+  isNarsilError,
+  liveSize,
+  SHUFFLED_REBUILD_MEMORY_RETRY_MS,
+  shuffleInPlace,
+  turnsAreBudgeted,
+  yieldBackgroundTurn,
+  yieldBuildTurn,
+} from '#platform/vector-host'
+import type { HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
-import { BUILD_RETRY_FIRST_DELAY_MS, BUILD_RETRY_MAX_DELAY_MS, SHUFFLED_REBUILD_MEMORY_RETRY_MS } from './constants'
 import { releasePendingLocations } from './disk'
 import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
 import { moveOutOfBuffer } from './search-writes'
-import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
+import type { VectorIndexState } from './shared'
 import { copyInTurns, forEachInTurns, shuffledLiveDocIdsInTurns } from './turns'
 import { dropSharedGraph, invalidateWorkerCopies, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 

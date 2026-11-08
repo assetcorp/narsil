@@ -1,4 +1,5 @@
 import { keptFacetValues } from '../core/partition/facet-limit'
+import { importOptionalReads } from '../engine/optional-reads-code'
 import type { FacetConfig } from '../types/search'
 import type * as FacetMerge from './facet-merge'
 import { lazyCode } from './lazy-code'
@@ -31,7 +32,7 @@ export function oversampledFacetConfig(config: FacetConfig): FacetConfig {
   return widened
 }
 
-const code = lazyCode('facet', () => import('./facet-merge'))
+const code = lazyCode('facet', importOptionalReads)
 
 export function loadFacetMergesFor(facets: FacetConfig | undefined): Promise<void> | null {
   return facets === undefined ? null : code.load()

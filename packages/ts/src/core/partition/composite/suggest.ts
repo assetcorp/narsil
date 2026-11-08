@@ -1,5 +1,5 @@
+import { compareCodePoints } from '../../../engine/optional-reads-host-bindings'
 import { suggestPartitionTerms } from '../../expansion/suggestion-host'
-import { compareCodePoints } from '../../ordering'
 import type { PartitionReadState } from '../read-state'
 import { type PartitionSuggestion, suggestDisplayTerms } from '../suggestions'
 

@@ -1,4 +1,7 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/resolve-vector-text-host'
+
+export { bindResolveVectorTextHost } from '#platform/resolve-vector-text-host'
+
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { QueryParams, VectorQueryConfig } from '../types/search'
 

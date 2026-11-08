@@ -1,29 +1,32 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import {
+  admissionAt,
+  allLiveDocIds,
+  ErrorCodes,
+  filterForOptions,
+  liveSize,
+  NATIVE_OK,
+  NarsilError,
+  nativeMetricCode,
+  nativeStoreFor,
+  storePinsOf,
+  threadedNativeCore,
+  toScore,
+  turnIsSpent,
+  withNativeThreadSlot,
+  yieldTurn,
+} from '#platform/vector-host'
 import { createBoundedMaxHeap } from '../../core/heap'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { admissionAt, type OrdinalAdmission } from '../admission'
+import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { NATIVE_THREAD_SCAN_CHUNK_ORDINALS } from '../constants'
-import { toScore } from '../hnsw/shared'
-import { nativeMetricCode, nativeStoreFor } from '../native/store'
-import { type ThreadedNativeCore, threadedNativeCore, withNativeThreadSlot } from '../native/thread-slots'
-import { NATIVE_OK } from '../native/types'
+import type { ThreadedNativeCore } from '../native/thread-slots'
 import type { OrdinalFilter } from '../ordinal-filter'
-import { storePinsOf } from '../vector-store/store-pins'
 import { scheduleBuild } from './build'
 import { highScoreFirst, mergeResults } from './merge-results'
 import { bufferCandidates, fetchedOutcome, filteredDocIds } from './search'
 import { layoutGeneration, searchFiltered } from './search-in-turns'
 import { watchingSearch } from './search-writes'
-import {
-  allLiveDocIds,
-  filterForOptions,
-  liveSize,
-  type VectorIndexState,
-  type VectorScoredResult,
-  type VectorSearchOptions,
-  type VectorSearchOutcome,
-} from './shared'
+import type { VectorIndexState, VectorScoredResult, VectorSearchOptions, VectorSearchOutcome } from './shared'
 
 interface ScanOutcome {
   results: VectorScoredResult[]

@@ -1,7 +1,5 @@
+import { readStoredFields, regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeFacetCore } from '../../vector/native/types/facets'
-import { regionsOverlap } from '../regions'
-import { readStoredFields } from '../stored-values/read'
-import { typedRegion } from '../stored-values/regions'
 
 export const storedRangeFacet: NativeFacetCore['storedRangeFacet'] = (
   valuesInput,

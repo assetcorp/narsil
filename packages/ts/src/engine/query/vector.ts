@@ -1,16 +1,20 @@
+import {
+  bindSearchSignal,
+  ErrorCodes,
+  MIN_OVERSAMPLE,
+  NarsilError,
+  requirePinnedState,
+  signalOfSearch,
+} from '#platform/vector-host'
 import type { SearchClock } from '../../core/search-clock'
-import { bindSearchSignal, signalOfSearch } from '../../core/search-stop'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import { RESULT_WINDOW } from '../../search/constants'
 import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
-import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 import type { VectorSearcher, VectorSearchOptions, VectorSearchOutcome } from '../../vector/vector-index'
 import type { FilteredSearch } from './filter-subsets'
 import type { SearchContext } from './shared'
-import { requirePinnedState } from './state'
 import { filterSubsetsMatchNothing, searchCurrentSubsets } from './subset-search'
 import type { VectorQueryHost } from './vector-query-host'
 

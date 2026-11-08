@@ -1,10 +1,11 @@
 import { projectionKeepsField, resolveProjection } from '../../core/projection'
+import { importOptionalReads } from '../../engine/optional-reads-code'
 import { executePreflight, executeQuery, loadQueryCode } from '../../engine/query'
+import { loadRerankRuntime } from '../../engine/query/fixed-depth-code'
 import type { RerankRunner } from '../../engine/query/shared'
 import { answerFromOneState } from '../../engine/query/state'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { withRerankQueryText } from '../../rerank/query-text'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { lazyQueryBinding } from '../../search/cursor-binding'
 import { holdsQuotedText } from '../../search/quotes'
@@ -131,7 +132,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
 
   async function resolvedParams(indexName: string, request: QueryParams, signal?: AbortSignal): Promise<QueryParams> {
     signal?.throwIfAborted()
-    const params = withRerankQueryText(request)
+    const params = request.rerank === undefined ? request : (await loadRerankRuntime()).withRerankQueryText(request)
     if (params.vector?.text === undefined) return params
     const value = await relay.embed(indexName, params.vector, signal)
     const { text: _text, ...vector } = params.vector
@@ -263,7 +264,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     preflightHere: (indexName: string, params: QueryParams, signal?: AbortSignal) =>
       preflight(indexName, params, undefined, signal),
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
-      const { executeSuggest } = await import('../../engine/suggest')
+      const { executeSuggest } = await importOptionalReads()
       return readCopy(indexName, false, async (manager, context) => {
         const result = await executeSuggest(manager, context.language, params)
         if (context.analysisStale) result.analysisStale = true
@@ -290,7 +291,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
       return readCopy(indexName, false, manager => manager.countDocuments())
     },
     async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
-      const { executeListDocuments } = await import('../../engine/list-documents')
+      const { executeListDocuments } = await importOptionalReads()
       const loading = loadSortingFor(params?.sort, params?.filters)
       if (loading !== null) await loading
       return readCopy(indexName, true, (manager, context) =>

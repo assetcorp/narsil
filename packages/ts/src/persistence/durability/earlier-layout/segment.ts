@@ -1,7 +1,6 @@
+import { decode, ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { SegmentDocument } from '../../../core/partition/segment-builder'
-import { ErrorCodes, NarsilError } from '../../../errors'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
-import { decode } from '../../../serialization/msgpack'
 import { deserializePayloadV2, documentsOfPayloadV2 } from '../../../serialization/payload-v2'
 import type { SerializablePartition } from '../../../types/internal'
 import type { CheckpointStore } from '../segment/store'

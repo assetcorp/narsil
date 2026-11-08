@@ -1,7 +1,5 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { textRange } from '../../../search/sorting-code'
-import { createBitSet } from '../../bitset'
-import { truncateSortString } from '../../ordering'
+import { textRange } from '#platform/sort-value'
+import { createBitSet, ErrorCodes, NarsilError, truncateSortString } from '../../../engine/optional-reads-host-bindings'
 import type { SortColumn } from './index'
 
 export interface TextRangeBounds {

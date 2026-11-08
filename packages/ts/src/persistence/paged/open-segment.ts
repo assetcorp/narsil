@@ -1,16 +1,16 @@
 import {
   assemblePagedFrozenSegment,
-  type FrozenSegment,
-  type FrozenSegmentSource,
-  type PagedSegmentAccess,
-} from '../../core/partition/frozen'
-import { createEncodedDocumentSource } from '../../core/partition/frozen/document-source'
+  createEncodedDocumentSource,
+  decode,
+  decodeSurfaceTable,
+  ErrorCodes,
+  NarsilError,
+  wrapFrozenTokenTable,
+} from '#platform/storage-host'
+import type { FrozenSegment, FrozenSegmentSource, PagedSegmentAccess } from '../../core/partition/frozen'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { decodeSurfaceTable, type SurfaceTableData } from '../../core/partition/frozen/surface-table'
-import { wrapFrozenTokenTable } from '../../core/partition/frozen/token-table'
-import { ErrorCodes, NarsilError } from '../../errors'
+import type { SurfaceTableData } from '../../core/partition/frozen/surface-table'
 import { decodeSurfaceForms } from '../../serialization/keyword-segment/decode-columns'
-import { decode } from '../../serialization/msgpack'
 import { createPagedLiveCounts } from './counts'
 import { createDocumentBlockReader } from './documents'
 import { type FileSection, loadFailed, sectionNamed } from './format'

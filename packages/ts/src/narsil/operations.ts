@@ -12,8 +12,10 @@ import { clearEngineIndex } from '../engine/clear-index'
 import type { EngineCore, EventHandler } from '../engine/core'
 import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
+import { loadOptionalWrites } from '../engine/optional-writes-code'
 import { withRenewedSyncEpoch } from '../engine/sync-epoch'
 import { emitWriteEventAfter } from '../engine/write-events'
+import { loadStorageCode } from '../persistence/storage-code'
 import { registerEngineRerankAdapter } from '../rerank/registry'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { AnalysisChange } from '../types/analysis-operations'
@@ -223,7 +225,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       const entry = requireIndex(indexName)
       await withOpenIndexWrite(indexName, async () => {
         if (entry.pendingAnalysis === null) return core.analysisRebuild.rebuild(indexName)
-        return (await import('../engine/analysis-change')).resumeAnalysisChange(core, indexName)
+        return (await loadStorageCode()).resumeAnalysisChange(core, indexName)
       })
     },
 
@@ -231,7 +233,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       guardShutdown()
       requireIndex(indexName)
       const changed = withOpenIndex(indexName, async () =>
-        (await import('../engine/analysis-change')).changeIndexAnalysis(core, indexName, change),
+        (await loadStorageCode()).changeIndexAnalysis(core, indexName, change),
       )
       await emitWriteEventAfter(core, indexName, changed)
     },
@@ -269,7 +271,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       rebalancesStarting.set(indexName, started)
       const rebalanced = withOpenIndex(indexName, () =>
         withRenewedSyncEpoch(core, indexName, async () => {
-          const { executeRebalance } = await import('../engine/analysis-change')
+          const { executeRebalance } = await loadStorageCode()
           const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
           releaseWrites()
           await running
@@ -281,7 +283,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>): Promise<void> {
       guardShutdown()
       return withOpenIndex(indexName, async () => {
-        const { updateEnginePartitionConfig } = await import('../engine/partition-config')
+        const { updateEnginePartitionConfig } = await loadOptionalWrites()
         await updateEnginePartitionConfig(core, indexName, partitionConfig)
       })
     },
@@ -292,7 +294,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         estimatedIndexBytes += executor.getManager(name)?.estimateMemoryBytes() ?? 0
       }
       const workers = await orchestrator.getWorkerMemoryStats()
-      const { readProcessMemory } = await import('../runtime/process-memory')
+      const { readProcessMemory } = await loadOptionalWrites()
       const lifecycleCounts = core.indexState.counts()
       return {
         process: readProcessMemory(),

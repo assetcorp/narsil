@@ -1,18 +1,20 @@
-import { decodeStoredDocument } from '../../core/partition/frozen/document-source'
+import {
+  bytesToVectors,
+  decode,
+  decodeStoredDocument,
+  decodeVectorFilePayload,
+  isDead,
+  openChecksummedEnvelope,
+} from '#platform/storage-host'
 import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFileRef } from '../../persistence/durability/segment/manifest'
 import type { SegmentScan } from '../../persistence/paged/segment-scan'
-import { openChecksummedEnvelope } from '../../serialization/envelope-file'
 import { decodeKeywordSegment } from '../../serialization/keyword-segment/decode'
 import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
   type KeywordSegmentContents,
 } from '../../serialization/keyword-segment/types'
-import { decode } from '../../serialization/msgpack'
-import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
-import { isDead } from '../../vector/vector-index/dead-bits'
-import { bytesToVectors } from '../../vector/vector-index/payload'
 import { EXPORT_CHUNK_BYTES } from '../constants'
 import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './import'
 import { encodeDocumentJson, encodeExactJson } from './json-line'
@@ -121,7 +123,7 @@ async function wholeFileVectorReads(checkpoint: ArchiveCheckpoint): Promise<Vect
 }
 
 async function* pagedDocumentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<string> {
-  const { openFileVectorReads, pagedPartitionLines } = await import('../../persistence/paged/module')
+  const { openFileVectorReads, pagedPartitionLines } = await import('../../persistence/storage-leaf')
   const vectors = await openFileVectorReads(checkpoint, () => wholeFileVectorReads(checkpoint))
   try {
     for (const partition of checkpoint.manifest.partitions) {

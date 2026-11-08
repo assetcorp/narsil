@@ -1,7 +1,8 @@
+import { importOptionalReads } from '../engine/optional-reads-code'
 import type * as CursorPage from './cursor-page'
 import { lazyCode } from './lazy-code'
 
-const code = lazyCode('cursor paging', () => import('./cursor-page'))
+const code = lazyCode('cursor paging', importOptionalReads)
 
 export function loadCursorPageFor(cursor: string | undefined): Promise<void> | null {
   return cursor === undefined ? null : code.load()

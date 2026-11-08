@@ -1,11 +1,9 @@
 import { expandPrefix } from '#platform/prefix-expansion'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, expansionSource, NarsilError, termText } from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionSegment } from '../../vector/native/types/expansion'
 import type { PartitionReadState } from '../partition/read-state'
-import { termText } from '../term-table/read'
 import { PREFIX_BUDGET } from './constants'
 import { expansionDictionary } from './source'
-import { expansionSource } from './sources'
 
 export interface PrefixCompletion {
   token: string

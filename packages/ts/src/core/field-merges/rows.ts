@@ -1,5 +1,6 @@
+import { embedded, numbers, uint32, words } from '#platform/segment-merge-host'
 import type { NativeFieldMergeSource } from '../../vector/native/types/field-merge'
-import { embedded, type FieldMergePlan, type MergeDocument, numbers, uint32, words } from './regions'
+import type { FieldMergePlan, MergeDocument } from './regions'
 
 interface Row {
   source: NativeFieldMergeSource

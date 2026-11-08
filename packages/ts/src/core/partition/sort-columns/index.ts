@@ -1,12 +1,19 @@
-import { isListBase, parsedTypeOf } from '../../../schema/validator/field-type'
-import { reduceStoredSortValue } from '../../../search/sorting-code'
+import { reduceStoredSortValue } from '#platform/sort-value'
+import {
+  bitsetClear,
+  bitsetFromSet,
+  bitsetSet,
+  createBitSet,
+  isListBase,
+  parsedTypeOf,
+  SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD,
+  SORT_COLUMN_REBUILD_FRACTION_SHIFT,
+  storedValuesOf,
+} from '../../../engine/optional-reads-host-bindings'
 import type { NativeSortColumn } from '../../../vector/native/types/sort'
-import { bitsetClear, bitsetFromSet, bitsetSet, createBitSet } from '../../bitset'
 import type { DocumentStoreReader } from '../../document-store'
 import type { ComparableSortValue, SortMode } from '../../ordering'
 import { compareComparableValues } from '../../ordering/sort-comparison'
-import { storedValuesOf } from '../../stored-values/columns'
-import { SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD, SORT_COLUMN_REBUILD_FRACTION_SHIFT } from '../constants'
 import { buildOrder, estimateOrderBytes, MISSING_RANK, rankOfValue, type SortColumnOrder, seekPosition } from './order'
 import { createValueStore, type ValueStore } from './values'
 

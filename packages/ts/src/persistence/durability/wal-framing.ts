@@ -1,9 +1,8 @@
 import { encode } from '@msgpack/msgpack'
+import { decode, ErrorCodes, NarsilError } from '#platform/storage-host'
 import { validateEntryPayload } from '../../distribution/replication/codec'
 import { computeEntryChecksum } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { decode } from '../../serialization/msgpack'
 import { crc32 } from './checksum'
 
 export const WAL_MAGIC = new Uint8Array([0x4e, 0x52, 0x53, 0x57])

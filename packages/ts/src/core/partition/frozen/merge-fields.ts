@@ -1,7 +1,6 @@
+import { bitsetIterator, storedText } from '#platform/segment-merge-host'
 import type { NativeFieldMergeRegion, NativeFieldMergeSource } from '../../../vector/native/types/field-merge'
-import { bitsetIterator } from '../../bitset'
 import { mergeFieldRegions } from '../../field-merges/host'
-import { storedText } from '../../stored-values/text'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentRemap } from './merge-postings'
 

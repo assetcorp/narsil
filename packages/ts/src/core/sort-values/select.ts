@@ -1,6 +1,5 @@
+import { regionsOverlap, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeSortColumn, NativeSortCore } from '../../vector/native/types/sort'
-import { regionsOverlap } from '../regions'
-import { typedRegion } from '../stored-values/regions'
 import { captureColumn, readColumn, validSortShape } from './column'
 import { captureSortValues, readSortRegions, validSortValue } from './regions'
 import { marked, selectOrder, selectStart } from './select-order'

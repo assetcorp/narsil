@@ -1,7 +1,14 @@
-import { compareCodePoints } from '../../core/ordering'
-import { compareScores } from '../../core/ordering/scores'
-import { requireSearchActive, signalOfSearch } from '../../core/search-stop'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  compareCodePoints,
+  compareScores,
+  createFixedBuffer,
+  defaultEfSearch,
+  defaultRescoreDepth,
+  ErrorCodes,
+  NarsilError,
+  requireSearchActive,
+  signalOfSearch,
+} from '#platform/storage-host'
 import type { NativeCore } from '../../vector/native/types'
 import type {
   NativePagedGraphPart,
@@ -9,8 +16,6 @@ import type {
   NativePagedVectorFile,
   NativePagedVectorRequest,
 } from '../../vector/native/types/paged'
-import { defaultEfSearch, defaultRescoreDepth } from '../../vector/search-depth'
-import { createFixedBuffer } from '../../vector/shared-buffers/growable'
 import type { VectorScoredResult } from '../../vector/vector-index/shared'
 import { COLD_GRAPH_PART_VECTORS, type ColdFieldData } from './cold-field'
 import type { ColdSearchOptions } from './cold-search'

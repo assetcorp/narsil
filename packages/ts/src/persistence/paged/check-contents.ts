@@ -1,6 +1,5 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints, decodeStoredDocument } from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { decodeStoredDocument } from '../../core/partition/frozen/document-source'
 import type { SegmentSelection } from '../../core/partition/frozen/merge'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import { MERGE_READ_CACHE_BYTES } from './constants'

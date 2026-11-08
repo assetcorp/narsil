@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from './geo-host-bindings'
 
 export interface GeoRegions {
   codes: BigUint64Array

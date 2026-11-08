@@ -1,6 +1,6 @@
+import { bitsetSet } from '../../search/phrase-host-bindings'
 import type { PostingListView } from '../../types/internal'
 import type { NativePhrasePostings } from '../../vector/native/types/phrases'
-import { bitsetSet } from '../bitset'
 
 interface CachedPostings {
   revision: number

@@ -1,4 +1,4 @@
-import { parseVectorDimension } from '../../core/partition/utils'
+import { parseVectorDimension } from '#platform/storage-host'
 import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFieldRef } from '../../persistence/durability/segment/manifest'
@@ -20,7 +20,7 @@ async function coldFieldOf(checkpoint: ArchiveCheckpoint, field: VectorFieldRef)
   const dimension = fieldType === undefined ? null : parseVectorDimension(fieldType)
   if (dimension === null) return null
   const withPath = async <Ref extends { key: string }>(ref: Ref) => ({ ref, path: await directory.pathOf(ref.key) })
-  const { openColdVectorField } = await import('../../persistence/paged/cold-module')
+  const { openColdVectorField } = await import('../../persistence/storage-leaf')
   return openColdVectorField({
     fieldPath: field.fieldPath,
     dimension,

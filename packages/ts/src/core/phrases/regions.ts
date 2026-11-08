@@ -1,5 +1,5 @@
+import { typedRegion } from '../../search/phrase-host-bindings'
 import type { NativePhrasePostings, NativePhraseRequest } from '../../vector/native/types/phrases'
-import { typedRegion } from '../stored-values/regions'
 
 export function bitmapWords(count: number): number {
   return Math.max(1, Math.ceil(count / 32))

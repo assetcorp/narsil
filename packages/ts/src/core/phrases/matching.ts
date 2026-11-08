@@ -1,5 +1,5 @@
+import { bitsetHas, bitsetSet } from '../../search/phrase-host-bindings'
 import type { NativePhrasePostings, NativePhraseRequest } from '../../vector/native/types/phrases'
-import { bitsetHas, bitsetSet } from '../bitset'
 import { RADIX_BITS } from './constants'
 import { sortPhraseRows } from './order'
 import { bitmapWords } from './regions'

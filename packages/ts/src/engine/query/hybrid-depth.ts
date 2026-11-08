@@ -1,6 +1,6 @@
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { RuntimeHost } from '../../rerank/host'
-import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
+import { HYBRID_RESCORE_WINDOW } from '../../rerank/rerank-host-bindings'
 import { fixedHybridDepthOf, requireWithinHybridDepth } from '../../search/hybrid-depth'
 import type { applyPagination } from '../../search/pagination'
 import { pageByPosition } from '../../search/position-page'

@@ -5,3 +5,4 @@ export {
   requirePhrasesWithinLimits,
   withWordsOnly,
 } from './phrase-analysis'
+export { bindPhraseHost } from './phrase-host-bindings'

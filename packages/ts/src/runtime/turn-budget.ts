@@ -1,4 +1,8 @@
+import type { TurnScheduler } from './turn-scheduler'
+
 export const turnsAreBudgeted = false
+
+export function adoptSharedTurns(_scheduler: TurnScheduler): void {}
 
 export function turnIsSpent(): boolean {
   return false

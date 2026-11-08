@@ -1,7 +1,13 @@
-import { magnitude } from '../similarity'
-import { IN_MEMORY, STORE_LIVE_COUNT, STORE_RELEASED_VECTORS_TO_DISK, STORE_SLOTS } from './handles'
+import {
+  IN_MEMORY,
+  magnitude,
+  STORE_LIVE_COUNT,
+  STORE_RELEASED_VECTORS_TO_DISK,
+  STORE_SLOTS,
+  stampBorn,
+  stampRetired,
+} from '#platform/vector-host'
 import { claimSlot, ensureOrdinal, type OpenStore, publishOnDisk, publishOrdinal, writeVector } from './open-store'
-import { stampBorn, stampRetired } from './pins'
 import {
   appendOrdinal,
   claimOrdinal,

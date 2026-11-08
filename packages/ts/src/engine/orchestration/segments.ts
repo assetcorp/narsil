@@ -1,4 +1,4 @@
-import { generateId } from '../../core/id-generator'
+import { generateId } from '#platform/worker-copies-host'
 import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'

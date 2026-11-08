@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../../../partitioning/manager'
 import { releaseLayoutCheckpoint } from '../../../partitioning/manager/checkpoint-prefix'
 import { switchDurableRouting } from '../../../partitioning/wal-routing'

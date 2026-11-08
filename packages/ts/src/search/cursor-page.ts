@@ -1,7 +1,6 @@
 import { pageStart } from '#platform/page-start'
-import { compareCodePoints } from '../core/ordering'
 import { compareSortValues } from '../core/ordering/sort-comparison'
-import { ErrorCodes, NarsilError } from '../errors'
+import { compareCodePoints, ErrorCodes, NarsilError } from '../engine/optional-reads-host-bindings'
 import type { PageCursor } from './cursor'
 import type { PaginationSortContext } from './pagination'
 

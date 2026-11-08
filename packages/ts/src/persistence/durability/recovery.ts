@@ -1,4 +1,4 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, yieldTurn } from '#platform/storage-host'
 import { applyDeleteEntry, applyIndexEntry } from '../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'

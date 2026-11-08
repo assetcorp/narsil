@@ -1,16 +1,26 @@
+import {
+  buildPartialWordTableFrom,
+  crc32,
+  crc32Final,
+  crc32Init,
+  crc32Update,
+  ErrorCodes,
+  engineVersionParts,
+  fieldIndexRemapOf,
+  mergeFieldIndexes,
+  NarsilError,
+  requireWithinFileLimit,
+  selectionKeeps,
+  wrapFrozenTokenTable,
+  writeHeader,
+} from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { fieldIndexRemapOf, type SegmentSelection, selectionKeeps } from '../../core/partition/frozen/merge'
-import { mergeFieldIndexes } from '../../core/partition/frozen/merge-fields'
+import type { SegmentSelection } from '../../core/partition/frozen/merge'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
-import { wrapFrozenTokenTable } from '../../core/partition/frozen/token-table'
-import { buildPartialWordTableFrom } from '../../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import { mergePagedLengths, mergePagedStrings } from '../../core/segment-merges/metadata'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32, crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
-import { engineVersionParts, requireWithinFileLimit } from '../../serialization/envelope-file'
-import { HEADER_SIZE, writeHeader } from '../../serialization/header'
+import { HEADER_SIZE } from '../../serialization/header'
 import {
   writeBooleanColumns,
   writeEnumColumns,

@@ -1,9 +1,9 @@
-import { createDocIdMap } from '#platform/doc-id-tables'
+import { createDocIdMap, STORE_REMOVED_COUNT, STORE_UNPLACED_COUNT } from '#platform/vector-host'
 import type { DocIdSet } from '../../core/doc-id-tables/types'
 import { UNPLACED_FLAG_CHUNK_ORDINALS } from '../constants'
 import type { GrowableBuffer } from '../shared-buffers/growable'
 import type { VectorStore } from '../vector-store'
-import { type SharedVectorStoreHandles, STORE_REMOVED_COUNT, STORE_UNPLACED_COUNT } from '../vector-store/handles'
+import type { SharedVectorStoreHandles } from '../vector-store/handles'
 
 interface FlagLayout {
   flagsOf(handles: SharedVectorStoreHandles): GrowableBuffer

@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { NativePageCache } from '../../vector/native/types/paged'
 import { createAsyncPageCaches } from './async-page-cache'
 import {

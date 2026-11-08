@@ -1,6 +1,5 @@
+import { SORT_VALUE_MAX_CODE_POINTS, typedRegion } from '../../engine/optional-reads-host-bindings'
 import type { NativeSortValues } from '../../vector/native/types/sort'
-import { SORT_VALUE_MAX_CODE_POINTS } from '../ordering/constants'
-import { typedRegion } from '../stored-values/regions'
 
 export function captureSortValues(value: NativeSortValues): NativeSortValues | null {
   if (value === null || typeof value !== 'object') return null

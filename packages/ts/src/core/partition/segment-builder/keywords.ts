@@ -1,8 +1,6 @@
-import { LivePostings } from '#platform/live-postings'
+import { createSpellingTable, GrowingSegment, LivePostings } from '#platform/segment-merge-host'
 import type { SchemaField } from '../../../schema/validator'
-import type { NativeFieldTokens } from '../../../vector/native/types/segments'
-import { GrowingSegment } from '../../segment-writes/growing'
-import { createSpellingTable } from '../partial-words/registry'
+import type { PreparedSegmentField } from '../../segment-writes/prepared-tokens'
 import type { PartialSpellings } from '../partial-words/spellings'
 import type { PreparedText } from '../prepared-text'
 import type { SegmentPayload } from '../segment-payload'
@@ -23,7 +21,7 @@ export class SegmentKeywords {
   }
 
   add(prepared: PreparedText, ordinal: number): boolean {
-    const fields: NativeFieldTokens[] = []
+    const fields: PreparedSegmentField[] = []
     for (const [path, text] of prepared.fields) {
       let field = this.fieldIndexes.get(path)
       if (field === undefined) {
@@ -31,7 +29,7 @@ export class SegmentKeywords {
         this.fields.push(path)
         this.fieldIndexes.set(path, field)
       }
-      fields.push({ field, ...text.records })
+      fields.push({ field, text: text.records })
     }
     fields.sort((left, right) => left.field - right.field)
     this.segment.reserveFields(ordinal + 1, this.fields.length)

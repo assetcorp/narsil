@@ -1,21 +1,29 @@
-import { createBoundedMaxHeap } from '../../core/heap'
-import type { SearchClock } from '../../core/search-clock'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { admissionAt, type OrdinalAdmission } from '../admission'
-import type { VectorMetric } from '../brute-force'
-import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
-import { type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
-import { toDistance, toScore } from '../hnsw/shared'
-import { noteFallback } from '../native/backend'
-import { nativeScoresOf } from '../native/store'
 import {
   addToOrdinalFilter,
+  admissionAt,
   createOrdinalFilter,
-  type OrdinalFilter,
+  ErrorCodes,
+  magnitude,
+  NarsilError,
+  nativeScoresOf,
+  noteFallback,
+  ordinalFilterForSubsets,
   ordinalFilterHas,
   ordinalFilterValues,
-} from '../ordinal-filter'
-import { magnitude } from '../similarity'
+  STORE_ORDINAL_LAYOUT_GENERATION,
+  storePinsOf,
+  toDistance,
+  toScore,
+  writeSequenceOf,
+  writeSequenceWords,
+} from '#platform/vector-host'
+import { createBoundedMaxHeap } from '../../core/heap'
+import type { SearchClock } from '../../core/search-clock'
+import type { OrdinalAdmission } from '../admission'
+import type { VectorMetric } from '../brute-force'
+import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
+import type { OrdinalSpace } from '../filter-ordinals'
+import type { OrdinalFilter } from '../ordinal-filter'
 import { highScoreFirst, mergeResults } from '../vector-index/merge-results'
 import type {
   VectorScoredResult,
@@ -23,9 +31,6 @@ import type {
   VectorSearchOptions,
   VectorSearchOutcome,
 } from '../vector-index/shared'
-import { STORE_ORDINAL_LAYOUT_GENERATION, writeSequenceWords } from '../vector-store/handles'
-import { writeSequenceOf } from '../vector-store/pins'
-import { storePinsOf } from '../vector-store/store-pins'
 import type { SharedVectorStoreView } from '../vector-store/view'
 import { readStoreFlags } from './store-flags'
 import type { SharedVectorFieldView } from './view'

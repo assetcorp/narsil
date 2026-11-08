@@ -1,4 +1,4 @@
-import { scanPostingBlocks } from '../../core/partition/block-bounds'
+import { scanPostingBlocks } from '#platform/storage-host'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
 import type { FrozenTokenTableData } from '../../core/partition/frozen/token-table'
 import { littleEndianBytes } from '../../serialization/keyword-segment/little-endian'

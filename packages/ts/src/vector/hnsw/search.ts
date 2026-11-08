@@ -1,6 +1,5 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { SearchClock } from '../../core/search-clock'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'

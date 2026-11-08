@@ -1,15 +1,21 @@
+import {
+  ErrorCodes,
+  emitEngineEvent,
+  holdSyncEpochChange,
+  NarsilError,
+  prepareStoredSynonyms,
+  rebuildTextIndexes,
+  rulesOfStoredSynonyms,
+  targetOfPending,
+  textRebuildTargetOf,
+} from '#platform/storage-host'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
 import type { RewriteSpill } from '../../persistence/paged/rewrite-spill'
 import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
-import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
-import { holdSyncEpochChange } from '../sync-epoch'
-import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
-import { type AnalysisTarget, targetOfPending } from './pending-target'
+import type { AnalysisTarget } from './pending-target'
 import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
 import {
   currentConfigUnderTarget,

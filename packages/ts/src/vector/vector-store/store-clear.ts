@@ -1,15 +1,18 @@
-import { resetDocIds } from './doc-ids'
 import {
   IN_MEMORY,
+  nextSequence,
+  oldestHeldPin,
+  publishSequence,
   resetStoreHeader,
   STORE_CALIBRATED,
   STORE_CALIBRATION_GENERATION,
   STORE_CODE_COUNT,
   STORE_LIVE_COUNT,
   STORE_SLOTS,
-} from './handles'
+  stampRetired,
+} from '#platform/vector-host'
+import { resetDocIds } from './doc-ids'
 import { type OpenStore, relayout } from './open-store'
-import { nextSequence, oldestHeldPin, publishSequence, stampRetired } from './pins'
 
 function retireEveryOrdinal(store: OpenStore): void {
   const sequences = store.sequences

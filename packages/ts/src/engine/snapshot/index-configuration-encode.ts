@@ -1,9 +1,12 @@
 import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { packChecksummedEnvelope } from '../../serialization/envelope-file'
+import {
+  configurationPayloadOf,
+  ErrorCodes,
+  NarsilError,
+  packChecksummedEnvelope,
+  rulesOfStoredSynonyms,
+} from '#platform/storage-host'
 import type { IndexRegistryEntry } from '../core'
-import { rulesOfStoredSynonyms } from '../synonym-sets'
-import { configurationPayloadOf } from './index-configuration'
 import { INDEX_CONFIGURATION_ENVELOPE_VERSION } from './index-configuration-decode'
 
 function refuseCode(entry: IndexRegistryEntry): void {

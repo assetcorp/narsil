@@ -1,11 +1,17 @@
-import { prepareRemovalText, removedSurfaceSpellings } from '../core/partition/frozen/removal-text'
-import { prepareDocumentText } from '../core/partition/prepared-text'
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  ErrorCodes,
+  NarsilError,
+  prepareDocumentText,
+  prepareDocumentVectors,
+  prepareRemovalText,
+  removedSurfaceSpellings,
+  schemaFieldsOf,
+  validateDocument,
+  validateDocumentStrict,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import type { BufferedMutation, QueuedWrite, WriteAheadQueue } from '../partitioning/write-ahead-queue'
-import { schemaFieldsOf, validateDocument, validateDocumentStrict } from '../schema/validator'
 import type { AnyDocument } from '../types/schema'
-import { prepareDocumentVectors } from './vector-coordinator'
 
 export function bufferPreparedMutation(
   queue: WriteAheadQueue,

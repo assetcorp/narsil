@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { loadDigest } from '../persistence/digest-code'
 import type { QuerySuggestionsSetting, RecordedQuery, RecordQueryResult } from '../types/query-suggestions'
 import { BuildRunner } from './build-runner'
 import { MIN_KEY_BYTES } from './constants'
@@ -36,6 +37,14 @@ export function notEnabled(indexName: string): NarsilError {
   )
 }
 
+export async function createQuerySuggestionsRuntime(
+  host: SuggestionsHost,
+  key: Uint8Array | null,
+): Promise<QuerySuggestionsRuntime> {
+  const scrambler = key === null ? null : createPersonScrambler(key, await loadDigest())
+  return new QuerySuggestionsRuntime(host, scrambler)
+}
+
 export class QuerySuggestionsRuntime {
   readonly host: SuggestionsHost
   readonly scrambler: PersonScrambler | null
@@ -45,9 +54,9 @@ export class QuerySuggestionsRuntime {
   private readonly locks = new Map<string, Promise<unknown>>()
   private stopping = false
 
-  constructor(host: SuggestionsHost, key: Uint8Array | null) {
+  constructor(host: SuggestionsHost, scrambler: PersonScrambler | null) {
     this.host = host
-    this.scrambler = key === null ? null : createPersonScrambler(key)
+    this.scrambler = scrambler
     this.days = this.scrambler === null ? null : new DayStore(host, this.scrambler)
     this.builds = new BuildRunner(this)
     this.timers = new SuggestionTimers(this)

@@ -1,15 +1,20 @@
+import {
+  createCompositePartition,
+  createFrozenSegment,
+  createPartitionIndex,
+  createSharedFrozenSegment,
+  flattenSchema,
+  freezeSegmentShared,
+  generateId,
+  isCompositePartition,
+  resolvePartitionInsertOptions,
+} from '#platform/storage-host'
 import type { ResolvedAnalysis } from '../../analysis/registry'
-import { generateId } from '../../core/id-generator'
-import { createPartitionIndex, type PartitionIndex } from '../../core/partition'
-import { createCompositePartition, isCompositePartition } from '../../core/partition/composite'
-import { createFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
-import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
-import { freezeSegmentShared } from '../../core/partition/frozen/shared-snapshot'
+import type { PartitionIndex } from '../../core/partition'
+import type { FrozenSegment } from '../../core/partition/frozen'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
-import { resolvePartitionInsertOptions } from '../../partitioning/insert-options'
 import type { PartitionManager } from '../../partitioning/manager'
-import { flattenSchema } from '../../schema/validator/schema'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { DurableDirectory } from '../durability/durable-filesystem'

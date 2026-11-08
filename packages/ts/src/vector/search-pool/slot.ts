@@ -1,7 +1,5 @@
-import { noteThreadSlotGone, noteThreadSlotLive } from '../../workers/thread-slot'
-import { releaseLocksHeldBy } from '../hnsw/locks'
+import { noteThreadSlotGone, noteThreadSlotLive, releaseLocksHeldBy, releasePinsHeldBy } from '#platform/vector-host'
 import type { SharedVectorFieldHandles } from '../shared-field/types'
-import { releasePinsHeldBy } from '../vector-store/pins'
 import type { VectorWorkerMessage } from './messages'
 import type { WorkerHandle } from './spawn'
 

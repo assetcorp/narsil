@@ -1,6 +1,6 @@
+import { checkedSize } from '../../engine/optional-reads-host-bindings'
 import type { NativeStoredValues } from '../../vector/native/types/stored-values'
 import type { StoredFieldReference } from './references'
-import { checkedSize } from './storage'
 
 function gatherField(
   rows: readonly (readonly StoredFieldReference[] | undefined)[],

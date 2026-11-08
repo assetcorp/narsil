@@ -1,4 +1,4 @@
-import { VECTOR_PATTERN } from '../schema/validator/shared'
+import { VECTOR_PATTERN } from '#platform/storage-host'
 import type { SerializablePartition } from '../types/internal'
 
 /**

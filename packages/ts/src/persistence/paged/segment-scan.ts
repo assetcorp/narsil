@@ -1,4 +1,4 @@
-import { decodeStoredDocument } from '../../core/partition/frozen/document-source'
+import { decodeStoredDocument } from '#platform/storage-host'
 import type { DurableDirectory } from '../durability/durable-filesystem'
 import type { SegmentManifest } from '../durability/segment/manifest'
 import { checkPagedContents } from './check-contents'

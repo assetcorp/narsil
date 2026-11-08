@@ -1,6 +1,5 @@
+import { createPartitionRouter, rewriteSpillOf } from '#platform/storage-host'
 import { createRebalancer } from '../../../partitioning/rebalancer'
-import { rewriteSpillOf } from '../../../partitioning/rewrite-spill-of'
-import { createPartitionRouter } from '../../../partitioning/router'
 import type { IndexMetadata } from '../../../types/internal'
 import type { DurableDirectory } from '../durable-filesystem'
 import { checkpointLastSeqNo, checkpointPrimaryTerm, type PartitionCheckpoint } from '../partition-checkpoint'

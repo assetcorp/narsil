@@ -1,5 +1,4 @@
-import { pinnedOrder } from '../../search/pinned-order'
-import { dedupePinnedEntries } from '../../search/pinning'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import type { ScoredEntry, WirePinnedEntry } from '../transport/types'
 
 /**
@@ -46,6 +45,7 @@ export function placePinnedEntries(
   allMatchesPresent: boolean,
   stored?: ReadonlySet<string>,
 ): { entries: ScoredEntry[]; placedFromOutside: string[] } {
+  const { dedupePinnedEntries, pinnedOrder } = requireLoadedOptionalReads()
   const deduped = dedupePinnedEntries(stored === undefined ? pinned : pinned.filter(entry => stored.has(entry.docId)))
   const { order, ranked } = pinnedOrder(
     merged.map(entry => entry.docId),

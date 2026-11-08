@@ -1,8 +1,7 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { buildStoredValues, ErrorCodes, NarsilError } from '../../engine/optional-reads-host-bindings'
 import type { NativeSortCore } from '../../vector/native/types/sort'
 import type { NativeStoredValues } from '../../vector/native/types/stored-values'
 import type { ComparableSortValue, SortMode } from '../ordering/sort-values'
-import { buildStoredValues } from '../stored-values/build'
 
 const modes = { min: 0, max: 1, avg: 2, median: 3 }
 const outNumber = new Float64Array(1)

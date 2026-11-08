@@ -1,10 +1,13 @@
+import {
+  assembleFrozenSegment,
+  decodeSurfaceTable,
+  wrapExternalIdTable,
+  wrapFrozenTokenTable,
+} from '#platform/segment-codec-host'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { wrapEncodedDocumentTable } from './document-source'
-import { wrapExternalIdTable } from './external-ids'
-import { assembleFrozenSegment, type FrozenSegment } from './index'
+import type { FrozenSegment } from './index'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
-import { decodeSurfaceTable } from './surface-table'
-import { wrapFrozenTokenTable } from './token-table'
 
 export function createSharedFrozenSegment(
   snapshot: SharedSegmentSnapshot,

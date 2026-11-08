@@ -1,7 +1,7 @@
-import { holdAdmission } from '../admission'
+import { fieldHandlesOf, holdAdmission } from '#platform/vector-host'
 import type { SharedVectorFieldHandles } from '../shared-field/types'
 import { untilColdLoaded } from './cold'
-import { fieldHandlesOf, type VectorIndexState } from './shared'
+import type { VectorIndexState } from './shared'
 
 export interface VectorPublication {
   handle: string

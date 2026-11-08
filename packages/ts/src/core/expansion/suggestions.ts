@@ -1,9 +1,14 @@
+import {
+  compareCodePoints,
+  liveFrequency,
+  regionsOverlap,
+  requireRoom,
+  requireSegment,
+  SegmentRefusal,
+  termText,
+  typedRegion,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeExpansionCore, NativeExpansionSegment } from '../../vector/native/types/expansion'
-import { compareCodePoints } from '../ordering'
-import { regionsOverlap } from '../regions'
-import { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/status'
-import { typedRegion } from '../stored-values/regions'
-import { liveFrequency, termText } from '../term-table/read'
 import { readExpansion } from './regions'
 import {
   expansionDictionary,

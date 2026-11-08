@@ -1,4 +1,4 @@
-import { crc32 } from '../../serialization/crc32'
+import { crc32 } from '#platform/storage-host'
 
 export { crc32 }
 

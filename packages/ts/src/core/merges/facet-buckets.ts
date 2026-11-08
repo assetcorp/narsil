@@ -1,6 +1,5 @@
 import { mergeFacets } from '#platform/facet-merge'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { compareCodePoints } from '../ordering/code-points'
+import { compareCodePoints, ErrorCodes, NarsilError } from '../../engine/optional-reads-host-bindings'
 
 export interface FacetBucket {
   value: string

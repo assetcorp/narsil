@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 
 export class RebalanceCheckpointHeld extends NarsilError {
   constructor() {

@@ -1,25 +1,32 @@
-import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
+import {
+  admitBufferedUpsert,
+  awaitWriteVisibility,
+  deleteNestedValue,
+  ErrorCodes,
+  extractVectorFromDoc,
+  indexChangeOutsideExternalWaits,
+  loadEmbedCode,
+  NarsilError,
+  prepareDocumentVectors,
+  requireDocumentWithinSizeLimit,
+  requireMatchingDocId,
+  turnIsSpent,
+  updateDocumentVectors,
+  validateBatchList,
+  validateDocId,
+  validateRequiredFields,
+  validateVectorDimensions,
+  yieldTurn,
+} from '#platform/optional-writes-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
-import { loadEmbedCode } from '../embed-code'
-import { validateBatchList, validateDocId } from '../validation'
-import {
-  deleteNestedValue,
-  extractVectorFromDoc,
-  prepareDocumentVectors,
-  updateDocumentVectors,
-  validateVectorDimensions,
-} from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
-import { admitBufferedUpsert, requireMatchingDocId } from './insert-admission'
 import { recordChunk } from './record-batch'
-import { awaitWriteVisibility } from './write-visibility'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 

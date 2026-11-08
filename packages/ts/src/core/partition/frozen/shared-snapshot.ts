@@ -1,14 +1,24 @@
+import {
+  buildPartialWordTableFrom,
+  encodeDocumentTableData,
+  encodeExternalIdTableData,
+  encodeFrozenTokenTableData,
+  encodeSurfaceTable,
+  generateId,
+  partialSpellingsOfDocuments,
+  sameFields,
+  storedDocumentsOf,
+  wrapFrozenTokenTable,
+} from '#platform/segment-merge-host'
 import type { AnyDocument } from '../../../types/schema'
-import { generateId } from '../../id-generator'
-import { buildPartialWordTableFrom, partialSpellingsOfDocuments } from '../partial-words/registry'
-import { type PartialSpellings, type PartialWordAnalysis, sameFields } from '../partial-words/spellings'
+import type { PartialSpellings, PartialWordAnalysis } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
-import { type EncodedDocumentTableData, encodeDocumentTableData, storedDocumentsOf } from './document-source'
-import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
-import { encodeSurfaceTable, type SurfaceTableData } from './surface-table'
-import { encodeFrozenTokenTableData, type FrozenTokenTableData, wrapFrozenTokenTable } from './token-table'
+import type { EncodedDocumentTableData } from './document-source'
+import type { ExternalIdTableData } from './external-ids'
+import type { SurfaceTableData } from './surface-table'
+import type { FrozenTokenTableData } from './token-table'
 
 export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForms'> {
   segmentId: string

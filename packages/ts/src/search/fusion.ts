@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-host'
 import type { ScoredDocument } from '../types/internal'
 import {
   DEFAULT_LINEAR_ALPHA,

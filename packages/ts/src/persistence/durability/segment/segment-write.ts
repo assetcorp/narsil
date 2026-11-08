@@ -1,13 +1,19 @@
+import {
+  ErrorCodes,
+  mergeSegmentContents,
+  NarsilError,
+  packChecksummedEnvelope,
+  SegmentRefusal,
+  segmentArraysOf,
+  segmentKey,
+  selectionKeeps,
+} from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
-import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from '../../../core/partition/frozen/merge'
-import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
+import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import { SegmentRefusal } from '../../../core/segment-writes/status'
-import { ErrorCodes, NarsilError } from '../../../errors'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
-import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
 import { encodeKeywordSegment } from '../../../serialization/keyword-segment/encode'
 import {
@@ -15,7 +21,6 @@ import {
   type KeywordSegmentContents,
   type SegmentWriteRecords,
 } from '../../../serialization/keyword-segment/types'
-import { segmentKey } from './layout'
 import { MAX_SEGMENTS_PER_PARTITION, type SegmentRef } from './manifest'
 import { halvesOf, type SegmentFileGroup, splitIntoSegmentFiles } from './segment-split'
 import type { CheckpointStore } from './store'
@@ -157,7 +162,7 @@ async function writePagedGroup(state: WriteState, group: SegmentFileGroup | null
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
   const id = state.nextSegmentId
   const key = segmentKey(request.indexName, request.partitionId, id)
-  const { writePagedSegment } = await import('../../paged/module')
+  const { writePagedSegment } = await import('../../storage-leaf')
   const written = await writePagedSegment({
     directory,
     key,
@@ -264,7 +269,7 @@ export async function writeSegmentsOf(request: SegmentWriteRequest): Promise<Seg
   for (const group of groups) {
     if (group.documentCount > 0) await writeGroup(state, group)
     else if (request.paged === true) {
-      const { checkPagedSelections } = await import('../../paged/check-contents')
+      const { checkPagedSelections } = await import('../../storage-leaf')
       await checkPagedSelections(group.selections)
     }
   }

@@ -1,10 +1,8 @@
-import type { NativeFieldMergeSource } from '../../vector/native/types/field-merge'
-import { SegmentRefusal } from '../segment-writes/status'
+import { createFieldMerge, documentsOf, SegmentRefusal, storedPlan, uint32 } from '#platform/segment-merge-host'
+import type { NativeFieldMergeCore, NativeFieldMergeSource } from '../../vector/native/types/field-merge'
 import { dictionaryPlan } from './dictionary'
-import { createFieldMerge } from './operations'
-import { documentsOf, type FieldMergePlan, uint32 } from './regions'
+import type { FieldMergePlan } from './regions'
 import { booleanPlan, rowPlan } from './rows'
-import { storedPlan } from './stored'
 
 function plan(kind: number, sources: readonly NativeFieldMergeSource[], count: number): FieldMergePlan {
   uint32(count)
@@ -27,4 +25,15 @@ function plan(kind: number, sources: readonly NativeFieldMergeSource[], count: n
   }
 }
 
-export const { measureFieldMerge, writeFieldMerge } = createFieldMerge(plan)
+let planned: NativeFieldMergeCore | null = null
+
+function plannedFieldMerge(): NativeFieldMergeCore {
+  planned ??= createFieldMerge(plan)
+  return planned
+}
+
+export const measureFieldMerge: NativeFieldMergeCore['measureFieldMerge'] = (...args) =>
+  plannedFieldMerge().measureFieldMerge(...args)
+
+export const writeFieldMerge: NativeFieldMergeCore['writeFieldMerge'] = (...args) =>
+  plannedFieldMerge().writeFieldMerge(...args)

@@ -1,18 +1,21 @@
-import { createFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
-import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
+import {
+  asBatchInsertError,
+  awaitWriteVisibility,
+  createFrozenSegment,
+  createSharedFrozenSegment,
+} from '#platform/optional-writes-host'
+import type { FrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { BuiltSegment } from '../orchestration/segments'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-import { asBatchInsertError } from './insert-admission'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
 import { applyAdmittedDocuments } from './insert-batch-documents'
 import { recordChunk } from './record-batch'
 import { applySegment, type SegmentAttachment } from './segment-publication'
 import { buildSegmentRequests } from './segment-replication'
-import { awaitWriteVisibility } from './write-visibility'
 
 interface IngestOutcome {
   succeeded: string[]

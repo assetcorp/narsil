@@ -1,17 +1,22 @@
-import { isCompositePartition } from '../core/partition/composite'
+import {
+  buildSegmentPayloads,
+  createSharedFrozenSegment,
+  ErrorCodes,
+  freezeSegmentShared,
+  growPartitionsTo,
+  isCompositePartition,
+  loadStorageCode,
+  NarsilError,
+  NO_REMOVED_SPELLINGS,
+  resolvePartitionInsertOptions,
+} from '#platform/worker-copies-host'
 import type { PagedSegmentSnapshot, SharedSegmentSnapshot } from '../core/partition/frozen'
 import { mergeFrozenSegmentOutputs } from '../core/partition/frozen/merge-split'
-import { NO_REMOVED_SPELLINGS } from '../core/partition/frozen/removal-pass'
-import { createSharedFrozenSegment } from '../core/partition/frozen/shared'
-import { freezeSegmentShared } from '../core/partition/frozen/shared-snapshot'
-import { buildSegmentPayloads } from '../core/partition/segment-builder'
-import { ErrorCodes, NarsilError } from '../errors'
-import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import type { BuiltSegmentResult } from './protocol'
-import { growPartitionsTo, type SegmentAction } from './segment-action-code'
+import type { SegmentAction } from './segment-action-code'
 
 export interface SegmentIndexEntry {
   manager: PartitionManager
@@ -32,7 +37,7 @@ async function attachSegments(
     const surfaceForms = segment.survivingSurfaceForms
     const spellings = surfaceForms === undefined ? undefined : NO_REMOVED_SPELLINGS
     const frozen = isPagedSnapshot(segment.snapshot)
-      ? (await import('../persistence/paged/module')).createPagedFrozenSegment(segment.snapshot)
+      ? (await loadStorageCode()).createPagedFrozenSegment(segment.snapshot)
       : createSharedFrozenSegment(segment.snapshot, surfaceForms)
     for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId, spellings)
     entry.manager.attachFrozenSegment(segment.partitionId, frozen)
@@ -89,7 +94,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
       return attachSegments(entry, action)
 
     case 'adoptDiskSegments':
-      return import('../persistence/paged/module').then(code => code.adoptSegmentsOnWorker(entry.manager, action))
+      return loadStorageCode().then(code => code.adoptSegmentsOnWorker(entry.manager, action))
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')

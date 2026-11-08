@@ -1,16 +1,14 @@
+import { deadBitsWhere, osqRecordBytes, VECTOR_FILE_MAX_VECTORS, vectorsToBytes } from '#platform/vector-core-host'
 import { MAX_DOC_ID_LENGTH } from '../../engine/constants'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { graphWithoutNodes, type NumberedHnswGraph } from '../hnsw/numbered-graph'
 import { osqBitsOf } from '../osq'
-import { osqRecordBytes } from '../osq/record'
 import { STORE_CALIBRATION_GENERATION } from '../vector-store/handles'
+import type { VectorFilePayload, VectorGraphPartPayload } from './checkpoint-payload'
 import {
-  VECTOR_FILE_MAX_VECTORS,
   VECTOR_FILE_PAYLOAD_VERSION,
   VECTOR_GRAPH_PART_PAYLOAD_VERSION,
   VECTOR_GRAPH_PART_VECTORS,
-  type VectorFilePayload,
-  type VectorGraphPartPayload,
 } from './checkpoint-payload'
 import {
   VECTOR_FILE_CENTROID_BYTES_PER_COMPONENT,
@@ -18,8 +16,7 @@ import {
   VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE,
   VECTOR_FILE_STRING_HEADER_BYTES,
 } from './constants'
-import { deadBitsWhere, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
-import { vectorsToBytes } from './payload'
+import { NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { codedCentroid, codesOfReadVectors, partCodes } from './persistence'
 import type { VectorIndexState } from './shared'
 

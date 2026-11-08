@@ -1,16 +1,17 @@
-import { createWorkerFactory } from '#platform/worker-factory'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  createWorkerFactory,
+  ErrorCodes,
+  eligibleIndexNames,
+  isDeterministicFailure,
+  NarsilError,
+  reportIneligible,
+  toError,
+  workerIneligibility,
+} from '#platform/worker-copies-host'
 import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { scheduleIdleMerge } from './compaction'
 import { POOL_RESTART_DELAY_MS, RETIRED_THREADS_EXIT_WAIT_MS } from './constants'
-import {
-  eligibleIndexNames,
-  isDeterministicFailure,
-  reportIneligible,
-  toError,
-  workerIneligibility,
-} from './eligibility'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { loadPublicationCode, releasePublicationOf } from './publication-code'
 import { trackPublicationStores } from './publication-stores'
@@ -51,7 +52,7 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     )
   }
   eligibleIndexNames(state)
-  const [factory, { createWorkerPool }] = await Promise.all([createWorkerFactory(), import('../../workers/pool')])
+  const [factory, { createWorkerPool }] = await Promise.all([createWorkerFactory(), import('../worker-copies')])
   let started: WorkerPool | null = null
   const pool = createWorkerPool({
     count: state.keywordWorkerCount + state.longQueryWorkerCount,
@@ -165,7 +166,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   let dispatched = false
   state.copyLoadBuffers.set(indexName, buffered)
   try {
-    const { transferIndexToPool } = await import('../worker-resync')
+    const { transferIndexToPool } = await import('../worker-copies')
     await freezeLiveTailsBeforeCopiesLoad(manager)
     const copyLoad = await transferIndexToPool(
       indexName,

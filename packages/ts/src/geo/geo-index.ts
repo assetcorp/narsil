@@ -1,9 +1,10 @@
-import { FieldPresence } from '../core/field-index/presence'
 import type { GeopointEntry } from '../types/internal'
 
 export { filterGeoRegions } from './filter'
+export { bindGeoHost } from './geo-host-bindings'
 
 import { coveringRanges, type LocationBox, locationCode } from './cells'
+import { FieldPresence } from './geo-host-bindings'
 import { polygonBoxes, polygonContainment } from './polygon'
 import { radiusBoxes, radiusCandidateTest } from './radius'
 import {

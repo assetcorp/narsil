@@ -1,7 +1,6 @@
 import { storedRangeFacet, valueFacet } from '#platform/facet-count'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError, storedText } from '../../engine/optional-reads-host-bindings'
 import type { NativeStoredValues } from '../../vector/native/types/stored-values'
-import { storedText } from '../stored-values/text'
 
 const EMPTY_MATCHES = new Uint32Array(1)
 

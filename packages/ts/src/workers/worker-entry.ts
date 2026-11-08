@@ -2,6 +2,7 @@ declare const self: unknown
 
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import { requireSearchBackendSettings } from '#platform/search-backend-settings'
+import { importOptionalReads } from '../engine/optional-reads-code'
 import { ErrorCodes } from '../errors'
 import { loadGeoCode } from '../geo/geo-code'
 import { buildErrorResponse, createActionHandler } from './action-handler'
@@ -47,6 +48,7 @@ async function setup(): Promise<void> {
     import('./query-actions'),
     loadVectorCode(),
     loadGeoCode(),
+    importOptionalReads(),
   ])
   const handleAction = createActionHandler(
     createDirectExecutor({ threadSlot, runQueryAction, publishCopyAction, initializeCopyPublication }),

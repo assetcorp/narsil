@@ -1,5 +1,5 @@
 import { placePinned } from '#platform/pinned-core'
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '../engine/optional-reads-host-bindings'
 
 export function pinnedOrder(
   ids: readonly string[],

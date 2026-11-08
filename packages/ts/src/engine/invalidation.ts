@@ -1,6 +1,4 @@
-import { generateId } from '../core/id-generator'
-import { ErrorCodes, NarsilError } from '../errors'
-import { mergePartitionStats } from '../partitioning/distributed-scoring'
+import { ErrorCodes, generateId, mergePartitionStats, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import type { InvalidationAdapter, InvalidationEvent, PartitionStatistics } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'

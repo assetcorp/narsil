@@ -1,7 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { requireValidFieldTypes } from '../../schema/validator/schema'
-import { VECTOR_PATTERN } from '../../schema/validator/shared'
-import { decode } from '../msgpack'
+import { decode, ErrorCodes, NarsilError, requireValidFieldTypes, VECTOR_PATTERN } from '#platform/storage-host'
 import {
   type ColumnContext,
   decodeBooleanColumns,

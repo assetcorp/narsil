@@ -274,6 +274,61 @@
       "react-native": "./src/core/inverted-index/growing-postings.ts",
       "browser": "./src/core/inverted-index/postings.ts",
       "default": "./src/core/inverted-index/postings.ts"
+    },
+    "#platform/vector-host": {
+      "react-native": "./src/vector/vector-host/index.ts",
+      "browser": "./src/vector/vector-host/index.browser.ts",
+      "default": "./src/vector/vector-host/index.ts"
+    },
+    "#platform/vector-core-host": {
+      "react-native": "./src/vector/core-host.ts",
+      "browser": "./src/vector/core-host.browser.ts",
+      "default": "./src/vector/core-host.ts"
+    },
+    "#platform/optional-writes-host": {
+      "react-native": "./src/engine/optional-writes-host.ts",
+      "browser": "./src/engine/optional-writes-host.browser.ts",
+      "default": "./src/engine/optional-writes-host.ts"
+    },
+    "#platform/segment-codec-host": {
+      "react-native": "./src/core/segment-codec-host.ts",
+      "browser": "./src/core/segment-codec-host.browser.ts",
+      "default": "./src/core/segment-codec-host.ts"
+    },
+    "#platform/worker-copies-host": {
+      "react-native": "./src/engine/orchestration/worker-copies-host.ts",
+      "browser": "./src/engine/orchestration/worker-copies-host.browser.ts",
+      "default": "./src/engine/orchestration/worker-copies-host.ts"
+    },
+    "#platform/segment-merge-host": {
+      "react-native": "./src/core/segment-merge-host.ts",
+      "browser": "./src/core/segment-merge-host.browser.ts",
+      "default": "./src/core/segment-merge-host.ts"
+    },
+    "#platform/storage-host": {
+      "react-native": "./src/persistence/storage-host/index.ts",
+      "browser": "./src/persistence/storage-host/index.browser.ts",
+      "default": "./src/persistence/storage-host/index.ts"
+    },
+    "#platform/embed-host": {
+      "react-native": "./src/engine/embed-host.ts",
+      "browser": "./src/engine/embed-host.browser.ts",
+      "default": "./src/engine/embed-host.ts"
+    },
+    "#platform/durability-config-host": {
+      "react-native": "./src/engine/durability-config-host.ts",
+      "browser": "./src/engine/durability-config-host.browser.ts",
+      "default": "./src/engine/durability-config-host.ts"
+    },
+    "#platform/restore-queue-host": {
+      "react-native": "./src/narsil/restore-queue-host.ts",
+      "browser": "./src/narsil/restore-queue-host.browser.ts",
+      "default": "./src/narsil/restore-queue-host.ts"
+    },
+    "#platform/resolve-vector-text-host": {
+      "react-native": "./src/engine/resolve-vector-text-host.ts",
+      "browser": "./src/engine/resolve-vector-text-host.browser.ts",
+      "default": "./src/engine/resolve-vector-text-host.ts"
     }
   },
   "sideEffects": false,

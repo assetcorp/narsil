@@ -1,7 +1,6 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError, validatePartitionConfig } from '#platform/optional-writes-host'
 import type { PartitionConfig } from '../types/schema'
 import type { EngineCore } from './core'
-import { validatePartitionConfig } from './validation'
 
 export async function updateEnginePartitionConfig(
   core: EngineCore,

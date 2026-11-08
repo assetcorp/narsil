@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { VectorEntry } from '../../types/internal'
 import { withTransientAdmission, withTransientAdmissionAsync } from '../admission'
 import type { VectorMetric } from '../brute-force'

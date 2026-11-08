@@ -1,12 +1,18 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
-import { flattenSchema } from '../../schema/validator'
+import {
+  ErrorCodes,
+  flattenSchema,
+  NarsilError,
+  requireConfigurationShape,
+  turnIsSpent,
+  yieldTurn,
+} from '#platform/storage-host'
+import { turnsAreBudgeted } from '#platform/turn-budget'
+import type { NarsilErrorCode } from '../../errors'
 import type { ByteSource } from '../../types/byte-source'
 import type { Narsil } from '../../types/engine'
 import type { DocumentImportResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import { IMPORT_BATCH_DOCUMENTS, MAX_EXPORT_LINE_BYTES, MAX_IMPORT_REFUSALS_REPORTED } from '../constants'
-import { requireConfigurationShape } from '../snapshot/index-configuration-decode'
 import { restoredConfigFields, restoredEmbedding } from '../snapshot/restore-config'
 import { type ExportLine, exportLines } from './lines'
 import { untagDocumentLine } from './tags'

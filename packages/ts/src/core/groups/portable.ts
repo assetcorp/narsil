@@ -1,9 +1,12 @@
+import {
+  compareScores,
+  readStoredFields,
+  regionsOverlap,
+  typedRegion,
+  validStoredValue,
+} from '../../engine/optional-reads-host-bindings'
 import type { NativeGroupCore } from '../../vector/native/types/groups'
-import { compareScores } from '../ordering/scores'
-import { regionsOverlap } from '../regions'
 import { compareStoredValues } from '../stored-values/compare'
-import { readStoredFields, validStoredValue } from '../stored-values/read'
-import { typedRegion } from '../stored-values/regions'
 
 function unsigned(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 0xffffffff

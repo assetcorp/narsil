@@ -3,6 +3,7 @@ import { requirePartialWordSearchFor } from '../core/partition/partial-words/reg
 import { requirePatternSearchFor } from '../core/pattern-index/registry'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { loadRestoreQueue } from '../narsil/restore-queue-code'
 import {
   validateEmbeddingConfig,
   validateRegisteredAdapter,
@@ -183,7 +184,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   const entry = core.requireIndex(name)
   const changeRecorded = (): boolean => entry.pendingAnalysis !== null || entry.durableAnalysis !== null
   const abandonChange = async (): Promise<void> => {
-    await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
+    await (await loadRestoreQueue()).abandonChangeOf(core, name)
   }
   if (changeRecorded()) await abandonChange()
   await core.indexState.drop(name, async () => {
