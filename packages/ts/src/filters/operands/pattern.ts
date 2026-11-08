@@ -4,7 +4,6 @@ import {
   PATTERN_EXPRESSION_OPERATORS,
   PATTERN_TEST_OPERATORS,
 } from '../../core/pattern-index/constants'
-import { PATTERN_HOST } from '../../core/pattern-index/host'
 import { requirePatternSearch } from '../../core/pattern-index/registry'
 import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FieldType } from '../../types/schema'
@@ -56,7 +55,8 @@ export function requirePatternOperands(
   }
   if (filter.tolerance !== undefined) requirePatternField(fieldPath, 'tolerance', type)
   if (parsedTypeOf(type)?.pattern !== true) return
-  requirePatternSearch(fieldPath).checkOperands(fieldPath, filter, PATTERN_HOST)
+  const pattern = requirePatternSearch(fieldPath)
+  pattern.checkOperands(fieldPath, filter, pattern.host())
 }
 
 function requireWellFormedOperand(fieldPath: string, operator: string, text: unknown): void {

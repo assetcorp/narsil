@@ -1,8 +1,9 @@
+import { applyPartitionFilters, applyPartitionFiltersBitset } from '../../../search/sorting-code'
 import type { FilterExpression } from '../../../types/filters'
 import type { SchemaDefinition } from '../../../types/schema'
 import { bitsetHas } from '../../bitset'
 import type { PatternWorkMeter } from '../../pattern-index/types'
-import { applyPartitionFilters, applyPartitionFiltersBitset, type PartitionFilterMatches } from '../filters'
+import type { PartitionFilterMatches } from '../filters'
 import type { PartitionReadState } from '../read-state'
 
 export interface OrdinalLayout {
@@ -100,6 +101,7 @@ export function compositeFilterMatches(
 
   return {
     count,
+    ordinalBitset: () => bits,
     hasExternal(docId: string): boolean {
       for (let i = 0; i < subs.length; i++) {
         const internalId = subs[i].docStore.getInternalId(docId)
@@ -121,6 +123,7 @@ export function subMatchesView(
   const base = layout.bases[subIndex]
   return {
     count: matches.count,
+    ordinalBitset: () => subBitsetView(matches.ordinalBitset(), layout, subIndex),
     hasExternal: (docId: string) => matches.hasExternal(docId),
     hasInternal: (internalId: number) => matches.hasInternal(base + internalId),
   }

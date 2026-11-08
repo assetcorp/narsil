@@ -8,6 +8,8 @@ import type { PatternSearchModule } from './types'
 let registered: PatternSearchModule | null = null
 
 const MODULE_FUNCTIONS = [
+  'host',
+  'storedValues',
   'createIndex',
   'readArrays',
   'mergeArrays',
@@ -49,7 +51,7 @@ export function registerPatternSearch(module: PatternSearch): void {
       'registerPatternSearch takes the patternSearch object that "@delali/narsil/pattern" exports',
     )
   }
-  registered = module
+  registered = platformPatternSearch() ?? module
 }
 
 export function availablePatternSearch(): PatternSearchModule | null {
