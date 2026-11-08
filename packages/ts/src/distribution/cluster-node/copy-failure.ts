@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import { CONTROLLER_LEASE_KEY } from '../cluster/controller/types'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import { holdsLastCopy } from '../cluster/last-holders'

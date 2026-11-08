@@ -15,9 +15,11 @@ import {
   wholePartitionsWhereMostChanged,
   writeCapturedVectors,
 } from './checkpoint-capture'
+import { priorForLayout } from './checkpoint-prior'
 import { checkpointWorkerIsUsable } from './checkpoint-worker-dispatch'
 import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
+import { transitionKey } from './layout-transition/codec'
 import type { IndexState } from './manager-state'
 import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
@@ -38,7 +40,6 @@ interface DurableCheckpointInput {
   compactionThreshold: number
   canOffload: boolean
   fromMemory: boolean
-  pinsRetiredVectors: boolean
   mutationThreshold: number
   mayContinue(): boolean
   holdsCheckpointFiles(): boolean
@@ -115,6 +116,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
     priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
     everyPartition: fromMemory,
     aWorkerCanSerialise: input.canOffload && !textOnDisk && checkpointWorkerIsUsable(),
+    usesLogForUnchangedLayout: textOnDisk,
     ...(writeRecords === null
       ? {}
       : {
@@ -126,7 +128,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
     input.indexState,
     manager,
     vectorIndexes,
-    textOnDisk && !fromMemory ? undefined : wholePartitionsOf,
+    wholePartitionsOf,
     fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
     priorManifest?.vectors ?? [],
     writeRecords === null
@@ -137,13 +139,21 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
           changesSinceCapture = manager.openCheckpointChangeLog()
         }
       : undefined,
-    input.pinsRetiredVectors,
   )
   try {
     await openNewLogSegments(input.indexState, input.failPartition)
-    return await finishBoundedCheckpoint(input, manager, store, metadata, priorManifest, capture, fromMemory, () => {
-      return changesSinceCapture
-    })
+    return await finishBoundedCheckpoint(
+      input,
+      manager,
+      store,
+      { ...metadata, partitionCount: capture.partitionCount },
+      priorManifest,
+      capture,
+      fromMemory,
+      () => {
+        return changesSinceCapture
+      },
+    )
   } finally {
     for (const plan of capture.vectorPlans.values()) plan.release()
     ;(changesSinceCapture as PartitionWriteLog | null)?.close()
@@ -162,21 +172,23 @@ async function adoptWrittenSegments(
   )
   const adoption = await prepareDiskAdoption(input.directory, manager, partitions)
   if (adoption === null) return []
-  const adopted = await whileNoMutationApplies([...indexState.partitions.values()], () => {
-    if (changes.partitionsReplaced) return false
-    const changed = changes.takeWrittenDocIds()
-    swapPreparedPartitions(manager, adoption.partitions, changed, (partitionId, segments) => {
-      hooks.writeRecords?.adoptPagedSegments(indexName, partitionId, segments, changed)
-    })
-    hooks.queueDiskAdoption?.({
-      type: 'adoptDiskSegments',
-      indexName,
-      partitions: actionPartitionsOf(adoption),
-      changed: [...changed],
-      requestId: createRequestId(),
-    })
-    return true
-  })
+  const adopted = await whileNoMutationApplies([...indexState.partitions.values()], () =>
+    manager.publication.write(() => {
+      if (changes.partitionsReplaced) return false
+      const changed = changes.takeWrittenDocIds()
+      swapPreparedPartitions(manager, adoption.partitions, changed, (partitionId, segments) => {
+        hooks.writeRecords?.adoptPagedSegments(indexName, partitionId, segments, changed)
+      })
+      hooks.queueDiskAdoption?.({
+        type: 'adoptDiskSegments',
+        indexName,
+        partitions: actionPartitionsOf(adoption),
+        changed: [...changed],
+        requestId: createRequestId(),
+      })
+      return true
+    }),
+  )
   if (!adopted) {
     closeUnusedSegments(adoption)
     return []
@@ -208,7 +220,7 @@ async function finishBoundedCheckpoint(
       targets,
       compactionThreshold: input.compactionThreshold,
       canOffload: input.canOffload,
-      prior: priorManifest,
+      prior: priorForLayout(priorManifest, capture.partitionCount),
       wholePartitions: capture.wholePartitions.contents,
       capturedPartitions: capture.wholePartitions.captured,
       keepsWriteRecords: writeRecords !== null,
@@ -244,9 +256,12 @@ async function finishBoundedCheckpoint(
     if (checkpointMetadata === undefined) {
       return
     }
-    const bytes = await writeMetadataEnvelope(checkpointMetadata, { checksum: true })
+    const bytes = await writeMetadataEnvelope(
+      { ...checkpointMetadata, partitionCount: capture.partitionCount },
+      { checksum: true },
+    )
     await input.directory.atomicWrite(`${input.indexName}/meta`, bytes)
-    input.hooks.recordCheckpoint?.(input.indexName, checkpointDocumentCount, manager.partitionCount)
+    input.hooks.recordCheckpoint?.(input.indexName, checkpointDocumentCount, capture.partitionCount)
   })
   const movedIntoHistoryAtMs = input.hooks.keepsSyncHistory?.(input.indexName) === true ? Date.now() : null
   await truncateCoveredSegments(input.directory, input.indexName, targets, movedIntoHistoryAtMs)
@@ -254,21 +269,31 @@ async function finishBoundedCheckpoint(
   await reclaimWalBeyondCount(
     input.directory,
     input.indexName,
-    manager.partitionCount,
+    capture.partitionCount,
     input.indexState.partitions,
     input.markFatal,
   )
+  await input.directory.remove(transitionKey(input.indexName))
   const beyondTheCheckpoint = recordsBeyond(input.indexState, targets)
   noteCheckpointCommitted(input.indexState, beyondTheCheckpoint)
-  const anotherIsDue = input.mutationThreshold > 0 && beyondTheCheckpoint >= input.mutationThreshold
-  return anotherIsDue ? beyondTheCheckpoint : capture.recordsLeftInLog
+  const eligibleBeyond = recordsBeyond(input.indexState, targets, capture.unreplayedCutoffs)
+  const anotherIsDue = input.mutationThreshold > 0 && eligibleBeyond >= input.mutationThreshold
+  return anotherIsDue ? eligibleBeyond : capture.recordsLeftInLog
 }
 
-function recordsBeyond(indexState: IndexState, targets: PartitionCheckpoint[]): number {
+function recordsBeyond(
+  indexState: IndexState,
+  targets: PartitionCheckpoint[],
+  cutoffs?: ReadonlyMap<number, number>,
+): number {
   let records = 0
   for (const [partitionId, partition] of indexState.partitions) {
     if (partition.failed !== null) continue
-    records += Math.max(0, partition.appliedSeqNo - snapshotCheckpointFor(targets, partitionId))
+    records += Math.max(
+      0,
+      Math.min(partition.appliedSeqNo, cutoffs?.get(partitionId) ?? Infinity) -
+        snapshotCheckpointFor(targets, partitionId),
+    )
   }
   return records
 }

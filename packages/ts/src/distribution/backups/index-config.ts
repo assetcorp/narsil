@@ -1,8 +1,6 @@
 import { bm25SetsValue } from '../../core/scorer'
-import {
-  decodeIndexConfiguration,
-  requireConfigurationWithinSizeLimit,
-} from '../../engine/snapshot/index-configuration'
+import { requireConfigurationWithinSizeLimit } from '../../engine/snapshot/index-configuration'
+import { decodeIndexConfiguration } from '../../engine/snapshot/index-configuration-decode'
 import { restoredConfigFields, restoredEmbedding } from '../../engine/snapshot/restore-config'
 import { prepareConfiguredSynonyms } from '../../engine/synonym-sets'
 import { requireSurfaceFormsForPartialFields } from '../../engine/validation'

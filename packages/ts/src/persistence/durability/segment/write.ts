@@ -282,7 +282,9 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
     partitions.push(await writeLoggedChanges(context, target.partitionId, priorPartition, entries))
   }
   carryForwardUncheckpointedPartitions(input.prior, input.targets, partitions, checkpointByPartition)
-  return { checkpoint: [...checkpointByPartition.values()], partitions }
+  const checkpoint = [...checkpointByPartition.values()].sort((left, right) => left.partitionId - right.partitionId)
+  partitions.sort((left, right) => left.partitionId - right.partitionId)
+  return { checkpoint, partitions }
 }
 
 export async function commitCheckpointManifest(

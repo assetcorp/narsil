@@ -134,7 +134,8 @@ export async function buildArchiveFromMemory(input: MemoryArchiveInput): Promise
   const refs: VectorFieldRef[] = vectors.refs
   await commitCheckpointManifest(store, input.metadata, written, refs)
   const manifestBytes = store.files.get(manifestKey(input.indexName))
-  const decoded = manifestBytes === undefined ? null : await decodeSegmentManifest(manifestBytes, input.indexName)
+  const decoded =
+    manifestBytes === undefined ? null : await decodeSegmentManifest(manifestBytes, input.indexName, input.partitionId)
   if (manifestBytes === undefined || decoded === null || decoded.kind !== 'current') {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,

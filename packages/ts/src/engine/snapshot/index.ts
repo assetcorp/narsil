@@ -12,7 +12,7 @@ import { indexMetadataOf } from '../durability-metadata'
 import { restoreArchive } from './archive-restore'
 import { MAX_SNAPSHOT_ANALYSIS_ATTEMPTS } from './constants'
 import { restoreEarlierSnapshot } from './earlier-restore'
-import { encodeIndexConfiguration } from './index-configuration'
+import { encodeIndexConfiguration } from './index-configuration-encode'
 import type { RestoreDeps } from './restore-setup'
 
 export type { RestoreDeps } from './restore-setup'

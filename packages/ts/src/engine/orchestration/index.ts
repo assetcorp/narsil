@@ -1,7 +1,6 @@
 import type { SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
-import { detectRuntime } from '../../runtime/detect'
 import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
@@ -10,9 +9,8 @@ import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import type { WorkerAction } from '../../workers/protocol'
+import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import { resolveWorkerCount, splitWorkerBudget } from '../../workers/worker-count'
-import { transferIndexToPool } from '../worker-resync'
 import {
   awaitCompactions,
   cancelIdleMerge,
@@ -24,13 +22,16 @@ import {
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
+import { workersEnabledByDefault } from './loader'
+import { publishToWorkers } from './publication-code'
+import { trackPublicationStores } from './publication-stores'
 import type { CopyReleaseSteps } from './release'
 import { cancelRepair } from './repair'
 import {
+  awaitPublicationCapacity,
   awaitReplicationIdle,
   awaitWritesApplied,
   markCopiesLoaded,
-  queueForCopies,
   replicateToWorkers,
 } from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
@@ -53,10 +54,6 @@ import type {
 import { refreshVectorCopies } from './vector-copies'
 
 export type { RequestThreadListener, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
-
-export function workersEnabledByDefault(): boolean {
-  return detectRuntime().runtime !== 'browser'
-}
 
 function copyIdleTimeoutBeforeClose(closeAfterMs: number | undefined): number {
   return closeAfterMs === undefined
@@ -103,6 +100,7 @@ export function createWorkerOrchestrator(
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
     sharedVectorFields: new Map(),
+    publishedVectorStores: new Set(),
     workerPool: null,
     retiredThreadsGone: Promise.resolve(),
     shutdownStarted,
@@ -185,15 +183,21 @@ export function createWorkerOrchestrator(
     await Promise.allSettled([...state.copyTransitions.values()].map(transition => transition.done))
     if (state.poolRepair !== null) await state.poolRepair
     if (state.poolStart !== null) await state.poolStart.catch(() => undefined)
+    let threadsGone = state.retiredThreadsGone
     if (state.workerPool) {
       await awaitCompactions(state)
       await awaitReplicationIdle(state)
       await state.workerPool.shutdown()
+      threadsGone = Promise.all([threadsGone, state.workerPool.whenEveryThreadIsGone()]).then(() => undefined)
       state.workerPool = null
       state.scaledOutIndexes.clear()
       state.replicationQueues.clear()
       state.segmentLedger.clear()
     }
+    void threadsGone.then(() => {
+      state.sharedVectorFields.clear()
+      state.publishedVectorStores.clear()
+    })
   }
 
   async function restoreAfterFailedClose(indexName: string, failure: PromiseRejectedResult): Promise<never> {
@@ -202,10 +206,11 @@ export function createWorkerOrchestrator(
     const manager = executor.getManager(indexName)
     if (pool !== null && entry !== undefined && manager !== undefined) {
       try {
+        const { transferIndexToPool } = await import('../worker-resync')
         const copyLoad = await transferIndexToPool(
           indexName,
           pool,
-          entry,
+          { ...entry, onPublication: publication => trackPublicationStores(state, publication) },
           manager,
           callbacks?.isAnalysisStale?.(indexName),
         )
@@ -273,7 +278,7 @@ export function createWorkerOrchestrator(
     await replicateToWorkers(state, action)
     if (!('indexName' in action)) return
     if (action.type === 'attachSegments') maybeCompactSegments(state, action.indexName)
-    if (action.type === 'insert' || action.type === 'update') flushGrownTails(state, action.indexName)
+    if (action.type === 'insert' || action.type === 'update') await flushGrownTails(state, action.indexName)
     if (state.scaledOutIndexes.has(action.indexName) || state.copyLoadBuffers.has(action.indexName)) {
       scheduleIdleMerge(state, action.indexName)
     }
@@ -284,8 +289,18 @@ export function createWorkerOrchestrator(
     scaleOutBeforeBatch: (indexName: string, incomingCount: number): Promise<void> =>
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
+    publishToWorkers: action => publishToWorkers(state, action),
+    async settlePublications(indexName, attachedSegments = false) {
+      await awaitPublicationCapacity(state, indexName)
+      if (!state.scaledOutIndexes.has(indexName)) return
+      await flushGrownTails(state, indexName)
+      if (attachedSegments) maybeCompactSegments(state, indexName)
+      scheduleIdleMerge(state, indexName)
+    },
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
-    queueDiskAdoption: action => queueForCopies(state, action),
+    queueDiskAdoption: action => {
+      publishToWorkers(state, action)
+    },
     awaitWrites: (indexName: string): Promise<void> => awaitWritesApplied(state, indexName),
     awaitCompactions: (): Promise<void> => awaitCompactions(state),
     openIndex,
@@ -304,8 +319,9 @@ export function createWorkerOrchestrator(
       partitionIds: number[] | undefined,
       patternWork: SearchPatternWork,
       bm25: BM25Params | undefined,
+      reads?: WorkerHitReads,
     ): Promise<FanOutResult | null> =>
-      searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork, bm25),
+      searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork, bm25, reads),
     hasWorkerPool: (): boolean => state.workerPool !== null,
     mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
     shareMainThread: (): void => {

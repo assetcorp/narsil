@@ -12,7 +12,7 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
-import type { DiskAdoptionAction, WorkerAction } from '../../workers/protocol'
+import type { DiskAdoptionAction, WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
 export interface RequestThreadListener {
@@ -25,6 +25,8 @@ export interface WorkerOrchestrator {
   scaleOutReadyIndexes(): Promise<void>
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
+  publishToWorkers(action: WorkerAction): Promise<void> | undefined
+  settlePublications(indexName: string, attachedSegments?: boolean): Promise<void>
   awaitReplication(indexName?: string): Promise<void>
   queueDiskAdoption(action: DiskAdoptionAction): void
   awaitWrites(indexName: string): Promise<void>
@@ -43,6 +45,7 @@ export interface WorkerOrchestrator {
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
     bm25: BM25Params | undefined,
+    reads?: WorkerHitReads,
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
   mainCopyQueries(): MainCopyQueries
@@ -134,6 +137,7 @@ export interface OrchestratorState {
   readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
   readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
+  readonly publishedVectorStores: Set<string>
   workerPool: WorkerPool | null
   /** This settles once every thread of every retired pool has exited, and a new pool starts only after it. */
   retiredThreadsGone: Promise<void>

@@ -1,4 +1,5 @@
 import type { PartitionManager } from '../../../partitioning/manager'
+import { captureAppliedPrefix } from '../../../partitioning/manager/checkpoint-prefix'
 import type { PersistenceAdapter } from '../../../types/adapters'
 import type { IndexMetadata } from '../../../types/internal'
 import type { VectorCheckpointPlan, VectorIndex } from '../../../vector/vector-index'
@@ -28,15 +29,26 @@ interface CapturedState {
   plans: Map<string, VectorCheckpointPlan>
   documentCount: number
   contents: ReturnType<typeof partitionContentsOf>[]
+  positions: Map<number, number>
+  partitionCount: number
 }
 
-function capture(input: SnapshotOnlyCheckpointInput, prior: SegmentManifest | null): CapturedState {
+function capture(
+  input: SnapshotOnlyCheckpointInput,
+  prior: SegmentManifest | null,
+  cutoffs: ReadonlyMap<number, number>,
+): CapturedState {
   const listedIds = new Set((prior?.partitions ?? []).map(partition => partition.partitionId))
   const partitionCountChanged = prior !== null && listedIds.size !== input.manager.partitionCount
   const targets: PartitionCheckpoint[] = []
   const contents: ReturnType<typeof partitionContentsOf>[] = []
+  const positions = new Map<number, number>()
   for (let partitionId = 0; partitionId < input.manager.partitionCount; partitionId += 1) {
-    const lastSeqNo = input.appliedSeqNoByPartition.get(partitionId) ?? 0
+    const lastSeqNo = Math.min(
+      input.appliedSeqNoByPartition.get(partitionId) ?? 0,
+      cutoffs.get(partitionId) ?? Infinity,
+    )
+    positions.set(partitionId, lastSeqNo)
     const unchanged =
       !input.rewritesEveryPartition &&
       prior !== null &&
@@ -48,11 +60,26 @@ function capture(input: SnapshotOnlyCheckpointInput, prior: SegmentManifest | nu
     contents.push(partitionContentsOf(input.manager, partitionId))
   }
   const plans = new Map<string, VectorCheckpointPlan>()
-  for (const [fieldPath, vectorIndex] of input.vectorIndexes) {
-    const listed = prior?.vectors.find(ref => ref.fieldPath === fieldPath)
-    plans.set(fieldPath, vectorIndex.planCheckpoint(listed === undefined ? null : listed.files.map(file => file.key)))
+  try {
+    for (const [fieldPath, vectorIndex] of input.vectorIndexes) {
+      const listed = prior?.vectors.find(ref => ref.fieldPath === fieldPath)
+      plans.set(
+        fieldPath,
+        vectorIndex.planCheckpoint(listed === undefined ? null : listed.files.map(file => file.key), false, true),
+      )
+    }
+    return {
+      targets,
+      plans,
+      documentCount: input.manager.countDocuments(),
+      contents,
+      positions,
+      partitionCount: input.manager.partitionCount,
+    }
+  } catch (error) {
+    for (const plan of plans.values()) plan.release()
+    throw error
   }
-  return { targets, plans, documentCount: input.manager.countDocuments(), contents }
 }
 
 async function writeCaptured(
@@ -61,7 +88,7 @@ async function writeCaptured(
   prior: SegmentManifest | null,
   captured: CapturedState,
 ): Promise<void> {
-  const partitionCount = input.manager.partitionCount
+  const partitionCount = captured.partitionCount
   const priorWithinCount =
     prior === null
       ? null
@@ -91,11 +118,21 @@ async function writeCaptured(
   )
 }
 
-export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointInput): Promise<number> {
+export async function writeSnapshotOnlyCheckpoint(
+  input: SnapshotOnlyCheckpointInput,
+): Promise<{ documentCount: number; positions: ReadonlyMap<number, number>; partitionCount: number }> {
   const store = adapterCheckpointStore(input.adapter)
   for (const vectorIndex of input.vectorIndexes.values()) await vectorIndex.completeGraph()
   const prior = await readCurrentManifest(store, input.indexName)
-  const captured = capture(input, prior)
-  await writeCaptured(input, store, prior, captured)
-  return captured.documentCount
+  const captured = await captureAppliedPrefix(input.manager, cutoffs => capture(input, prior, cutoffs))
+  try {
+    await writeCaptured(input, store, prior, captured)
+    return {
+      documentCount: captured.documentCount,
+      positions: captured.positions,
+      partitionCount: captured.partitionCount,
+    }
+  } finally {
+    for (const plan of captured.plans.values()) plan.release()
+  }
 }

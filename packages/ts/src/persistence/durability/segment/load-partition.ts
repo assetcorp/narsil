@@ -1,5 +1,7 @@
-import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../../core/partition/frozen'
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import { decodeEveryStoredDocument } from '../../../core/partition/frozen/document-source'
+import { createSharedFrozenSegment } from '../../../core/partition/frozen/shared'
+import { shareSegmentArrays } from '../../../core/partition/frozen/shared-snapshot'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'

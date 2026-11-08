@@ -1,4 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { isCompositePartition } from '../../core/partition/composite'
 import { parseVectorDimension } from '../../core/partition/utils'
@@ -19,6 +19,7 @@ import { decodeSections, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } fro
 import { crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
 import { engineVersionParts } from '../../serialization/envelope-file'
 import { HEADER_SIZE, RESERVED_SIZE, writeHeader } from '../../serialization/header'
+import { decode } from '../../serialization/msgpack'
 import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
 import { vectorsPerFile } from '../../vector/vector-index/checkpoint-plan'
 import { isDead } from '../../vector/vector-index/dead-bits'

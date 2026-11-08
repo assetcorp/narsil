@@ -1,7 +1,8 @@
-import { decode } from '@msgpack/msgpack'
+import { deserializePartition } from '../../../core/partition/serialization'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { requireValidFieldTypes } from '../../../schema/validator/schema'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { decode } from '../../../serialization/msgpack'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
 import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
@@ -91,7 +92,7 @@ export async function loadSnapshotBundle(bytes: Uint8Array, deps: EarlierLoadDep
   while (deps.manager.partitionCount < bundle.partitions.length) deps.manager.addPartition()
   if (bundle.partitions.length > 0) deps.manager.trimPartitions(bundle.partitions.length)
   for (let i = 0; i < bundle.partitions.length; i += 1) {
-    deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
+    deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]), deserializePartition)
   }
   for (const [fieldPath, parts] of Object.entries(bundle.vectorIndexes)) {
     const rebuildsGraph = parts.some(part => part.graphs.some(graph => graph.m < MIN_M))

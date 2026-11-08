@@ -18,6 +18,7 @@ interface EntryHeader {
 }
 
 export interface ArchiveReadHandlers {
+  partitionId?: number
   config(bytes: Uint8Array): Promise<void>
   manifest(manifest: SegmentManifest, sourceIndexName: string): Promise<void>
   file(entryName: string, ref: FileRef, chunks: AsyncIterable<Uint8Array>): Promise<void>
@@ -104,7 +105,7 @@ export async function readSnapshotArchive(reader: ByteReader, handlers: ArchiveR
   await handlers.config(await readNamedEntry(reader, ARCHIVE_CONFIG_ENTRY))
   const raw = await openManifestPayload(await readNamedEntry(reader, ARCHIVE_MANIFEST_ENTRY))
   const sourceIndexName = sourceIndexNameOf(listedKeysOf(raw))
-  const decoded = decodeManifestPayload(raw, sourceIndexName)
+  const decoded = decodeManifestPayload(raw, sourceIndexName, handlers.partitionId)
   if (decoded.kind !== 'current') invalidArchive('the manifest holds the layout of an earlier release')
   const manifest = decoded.manifest
   await handlers.manifest(manifest, sourceIndexName)

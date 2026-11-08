@@ -1,5 +1,6 @@
 import { MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS } from '../constants'
 import { cancelIdleMerge } from './compaction'
+import { prunePublicationStores } from './publication-stores'
 import { awaitReplicationIdle } from './replication'
 import { COPY_RELOAD_REASON, copiesAllowed, copyThresholdReason, indexReadyForCopies, scaleOutIndex } from './scale-out'
 import type { OrchestratorState } from './types'
@@ -66,6 +67,7 @@ export async function dropIdleCopies(state: OrchestratorState, indexName: string
 }
 
 async function sweepIdleCopies(state: OrchestratorState): Promise<void> {
+  prunePublicationStores(state)
   const cutoff = Date.now() - state.copyIdleTimeoutMs
   for (const indexName of [...state.scaledOutIndexes]) {
     if ((state.lastAccessAt.get(indexName) ?? Date.now()) > cutoff) continue

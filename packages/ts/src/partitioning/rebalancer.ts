@@ -1,4 +1,5 @@
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
+import { writePartitionDocument } from '../core/partition/rollover'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
@@ -99,7 +100,14 @@ export function createRebalancer(): Rebalancer {
           const targetPartition = newPartitions[targetPartitionId]
 
           if (!targetPartition.has(docId)) {
-            targetPartition.insert(docId, document, manager.schema, manager.language, insertOptions)
+            newPartitions[targetPartitionId] = writePartitionDocument(
+              targetPartition,
+              docId,
+              document,
+              manager.schema,
+              manager.language,
+              insertOptions,
+            )
             documentsProcessed++
           }
 
@@ -132,7 +140,7 @@ export function createRebalancer(): Rebalancer {
         documentsTotal,
       })
 
-      manager.setPartitions(newPartitions)
+      await manager.publication.write(() => manager.setPartitions(newPartitions))
 
       onProgress?.({
         phase: 'complete',

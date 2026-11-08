@@ -67,6 +67,24 @@ function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
   })
 }
 
+async function restorePartitionCount(deps: MetadataIndexDeps, metadata: IndexMetadata): Promise<void> {
+  if (
+    !Number.isInteger(metadata.partitionCount) ||
+    metadata.partitionCount < 1 ||
+    metadata.partitionCount > 0xffff_ffff
+  ) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'The saved index has an invalid partition count')
+  }
+  const manager = deps.executor.getManager(metadata.indexName)
+  if (manager === undefined) return
+  await manager.publication.write(() => {
+    while (manager.partitionCount < metadata.partitionCount) manager.addPartition()
+    if (manager.partitionCount > metadata.partitionCount) {
+      manager.setPartitions(manager.getAllPartitions().slice(0, metadata.partitionCount))
+    }
+  })
+}
+
 export async function createIndexFromMetadata(
   deps: MetadataIndexDeps,
   metadata: IndexMetadata,
@@ -88,6 +106,7 @@ export async function createIndexFromMetadata(
         false,
         lookupOfStoredSynonyms(existing.synonyms, existing.config, existing.language),
       )
+      await restorePartitionCount(deps, metadata)
     }
     return
   }
@@ -114,6 +133,7 @@ export async function createIndexFromMetadata(
     validateTextStorage(indexConfig.textStorage, deps.filesystemDurability)
     if (loadData) {
       deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
+      await restorePartitionCount(deps, metadata)
     }
   } catch (err) {
     throw recoveryFailure(metadata, err)

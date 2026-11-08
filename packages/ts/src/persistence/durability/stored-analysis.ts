@@ -3,13 +3,6 @@ import type { IndexMetadata } from '../../types/internal'
 import { readSegmentManifest } from './segment/load'
 import type { CheckpointStore } from './segment/store'
 
-function generationOfStoredTerms(store: CheckpointStore, indexName: string): Promise<number | null> {
-  return readSegmentManifest(store, indexName).then(decoded => {
-    if (decoded === null) return null
-    return decoded.kind === 'current' ? (decoded.manifest.analysisGeneration ?? 0) : 0
-  })
-}
-
 function promotePendingAnalysis(metadata: IndexMetadata): void {
   const pending = metadata.pendingAnalysis
   if (pending === undefined) return
@@ -28,9 +21,13 @@ export async function settleStoredAnalysis(
   metadataOnly: boolean,
 ): Promise<boolean> {
   if (metadataOnly && metadata.pendingAnalysis === undefined) return false
-  const stored = await generationOfStoredTerms(store, metadata.indexName)
+  const decoded = await readSegmentManifest(store, metadata.indexName)
+  const partitionCount = decoded?.kind === 'current' ? decoded.manifest.checkpoint.length : metadata.partitionCount
+  const changedLayout = partitionCount !== metadata.partitionCount
+  metadata.partitionCount = partitionCount
+  const stored = decoded === null ? null : decoded.kind === 'current' ? (decoded.manifest.analysisGeneration ?? 0) : 0
   const current = metadata.analysisGeneration ?? 0
-  if (stored === null || stored === current) return false
+  if (stored === null || stored === current) return changedLayout
   if (stored === metadata.pendingAnalysis?.generation) {
     promotePendingAnalysis(metadata)
     return true

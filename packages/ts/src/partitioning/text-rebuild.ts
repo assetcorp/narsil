@@ -1,6 +1,7 @@
 import type { ResolvedAnalysis } from '../analysis/registry'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
+import { writePartitionDocument } from '../core/partition/rollover'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { LanguageModule } from '../types/language'
@@ -15,7 +16,7 @@ export interface TextRebuildHooks {
   isCurrent(): boolean
   onPartitionBuilt(partitionsBuilt: number): void
   onSwitch(): void
-  runSwitch?(swap: () => boolean): Promise<boolean>
+  runSwitch?(swap: () => Promise<boolean>): Promise<boolean>
   holdBeforeSwitch?(keepCurrent: () => boolean): Promise<boolean>
   rewriteStorage?(): RewriteStorage | undefined
   onRewriteSpill?(spill: RewriteSpill | null): void
@@ -56,7 +57,7 @@ async function buildPartition(
   partitionId: number,
 ): Promise<PartitionIndex | null> {
   const { manager, language, options } = pass
-  const target =
+  let target =
     pass.spill?.newPartition(partitionId) ?? createPartitionIndex(partitionId, manager.config.trackPositions ?? true)
   const docIds = [...source.docIds()]
   target.beginBatch()
@@ -64,7 +65,8 @@ async function buildPartition(
     const end = Math.min(start + TEXT_REBUILD_CHUNK_DOCUMENTS, docIds.length)
     for (let i = start; i < end; i++) {
       const document = manager.getRef(docIds[i])
-      if (document !== undefined) target.insert(docIds[i], document, manager.schema, language, options)
+      if (document !== undefined)
+        target = writePartitionDocument(target, docIds[i], document, manager.schema, language, options)
     }
     if (pass.spill !== null) {
       target.endBatch()
@@ -90,7 +92,7 @@ function applyWrittenDocuments(pass: RebuildPass, built: PartitionIndex[]): void
     const partitionId = manager.partitionIdOf(docId)
     const document = manager.getRef(docId)
     if (partitionId === undefined || document === undefined) continue
-    built[partitionId].insert(docId, document, manager.schema, language, options)
+    built[partitionId] = writePartitionDocument(built[partitionId], docId, document, manager.schema, language, options)
   }
 }
 
@@ -121,7 +123,8 @@ async function rebuildOnce(pass: RebuildPass): Promise<boolean> {
     pass.hooks.onSwitch()
     return true
   }
-  return pass.hooks.runSwitch === undefined ? swap() : pass.hooks.runSwitch(swap)
+  const publish = (): Promise<boolean> => pass.manager.publication.write(swap)
+  return pass.hooks.runSwitch === undefined ? publish() : pass.hooks.runSwitch(publish)
 }
 
 export async function rebuildTextIndexes(

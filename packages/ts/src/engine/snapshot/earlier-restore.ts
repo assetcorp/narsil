@@ -1,4 +1,3 @@
-import { decode } from '@msgpack/msgpack'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -8,6 +7,7 @@ import type { RestoreStaging } from '../../persistence/durability/restore-stagin
 import { manifestFileRefs, type SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
+import { decode } from '../../serialization/msgpack'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { documentsOfPayloadV2 } from '../../serialization/payload-v2'
 import type { SerializablePartition } from '../../types/internal'

@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import { type RespondFn, SyncMessageTypes, type TransportMessage } from '../../transport/types'
 import type { DataNodeHandlerDeps } from '../message-handler/types'
 import { leadingAssignment } from '../reshard/leadership'
