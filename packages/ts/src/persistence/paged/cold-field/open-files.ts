@@ -1,5 +1,4 @@
-import { crc32, decode, decodeMulti, ErrorCodes, NarsilError, readHeader } from '#platform/storage-host'
-import { HEADER_SIZE } from '../../../serialization/header'
+import { crc32, decode, decodeMulti, ErrorCodes, HEADER_SIZE, NarsilError, readHeader } from '#platform/storage-host'
 import type { VectorMetric } from '../../../vector/brute-force'
 import type { OsqBits } from '../../../vector/osq'
 import type { FileRef, VectorFileRef } from '../../durability/segment/manifest'

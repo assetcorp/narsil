@@ -26,10 +26,32 @@ export {
   UI_THREAD_TURN_BUDGET_MS,
 } from '../../runtime/constants'
 export { detectRuntime } from '../../runtime/detect'
+export {
+  DEFAULT_LINEAR_ALPHA,
+  DEFAULT_RANK_CONSTANT,
+  FUSION_TIE_INSERTION_LIMIT,
+  MAX_LINEAR_ALPHA,
+  MIN_LINEAR_ALPHA,
+  MIN_RANK_CONSTANT,
+  RESULT_WINDOW,
+} from '../../search/constants'
+export { WORKER_YOUNG_GENERATION_MB } from '../../workers/constants'
 export { resolveWorkerEntry } from '../../workers/entry-point'
 export { noteThreadSlotGone, noteThreadSlotLive } from '../../workers/thread-slot'
 export { resolveWorkerCount } from '../../workers/worker-count'
 export { admissionAt, holdAdmission, withTransientAdmission } from '../admission'
+export {
+  DISK_STORAGE_BLOCK_BYTES,
+  GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER,
+  GRAPH_BUILD_DISPATCH_CHUNK,
+  MAX_RENUMBERED_SEARCH_ATTEMPTS,
+  NATIVE_THREAD_SCAN_CHUNK_ORDINALS,
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+  VECTOR_INSERT_TIMEOUT_MS,
+  VECTOR_SCRATCH_SLOTS,
+  VECTOR_SEARCH_LOAD_TIMEOUT_MS,
+  VECTOR_SEARCH_TIMEOUT_MS,
+} from '../constants'
 export { ordinalFilterForSubsets } from '../filter-ordinals'
 export { createHNSWIndex } from '../hnsw'
 export { GRAPH_RETIRED } from '../hnsw/handles'
@@ -85,7 +107,7 @@ export {
   SHUFFLED_REBUILD_MEMORY_RETRY_MS,
   WORKER_COPY_MIN_VECTORS,
 } from '../vector-index/constants'
-export { isDead } from '../vector-index/dead-bits'
+export { isDead, NO_LIVE_VECTOR_AT_POSITION } from '../vector-index/dead-bits'
 export { defaultQuantizationFor } from '../vector-index/default-quantization'
 export { bytesToVectors } from '../vector-index/payload'
 export { deserialize } from '../vector-index/persistence'

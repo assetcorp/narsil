@@ -1,4 +1,5 @@
 import {
+  ARRAY_POSITION_GAP,
   ErrorCodes,
   emitEngineEvent,
   holdSyncEpochChange,
@@ -6,16 +7,15 @@ import {
   prepareStoredSynonyms,
   rebuildTextIndexes,
   rulesOfStoredSynonyms,
-  targetOfPending,
   textRebuildTargetOf,
 } from '#platform/storage-host'
-import { ARRAY_POSITION_GAP } from '../../core/constants'
 import type { RewriteSpill } from '../../persistence/paged/rewrite-spill'
 import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
 import type { AnalysisTarget } from './pending-target'
+import { targetOfPending } from './pending-target'
 import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
 import {
   currentConfigUnderTarget,

@@ -1,13 +1,14 @@
 import {
   asBatchInsertError,
   awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
   createFrozenSegment,
   createSharedFrozenSegment,
+  MIN_DOCUMENTS_FOR_SEGMENTS,
 } from '#platform/optional-writes-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { BuiltSegment } from '../orchestration/segments'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'

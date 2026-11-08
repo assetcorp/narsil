@@ -1,6 +1,5 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, MAX_FILE_BYTES, NarsilError } from '#platform/suggestion-store-host'
 import { checksumOfChunks } from './chunk-checksum'
-import { MAX_FILE_BYTES } from './constants'
 import { HEADER_SIZE, type NrslHeader, readHeader, writeHeader } from './header'
 
 export interface PackedEnvelope {

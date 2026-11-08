@@ -1,5 +1,4 @@
-import { encode } from '@msgpack/msgpack'
-import { packChecksummedEnvelope } from '#platform/storage-host'
+import { encode, packChecksummedEnvelope } from '#platform/storage-host'
 import type { PackedEnvelope } from '../../../serialization/envelope-file'
 import { type FileRef, MANIFEST_ENVELOPE_VERSION, SEGMENT_MANIFEST_VERSION, type SegmentManifest } from './manifest'
 

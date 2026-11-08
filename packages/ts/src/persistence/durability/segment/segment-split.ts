@@ -1,9 +1,14 @@
-import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, messagePackUpperBoundBytes, NarsilError, selectionKeeps } from '#platform/storage-host'
+import {
+  ErrorCodes,
+  encode,
+  HEADER_SIZE,
+  MAX_FILE_BYTES,
+  messagePackUpperBoundBytes,
+  NarsilError,
+  selectionKeeps,
+} from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
-import { MAX_FILE_BYTES } from '../../../serialization/constants'
-import { HEADER_SIZE } from '../../../serialization/header'
 import { SEGMENT_FILE_FRAMING_SLACK_BYTES, SEGMENT_TOKEN_TABLE_SHARE_OF_FILE } from '../constants'
 
 const ORDINAL_BYTES = 4

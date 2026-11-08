@@ -1,6 +1,10 @@
-import { bytesToVectors, decode, yieldToEventLoop } from '#platform/storage-host'
-import { HEADER_SIZE } from '../../serialization/header'
-import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
+import {
+  bytesToVectors,
+  decode,
+  HEADER_SIZE,
+  VECTOR_FILE_PAYLOAD_VERSION,
+  yieldToEventLoop,
+} from '#platform/storage-host'
 import type { VectorCheckpointRestore } from '../../vector/vector-index/checkpoint-restore'
 import { type ColdFileInput, codesOfFile } from './cold-field'
 import { COLD_LOAD_WAIT_WITHOUT_SEARCH_MS } from './constants'

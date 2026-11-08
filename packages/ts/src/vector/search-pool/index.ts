@@ -1,12 +1,12 @@
 import { resolveWorkerEntryPoint } from '#platform/search-worker-entry'
-import { resolveWorkerCount } from '#platform/vector-host'
-import type { VectorMetric } from '../brute-force'
 import {
+  resolveWorkerCount,
   VECTOR_INSERT_TIMEOUT_MS,
   VECTOR_SCRATCH_SLOTS,
   VECTOR_SEARCH_LOAD_TIMEOUT_MS,
   VECTOR_SEARCH_TIMEOUT_MS,
-} from '../constants'
+} from '#platform/vector-host'
+import type { VectorMetric } from '../brute-force'
 import type { GraphSearchOptions } from '../hnsw/search'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'

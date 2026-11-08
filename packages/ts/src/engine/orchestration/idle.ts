@@ -1,4 +1,4 @@
-import { MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS } from '../constants'
+import { MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS } from '#platform/worker-copies-host'
 import { cancelIdleMerge } from './compaction'
 import { prunePublicationStores } from './publication-stores'
 import { awaitReplicationIdle } from './replication'

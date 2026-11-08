@@ -1,7 +1,10 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { requireValidFieldTypes } from '../../../schema/validator/schema'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-codec'
-import { decode } from '../../../serialization/msgpack'
+import {
+  decode,
+  ErrorCodes,
+  NarsilError,
+  openChecksummedEnvelope,
+  requireValidFieldTypes,
+} from '#platform/storage-host'
 import type { PartitionCheckpoint, TermStart } from '../partition-checkpoint'
 import { segmentKey } from './layout'
 import {

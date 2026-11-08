@@ -1,5 +1,5 @@
+import { KEY_FINGERPRINT_BYTES, KEY_FINGERPRINT_LABEL, SCRAMBLED_ID_BYTES } from '#platform/suggestions-host'
 import type { Digest } from '../persistence/digest-code'
-import { KEY_FINGERPRINT_BYTES, KEY_FINGERPRINT_LABEL, SCRAMBLED_ID_BYTES } from './constants'
 
 const INNER_PAD = 0x36
 const OUTER_PAD = 0x5c

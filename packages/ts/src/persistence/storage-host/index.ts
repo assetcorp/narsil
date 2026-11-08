@@ -1,17 +1,22 @@
 import type * as SegmentCodecCode from '../../core/segment-codec-leaf'
 import type * as SegmentMergeCode from '../../core/segment-merge-leaf'
 import type { OptionalCodeHost } from '../../engine/optional-code-host'
+import type * as SuggestionStoreCode from '../../query-suggestions/store-leaf'
 import type * as VectorCoreCode from '../../vector/core-leaf'
+import type * as DigestCode from '../durability/digest-leaf'
 
+export { encode } from '@msgpack/msgpack'
 export { readHeapStatistics } from '#platform/heap-statistics'
 export { collectAndReturnPages } from '#platform/idle-heap-cleanup'
 export { loadNativeCore } from '#platform/native-core'
 export { nodeThreadId, spawnNodeWorker } from '#platform/node-worker'
 export { readResidentMemory } from '#platform/process-limit'
 export { mergePostings } from '#platform/segment-merges'
-export { countWrite, turnIsSpent, waitOutsideCountedWrite, yieldTurn } from '#platform/turn-budget'
+export { countWrite, turnIsSpent, turnsAreBudgeted, waitOutsideCountedWrite, yieldTurn } from '#platform/turn-budget'
 export { createVectorFileReader } from '#platform/vector-file'
+export { VERSION } from '../..'
 export { resolveIndexAnalysis } from '../../analysis/registry'
+export { ARRAY_POSITION_GAP, DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
 export { prepareFrozenPublication } from '../../core/frozen-writes/publication'
 export { fnv1a } from '../../core/hash'
 export { generateId } from '../../core/id-generator'
@@ -51,16 +56,25 @@ export { mergedPartialSpellings, mergeSourceSpellings, mergeSourceSurfaces } fro
 export { mergeKeywordSources } from '../../core/segment-merges/output'
 export { SegmentRefusal } from '../../core/segment-writes/status'
 export { TermLookup } from '../../core/term-table/lookup'
-export { configUnderAnalysis, targetOfPending } from '../../engine/analysis-change/pending-target'
 export { arrayPositionsAreStale, storedArrayPositionGap } from '../../engine/array-positions'
-export { ANALYSIS_CHANGE_MEMBERS, INDEX_NAME_PATTERN } from '../../engine/constants'
+export {
+  ANALYSIS_CHANGE_MEMBERS,
+  ANALYSIS_HOLD_APPLY_INTERVAL_MS,
+  EXPORT_CHUNK_BYTES,
+  FOREIGN_STATS_TTL_MS,
+  IMPORT_BATCH_DOCUMENTS,
+  INDEX_NAME_PATTERN,
+  MAX_EXPORT_LINE_BYTES,
+  MAX_IMPORT_REFUSALS_REPORTED,
+  MAX_INDEX_NAME_LENGTH,
+  STATISTICS_BROADCAST_INTERVAL_MS,
+} from '../../engine/constants'
 export { emitEngineEvent } from '../../engine/events'
 export { toError } from '../../engine/orchestration/eligibility'
 export { yieldToEventLoop } from '../../engine/orchestration/turn'
 export { reconstructSchemaFromMetadata } from '../../engine/recovery-schema'
 export { withOpenIndex } from '../../engine/serial-index-update'
 export { configurationPayloadOf, requireConfigurationWithinSizeLimit } from '../../engine/snapshot/index-configuration'
-export { decodeIndexConfiguration, requireConfigurationShape } from '../../engine/snapshot/index-configuration-decode'
 export { oneSyncChangeAtATime } from '../../engine/sync/serial'
 export { holdSyncEpochChange } from '../../engine/sync-epoch'
 export { emitSyncChange } from '../../engine/sync-notify'
@@ -83,9 +97,15 @@ export { rewriteSpillOf } from '../../partitioning/rewrite-spill-of'
 export { createPartitionRouter } from '../../partitioning/router'
 export { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
 export { attachedRuntimeOf } from '../../query-suggestions/attached'
+export {
+  MAX_HISTORY_FILE_BYTES,
+  QUERY_HISTORY_ARCHIVE_PREFIX,
+  QUERY_HISTORY_FOLDER,
+} from '../../query-suggestions/constants'
 export { historyFileOf, historyFilesOf, listHistoryFolder } from '../../query-suggestions/history-files'
 export { storedStateFromWire, storedStateOf, storedStateToWire } from '../../query-suggestions/stored-state'
 export { detectRuntime } from '../../runtime/detect'
+export { MAX_DOCUMENT_NESTING_DEPTH } from '../../schema/constants'
 export { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 export {
   flattenSchema,
@@ -103,7 +123,7 @@ export { extractVectorFieldsFromSchema, partialFieldsOf, requireValidFieldTypes 
 export { VECTOR_PATTERN } from '../../schema/validator/shared'
 export { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 export { checksumOfChunks } from '../../serialization/chunk-checksum'
-export { VALID_HNSW_METRICS } from '../../serialization/constants'
+export { MAX_FILE_BYTES, VALID_HNSW_METRICS } from '../../serialization/constants'
 export { crc32, crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
 export { encodeDocument } from '../../serialization/document-encoding'
 export {
@@ -113,11 +133,12 @@ export {
   packEnvelopeWithChecksum,
   requireWithinFileLimit,
 } from '../../serialization/envelope-file'
-export { hasNrslMagic, readHeader, writeHeader } from '../../serialization/header'
+export { HEADER_SIZE, hasNrslMagic, readHeader, writeHeader } from '../../serialization/header'
 export { decode, decodeMulti } from '../../serialization/msgpack'
 export { decodeMapWithoutFields, endOfValue } from '../../serialization/msgpack-without-fields'
 export { isSyncEpoch, newSyncEpoch } from '../../sync/epoch'
 export { createHNSWIndex } from '../../vector/hnsw'
+export { MAX_LAYER_CAP, MIN_M } from '../../vector/hnsw/constants'
 export { toDistance, toScore } from '../../vector/hnsw/shared'
 export { nativeSearchCoreIsEnabled } from '../../vector/native/backend'
 export { osqBitsOf } from '../../vector/osq'
@@ -135,6 +156,7 @@ export {
   decodeVectorGraphPayload,
   graphPartsOfEarlierPayload,
   VECTOR_FILE_MAX_VECTORS,
+  VECTOR_FILE_PAYLOAD_VERSION,
 } from '../../vector/vector-index/checkpoint-payload'
 export { vectorsPerFile } from '../../vector/vector-index/checkpoint-plan'
 export { DEFAULT_VECTOR_METRIC } from '../../vector/vector-index/constants'
@@ -145,25 +167,13 @@ export { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
 export { resolveWorkerEntry } from '../../workers/entry-point'
 export { createRequestId } from '../../workers/protocol'
 export { loadSchemaCodeFor } from '../../workers/schema-code'
-export { chunksOf, createByteReader } from '../archive/byte-reader'
-export { readSnapshotArchive } from '../archive/read'
-export { tarEnd, tarEntryHeaders, tarPadding } from '../archive/tar'
-export {
-  graphPartKey,
-  manifestKey,
-  segmentKey,
-  segmentsPrefix,
-  snapshotBundleKey,
-  vectorFileKey,
-} from '../durability/segment/layout'
-export { manifestFileRefs, manifestReferencedKeys } from '../durability/segment/manifest'
-export { decodeSegmentManifest } from '../durability/segment/manifest-decode'
-export { invalidManifest, isId, isRecord, isSequenceNumber, isUint32 } from '../durability/segment/manifest-fields'
 export { sha256 } from '../durability/sha256'
 
 export function bindStorageHost(
   _host: OptionalCodeHost,
+  _digest: typeof DigestCode,
   _segmentCodec: typeof SegmentCodecCode,
   _segmentMerge: typeof SegmentMergeCode,
+  _suggestionStore: typeof SuggestionStoreCode,
   _vectorCore: typeof VectorCoreCode,
 ): void {}

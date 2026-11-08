@@ -1,7 +1,6 @@
-import { asBatchInsertError } from '#platform/optional-writes-host'
+import { asBatchInsertError, BATCH_CHUNK_SIZE } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
 import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'

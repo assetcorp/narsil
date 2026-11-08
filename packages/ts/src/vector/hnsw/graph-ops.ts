@@ -1,9 +1,9 @@
+import { FARTHEST_REJECTED_LINKS_KEPT } from '#platform/vector-core-host'
 import type { SearchClock } from '../../core/search-clock'
 import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
-import { FARTHEST_REJECTED_LINKS_KEPT } from './constants'
 import { writeKeepingLastLinks } from './last-links'
 import { beginNodeRead, nodeReadHeld } from './locks'
 import {

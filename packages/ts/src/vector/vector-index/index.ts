@@ -5,6 +5,7 @@ import {
   DEFAULT_FILTER_THRESHOLD,
   DEFAULT_PROMOTION_THRESHOLD,
   DEFAULT_VECTOR_METRIC,
+  DISK_STORAGE_BLOCK_BYTES,
   defaultQuantizationFor,
   deserialize as deserializeOp,
   ErrorCodes,
@@ -19,7 +20,6 @@ import {
   VECTOR_WORKER_COPIES_ALLOWED,
 } from '#platform/vector-host'
 import type { VectorIndexConfig, VectorStorageMode } from '../../types/schema'
-import { DISK_STORAGE_BLOCK_BYTES } from '../constants'
 import type { HNSWConfig } from '../hnsw'
 import { createVectorStore } from '../vector-store'
 import { awaitBuilds, disposeIndex, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'

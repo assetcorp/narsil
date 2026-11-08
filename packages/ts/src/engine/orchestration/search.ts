@@ -3,6 +3,7 @@ import {
   createRequestId,
   ErrorCodes,
   kWayMerge,
+  MAIN_COPY_LONE_QUERY_DOCUMENTS,
   mergeFacets,
   NarsilError,
   oversampledFacetConfig,
@@ -20,7 +21,6 @@ import type { FacetConfig, QueryParams } from '../../types/search'
 import { copyGenerationOf } from '../../workers/copy-generation'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
 import type { WorkerHitReads } from '../../workers/protocol'
-import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from './constants'
 import { awaitReplicationIdle } from './replication'
 import type { OrchestratorState } from './types'
 

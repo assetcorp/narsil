@@ -1,5 +1,4 @@
-import { encode } from '@msgpack/msgpack'
-import { crc32 } from '#platform/storage-host'
+import { crc32, encode } from '#platform/storage-host'
 import type { ReplicationLogEntry } from './types'
 
 export function computeEntryChecksum(entry: Omit<ReplicationLogEntry, 'checksum'>): number {

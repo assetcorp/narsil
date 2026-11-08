@@ -1,6 +1,8 @@
 import {
   BUILD_CHUNK_SIZE,
   backgroundTurnIsSpent,
+  GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER,
+  GRAPH_BUILD_DISPATCH_CHUNK,
   liveSize,
   sharedMemoryAvailable,
   threadsHoldCurrentLayout,
@@ -9,7 +11,6 @@ import {
   yieldBackgroundTurn,
   yieldBuildTurn,
 } from '#platform/vector-host'
-import { GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER, GRAPH_BUILD_DISPATCH_CHUNK } from '../constants'
 import type { HNSWIndex } from '../hnsw'
 import type { GraphInsertOutcome } from '../shared-field/types'
 import { connectGraph } from './graph-pass'

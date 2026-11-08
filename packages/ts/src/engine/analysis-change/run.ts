@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '#platform/storage-host'
-import { ANALYSIS_HOLD_APPLY_INTERVAL_MS } from '../constants'
+import { ANALYSIS_HOLD_APPLY_INTERVAL_MS, ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { EngineCore } from '../core'
 import type { AnalysisTarget } from './settings'
 

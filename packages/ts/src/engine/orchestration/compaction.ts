@@ -1,16 +1,18 @@
 import {
+  COMPACTION_SEGMENT_TRIGGER,
   createRequestId,
   createSharedFrozenSegment,
   ErrorCodes,
+  IDLE_MERGE_DELAY_MS,
   isCompositePartition,
   LIVE_TAIL_FREEZE_FLOOR,
   NarsilError,
+  SEGMENTS_PER_MERGE,
 } from '#platform/worker-copies-host'
 import type { CompositePartition } from '../../core/partition/composite'
 import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
 import { mergeFrozenSegmentOutputs } from '../../core/partition/frozen/merge-split'
 import type { PartitionManager } from '../../partitioning/manager'
-import { COMPACTION_SEGMENT_TRIGGER, IDLE_MERGE_DELAY_MS, SEGMENTS_PER_MERGE } from './constants'
 import { freezeLiveTail } from './live-tail'
 import { publishToWorkers } from './publication-code'
 import { awaitReplicationIdle } from './replication'

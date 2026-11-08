@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { encode } from '#platform/suggestion-store-host'
 import { MAX_BAN_LIST_BYTES, MAX_BANNED_PHRASE_CODE_POINTS, MAX_BANNED_PHRASES } from './constants'
 import { acceptedPhrase, isNormalPhrase, type PhraseLimits } from './phrase'
 import { invalidSetting } from './setting'

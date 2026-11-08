@@ -1,6 +1,7 @@
-import { ErrorCodes, NarsilError, tarEnd, tarEntryHeaders, tarPadding } from '#platform/storage-host'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { ARCHIVE_ENTRY_ESTIMATE_BYTES, ARCHIVE_FILE_CHUNK_BYTES } from './constants'
 import { ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY } from './read'
+import { tarEnd, tarEntryHeaders, tarPadding } from './tar'
 
 export interface ArchiveFileEntry {
   name: string

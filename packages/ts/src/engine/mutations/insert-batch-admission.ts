@@ -1,6 +1,7 @@
 import {
   admitInsert,
   asBatchInsertError,
+  BATCH_CHUNK_SIZE,
   collectRequiredFieldFailures,
   createPendingAdmissions,
   ErrorCodes,
@@ -17,7 +18,6 @@ import {
 } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
 import type { MutationContext } from './context'
 
 export interface AdmittedInsert {

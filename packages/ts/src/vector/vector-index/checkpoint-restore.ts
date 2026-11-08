@@ -8,6 +8,7 @@ import {
   isDead,
   magnitude,
   NarsilError,
+  NO_LIVE_VECTOR_AT_POSITION,
   osqBitsOf,
   recalibrateFromStore,
   releaseReplacedVectors,
@@ -18,7 +19,6 @@ import {
 import type { HNSWIndex, NumberedGraphParts } from '../hnsw'
 import type { VectorFilePayload, VectorGraphParts } from './checkpoint-payload'
 import type { SavedVectorFile } from './checkpoint-plan'
-import { NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { readsFromDisk, type VectorPartFile } from './disk'
 import type { VectorIndexCodes } from './payload'
 import type { VectorIndexState } from './shared'

@@ -4,12 +4,12 @@ import {
   decode,
   ErrorCodes,
   generateId,
+  HEADER_SIZE,
   NarsilError,
   readHeader,
   VECTOR_PATTERN,
 } from '#platform/storage-host'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { HEADER_SIZE } from '../../serialization/header'
 import {
   type ColumnContext,
   decodeBooleanColumns,

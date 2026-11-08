@@ -1,5 +1,6 @@
 export { bindStorageHost } from '#platform/storage-host'
 export * from '../engine/analysis-change'
+export { targetOfPending } from '../engine/analysis-change/pending-target'
 export * from '../engine/durability-wiring'
 export * from '../engine/export/import'
 export * from '../engine/export/write'

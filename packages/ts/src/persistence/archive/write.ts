@@ -1,7 +1,8 @@
-import { manifestFileRefs, tarEnd, tarEntryHeaders, tarPadding } from '#platform/storage-host'
 import type { FileRef, SegmentManifest } from '../durability/segment/manifest'
+import { manifestFileRefs } from '../durability/segment/manifest'
 import { ARCHIVE_FILE_CHUNK_BYTES } from './constants'
 import { ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY } from './read'
+import { tarEnd, tarEntryHeaders, tarPadding } from './tar'
 
 export interface ArchiveSource {
   config: Uint8Array

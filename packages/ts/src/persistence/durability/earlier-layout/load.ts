@@ -9,13 +9,13 @@ import {
   ErrorCodes,
   freezeSegmentShared,
   graphPartsOfEarlierPayload,
+  HEADER_SIZE,
+  MIN_M,
   NarsilError,
   openChecksummedEnvelope,
   resolvePartitionInsertOptions,
 } from '#platform/storage-host'
 import type { PartitionManager } from '../../../partitioning/manager'
-import { HEADER_SIZE } from '../../../serialization/header'
-import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndex } from '../../../vector/vector-index'
 import type { VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'

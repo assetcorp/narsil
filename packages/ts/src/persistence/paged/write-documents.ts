@@ -1,6 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { deflateBlock } from '#platform/raw-deflate'
-import { compareCodePoints, encodeDocument, holdsADiscardedField } from '#platform/storage-host'
+import { compareCodePoints, encode, encodeDocument, holdsADiscardedField } from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
 import { littleEndianBytes } from '../../serialization/keyword-segment/little-endian'

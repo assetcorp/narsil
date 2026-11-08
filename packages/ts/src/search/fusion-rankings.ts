@@ -1,6 +1,5 @@
 import { fusionCore } from '#platform/fusion-core'
-import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/vector-host'
-import { FUSION_TIE_INSERTION_LIMIT } from './constants'
+import { compareCodePoints, ErrorCodes, FUSION_TIE_INSERTION_LIMIT, NarsilError } from '#platform/vector-host'
 import type { FusionCore } from './fusion-core'
 import { releaseFusionMemory, takeFusionMemory } from './fusion-memory'
 

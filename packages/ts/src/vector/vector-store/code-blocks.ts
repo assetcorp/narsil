@@ -1,9 +1,9 @@
-import { osqCodeBytes, osqRecordBytes, osqStagedQueryBytes } from '#platform/vector-core-host'
+import { VECTOR_BLOCK_MAX_BYTES, VECTOR_SCRATCH_SLOTS } from '#platform/vector-core-host'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { VECTOR_SCRATCH_SLOTS } from '../constants'
 import { osqQueryBits } from '../osq/estimate'
 import type { OsqBits } from '../osq/quantize'
-import { alignUp, BLOCK_MAX_BYTES, type BlockGeometry } from './blocks'
+import { osqCodeBytes, osqRecordBytes, osqStagedQueryBytes } from '../osq/record'
+import { alignUp, type BlockGeometry } from './blocks'
 
 /**
  * This is the geometry of a block holding one code record per slot: the packed code
@@ -41,6 +41,8 @@ export function computeCodeBlockLayout(dimension: number, bits: OsqBits): Vector
     scratchStride,
     slotsOffset,
     slotStride,
-    capacity: Math.floor((Math.min(VECTOR_MEMORY_LIMITS.blockBytes, BLOCK_MAX_BYTES) - slotsOffset) / slotStride),
+    capacity: Math.floor(
+      (Math.min(VECTOR_MEMORY_LIMITS.blockBytes, VECTOR_BLOCK_MAX_BYTES) - slotsOffset) / slotStride,
+    ),
   }
 }

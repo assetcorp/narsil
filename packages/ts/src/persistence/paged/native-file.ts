@@ -1,5 +1,4 @@
-import { ErrorCodes, loadNativeCore, NarsilError, nativeSearchCoreIsEnabled } from '#platform/storage-host'
-import { HEADER_SIZE } from '../../serialization/header'
+import { ErrorCodes, HEADER_SIZE, loadNativeCore, NarsilError, nativeSearchCoreIsEnabled } from '#platform/storage-host'
 import type { NativeCore } from '../../vector/native/types'
 import type { NativePagedFileHandle, NativePageSection } from '../../vector/native/types/paged'
 import type { FileSection } from './format'

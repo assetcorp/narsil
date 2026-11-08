@@ -329,6 +329,16 @@
       "react-native": "./src/engine/resolve-vector-text-host.ts",
       "browser": "./src/engine/resolve-vector-text-host.browser.ts",
       "default": "./src/engine/resolve-vector-text-host.ts"
+    },
+    "#platform/suggestion-store-host": {
+      "react-native": "./src/query-suggestions/store-host.ts",
+      "browser": "./src/query-suggestions/store-host.browser.ts",
+      "default": "./src/query-suggestions/store-host.ts"
+    },
+    "#platform/suggestions-host": {
+      "react-native": "./src/query-suggestions/suggestions-host.ts",
+      "browser": "./src/query-suggestions/suggestions-host.browser.ts",
+      "default": "./src/query-suggestions/suggestions-host.ts"
     }
   },
   "sideEffects": false,

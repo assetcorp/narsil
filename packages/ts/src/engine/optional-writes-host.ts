@@ -6,6 +6,7 @@ export {
   changeIndexOutsideExternalWaits,
   indexChangeOutsideExternalWaits,
   turnIsSpent,
+  turnsAreBudgeted,
   yieldTurn,
 } from '#platform/turn-budget'
 export { fnv1a } from '../core/hash'
@@ -29,6 +30,7 @@ export { storedBM25Params, validateBM25Params } from '../search/bm25-params'
 export { isSyncEpoch, newSyncEpoch } from '../sync/epoch'
 export { loadSchemaCodeFor } from '../workers/schema-code'
 export { arrayPositionsAreStale } from './array-positions'
+export { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from './constants'
 export { loadEmbedCode } from './embed-code'
 export { insertDocument } from './mutations/insert'
 export {

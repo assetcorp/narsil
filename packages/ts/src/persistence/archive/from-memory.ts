@@ -1,21 +1,22 @@
 import {
-  decodeSegmentManifest,
   ErrorCodes,
-  manifestKey,
   NarsilError,
+  VECTOR_FILE_PAYLOAD_VERSION,
   vectorsPerFile,
   vectorsToBytes,
 } from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
-import { VECTOR_FILE_PAYLOAD_VERSION, type VectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
+import type { VectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import type { NewVectorFile } from '../../vector/vector-index/checkpoint-plan'
 import type { ArchiveCheckpoint } from '../durability/archive-checkpoint'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../durability/constants'
 import type { PartitionCheckpoint } from '../durability/partition-checkpoint'
 import { partitionContentsOf } from '../durability/segment/captured-partition'
+import { manifestKey } from '../durability/segment/layout'
 import type { VectorFieldRef } from '../durability/segment/manifest'
+import { decodeSegmentManifest } from '../durability/segment/manifest-decode'
 import { writeLiveVectors } from '../durability/segment/vector-write'
 import { commitCheckpointManifest, writeCheckpointSegments } from '../durability/segment/write'
 import { SINGLE_NODE_PRIMARY_TERM } from '../durability/seq-owner'

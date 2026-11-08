@@ -1,7 +1,14 @@
-import { crc32, ErrorCodes, engineVersionParts, NarsilError, readHeader, writeHeader } from '#platform/storage-host'
+import {
+  crc32,
+  ErrorCodes,
+  engineVersionParts,
+  HEADER_SIZE,
+  NarsilError,
+  readHeader,
+  writeHeader,
+} from '#platform/storage-host'
 import type { IndexMetadata } from '../types/internal'
 import type { NrslFlags, NrslHeader } from './header'
-import { HEADER_SIZE } from './header'
 import { deserializeMetadata, serializeMetadata } from './payload-v1'
 
 const CURRENT_ENVELOPE_VERSION = 1

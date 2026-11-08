@@ -1,7 +1,7 @@
 import { loadNativeCore } from '#platform/native-core'
+import { NATIVE_ATTACH_RETRY_MS } from '#platform/vector-core-host'
 import { hostOwnsMemory } from '#platform/vector-memory-limits'
 import type { VectorMetric } from '../brute-force'
-import { NATIVE_ATTACH_RETRY_MS } from '../constants'
 import { fixedView, type GrowableBuffer } from '../shared-buffers/growable'
 import type { VectorBlockHandle } from '../vector-store/blocks'
 import { type SharedVectorStoreHandles, STORE_CALIBRATED } from '../vector-store/handles'

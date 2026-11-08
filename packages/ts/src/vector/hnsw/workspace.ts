@@ -1,4 +1,4 @@
-import { INITIAL_LIST_CAPACITY } from './constants'
+import { INITIAL_LIST_CAPACITY } from '#platform/vector-core-host'
 
 export interface DistanceList {
   /** The ordinal of each entry, valid up to {@link DistanceList.size}. */

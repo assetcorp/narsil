@@ -1,5 +1,5 @@
 import { nativeCrc32 } from '#platform/native-crc32'
-import { NATIVE_CRC32_MIN_BYTES } from './constants'
+import { NATIVE_CRC32_MIN_BYTES } from '#platform/suggestion-store-host'
 
 const IEEE_POLYNOMIAL = 0xedb88320
 const ALL_BITS = 0xffffffff

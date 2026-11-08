@@ -1,8 +1,8 @@
 import { codeLoader } from '../workers/code-loader'
-import type * as Sha256 from './durability/sha256'
+import type * as DigestLeaf from './durability/digest-leaf'
 
-export type Digest = typeof Sha256
+export type Digest = typeof DigestLeaf
 
-const digest = codeLoader<Digest>(() => import('./durability/sha256'), 'digest')
+const digest = codeLoader<Digest>(() => import('./durability/digest-leaf'), 'digest')
 
 export const loadDigest = digest.load

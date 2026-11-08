@@ -1,19 +1,19 @@
 import {
+  ARRAY_POSITION_GAP,
   bytesToVectors,
   decode,
   decodeVectorIndexParts,
   ErrorCodes,
   insertDocumentVectors,
-  manifestFileRefs,
   NarsilError,
   raiseEarlierReleaseGraphSetting,
 } from '#platform/storage-host'
-import { ARRAY_POSITION_GAP } from '../../core/constants'
 import type { PartitionManager } from '../../partitioning/manager'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
 import { validateStagedCheckpoint } from '../../persistence/archive/validate'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
+import { manifestFileRefs } from '../../persistence/durability/segment/manifest'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { documentsOfPayloadV2 } from '../../serialization/payload-v2'

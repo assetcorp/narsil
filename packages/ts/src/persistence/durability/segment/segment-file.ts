@@ -1,5 +1,4 @@
-import { openChecksummedEnvelope, packChecksummedEnvelope } from '#platform/storage-host'
-import { HEADER_SIZE } from '../../../serialization/header'
+import { HEADER_SIZE, openChecksummedEnvelope, packChecksummedEnvelope } from '#platform/storage-host'
 import { decodeKeywordSegment } from '../../../serialization/keyword-segment/decode'
 import { encodeKeywordSegment } from '../../../serialization/keyword-segment/encode'
 import {

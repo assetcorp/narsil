@@ -3,12 +3,12 @@ import {
   decodeVectorIndexParts,
   deserializePartition,
   ErrorCodes,
+  MIN_M,
   NarsilError,
   requireValidFieldTypes,
 } from '#platform/storage-host'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
-import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { EarlierLoadDeps } from './load'

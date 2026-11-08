@@ -1,4 +1,9 @@
-import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
+import {
+  COMPACTION_ABSOLUTE_THRESHOLD,
+  COMPACTION_TOMBSTONE_RATIO,
+  ErrorCodes,
+  NarsilError,
+} from '#platform/vector-core-host'
 import type { VectorEntry } from '../../types/internal'
 import { withTransientAdmission, withTransientAdmissionAsync } from '../admission'
 import type { VectorMetric } from '../brute-force'
@@ -7,7 +12,6 @@ import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { connectOffThread, connectOnThisThread } from './connect-in-turns'
 import { connectAfterBuild } from './connect-unreached'
-import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import { createSharedGraphHandles, GRAPH_RETIRED, GRAPH_UNLINKED_NODES, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {

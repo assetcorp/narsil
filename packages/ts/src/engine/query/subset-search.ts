@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '#platform/vector-host'
-import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../../vector/constants'
+import { ErrorCodes, MAX_RENUMBERED_SEARCH_ATTEMPTS, NarsilError } from '#platform/vector-host'
 import type { FilterSubset } from '../../vector/filter-ordinals'
 
 export function filterSubsetsMatchNothing(subsets: readonly FilterSubset[]): boolean {

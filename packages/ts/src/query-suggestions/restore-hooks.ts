@@ -1,5 +1,6 @@
 import {
   attachedRuntimeOf,
+  BUILD_WRITE_BATCH,
   clearLeftoversOfName,
   ErrorCodes,
   emitEngineEvent,
@@ -14,7 +15,6 @@ import type { EngineCore, IndexRegistryEntry } from '../engine/core'
 import type { RestoredHistorySink, RestoreSuggestionHooks } from '../engine/snapshot/restore-setup'
 import type { Narsil } from '../types/engine'
 import type { QuerySuggestionsWarningEvent } from '../types/query-suggestions'
-import { BUILD_WRITE_BATCH } from './constants'
 
 function warn(core: EngineCore, event: QuerySuggestionsWarningEvent): void {
   if (emitEngineEvent(core.eventHandlers, 'querySuggestionsWarning', event) > 0) return

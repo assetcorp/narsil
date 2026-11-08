@@ -1,6 +1,10 @@
-import { createDocIdMap, STORE_REMOVED_COUNT, STORE_UNPLACED_COUNT } from '#platform/vector-host'
+import {
+  createDocIdMap,
+  STORE_REMOVED_COUNT,
+  STORE_UNPLACED_COUNT,
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+} from '#platform/vector-host'
 import type { DocIdSet } from '../../core/doc-id-tables/types'
-import { UNPLACED_FLAG_CHUNK_ORDINALS } from '../constants'
 import type { GrowableBuffer } from '../shared-buffers/growable'
 import type { VectorStore } from '../vector-store'
 import type { SharedVectorStoreHandles } from '../vector-store/handles'

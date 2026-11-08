@@ -1,15 +1,17 @@
-import { targetOfPending } from '../../engine/analysis-change/pending-target'
 import type { EngineCore } from '../../engine/core'
 import { oneAtATime, withOpenIndex } from '../../engine/serial-index-update'
 import { emitSyncChange } from '../../engine/sync-notify'
+import { loadStorageCode } from '../../persistence/storage-code'
 import type { SynonymRule } from '../../types/synonyms'
 import { prepareSynonyms } from './prepare'
 
 async function replaceNow(core: EngineCore, indexName: string, value: unknown, strictWords: boolean): Promise<void> {
+  const storage = core.requireIndex(indexName).pendingAnalysis === null ? null : await loadStorageCode()
   const entry = core.requireIndex(indexName)
   const manager = core.requireManager(indexName)
   const prepared = prepareSynonyms(value, entry.config, entry.language, strictWords)
   if (entry.pendingAnalysis !== null) {
+    const { targetOfPending } = storage ?? (await loadStorageCode())
     const target = targetOfPending(entry, entry.pendingAnalysis)
     prepareSynonyms(value, target.config, target.language, strictWords)
   }

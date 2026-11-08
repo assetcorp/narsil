@@ -1,14 +1,16 @@
 import {
   alreadyPresentOnWorker,
   extractVectorFieldsFromSchema,
+  LOAD_BUFFER_YIELD_INTERVAL,
+  MAX_PENDING_REPLICATION_DOCUMENTS,
   prepareDocumentVectors,
+  REPLICATION_WINDOW,
   toError,
   yieldToEventLoop,
 } from '#platform/worker-copies-host'
 import type { AnyDocument } from '../../types/schema'
 import { executeRetained } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
-import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
 import { releasePublicationOf, retainPublicationOf } from './publication-code'
 import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 

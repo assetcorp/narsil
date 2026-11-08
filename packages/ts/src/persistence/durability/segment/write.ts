@@ -2,15 +2,11 @@ import {
   ErrorCodes,
   extractVectorFieldsFromSchema,
   getLanguage,
-  manifestKey,
-  manifestReferencedKeys,
   NarsilError,
   partialFieldsOf,
   reconstructSchemaFromMetadata,
   resolveIndexAnalysis,
   resolvePartitionInsertOptions,
-  segmentsPrefix,
-  snapshotBundleKey,
 } from '#platform/storage-host'
 import type { PartitionInsertOptions } from '../../../core/partition'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
@@ -27,8 +23,9 @@ import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
 import { type CapturedWholePartition, contentsOfCaptured, type PartitionContents } from './captured-partition'
 import { compactPartitionSegments } from './compaction'
+import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import type { PartitionManifestEntry, SegmentManifest, SegmentRef, VectorFieldRef } from './manifest'
-import { MAX_SEGMENTS_PER_PARTITION, SEGMENT_MANIFEST_VERSION } from './manifest'
+import { MAX_SEGMENTS_PER_PARTITION, manifestReferencedKeys, SEGMENT_MANIFEST_VERSION } from './manifest'
 import { encodeSegmentManifest } from './manifest-encode'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'

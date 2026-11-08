@@ -1,6 +1,9 @@
-import { MAX_HISTORY_FILE_BYTES, QUERY_HISTORY_ARCHIVE_PREFIX } from '../../query-suggestions/constants'
-import { MAX_FILE_BYTES } from '../../serialization/constants'
-import { HEADER_SIZE } from '../../serialization/header'
+import {
+  HEADER_SIZE,
+  MAX_FILE_BYTES,
+  MAX_HISTORY_FILE_BYTES,
+  QUERY_HISTORY_ARCHIVE_PREFIX,
+} from '#platform/storage-host'
 import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
 import { decodeManifestPayload, listedKeysOf, openManifestPayload } from '../durability/segment/manifest-decode'
 import type { ByteReader } from './byte-reader'

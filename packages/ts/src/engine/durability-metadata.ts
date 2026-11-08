@@ -1,12 +1,13 @@
 import {
   compareCodePoints,
+  DEFAULT_BM25_B,
+  DEFAULT_BM25_K1,
   DEFAULT_VECTOR_METRIC,
   defaultQuantizationFor,
   flattenSchema,
   rulesOfStoredSynonyms,
+  VERSION,
 } from '#platform/storage-host'
-import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
-import { VERSION } from '../index'
 import type {
   IndexEmbeddingMetadata,
   IndexMetadata,

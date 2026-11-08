@@ -5,6 +5,7 @@ import {
   filterForOptions,
   liveSize,
   NATIVE_OK,
+  NATIVE_THREAD_SCAN_CHUNK_ORDINALS,
   NarsilError,
   nativeMetricCode,
   nativeStoreFor,
@@ -18,7 +19,6 @@ import {
 import { createBoundedMaxHeap } from '../../core/heap'
 import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
-import { NATIVE_THREAD_SCAN_CHUNK_ORDINALS } from '../constants'
 import type { ThreadedNativeCore } from '../native/thread-slots'
 import type { OrdinalFilter } from '../ordinal-filter'
 import { scheduleBuild } from './build'

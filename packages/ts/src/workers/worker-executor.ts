@@ -1,10 +1,13 @@
-import { createRequestId, ErrorCodes, isValidWorkerResponse, NarsilError } from '#platform/worker-copies-host'
 import {
   CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
+  createRequestId,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  ErrorCodes,
+  isValidWorkerResponse,
+  NarsilError,
   SHUTDOWN_TIMEOUT_MS,
-} from './constants'
+} from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
 

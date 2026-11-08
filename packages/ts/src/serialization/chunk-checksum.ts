@@ -1,4 +1,4 @@
-import { CHECKSUM_YIELD_CHUNK_BYTES } from './constants'
+import { CHECKSUM_YIELD_CHUNK_BYTES } from '#platform/suggestion-store-host'
 import { crc32Final, crc32Init, crc32Update } from './crc32'
 
 function yieldToEventLoop(): Promise<void> {

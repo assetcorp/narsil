@@ -1,6 +1,9 @@
 import {
+  DEFAULT_COPY_IDLE_TIMEOUT_MS,
+  DEFAULT_COPY_THRESHOLD,
   ErrorCodes,
   NarsilError,
+  POOL_RESTART_DELAY_MS,
   resolveWorkerCount,
   splitWorkerBudget,
   workersEnabledByDefault,
@@ -24,7 +27,6 @@ import {
   releaseUnbroadcastSegments,
   scheduleIdleMerge,
 } from './compaction'
-import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import { publishToWorkers } from './publication-code'

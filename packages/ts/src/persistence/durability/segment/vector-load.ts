@@ -5,10 +5,10 @@ import {
   decodeVectorFilePayload,
   decodeVectorGraphPartPayload,
   ErrorCodes,
+  HEADER_SIZE,
   NarsilError,
   openChecksummedEnvelope,
 } from '#platform/storage-host'
-import { HEADER_SIZE } from '../../../serialization/header'
 import type { VectorIndex } from '../../../vector/vector-index'
 import type {
   VectorFilePayload,

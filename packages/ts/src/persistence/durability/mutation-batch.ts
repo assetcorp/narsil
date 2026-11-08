@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError, turnIsSpent, yieldTurn } from '#platform/storage-host'
-import { turnsAreBudgeted } from '#platform/turn-budget'
+import { ErrorCodes, NarsilError, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/storage-host'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import type { IndexState, PartitionState } from './manager-state'
 import type { MutationOutcome, MutationRecord } from './types'

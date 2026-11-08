@@ -3,6 +3,7 @@ import {
   decode,
   decodeStoredDocument,
   decodeVectorFilePayload,
+  EXPORT_CHUNK_BYTES,
   isDead,
   openChecksummedEnvelope,
 } from '#platform/storage-host'
@@ -15,7 +16,6 @@ import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
   type KeywordSegmentContents,
 } from '../../serialization/keyword-segment/types'
-import { EXPORT_CHUNK_BYTES } from '../constants'
 import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './import'
 import { encodeDocumentJson, encodeExactJson } from './json-line'
 import type { VectorReads } from './paged-lines'
