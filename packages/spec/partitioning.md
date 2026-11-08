@@ -87,7 +87,7 @@ An engine that holds its indexes in one process must refuse an insert or an upda
 - The engine judges only its own memory, so while it is full it refuses every insert and update to every index that it holds, and it accepts them again once both figures fall below the resume fraction.
 - The engine applies the bound on the memory that indexing can take, the rule for a batch that runs short of memory part of the way through, and the rule for a document that cannot fit even on an idle engine, as a cluster node does.
 - The engine leaves out the bound on the bytes of writes in progress, because the caller already holds those documents in the same process.
-- The engine must measure its memory before each group of a write whose latest measurement is more than one second old.
+- The engine must measure its memory before each group of a write whose latest measurement is more than 10 ms old, because within one second a run of writes can carry a small heap from the block fraction past its limit.
 - The engine must accept every remove, search, and document read, and every write that recovery replays, that a worker copy applies, or that a restore loads. A restore keeps its own check and refuses with `RESTORE_MEMORY_EXCEEDED`.
 - Where the runtime reports no process limit, the engine compares its heap alone, and where the runtime reports neither limit, the engine admits every write.
 - A cluster node applies the cluster's block alone, so a node refuses a write under one code.
