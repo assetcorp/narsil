@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define FNV_OFFSET UINT32_C(0x811c9dc5)
 enum { FNV_PRIME = 0x01000193U, BYTE_SHIFT = 8, BYTE_MASK = 255 };
@@ -47,15 +48,12 @@ static int equal_term(const narsil_term_table *table, uint32_t ordinal, const ui
   uint32_t start = table->term_offset[ordinal];
   uint32_t used = table->header[TERM_UNITS_USED];
   if (start > used || length > used - start) { return 0; }
-  for (size_t at = 0; at < length; at++) {
-    if (table->units[start + at] != units[at]) { return 0; }
-  }
-  return 1;
+  return length == 0 || memcmp(table->units + start, units, length * sizeof *units) == 0;
 }
 
-int64_t term_table_find(const narsil_term_table *table, const uint16_t *units, size_t length) {
+int64_t term_table_find_hashed(const narsil_term_table *table, uint32_t hash, const uint16_t *units, size_t length) {
   size_t mask = table->slot_count - 1;
-  size_t slot = term_hash(units, length) & mask;
+  size_t slot = hash & mask;
   for (size_t scanned = 0; scanned < table->slot_count; scanned++) {
     int32_t entry = table->slots[slot];
     if (entry == 0) { return -1; }
@@ -63,4 +61,8 @@ int64_t term_table_find(const narsil_term_table *table, const uint16_t *units, s
     slot = (slot + 1) & mask;
   }
   return -1;
+}
+
+int64_t term_table_find(const narsil_term_table *table, const uint16_t *units, size_t length) {
+  return term_table_find_hashed(table, term_hash(units, length), units, length);
 }

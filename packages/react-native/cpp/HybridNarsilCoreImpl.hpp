@@ -76,6 +76,8 @@ public:
   jsi::Value createStopWordSet(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
                                size_t count);
   jsi::Value analyse(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value analysePacked(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                           size_t count);
   jsi::Value transform(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value keywordScore(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
                           size_t count);

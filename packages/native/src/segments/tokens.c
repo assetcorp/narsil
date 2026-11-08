@@ -4,7 +4,6 @@
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_segments.h"
 #include "../analysis/text.h"
-#include "../terms/table.h"
 #include "strings.h"
 
 #include <stddef.h>
@@ -35,10 +34,11 @@ static narsil_status reserve_tokens(segment_token_plan *plan, size_t capacity) {
 
 static narsil_status prepare_count(segment_strings *strings, const narsil_surface_table *table, segment_string value,
                                    int removing) {
-  if (removing && term_table_find(&table->strings, value.text, value.length) < 0) { return NARSIL_OK; }
   segment_string *entry = NULL;
-  narsil_status status = segment_string_prepare(strings, &table->strings, value.text, value.length, &entry);
-  if (status != NARSIL_OK) { return status; }
+  narsil_status status =
+      removing ? segment_string_prepare_existing(strings, &table->strings, value.text, value.length, &entry)
+               : segment_string_prepare(strings, &table->strings, value.text, value.length, &entry);
+  if (status != NARSIL_OK || entry == NULL) { return status; }
   if (entry->count == 0) {
     entry->token = entry->added ? value.token : table->token[entry->ordinal];
     entry->points = value.points;
@@ -64,10 +64,11 @@ static uint32_t point_count(const uint16_t *text, size_t length) {
 static narsil_status prepare_token(segment_token_plan *plan, const narsil_growing_segment *segment,
                                    const narsil_field_tokens *field, const narsil_token *token, int removing) {
   const uint16_t *text = text_at(&field->tokens, token->term_offset);
-  if (removing && term_table_find(&segment->terms, text, token->term_length) < 0) { return NARSIL_OK; }
   segment_string *term = NULL;
-  narsil_status status = segment_string_prepare(&plan->terms, &segment->terms, text, token->term_length, &term);
-  if (status != NARSIL_OK) { return status; }
+  narsil_status status =
+      removing ? segment_string_prepare_existing(&plan->terms, &segment->terms, text, token->term_length, &term)
+               : segment_string_prepare(&plan->terms, &segment->terms, text, token->term_length, &term);
+  if (status != NARSIL_OK || term == NULL) { return status; }
   const uint16_t *spelling = text;
   size_t length = token->term_length;
   if (token->surface_offset != NARSIL_NO_SURFACE && token->surface_length > 0) {

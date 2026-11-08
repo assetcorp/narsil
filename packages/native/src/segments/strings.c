@@ -42,7 +42,7 @@ narsil_status segment_strings_reserve(segment_strings *strings, size_t capacity)
   if (strings->count > 0) { memcpy(entries, strings->entries, strings->count * sizeof *entries); }
   for (size_t index = 0; index < strings->count; index++) {
     const segment_string *entry = entries + index;
-    size_t slot = term_hash(entry->text, entry->length) & (slots - 1);
+    size_t slot = entry->hash & (slots - 1);
     while (table[slot] != 0) { slot = (slot + 1) & (slots - 1); }
     table[slot] = (uint32_t)index + 1;
   }
@@ -92,38 +92,54 @@ segment_string *segment_string_find(segment_strings *strings, const uint16_t *te
   return NULL;
 }
 
-narsil_status segment_string_prepare(segment_strings *strings, const narsil_term_table *table, const uint16_t *text,
-                                     size_t length, segment_string **entry) {
+static size_t probe_prepared(const segment_strings *strings, uint32_t hash, const uint16_t *text, size_t length,
+                             segment_string **held) {
+  size_t mask = strings->slot_capacity - 1;
+  size_t slot = hash & mask;
+  while (strings->slots[slot] != 0) {
+    segment_string *entry = strings->entries + strings->slots[slot] - 1;
+    if (entry->hash == hash && equal_text(entry, text, length)) {
+      *held = entry;
+      return slot;
+    }
+    slot = (slot + 1) & mask;
+  }
+  *held = NULL;
+  return slot;
+}
+
+static narsil_status prepare_string(segment_strings *strings, const narsil_term_table *table, int existing,
+                                    const uint16_t *text, size_t length, segment_string **entry) {
   if (length > UINT32_MAX || (length > 0 && text == NULL)) { return NARSIL_INVALID_ARGUMENT; }
   if (strings->slot_capacity == 0) {
     narsil_status status = segment_strings_reserve(strings, MIN_STRING_CAPACITY);
     if (status != NARSIL_OK) { return status; }
   }
-  size_t mask = strings->slot_capacity - 1;
-  size_t slot = term_hash(text, length) & mask;
-  while (strings->slots[slot] != 0) {
-    segment_string *held = strings->entries + strings->slots[slot] - 1;
-    if (equal_text(held, text, length)) {
-      *entry = held;
-      return NARSIL_OK;
-    }
-    slot = (slot + 1) & mask;
+  uint32_t hash = term_hash(text, length);
+  segment_string *held = NULL;
+  size_t slot = probe_prepared(strings, hash, text, length, &held);
+  if (held != NULL) {
+    *entry = held;
+    return NARSIL_OK;
+  }
+  int64_t found = table == NULL ? -1 : term_table_find_hashed(table, hash, text, length);
+  if (existing && found < 0) {
+    *entry = NULL;
+    return NARSIL_OK;
   }
   if (strings->count == strings->capacity) {
     narsil_status status = segment_strings_reserve(strings, strings->count + 1);
     if (status != NARSIL_OK) { return status; }
-    mask = strings->slot_capacity - 1;
-    slot = term_hash(text, length) & mask;
-    while (strings->slots[slot] != 0) { slot = (slot + 1) & mask; }
+    slot = probe_prepared(strings, hash, text, length, &held);
   }
-  int64_t found = table == NULL ? -1 : term_table_find(table, text, length);
   size_t stored = table == NULL ? 0 : table->header[TERM_COUNT];
   size_t ordinal = found < 0 ? stored + strings->added : (size_t)found;
   if (table != NULL && (ordinal >= INT32_MAX || (found < 0 && length > UINT32_MAX - strings->units))) {
     return NARSIL_NEEDS_ROOM;
   }
   segment_string *prepared = strings->entries + strings->count;
-  *prepared = (segment_string){.text = text, .length = length, .ordinal = (uint32_t)ordinal, .added = found < 0};
+  *prepared =
+      (segment_string){.text = text, .length = length, .ordinal = (uint32_t)ordinal, .added = found < 0, .hash = hash};
   strings->slots[slot] = (uint32_t)++strings->count;
   if (found < 0) {
     strings->added++;
@@ -131,6 +147,16 @@ narsil_status segment_string_prepare(segment_strings *strings, const narsil_term
   }
   *entry = prepared;
   return NARSIL_OK;
+}
+
+narsil_status segment_string_prepare(segment_strings *strings, const narsil_term_table *table, const uint16_t *text,
+                                     size_t length, segment_string **entry) {
+  return prepare_string(strings, table, 0, text, length, entry);
+}
+
+narsil_status segment_string_prepare_existing(segment_strings *strings, const narsil_term_table *table,
+                                              const uint16_t *text, size_t length, segment_string **entry) {
+  return prepare_string(strings, table, 1, text, length, entry);
 }
 
 static size_t placement_slot(const segment_strings *strings, size_t slot) {
@@ -144,7 +170,7 @@ static size_t placement_slot(const segment_strings *strings, size_t slot) {
 static narsil_status place_string(segment_strings *strings, const narsil_term_table *table, size_t index) {
   segment_string *entry = strings->entries + index;
   size_t mask = table->slot_count - 1;
-  size_t slot = term_hash(entry->text, entry->length) & mask;
+  size_t slot = entry->hash & mask;
   size_t chosen = SIZE_MAX;
   for (size_t scanned = 0; scanned < table->slot_count; scanned++) {
     size_t placed = placement_slot(strings, slot);
@@ -211,7 +237,7 @@ narsil_status segment_string_add_count(segment_string *entry, uint32_t current, 
 
 void segment_string_remove(narsil_term_table *table, const segment_string *entry) {
   size_t mask = table->slot_count - 1;
-  size_t slot = term_hash(entry->text, entry->length) & mask;
+  size_t slot = entry->hash & mask;
   for (size_t scanned = 0; scanned < table->slot_count; scanned++) {
     int32_t held = table->slots[slot];
     if (held == 0) { return; }
