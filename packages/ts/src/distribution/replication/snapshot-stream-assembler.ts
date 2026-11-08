@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type {
   ReplicationSnapshotHeader,
   SnapshotChunkPayload,

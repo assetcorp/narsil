@@ -93,29 +93,31 @@ export async function applyLocalReplicationEntries(
     const vecIndexes = manager.getVectorIndexes()
     const removedSpellings: RemovedSpellings[] = []
     let stopped: unknown = null
-    const applyAt = (position: number): void => {
-      if (stopped !== null) throw stopped
-      const entry = entries[position]
-      try {
-        if (entry.operation === 'INDEX') {
-          applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
-        } else {
-          removedSpellings[position] = manager.removedSpellingsOf(entry.documentId)
-          applyDeleteEntry(entry, manager, vecIndexes, removedSpellings[position])
+    const applyAt = (position: number): Promise<void> =>
+      manager.publication.write(() => {
+        if (stopped !== null) throw stopped
+        const entry = entries[position]
+        try {
+          if (entry.operation === 'INDEX') {
+            applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes, false)
+          } else {
+            removedSpellings[position] = manager.removedSpellingsOf(entry.documentId)
+            applyDeleteEntry(entry, manager, vecIndexes, removedSpellings[position])
+          }
+          writeRecords.applied(entry)
+          replicateEntryToWorkers(core, manager, entry, removedSpellings[position])
+        } catch (err) {
+          stopped = err
+          throw err
         }
-        writeRecords.applied(entry)
-      } catch (err) {
-        stopped = err
-        throw err
-      }
-    }
+      })
 
     let applied = 0
     let error: unknown = null
     const durable = core.durability?.manager
     if (durable === undefined) {
       try {
-        for (; applied < entries.length; applied++) applyAt(applied)
+        for (; applied < entries.length; applied++) await applyAt(applied)
       } catch (err) {
         error = err
       }
@@ -140,8 +142,8 @@ export async function applyLocalReplicationEntries(
       }
     }
 
-    for (let position = 0; position < applied; position++) {
-      await replicateEntryToWorkers(core, manager, entries[position], removedSpellings[position])
+    if (applied > 0) {
+      for (const vector of vecIndexes.values()) vector.scheduleBuild()
     }
     return { applied, error }
   } finally {
@@ -149,17 +151,17 @@ export async function applyLocalReplicationEntries(
   }
 }
 
-async function replicateEntryToWorkers(
+function replicateEntryToWorkers(
   core: EngineCore,
   manager: PartitionManager,
   entry: ReplicationLogEntry,
   removedSpellings: RemovedSpellings,
-): Promise<void> {
+): void {
   if (entry.operation === 'INDEX') {
     const appliedDocument = manager.getRef(entry.documentId)
     if (appliedDocument === undefined) return
-    await core.orchestrator.replicateToWorkers({
-      type: 'insert',
+    core.orchestrator.publishToWorkers({
+      type: 'update',
       indexName: entry.indexName,
       docId: entry.documentId,
       document: appliedDocument,
@@ -167,7 +169,7 @@ async function replicateEntryToWorkers(
     })
     return
   }
-  await core.orchestrator.replicateToWorkers({
+  core.orchestrator.publishToWorkers({
     type: 'remove',
     indexName: entry.indexName,
     docId: entry.documentId,

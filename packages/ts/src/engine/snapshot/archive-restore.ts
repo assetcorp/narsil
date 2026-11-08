@@ -11,7 +11,7 @@ import type { SegmentManifest } from '../../persistence/durability/segment/manif
 import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
 import { flattenSchema } from '../../schema/validator'
-import { decodeIndexConfiguration } from './index-configuration'
+import { decodeIndexConfiguration } from './index-configuration-decode'
 import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
 import {

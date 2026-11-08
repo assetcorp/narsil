@@ -1,3 +1,4 @@
+import { pinnedOrder } from '../../search/pinned-order'
 import { dedupePinnedEntries } from '../../search/pinning'
 import type { ScoredEntry, WirePinnedEntry } from '../transport/types'
 
@@ -43,27 +44,27 @@ export function placePinnedEntries(
   pinned: WirePinnedEntry[],
   depth: number,
   allMatchesPresent: boolean,
+  stored?: ReadonlySet<string>,
 ): { entries: ScoredEntry[]; placedFromOutside: string[] } {
-  const deduped = dedupePinnedEntries(pinned)
-  const pinnedIds = new Set(deduped.map(entry => entry.docId))
-  const removed = new Map<string, ScoredEntry>()
-  const result: ScoredEntry[] = []
-  for (const entry of merged) {
-    if (pinnedIds.has(entry.docId)) {
-      removed.set(entry.docId, entry)
-    } else {
-      result.push(entry)
-    }
-  }
-
-  const ordered = deduped.sort((a, b) => a.position - b.position)
+  const deduped = dedupePinnedEntries(stored === undefined ? pinned : pinned.filter(entry => stored.has(entry.docId)))
+  const { order, ranked } = pinnedOrder(
+    merged.map(entry => entry.docId),
+    deduped,
+    allMatchesPresent ? null : depth,
+  )
+  const result = new Array<ScoredEntry>(order.length)
   const placedFromOutside: string[] = []
-  for (const entry of ordered) {
-    if (!allMatchesPresent && entry.position >= depth) continue
-    const organic = removed.get(entry.docId)
+  for (let at = 0; at < order.length; at++) {
+    const source = order[at]
+    if (source >= 0) {
+      result[at] = merged[source]
+      continue
+    }
+    const pin = -1 - source
+    const entry = deduped[pin]
+    const organic = ranked[pin] < 0 ? undefined : merged[ranked[pin]]
     if (organic === undefined) placedFromOutside.push(entry.docId)
-    const placed: ScoredEntry = { docId: entry.docId, score: 0, sortValues: organic?.sortValues ?? null }
-    result.splice(Math.max(0, Math.min(entry.position, result.length)), 0, placed)
+    result[at] = { docId: entry.docId, score: 0, sortValues: organic?.sortValues ?? null }
   }
   return { entries: result, placedFromOutside }
 }

@@ -1,10 +1,10 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { deserializePartition } from '../../core/partition/serialization'
 import { namedSettingsOf } from '../../engine/analysis-change/settings'
 import { arrayPositionsAreStale, storedArrayPositionGap } from '../../engine/array-positions'
 import type { EngineCore } from '../../engine/core'
 import { indexMetadataOf } from '../../engine/durability-metadata'
-import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
+import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration-encode'
 import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
@@ -21,12 +21,14 @@ import type { SegmentManifest } from '../../persistence/durability/segment/manif
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
 import { directoryCheckpointStore, readListedFile } from '../../persistence/durability/segment/store'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
+import { decode } from '../../serialization/msgpack'
 import type { ByteSource } from '../../types/byte-source'
 import type { IndexConfig } from '../../types/schema'
 import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { MAX_PARTITION_COUNT } from '../constants'
+import { publishPartitionCopy } from './partition-publication'
 import { ensureReplicationIndex, flattenSchema, requireSameFlatSchema } from './replication-index'
 import type { ClusterWriteRecords } from './write-records/keeper'
 
@@ -147,6 +149,7 @@ async function receiveArchive(
   let arrayPositionGap: number | null = null
   let received: SegmentManifest | null = null
   await readSnapshotArchive(createByteReader(source), {
+    partitionId,
     config: async bytes => {
       const { payload } = await openChecksummedEnvelope(bytes, {
         envelopeFormatVersion: 5,
@@ -227,7 +230,7 @@ async function replacePartition(
   for (const vectorIndex of vectorIndexes.values()) {
     for (const docId of held) if (vectorIndex.has(docId)) vectorIndex.remove(docId)
   }
-  manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId))
+  manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId), deserializePartition)
   writeRecords.resetPartition(manager.indexName, partitionId)
   const entry = archive.manifest.partitions[0]
   if (entry !== undefined) {
@@ -260,7 +263,6 @@ async function replacePartition(
         vectorIndex.insert(decoded.docIds[i], vector, partitionId)
       }
     }
-    vectorIndex.scheduleBuild()
   }
 }
 
@@ -325,7 +327,9 @@ export async function restoreReplicationPartition(
     }
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)
     try {
-      await replacePartition(core.requireManager(indexName), partitionId, archive, writeRecords)
+      await publishPartitionCopy(core, indexName, partitionId, writeRecords, (manager, stagedRecords) =>
+        replacePartition(manager, partitionId, archive, stagedRecords),
+      )
       recordReceivedAnalysis(core, indexName, archive.analysisRevision, archive.arrayPositionGap)
       if (directory !== null) {
         const durable = core.durability?.manager

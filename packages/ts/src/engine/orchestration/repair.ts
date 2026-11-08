@@ -1,7 +1,7 @@
 import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
 import { createRequestId, type WorkerAction } from '../../workers/protocol'
-import { loadIndexOntoWorkers } from '../worker-resync'
 import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
+import { trackPublicationStores } from './publication-stores'
 import { enqueueReplication, markCopiesLoaded } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
@@ -79,10 +79,11 @@ async function loadOntoReplacement(
   state.copyLoadBuffers.set(indexName, buffered)
   let copyLoad: string
   try {
+    const { loadIndexOntoWorkers } = await import('../worker-resync')
     copyLoad = await loadIndexOntoWorkers(
       indexName,
       [replacement.executor],
-      entry,
+      { ...entry, onPublication: publication => trackPublicationStores(state, publication) },
       manager,
       undefined,
       state.callbacks?.isAnalysisStale?.(indexName),

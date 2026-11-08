@@ -157,7 +157,8 @@ async function replaceExisting(
       await withinLimit(indexName, release, holdVectorCopies(vectorIndexes, release), deps)
       for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
       await commitToStorage(indexName, restored, previous?.partitionCount ?? 0, deps)
-      activate(indexName, restored, entry, deps)
+      if (previous === undefined) activate(indexName, restored, entry, deps)
+      else await previous.publication.write(() => activate(indexName, restored, entry, deps))
       await deps.querySuggestions?.afterActivate(entry)
     })
   } finally {

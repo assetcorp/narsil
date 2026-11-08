@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../../../errors'
+import { decode } from '../../../../../serialization/msgpack'
 import { MAX_PARTITION_COUNT } from '../../../../constants'
 import type { ClusterCoordinator } from '../../../../coordinator/types'
 import { isRecord, isValidInteger } from '../../../../payload-guards'

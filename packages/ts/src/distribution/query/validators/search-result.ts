@@ -33,8 +33,8 @@ function validateScoredEntry(value: unknown, fieldLabel: string): void {
         `Invalid SearchResultPayload: "${fieldLabel}.score" is absent only where "sortValues" carries the sort key`,
       )
     }
-  } else if (!isFiniteNumber(value.score)) {
-    throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.score" must be a finite number`)
+  } else if (typeof value.score !== 'number') {
+    throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.score" must be a number`)
   }
   if (value.sortValues !== null && value.sortValues !== undefined) {
     if (!Array.isArray(value.sortValues)) {

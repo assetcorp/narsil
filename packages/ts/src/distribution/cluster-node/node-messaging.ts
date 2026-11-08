@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type { AnyDocument } from '../../types/schema'
 import { targetsOfRegisteredNode } from '../cluster/node-targets'
 import type { AllocationTable } from '../coordinator/types'

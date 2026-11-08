@@ -1,7 +1,7 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
+import { decode } from '../../../serialization/msgpack'
 import type { VectorIndex } from '../../../vector/vector-index'
 import {
   assembleGraphParts,

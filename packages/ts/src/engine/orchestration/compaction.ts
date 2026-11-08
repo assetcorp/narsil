@@ -1,6 +1,7 @@
 import { type CompositePartition, isCompositePartition } from '../../core/partition/composite'
-import { createSharedFrozenSegment, type SharedSegmentSnapshot } from '../../core/partition/frozen'
-import { mergeFrozenSegments } from '../../core/partition/frozen/merge'
+import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
+import { mergeFrozenSegmentOutputs } from '../../core/partition/frozen/merge-split'
+import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
@@ -11,7 +12,8 @@ import {
   SEGMENTS_PER_MERGE,
 } from './constants'
 import { freezeLiveTail } from './live-tail'
-import { awaitReplicationIdle, replicateToWorkers } from './replication'
+import { publishToWorkers } from './publication-code'
+import { awaitReplicationIdle } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
 
 export type CompactionPolicy = 'ingest' | 'idle'
@@ -92,13 +94,13 @@ async function compactOnWorker(
   indexName: string,
   partitionId: number,
   segmentIds: readonly string[],
-): Promise<SharedSegmentSnapshot | null> {
+): Promise<SharedSegmentSnapshot[] | null> {
   const pool = state.workerPool
   if (pool === null || !state.scaledOutIndexes.has(indexName)) return null
   const lease = pool.leaseLeastBusy(indexName)
   if (lease === null) return null
   try {
-    return await lease.executor.execute<SharedSegmentSnapshot | null>({
+    return await lease.executor.execute<SharedSegmentSnapshot[] | null>({
       type: 'compactSegments',
       indexName,
       partitionId,
@@ -142,33 +144,38 @@ async function compactPartitionSegments(
 
   const composite = mainCompositeOf(manager, partitionId)
   const mainCanMerge = composite !== null && mainHoldsAll(composite, segmentIds)
-  let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
-  if (snapshot === null && mainCanMerge && composite !== null) {
-    snapshot = mergeFrozenSegments(
+  let snapshots = await compactOnWorker(state, indexName, partitionId, segmentIds)
+  if (snapshots === null && mainCanMerge && composite !== null) {
+    snapshots = mergeFrozenSegmentOutputs(
       composite.frozenSegmentsById(segmentIds),
       manager.partialWordAnalysis,
       manager.textAnalysis,
     )
   }
-  if (snapshot === null) {
+  if (snapshots === null) {
     if (!mainCanMerge) forgetLedgerSegments(state, indexName, partitionId, segmentIds)
     return false
   }
 
-  const removedSpellings =
-    mainCanMerge && composite !== null
-      ? composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
-      : undefined
-  await replicateToWorkers(state, {
-    type: 'swapSegments',
-    indexName,
-    partitionId,
-    dropSegmentIds: [...segmentIds],
-    snapshot,
-    removedSpellings,
-    requestId: createRequestId(),
+  const replacement = snapshots.map(snapshot => createSharedFrozenSegment(snapshot))
+  const publication = await manager.publication.write(() => {
+    if (state.executor.getManager(indexName) !== manager) return null
+    const current = mainCompositeOf(manager, partitionId)
+    if (mainCanMerge && (current !== composite || !mainHoldsAll(current, segmentIds))) return null
+    const removedSpellings = mainCanMerge ? manager.swapFrozenSegments(partitionId, segmentIds, replacement) : undefined
+    publishToWorkers(state, {
+      type: 'swapSegments',
+      indexName,
+      partitionId,
+      dropSegmentIds: [...segmentIds],
+      snapshots,
+      removedSpellings,
+      requestId: createRequestId(),
+    })
+    return true
   })
-  return true
+  if (publication === null) return false
+  return snapshots.length < segmentIds.length
 }
 
 async function compactIndexSegments(
@@ -186,7 +193,7 @@ async function compactIndexSegments(
   for (const partitionId of partitionIds) {
     if (policy === 'idle') {
       await awaitReplicationIdle(state, indexName)
-      freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
+      await freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
     }
     let picks = candidateSegmentIds(state, indexName, manager, partitionId, policy)
     while (picks !== null) {

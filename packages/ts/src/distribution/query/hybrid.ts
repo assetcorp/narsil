@@ -225,7 +225,7 @@ export async function executeHybridQuery(
   const pins = fixedDepth === undefined || params.searchAfter === null ? params.pinned : null
   const placement =
     pins !== null
-      ? placePinnedEntries(fused, pins, depth, allMatchesPresent)
+      ? placePinnedEntries(fused, pins, depth, allMatchesPresent, deps.pinnedDocuments)
       : { entries: fused, placedFromOutside: [] }
   const paged =
     fixedDepth === undefined

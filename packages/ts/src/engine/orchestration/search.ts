@@ -5,13 +5,16 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { mergeFacets, oversampledFacetConfig } from '../../search/facets'
+import { returnsEveryMatch } from '../../search/fulltext'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
-import type { BM25Params } from '../../types/schema'
+import type { AnyDocument, BM25Params } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
+import { copyGenerationOf } from '../../workers/copy-generation'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
-import { createRequestId } from '../../workers/protocol'
+import { createRequestId, type WorkerHitReads } from '../../workers/protocol'
 import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from './constants'
+import { awaitReplicationIdle } from './replication'
 import { afterCurrentTurn } from './turn'
 import type { OrchestratorState } from './types'
 
@@ -21,6 +24,16 @@ function partitionsPerLease(scope: number[], leaseCount: number): number[][] {
     assignments[at % leaseCount].push(scope[at])
   }
   return assignments
+}
+
+function mergedDocuments(results: readonly FanOutResult[]): Map<string, AnyDocument> | undefined {
+  let documents: Map<string, AnyDocument> | undefined
+  for (const result of results) {
+    if (result.documents === undefined) continue
+    documents ??= new Map()
+    for (const [docId, document] of result.documents) documents.set(docId, document)
+  }
+  return documents
 }
 
 function mergeWorkerResults(results: FanOutResult[], facetConfig: FacetConfig | undefined): FanOutResult {
@@ -33,12 +46,19 @@ function mergeWorkerResults(results: FanOutResult[], facetConfig: FacetConfig | 
     patternWorkSpent += result.patternWorkSpent ?? 0
     if (result.facets !== undefined) workerFacets.push(result.facets)
   }
+  const documents = mergedDocuments(results)
   return {
     scored: merged,
     totalMatched,
     facets: facetConfig !== undefined && workerFacets.length > 0 ? mergeFacets(workerFacets, facetConfig) : undefined,
     patternWorkSpent,
+    ...(documents !== undefined ? { documents } : {}),
   }
+}
+
+function splitReadsOf(params: QueryParams, reads: WorkerHitReads | undefined): WorkerHitReads | undefined | null {
+  if (reads === undefined || reads.kind === 'documents') return reads
+  return returnsEveryMatch(params) ? null : { kind: 'documents' }
 }
 
 function scoresPerPartition(
@@ -59,16 +79,23 @@ function queryAction(
   partitionIds: number[] | undefined,
   patternWork: SharedPatternWork,
   bm25: BM25Params | undefined,
+  reads: WorkerHitReads | undefined,
+  readGeneration: number,
 ) {
+  const workerParams =
+    params.group?.reduce === undefined ? params : { ...params, group: { ...params.group, reduce: undefined } }
+  const workerReads: WorkerHitReads | undefined = params.group?.reduce === undefined ? reads : { kind: 'documents' }
   return {
     type: 'query' as const,
+    readGeneration,
     indexName,
-    params,
+    params: workerParams,
     requestId: createRequestId(),
     patternWork,
     bm25: bm25 ?? null,
     ...(partitionIds !== undefined ? { partitionIds } : {}),
     ...(globalStats !== undefined ? { globalStats } : {}),
+    ...(workerReads !== undefined ? { reads: workerReads } : {}),
   }
 }
 
@@ -80,6 +107,8 @@ async function runSplit(
   globalStats: GlobalStatistics | undefined,
   patternWork: SharedPatternWork,
   bm25: BM25Params | undefined,
+  reads: WorkerHitReads | undefined,
+  readGeneration: number,
 ): Promise<FanOutResult> {
   const assignments = partitionsPerLease(scope, leases.length)
   const workerParams =
@@ -87,7 +116,9 @@ async function runSplit(
   const outcomes = await Promise.allSettled(
     assignments.map((partitionIds, at) =>
       leases[at].executor
-        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds, patternWork, bm25))
+        .execute<FanOutResult>(
+          queryAction(indexName, workerParams, globalStats, partitionIds, patternWork, bm25, reads, readGeneration),
+        )
         .finally(() => leases[at].release()),
     ),
   )
@@ -97,12 +128,13 @@ async function runSplit(
     if (outcome.status === 'fulfilled') results.push(outcome.value)
     else failures.push(outcome.reason)
   }
-  if (failures.length > 0) throw failures.find(isWorkCapError) ?? failures[0]
+  if (failures.length > 0) throw failures.find(failsTheSearch) ?? failures[0]
   return mergeWorkerResults(results, params.facets)
 }
 
-function isWorkCapError(err: unknown): boolean {
-  return err instanceof NarsilError && err.code === ErrorCodes.SEARCH_WORK_CAP_EXCEEDED
+function failsTheSearch(err: unknown): boolean {
+  if (!(err instanceof NarsilError)) return false
+  return err.code === ErrorCodes.SEARCH_WORK_CAP_EXCEEDED || err.code === ErrorCodes.SEARCH_STATE_MOVED
 }
 
 function patternSplitWidth(state: OrchestratorState, indexName: string, params: QueryParams): number {
@@ -137,6 +169,7 @@ export async function searchViaWorker(
   partitionIds: number[] | undefined,
   patternWork: SearchPatternWork,
   bm25: BM25Params | undefined,
+  reads?: WorkerHitReads,
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
@@ -146,16 +179,29 @@ export async function searchViaWorker(
   if (!manager) return null
 
   if (answersFasterOnMainCopy(state, pool, manager)) return null
+  const readGeneration = copyGenerationOf(manager)
+  await awaitReplicationIdle(state, indexName)
 
   const scope = partitionIds ?? Array.from({ length: manager.partitionCount }, (_, partitionId) => partitionId)
   const idle = pool.leaseIdle(Math.min(scope.length, patternSplitWidth(state, indexName, params)))
   const leases: WorkerLease[] = []
   let fork: PatternWorkFork | null = null
+  const splitReads = splitReadsOf(params, reads)
   try {
-    if (idle.length >= 2 && scoresPerPartition(state, indexName, params, globalStats)) {
+    if (idle.length >= 2 && splitReads !== null && scoresPerPartition(state, indexName, params, globalStats)) {
       leases.push(...idle)
       fork = patternWork.fork(leases.length)
-      const merged = await runSplit(leases, scope, indexName, params, globalStats, fork.shared, bm25)
+      const merged = await runSplit(
+        leases,
+        scope,
+        indexName,
+        params,
+        globalStats,
+        fork.shared,
+        bm25,
+        splitReads,
+        readGeneration,
+      )
       fork.settle(merged.patternWorkSpent ?? 0)
       return merged
     }
@@ -165,12 +211,12 @@ export async function searchViaWorker(
     leases.push(lease)
     fork = patternWork.fork(1)
     const result = await lease.executor.execute<FanOutResult>(
-      queryAction(indexName, params, globalStats, partitionIds, fork.shared, bm25),
+      queryAction(indexName, params, globalStats, partitionIds, fork.shared, bm25, reads, readGeneration),
     )
     fork.settle(result.patternWorkSpent ?? 0)
     return result
   } catch (err) {
-    if (isWorkCapError(err)) throw err
+    if (failsTheSearch(err)) throw err
     fork?.settle(0)
     console.warn('Worker search failed, falling back to local:', err)
     return null

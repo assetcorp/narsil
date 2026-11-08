@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../../serialization/msgpack'
 import { createPartitionStoresResultMessage, validatePartitionStoresPayload } from '../../cluster/partition-stores'
 import type { PartitionStoresResultPayload, RespondFn, TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'

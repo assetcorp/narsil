@@ -1,3 +1,4 @@
+import { deserializePartition } from '../../core/partition/serialization'
 import type { EngineCore } from '../../engine/core'
 import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -12,6 +13,7 @@ import { type CheckpointStore, directoryCheckpointStore } from '../../persistenc
 import { readVectorFile } from '../../persistence/durability/segment/vector-load'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
+import { publishPartitionCopy } from './partition-publication'
 import type { ClusterWriteRecords } from './write-records/keeper'
 
 function clearPartition(manager: PartitionManager, partitionId: number): void {
@@ -19,7 +21,7 @@ function clearPartition(manager: PartitionManager, partitionId: number): void {
   for (const vectorIndex of manager.getVectorIndexes().values()) {
     for (const docId of held) if (vectorIndex.has(docId)) vectorIndex.remove(docId)
   }
-  manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId))
+  manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId), deserializePartition)
 }
 
 async function withPartitionHeld(core: EngineCore, indexName: string, work: () => Promise<void>): Promise<void> {
@@ -44,8 +46,11 @@ export async function emptyPartitionCopy(
 ): Promise<void> {
   if (!core.indexRegistry.has(indexName)) return
   await withPartitionHeld(core, indexName, async () => {
-    clearPartition(core.requireManager(indexName), partitionId)
-    writeRecords.resetPartition(indexName, partitionId)
+    const manager = core.requireManager(indexName)
+    await manager.publication.write(() => {
+      clearPartition(manager, partitionId)
+      writeRecords.resetPartition(indexName, partitionId)
+    })
   })
   const durable = core.durability?.manager
   if (durable !== undefined) await restartPartitionLog(durable, indexName, partitionId, { seqNo: 0, primaryTerm: 0 })
@@ -73,7 +78,6 @@ async function loadPartitionVectors(
         )
       }
     }
-    vectorIndex.scheduleBuild()
   }
 }
 
@@ -93,51 +97,50 @@ export async function reloadPartitionCopy(
     )
   }
   await withPartitionHeld(core, indexName, async () => {
-    const manager = core.requireManager(indexName)
-    clearPartition(manager, partitionId)
-    writeRecords.resetPartition(indexName, partitionId)
-    const store = directoryCheckpointStore(registry.directory)
-    const decoded = await readSegmentManifest(store, indexName)
-    if (decoded !== null && decoded.kind !== 'current') {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Index "${indexName}" holds the checkpoint layout of an earlier release, so partition ${partitionId} cannot reload alone`,
-        { indexName, partitionId },
-      )
-    }
-    const manifest = decoded?.manifest ?? null
-    const listed = manifest?.partitions.find(entry => entry.partitionId === partitionId)
-    if (manifest !== null && listed !== undefined) {
-      await loadPartitionSegments(store, listed, manager, {
-        schema: manifest.schema,
-        decodesEveryDocument: true,
-        writeRecords,
-      })
-      await loadPartitionVectors(store, manifest, manager, partitionId)
-    }
-    const checkpoint = manifest?.checkpoint ?? []
-    writeRecords.loadTermHistory(
-      indexName,
-      partitionId,
-      checkpoint.find(entry => entry.partitionId === partitionId),
-    )
-    await reopenPartitionLogAfterReplay(durable, indexName, partitionId, async () => {
-      const replayed = await replaySyncedWal(
-        registry.directory,
+    await publishPartitionCopy(core, indexName, partitionId, writeRecords, async (manager, writeRecords) => {
+      const store = directoryCheckpointStore(registry.directory)
+      const decoded = await readSegmentManifest(store, indexName)
+      if (decoded !== null && decoded.kind !== 'current') {
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_LOAD_FAILED,
+          `Index "${indexName}" holds the checkpoint layout of an earlier release, so partition ${partitionId} cannot reload alone`,
+          { indexName, partitionId },
+        )
+      }
+      const manifest = decoded?.manifest ?? null
+      const listed = manifest?.partitions.find(entry => entry.partitionId === partitionId)
+      if (manifest !== null && listed !== undefined) {
+        await loadPartitionSegments(store, listed, manager, {
+          schema: manifest.schema,
+          decodesEveryDocument: true,
+          writeRecords,
+        })
+        await loadPartitionVectors(store, manifest, manager, partitionId)
+      }
+      const checkpoint = manifest?.checkpoint ?? []
+      writeRecords.loadTermHistory(
         indexName,
         partitionId,
-        checkpointLastSeqNo(checkpoint, partitionId),
-        {
-          manager,
-          vectorFieldPaths: core.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
-          vectorIndexes: manager.getVectorIndexes(),
-          writeRecords,
-        },
+        checkpoint.find(entry => entry.partitionId === partitionId),
       )
-      return {
-        seqNo: replayed.highestSeqNo,
-        primaryTerm: Math.max(checkpointPrimaryTerm(checkpoint, partitionId), replayed.highestPrimaryTerm),
-      }
+      await reopenPartitionLogAfterReplay(durable, indexName, partitionId, async () => {
+        const replayed = await replaySyncedWal(
+          registry.directory,
+          indexName,
+          partitionId,
+          checkpointLastSeqNo(checkpoint, partitionId),
+          {
+            manager,
+            vectorFieldPaths: core.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
+            vectorIndexes: manager.getVectorIndexes(),
+            writeRecords,
+          },
+        )
+        return {
+          seqNo: replayed.highestSeqNo,
+          primaryTerm: Math.max(checkpointPrimaryTerm(checkpoint, partitionId), replayed.highestPrimaryTerm),
+        }
+      })
     })
   })
 }

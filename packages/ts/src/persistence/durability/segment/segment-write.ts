@@ -4,6 +4,7 @@ import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
+import { SegmentRefusal } from '../../../core/segment-writes/status'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
 import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
@@ -195,11 +196,29 @@ function pagedGroupsOf(request: SegmentWriteRequest): SegmentFileGroup[] {
 async function writeGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
   const { request } = state
   if (request.paged === true) {
-    await writePagedGroup(state, group)
+    try {
+      await writePagedGroup(state, group)
+    } catch (error) {
+      if (!(error instanceof SegmentRefusal) || error.status !== 8 || group === null || group.documentCount < 2)
+        throw error
+      const [first, second] = halvesOf(group)
+      await writeGroup(state, first)
+      await writeGroup(state, second)
+    }
     return
   }
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
-  const contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
+  let contents: KeywordSegmentContents
+  try {
+    contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
+  } catch (error) {
+    if (!(error instanceof SegmentRefusal) || error.status !== 8 || group === null || group.documentCount < 2)
+      throw error
+    const [first, second] = halvesOf(group)
+    await writeGroup(state, first)
+    await writeGroup(state, second)
+    return
+  }
   const encoded = encodeKeywordSegment(contents)
   if (HEADER_SIZE + encoded.byteLength > MAX_FILE_BYTES && group !== null && group.documentCount > 1) {
     const [first, second] = halvesOf(group)
@@ -244,6 +263,10 @@ export async function writeSegmentsOf(request: SegmentWriteRequest): Promise<Seg
         : splitIntoSegmentFiles(request.selections, request.schema, request.tombstones)
   for (const group of groups) {
     if (group.documentCount > 0) await writeGroup(state, group)
+    else if (request.paged === true) {
+      const { checkPagedSelections } = await import('../../paged/check-contents')
+      await checkPagedSelections(group.selections)
+    }
   }
   if (!state.tombstonesWritten && request.tombstones.length > 0) await writeGroup(state, null)
   return { segments: state.segments, nextSegmentId: state.nextSegmentId }

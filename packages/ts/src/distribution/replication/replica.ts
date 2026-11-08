@@ -1,9 +1,9 @@
-import { decode } from '@msgpack/msgpack'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { getNestedValue } from '../../core/partition/utils'
 import { insertDocumentVectors, prepareDocumentVectors, removeDocumentVectors } from '../../engine/vector-coordinator'
 import { ErrorCodes } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
+import { decode } from '../../serialization/msgpack'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { EntryValidation, ReplicationLog, ReplicationLogEntry } from './types'
 

@@ -7,6 +7,8 @@ import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
 
+export { createInvalidationFromConfig } from './invalidation'
+
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
   indexRegistry: Map<string, IndexRegistryEntry>

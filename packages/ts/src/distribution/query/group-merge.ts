@@ -1,6 +1,24 @@
+import { mergeGroups } from '#platform/group-merge'
 import { compareCodePoints, type SortDirection } from '../../core/ordering'
-import type { SortField, WireGroupEntry, WireQueryParams } from '../transport/types'
-import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries } from './merge'
+import { compareSortValues } from '../../core/ordering/sort-comparison'
+import { ErrorCodes, NarsilError } from '../../errors'
+import type { ScoredEntry, SortField, WireGroupEntry, WireQueryParams } from '../transport/types'
+import { groupIdentities } from './group-identities'
+
+function entryRanks(
+  entries: readonly ScoredEntry[],
+  compare: (left: ScoredEntry, right: ScoredEntry) => number,
+): Uint32Array {
+  const order = Uint32Array.from(entries, (_, position) => position)
+  order.sort((left, right) => compare(entries[left], entries[right]))
+  const ranks = new Uint32Array(entries.length)
+  let rank = 0
+  for (let at = 0; at < order.length; at++) {
+    if (at > 0 && compare(entries[order[at - 1]], entries[order[at]]) !== 0) rank++
+    ranks[order[at]] = rank
+  }
+  return ranks
+}
 
 /**
  * Merges the group lists the data nodes returned into one, the way the local
@@ -24,39 +42,76 @@ export function mergeDistributedGroups(
   limit: number | null,
   sortDirections: readonly SortDirection[] | null,
 ): WireGroupEntry[] {
-  const byKey = new Map<string, { values: Record<string, unknown>; lists: WireGroupEntry['scored'][] }>()
+  const sources: WireGroupEntry[] = []
+  let count = 0
   for (const groups of perNode) {
     for (const group of groups) {
-      const key = JSON.stringify(fields.map(field => group.values[field]))
-      const existing = byKey.get(key)
-      if (existing === undefined) {
-        byKey.set(key, { values: group.values, lists: [group.scored] })
-      } else {
-        existing.lists.push(group.scored)
-      }
+      sources.push(group)
+      count += group.scored.length
     }
   }
-
-  const merged: WireGroupEntry[] = []
-  for (const entry of byKey.values()) {
-    const scored =
-      sortDirections !== null
-        ? mergeAndTruncateSortedEntries(entry.lists, maxPerGroup, sortDirections)
-        : mergeAndTruncateScoredEntries(entry.lists, maxPerGroup)
-    merged.push({ values: entry.values, scored })
+  if (count > 0xffffffff || sources.length > 0xffffffff) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The grouped results exceed the merge layout')
   }
-
-  merged.sort((a, b) => {
-    const aScore = a.scored.length > 0 ? (a.scored[0].score ?? 0) : 0
-    const bScore = b.scored.length > 0 ? (b.scored[0].score ?? 0) : 0
-    if (aScore !== bScore) return bScore - aScore
-    const aId = a.scored.length > 0 ? a.scored[0].docId : ''
-    const bId = b.scored.length > 0 ? b.scored[0].docId : ''
-    return compareCodePoints(aId, bId)
-  })
-
-  if (limit !== null && merged.length > limit) {
-    merged.length = limit
+  const { keys, values } = groupIdentities(sources, fields)
+  const offsets = new Uint32Array(sources.length + 1)
+  const entries = new Array<ScoredEntry>(count)
+  const scores = new Float64Array(count)
+  let presence: Uint32Array | null = null
+  let present = 0
+  let position = 0
+  for (let source = 0; source < sources.length; source++) {
+    offsets[source] = position
+    for (const entry of sources[source].scored) {
+      entries[position] = entry
+      if (entry.score === null) {
+        presence ??= new Uint32Array(Math.max(1, Math.ceil(count / 32))).fill(0xffffffff)
+        presence[position >>> 5] &= ~(1 << (position & 31))
+      } else {
+        scores[position] = entry.score
+        present++
+      }
+      position++
+    }
+  }
+  offsets[sources.length] = position
+  const idRanks = entryRanks(entries, (left, right) => compareCodePoints(left.docId, right.docId))
+  const ranks =
+    sortDirections === null
+      ? idRanks
+      : entryRanks(
+          entries,
+          (left, right) =>
+            compareSortValues(left.sortValues ?? [], right.sortValues ?? [], sortDirections) ||
+            compareCodePoints(left.docId, right.docId),
+        )
+  const outKeys = new Uint32Array(values.length)
+  const outOffsets = new Uint32Array(values.length + 1)
+  const outSources = new Uint32Array(count)
+  const outIndices = new Uint32Array(count)
+  const found = mergeGroups(
+    keys,
+    offsets,
+    present === 0 ? null : scores,
+    present === 0 ? null : presence,
+    ranks,
+    idRanks,
+    sortDirections !== null,
+    maxPerGroup,
+    limit,
+    outKeys,
+    outOffsets,
+    outSources,
+    outIndices,
+  )
+  if (found < 0) throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The groups cannot be merged', { status: found })
+  const merged = new Array<WireGroupEntry>(found)
+  for (let group = 0; group < found; group++) {
+    const scored: ScoredEntry[] = []
+    for (let at = outOffsets[group]; at < outOffsets[group + 1]; at++) {
+      scored.push(sources[outSources[at]].scored[outIndices[at]])
+    }
+    merged[group] = { values: values[outKeys[group]], scored }
   }
   return merged
 }

@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'

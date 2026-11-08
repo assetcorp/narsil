@@ -1,9 +1,11 @@
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import type { AnyDocument } from '../../types/schema'
+import { executeRetained } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
 import { prepareDocumentVectors } from '../vector-coordinator'
 import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
-import { alreadyPresentOnWorker } from './eligibility'
+import { alreadyPresentOnWorker, toError } from './eligibility'
+import { releasePublicationOf, retainPublicationOf } from './publication-code'
 import { yieldToEventLoop } from './turn'
 import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 
@@ -13,13 +15,20 @@ export async function dispatchToWorkers(state: OrchestratorState, action: Worker
   const executors = 'indexName' in action ? pool.executorsHolding(action.indexName) : pool.getAllExecutors()
   if ('indexName' in action && !state.scaledOutIndexes.has(action.indexName)) return
 
-  const results = await Promise.allSettled(executors.map(workerExecutor => workerExecutor.execute(action)))
+  const results = await Promise.allSettled(
+    executors.map(workerExecutor => {
+      const release = retainPublicationOf(action)
+      return release === undefined ? workerExecutor.execute(action) : executeRetained(workerExecutor, action, release)
+    }),
+  )
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
     if (result.status === 'rejected') {
-      if (action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
+      if (action.publication === undefined && action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
         continue
       }
+      if (action.publication !== undefined) pool.retire(executors[i], toError(result.reason))
       console.warn('Worker replication failed:', result.reason)
     }
   }
@@ -41,7 +50,9 @@ function documentWeight(action: WorkerAction): number {
     return total
   }
   if (action.type === 'swapSegments') {
-    return action.snapshot.documentCount
+    let total = 0
+    for (const snapshot of action.snapshots) total += snapshot.documentCount
+    return total
   }
   return 1
 }
@@ -116,7 +127,9 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
     const entries = partitionLedger(state, action.indexName, action.partitionId)
     const dropped = new Set(action.dropSegmentIds)
     const kept = entries.filter(entry => !dropped.has(entry.segmentId))
-    kept.push({ segmentId: action.snapshot.segmentId, documentCount: action.snapshot.documentCount })
+    for (const snapshot of action.snapshots) {
+      kept.push({ segmentId: snapshot.segmentId, documentCount: snapshot.documentCount })
+    }
     entries.length = 0
     entries.push(...kept)
   }
@@ -144,10 +157,16 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   queue.pendingDocuments += weight
   const run: Promise<void> = dispatchGate(queue).then(async () => {
     try {
+      if (action.publication !== undefined) {
+        const manager = state.executor.getManager(indexName)
+        await manager?.publication.read(() => undefined)
+        if (state.executor.getManager(indexName) !== manager) return
+      }
       await dispatchToWorkers(state, action)
     } catch (err) {
       console.warn('Worker replication failed:', err)
     } finally {
+      releasePublicationOf(action)
       const at = queue.inFlight.indexOf(run)
       if (at !== -1) queue.inFlight.splice(at, 1)
       queue.pendingActions -= 1
@@ -208,12 +227,23 @@ export function queueForCopies(state: OrchestratorState, action: WorkerAction): 
     loading.push(action)
     return
   }
-  if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) return
+  if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) {
+    releasePublicationOf(action)
+    return
+  }
   enqueueReplication(state, action.indexName, action)
 }
 
 function settled(queue: ReplicationQueue): Promise<void> {
   return Promise.all([...queue.inFlight, queue.tail]).then(() => undefined)
+}
+
+export async function awaitPublicationCapacity(state: OrchestratorState, indexName: string): Promise<void> {
+  for (;;) {
+    const queue = state.replicationQueues.get(indexName)
+    if (queue === undefined || queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS) return
+    await new Promise<void>(resume => queue.drainWaiters.push(resume))
+  }
 }
 
 export async function awaitReplicationIdle(state: OrchestratorState, indexName?: string): Promise<void> {
