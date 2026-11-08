@@ -1,7 +1,19 @@
-import { BookOpen, FileText, Film, Globe, Loader2, Settings2, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
+import {
+  BookOpen,
+  FileText,
+  Film,
+  Globe,
+  Loader2,
+  MapPin,
+  Settings2,
+  Trash2,
+  TriangleAlert,
+  Upload,
+  X,
+} from 'lucide-react'
 import { type ReactNode, useCallback, useState } from 'react'
 import type { DatasetId } from '../../manifest'
-import { scifact, tmdb, wikipedia } from '../../manifest'
+import { places, scifact, tmdb, wikipedia } from '../../manifest'
 import type { DatasetLoadProgress } from '../../types'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -100,6 +112,16 @@ export const datasetMeta: DatasetMeta[] = [
     icon: BookOpen,
     license: 'CC BY 4.0 / ODC-By 1.0',
     sheetDescription: 'Fixed IR test collection.',
+  },
+  {
+    id: 'places',
+    kind: 'Map',
+    title: 'World Places',
+    description:
+      'The 1,251 cities and towns of the Natural Earth populated places layer, with coordinates, populations, and a one-line summary for semantic search. The Map tab searches them by radius and by polygon.',
+    icon: MapPin,
+    license: 'Public domain',
+    sheetDescription: 'Fixed set of places from Natural Earth.',
   },
   {
     id: 'custom',
@@ -212,6 +234,11 @@ export function DatasetCard({
                 {scifact.queryCount} queries
               </Badge>
             </>
+          )}
+          {ds.id === 'places' && (
+            <Badge variant="secondary" className="font-mono text-[10px]">
+              {places.docCount.toLocaleString()} places
+            </Badge>
           )}
           {ds.license && (
             <Badge variant="outline" className="text-[10px]">

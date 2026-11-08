@@ -123,14 +123,8 @@ export async function insertDocument(
     console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'insert',
-    indexName,
-    docId: resolvedDocId,
-    document: partitionDoc as AnyDocument,
-    requestId: `replicate-insert-${resolvedDocId}`,
-    skipClone: options?.skipClone,
-  })
+  const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
+  if (roomForCopies !== null) await roomForCopies
 
   for (const fieldPath of extractedVectors.keys()) {
     const vecIndex = insertVecIndexes.get(fieldPath)

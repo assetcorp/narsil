@@ -6,7 +6,7 @@ import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
 import { partitionContentsOf } from '../segment/captured-partition'
 import { readCurrentManifest } from '../segment/load'
-import type { SegmentManifest } from '../segment/manifest'
+import { manifestWithinPartitionCount, type SegmentManifest } from '../segment/manifest'
 import { adapterCheckpointStore, type CheckpointStore } from '../segment/store'
 import { garbageThatNoFieldStillReads, recordWrittenVectors } from '../segment/vector-adoption'
 import { writeLiveVectors } from '../segment/vector-write'
@@ -61,14 +61,7 @@ async function writeCaptured(
   prior: SegmentManifest | null,
   captured: CapturedState,
 ): Promise<void> {
-  const partitionCount = input.manager.partitionCount
-  const priorWithinCount =
-    prior === null
-      ? null
-      : {
-          checkpoint: prior.checkpoint.filter(entry => entry.partitionId < partitionCount),
-          partitions: prior.partitions.filter(partition => partition.partitionId < partitionCount),
-        }
+  const priorWithinCount = prior === null ? null : manifestWithinPartitionCount(prior, input.manager.partitionCount)
   const written = await writeCheckpointSegments({
     store,
     metadata: input.metadata,

@@ -13,14 +13,7 @@ import type { Executor } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
 import { resolveWorkerCount, splitWorkerBudget } from '../../workers/worker-count'
 import { transferIndexToPool } from '../worker-resync'
-import {
-  awaitCompactions,
-  cancelIdleMerge,
-  holdUnbroadcastSegments,
-  maybeCompactSegments,
-  releaseUnbroadcastSegments,
-  scheduleIdleMerge,
-} from './compaction'
+import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
@@ -31,7 +24,9 @@ import {
   awaitWritesApplied,
   markCopiesLoaded,
   queueForCopies,
+  recordMainWrite,
   replicateToWorkers,
+  replicationRoomWait,
 } from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
 import {
@@ -45,6 +40,7 @@ import { searchViaWorker } from './search'
 import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuildConcurrency } from './segments'
 import type {
   IndexRegistry,
+  MainWriteGrowth,
   OrchestratorState,
   RequestThreadListener,
   WorkerOrchestrator,
@@ -93,13 +89,13 @@ export function createWorkerOrchestrator(
     desyncedIndexes: new Set(),
     copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
+    copyLoadBufferYieldMarks: new WeakMap(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
     lastAccessAt: new Map(),
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
     segmentLedger: new Map(),
-    unbroadcastSegments: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
     sharedVectorFields: new Map(),
@@ -266,7 +262,6 @@ export function createWorkerOrchestrator(
     state.lastAccessAt.delete(indexName)
     state.replicationQueues.delete(indexName)
     state.segmentLedger.delete(indexName)
-    state.unbroadcastSegments.delete(indexName)
   }
 
   async function replicate(action: WorkerAction): Promise<void> {
@@ -279,11 +274,39 @@ export function createWorkerOrchestrator(
     }
   }
 
+  function afterMainWrites(indexName: string, growth: MainWriteGrowth): void {
+    if (growth === 'segments') maybeCompactSegments(state, indexName)
+    if (growth === 'liveTail') flushGrownTails(state, indexName)
+    if (state.scaledOutIndexes.has(indexName) || state.copyLoadBuffers.has(indexName)) {
+      scheduleIdleMerge(state, indexName)
+    }
+  }
+
+  function copiesFollow(indexName: string): boolean {
+    return (
+      state.scaledOutIndexes.has(indexName) ||
+      state.copyLoadBuffers.has(indexName) ||
+      state.replicationQueues.has(indexName)
+    )
+  }
+
+  function settleMainWrites(indexName: string, growth: MainWriteGrowth = 'liveTail'): Promise<void> | null {
+    if (growth !== 'segments' && !copiesFollow(indexName)) return null
+    const waiting = replicationRoomWait(state, indexName)
+    if (waiting === null) {
+      afterMainWrites(indexName, growth)
+      return null
+    }
+    return waiting.then(() => afterMainWrites(indexName, growth))
+  }
+
   return {
     scaleOutReadyIndexes: (): Promise<void> => scaleOutReadyIndexes(state),
     scaleOutBeforeBatch: (indexName: string, incomingCount: number): Promise<void> =>
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
+    recordMainWrite: (action: WorkerAction): void => recordMainWrite(state, action),
+    settleMainWrites,
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
     queueDiskAdoption: action => queueForCopies(state, action),
     awaitWrites: (indexName: string): Promise<void> => awaitWritesApplied(state, indexName),
@@ -293,10 +316,6 @@ export function createWorkerOrchestrator(
     isIndexBusy: (indexName: string): boolean => isIndexBusy(state, indexName),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
-    holdUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
-      holdUnbroadcastSegments(state, indexName, segmentIds),
-    releaseUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
-      releaseUnbroadcastSegments(state, indexName, segmentIds),
     searchViaWorker: (
       indexName: string,
       params: QueryParams,

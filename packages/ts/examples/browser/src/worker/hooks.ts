@@ -12,9 +12,9 @@ import type {
   SuggestResult,
   VectorMaintenanceResult,
 } from '@delali/narsil'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { narsilWorker } from './bridge'
-import type { WorkerArgs, WorkerMethod, WorkerResult } from './protocol'
+import type { QueryExtras, WorkerArgs, WorkerMethod, WorkerResult } from './protocol'
 
 /**
  * What every read hook here answers with. It is the shape
@@ -34,6 +34,17 @@ interface ReadOptions {
   keepPreviousData?: boolean
 }
 
+const NO_QUERY_EXTRAS: QueryExtras = { groupTotalField: null }
+
+function subscribeToChanges(listener: () => void): () => void {
+  return narsilWorker.onChange(listener)
+}
+
+function useIndexRevision(indexName: string | null): number {
+  const read = useCallback(() => narsilWorker.revisionOf(indexName), [indexName])
+  return useSyncExternalStore(subscribeToChanges, read, read)
+}
+
 function useWorkerCall<K extends WorkerMethod>(
   method: K,
   args: WorkerArgs<K> | null,
@@ -42,6 +53,8 @@ function useWorkerCall<K extends WorkerMethod>(
   const enabled = (options?.enabled ?? true) && args !== null
   const keepPreviousData = options?.keepPreviousData ?? false
   const key = useMemo(() => (args === null ? null : JSON.stringify([method, args])), [method, args])
+  const indexName = args !== null && typeof args[0] === 'string' ? args[0] : null
+  const revision = useIndexRevision(indexName)
 
   const [data, setData] = useState<WorkerResult<K> | undefined>(undefined)
   const [error, setError] = useState<NarsilError | undefined>(undefined)
@@ -49,8 +62,9 @@ function useWorkerCall<K extends WorkerMethod>(
   const [attempt, setAttempt] = useState(0)
   const latestArgs = useRef(args)
   latestArgs.current = args
+  const lastKey = useRef<string | null>(null)
 
-  const runKey = key === null ? null : `${attempt}:${key}`
+  const runKey = key === null ? null : `${attempt}:${revision}:${key}`
 
   useEffect(() => {
     if (!enabled || runKey === null) {
@@ -60,7 +74,8 @@ function useWorkerCall<K extends WorkerMethod>(
 
     const controller = new AbortController()
     setIsFetching(true)
-    if (!keepPreviousData) setData(undefined)
+    if (!keepPreviousData && lastKey.current !== key) setData(undefined)
+    lastKey.current = key
 
     narsilWorker
       .call(method, latestArgs.current as WorkerArgs<K>, controller.signal)
@@ -80,7 +95,7 @@ function useWorkerCall<K extends WorkerMethod>(
     return () => {
       controller.abort()
     }
-  }, [method, runKey, enabled, keepPreviousData])
+  }, [method, key, runKey, enabled, keepPreviousData])
 
   const refresh = useCallback(() => {
     setAttempt(current => current + 1)
@@ -107,10 +122,11 @@ export function useWorkerQuery(
   indexName: string | null,
   params: QueryParams,
   options?: ReadOptions,
+  extras: QueryExtras = NO_QUERY_EXTRAS,
 ): WorkerReadState<QueryResult> {
   const args = useMemo(
-    () => (indexName === null ? null : ([indexName, params] as [string, QueryParams])),
-    [indexName, params],
+    () => (indexName === null ? null : ([indexName, params, extras] as [string, QueryParams, QueryExtras])),
+    [indexName, params, extras],
   )
   return useWorkerCall('query', args, options)
 }

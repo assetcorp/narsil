@@ -118,3 +118,14 @@ export function recomputeScores(hits: Hit[], config: BM25Config, fieldAverages: 
 
   return scored
 }
+
+export function splitEngineScores(hits: Hit[], config: BM25Config): RecomputedHit[] {
+  const split = recomputeScores(hits, config, computeFieldAverages(hits)).map(item => {
+    const engineScore = item.hit.score ?? item.recomputedScore
+    const share = item.recomputedScore > 0 ? engineScore / item.recomputedScore : 0
+    const fieldScores: Record<string, number> = {}
+    for (const [field, score] of Object.entries(item.fieldScores)) fieldScores[field] = score * share
+    return { ...item, recomputedScore: engineScore, recomputedRank: item.originalRank, fieldScores }
+  })
+  return split.sort((a, b) => a.originalRank - b.originalRank)
+}

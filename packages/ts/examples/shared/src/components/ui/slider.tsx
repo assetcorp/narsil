@@ -3,7 +3,12 @@ import type * as React from 'react'
 
 import { cn } from '../../lib/utils'
 
-function Slider({ className, defaultValue, ...props }: React.ComponentProps<typeof SliderPrimitive.Root>) {
+function Slider({
+  className,
+  defaultValue,
+  thumbLabel,
+  ...props
+}: React.ComponentProps<typeof SliderPrimitive.Root> & { thumbLabel?: string }) {
   return (
     <SliderPrimitive.Root
       data-slot="slider"
@@ -28,6 +33,7 @@ function Slider({ className, defaultValue, ...props }: React.ComponentProps<type
           data-slot="slider-thumb"
           // biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs are ordered by index
           key={i}
+          aria-label={thumbLabel}
           className="block size-4 rounded-full border border-primary/50 bg-background shadow-sm transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         />
       ))}

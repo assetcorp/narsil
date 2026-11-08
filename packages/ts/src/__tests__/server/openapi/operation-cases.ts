@@ -314,6 +314,7 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
     }),
     hostile: () => ({ name: SUGGESTIONS_SOURCE, json: { query: 7 }, statuses: [400] }),
   },
+  getSync: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   updateSync: {
     valid: () => ({ name: INDEX, json: { enabled: true }, statuses: [200] }),
     hostile: () => ({ name: INDEX, json: { enabled: 'yes' }, statuses: [400] }),

@@ -1,7 +1,16 @@
 import type { IndexInfo } from '@delali/narsil'
 import type { DatasetId } from './manifest'
 
-export type TabId = 'datasets' | 'search' | 'ask' | 'relevance' | 'benchmark' | 'inspector' | 'documents'
+export type TabId =
+  | 'datasets'
+  | 'search'
+  | 'ask'
+  | 'relevance'
+  | 'benchmark'
+  | 'inspector'
+  | 'documents'
+  | 'map'
+  | 'sync'
 
 export type TabStatus = 'locked' | 'ready'
 
@@ -38,6 +47,10 @@ export interface LoadScifactRequest {
   datasetId: 'scifact'
 }
 
+export interface LoadPlacesRequest {
+  datasetId: 'places'
+}
+
 export interface LoadCustomRequest {
   datasetId: 'custom'
   documents: Record<string, unknown>[]
@@ -46,12 +59,18 @@ export interface LoadCustomRequest {
   language?: string
 }
 
-export type LoadDatasetRequest = LoadTmdbRequest | LoadWikipediaRequest | LoadScifactRequest | LoadCustomRequest
+export type LoadDatasetRequest =
+  | LoadTmdbRequest
+  | LoadWikipediaRequest
+  | LoadScifactRequest
+  | LoadPlacesRequest
+  | LoadCustomRequest
 
 export function inferDatasetId(indexName: string): DatasetId {
   if (indexName.startsWith('tmdb-')) return 'tmdb'
   if (indexName.startsWith('wikipedia-')) return 'wikipedia'
   if (indexName === 'scifact') return 'scifact'
+  if (indexName === 'places') return 'places'
   return 'custom'
 }
 
@@ -76,5 +95,7 @@ export function computeTabStatus(indexes: readonly LoadedIndex[]): Record<TabId,
     benchmark: hasAnyDocs ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
     documents: hasAnyIndex ? 'ready' : 'locked',
+    map: hasAnyDocs ? 'ready' : 'locked',
+    sync: 'ready',
   }
 }

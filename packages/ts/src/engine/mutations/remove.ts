@@ -66,20 +66,15 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
 }
 
 async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
-  const { docId, removedSpellings } = prepared
+  const { docId } = prepared
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
     console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'remove',
-    indexName,
-    docId,
-    requestId: `replicate-remove-${docId}`,
-    removedSpellings,
-  })
+  const roomForCopies = ctx.orchestrator.settleMainWrites(indexName, 'none')
+  if (roomForCopies !== null) await roomForCopies
 }
 
 export async function removeDocument(
