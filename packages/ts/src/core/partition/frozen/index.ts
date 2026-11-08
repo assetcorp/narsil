@@ -98,6 +98,7 @@ export interface PagedSegmentAccess {
   readonly key: string
   readonly snapshot: PagedSegmentSnapshot
   readonly writeRecordsHeld: boolean
+  payloadChecked: boolean
   listAt(sortedIndex: number): PagedPostingList
   positionsAt(sortedIndex: number): PagedPositions | null
   encodedDocumentAt(ordinal: number): Uint8Array

@@ -2,10 +2,9 @@ import { compareCodePoints, decodeStoredDocument } from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { SegmentSelection } from '../../core/partition/frozen/merge'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { MERGE_READ_CACHE_BYTES } from './constants'
 import { type FileSection, ID_SAMPLE_INTERVAL, loadFailed, SMALLEST_BLOCK_POSTINGS, sectionNamed } from './format'
 import { createListReader, type ListReader } from './lists'
-import { createReadCache, type ReadCache } from './read-cache'
+import type { ReadCache } from './read-cache'
 import { createRemovalReader } from './removals'
 import { checkEverySectionPage, closePagedFile, createSectionReader, openPagedFile } from './section-file'
 import { requirePagedPathChecksum } from './verify'
@@ -127,16 +126,10 @@ export async function checkPagedContents(segment: FrozenSegment, cache: ReadCach
 }
 
 export async function checkPagedSelections(selections: readonly SegmentSelection[]): Promise<void> {
-  const cache = createReadCache(MERGE_READ_CACHE_BYTES)
-  try {
-    const checked = new Set<FrozenSegment>()
-    for (const { segment } of selections) {
-      if (segment.paged === null || checked.has(segment)) continue
-      checked.add(segment)
-      await requirePagedPathChecksum(segment.paged.snapshot.path)
-      await checkPagedContents(segment, cache)
-    }
-  } finally {
-    cache.clear()
+  for (const { segment } of selections) {
+    const { paged } = segment
+    if (paged === null || paged.payloadChecked) continue
+    await requirePagedPathChecksum(paged.snapshot.path)
+    paged.payloadChecked = true
   }
 }
