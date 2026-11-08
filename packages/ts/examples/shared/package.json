@@ -37,6 +37,10 @@
       "import": "./src/components/datasets/DatasetCard.tsx",
       "types": "./src/components/datasets/DatasetCard.tsx"
     },
+    "./components/datasets/PlacesConfig": {
+      "import": "./src/components/datasets/PlacesConfig.tsx",
+      "types": "./src/components/datasets/PlacesConfig.tsx"
+    },
     "./components/documents/DocumentsView": {
       "import": "./src/components/documents/DocumentsView.tsx",
       "types": "./src/components/documents/DocumentsView.tsx"
@@ -56,6 +60,10 @@
     "./components/layout/ThemeToggle": {
       "import": "./src/components/layout/ThemeToggle.tsx",
       "types": "./src/components/layout/ThemeToggle.tsx"
+    },
+    "./components/map/MapView": {
+      "import": "./src/components/map/MapView.tsx",
+      "types": "./src/components/map/MapView.tsx"
     },
     "./components/relevance/RelevanceLab": {
       "import": "./src/components/relevance/RelevanceLab.tsx",
@@ -100,6 +108,10 @@
     "./hooks/use-workspace": {
       "import": "./src/hooks/use-workspace.ts",
       "types": "./src/hooks/use-workspace.ts"
+    },
+    "./lib/bounded-read": {
+      "import": "./src/lib/bounded-read.ts",
+      "types": "./src/lib/bounded-read.ts"
     },
     "./lib/concurrency": {
       "import": "./src/lib/concurrency.ts",

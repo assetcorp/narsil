@@ -1,3 +1,4 @@
+import { RotateCcw } from 'lucide-react'
 import { useCallback } from 'react'
 import type { BM25Config } from '../../scoring'
 import { Button } from '../ui/button'
@@ -31,7 +32,15 @@ function FieldBoostSlider({
   return (
     <div className="flex items-center gap-2">
       <span className="w-16 truncate text-[10px] text-muted-foreground">{field}</span>
-      <Slider min={0} max={5} step={0.5} value={[boost]} onValueChange={handleValueChange} className="flex-1" />
+      <Slider
+        min={0}
+        max={5}
+        step={0.5}
+        value={[boost]}
+        onValueChange={handleValueChange}
+        thumbLabel={`Boost for ${field}`}
+        className="flex-1"
+      />
       <span className="w-6 text-right font-mono text-[10px]">{boost.toFixed(1)}</span>
     </div>
   )
@@ -56,7 +65,8 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
     <div className="sticky top-20 rounded-lg border">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="text-sm font-semibold">BM25 Tuning</h3>
-        <Button variant="ghost" size="xs" onClick={onReset}>
+        <Button variant="outline" size="xs" onClick={onReset}>
+          <RotateCcw className="size-3" />
           Reset
         </Button>
       </div>
@@ -73,6 +83,7 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
             step={0.05}
             value={[config.k1]}
             onValueChange={handleK1ValueChange}
+            thumbLabel="k1"
             className="mt-2"
           />
           <p className="mt-1 text-[10px] text-muted-foreground">Higher values let repeated terms contribute more</p>
@@ -83,7 +94,15 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
             <span className="text-xs font-medium">b (length normalization)</span>
             <span className="font-mono text-xs">{config.b.toFixed(2)}</span>
           </div>
-          <Slider min={0} max={1} step={0.05} value={[config.b]} onValueChange={handleBValueChange} className="mt-2" />
+          <Slider
+            min={0}
+            max={1}
+            step={0.05}
+            value={[config.b]}
+            onValueChange={handleBValueChange}
+            thumbLabel="b"
+            className="mt-2"
+          />
           <p className="mt-1 text-[10px] text-muted-foreground">Higher values penalize longer documents more</p>
         </div>
 

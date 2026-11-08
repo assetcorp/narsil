@@ -255,6 +255,31 @@ describe.each([
     },
   )
 
+  it.skipIf(threads && !built)(
+    'reports the sync state through the client as it changes, with a new epoch each time sync turns on',
+    async () => {
+      running = await serve()
+      await client().createIndex('alice', SCHEMA)
+      expect(await client().getSync('alice')).toMatchObject({ enabled: false, active: false, epoch: null })
+      await expect(client().getSync('nobody')).rejects.toMatchObject({ code: 'INDEX_NOT_FOUND' })
+
+      await client().updateSync('alice', { enabled: true })
+      const first = await client().getSync('alice')
+      expect(first).toMatchObject({ enabled: true, active: false })
+      expect(first.epoch).toMatch(/^[0-9a-f]{32}$/)
+
+      expect((await download(running.base, 'alice', 'alice-token')).status).toBe(200)
+      expect(await client().getSync('alice')).toMatchObject({ enabled: true, active: true, epoch: first.epoch })
+
+      await client().updateSync('alice', { enabled: false })
+      expect(await client().getSync('alice')).toMatchObject({ enabled: false, epoch: null })
+      await client().updateSync('alice', { enabled: true })
+      const second = await client().getSync('alice')
+      expect(second.epoch).toMatch(/^[0-9a-f]{32}$/)
+      expect(second.epoch).not.toBe(first.epoch)
+    },
+  )
+
   it.skipIf(threads && !built)('answers 404 for an index without sync, before the feed handshake', async () => {
     running = await serve()
     await client().createIndex('alice', SCHEMA)

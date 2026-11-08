@@ -6,8 +6,8 @@ import {
   EXPORT_CHUNK_BYTES,
   isDead,
   openChecksummedEnvelope,
+  setNestedValue,
 } from '#platform/storage-host'
-import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFileRef } from '../../persistence/durability/segment/manifest'
 import type { SegmentScan } from '../../persistence/paged/segment-scan'

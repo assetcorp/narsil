@@ -21,6 +21,11 @@ export interface RequestThreadListener {
   onWorkerGone(workerId: number): void
 }
 
+export interface IdleMergeTimer {
+  timer: ReturnType<typeof setTimeout>
+  dueAt: number
+}
+
 export interface WorkerOrchestrator {
   scaleOutReadyIndexes(): Promise<void>
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
@@ -36,8 +41,6 @@ export interface WorkerOrchestrator {
   isIndexBusy(indexName: string): boolean
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
-  holdUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
-  releaseUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
   searchViaWorker(
     indexName: string,
     params: QueryParams,
@@ -79,6 +82,7 @@ export type IndexRegistry = Map<
     language: LanguageModule
     embeddingAdapter: EmbeddingAdapter | null
     synonyms: Uint8Array | null
+    vectorFieldPaths: Set<string>
   }
 >
 
@@ -125,16 +129,15 @@ export interface OrchestratorState {
   readonly desyncedIndexes: Set<string>
   readonly copyReleaseHolds: Map<string, CopyReleaseHold>
   readonly copyLoadBuffers: Map<string, WorkerAction[]>
+  readonly copyLoadBufferYieldMarks: WeakMap<WorkerAction[], number>
   readonly copyTransitions: Map<string, CopyTransition>
   readonly droppedCopies: Map<string, string>
   readonly lastAccessAt: Map<string, number>
   readonly copyReloadCounts: Map<string, number>
   readonly replicationQueues: Map<string, ReplicationQueue>
   readonly segmentLedger: Map<string, Map<number, SegmentLedgerEntry[]>>
-  /** This holds the segments each index has attached to the main copy and has yet to send to the worker copies. */
-  readonly unbroadcastSegments: Map<string, Set<string>>
   readonly compactionsInFlight: Map<string, Promise<void>>
-  readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
+  readonly idleMergeTimers: Map<string, IdleMergeTimer>
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
   readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
   readonly publishedVectorStores: Set<string>

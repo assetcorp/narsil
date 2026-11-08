@@ -1751,6 +1751,23 @@ type SyncSetting struct {
 	HistoryMaxBytes *float64 `json:"historyMaxBytes,omitempty"`
 }
 
+// SyncStatus: The device sync state of one index, which SyncOperations.getSync returns.
+type SyncStatus struct {
+	// This is true once a device has asked for the published snapshot, from when the server keeps history.
+	Active bool `json:"active"`
+	// This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off.
+	Epoch *string `json:"epoch"`
+	// This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a
+	// new copy.
+	Enabled bool `json:"enabled"`
+	// This is the age in milliseconds after which the server deletes a log segment from history. It
+	// defaults to 30 days.
+	HistoryMaxAgeMs *float64 `json:"historyMaxAgeMs,omitempty"`
+	// This is the byte count above which the server deletes the oldest log segment from history. It
+	// defaults to the length of the published snapshot.
+	HistoryMaxBytes *float64 `json:"historyMaxBytes,omitempty"`
+}
+
 // SynonymSetBody: The body of `GET /indexes/{name}/synonyms`, and the body that `POST
 // /indexes/{name}/synonyms` takes.
 type SynonymSetBody struct {

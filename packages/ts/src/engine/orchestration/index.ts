@@ -20,14 +20,7 @@ import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
-import {
-  awaitCompactions,
-  cancelIdleMerge,
-  holdUnbroadcastSegments,
-  maybeCompactSegments,
-  releaseUnbroadcastSegments,
-  scheduleIdleMerge,
-} from './compaction'
+import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import { publishToWorkers } from './publication-code'
@@ -41,6 +34,7 @@ import {
   markCopiesLoaded,
   replicateToWorkers,
 } from './replication'
+
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
 import {
   copyThresholdReason,
@@ -97,13 +91,13 @@ export function createWorkerOrchestrator(
     desyncedIndexes: new Set(),
     copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
+    copyLoadBufferYieldMarks: new WeakMap(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
     lastAccessAt: new Map(),
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
     segmentLedger: new Map(),
-    unbroadcastSegments: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
     sharedVectorFields: new Map(),
@@ -277,7 +271,6 @@ export function createWorkerOrchestrator(
     state.lastAccessAt.delete(indexName)
     state.replicationQueues.delete(indexName)
     state.segmentLedger.delete(indexName)
-    state.unbroadcastSegments.delete(indexName)
   }
 
   async function replicate(action: WorkerAction): Promise<void> {
@@ -298,9 +291,9 @@ export function createWorkerOrchestrator(
     publishToWorkers: action => publishToWorkers(state, action),
     async settlePublications(indexName, attachedSegments = false) {
       await awaitPublicationCapacity(state, indexName)
-      if (!state.scaledOutIndexes.has(indexName)) return
-      await flushGrownTails(state, indexName)
       if (attachedSegments) maybeCompactSegments(state, indexName)
+      if (!state.scaledOutIndexes.has(indexName) && !state.copyLoadBuffers.has(indexName)) return
+      await flushGrownTails(state, indexName)
       scheduleIdleMerge(state, indexName)
     },
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
@@ -314,10 +307,6 @@ export function createWorkerOrchestrator(
     isIndexBusy: (indexName: string): boolean => isIndexBusy(state, indexName),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
-    holdUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
-      holdUnbroadcastSegments(state, indexName, segmentIds),
-    releaseUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
-      releaseUnbroadcastSegments(state, indexName, segmentIds),
     searchViaWorker: (
       indexName: string,
       params: QueryParams,

@@ -1,6 +1,7 @@
 import { useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import './three-elements'
 
 interface PointCloudProps {
   positions: Float32Array

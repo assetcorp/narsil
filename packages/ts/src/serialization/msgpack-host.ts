@@ -1,5 +1,6 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
 
+export { getNestedValue } from '../core/partition/utils'
 export { ErrorCodes, NarsilError } from '../errors'
 export {
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
@@ -12,6 +13,7 @@ type EngineNames = Pick<
   | 'DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES'
   | 'DOCUMENT_REPLY_ENVELOPE_DEPTH'
   | 'ErrorCodes'
+  | 'getNestedValue'
   | 'MAX_DOCUMENT_ENCODING_DEPTH'
   | 'NarsilError'
 >

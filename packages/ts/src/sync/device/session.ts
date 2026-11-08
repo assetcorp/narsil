@@ -162,7 +162,13 @@ export function createSession(context: DeviceContext, progress: Progress, state:
       await incoming
       const position = progress.position()
       if (position === null || context.stopped()) return { code: 0, subscribed: false }
-      const credential = await context.credential()
+      let credential: string | null
+      try {
+        credential = await context.credential()
+      } catch (error) {
+        context.report(error)
+        return { code: 0, subscribed: false }
+      }
       if (context.stopped()) return { code: 0, subscribed: false }
       const mine = generation
       subscribedOnce = false

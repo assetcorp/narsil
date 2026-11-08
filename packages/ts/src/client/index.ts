@@ -45,7 +45,7 @@ export type {
   RecordQueryOutcome,
   RecordQueryResult,
 } from '../types/query-suggestions'
-export type { SyncSetting } from '../types/sync'
+export type { SyncSetting, SyncStatus } from '../types/sync'
 export type { AdminOperations } from './admin'
 export type { BackupOperations } from './backups'
 export type { BulkOperations, ImportSource } from './bulk'

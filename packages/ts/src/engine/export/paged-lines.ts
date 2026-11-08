@@ -1,5 +1,4 @@
-import { parseVectorDimension } from '#platform/storage-host'
-import { setNestedValue } from '../../distribution/replication/replica'
+import { parseVectorDimension, setNestedValue } from '#platform/storage-host'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFieldRef } from '../../persistence/durability/segment/manifest'
 import { openColdVectorField } from '../../persistence/paged/cold-field'

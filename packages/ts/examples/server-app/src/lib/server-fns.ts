@@ -2,18 +2,18 @@ import { createServerFn } from '@tanstack/react-start'
 import { parseThreadIdInput } from './chat/validation'
 
 export const askCapabilitiesFn = createServerFn({ method: 'POST' }).handler(async () => {
-  const [{ readLlmConfig }, { readEmbeddingConfig }] = await Promise.all([
+  const [{ readLlmConfig }, { chooseEmbedding }] = await Promise.all([
     import('./ask/config'),
     import('./embedding-config'),
   ])
   const llm = readLlmConfig()
-  const embeddings = readEmbeddingConfig()
+  const embeddings = chooseEmbedding()
   return {
     llmConfigured: llm !== null,
     llmModel: llm?.model ?? null,
-    embeddingsConfigured: embeddings !== null,
-    embeddingModel: embeddings?.model ?? null,
-    embeddingDimensions: embeddings?.dimensions ?? null,
+    embeddingsConfigured: true,
+    embeddingModel: embeddings.model,
+    embeddingDimensions: embeddings.dimensions,
   }
 })
 

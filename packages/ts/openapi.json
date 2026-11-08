@@ -2268,6 +2268,39 @@
       }
     },
     "/indexes/{name}/sync": {
+      "get": {
+        "operationId": "getSync",
+        "summary": "Report the device sync setting of an index, whether a device has downloaded it, and its epoch",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
       "put": {
         "operationId": "updateSync",
         "summary": "Replace the device sync setting of an index",
@@ -6077,6 +6110,44 @@
           "enabled"
         ],
         "description": "The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on only for an index whose every document belongs to one user, because every device that syncs the index receives the whole index. Create one index for each user, and leave sync off for a public index or for an index that holds the data of several users."
+      },
+      "SyncStatus": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "This is true once a device has asked for the published snapshot, from when the server keeps history."
+          },
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a new copy."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the server deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the server deletes the oldest log segment from history. It defaults to the length of the published snapshot."
+          }
+        },
+        "required": [
+          "active",
+          "epoch",
+          "enabled"
+        ],
+        "description": "The device sync state of one index, which SyncOperations.getSync returns."
       },
       "SynonymRule": {
         "anyOf": [
