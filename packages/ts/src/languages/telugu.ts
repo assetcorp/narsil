@@ -70,7 +70,7 @@ function normalize(token: string): string {
  */
 export const telugu: LanguageModule = {
   name: 'telugu',
-  revision: 'a34934ed55c9d0a6',
+  revision: 'ec56217c4bfdb143',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

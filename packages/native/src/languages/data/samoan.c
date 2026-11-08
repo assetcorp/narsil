@@ -27,7 +27,7 @@ static const uint32_t keep_ranges[76] = {
 
 const narsil_language narsil_language_samoan = {
   .name = "samoan",
-  .revision = "34e55d3f256f3301",
+  .revision = "53053920238fb69b",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 51,

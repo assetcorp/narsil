@@ -60,7 +60,7 @@ static const uint32_t keep_ranges[22] = {
 
 const narsil_language narsil_language_luxembourgish = {
   .name = "luxembourgish",
-  .revision = "19482b263e01cb8d",
+  .revision = "a0cefeb2781221c7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 202,

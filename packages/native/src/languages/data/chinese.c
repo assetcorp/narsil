@@ -50,7 +50,7 @@ static const uint32_t keep_ranges[52] = {
 
 const narsil_language narsil_language_chinese = {
   .name = "chinese",
-  .revision = "5915d28728bb7215",
+  .revision = "297f171533db7bbf",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 234,

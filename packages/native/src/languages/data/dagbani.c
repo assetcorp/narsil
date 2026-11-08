@@ -68,7 +68,7 @@ static const uint32_t keep_ranges[702] = {
 
 const narsil_language narsil_language_dagbani = {
   .name = "dagbani",
-  .revision = "8e3e54532619398d",
+  .revision = "492a63e9a0728bc6",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 70,

@@ -301,7 +301,7 @@ const stopWords = new Set([
  */
 export const italian: LanguageModule = {
   name: 'italian',
-  revision: '9e33aebce4c7d3f4',
+  revision: '5f1d748326289eb5',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àèéìîòóù-]+/gi },

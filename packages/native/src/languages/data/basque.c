@@ -42,7 +42,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_basque = {
   .name = "basque",
-  .revision = "45a4c6dd0614f16b",
+  .revision = "6be36c18aa84c02e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 98,

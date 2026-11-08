@@ -32,7 +32,7 @@ static const uint32_t keep_ranges[20] = {
 
 const narsil_language narsil_language_breton = {
   .name = "breton",
-  .revision = "504f4018f2626ecf",
+  .revision = "663ad55f17524a82",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 84,

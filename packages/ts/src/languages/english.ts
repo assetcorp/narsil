@@ -191,7 +191,7 @@ const stopWords = new Set([
  */
 export const english: LanguageModule = {
   name: 'english',
-  revision: '748ae35379a1b294',
+  revision: '1d656f1b1c5b26fb',
   stemmer: stem,
   stopWords,
   tokenizer: {

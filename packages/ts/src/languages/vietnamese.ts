@@ -287,7 +287,7 @@ const stopWords = new Set([
  */
 export const vietnamese: LanguageModule = {
   name: 'vietnamese',
-  revision: 'f3f6d81a6e630503',
+  revision: 'a2e3afc01c0865d7',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

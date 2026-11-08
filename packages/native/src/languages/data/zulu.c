@@ -38,7 +38,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_zulu = {
   .name = "zulu",
-  .revision = "ec07f7bc9cceda57",
+  .revision = "7df281ae917ea6a6",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 98,

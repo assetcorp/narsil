@@ -236,7 +236,7 @@ const stopWords = new Set([
  */
 export const swahili: LanguageModule = {
   name: 'swahili',
-  revision: '14735f50ab457f39',
+  revision: 'fad4b3eb21cac6f9',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9']+/gi },

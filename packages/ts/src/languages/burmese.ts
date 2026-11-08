@@ -65,7 +65,7 @@ const stopWords = new Set([
  */
 export const burmese: LanguageModule = {
   name: 'burmese',
-  revision: 'fa9e35506fa2fcc3',
+  revision: 'a385dd6725d337a8',
   stemmer: null,
   stopWords,
   tokenizer: {

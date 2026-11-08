@@ -68,7 +68,7 @@ const stopWords = new Set([
  */
 export const bambara: LanguageModule = {
   name: 'bambara',
-  revision: 'b3903e96654f0c9e',
+  revision: '98dc9cdbf29e516d',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

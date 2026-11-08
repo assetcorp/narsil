@@ -52,7 +52,7 @@ static const uint32_t keep_ranges[16] = {
 
 const narsil_language narsil_language_croatian = {
   .name = "croatian",
-  .revision = "82dcf695397c7408",
+  .revision = "870b77164d0ae931",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 179,

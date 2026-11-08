@@ -189,7 +189,7 @@ const stopWords = new Set([
  */
 export const khmer: LanguageModule = {
   name: 'khmer',
-  revision: '24f53b6eba729318',
+  revision: 'dde90dd36274c1d7',
   stemmer: null,
   stopWords,
   tokenizer: {

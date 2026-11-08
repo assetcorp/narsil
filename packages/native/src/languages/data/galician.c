@@ -50,7 +50,7 @@ static const uint32_t keep_ranges[34] = {
 
 const narsil_language narsil_language_galician = {
   .name = "galician",
-  .revision = "fc95d9d1aafb4ce2",
+  .revision = "83cffac7be33f22e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 160,

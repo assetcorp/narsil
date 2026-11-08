@@ -35,7 +35,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_tibetan = {
   .name = "tibetan",
-  .revision = "ac192f514e42c9ca",
+  .revision = "35bf990223498e94",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 107,

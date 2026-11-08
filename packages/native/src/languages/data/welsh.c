@@ -123,7 +123,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_welsh = {
   .name = "welsh",
-  .revision = "649414fad442f4eb",
+  .revision = "4ed3b22d34c168f3",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 434,

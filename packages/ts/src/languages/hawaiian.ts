@@ -77,7 +77,7 @@ const stopWords = new Set([
  */
 export const hawaiian: LanguageModule = {
   name: 'hawaiian',
-  revision: '4aa8ea244763dc25',
+  revision: '2a88955b89ac888c',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9']+/giu },

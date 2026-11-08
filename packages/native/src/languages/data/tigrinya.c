@@ -53,7 +53,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_tigrinya = {
   .name = "tigrinya",
-  .revision = "79f9399449f939ba",
+  .revision = "2b68092837da1136",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 182,

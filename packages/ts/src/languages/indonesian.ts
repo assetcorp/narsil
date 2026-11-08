@@ -759,7 +759,7 @@ const stopWords = new Set([
  */
 export const indonesian: LanguageModule = {
   name: 'indonesian',
-  revision: 'fa971c6ac55f21b6',
+  revision: '0328cd9ed6ce57d1',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9-]+/gi },

@@ -116,7 +116,7 @@ const stopWords = new Set([
  */
 export const kyrgyz: LanguageModule = {
   name: 'kyrgyz',
-  revision: 'a1bca751e21df401',
+  revision: 'c2f35f1f2048b684',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9а-яңөү]+/gi },

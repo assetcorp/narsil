@@ -34,7 +34,7 @@ static const uint32_t keep_ranges[14] = {
 
 const narsil_language narsil_language_haitian_creole = {
   .name = "haitian-creole",
-  .revision = "f98e2a61d36cf469",
+  .revision = "8b66a2ff380c85d8",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 94,

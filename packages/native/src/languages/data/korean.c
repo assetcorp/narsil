@@ -54,7 +54,7 @@ static const uint32_t keep_ranges[80] = {
 
 const narsil_language narsil_language_korean = {
   .name = "korean",
-  .revision = "d73a65f243e050ef",
+  .revision = "90c98d6eabf24744",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 235,
