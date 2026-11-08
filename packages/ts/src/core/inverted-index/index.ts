@@ -18,6 +18,7 @@ export interface TermSuggestion {
 export interface InvertedIndexReader {
   lookup(token: string): PostingListView | undefined
   lookupMany?(tokens: readonly string[]): Array<PostingListView | undefined>
+  lookupOrdinals?(tokens: readonly string[]): Uint32Array
   lookupReadOnce?(token: string): PostingListView | undefined
   documentFrequency(token: string): number
   fuzzyLookup(
@@ -117,6 +118,10 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       for (let at = 0; at < ordinals.length; at++)
         if (ordinals[at] !== 0xffffffff) lists[at] = postings.view(ordinals[at], true)
       return lists
+    },
+
+    lookupOrdinals(tokens: readonly string[]): Uint32Array {
+      return lookups.findMany(postings.terms.dictionary(), tokens)
     },
 
     lookupReadOnce(token: string): PostingListView | undefined {

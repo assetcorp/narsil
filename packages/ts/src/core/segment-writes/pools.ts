@@ -1,4 +1,6 @@
 import type { NativeSliceAllocator } from '../../vector/native/types/segments'
+import { SLICE_CAPACITIES } from '../inverted-index/pools'
+import { WRITE_PLAN_START_CAPACITY } from './constants'
 import { requireRoom, requireSegment } from './status'
 
 export interface Slice {
@@ -11,81 +13,181 @@ export interface SlicePool extends NativeSliceAllocator {
   values: Uint32Array
 }
 
-export class PoolPlan {
-  readonly heads: Uint32Array
-  private readonly slices: Slice[] = []
-  private readonly used = new Set<number>()
-  private end: number
-  private free: number
+const MAX_SLICE_CLASSES = 255
+const NO_SLICE_CLASS = 255
+const NO_FREE_SLICE = 0xffffffff
+const SLICE_CLASS_SPAN = 256
+const LAST_STAMP = 0xffffffff
 
-  constructor(readonly pool: SlicePool) {
+const UNSET_ALLOCATOR: NativeSliceAllocator = {
+  allocation: new Uint32Array(2),
+  freeHeads: new Uint32Array(0),
+  sliceCapacities: new Uint32Array(0),
+}
+
+function readsEngineCapacities(capacities: Uint32Array): boolean {
+  return (
+    capacities.buffer === SLICE_CAPACITIES.buffer &&
+    capacities.byteOffset === SLICE_CAPACITIES.byteOffset &&
+    capacities.length === SLICE_CAPACITIES.length
+  )
+}
+
+export class PoolPlan {
+  allocator = UNSET_ALLOCATOR
+  values: Uint32Array = new Uint32Array(0)
+  allocatedClass = 0
+  readonly heads = new Uint32Array(MAX_SLICE_CLASSES)
+  private slices = new Float64Array(WRITE_PLAN_START_CAPACITY)
+  private count = 0
+  private usedStarts = new Uint32Array(WRITE_PLAN_START_CAPACITY * 2)
+  private usedStamps = new Uint32Array(WRITE_PLAN_START_CAPACITY * 2)
+  private stamp = 0
+  private end = 0
+  private free = 0
+
+  begin(allocator: NativeSliceAllocator, values: Uint32Array): this {
+    const capacities = allocator.sliceCapacities
     requireSegment(
-      pool.values.length <= 0xffffffff &&
-        pool.sliceCapacities.length > 0 &&
-        pool.sliceCapacities.length <= 255 &&
-        pool.allocation[0] <= pool.values.length &&
-        pool.allocation[1] <= pool.allocation[0],
+      values.length <= 0xffffffff &&
+        capacities.length > 0 &&
+        capacities.length <= MAX_SLICE_CLASSES &&
+        allocator.allocation[0] <= values.length &&
+        allocator.allocation[1] <= allocator.allocation[0],
     )
-    let previous = 0
-    for (const capacity of pool.sliceCapacities) {
-      requireSegment(capacity > previous)
-      previous = capacity
+    if (!readsEngineCapacities(capacities)) {
+      let previous = 0
+      for (let at = 0; at < capacities.length; at++) {
+        requireSegment(capacities[at] > previous)
+        previous = capacities[at]
+      }
     }
-    this.heads = pool.freeHeads.slice()
-    this.end = pool.allocation[0]
-    this.free = pool.allocation[1]
+    this.allocator = allocator
+    this.values = values
+    this.heads.set(allocator.freeHeads.subarray(0, capacities.length))
+    this.end = allocator.allocation[0]
+    this.free = allocator.allocation[1]
+    this.count = 0
+    this.nextStamp()
+    return this
+  }
+
+  allocateStart(length: number, smallerClass = NO_SLICE_CLASS): number {
+    const capacities = this.allocator.sliceCapacities
+    const allocation = this.allocator.allocation
+    let low = 0
+    if (smallerClass < capacities.length && capacities[smallerClass] < length) {
+      low = smallerClass + 1
+      while (low < capacities.length && capacities[low] < length) low++
+    } else if (capacities[0] < length) {
+      let high = capacities.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2)
+        if (capacities[middle] < length) low = middle + 1
+        else high = middle
+      }
+    }
+    requireSegment(low < capacities.length && length > 0)
+    const size = capacities[low]
+    let start = this.heads[low]
+    const reused = start !== NO_FREE_SLICE
+    if (reused) {
+      requireSegment(start < allocation[0] && size <= allocation[0] - start && size <= this.free)
+    } else {
+      start = this.end
+      requireRoom(size <= this.values.length - start)
+    }
+    if (reused) {
+      this.record(start, low)
+      this.heads[low] = this.values[start]
+      this.free -= size
+    } else this.end += size
+    this.allocatedClass = low
+    return start
   }
 
   allocate(length: number): Slice {
-    const pool = this.pool
-    let low = 0
-    let high = pool.sliceCapacities.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if (pool.sliceCapacities[middle] < length) low = middle + 1
-      else high = middle
-    }
-    requireSegment(low < pool.sliceCapacities.length && length > 0)
-    const size = pool.sliceCapacities[low]
-    let start = this.heads[low]
-    const reused = start !== 0xffffffff
-    if (reused) {
-      requireSegment(start < pool.allocation[0] && size <= pool.allocation[0] - start && size <= this.free)
-    } else {
-      start = this.end
-      requireRoom(size <= pool.values.length - start)
-    }
-    requireSegment(!this.used.has(start))
-    this.used.add(start)
-    const slice = { start, length: size, sliceClass: low }
-    this.slices.push(slice)
-    if (reused) {
-      this.heads[low] = pool.values[start]
-      this.free -= size
-    } else this.end += size
-    return slice
+    const start = this.allocateStart(length)
+    const sliceClass = this.allocatedClass
+    return { start, length: this.allocator.sliceCapacities[sliceClass], sliceClass }
   }
 
   check(): void {
-    this.slices.sort((left, right) => left.start - right.start)
-    for (let at = 1; at < this.slices.length; at++) {
-      const previous = this.slices[at - 1]
-      requireSegment(this.slices[at].start - previous.start >= previous.length)
+    const capacities = this.allocator.sliceCapacities
+    const slices = this.slices.subarray(0, this.count)
+    slices.sort()
+    for (let at = 1; at < slices.length; at++) {
+      const previousClass = slices[at - 1] % SLICE_CLASS_SPAN
+      const previousStart = (slices[at - 1] - previousClass) / SLICE_CLASS_SPAN
+      const start = (slices[at] - (slices[at] % SLICE_CLASS_SPAN)) / SLICE_CLASS_SPAN
+      requireSegment(start - previousStart >= capacities[previousClass])
     }
   }
 
   publish(): void {
-    this.pool.allocation[0] = this.end
-    this.pool.allocation[1] = this.free
-    this.pool.freeHeads.set(this.heads)
+    const allocator = this.allocator
+    allocator.allocation[0] = this.end
+    allocator.allocation[1] = this.free
+    allocator.freeHeads.set(this.heads.subarray(0, allocator.freeHeads.length))
+  }
+
+  private record(start: number, sliceClass: number): void {
+    if ((this.count + 1) * 2 > this.usedStarts.length) this.growUsed()
+    const mask = this.usedStarts.length - 1
+    let slot = start & mask
+    while (this.usedStamps[slot] === this.stamp) {
+      requireSegment(this.usedStarts[slot] !== start)
+      slot = (slot + 1) & mask
+    }
+    this.usedStamps[slot] = this.stamp
+    this.usedStarts[slot] = start
+    if (this.count === this.slices.length) {
+      const grown = new Float64Array(this.slices.length * 2)
+      grown.set(this.slices)
+      this.slices = grown
+    }
+    this.slices[this.count++] = start * SLICE_CLASS_SPAN + sliceClass
+  }
+
+  private growUsed(): void {
+    const capacity = this.usedStarts.length * 2
+    this.usedStarts = new Uint32Array(capacity)
+    this.usedStamps = new Uint32Array(capacity)
+    this.stamp = 1
+    const mask = capacity - 1
+    for (let at = 0; at < this.count; at++) {
+      const start = (this.slices[at] - (this.slices[at] % SLICE_CLASS_SPAN)) / SLICE_CLASS_SPAN
+      let slot = start & mask
+      while (this.usedStamps[slot] === this.stamp) slot = (slot + 1) & mask
+      this.usedStamps[slot] = this.stamp
+      this.usedStarts[slot] = start
+    }
+  }
+
+  private nextStamp(): void {
+    if (this.stamp === LAST_STAMP) {
+      this.usedStamps.fill(0)
+      this.stamp = 0
+    }
+    this.stamp++
   }
 }
 
+export function releaseRange(
+  allocator: NativeSliceAllocator,
+  values: Uint32Array,
+  start: number,
+  length: number,
+  sliceClass: number,
+): void {
+  if (sliceClass === NO_SLICE_CLASS) return
+  values[start] = allocator.freeHeads[sliceClass]
+  allocator.freeHeads[sliceClass] = start
+  allocator.allocation[1] += length
+}
+
 export function releaseSlice(pool: SlicePool, slice: Slice): void {
-  if (slice.sliceClass === 255) return
-  pool.values[slice.start] = pool.freeHeads[slice.sliceClass]
-  pool.freeHeads[slice.sliceClass] = slice.start
-  pool.allocation[1] += slice.length
+  releaseRange(pool, pool.values, slice.start, slice.length, slice.sliceClass)
 }
 
 export function trimClass(capacities: Uint32Array, source: number, kept: number): number {
@@ -114,7 +216,7 @@ export function trimSlice(pool: SlicePool, source: Slice, target: number): void 
   for (let at = source.sliceClass; at >= 0 && remaining > 0; at--) {
     const size = pool.sliceCapacities[at]
     while (size <= remaining) {
-      releaseSlice(pool, { start, length: size, sliceClass: at })
+      releaseRange(pool, pool.values, start, size, at)
       start += size
       remaining -= size
     }

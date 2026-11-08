@@ -1,9 +1,9 @@
+import { loadRerankRuntime } from '../../engine/query/fixed-depth-code'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
 import { decodePageCursor, encodePageCursor } from '../../search/cursor'
 import { resolveHybridFusion } from '../../search/fusion'
-import { fixedHybridDepthOf, requireWithinHybridDepth } from '../../search/hybrid-depth'
-import { pageByPosition } from '../../search/position-page'
+import type { pageByPosition } from '../../search/position-page'
 import { ascendingFacetFields } from '../cluster-node/query-conversion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
@@ -65,20 +65,25 @@ function fixedLegsOf(params: WireQueryParams, depth: number): { text: WireQueryP
   }
 }
 
+interface FixedDepthPage {
+  placed: ScoredEntry[]
+  fused: ScoredEntry[]
+  pins: WireQueryParams['pinned']
+  allMatchesPresent: boolean
+  start: number
+  page: HybridPage
+  depth: number
+}
+
 function pageFixedDepth(
-  placed: ScoredEntry[],
-  fused: ScoredEntry[],
-  pins: WireQueryParams['pinned'],
-  allMatchesPresent: boolean,
-  start: number,
-  page: HybridPage,
-  depth: number,
+  pageRows: typeof pageByPosition,
+  { placed, fused, pins, allMatchesPresent, start, page, depth }: FixedDepthPage,
 ): { page: ScoredEntry[]; cursor: string | null } {
   const placedIds =
     pins === null
       ? undefined
       : new Set(pins.filter(entry => allMatchesPresent || entry.position < depth).map(entry => entry.docId))
-  const paged = pageByPosition(placed.map(positionedOf), fused.map(positionedOf), {
+  const paged = pageRows(placed.map(positionedOf), fused.map(positionedOf), {
     start,
     limit: page.limit,
     pinnedIds: placedIds,
@@ -127,10 +132,13 @@ export async function executeHybridQuery(
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
   const fusion = resolveHybridFusion(params.hybrid)
-  const fixedDepth = fixedHybridDepthOf(params.hybrid)
+  const fixedDepthCode = (params.hybrid?.depth ?? null) === null ? null : await loadRerankRuntime()
+  const fixedDepth = fixedDepthCode?.fixedHybridDepthOf(params.hybrid)
   const cursorDepth =
     fixedDepth === undefined || params.searchAfter === null ? 0 : (decodePageCursor(params.searchAfter).depth ?? 0)
-  if (fixedDepth !== undefined) requireWithinHybridDepth(cursorDepth, page.offset, fixedDepth)
+  if (fixedDepthCode !== null && fixedDepth !== undefined) {
+    fixedDepthCode.requireWithinHybridDepth(cursorDepth, page.offset, fixedDepth)
+  }
   const depth = fixedDepth ?? page.limit + page.offset
   const { text: textParams, vector: vectorParams } =
     fixedDepth === undefined ? pageLegsOf(params, depth) : fixedLegsOf(params, depth)
@@ -228,9 +236,17 @@ export async function executeHybridQuery(
       ? placePinnedEntries(fused, pins, depth, allMatchesPresent, deps.pinnedDocuments)
       : { entries: fused, placedFromOutside: [] }
   const paged =
-    fixedDepth === undefined
+    fixedDepthCode === null || fixedDepth === undefined
       ? { page: placement.entries.slice(page.offset, depth), cursor: null }
-      : pageFixedDepth(placement.entries, fused, pins, allMatchesPresent, cursorDepth + page.offset, page, depth)
+      : pageFixedDepth(fixedDepthCode.pageByPosition, {
+          placed: placement.entries,
+          fused,
+          pins,
+          allMatchesPresent,
+          start: cursorDepth + page.offset,
+          page,
+          depth,
+        })
   const mergedFacets =
     allFacets.length > 0
       ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))

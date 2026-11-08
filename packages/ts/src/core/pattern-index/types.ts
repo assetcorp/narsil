@@ -84,7 +84,6 @@ export interface PatternMergeInput {
 }
 
 export interface PatternSearchModule extends PatternSearch {
-  host(): PatternHost
   storedValues(store: DocumentStoreReader, field: string): NativeStoredValues
   createIndex(host: PatternHost): PatternIndexWriter
   readArrays(arrays: PatternIndexArrays): PatternIndexReader

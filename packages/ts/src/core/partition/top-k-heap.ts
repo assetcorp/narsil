@@ -16,6 +16,12 @@ export interface TopKCandidate {
  * @returns True where `a` ranks below `b`.
  */
 export function candidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
+  if (a.score < b.score) return true
+  if (a.score > b.score) return false
+  return unorderedCandidateWorse(a, b)
+}
+
+function unorderedCandidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
   return (compareScores(a.score, b.score) || compareCodePoints(a.externalId, b.externalId)) > 0
 }
 

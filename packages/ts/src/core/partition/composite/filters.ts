@@ -1,9 +1,9 @@
-import { applyPartitionFilters, applyPartitionFiltersBitset } from '../../../search/sorting-code'
 import type { FilterExpression } from '../../../types/filters'
 import type { SchemaDefinition } from '../../../types/schema'
 import { bitsetHas } from '../../bitset'
 import type { PatternWorkMeter } from '../../pattern-index/types'
 import type { PartitionFilterMatches } from '../filters'
+import { applyPartitionFilters, applyPartitionFiltersBitset } from '../filters'
 import type { PartitionReadState } from '../read-state'
 
 export interface OrdinalLayout {

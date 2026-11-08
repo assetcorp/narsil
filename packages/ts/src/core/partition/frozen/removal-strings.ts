@@ -1,8 +1,8 @@
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
 import type { NativeFieldTokens } from '../../../vector/native/types/segments'
-import { PreparedTokens } from '../../segment-writes/prepared-tokens'
+import { PreparedTokens, packedTokens } from '../../segment-writes/prepared-tokens'
 import type { FrozenPartialWordSlot } from '../partial-words/types'
-import type { PreparedText } from '../prepared-text'
+import { type PreparedText, preparedSurfaces } from '../prepared-text'
 import type { FrozenSurfaceSlot } from './surface-slot'
 
 export interface FrozenStringRemoval
@@ -43,13 +43,13 @@ export function prepareFrozenStrings(
         for (let count = 0; count < value.count; count++)
           records.add(token, position++, spelling === token ? undefined : spelling)
       }
-      fields.push({ field, ...records.finish() })
+      fields.push({ field, ...packedTokens(records.finish()) })
       continue
     }
     const prepared = text.fields.get(fieldNames[field])
     if (prepared === undefined) continue
-    fields.push({ field, ...prepared.records })
-    for (const [spelling, entry] of prepared.surfaces) {
+    fields.push({ field, ...packedTokens(prepared.records) })
+    for (const [spelling, entry] of preparedSurfaces(prepared)) {
       if (spelling !== entry.token) spellings.add(spelling)
     }
   }

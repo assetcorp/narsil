@@ -2,6 +2,7 @@ import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
+import { packedFields } from '../segment-writes/prepared-tokens'
 import { keywordFields } from './keyword-writes'
 import type { PreparedText } from './prepared-text'
 import { SegmentFull } from './segment-full'
@@ -66,7 +67,7 @@ export function removeFromIndexes(
   prepared: PreparedText,
 ): void {
   const keyword = keywordFields(state, prepared, schemaFields, internalId)
-  keyword.segment.remove(internalId, keyword.fields, prepared.tokens)
+  keyword.segment.remove(internalId, packedFields(keyword.fields), prepared.tokens)
   for (const { path: fieldPath, base, pattern } of schemaFields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue

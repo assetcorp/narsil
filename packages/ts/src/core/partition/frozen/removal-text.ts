@@ -1,5 +1,6 @@
 import type { LanguageModule } from '../../../types/language'
 import type { AnyDocument } from '../../../types/schema'
+import { packedTokens } from '../../segment-writes/prepared-tokens'
 import { storedText } from '../../stored-values/text'
 import { transformToken } from '../../tokenizer/cache'
 import { resolveStopWords } from '../../tokenizer/tokenize'
@@ -37,8 +38,9 @@ export function prepareRemovalText(
     if (options?.customTokenizer === undefined) {
       visitDocumentSurfaceSpellings(document, { fields: [field], language, options }, add)
     } else {
-      const records = prepared.fields.get(field)?.records
-      if (records === undefined) continue
+      const held = prepared.fields.get(field)?.records
+      if (held === undefined) continue
+      const records = packedTokens(held)
       for (let at = 0; at < records.tokens.length; at += 8) {
         const shown = records.tokens[at + 3]
         add(

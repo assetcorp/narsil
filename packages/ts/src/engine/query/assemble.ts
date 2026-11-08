@@ -16,6 +16,7 @@ import type { LanguageModule } from '../../types/language'
 import type { FacetResult, GroupResult, Hit } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { QueryParams, SortField } from '../../types/search'
+import { applyHighlights } from './highlight'
 
 export interface PageRequest {
   readonly limit: number
@@ -165,7 +166,7 @@ export function fillHits<T>(
   projection: ResolvedProjection,
   reads: HitReads,
   highlighting: HighlightSettings,
-): Promise<void> | void {
+): void {
   for (const hit of paginated) {
     hit.document = (projection.kind === 'none' ? {} : (reads.get(hit.id, projection) ?? {})) as T
   }
@@ -182,7 +183,5 @@ export function fillHits<T>(
     ? (docId: string): Record<string, unknown> | undefined => reads.get(docId, { kind: 'full' })
     : undefined
   const { language, analysis, schema, synonyms } = highlighting
-  return import('./highlight').then(({ applyHighlights }) =>
-    applyHighlights(paginated, params, language, analysis, schema, readStoredDocument, synonyms),
-  )
+  applyHighlights(paginated, params, language, analysis, schema, readStoredDocument, synonyms)
 }

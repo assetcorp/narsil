@@ -54,12 +54,8 @@ export interface NativeAnalysisCore {
    * @param records - The array that receives the token count in its first entry and then eight entries for
    * each token: its position, the offset and length of its term, the offset and length of its surface form
    * (an offset of 0xffffffff where it has none), the offset and length of its original spelling, and its cache slot.
-   * @param units - An optional output for packed write preparation. This receives the term and surface suffix.
-   * The records then use offsets into this output, zero original-spelling words, and a cache slot of 0xffffffff.
-   * If either output is short, only the token count in `records[0]` changes.
    * @returns The text that every offset points into, `null` where `records` holds too few entries for every
    * token (its first entry then holds the token count), or a negative status code from the core's header.
-   * Packed mode returns the required unit count, including when either output needs more room.
    */
   analyse(
     language: number,
@@ -67,8 +63,25 @@ export interface NativeAnalysisCore {
     text: string,
     stopWords: NativeStopWordSetHandle | null,
     records: Uint32Array,
-    units?: Uint16Array,
   ): string | number | null
+  /**
+   * Splits a text into tokens and packs them for a keyword write, in one new buffer that holds exactly them.
+   *
+   * @param language - The index of the language module to analyse with.
+   * @param flags - The analysis steps to take, as bits from the core's header.
+   * @param text - The text.
+   * @param stopWords - The stop words to remove, or `null` for the module's own list.
+   * @returns The term and surface text of every token, or a negative status code from the core's header. The
+   * buffer under the returned array starts with the token count and then eight words for each token, laid out as
+   * {@link NativeAnalysisCore.analyse} lays them out, with offsets into the returned array, zero original-spelling
+   * words, and a cache slot of 0xffffffff. The returned array starts right after the last record.
+   */
+  analysePacked(
+    language: number,
+    flags: number,
+    text: string,
+    stopWords: NativeStopWordSetHandle | null,
+  ): Uint16Array | number
   /**
    * Normalises and stems one token without splitting it.
    *

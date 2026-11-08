@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { computeFacets } from '../../search/facets'
-import { applyPartitionFilters, applyPartitionFiltersBitset, partitionFilterMatches } from '../../search/sorting-code'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -21,6 +20,7 @@ import { discardStoredValues } from '../stored-values/columns'
 import { createSurfaceRegistry } from '../surface-registry'
 import type { FacetMatchSet } from './facets'
 import type { PartitionFilterMatches } from './filters'
+import { applyPartitionFilters, applyPartitionFiltersBitset, partitionFilterMatches } from './filters'
 import { discardKeywordSegment, keywordBatch } from './keyword-writes'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'

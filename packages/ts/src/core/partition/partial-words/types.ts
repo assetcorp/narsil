@@ -5,6 +5,7 @@ import type { PartialWordSearch } from '../../../types/partial-words'
 import type { AnyDocument } from '../../../types/schema'
 import type { NativeRunTable, NativeSpellingTable } from '../../../vector/native/types/segments'
 import type { DocumentStoreReader } from '../../document-store'
+import type { PartialExpansionCode } from '../../expansion/partial-bindings'
 import type { GrowingSegment } from '../../segment-writes/growing'
 import type { SpellingTable } from '../../segment-writes/spelling-table'
 import type { StringPlan } from '../../segment-writes/strings'
@@ -108,6 +109,7 @@ export interface FrozenPartialWordSlot extends PartialWordSlot {
 }
 
 export interface PartialWordSearchModule extends PartialWordSearch {
+  bindExpansionCode(code: PartialExpansionCode): void
   createSpellingTable(): SpellingTable
   prepareSpellingRuns(table: NativeRunTable, plan: StringPlan): () => void
   prepareSpellingRemoval(table: NativeRunTable, plan: StringPlan): () => void

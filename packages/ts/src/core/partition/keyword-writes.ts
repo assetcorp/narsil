@@ -1,14 +1,14 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
-import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { GrowingSegment } from '../segment-writes/growing'
+import type { PreparedSegmentField } from '../segment-writes/prepared-tokens'
 import { SegmentRefusal } from '../segment-writes/status'
 import { growingSurfaceReader } from '../segment-writes/surface-reader'
 import { SurfaceTable } from '../segment-writes/surface-table'
 import type { TermTable } from '../term-table'
 import { createSpellingTable } from './partial-words/registry'
-import type { PreparedText } from './prepared-text'
+import { type PreparedText, preparedSurfaces } from './prepared-text'
 import type { PartitionReadState } from './read-state'
 import { getOrCreateFieldNameIndex, type PartitionInsertOptions, type PartitionState } from './utils'
 
@@ -89,14 +89,21 @@ export function keywordFields(
   prepared: PreparedText,
   schemaFields: readonly SchemaField[],
   ordinal: number,
-): { segment: GrowingSegment; fields: NativeFieldTokens[] } {
+): { segment: GrowingSegment; fields: PreparedSegmentField[] } {
   const segment = segments.get(state)?.segment
   if (segment === undefined)
     throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The keyword segment has no prepared publication')
-  const fields: NativeFieldTokens[] = []
-  for (const [path, text] of prepared.fields)
-    fields.push({ field: getOrCreateFieldNameIndex(state.fieldNameTable, path), ...text.records })
-  fields.sort((left, right) => left.field - right.field)
+  const fields: PreparedSegmentField[] = []
+  for (const [path, text] of prepared.fields) {
+    const entry = { field: getOrCreateFieldNameIndex(state.fieldNameTable, path), text: text.records }
+    let at = fields.length
+    fields.push(entry)
+    while (at > 0 && fields[at - 1].field > entry.field) {
+      fields[at] = fields[at - 1]
+      at--
+    }
+    fields[at] = entry
+  }
   segment.reserveFields(Math.max(ordinal + 1, state.docStore.internalIdCapacity()), state.fieldNameTable.names.length)
   for (const field of schemaFields) {
     const ordinal = state.fieldNameTable.indexMap.get(field.path)
@@ -116,7 +123,7 @@ export function keywordCountsFit(state: PartitionState, prepared: PreparedText):
   if (segment === undefined) return true
   const counts = new Map<string, number>()
   for (const field of prepared.fields.values()) {
-    for (const [surface, entry] of field.surfaces) {
+    for (const [surface, entry] of preparedSurfaces(field)) {
       if (surface === entry.token) continue
       counts.set(surface, (counts.get(surface) ?? 0) + entry.count)
     }

@@ -1,3 +1,4 @@
+import { bindPartialExpansionCode } from '../../expansion/partial-bindings'
 import { collectRuns, prepareRunRemoval, RunPlan } from '../../segment-writes/runs'
 import { SpellingTable } from '../../segment-writes/spelling-table'
 import { RunVacuum } from '../../segment-writes/vacuum-runs'
@@ -12,6 +13,7 @@ import type { PartialWordSearchModule } from './types'
 
 export const partialWordSearchModule: PartialWordSearchModule = {
   name: 'partialWords',
+  bindExpansionCode: bindPartialExpansionCode,
   createSpellingTable: () => new SpellingTable(),
   prepareSpellingRuns(table, plan) {
     const runs = new RunPlan(table, collectRuns(plan))

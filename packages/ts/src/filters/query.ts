@@ -1,7 +1,7 @@
 import { flattenSchema } from '../schema/validator'
-import { validatedFilterOf } from '../search/sorting-code'
 import type { FilterExpression } from '../types/filters'
 import type { SchemaDefinition } from '../types/schema'
+import { validatedFilterOf } from './operands'
 
 export function validQueryFilter(
   filters: FilterExpression | undefined,
