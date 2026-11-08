@@ -11,9 +11,9 @@ import {
 } from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
+import type { EncodedSegmentPayload } from '../../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
-import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { encodeKeywordSegment } from '../../../serialization/keyword-segment/encode'
 import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
@@ -48,12 +48,17 @@ export interface SegmentsWritten {
   nextSegmentId: number
 }
 
-function emptyPayload(): SegmentPayload {
+function emptyPayload(): EncodedSegmentPayload {
   return {
     documentCount: 0,
     docIds: [],
     fieldNames: [],
-    tokens: [],
+    tokenTable: {
+      blob: new Uint8Array(0),
+      offsets: new Uint32Array(1),
+      payloadSlots: new Uint32Array(0),
+      documentFrequencies: new Uint32Array(0),
+    },
     postingOffsets: new Uint32Array(1),
     postingDocIds: new Uint32Array(0),
     postingFrequencies: new Uint16Array(0),
@@ -63,8 +68,7 @@ function emptyPayload(): SegmentPayload {
     fieldLengthNames: [],
     fieldLengthColumns: [],
     totalFieldLengths: {},
-    docFrequencies: {},
-    surfaceForms: null,
+    surfaceTable: null,
     partialSpellings: null,
     numeric: [],
     boolean: [],

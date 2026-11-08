@@ -21,7 +21,7 @@ export { generateId } from './id-generator'
 export { encodeDocumentTableData, storedDocumentsOf } from './partition/frozen/document-source'
 export { encodeExternalIdTableData } from './partition/frozen/external-ids'
 export { encodeStringBlob } from './partition/frozen/string-blob'
-export { decodeSurfaceTable, encodeSurfaceTable } from './partition/frozen/surface-table'
+export { encodeSurfaceTable } from './partition/frozen/surface-table'
 export { encodeFrozenTokenTableData, wrapFrozenTokenTable } from './partition/frozen/token-table'
 export {
   buildPartialWordTableFrom,
