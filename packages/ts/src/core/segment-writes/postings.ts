@@ -1,42 +1,63 @@
 import type { NativeGrowingSegment } from '../../vector/native/types/segments'
-import { PoolPlan, releaseSlice, type Slice } from './pools'
+import { WRITE_PLAN_START_CAPACITY } from './constants'
+import { PoolPlan, releaseRange } from './pools'
 import { requireRoom, requireSegment } from './status'
-import type { TokenPlan } from './tokens'
+import { StampedMemo } from './string-memo'
+import { TOKEN_REFERENCE_WORDS, type TokenPlan } from './tokens'
 
-interface PostingChange {
-  index: number
-  ordinal: number
-  oldLength: number
-  kept: number
-  frequency: number
-  last: number
-  addedRows: number
-  flags: number
-  isNew: boolean
-  addedFrequency: number
-  firstToken: number
-  tokenEnd: number
-  source: Slice
-  target: Slice
-}
+const NO_SLICE_CLASS = 255
+const NEW_TERM_FLAGS = 3
+const MAX_ROW_FREQUENCY = 65535
+const MAX_POSTING_COUNT = 0xffffffff
 
 export function rowRemoved(segment: NativeGrowingSegment, ordinal: number): boolean {
   return ordinal >= segment.ordinalCapacity || (segment.retired[ordinal >>> 5] & (1 << (ordinal & 31))) !== 0
 }
 
+function grownColumn<Column extends Uint8Array | Uint32Array | Float64Array>(held: Column, grown: Column): Column {
+  grown.set(held)
+  return grown
+}
+
 export class PostingPlan {
-  readonly changes: PostingChange[] = []
-  readonly pool: PoolPlan
-  readonly purging: boolean
-  private positionEnd: number
+  segment: NativeGrowingSegment
+  ordinal = 0
+  tokens: TokenPlan
+  purging = false
+  size = 0
+  ordinals = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private oldLengths = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private kept = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private frequencies = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private addedRows = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private flags = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private isNew = new Uint8Array(WRITE_PLAN_START_CAPACITY)
+  private addedFrequencies = new Float64Array(WRITE_PLAN_START_CAPACITY)
+  private firstTokens = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private tokenEnds = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private sourceStarts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private sourceLengths = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private sourceClasses = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private targetStarts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private targetClasses = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private readonly purged = new StampedMemo()
+  private readonly pool = new PoolPlan()
+  private compact = false
+  private positionEnd = 0
   private freedPositions = 0
 
-  constructor(
-    readonly segment: NativeGrowingSegment,
-    readonly ordinal: number,
-    readonly tokens: TokenPlan,
-    private readonly compact = false,
-  ) {
+  constructor(segment: NativeGrowingSegment, tokens: TokenPlan) {
+    this.segment = segment
+    this.tokens = tokens
+  }
+
+  prepare(segment: NativeGrowingSegment, ordinal: number, tokens: TokenPlan, compact: boolean): this {
+    this.segment = segment
+    this.ordinal = ordinal
+    this.tokens = tokens
+    this.compact = compact
+    this.size = 0
+    this.freedPositions = 0
     this.purging = compact || rowRemoved(segment, ordinal)
     const positions = segment.positions
     this.positionEnd = positions?.allocation[0] ?? 0
@@ -46,49 +67,53 @@ export class PostingPlan {
           this.positionEnd <= positions.values.length &&
           positions.allocation[1] < this.positionEnd,
       )
-    this.pool = new PoolPlan({ ...segment.postings, values: segment.postings.docIds })
-    const purged = new Map<number, PostingChange>()
+    this.pool.begin(segment.postings, segment.postings.docIds)
+    const terms = tokens.terms
     if (this.purging) {
+      this.purged.claim(this, segment.terms.header[0])
       for (let token = 0; token < segment.terms.header[0]; token++) {
         if ((segment.columns.flags[token] & 1) === 0 || segment.columns.deadDocuments[token] === 0) continue
-        purged.set(token, this.prepare(token, false))
+        this.purged.set(token, this.prepareChange(token, false))
       }
-    }
-    for (const entry of tokens.terms.entries) {
-      const change = purged.get(entry.ordinal) ?? this.prepare(entry.ordinal, entry.added)
-      entry.token = change.index
+      for (let at = 0; at < terms.size; at++) {
+        const held = this.purged.get(terms.ordinals[at])
+        terms.tokens[at] = held >= 0 ? held : this.prepareChange(terms.ordinals[at], terms.added[at] === 1)
+      }
+    } else {
+      for (let at = 0; at < terms.size; at++)
+        terms.tokens[at] = this.prepareChange(terms.ordinals[at], terms.added[at] === 1)
     }
     this.prepareRows()
     if (positions !== null) requireSegment(this.freedPositions <= positions.allocation[0] - positions.allocation[1])
-    for (const change of this.changes) {
-      requireRoom(change.addedRows <= 0xffffffff - change.kept)
-      const length = change.kept + change.addedRows
-      if (length > change.source.length) change.target = this.pool.allocate(length)
-      requireSegment(change.addedRows === 0 || change.frequency < 0xffffffff)
+    for (let at = 0; at < this.size; at++) {
+      requireRoom(this.addedRows[at] <= MAX_POSTING_COUNT - this.kept[at])
+      const length = this.kept[at] + this.addedRows[at]
+      if (length > this.sourceLengths[at]) {
+        this.targetStarts[at] = this.pool.allocateStart(length, this.sourceClasses[at])
+        this.targetClasses[at] = this.pool.allocatedClass
+      }
+      requireSegment(this.addedRows[at] === 0 || this.frequencies[at] < MAX_POSTING_COUNT)
     }
     this.pool.check()
+    return this
   }
 
   publish(): void {
     const segment = this.segment
     this.pool.publish()
     let positionEnd = segment.positions?.allocation[0] ?? 0
-    for (const change of this.changes) {
-      if (this.purging || change.source.start !== change.target.start) this.copyKept(change)
-      if (
-        !this.purging &&
-        change.source.start === change.target.start &&
-        segment.positions !== null &&
-        (change.flags & 4) === 0 &&
-        change.kept > 0
-      )
-        segment.postings.positionStarts?.fill(0, change.target.start, change.target.start + change.kept)
-      positionEnd = this.appendRows(change, positionEnd)
-      this.publishColumns(change)
+    for (let at = 0; at < this.size; at++) {
+      const moved = this.sourceStarts[at] !== this.targetStarts[at]
+      if (this.purging || moved) this.copyKept(at)
+      if (!this.purging && !moved && segment.positions !== null && (this.flags[at] & 4) === 0 && this.kept[at] > 0)
+        segment.postings.positionStarts?.fill(0, this.targetStarts[at], this.targetStarts[at] + this.kept[at])
+      positionEnd = this.appendRows(at, positionEnd)
+      this.publishColumns(at)
     }
-    for (const change of this.changes) {
-      if (change.source.sliceClass !== 255 && change.source.start !== change.target.start)
-        releaseSlice(this.pool.pool, change.source)
+    const postings = segment.postings
+    for (let at = 0; at < this.size; at++) {
+      if (this.sourceClasses[at] !== NO_SLICE_CLASS && this.sourceStarts[at] !== this.targetStarts[at])
+        releaseRange(postings, postings.docIds, this.sourceStarts[at], this.sourceLengths[at], this.sourceClasses[at])
     }
     if (this.purging && !this.compact) segment.retired.fill(0)
     if (segment.positions !== null) {
@@ -97,26 +122,33 @@ export class PostingPlan {
     }
   }
 
-  private prepare(ordinal: number, isNew: boolean): PostingChange {
-    const source = { start: 0, length: 0, sliceClass: 255 }
-    const change: PostingChange = {
-      index: this.changes.length,
-      ordinal,
-      isNew,
-      source,
-      target: source,
-      oldLength: 0,
-      kept: 0,
-      frequency: 0,
-      last: 0,
-      addedRows: 0,
-      flags: 3,
-      addedFrequency: 0,
-      firstToken: 0,
-      tokenEnd: 0,
-    }
-    this.changes.push(change)
-    if (isNew) return change
+  private prepareChange(ordinal: number, isNew: boolean): number {
+    const at = this.size
+    if (at === this.ordinals.length) this.grow()
+    this.size = at + 1
+    this.ordinals[at] = ordinal
+    this.addedRows[at] = 0
+    this.addedFrequencies[at] = 0
+    this.firstTokens[at] = 0
+    this.tokenEnds[at] = 0
+    if (isNew || this.existingChange(at, ordinal)) this.newChange(at)
+    return at
+  }
+
+  private newChange(at: number): void {
+    this.isNew[at] = 1
+    this.sourceStarts[at] = 0
+    this.sourceLengths[at] = 0
+    this.sourceClasses[at] = NO_SLICE_CLASS
+    this.targetStarts[at] = 0
+    this.targetClasses[at] = NO_SLICE_CLASS
+    this.oldLengths[at] = 0
+    this.kept[at] = 0
+    this.frequencies[at] = 0
+    this.flags[at] = NEW_TERM_FLAGS
+  }
+
+  private existingChange(at: number, ordinal: number): boolean {
     const columns = this.segment.columns
     const postings = this.segment.postings
     const sliceClass = columns.sliceClass[ordinal]
@@ -129,105 +161,125 @@ export class PostingPlan {
     const start = columns.sliceStart[ordinal]
     const end = postings.allocation[0]
     if (
-      sliceClass === 255 &&
+      sliceClass === NO_SLICE_CLASS &&
       columns.lengths[ordinal] === 0 &&
       columns.docFrequency[ordinal] === 0 &&
       columns.deadDocuments[ordinal] === 0
-    ) {
-      change.isNew = true
-      return change
-    }
+    )
+      return true
     requireSegment(sliceClass < postings.sliceCapacities.length && start <= end)
     const size = postings.sliceCapacities[sliceClass]
     requireSegment(size <= end - start && columns.lengths[ordinal] <= size)
-    change.source = { start, length: size, sliceClass }
-    change.target = change.source
-    change.oldLength = columns.lengths[ordinal]
-    change.kept = change.oldLength
-    change.flags = columns.flags[ordinal]
-    change.frequency = columns.docFrequency[ordinal]
-    change.last = change.oldLength === 0 ? 0 : postings.docIds[start + change.oldLength - 1]
-    if (!this.purging) return change
-    change.kept = 0
-    change.flags |= 2
-    change.frequency -= columns.deadDocuments[ordinal]
-    for (let at = start; at < start + change.oldLength; at++) {
-      const doc = postings.docIds[at]
+    this.isNew[at] = 0
+    this.sourceStarts[at] = start
+    this.sourceLengths[at] = size
+    this.sourceClasses[at] = sliceClass
+    this.targetStarts[at] = start
+    this.targetClasses[at] = sliceClass
+    const oldLength = columns.lengths[ordinal]
+    this.oldLengths[at] = oldLength
+    this.flags[at] = columns.flags[ordinal]
+    this.frequencies[at] = columns.docFrequency[ordinal]
+    if (!this.purging) {
+      this.kept[at] = oldLength
+      return false
+    }
+    let last = 0
+    let kept = 0
+    let flags = this.flags[at] | 2
+    this.frequencies[at] -= columns.deadDocuments[ordinal]
+    for (let row = start; row < start + oldLength; row++) {
+      const doc = postings.docIds[row]
       if (rowRemoved(this.segment, doc)) {
-        this.releasePositions(change, at)
+        this.releasePositions(flags, row)
         continue
       }
-      if (change.kept > 0 && doc < change.last) change.flags &= ~2
-      change.last = doc
-      change.kept++
+      if (kept > 0 && doc < last) flags &= ~2
+      last = doc
+      kept++
     }
-    return change
+    this.kept[at] = kept
+    this.flags[at] = flags
+    return false
   }
 
-  private releasePositions(change: PostingChange, at: number): void {
+  private releasePositions(flags: number, row: number): void {
     const positions = this.segment.positions
     const starts = this.segment.postings.positionStarts
-    if (positions === null || starts === null || (change.flags & 4) === 0) return
-    const position = starts[at]
+    if (positions === null || starts === null || (flags & 4) === 0) return
+    const position = starts[row]
     if (position === 0) return
     requireSegment(position < this.positionEnd)
     const count = positions.values[position]
     requireSegment(count < this.positionEnd - position)
-    requireSegment(count + 1 <= 0xffffffff - this.freedPositions)
+    requireSegment(count + 1 <= MAX_POSTING_COUNT - this.freedPositions)
     this.freedPositions += count + 1
   }
 
   private prepareRows(): void {
     const tokens = this.tokens.tokens
-    for (let start = 0; start < tokens.length; ) {
-      const first = tokens[start]
+    const total = this.tokens.count
+    const changes = this.tokens.terms.tokens
+    const positions = this.segment.positions
+    for (let start = 0; start < total; ) {
+      const term = tokens[start * TOKEN_REFERENCE_WORDS]
+      const field = tokens[start * TOKEN_REFERENCE_WORDS + 1]
       let end = start + 1
-      while (end < tokens.length && tokens[end].term === first.term && tokens[end].field === first.field) end++
+      while (
+        end < total &&
+        tokens[end * TOKEN_REFERENCE_WORDS] === term &&
+        tokens[end * TOKEN_REFERENCE_WORDS + 1] === field
+      )
+        end++
       const count = end - start
-      const change = this.changes[this.tokens.terms.entries[first.term].token]
-      if (change.addedRows === 0) change.firstToken = start
-      change.tokenEnd = end
-      change.addedRows++
-      change.addedFrequency += Math.min(count, 65535)
-      if (this.segment.positions !== null) {
-        requireRoom(count < 0xffffffff && count + 1 <= this.segment.positions.values.length - this.positionEnd)
+      const at = changes[term]
+      if (this.addedRows[at] === 0) this.firstTokens[at] = start
+      this.tokenEnds[at] = end
+      this.addedRows[at]++
+      this.addedFrequencies[at] += Math.min(count, MAX_ROW_FREQUENCY)
+      if (positions !== null) {
+        requireRoom(count < MAX_POSTING_COUNT && count + 1 <= positions.values.length - this.positionEnd)
         this.positionEnd += count + 1
       }
       start = end
     }
   }
 
-  private copyKept(change: PostingChange): void {
+  private copyKept(at: number): void {
     const pool = this.segment.postings
+    const source = this.sourceStarts[at]
+    const target = this.targetStarts[at]
+    const keepsPositions = (this.flags[at] & 4) !== 0
     let kept = 0
-    for (let at = change.source.start; at < change.source.start + change.oldLength; at++) {
-      const doc = pool.docIds[at]
+    for (let row = source; row < source + this.oldLengths[at]; row++) {
+      const doc = pool.docIds[row]
       if (this.purging && rowRemoved(this.segment, doc)) continue
-      const target = change.target.start + kept++
-      pool.docIds[target] = doc
-      pool.frequencies[target] = pool.frequencies[at]
-      pool.fieldIndices[target] = pool.fieldIndices[at]
-      if (pool.positionStarts !== null)
-        pool.positionStarts[target] = (change.flags & 4) === 0 ? 0 : pool.positionStarts[at]
+      const output = target + kept++
+      pool.docIds[output] = doc
+      pool.frequencies[output] = pool.frequencies[row]
+      pool.fieldIndices[output] = pool.fieldIndices[row]
+      if (pool.positionStarts !== null) pool.positionStarts[output] = keepsPositions ? pool.positionStarts[row] : 0
     }
   }
 
-  private appendRows(change: PostingChange, positionEnd: number): number {
+  private appendRows(at: number, positionEnd: number): number {
     const pool = this.segment.postings
     const tokens = this.tokens.tokens
     const positions = this.segment.positions
-    let output = change.target.start + change.kept
-    for (let start = change.firstToken; start < change.tokenEnd; ) {
-      const first = tokens[start]
+    const tokenEnd = this.tokenEnds[at]
+    let output = this.targetStarts[at] + this.kept[at]
+    for (let start = this.firstTokens[at]; start < tokenEnd; ) {
+      const field = tokens[start * TOKEN_REFERENCE_WORDS + 1]
       let end = start + 1
-      while (end < change.tokenEnd && tokens[end].field === first.field) end++
+      while (end < tokenEnd && tokens[end * TOKEN_REFERENCE_WORDS + 1] === field) end++
       pool.docIds[output] = this.ordinal
-      pool.frequencies[output] = Math.min(end - start, 65535)
-      pool.fieldIndices[output] = first.field
+      pool.frequencies[output] = Math.min(end - start, MAX_ROW_FREQUENCY)
+      pool.fieldIndices[output] = field
       if (positions !== null && pool.positionStarts !== null) {
         pool.positionStarts[output] = positionEnd
         positions.values[positionEnd++] = end - start
-        for (let at = start; at < end; at++) positions.values[positionEnd++] = tokens[at].position
+        for (let token = start; token < end; token++)
+          positions.values[positionEnd++] = tokens[token * TOKEN_REFERENCE_WORDS + 2]
       } else if (pool.positionStarts !== null) pool.positionStarts[output] = 0
       output++
       start = end
@@ -235,21 +287,70 @@ export class PostingPlan {
     return positionEnd
   }
 
-  private publishColumns(change: PostingChange): void {
+  private publishColumns(at: number): void {
     const columns = this.segment.columns
-    const ordinal = change.ordinal
-    let flags = change.flags
-    if (change.kept > 0 && change.addedRows > 0 && this.ordinal < change.last) flags &= ~2
-    if (change.addedRows > 0 && this.segment.positions !== null) flags |= 4
-    columns.sliceStart[ordinal] = change.target.start
-    columns.sliceClass[ordinal] = change.target.sliceClass
-    columns.lengths[ordinal] = change.kept + change.addedRows
-    columns.docFrequency[ordinal] = change.frequency + Number(change.addedRows > 0)
-    if (this.purging || change.isNew) columns.deadDocuments[ordinal] = 0
-    columns.totalTermFrequency[ordinal] =
-      (change.isNew ? 0 : columns.totalTermFrequency[ordinal]) + change.addedFrequency
-    if (change.isNew) columns.surfaceOccurrences[ordinal] = 0
-    columns.revision[ordinal] = change.isNew ? 0 : columns.revision[ordinal] + 1
+    const ordinal = this.ordinals[at]
+    const isNew = this.isNew[at] === 1
+    const addedRows = this.addedRows[at]
+    let flags = this.flags[at]
+    const kept = this.kept[at]
+    if (
+      kept > 0 &&
+      addedRows > 0 &&
+      (flags & 2) !== 0 &&
+      this.ordinal < this.segment.postings.docIds[this.targetStarts[at] + kept - 1]
+    )
+      flags &= ~2
+    if (addedRows > 0 && this.segment.positions !== null) flags |= 4
+    columns.sliceStart[ordinal] = this.targetStarts[at]
+    columns.sliceClass[ordinal] = this.targetClasses[at]
+    columns.lengths[ordinal] = kept + addedRows
+    columns.docFrequency[ordinal] = this.frequencies[at] + Number(addedRows > 0)
+    if (this.purging || isNew) columns.deadDocuments[ordinal] = 0
+    columns.totalTermFrequency[ordinal] = (isNew ? 0 : columns.totalTermFrequency[ordinal]) + this.addedFrequencies[at]
+    if (isNew) columns.surfaceOccurrences[ordinal] = 0
+    columns.revision[ordinal] = isNew ? 0 : columns.revision[ordinal] + 1
     columns.flags[ordinal] = flags
   }
+
+  private grow(): void {
+    const capacity = this.ordinals.length * 2
+    this.ordinals = grownColumn(this.ordinals, new Uint32Array(capacity))
+    this.oldLengths = grownColumn(this.oldLengths, new Uint32Array(capacity))
+    this.kept = grownColumn(this.kept, new Uint32Array(capacity))
+    this.frequencies = grownColumn(this.frequencies, new Uint32Array(capacity))
+    this.addedRows = grownColumn(this.addedRows, new Uint32Array(capacity))
+    this.flags = grownColumn(this.flags, new Uint32Array(capacity))
+    this.isNew = grownColumn(this.isNew, new Uint8Array(capacity))
+    this.addedFrequencies = grownColumn(this.addedFrequencies, new Float64Array(capacity))
+    this.firstTokens = grownColumn(this.firstTokens, new Uint32Array(capacity))
+    this.tokenEnds = grownColumn(this.tokenEnds, new Uint32Array(capacity))
+    this.sourceStarts = grownColumn(this.sourceStarts, new Uint32Array(capacity))
+    this.sourceLengths = grownColumn(this.sourceLengths, new Uint32Array(capacity))
+    this.sourceClasses = grownColumn(this.sourceClasses, new Uint32Array(capacity))
+    this.targetStarts = grownColumn(this.targetStarts, new Uint32Array(capacity))
+    this.targetClasses = grownColumn(this.targetClasses, new Uint32Array(capacity))
+  }
+}
+
+let sparePostingPlan: PostingPlan | null = null
+
+export function acquirePostingPlan(
+  segment: NativeGrowingSegment,
+  ordinal: number,
+  tokens: TokenPlan,
+  compact = false,
+): PostingPlan {
+  const plan = sparePostingPlan ?? new PostingPlan(segment, tokens)
+  sparePostingPlan = null
+  try {
+    return plan.prepare(segment, ordinal, tokens, compact)
+  } catch (error) {
+    sparePostingPlan = plan
+    throw error
+  }
+}
+
+export function releasePostingPlan(plan: PostingPlan): void {
+  sparePostingPlan = plan
 }

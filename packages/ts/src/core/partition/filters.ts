@@ -4,6 +4,7 @@ import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
 import { bitsetHas, createBitSet } from '../bitset'
+import { patternHost } from '../pattern-index/host'
 import { requirePatternSearch } from '../pattern-index/registry'
 import type { PatternOperator, PatternTolerance, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
@@ -71,7 +72,7 @@ export function buildFilterContext(
         index,
         matches: into,
         meter,
-        host: pattern.host(),
+        host: patternHost(),
         values: pattern.storedValues(state.docStore, fieldPath),
       })
     },

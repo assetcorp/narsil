@@ -1,42 +1,37 @@
-import type { NativeGrowingSegment, NativeSegmentCore, NativeSurfaceTable } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment, NativeSegmentCore } from '../../vector/native/types/segments'
 import { prepareSpellingRuns } from '../partition/partial-words/registry'
-import { PostingPlan } from './postings'
+import { DOCUMENT_INSERT_DECLINED, insertPreparedDocument } from './document-insert'
+import { acquirePostingPlan, releasePostingPlan } from './postings'
+import type { PreparedSegmentField } from './prepared-tokens'
 import { readRequest } from './regions'
 import { requireSegment, SegmentRefusal } from './status'
-import type { StringPlan } from './strings'
-import { TokenPlan } from './tokens'
+import { publishSurfaces } from './strings'
+import { preparedSources, type TokenSource, tokenSources } from './token-sources'
+import { acquireTokenPlan, releaseTokenPlan, type TokenPlan } from './tokens'
 
 export { beginBatch, endBatch } from './batch'
 export { removeDocument } from './remove'
 
-function publishSurfaces(plan: StringPlan, table: NativeSurfaceTable): void {
-  plan.publish()
-  for (const entry of plan.entries) {
-    table.token[entry.ordinal] = entry.token
-    table.count[entry.ordinal] = (entry.added ? 0 : table.count[entry.ordinal]) + entry.count
-  }
-}
-
 function publishStrings(plan: TokenPlan, segment: NativeGrowingSegment): void {
   if (plan.surfaces !== null && segment.surfaces !== null) {
-    publishSurfaces(plan.surfaces, segment.surfaces)
-    for (const entry of plan.surfaces.entries) {
-      if (entry.token < segment.terms.header[0]) segment.columns.surfaceOccurrences[entry.token] += entry.count
+    const surfaces = plan.surfaces
+    publishSurfaces(surfaces, segment.surfaces)
+    for (let at = 0; at < surfaces.size; at++) {
+      const token = surfaces.tokens[at]
+      if (token < segment.terms.header[0]) segment.columns.surfaceOccurrences[token] += surfaces.counts[at]
     }
   }
   if (plan.spellings !== null && segment.spellings !== null) {
-    publishSurfaces(plan.spellings, segment.spellings)
-    for (const entry of plan.spellings.entries) segment.spellings.codePoints[entry.ordinal] = entry.points
+    const spellings = plan.spellings
+    publishSurfaces(spellings, segment.spellings)
+    for (let at = 0; at < spellings.size; at++)
+      segment.spellings.codePoints[spellings.ordinals[at]] = spellings.points[at]
   }
 }
 
-export const indexTerms: NativeSegmentCore['indexTerms'] = (input, ordinal, rawFields) => {
+function publishPlans(segment: NativeGrowingSegment, ordinal: number, tokens: TokenPlan): void {
+  const postings = acquirePostingPlan(segment, ordinal, tokens)
   try {
-    const { segment, fields } = readRequest(input, ordinal, rawFields)
-    requireSegment(segment.totalDocuments[0] < segment.ordinalCapacity)
-    for (const total of segment.totalFieldLengths) requireSegment(Number.isFinite(total) && total >= 0)
-    const tokens = new TokenPlan(segment, fields, false)
-    const postings = new PostingPlan(segment, ordinal, tokens)
     const runs =
       tokens.spellings === null || segment.spellings === null
         ? null
@@ -45,15 +40,55 @@ export const indexTerms: NativeSegmentCore['indexTerms'] = (input, ordinal, rawF
     postings.publish()
     publishStrings(tokens, segment)
     runs?.()
-    for (let field = 0; field < segment.partialFields.length; field++)
-      segment.fieldLengths[field * segment.ordinalCapacity + ordinal] = 0
-    for (const field of fields) {
-      const count = field.tokens.length / 8
-      segment.fieldLengths[field.field * segment.ordinalCapacity + ordinal] = count
-      segment.totalFieldLengths[field.field] += count
+  } finally {
+    releasePostingPlan(postings)
+  }
+}
+
+function publishTerms(segment: NativeGrowingSegment, ordinal: number, sources: readonly TokenSource[]): number {
+  requireSegment(segment.totalDocuments[0] < segment.ordinalCapacity)
+  for (const total of segment.totalFieldLengths) requireSegment(Number.isFinite(total) && total >= 0)
+  const tokens = acquireTokenPlan(segment, sources, false)
+  try {
+    publishPlans(segment, ordinal, tokens)
+  } finally {
+    releaseTokenPlan(tokens)
+  }
+  for (let field = 0; field < segment.partialFields.length; field++)
+    segment.fieldLengths[field * segment.ordinalCapacity + ordinal] = 0
+  for (const source of sources) {
+    segment.fieldLengths[source.field * segment.ordinalCapacity + ordinal] = source.records
+    segment.totalFieldLengths[source.field] += source.records
+  }
+  segment.totalDocuments[0]++
+  return 0
+}
+
+export const indexTerms: NativeSegmentCore['indexTerms'] = (input, ordinal, rawFields) => {
+  try {
+    const { segment, fields, text } = readRequest(input, ordinal, rawFields)
+    return publishTerms(segment, ordinal, tokenSources(fields, text))
+  } catch (error) {
+    if (error instanceof SegmentRefusal) return error.status
+    throw error
+  }
+}
+
+export function indexPreparedTerms(
+  segment: NativeGrowingSegment,
+  ordinal: number,
+  fields: readonly PreparedSegmentField[],
+): number {
+  try {
+    requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
+    requireSegment(fields.length <= segment.partialFields.length)
+    let previous = -1
+    for (const { field } of fields) {
+      requireSegment(Number.isInteger(field) && field > previous && field < segment.partialFields.length)
+      previous = field
     }
-    segment.totalDocuments[0]++
-    return 0
+    const status = insertPreparedDocument(segment, ordinal, fields)
+    return status === DOCUMENT_INSERT_DECLINED ? publishTerms(segment, ordinal, preparedSources(fields)) : status
   } catch (error) {
     if (error instanceof SegmentRefusal) return error.status
     throw error

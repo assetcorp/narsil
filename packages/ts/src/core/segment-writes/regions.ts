@@ -9,6 +9,7 @@ import type { NativeTermTable } from '../../vector/native/types/terms'
 import { regionsOverlap } from '../regions'
 import { typedRegion } from '../stored-values/regions'
 import { requireSegment } from './status'
+import { tokenTextOf } from './token-text'
 
 type RegionKind = Parameters<typeof typedRegion>[1]
 
@@ -201,7 +202,7 @@ function readSegment(input: NativeGrowingSegment, regions: Regions): NativeGrowi
   }
 }
 
-function checkText(units: Uint16Array, start: number, length: number): void {
+export function checkText(units: Uint16Array, start: number, length: number): void {
   requireSegment(length <= 0x40000000 && start <= units.length && length <= units.length - start)
   const end = start + length
   for (let at = start; at < end; at++) {
@@ -220,12 +221,15 @@ export function readRequest(input: NativeGrowingSegment, ordinal: number, rawFie
   const segment = readSegment(captured, regions)
   requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
   requireSegment(fields.length <= segment.partialFields.length)
+  const text: Array<ReadonlyArray<string | undefined> | undefined> = []
   let previous = -1
   for (const field of fields) {
     requireSegment(
       Number.isInteger(field.field) && field.field > previous && field.field < segment.partialFields.length,
     )
+    const known = tokenTextOf(field.tokens)
     field.tokens = regions.read(field.tokens, 'Uint32Array', undefined, false)
+    text.push(known?.length === field.tokens.length / 4 ? known : undefined)
     field.units = regions.read(field.units, 'Uint16Array', undefined, false)
     requireSegment(field.units.length <= 0xffffffff)
     requireSegment(field.tokens.length % 8 === 0 && field.tokens.length / 8 <= 0xffffffff)
@@ -236,7 +240,7 @@ export function readRequest(input: NativeGrowingSegment, ordinal: number, rawFie
     previous = field.field
   }
   regions.check()
-  return { segment, fields }
+  return { segment, fields, text }
 }
 
 export function readBatch(input: NativeGrowingSegment): NativeGrowingSegment {

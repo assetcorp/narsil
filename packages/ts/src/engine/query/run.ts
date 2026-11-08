@@ -170,8 +170,7 @@ async function sortedAnswer<T>(
     facets: sorted.facets,
     groups: undefined,
   }
-  const filling = fillHits(ranked.paginated, undefined, params, page.projection, pin, highlighting)
-  if (filling !== undefined) await filling
+  fillHits(ranked.paginated, undefined, params, page.projection, pin, highlighting)
   return ranked
 }
 
@@ -185,8 +184,8 @@ function pageOfAnswer<T>(
   if (isRankedPage(answer)) return withPinnedVectors(answer as RankedPage<T>, pin, page)
   const reads: HitReads = answer.documents === undefined ? pin : copyReads(answer.documents, pin)
   const ranked = rankPage<T>(answer, params, page, context.config.schema, context.cursorBinding, reads)
-  const filling = fillHits(ranked.paginated, ranked.groups, params, page.projection, reads, highlighting)
-  return filling === undefined ? ranked : filling.then(() => ranked)
+  fillHits(ranked.paginated, ranked.groups, params, page.projection, reads, highlighting)
+  return ranked
 }
 
 function fieldSortSignatureOf(shape: QueryShape): string | null {

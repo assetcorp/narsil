@@ -1,7 +1,16 @@
 import { loadNativeCore } from '#platform/native-core'
 import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
-import type { NativeTermCore } from '../../vector/native/types/terms'
+import type { NativeTermCore, NativeTermDictionary } from '../../vector/native/types/terms'
 import * as portable from './portable'
+
+export function findOwnedTerm(dictionary: NativeTermDictionary, text: string): number | undefined | null {
+  if (dictionary.growing === null) return null
+  if (nativeSearchCoreIsEnabled()) {
+    if (loadNativeCore() !== null) return null
+    noteFallback('lookupExact')
+  }
+  return portable.findOwnedTerm(dictionary, text)
+}
 
 export const lookupExact: NativeTermCore['lookupExact'] = (...args) => {
   if (nativeSearchCoreIsEnabled()) {

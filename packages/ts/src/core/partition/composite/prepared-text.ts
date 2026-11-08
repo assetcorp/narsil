@@ -4,7 +4,7 @@ import type { SchemaDefinition } from '../../../types/schema'
 import type { FrozenSegment } from '../frozen'
 import { prepareRemovalText, removedSurfaceSpellings } from '../frozen/removal-text'
 import type { RemovedSpellings } from '../frozen/surface-slot'
-import { type PreparedText, prepareDocumentText } from '../prepared-text'
+import { type PreparedText, prepareDocumentText, preparedSurfaces } from '../prepared-text'
 import type { PartitionInsertOptions } from '../utils'
 
 export function prepareFrozenText(
@@ -32,7 +32,7 @@ export function preparedRemovedSpellings(before: PreparedText | undefined): Remo
   if (before.removalSpellings !== undefined) return removedSurfaceSpellings(before)
   const spellings: string[] = []
   for (const field of before.fields.values()) {
-    for (const [spelling, value] of field.surfaces) {
+    for (const [spelling, value] of preparedSurfaces(field)) {
       if (spelling === value.token) continue
       for (let count = 0; count < value.count; count++) spellings.push(spelling)
     }

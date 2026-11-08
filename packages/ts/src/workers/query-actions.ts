@@ -35,7 +35,7 @@ function withCopyReads(
   action: Extract<WorkerAction, { type: 'query' }>,
   manager: PartitionManager,
   pin: StatePin,
-): FanOutResult | Promise<FanOutResult> {
+): FanOutResult {
   const reads = action.reads
   if (reads === undefined) return result
   if (reads.kind === 'documents') {
@@ -46,7 +46,7 @@ function withCopyReads(
     return result
   }
   const ranked = rankPage<AnyDocument>(result, action.params, reads.page, manager.schema, () => reads.binding, pin)
-  const filling = fillHits(ranked.paginated, ranked.groups, action.params, reads.page.projection, pin, {
+  fillHits(ranked.paginated, ranked.groups, action.params, reads.page.projection, pin, {
     language: manager.language,
     analysis: manager.analysis,
     schema: manager.schema,
@@ -58,7 +58,7 @@ function withCopyReads(
     patternWorkSpent: result.patternWorkSpent,
     page: ranked,
   }
-  return filling === undefined ? answer : filling.then(() => answer)
+  return answer
 }
 
 export async function runQueryAction(

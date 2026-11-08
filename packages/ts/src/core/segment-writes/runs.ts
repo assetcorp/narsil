@@ -1,6 +1,6 @@
 import type { NativeRunTable } from '../../vector/native/types/segments'
 import { FNV_OFFSET_BASIS, FNV_PRIME } from '../hash'
-import { PoolPlan, releaseSlice, type Slice } from './pools'
+import { PoolPlan, releaseRange, type Slice } from './pools'
 import { requireRoom, requireSegment, SegmentRefusal } from './status'
 import type { StringPlan } from './strings'
 
@@ -40,14 +40,15 @@ function equalRun(table: NativeRunTable, ordinal: number, points: readonly numbe
 
 export function collectRuns(spellings: StringPlan): RunMember[] {
   const members: RunMember[] = []
-  for (const entry of spellings.entries) {
-    if (!entry.added || entry.points <= 3) continue
+  for (let at = 0; at < spellings.size; at++) {
+    if (spellings.added[at] === 0 || spellings.points[at] <= 3) continue
+    const spelling = spellings.ordinals[at]
     let first = 0
     let second = 0
     let seen = 0
-    for (const character of entry.text) {
+    for (const character of spellings.texts[at]) {
       const point = character.codePointAt(0) ?? 0
-      if (++seen >= 3) members.push({ points: [first, second, point], spelling: entry.ordinal })
+      if (++seen >= 3) members.push({ points: [first, second, point], spelling })
       first = second
       second = point
     }
@@ -77,7 +78,7 @@ export class RunPlan {
     readonly table: NativeRunTable,
     readonly members: readonly RunMember[],
   ) {
-    this.pool = new PoolPlan({ ...table, values: table.members })
+    this.pool = new PoolPlan().begin(table, table.members)
     for (let first = 0; first < members.length; ) {
       let end = first + 1
       while (end < members.length && compareRuns(members[first].points, members[end].points) === 0) end++
@@ -124,7 +125,7 @@ export class RunPlan {
     }
     for (const change of this.changes) {
       if (change.source.sliceClass !== 255 && change.source.start !== change.target.start)
-        releaseSlice(this.pool.pool, change.source)
+        releaseRange(table, table.members, change.source.start, change.source.length, change.source.sliceClass)
     }
     table.header[0] += this.added
   }

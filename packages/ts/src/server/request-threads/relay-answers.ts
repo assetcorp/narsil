@@ -1,7 +1,7 @@
 import type { EngineCore } from '../../engine/core'
+import { loadRerankRuntime } from '../../engine/query/fixed-depth-code'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
 import { isNarsilError } from '../../errors'
-import { rerankOnHost } from '../../rerank/call'
 import { ServerErrorCodes, toHttpError } from '../errors'
 import type { Authorizer } from '../request'
 import type { ThreadFeeds } from '../sync/feed-host'
@@ -72,6 +72,7 @@ export async function answerRerank(
   signal?: AbortSignal,
 ): Promise<RelayReply> {
   try {
+    const { rerankOnHost } = await loadRerankRuntime()
     const scores = await rerankOnHost(core, request.adapter, request.query, request.documents, signal)
     return { type: 'reranked', requestId: request.requestId, scores, error: null }
   } catch (err) {

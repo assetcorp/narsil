@@ -4,12 +4,7 @@ import type { NativeStopWordSetHandle } from '../../vector/native/analysis-types
 import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
 import type { NativeCore } from '../../vector/native/types'
 import { storedText } from '../stored-values/text'
-import {
-  NATIVE_ANALYSIS_FIRST_TEXT_UNITS,
-  NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS,
-  NATIVE_ANALYSIS_HELD_TERMS,
-  NATIVE_ANALYSIS_TEXT_GROWTH_FACTOR,
-} from './constants'
+import { NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS, NATIVE_ANALYSIS_HELD_TERMS } from './constants'
 import type { NativeAnalysis, PackedTokenVisitor } from './native-hook'
 import type { TokenizeOptions, TokenVisitor } from './tokenize'
 
@@ -42,7 +37,6 @@ let indexByName = new Map<string, number>()
 let languagesOfCore = new WeakMap<LanguageModule, CoreLanguage | null>()
 let heldStopWords = new WeakMap<object, HeldStopWords>()
 let sharedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
-let sharedUnits = new Uint16Array(NATIVE_ANALYSIS_FIRST_TEXT_UNITS)
 let recordsInUse = false
 let termsBySlot: Array<string | undefined> | null = null
 
@@ -128,46 +122,40 @@ function stopWordsFor(
   return heldSetFor(core, override, words)
 }
 
+function analysePacked(
+  core: NativeCore,
+  index: number,
+  flags: number,
+  text: string,
+  stopWords: NativeStopWordSetHandle | null,
+): Analysed | null {
+  const units = core.analysePacked(index, flags, text, stopWords)
+  if (typeof units === 'number' || units.byteOffset % Uint32Array.BYTES_PER_ELEMENT !== 0) {
+    noteFallback('analyse')
+    return null
+  }
+  const records = new Uint32Array(units.buffer, 0, units.byteOffset / Uint32Array.BYTES_PER_ELEMENT)
+  if (records.length === 0 || 1 + records[0] * TOKEN_RECORD_WORDS !== records.length) {
+    noteFallback('analyse')
+    return null
+  }
+  return { arena: units, records }
+}
+
 function analyseWith(
   core: NativeCore,
   index: number,
   flags: number,
   text: string,
   stopWords: NativeStopWordSetHandle | null,
-  packed = false,
 ): Analysed | null {
   let records = recordsInUse ? new Uint32Array(sharedRecords.length) : sharedRecords
-  let units = packed ? (recordsInUse ? new Uint16Array(sharedUnits.length) : sharedUnits) : null
-  const invoke = () =>
-    units === null
-      ? core.analyse(index, flags, text, stopWords, records)
-      : core.analyse(index, flags, text, stopWords, records, units)
-  let result = invoke()
-  if (
-    result === null ||
-    (units !== null &&
-      typeof result === 'number' &&
-      result >= 0 &&
-      (result > units.length || 1 + records[0] * TOKEN_RECORD_WORDS > records.length))
-  ) {
-    if (1 + records[0] * TOKEN_RECORD_WORDS > records.length) {
-      records = new Uint32Array(1 + records[0] * TOKEN_RECORD_WORDS)
-      if (!recordsInUse) sharedRecords = records
-    }
-    if (units !== null && typeof result === 'number' && result > units.length) {
-      units = new Uint16Array(Math.max(result, units.length * NATIVE_ANALYSIS_TEXT_GROWTH_FACTOR))
-      if (!recordsInUse) sharedUnits = units
-    }
-    result = invoke()
+  let result = core.analyse(index, flags, text, stopWords, records)
+  if (result === null) {
+    records = new Uint32Array(1 + records[0] * TOKEN_RECORD_WORDS)
+    if (!recordsInUse) sharedRecords = records
+    result = core.analyse(index, flags, text, stopWords, records)
   }
-  if (
-    units !== null &&
-    typeof result === 'number' &&
-    result >= 0 &&
-    result <= units.length &&
-    1 + records[0] * TOKEN_RECORD_WORDS <= records.length
-  )
-    return { arena: units.subarray(0, result), records }
   if (typeof result !== 'string') {
     noteFallback('analyse')
     return null
@@ -239,7 +227,10 @@ function visitTokens(
     (options?.removeDiacritics === true ? REMOVE_DIACRITICS_FLAG : 0) |
     (options?.collectSurfaces === true ? COLLECT_SURFACES_FLAG : 0)
   const stopWords = removeStopWords ? stopWordsFor(core, coreLanguage, language, options?.stopWordOverride) : null
-  const analysed = analyseWith(core, coreLanguage.index, flags, text, stopWords, packed !== undefined)
+  const analysed =
+    packed === undefined
+      ? analyseWith(core, coreLanguage.index, flags, text, stopWords)
+      : analysePacked(core, coreLanguage.index, flags, text, stopWords)
   if (analysed === null) return false
   visitRecords(analysed, visit, packed)
   return true

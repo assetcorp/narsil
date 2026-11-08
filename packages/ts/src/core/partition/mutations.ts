@@ -1,3 +1,4 @@
+import { copyStoredValue } from '#platform/stored-value-copy'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { partialFieldsOf, schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
@@ -39,7 +40,7 @@ export function createPartitionMutations(
         }
       }
 
-      if (options?.skipClone !== true) document = structuredClone(document)
+      if (options?.skipClone !== true) document = copyStoredValue(document) as AnyDocument
       const fields = schemaFieldsOf(schema)
       prepareKeywordSegment(state, fields, language, options)
       const prepared =
@@ -125,7 +126,7 @@ export function createPartitionMutations(
       const fields = schemaFieldsOf(schema)
       const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, fields)
 
-      if (options?.skipClone !== true) document = structuredClone(document)
+      if (options?.skipClone !== true) document = copyStoredValue(document) as AnyDocument
 
       if (needsTextReindex) {
         prepareKeywordSegment(state, fields, language, options)

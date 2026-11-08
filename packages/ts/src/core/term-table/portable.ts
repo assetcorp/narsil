@@ -1,6 +1,6 @@
-import type { NativeTermCore, NativeTermDictionary } from '../../vector/native/types/terms'
+import type { NativeTermCore, NativeTermDictionary, NativeTermTable } from '../../vector/native/types/terms'
 import { boundedLevenshtein, fuzzyPrefixOf } from '../fuzzy'
-import { FNV_OFFSET_BASIS, FNV_PRIME } from '../hash'
+import { FNV_OFFSET_BASIS, FNV_PRIME, fnv1aUtf16 } from '../hash'
 import { compareCodePoints } from '../ordering'
 import { regionsOverlap } from '../regions'
 import { typedRegion } from '../stored-values/regions'
@@ -65,6 +65,34 @@ function exact(dictionary: NativeTermDictionary, query: Uint16Array): number | u
     if (order === 0) return liveFrequency(dictionary, middle) > 0 ? middle : undefined
     if (order < 0) low = middle + 1
     else high = middle
+  }
+  return undefined
+}
+
+function equalsText(table: NativeTermTable, ordinal: number, text: string): boolean {
+  if (table.termLength[ordinal] !== text.length) return false
+  const start = table.termOffset[ordinal]
+  if (start > table.header[4] || text.length > table.header[4] - start) return false
+  for (let at = 0; at < text.length; at++) if (table.units[start + at] !== text.charCodeAt(at)) return false
+  return true
+}
+
+export function findOwnedTerm(dictionary: NativeTermDictionary, text: string): number | undefined | null {
+  const table = dictionary.growing
+  if (table === null) return null
+  const mask = table.slots.length - 1
+  let slot = fnv1aUtf16(text) & mask
+  for (let scanned = 0; scanned < table.slots.length; scanned++) {
+    const entry = table.slots[slot]
+    if (entry === 0) return undefined
+    if (
+      entry > 0 &&
+      entry <= table.header[0] &&
+      liveFrequency(dictionary, entry - 1) > 0 &&
+      equalsText(table, entry - 1, text)
+    )
+      return entry - 1
+    slot = (slot + 1) & mask
   }
   return undefined
 }

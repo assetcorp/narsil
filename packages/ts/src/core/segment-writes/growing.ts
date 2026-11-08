@@ -1,5 +1,5 @@
 import type { LivePostings } from '#platform/live-postings'
-import { beginBatch, endBatch, indexTerms, removeDocument } from '#platform/segment-writes'
+import { beginBatch, endBatch, indexPreparedTerms, removeDocument } from '#platform/segment-writes'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeFieldTokens, NativeGrowingSegment } from '../../vector/native/types/segments'
 import {
@@ -12,6 +12,18 @@ import { SLICE_CAPACITIES } from '../inverted-index/pools'
 import { documentCapacity, reservePostings, reserveStrings } from './capacity'
 import { FieldLengths } from './field-lengths'
 import { sparseStrings } from './maintenance'
+import { type PreparedSegmentField, packedFields } from './prepared-tokens'
+import {
+  freezeRegions,
+  holdsSpellingTable,
+  holdsSurfaceTable,
+  holdsTermColumns,
+  holdsTermTable,
+  spellingTableView,
+  surfaceTableView,
+  termColumnsView,
+  termTableView,
+} from './region-view'
 import type { SpellingTable } from './spelling-table'
 import { SurfaceTable } from './surface-table'
 import { trimSegment } from './trim'
@@ -23,6 +35,9 @@ export class GrowingSegment {
   readonly fields = new FieldLengths()
   surfaces: SurfaceTable | null = null
   spellings: SpellingTable | null = null
+  private view: NativeGrowingSegment | null = null
+  private retiredSource: Uint32Array | null = null
+  private retiredWords = new Uint32Array(0)
 
   constructor(
     readonly postings: LivePostings,
@@ -39,27 +54,27 @@ export class GrowingSegment {
     }
   }
 
-  insert(ordinal: number, fields: readonly NativeFieldTokens[], tokens: ReadonlySet<string>): boolean {
+  insert(ordinal: number, fields: readonly PreparedSegmentField[], tokens: readonly string[]): boolean {
     this.preparePublication()
     const terms = this.postings.terms
     const added = terms.liveCount === terms.nonemptyCount ? undefined : this.termsAtFrequency(tokens, 0)
-    let status = indexTerms(this.regions(), ordinal, fields)
+    let status = indexPreparedTerms(this.regions(), ordinal, fields)
     if (status === NEEDS_ROOM) {
-      const capacity = documentCapacity(fields, this.fields.partial)
+      const capacity = documentCapacity(packedFields(fields), this.fields.partial)
       reservePostings(this.postings, capacity, this.tracksPositions)
       if (capacity.surfaces.size > 0) {
         this.surfaces ??= new SurfaceTable()
         reserveStrings(this.surfaces, capacity.surfaces)
       }
       this.spellings?.reserveWords(capacity.spellings)
-      status = indexTerms(this.regions(), ordinal, fields)
+      status = indexPreparedTerms(this.regions(), ordinal, fields)
     }
     if (status === SEGMENT_FULL) return false
     this.accept(status, added)
     return true
   }
 
-  remove(ordinal: number, fields: readonly NativeFieldTokens[], tokens: ReadonlySet<string>): void {
+  remove(ordinal: number, fields: readonly NativeFieldTokens[], tokens: readonly string[]): void {
     this.preparePublication()
     const terms = this.postings.terms
     const change =
@@ -74,9 +89,16 @@ export class GrowingSegment {
   regions(): NativeGrowingSegment {
     const { pool, positions, terms, retired } = this.postings
     const fields = this.fields
-    return {
-      terms: terms.ids,
-      columns: terms,
+    const words = Math.max(1, Math.ceil(fields.ordinalCapacity / 32))
+    if (this.retiredSource !== retired || this.retiredWords.length !== words) {
+      this.retiredSource = retired
+      this.retiredWords = retired.subarray(0, words)
+    }
+    const held = this.view
+    if (held !== null && this.holdsRegions(held)) return held
+    const view = freezeRegions({
+      terms: termTableView(terms.ids),
+      columns: termColumnsView(terms),
       postings: {
         docIds: pool.docIds,
         frequencies: pool.frequencies,
@@ -87,15 +109,47 @@ export class GrowingSegment {
         sliceCapacities: SLICE_CAPACITIES,
       },
       positions: this.tracksPositions ? { values: positions.values, allocation: positions.allocation } : null,
-      surfaces: this.surfaces,
-      spellings: this.spellings,
-      retired: retired.subarray(0, Math.max(1, Math.ceil(fields.ordinalCapacity / 32))),
+      surfaces: surfaceTableView(this.surfaces),
+      spellings: spellingTableView(this.spellings),
+      retired: this.retiredWords,
       fieldLengths: fields.values,
       totalDocuments: fields.documents,
       totalFieldLengths: fields.totals,
       partialFields: fields.partial,
       ordinalCapacity: fields.ordinalCapacity,
-    }
+    })
+    this.view = view
+    return view
+  }
+
+  private holdsRegions(held: NativeGrowingSegment): boolean {
+    const { pool, positions, terms } = this.postings
+    const fields = this.fields
+    const postings = held.postings
+    const heldPositions = held.positions
+    return (
+      holdsTermTable(held.terms, terms.ids) &&
+      holdsTermColumns(held.columns, terms) &&
+      postings.docIds === pool.docIds &&
+      postings.frequencies === pool.frequencies &&
+      postings.fieldIndices === pool.fieldIndices &&
+      postings.positionStarts === pool.positionStarts &&
+      postings.allocation === pool.allocation &&
+      postings.freeHeads === pool.freeHeads &&
+      (heldPositions === null
+        ? !this.tracksPositions
+        : this.tracksPositions &&
+          heldPositions.values === positions.values &&
+          heldPositions.allocation === positions.allocation) &&
+      holdsSurfaceTable(held.surfaces, this.surfaces) &&
+      holdsSpellingTable(held.spellings, this.spellings) &&
+      held.retired === this.retiredWords &&
+      held.fieldLengths === fields.values &&
+      held.totalDocuments === fields.documents &&
+      held.totalFieldLengths === fields.totals &&
+      held.partialFields === fields.partial &&
+      held.ordinalCapacity === fields.ordinalCapacity
+    )
   }
 
   byteLength(): number {
@@ -130,7 +184,7 @@ export class GrowingSegment {
       this.accept(endBatch(this.regions()), 0)
   }
 
-  private termsAtFrequency(tokens: ReadonlySet<string>, frequency: number): number {
+  private termsAtFrequency(tokens: readonly string[], frequency: number): number {
     const terms = this.postings.terms
     let count = 0
     for (const token of tokens) {

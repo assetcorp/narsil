@@ -11,8 +11,8 @@ export interface PartitionStats {
   averageFieldLengths: Record<string, number>
   docFrequencies: Record<string, number>
 
-  addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void
-  removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void
+  addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: readonly string[]): void
+  removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: readonly string[]): void
   recalculateAverages(): void
   serialize(): SerializedPartitionStats
   deserialize(data: SerializedPartitionStats): void
@@ -25,11 +25,7 @@ export interface SerializedPartitionStats {
   docFrequencies: Record<string, number>
 }
 
-function applyUniqueTokens(
-  tokens: ReadonlySet<string>,
-  docFrequencies: Record<string, number>,
-  increment: 1 | -1,
-): void {
+function applyUniqueTokens(tokens: readonly string[], docFrequencies: Record<string, number>, increment: 1 | -1): void {
   if (increment === 1) {
     for (const tok of tokens) {
       docFrequencies[tok] = (docFrequencies[tok] ?? 0) + 1
@@ -62,7 +58,7 @@ export function createPartitionStats(): PartitionStats {
     },
     docFrequencies: Object.create(null) as Record<string, number>,
 
-    addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void {
+    addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: readonly string[]): void {
       stats.totalDocuments++
 
       const fields = Object.keys(fieldLengths)
@@ -76,7 +72,7 @@ export function createPartitionStats(): PartitionStats {
       averagesDirty = true
     },
 
-    removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void {
+    removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: readonly string[]): void {
       if (stats.totalDocuments === 0) return
       stats.totalDocuments--
 

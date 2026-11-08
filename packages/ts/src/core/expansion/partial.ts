@@ -4,10 +4,15 @@ import { compareCodePoints } from '../ordering'
 import { codePointCount } from '../ordering/code-points'
 import { requireRoom, SegmentRefusal } from '../segment-writes/status'
 import { liveFrequency, termText } from '../term-table/read'
-import { PARTIAL_BUDGET, PARTIAL_RUN_POINTS } from './constants'
+import {
+  expansionDictionary,
+  expansionToken,
+  PARTIAL_BUDGET,
+  PARTIAL_RUN_POINTS,
+  validExpansionText,
+} from './partial-bindings'
 import { readPartialExpansion } from './partial-regions'
 import { partialMembers, partialSpelling } from './partial-source'
-import { expansionDictionary, expansionToken, validExpansionText } from './source'
 
 interface Addition {
   text: string

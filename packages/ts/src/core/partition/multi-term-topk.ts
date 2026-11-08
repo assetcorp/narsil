@@ -49,7 +49,7 @@ interface ScanScorer {
 
 export function prunableMultiTermLists(
   params: InternalSearchParams,
-  index: Pick<InvertedIndexReader, 'lookup' | 'lookupMany'>,
+  index: Pick<InvertedIndexReader, 'lookup'>,
 ): MultiTermScanTerm[] | null {
   if (params.queryTokens.length < 2) return null
   if (params.termGroups !== undefined && params.termGroups.length > 0) return null
@@ -62,10 +62,8 @@ export function prunableMultiTermLists(
   if (!bm25PruningSound(params.bm25Params)) return null
 
   const terms: MultiTermScanTerm[] = []
-  const lists = index.lookupMany?.(params.queryTokens.map(queryToken => queryToken.token))
-  for (let at = 0; at < params.queryTokens.length; at++) {
-    const queryToken = params.queryTokens[at]
-    const list = lists === undefined ? index.lookup(queryToken.token) : lists[at]
+  for (const queryToken of params.queryTokens) {
+    const list = index.lookup(queryToken.token)
     if (list === undefined) continue
     if (!list.ordered) return null
     terms.push({ token: queryToken.token, list })

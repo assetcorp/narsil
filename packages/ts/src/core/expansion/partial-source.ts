@@ -4,8 +4,7 @@ import type { NativeRunTable } from '../../vector/native/types/segments'
 import { mergeText } from '../segment-merges/text'
 import { hashRun } from '../segment-writes/runs'
 import { storedText } from '../stored-values/text'
-import { PARTIAL_RUN_POINTS } from './constants'
-import { validExpansionText } from './source'
+import { PARTIAL_RUN_POINTS, validExpansionText } from './partial-bindings'
 
 function growingRun(table: NativeRunTable, points: readonly number[]): number {
   const mask = table.slots.length - 1

@@ -1,21 +1,60 @@
 import type { SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
 import { ARRAY_POSITION_GAP } from '../constants'
-import { PreparedTokens } from '../segment-writes/prepared-tokens'
+import { DocumentTexts, PREPARED_ROW_WORDS, PreparedTokens, packedTokens } from '../segment-writes/prepared-tokens'
+import { storedText } from '../stored-values/text'
 import { visitTokens } from '../tokenizer/tokenize'
 import { countPartialSpelling } from './partial-words/registry'
 import type { ReadonlySpellingCounts, SpellingCounts } from './partial-words/spellings'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from './utils'
 
+const TOKEN_RECORD_WORDS = 8
+const ABSENT_TEXT = 0xffffffff
+
 export interface PreparedTextField {
   readonly length: number
   readonly records: ReturnType<PreparedTokens['finish']>
-  readonly surfaces: ReadonlyMap<string, { readonly token: string; readonly count: number }>
+}
+
+export interface PreparedSurface {
+  readonly token: string
+  readonly count: number
+}
+
+function countSurface(surfaces: Map<string, { token: string; count: number }>, surface: string, token: string): void {
+  if (surface.length === 0) return
+  const shown = surfaces.get(surface)
+  if (shown === undefined) surfaces.set(surface, { token, count: 1 })
+  else shown.count++
+}
+
+export function preparedSurfaces(field: PreparedTextField): ReadonlyMap<string, PreparedSurface> {
+  const surfaces = new Map<string, { token: string; count: number }>()
+  const records = field.records
+  const texts = records.texts
+  if (texts !== null) {
+    const rows = records.rows
+    for (let row = 0; row < records.count * PREPARED_ROW_WORDS; row += PREPARED_ROW_WORDS) {
+      const surface = rows[row + 1]
+      if (surface !== ABSENT_TEXT) countSurface(surfaces, texts[surface], texts[rows[row]])
+    }
+    return surfaces
+  }
+  const { tokens, units } = packedTokens(records)
+  for (let at = 0; at < tokens.length; at += TOKEN_RECORD_WORDS) {
+    if (tokens[at + 3] === ABSENT_TEXT || tokens[at + 4] === 0) continue
+    countSurface(
+      surfaces,
+      storedText(units, tokens[at + 3], tokens[at + 4]),
+      storedText(units, tokens[at + 1], tokens[at + 2]),
+    )
+  }
+  return surfaces
 }
 
 export interface PreparedText {
   readonly fieldLengths: Readonly<Record<string, number>>
-  readonly tokens: ReadonlySet<string>
+  readonly tokens: readonly string[]
   readonly partialSpellings: ReadonlySpellingCounts | null
   readonly fields: ReadonlyMap<string, PreparedTextField>
   readonly removalSpellings?: ReadonlyMap<string, ReadonlyMap<string, PreparedRemovalSpelling>>
@@ -35,26 +74,20 @@ function prepareField(
   value: string | readonly string[],
   language: LanguageModule,
   options: PartitionInsertOptions | undefined,
-  tokens: Set<string>,
   spellings: SpellingCounts | null,
+  document: DocumentTexts,
 ): PreparedTextField {
-  const surfaces = new Map<string, { token: string; count: number }>()
-  const records = new PreparedTokens()
+  const records = new PreparedTokens(document)
   const tokenizing = tokenizeOptions(options)
   let offset = 0
   let lastPosition = -1
   let length = 0
   let packed = false
   const collect = (token: string, position: number, surface: string | undefined): void => {
-    if (!packed) records.add(token, offset + position, surface)
-    tokens.add(token)
+    if (packed) document.addPackedTerm(token)
+    else records.add(token, offset + position, surface)
     length++
     lastPosition = position
-    if (surface !== undefined && surface.length > 0) {
-      const shown = surfaces.get(surface)
-      if (shown === undefined) surfaces.set(surface, { token, count: 1 })
-      else shown.count++
-    }
     if (spellings !== null) countPartialSpelling(spellings, token, surface ?? token, 1)
   }
   const append = (tokens: Uint32Array, units: Uint16Array): void => {
@@ -71,7 +104,12 @@ function prepareField(
       if (lastPosition >= 0) offset += lastPosition + 1 + ARRAY_POSITION_GAP
     }
   }
-  return { length, records: records.finish(), surfaces }
+  return { length, records: records.finish() }
+}
+
+function holdsPartialField(schemaFields: readonly SchemaField[]): boolean {
+  for (const field of schemaFields) if (field.partial === true) return true
+  return false
 }
 
 export function prepareDocumentText(
@@ -81,22 +119,26 @@ export function prepareDocumentText(
   options: PartitionInsertOptions | undefined,
 ): PreparedText {
   const fieldLengths: Record<string, number> = Object.create(null)
-  const tokens = new Set<string>()
-  const partialSpellings: SpellingCounts | null = schemaFields.some(field => field.partial) ? new Map() : null
+  const partialSpellings: SpellingCounts | null = holdsPartialField(schemaFields) ? new Map() : null
   const fields = new Map<string, PreparedTextField>()
-  for (const field of schemaFields) {
-    if (field.base !== 'string' && field.base !== 'string[]') continue
-    const value = getNestedValue(document, field.path)
-    if (value === undefined || value === null) continue
-    const prepared = prepareField(
-      value as string | string[],
-      language,
-      options,
-      tokens,
-      field.partial ? partialSpellings : null,
-    )
-    fieldLengths[field.path] = prepared.length
-    fields.set(field.path, prepared)
+  const texts = new DocumentTexts()
+  try {
+    for (const field of schemaFields) {
+      if (field.base !== 'string' && field.base !== 'string[]') continue
+      const value = getNestedValue(document, field.path)
+      if (value === undefined || value === null) continue
+      const prepared = prepareField(
+        value as string | string[],
+        language,
+        options,
+        field.partial ? partialSpellings : null,
+        texts,
+      )
+      fieldLengths[field.path] = prepared.length
+      fields.set(field.path, prepared)
+    }
+  } finally {
+    texts.release()
   }
-  return { fieldLengths, tokens, partialSpellings, fields }
+  return { fieldLengths, tokens: texts.terms, partialSpellings, fields }
 }

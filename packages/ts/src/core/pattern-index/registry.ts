@@ -8,7 +8,6 @@ import type { PatternSearchModule } from './types'
 let registered: PatternSearchModule | null = null
 
 const MODULE_FUNCTIONS = [
-  'host',
   'storedValues',
   'createIndex',
   'readArrays',

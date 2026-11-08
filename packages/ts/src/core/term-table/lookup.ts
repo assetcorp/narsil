@@ -1,7 +1,16 @@
-import { documentFrequency, lookupExact, lookupExactBatch, lookupPrefix, lookupTypo } from '#platform/term-lookups'
+import {
+  documentFrequency,
+  findOwnedTerm,
+  lookupExact,
+  lookupExactBatch,
+  lookupPrefix,
+  lookupTypo,
+} from '#platform/term-lookups'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeTermDictionary } from '../../vector/native/types/terms'
 import { TERM_REGION_GROWTH_FACTOR } from './constants'
+
+const ABSENT_TERM = 0xffffffff
 
 function checked(status: number): number {
   if (status < 0)
@@ -16,11 +25,20 @@ export class TermLookup {
   private offsets = new Uint32Array(0)
 
   find(dictionary: NativeTermDictionary, text: string): number | undefined {
+    const owned = findOwnedTerm(dictionary, text)
+    if (owned !== null) return owned
     const count = checked(lookupExact(dictionary, this.encode(text), this.single))
     return count === 0 ? undefined : this.single[0]
   }
 
   findMany(dictionary: NativeTermDictionary, texts: readonly string[]): Uint32Array {
+    const first = texts.length === 0 ? null : findOwnedTerm(dictionary, texts[0])
+    if (first !== null) {
+      this.reserve(texts.length)
+      this.results[0] = first ?? ABSENT_TERM
+      for (let at = 1; at < texts.length; at++) this.results[at] = findOwnedTerm(dictionary, texts[at]) ?? ABSENT_TERM
+      return this.results.subarray(0, texts.length)
+    }
     let length = 0
     for (const text of texts) length += text.length
     this.reserveText(length)

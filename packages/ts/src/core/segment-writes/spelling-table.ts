@@ -20,21 +20,23 @@ export class SpellingTable extends SurfaceTable implements NativeSpellingTable {
     for (let at = 0; at < source.spellings.length; at++) {
       const token = terms.ids.get(source.tokens[at])
       if (token === undefined || terms.frequencyAt(token) === 0) continue
-      const entry = plan.prepare(source.spellings[at])
-      if (entry.count === 0) entry.token = token
-      entry.count += source.counts[at]
+      const spelling = source.spellings[at]
+      const entry = plan.prepare(spelling)
+      if (plan.counts[entry] === 0) plan.tokens[entry] = token
+      plan.counts[entry] += source.counts[at]
       let points = 0
-      for (const _point of entry.text) points++
-      entry.points = points
-      if (entry.count > 0xffffffff) throw new SegmentRefusal(8)
+      for (const _point of spelling) points++
+      plan.points[entry] = points
+      if (plan.counts[entry] > 0xffffffff) throw new SegmentRefusal(8)
     }
     plan.check()
     const runs = new RunPlan(this.runs, collectRuns(plan))
     plan.publish()
-    for (const entry of plan.entries) {
-      this.token[entry.ordinal] = entry.token
-      this.count[entry.ordinal] = entry.count
-      this.codePoints[entry.ordinal] = entry.points
+    for (let at = 0; at < plan.size; at++) {
+      const ordinal = plan.ordinals[at]
+      this.token[ordinal] = plan.tokens[at]
+      this.count[ordinal] = plan.counts[at]
+      this.codePoints[ordinal] = plan.points[at]
     }
     runs.publish()
   }
@@ -47,7 +49,7 @@ export class SpellingTable extends SurfaceTable implements NativeSpellingTable {
       for (const _point of word) points++
       if (points <= 3) continue
       spellings.add(word)
-      plan.prepare(word).points = points
+      plan.points[plan.prepare(word)] = points
     }
     reserveStrings(this, spellings)
     const members = collectRuns(plan)

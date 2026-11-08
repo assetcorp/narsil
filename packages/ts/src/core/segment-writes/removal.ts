@@ -48,7 +48,7 @@ export class RemovalPlan {
           positions.allocation[0] <= positions.values.length &&
           positions.allocation[1] < positions.allocation[0],
       )
-    for (const term of terms.entries) this.prepare(term.ordinal)
+    for (let at = 0; at < terms.size; at++) this.prepare(terms.ordinals[at])
     if (positions !== null) requireSegment(this.freedPositions <= positions.allocation[0] - positions.allocation[1])
   }
 
@@ -156,7 +156,7 @@ export class RemovalPlan {
       if (change.kept === 0) {
         const kind = columns.sliceClass[token]
         releaseSlice(pool, { start: columns.sliceStart[token], length: pool.sliceCapacities[kind], sliceClass: kind })
-        removeString(segment.terms, this.terms.entries[at])
+        removeString(segment.terms, this.terms.texts[at], token, this.terms.hashes[at])
         columns.sliceClass[token] = 255
         columns.flags[token] = 0
         columns.totalTermFrequency[token] = 0

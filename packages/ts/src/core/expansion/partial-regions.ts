@@ -2,7 +2,7 @@ import type { NativePartialRequest, NativePartialSource } from '../../vector/nat
 import { regionsOverlap } from '../regions'
 import { requireRoom, requireSegment } from '../segment-writes/status'
 import { typedRegion } from '../stored-values/regions'
-import { captureExpansionSource, expansionText, readExpansion } from './regions'
+import { captureExpansionSource, expansionText, readExpansion } from './partial-bindings'
 
 function unsigned(value: number): void {
   requireSegment(Number.isInteger(value) && value >= 0 && value <= 0xffffffff)

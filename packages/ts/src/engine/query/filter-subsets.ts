@@ -1,6 +1,6 @@
+import { applyPartitionFiltersBitset } from '../../core/partition/filters'
 import type { PatternWorkMeter } from '../../core/pattern-index/types'
 import type { PartitionManager } from '../../partitioning/manager'
-import { applyPartitionFiltersBitset } from '../../search/sorting-code'
 import type { FilterExpression } from '../../types/filters'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
