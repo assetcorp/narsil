@@ -55,6 +55,9 @@ function storeMemory(store: SharedVectorStoreHandles): NativeStoreMemory | null 
     store.present,
     store.diskFile,
     store.diskOffset,
+    store.bornAt,
+    store.retiredAt,
+    store.pins.buffer,
   ]
   if (!regions.every(isSharedMemory)) return null
 
@@ -87,6 +90,9 @@ function storeMemory(store: SharedVectorStoreHandles): NativeStoreMemory | null 
     vectorFiles: [...store.vectorFiles],
     codeBlocks,
     vectorBlocks,
+    bornAt: fixedView(store.bornAt, BigInt64Array),
+    retiredAt: fixedView(store.retiredAt, BigInt64Array),
+    pins: store.pins,
   }
 }
 
@@ -174,11 +180,20 @@ export function nativeScores(
   query: Float32Array,
   metric: VectorMetric,
   count: number,
+  pin: number,
 ): Float64Array | null {
   if (count === 0) return store.distances
   let status: number
   try {
-    status = store.core.score(store.handle, query, nativeMetricCode(metric), store.ordinals, count, store.distances)
+    status = store.core.score(
+      store.handle,
+      query,
+      nativeMetricCode(metric),
+      store.ordinals,
+      count,
+      pin,
+      store.distances,
+    )
   } catch (error) {
     stopUsingTheNativeSearchCore(error)
     return null
@@ -191,12 +206,13 @@ export function nativeScoresOf(
   query: Float32Array,
   metric: VectorMetric,
   ordinals: ArrayLike<number>,
+  pin: number,
 ): Float64Array | null {
   const store = nativeStoreFor(handles)
   if (store === null) return null
   reserveOrdinals(store, ordinals.length)
   store.ordinals.set(ordinals)
-  return nativeScores(store, query, metric, ordinals.length)
+  return nativeScores(store, query, metric, ordinals.length, pin)
 }
 
 function workOnRecords(

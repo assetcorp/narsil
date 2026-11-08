@@ -1,6 +1,7 @@
 import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import { createBoundedMaxHeap } from '../../core/heap'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { admissionAt, type OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { NATIVE_THREAD_SCAN_CHUNK_ORDINALS } from '../constants'
 import { toScore } from '../hnsw/shared'
@@ -8,6 +9,7 @@ import { nativeMetricCode, nativeStoreFor } from '../native/store'
 import { type ThreadedNativeCore, threadedNativeCore, withNativeThreadSlot } from '../native/thread-slots'
 import { NATIVE_OK } from '../native/types'
 import type { OrdinalFilter } from '../ordinal-filter'
+import { storePinsOf } from '../vector-store/store-pins'
 import { scheduleBuild } from './build'
 import { highScoreFirst, mergeResults } from './merge-results'
 import { bufferCandidates, fetchedOutcome, filteredDocIds } from './search'
@@ -38,6 +40,10 @@ interface OffThreadSearch {
   confinedAtRevision: number | null
 }
 
+interface PinnedOffThreadSearch extends OffThreadSearch {
+  admission: OrdinalAdmission
+}
+
 function currentFilter(search: OffThreadSearch): OrdinalFilter | undefined {
   const { state, options, filter, confinedAtRevision } = search
   if (confinedAtRevision === null || state.revision === confinedAtRevision) return filter
@@ -45,7 +51,7 @@ function currentFilter(search: OffThreadSearch): OrdinalFilter | undefined {
 }
 
 async function scoredChunk(
-  search: OffThreadSearch,
+  search: PinnedOffThreadSearch,
   metric: VectorMetric,
   ordinals: Int32Array,
   count: number,
@@ -53,8 +59,10 @@ async function scoredChunk(
   const store = nativeStoreFor(search.state.store.handles)
   if (store === null) return null
   try {
+    const code = nativeMetricCode(metric)
+    const pin = search.admission.pin
     const scored = await withNativeThreadSlot(slot =>
-      search.core.scoreAsync(store.handle, search.query, nativeMetricCode(metric), ordinals, count, slot),
+      search.core.scoreAsync(store.handle, search.query, code, ordinals, count, pin, slot),
     )
     return scored.status === NATIVE_OK ? scored.distances : null
   } catch {
@@ -62,7 +70,7 @@ async function scoredChunk(
   }
 }
 
-async function scanOffThread(search: OffThreadSearch, candidates: Iterable<string>): Promise<ScanOutcome | null> {
+async function scanOffThread(search: PinnedOffThreadSearch, candidates: Iterable<string>): Promise<ScanOutcome | null> {
   const { state, k, options } = search
   const { metric, minSimilarity } = options
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
@@ -108,7 +116,7 @@ function scansEveryCandidate(state: VectorIndexState, filter: OrdinalFilter | un
   return selectivity < state.filterThreshold
 }
 
-async function outcomeOffThread(search: OffThreadSearch): Promise<VectorSearchOutcome | null> {
+async function outcomeOffThread(search: PinnedOffThreadSearch): Promise<VectorSearchOutcome | null> {
   const { state, query, k, options, filter } = search
   const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
   const graph = state.hnsw
@@ -124,17 +132,17 @@ async function outcomeOffThread(search: OffThreadSearch): Promise<VectorSearchOu
     efSearch,
     oversample,
     rescoreWindow,
+    admission: search.admission,
   })
   if (hits === null) return null
-  const graphResults = hits.map(hit => ({ docId: hit.docId, score: hit.score }))
-  if (buffered === null) return fetchedOutcome(state, graphResults, minSimilarity, currentFilter(search))
+  if (buffered === null) return fetchedOutcome(state, hits, minSimilarity, currentFilter(search))
   const scan = await scanOffThread(search, bufferCandidates(state, buffered, filter))
   if (scan === null) return null
-  return fetchedOutcome(state, mergeResults(graphResults, scan.results, k), minSimilarity, currentFilter(search))
+  return fetchedOutcome(state, mergeResults(hits, scan.results, k), minSimilarity, currentFilter(search))
 }
 
 async function searchOnNativeThreads(search: OffThreadSearch): Promise<VectorSearchOutcome> {
-  const { state, query, k, options, filter } = search
+  const { state, core, query, k, options, filter, confinedAtRevision } = search
   if (query.length !== state.dimension) {
     throw new NarsilError(
       ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -149,9 +157,25 @@ async function searchOnNativeThreads(search: OffThreadSearch): Promise<VectorSea
 
   const generation = layoutGeneration(state)
   const settled = await watchingSearch(state, async watch => {
-    const outcome = await outcomeOffThread(search)
-    if (outcome === null || watch.written.size > 0 || layoutGeneration(state) !== generation) return null
-    return outcome
+    const view = state.store.view
+    const pins = storePinsOf(view)
+    const pin = pins.take()
+    try {
+      const outcome = await outcomeOffThread({
+        state,
+        core,
+        query,
+        k,
+        options,
+        filter,
+        confinedAtRevision,
+        admission: admissionAt(view, pin),
+      })
+      if (outcome === null || watch.written.size > 0 || layoutGeneration(state) !== generation) return null
+      return outcome
+    } finally {
+      pins.release(pin)
+    }
   })
   return settled ?? searchFiltered(state, query, k, options, filterForOptions(state, options))
 }

@@ -2,6 +2,7 @@ import { backgroundTurnIsSpent, turnsAreBudgeted, yieldBackgroundTurn } from '#p
 import type { DocIdSet } from '../../core/doc-id-tables/types'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
+import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { type FilterSubset, type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
 import type { HNSWConfig, HNSWIndex } from '../hnsw'
@@ -15,6 +16,7 @@ import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
 import type { ColdVectorHold } from './cold'
 import { BUILD_TURN_HANDOVER_AFTER_MS, DRIFT_CHECK_GROWTH_FACTOR, REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
+import type { UnplacedVectors } from './flagged-documents'
 import type { SearchWatch } from './search-writes'
 
 export type { VectorIndexPayload } from './payload'
@@ -22,6 +24,7 @@ export type { VectorIndexPayload } from './payload'
 export interface VectorScoredResult {
   docId: string
   score: number
+  ordinal?: number
 }
 
 export interface VectorSearchOutcome {
@@ -41,6 +44,7 @@ export interface VectorSearchOptions {
   oversample?: number
   rescoreWindow?: number
   clock?: SearchClock
+  admission?: OrdinalAdmission
 }
 
 export interface ColdVectorField {
@@ -135,7 +139,7 @@ export interface VectorIndexState {
   readonly workerCopies: VectorWorkerCopyPolicy
   readonly store: VectorStore
   readonly tombstones: DocIdSet
-  readonly buffer: DocIdSet
+  readonly buffer: UnplacedVectors
   /** A checkpoint wrote these vectors to a file while the field held no graph, and the field points each at its place once it holds one. */
   readonly pendingLocations: Map<string, PendingVectorLocation>
   /** The vector files that the last committed checkpoint lists for the field, in manifest order. */
@@ -183,6 +187,7 @@ export interface VectorIndexState {
   cold: ColdVectorHold | null
   graphsHeldOffThread: GraphsHeldOffThread | null
   readonly searchWatches: Set<SearchWatch>
+  readonly writeListeners: Set<(docId: string) => void>
 }
 
 export interface GraphsHeldOffThread {
@@ -227,8 +232,8 @@ export function emptyFieldBeforeRestore(state: VectorIndexState): void {
   state.savedSignature = null
 }
 
-export function releaseReplacedVectors(state: VectorIndexState): void {
-  for (const ordinal of state.store.releaseReplacedVectors()) state.osq?.removeOrdinal(ordinal)
+export function releaseReplacedVectors(state: VectorIndexState, oldestPin?: number): void {
+  for (const ordinal of state.store.releaseReplacedVectors(oldestPin)) state.osq?.removeOrdinal(ordinal)
 }
 
 export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {

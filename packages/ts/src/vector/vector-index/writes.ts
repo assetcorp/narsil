@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { coldInsert, coldRemove } from './cold'
 import { afterGraphPass } from './graph-pass'
-import { noteSearchedDocWritten } from './search-writes'
+import { noteBeforeWrite, noteSearchedDocWritten } from './search-writes'
 import { handOverBuildTurns, threadsHoldCurrentLayout, type VectorIndexState } from './shared'
 import { noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
@@ -37,6 +37,12 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     return true
   }
 
+  function forgetRetiredFlags(): void {
+    if (state.buffer.retiredCount === 0) return
+    const oldestPin = state.store.oldestPin()
+    state.buffer.forgetRetired(ordinal => state.store.mayFreeOrdinal(ordinal, oldestPin))
+  }
+
   function applyInsert(docId: string, vector: Float32Array, partitionId?: number): void {
     handOverBuildTurns(state)
     const previous = state.store.getOrdinal(docId)
@@ -65,6 +71,7 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
       if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
+    forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     if (!threadsHoldCurrentLayout(state)) scheduleWorkerCopyLoad(state)
   }
@@ -75,7 +82,9 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     noteWrite(state)
     noteSearchedDocWritten(state, docId)
     state.tombstones.add(docId)
-    state.buffer.delete(docId)
+    state.store.retire(docId)
+    state.buffer.retire(docId)
+    forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     const graph = state.hnsw
     const ordinal = state.store.getOrdinal(docId)
@@ -85,6 +94,7 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
   return {
     insert(docId, vector, partitionId) {
       validateDimension(vector)
+      noteBeforeWrite(state, docId)
       const hold = state.cold
       if (hold === null) {
         applyInsert(docId, vector, partitionId)
@@ -96,6 +106,7 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
       hold.writes.push(() => applyInsert(docId, held, partitionId))
     },
     remove(docId) {
+      noteBeforeWrite(state, docId)
       const hold = state.cold
       if (hold === null) {
         applyRemove(docId)

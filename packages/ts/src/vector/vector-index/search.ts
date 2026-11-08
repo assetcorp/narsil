@@ -138,7 +138,7 @@ export function scoreCandidates(
   tally: ScanTally,
 ): void {
   const count = ordinals.length
-  const distances = nativeScoresOf(state.store.handles, query, metric, ordinals)
+  const distances = nativeScoresOf(state.store.handles, query, metric, ordinals, state.store.writeSequence())
   if (distances !== null) {
     for (let i = 0; i < count; i++) {
       if (distances[i] === Number.POSITIVE_INFINITY) continue
@@ -285,9 +285,7 @@ export function graphResultsOf(
 ): VectorScoredResult[] {
   if (state.hnsw === null) return []
   const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
-  return state.hnsw
-    .search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
-    .map(r => ({ docId: r.docId, score: r.score }))
+  return state.hnsw.search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
 }
 
 export function withBufferedVectors(

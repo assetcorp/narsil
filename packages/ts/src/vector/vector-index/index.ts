@@ -38,9 +38,11 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp } from './persistence'
+import { type VectorPublicationSource, vectorPublicationSource } from './publication'
 import { fetchedOutcome, search as searchOp, withBufferedVectors } from './search'
 import { searchFiltered } from './search-in-turns'
 import { searchOffThread } from './search-off-thread'
+import { writeWatchesOf } from './search-writes'
 import {
   assignStorePartitions,
   type ColdVectorField,
@@ -82,7 +84,7 @@ export type {
   VectorWorkerCopyPolicy,
 } from './shared'
 
-export interface VectorIndex {
+export interface VectorIndex extends VectorPublicationSource {
   insert(docId: string, vector: Float32Array, partitionId?: number): void
   remove(docId: string): void
   /** Reports whether every stored vector names the partition it belongs to. */
@@ -95,6 +97,8 @@ export interface VectorIndex {
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorSearchOutcome
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorSearchOutcome>
+  /** Calls `listener` with the document ID of every vector write, before the write changes the field, until the returned function runs. */
+  watchWrites(listener: (docId: string) => void): () => void
   /** Withdraws the field from the worker threads and sends it again where the policy names a host. */
   refreshWorkerCopies(): void
   getVector(docId: string): Float32Array | null
@@ -129,7 +133,6 @@ export interface VectorIndex {
   relocateVectorFiles(rewrite: (path: string) => string): void
   holdWorkerCopies(): Promise<void>
   resumeWorkerCopies(): void
-
   readonly size: number
   readonly dimension: number
   readonly fieldName: string
@@ -222,6 +225,7 @@ export function createVectorIndex(
     cold: null,
     graphsHeldOffThread: null,
     searchWatches: new Set(),
+    writeListeners: new Set(),
   }
 
   const { insert, remove } = createVectorWrites(state)
@@ -285,6 +289,7 @@ export function createVectorIndex(
   }
 
   return {
+    ...vectorPublicationSource(state),
     get size() {
       return liveSize(state)
     },
@@ -328,6 +333,7 @@ export function createVectorIndex(
       state.cold === null ? searchOp(state, query, k, options) : coldSearch(state, state.cold, query, k, options),
     ),
     searchParallel,
+    ...writeWatchesOf(state),
     refreshWorkerCopies: () => {
       if (state.cold === null) refreshWorkerCopies(state)
     },

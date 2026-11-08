@@ -281,6 +281,7 @@ export async function awaitBuilds(state: VectorIndexState): Promise<void> {
 }
 
 function releaseHeldMemory(state: VectorIndexState): void {
+  state.store.release()
   state.hnsw = null
   state.freshGraph = null
   state.osq = null
@@ -289,7 +290,6 @@ function releaseHeldMemory(state: VectorIndexState): void {
   state.pendingLocations.clear()
   state.savedFiles = []
   state.savedSignature = null
-  state.store.release()
   releaseMemoryCharges(state)
 }
 
