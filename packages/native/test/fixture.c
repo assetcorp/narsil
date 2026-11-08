@@ -197,7 +197,11 @@ test_fixture *build_fixture(uint32_t bits) {
                                   .vector_file = fixture->vector_file,
                                   .vector_offset = fixture->vector_offset,
                                   .files = NULL,
-                                  .file_count = 0};
+                                  .file_count = 0,
+                                  .born_at = fixture->born_at,
+                                  .retired_at = fixture->retired_at,
+                                  .pins = fixture->pins,
+                                  .pin_slots = THREAD_SLOTS};
   return fixture;
 }
 

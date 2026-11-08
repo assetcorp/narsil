@@ -52,7 +52,7 @@ static void score_from_a_file(narsil_workspace *workspace, test_fixture *fixture
   float query[DIMENSION];
   for (int i = 0; i < DIMENSION; i++) { query[i] = (random_unit() * 2) - 1; }
   for (int32_t i = 0; i < SCORED; i++) { ordinals[i] = i; }
-  narsil_score_request request = {query, NARSIL_METRIC_COSINE, ordinals, SCORED};
+  narsil_score_request request = {query, NARSIL_METRIC_COSINE, ordinals, SCORED, 0};
   check(narsil_score(workspace, &fixture->store, &request, from_blocks) == NARSIL_OK, "score reads the blocks");
 
   double in_a_file_the_core_lacks[SCORED];
@@ -83,7 +83,7 @@ static void place_from_a_file(narsil_workspace *workspace, test_fixture *fixture
   int32_t ordinals[CANDIDATES];
   double distances[CANDIDATES];
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-  narsil_search_request request = {fixture->vectors, NARSIL_METRIC_COSINE, CANDIDATES, 0, {NULL, 0}};
+  narsil_search_request request = {fixture->vectors, NARSIL_METRIC_COSINE, CANDIDATES, 0, {NULL, 0}, 0};
   check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_OK,
         "search walks a graph whose vectors a file holds");
   check(found.count == CANDIDATES && found.ordinals[0] == 0, "that search finds the vector it asks for");

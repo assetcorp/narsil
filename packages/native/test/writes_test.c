@@ -14,6 +14,10 @@
 #define WAKES_KEPT 8
 #define WRITE_HELD_BIT 1
 #define WRITER_WAITING_BIT 2
+#define REMOVAL_SEQUENCE 2
+#define READER_THREAD_SLOT 1
+#define PIN_BEFORE_THE_REMOVALS_ENTRY REMOVAL_SEQUENCE
+#define NO_PIN_ENTRY 0
 
 static narsil_status place_one(narsil_workspace *workspace, test_fixture *fixture, int32_t ordinal) {
   narsil_place_request request = {NARSIL_METRIC_EUCLIDEAN, ordinal, fixture_top_layer(ordinal), WRITER_THREAD_SLOT, 0};
@@ -22,6 +26,9 @@ static narsil_status place_one(narsil_workspace *workspace, test_fixture *fixtur
 
 static narsil_status remove_one(test_fixture *fixture, int32_t ordinal) {
   narsil_remove_request request = {ordinal, WRITER_THREAD_SLOT};
+  if (ordinal >= 0 && ordinal < NODES && fixture->retired_at[ordinal] == 0) {
+    fixture->retired_at[ordinal] = REMOVAL_SEQUENCE;
+  }
   return narsil_remove(&fixture->graph, &request);
 }
 
@@ -95,7 +102,7 @@ static int nearest_is_itself(narsil_workspace *workspace, test_fixture *fixture,
   double distances[CANDIDATES];
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
   const float *query = fixture->vectors + ((size_t)node * fixture_vector_stride_floats());
-  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}};
+  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}, 0};
   if (narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) != NARSIL_OK) { return 0; }
   return found.count > 0 && found.ordinals[0] == node;
 }
@@ -168,6 +175,13 @@ static void remove_then_compact(narsil_workspace *workspace) {
             NARSIL_GRAPH_NOT_HELD_ALONE,
         "connectUnreached changes nothing while graphLock is not -1");
   fixture->graph_header[NARSIL_GRAPH_WORD_LOCK] = NARSIL_GRAPH_HELD_ALONE;
+  fixture->pins[READER_THREAD_SLOT] = PIN_BEFORE_THE_REMOVALS_ENTRY;
+  check(narsil_compact(workspace, &fixture->graph, &fixture->store, &compaction) == NARSIL_OK,
+        "compact returns NARSIL_OK while a reader pins the state before the removals");
+  check(fixture->graph_header[NARSIL_GRAPH_WORD_NODE_COUNT] == NODES &&
+            fixture->graph_header[NARSIL_GRAPH_WORD_TOMBSTONE_COUNT] == removed,
+        "compact keeps every removed node that a held pin admits");
+  fixture->pins[READER_THREAD_SLOT] = NO_PIN_ENTRY;
   check(narsil_compact(workspace, &fixture->graph, &fixture->store, &compaction) == NARSIL_OK,
         "compact returns NARSIL_OK while the caller holds the graph alone");
   check(narsil_connect_unreached(workspace, &fixture->graph, &fixture->store, &connection) == NARSIL_OK,

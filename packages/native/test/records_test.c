@@ -1,10 +1,12 @@
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
+#include "../src/internal.h"
 
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define WRITER_THREAD_SLOT 3
@@ -15,8 +17,23 @@
 #define MEASURE_TOTALS_PAST_DIMENSION 2
 #define EIGHT_BIT_MEAN_ERROR_CEILING 0.02
 #define NEAREST_IS_ITSELF_FLOOR ((NODES * 8) / 10)
+#define NIBBLE_MAXIMUM 15U
 
 static int32_t every_ordinal[NODES];
+
+static void packed_product_boundaries(void) {
+  const uint32_t lengths[] = {0, 31, 32, 33};
+  for (size_t at = 0; at < sizeof lengths / sizeof lengths[0]; at++) {
+    uint32_t length = lengths[at];
+    uint8_t *bytes = length == 0 ? NULL : malloc(length);
+    check(length == 0 || bytes != NULL, "the packed product boundary has its memory");
+    if (length > 0 && bytes == NULL) { continue; }
+    if (length > 0) { memset(bytes, UINT8_MAX, length); }
+    check(kernel_products_4x4(bytes, bytes, bytes, length) == length * 2U * NIBBLE_MAXIMUM * UINT8_MAX,
+          "packed products retain maximum byte values without reading past the scalar tail");
+    free(bytes);
+  }
+}
 
 static void list_every_ordinal(void) {
   for (int32_t node = 0; node < NODES; node++) { every_ordinal[node] = node; }
@@ -104,7 +121,7 @@ static int nearest_is_itself(narsil_workspace *workspace, test_fixture *fixture,
   double distances[CANDIDATES];
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
   const float *query = fixture->vectors + ((size_t)node * fixture_vector_stride_floats());
-  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}};
+  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}, 0};
   if (narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) != NARSIL_OK) { return 0; }
   for (uint32_t i = 0; i < found.count && i < 3; i++) {
     if (found.ordinals[i] == node) { return 1; }
@@ -164,6 +181,7 @@ static void refuse_a_store_without_codes(narsil_workspace *workspace) {
 }
 
 void record_checks(narsil_workspace *workspace) {
+  packed_product_boundaries();
   const uint32_t widths[] = {1, 2, 4, BITS_PER_BYTE};
   list_every_ordinal();
   for (size_t width = 0; width < sizeof widths / sizeof widths[0]; width++) {

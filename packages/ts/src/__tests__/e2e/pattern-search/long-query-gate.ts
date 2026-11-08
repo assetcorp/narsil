@@ -10,6 +10,7 @@ interface GateMessage {
   busyMs?: unknown
   moved?: unknown
   probed?: unknown
+  started?: unknown
 }
 
 export interface LongQueryReport {
@@ -23,6 +24,7 @@ export interface LongQueryGate {
   close(): Promise<void>
   open(): void
   report(): Promise<LongQueryReport>
+  moved(): Promise<void>
   stop(): void
 }
 
@@ -39,7 +41,10 @@ MessagePort.prototype.on = function (type, listener) {
   if (type === 'message' && !counted.has(this)) {
     counted.add(this)
     this.addEventListener('message', event => {
-      if (event.data?.type === 'request' && typeof event.data.requestId === 'number') moved += 1
+      if (event.data?.type === 'request' && typeof event.data.requestId === 'number') {
+        moved += 1
+        channel.postMessage({ started: workerId })
+      }
     })
   }
   return on.call(this, type, listener)
@@ -102,6 +107,9 @@ export function createLongQueryGate(): LongQueryGate {
 
   return {
     bootstrapModule: gateModule(),
+    async moved() {
+      await awaitReplies(data => typeof data.started === 'number', 1)
+    },
     async close() {
       const target = longQueryWorker()
       gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))

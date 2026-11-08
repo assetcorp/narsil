@@ -2,21 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../../../core/partition'
 import { createCompositePartition } from '../../../core/partition/composite'
 import { applyPartitionFilters } from '../../../core/partition/filters'
-import {
-  createFrozenSegment,
-  createSharedFrozenSegment,
-  type FrozenSegment,
-  freezeSegmentShared,
-} from '../../../core/partition/frozen'
+import { createFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
 import { mergeFrozenSegments } from '../../../core/partition/frozen/merge'
+import { createSharedFrozenSegment } from '../../../core/partition/frozen/shared'
+import { freezeSegmentShared } from '../../../core/partition/frozen/shared-snapshot'
 import type { PartitionReadState } from '../../../core/partition/read-state'
 import { buildSegmentPayload } from '../../../core/partition/segment-builder'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
+import { deserializePartition, serializePartition } from '../../../core/partition/serialization'
 import { keepsValueSize } from '../../../core/partition/value-sizes'
 import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { loadGeoCode } from '../../../geo/geo-code'
 import { flattenSchema } from '../../../schema/validator'
 import { parsedTypeOf } from '../../../schema/validator/field-type'
+import { loadSortingFor } from '../../../search/sorting-code'
 import type { FilterExpression } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { afterChurn, churnOf, productCorpus, SCHEMA } from '../../e2e/filters/corpus'
@@ -103,7 +102,11 @@ function storageAnswers(): {
   const thawed = createPartitionIndex(0)
   thawed.mergeSegmentPayload(payload, payloadDocuments)
   const restored: PartitionIndex = createPartitionIndex(0)
-  restored.deserialize(live.serialize('products', 1, 'english', SCHEMA), SCHEMA)
+  restored.deserialize(
+    live.serialize('products', 1, 'english', SCHEMA, serializePartition),
+    SCHEMA,
+    deserializePartition,
+  )
 
   const answers: Array<[string, Answer]> = [
     ['a live partition after updates and removals', liveAnswer],
@@ -135,7 +138,7 @@ function storageAnswers(): {
   return { current, answers, states }
 }
 
-await loadGeoCode()
+await Promise.all([loadGeoCode(), loadSortingFor(undefined, {})])
 
 describe('a filter answered from every way that a partition holds its documents', () => {
   const { current, answers, states } = storageAnswers()
