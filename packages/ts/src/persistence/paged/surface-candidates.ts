@@ -2,7 +2,7 @@ import type { SurfaceTableReader } from '../../core/partition/frozen/surface-slo
 import type { SurfaceTableData } from '../../core/partition/frozen/surface-table'
 import type { SurfaceFormCandidate } from '../../core/surface-registry'
 
-const surfaceDecoder = new TextDecoder()
+const surfaceDecoder = new TextDecoder('utf-8', { ignoreBOM: true })
 const surfaceEncoder = new TextEncoder()
 
 function surfaceCandidatesInTable(table: SurfaceTableData, prefix: string): SurfaceFormCandidate[] {
