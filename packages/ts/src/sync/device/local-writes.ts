@@ -1,9 +1,38 @@
 import { decode } from '@msgpack/msgpack'
+import { getNestedValue } from '../../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { encodeDocument } from '../../serialization/document-encoding'
+import { restoreVectorFields, setNestedValue, vectorFieldPathsOfSchema } from '../../serialization/vector-field-bytes'
 import type { AnyDocument } from '../../types/schema'
 import type { KeptEntry, QueuedWrite } from './types'
+
+const NO_VECTOR_FIELDS: ReadonlySet<string> = new Set()
+
+function vectorFieldPathsOf(engine: Narsil, indexName: string): ReadonlySet<string> {
+  if (!holdsIndex(engine, indexName)) return NO_VECTOR_FIELDS
+  return vectorFieldPathsOfSchema(engine.getStats(indexName).schema)
+}
+
+function decodedDocument(bytes: Uint8Array, vectorFieldPaths: ReadonlySet<string>): Record<string, unknown> {
+  const document = decode(bytes) as Record<string, unknown>
+  restoreVectorFields(document, vectorFieldPaths)
+  return document
+}
+
+export function documentOfEntry(engine: Narsil, indexName: string, bytes: Uint8Array): AnyDocument {
+  return decodedDocument(bytes, vectorFieldPathsOf(engine, indexName)) as AnyDocument
+}
+
+export function portableCopyOf(engine: Narsil, indexName: string, document: AnyDocument): AnyDocument {
+  const vectorFieldPaths = vectorFieldPathsOf(engine, indexName)
+  const copy = decodedDocument(encodeDocument(document), vectorFieldPaths)
+  for (const fieldPath of vectorFieldPaths) {
+    const vector = getNestedValue(copy, fieldPath)
+    if (vector instanceof Float32Array) setNestedValue(copy, fieldPath, Array.from(vector))
+  }
+  return copy as AnyDocument
+}
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false
@@ -54,7 +83,7 @@ export async function applyEntryLocally(engine: Narsil, indexName: string, entry
   if (entry.document === null) {
     await removeLocally(engine, indexName, entry.documentId)
   } else {
-    await putLocally(engine, indexName, entry.documentId, decode(entry.document) as AnyDocument)
+    await putLocally(engine, indexName, entry.documentId, documentOfEntry(engine, indexName, entry.document))
   }
 }
 

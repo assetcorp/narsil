@@ -1,0 +1,11 @@
+export const NOTES_POLL_MS = 1_000
+export const MAX_NOTE_TITLE_LENGTH = 160
+export const MAX_NOTE_BODY_LENGTH = 8_000
+export const NOTES_PAGE_SIZE = 100
+export const NOTES_SPACE_KEY = 'narsil-notes-space'
+export const NOTES_DEVICE_REGISTRY_KEY = 'narsil-notes-devices'
+export const NOTES_DEVICE_LOCK_PREFIX = 'notes-device:'
+export const SHORT_NOTE_ID_LENGTH = 8
+export const ELAPSED_TICK_MS = 1_000
+export const SKELETON_CARD_COUNT = 3
+export const MAX_DEVICE_NAME_LENGTH = 32

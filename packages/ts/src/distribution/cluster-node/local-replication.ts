@@ -1,6 +1,8 @@
 import type { EngineCore } from '../../engine/core'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { PartitionLogPosition } from '../../persistence/durability/types'
+import type { VectorIndex } from '../../vector/vector-index'
+import type { WorkerAction } from '../../workers/protocol'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from '../replication/types'
@@ -46,7 +48,36 @@ export async function seedReopenedPrimaryLogs(input: ReopenReplicationInput): Pr
   }
 }
 
-type RemovedSpellings = ReturnType<PartitionManager['removedSpellingsOf']>
+function requestIdOf(kind: WorkerAction['type'], entry: ReplicationLogEntry): string {
+  return `replicate-entry-${kind}-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`
+}
+
+function applyIndexEntryToCopies(
+  core: EngineCore,
+  manager: PartitionManager,
+  entry: ReplicationLogEntry,
+  vectorFieldPaths: Set<string>,
+  vecIndexes: Map<string, VectorIndex>,
+): void {
+  const { indexName, documentId: docId } = entry
+  const held = manager.has(docId)
+  const removedSpellings = held && entry.document !== null ? manager.removedSpellingsOf(docId) : undefined
+  try {
+    applyIndexEntry(entry, manager, vectorFieldPaths, vecIndexes)
+  } catch (err) {
+    if (held && !manager.has(docId)) {
+      core.orchestrator.recordMainWrite({ type: 'remove', indexName, docId, requestId: requestIdOf('remove', entry) })
+    }
+    throw err
+  }
+  const document = entry.document === null ? undefined : manager.getRef(docId)
+  if (document === undefined) return
+  core.orchestrator.recordMainWrite(
+    held
+      ? { type: 'update', indexName, docId, document, removedSpellings, requestId: requestIdOf('update', entry) }
+      : { type: 'insert', indexName, docId, document, requestId: requestIdOf('insert', entry) },
+  )
+}
 
 export interface AppliedReplicationEntries {
   applied: number
@@ -91,17 +122,25 @@ export async function applyLocalReplicationEntries(
     const indexEntry = core.requireIndex(first.indexName)
     const manager = core.requireManager(first.indexName)
     const vecIndexes = manager.getVectorIndexes()
-    const removedSpellings: RemovedSpellings[] = []
     let stopped: unknown = null
     const applyAt = (position: number): void => {
       if (stopped !== null) throw stopped
       const entry = entries[position]
       try {
         if (entry.operation === 'INDEX') {
-          applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
+          applyIndexEntryToCopies(core, manager, entry, indexEntry.vectorFieldPaths, vecIndexes)
         } else {
-          removedSpellings[position] = manager.removedSpellingsOf(entry.documentId)
-          applyDeleteEntry(entry, manager, vecIndexes, removedSpellings[position])
+          const held = manager.has(entry.documentId)
+          const removedSpellings = manager.removedSpellingsOf(entry.documentId)
+          applyDeleteEntry(entry, manager, vecIndexes, removedSpellings)
+          if (held)
+            core.orchestrator.recordMainWrite({
+              type: 'remove',
+              indexName: entry.indexName,
+              docId: entry.documentId,
+              requestId: requestIdOf('remove', entry),
+              removedSpellings,
+            })
         }
         writeRecords.applied(entry)
       } catch (err) {
@@ -140,38 +179,10 @@ export async function applyLocalReplicationEntries(
       }
     }
 
-    for (let position = 0; position < applied; position++) {
-      await replicateEntryToWorkers(core, manager, entries[position], removedSpellings[position])
-    }
+    const roomForCopies = core.orchestrator.settleMainWrites(first.indexName)
+    if (roomForCopies !== null) await roomForCopies
     return { applied, error }
   } finally {
     release()
   }
-}
-
-async function replicateEntryToWorkers(
-  core: EngineCore,
-  manager: PartitionManager,
-  entry: ReplicationLogEntry,
-  removedSpellings: RemovedSpellings,
-): Promise<void> {
-  if (entry.operation === 'INDEX') {
-    const appliedDocument = manager.getRef(entry.documentId)
-    if (appliedDocument === undefined) return
-    await core.orchestrator.replicateToWorkers({
-      type: 'insert',
-      indexName: entry.indexName,
-      docId: entry.documentId,
-      document: appliedDocument,
-      requestId: `replicate-entry-insert-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-    })
-    return
-  }
-  await core.orchestrator.replicateToWorkers({
-    type: 'remove',
-    indexName: entry.indexName,
-    docId: entry.documentId,
-    requestId: `replicate-entry-remove-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-    removedSpellings,
-  })
 }

@@ -53,6 +53,14 @@ export interface SegmentManifest {
   vectors: VectorFieldRef[]
 }
 
+export function manifestWithinPartitionCount(manifest: SegmentManifest, partitionCount: number): SegmentManifest {
+  return {
+    ...manifest,
+    checkpoint: manifest.checkpoint.filter(entry => entry.partitionId < partitionCount),
+    partitions: manifest.partitions.filter(partition => partition.partitionId < partitionCount),
+  }
+}
+
 export function manifestReferencedKeys(manifest: SegmentManifest): Set<string> {
   const keys = new Set<string>()
   for (const partition of manifest.partitions) {

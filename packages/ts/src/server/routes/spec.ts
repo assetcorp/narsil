@@ -57,6 +57,7 @@ export interface ServerHandlers {
   restore: RouteHandler
   exportDocuments: RouteHandler
   importExport: RouteHandler
+  getSync: RouteHandler
   updateSync: RouteHandler
   syncSnapshot: RouteHandler
   updateQuerySuggestions: RouteHandler

@@ -1,6 +1,5 @@
 import { decode } from '@msgpack/msgpack'
 import { decodeStoredDocument } from '../../core/partition/frozen/document-source'
-import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFileRef } from '../../persistence/durability/segment/manifest'
 import type { SegmentScan } from '../../persistence/paged/segment-scan'
@@ -10,6 +9,7 @@ import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
   type KeywordSegmentContents,
 } from '../../serialization/keyword-segment/types'
+import { setNestedValue } from '../../serialization/vector-field-bytes'
 import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'

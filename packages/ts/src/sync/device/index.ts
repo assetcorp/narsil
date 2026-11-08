@@ -1,14 +1,12 @@
-import { decode } from '@msgpack/msgpack'
 import { createNarsilClient } from '../../client/client'
 import type { RequestOptions } from '../../client/options'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { encodeDocument } from '../../serialization/document-encoding'
 import type { AnyDocument } from '../../types/schema'
 import { SYNC_CLOSE_CREDENTIAL_EXPIRED, SYNC_CLOSE_RESYNC } from '../protocol'
 import { RECONNECT_MIN_DELAY_MS, RETRY_MAX_DELAY_MS, SNAPSHOT_RETRY_DELAY_MS } from './constants'
 import { backoffDelayMs, createChanges, type DeviceContext } from './context'
 import { feedUrlOf } from './feed'
-import { putLocally, removeLocally } from './local-writes'
+import { portableCopyOf, putLocally, removeLocally } from './local-writes'
 import { createProgress } from './progress'
 import { QueueMirror } from './queue'
 import { createSession, type SessionState } from './session'
@@ -45,11 +43,10 @@ function validated(options: DeviceSyncOptions): void {
   }
 }
 
-function copyOf(document: AnyDocument): AnyDocument {
+function requireDocumentObject(document: AnyDocument): void {
   if (document === null || typeof document !== 'object' || Array.isArray(document)) {
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'A document must be an object')
   }
-  return decode(encodeDocument(document)) as AnyDocument
 }
 
 function requireDocumentId(documentId: string): void {
@@ -221,8 +218,9 @@ export function createDeviceSync(options: DeviceSyncOptions): DeviceSync {
 
   async function write(documentId: string, document: AnyDocument | null): Promise<void> {
     requireDocumentId(documentId)
-    const copy = document === null ? null : copyOf(document)
+    if (document !== null) requireDocumentObject(document)
     await requireRecovered()
+    const copy = document === null ? null : portableCopyOf(engine, indexName, document)
     await context.work.run(async () => {
       const queued = await store.appendWrite({ documentId, document: copy })
       context.queue.add(queued)

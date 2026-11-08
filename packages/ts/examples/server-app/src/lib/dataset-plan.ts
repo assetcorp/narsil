@@ -2,7 +2,7 @@ import { languageName } from '@delali/narsil-example-shared/lib/language-names'
 import type { DatasetId } from '@delali/narsil-example-shared/manifest'
 import {
   EMBEDDING_FIELD,
-  type EmbeddingProviderConfig,
+  type EmbeddingChoice,
   embeddingSourceFields,
   WIKIPEDIA_LEAD_FIELD,
   WIKIPEDIA_LEAD_MAX_CHARS,
@@ -19,6 +19,7 @@ export interface IndexLoadPlan {
   embedding?: {
     sourceFields: string[]
     dimensions: number
+    adapterName: string
   }
 }
 
@@ -57,14 +58,12 @@ function withEmbeddingField(schema: Record<string, unknown>, dimensions: number)
 }
 
 /**
- * Attaches the embedding arrangement to a dataset load when an embedding
- * provider is configured: the schema gains the vector field, and the create
- * request names the server-registered adapter so the search server embeds
- * each document at insert and each query at search time. Without a provider
- * the plan is exactly the keyword-only load this app always performed.
+ * Attaches the embedding arrangement to a dataset load: the schema gains the
+ * vector field, and the create request names the server-registered adapter so
+ * the search server embeds each document at insert and each query at search
+ * time.
  */
-export function planEmbedding(plan: IndexLoadPlan, embedding: EmbeddingProviderConfig | null): IndexLoadPlan {
-  if (!embedding) return plan
+export function planEmbedding(plan: IndexLoadPlan, embedding: EmbeddingChoice): IndexLoadPlan {
   const sourceFields = embeddingSourceFields(plan.datasetId)
   if (!sourceFields) return plan
 
@@ -79,6 +78,6 @@ export function planEmbedding(plan: IndexLoadPlan, embedding: EmbeddingProviderC
     ...plan,
     schema,
     docs,
-    embedding: { sourceFields, dimensions: embedding.dimensions },
+    embedding: { sourceFields, dimensions: embedding.dimensions, adapterName: embedding.adapterName },
   }
 }

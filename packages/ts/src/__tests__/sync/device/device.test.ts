@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { QueuedWrite, RefusedWrite, UploadOutcome } from '../../../sync/device'
 import {
+  DEVICE_TOKEN,
   documentsOf,
   INDEX,
   type Note,
@@ -19,6 +20,7 @@ import {
 
 const SEEDED = 60
 const NETWORK_CUT_TEST_TIMEOUT_MS = 30_000
+const CREDENTIAL_POLL_MS = 20
 
 describe('a synced device', () => {
   let directory: { path: string; remove(): Promise<void> } | null = null
@@ -157,6 +159,96 @@ describe('a synced device', () => {
       await settledWithin(started.sync)
       expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
       expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'reconnects after the credential function rejects while the feed is down, and delivers the write queued afterwards',
+    async () => {
+      const oracle = await seed()
+      let refusing = false
+      let refusals = 0
+      const started = await device('credential', {
+        credential: async () => {
+          if (refusing) {
+            refusals += 1
+            throw new Error('The grant service is unavailable')
+          }
+          return DEVICE_TOKEN
+        },
+      })
+      await settledWithin(started.sync)
+
+      refusing = true
+      serving().proxy.cut()
+      const deadline = Date.now() + NETWORK_CUT_TEST_TIMEOUT_MS / 2
+      while (refusals === 0) {
+        if (Date.now() > deadline) throw new Error('The device never asked for a credential while the feed was down')
+        await new Promise(resolve => setTimeout(resolve, CREDENTIAL_POLL_MS))
+      }
+      refusing = false
+      serving().proxy.heal()
+      await started.sync.put('after-refusal', note('after-refusal'))
+      oracle.set('after-refusal', note('after-refusal'))
+
+      await settledWithin(started.sync)
+      expect(started.sync.status().connection).toBe('connected')
+      expect(
+        started.errors.some(error => error instanceof Error && error.message === 'The grant service is unavailable'),
+      ).toBe(true)
+      expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+      expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    "carries vectors both ways on an index with a vector field, so each side finds the other side's document by its vector",
+    async () => {
+      const vectorOf = (at: number): number[] => [at % 2 === 0 ? 1 : -1, at / 8, 0.25, at % 3 === 0 ? 0 : -(at % 3) / 4]
+      const oracle = new Map<string, number[]>()
+      await serving().admin.createIndex(INDEX, { schema: { title: 'string', embedding: 'vector[4]' } })
+      const batch = []
+      for (let at = 0; at < 12; at++) {
+        oracle.set(`v${at}`, vectorOf(at))
+        batch.push({ id: `v${at}`, title: `vector note ${at}`, embedding: vectorOf(at) })
+      }
+      await serving().admin.insertBatch(INDEX, batch)
+      await serving().admin.updateSync(INDEX, { enabled: true })
+      const started = await device('vectors')
+      await settledWithin(started.sync)
+
+      const fromServer = [0.5, -0.5, 0.75, 1]
+      await serving().running.engine.insert(
+        INDEX,
+        { title: 'written on the server', embedding: new Float32Array(fromServer) },
+        'from-server',
+      )
+      const fromDevice = [-1, 0.125, -0.75, 0.5]
+      await started.sync.put('from-device', {
+        title: 'written on the device',
+        embedding: new Float32Array(fromDevice),
+      })
+      oracle.set('from-server', fromServer)
+      oracle.set('from-device', fromDevice)
+      await settledWithin(started.sync)
+
+      for (const engine of [started.engine, serving().running.engine]) {
+        expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
+        for (const [id, vector] of oracle) {
+          const held = (await engine.get(INDEX, id))?.embedding as ArrayLike<number> | undefined
+          expect(held === undefined ? undefined : Array.from(held)).toEqual(vector)
+        }
+        for (const id of ['from-server', 'from-device']) {
+          const found = await engine.query(INDEX, {
+            vector: { field: 'embedding', value: oracle.get(id) ?? [] },
+            limit: 1,
+          })
+          expect(found.hits[0]?.id).toBe(id)
+        }
+      }
+      expect(started.sync.status().queuedWrites).toBe(0)
     },
     NETWORK_CUT_TEST_TIMEOUT_MS,
   )

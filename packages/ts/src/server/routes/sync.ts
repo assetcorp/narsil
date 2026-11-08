@@ -6,6 +6,17 @@ import type { RouteSpec } from './spec'
 export function syncRoutes(shared: SharedRouteOptions): RouteSpec[] {
   return [
     {
+      method: 'get',
+      path: '/indexes/:name/sync',
+      handler: 'getSync',
+      options: shared.named,
+      operationId: 'getSync',
+      summary: 'Report the device sync setting of an index, whether a device has downloaded it, and its epoch',
+      tags: ['Sync'],
+      request: null,
+      responses: { 200: 'SyncStatus' },
+    },
+    {
       method: 'put',
       path: '/indexes/:name/sync',
       handler: 'updateSync',

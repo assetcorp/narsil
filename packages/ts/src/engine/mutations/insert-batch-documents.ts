@@ -58,6 +58,8 @@ export async function applyAdmittedDocuments(
 
       succeeded.push(doc.docId)
     }
+    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
+    if (roomForCopies !== null) await roomForCopies
 
     const applied = chunkStart + BATCH_CHUNK_SIZE
     if (applied < admitted.length) {

@@ -4,6 +4,7 @@ import { useIndexWorkspace } from '@delali/narsil-example-shared'
 import { InspectorView } from '@delali/narsil-example-shared/components/inspector/InspectorView'
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { useIndexChangeRevision, useRefreshOnChange } from '#/lib/index-changes'
 
 export const Route = createFileRoute('/inspector')({ component: InspectorPage })
 
@@ -11,6 +12,7 @@ interface InspectorDetail {
   partitions: PartitionStatsResult[]
   vectorFields: VectorMaintenanceResult[]
   memory: MemoryStats | undefined
+  revision: number
 }
 
 function InspectorPage() {
@@ -18,6 +20,8 @@ function InspectorPage() {
   const client = useNarsilClient()
   const stats = useStats(activeIndexName ?? '', { enabled: activeIndexName !== null })
   const [detail, setDetail] = useState<InspectorDetail | undefined>(undefined)
+  const changeRevision = useIndexChangeRevision()
+  useRefreshOnChange(stats.refresh)
 
   useEffect(() => {
     if (activeIndexName === null) {
@@ -34,7 +38,7 @@ function InspectorPage() {
     ])
       .then(([partitions, vectorFields, memory]) => {
         if (controller.signal.aborted) return
-        setDetail({ partitions, vectorFields, memory })
+        setDetail({ partitions, vectorFields, memory, revision: changeRevision })
       })
       .catch(() => {
         if (!controller.signal.aborted) setDetail(undefined)
@@ -43,7 +47,7 @@ function InspectorPage() {
     return () => {
       controller.abort()
     }
-  }, [client, activeIndexName])
+  }, [client, activeIndexName, changeRevision])
 
   return (
     <InspectorView
