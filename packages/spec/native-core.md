@@ -28,6 +28,8 @@ The core must also skip every value inside a region that points outside a region
 
 ### Tie Order
 
+The core must compare present relevance scores by [Score Order](algorithms.md#score-order), including infinities, NaN, and signed zero. It must preserve the scores when it selects or merges entries.
+
 The core holds no document ID. Wherever an operation breaks a tie on the document ID, the implementation must pass `idRanks`, which hold the position of each candidate among the candidates of that call in [code point order](algorithms.md#code-point-order), and the core must break the tie on that position.
 
 ### Work Meter
@@ -101,6 +103,78 @@ FrozenSegmentState {
 ### Paged Segment
 
 A paged segment is a [paged keyword segment payload](envelope.md#paged-keyword-segment-payload) in a file. The implementation must give the core the resident sections in memory, as a frozen segment holds them, and an open handle to the file. The core must read each page of a paged section from the file into a page cache, which is a region that the implementation allocates for each thread that searches, so that one thread alone writes each cache. It must check the CRC32 of a page each time that it reads the page from the file, as [Checks on a paged segment](envelope.md#checks-on-a-paged-segment) requires, and it must return `pageCorrupt` with the section and the page where a check fails, which the implementation raises as `PERSISTENCE_CRC_MISMATCH`. It must return `pageUnreadable` where a read from the file fails or returns fewer bytes than the page holds, which the implementation raises as `PERSISTENCE_LOAD_FAILED`, because the core reads the file and never maps it, and a failed read from a mapping would end the process with a signal. The pages that a cache holds must change no result and no work count. The core must apply to each value that it reads from a page the rules of [Checks on a paged segment](envelope.md#checks-on-a-paged-segment), and it must return `pageInvalid` for a value that breaks them, which the implementation raises as `PERSISTENCE_LOAD_FAILED`. The core must read the documents of a paged segment through the implementation, because the implementation decompresses them and decodes them. A paged segment takes a [frozen segment state](#frozen-segment) like any frozen segment. The implementation must leave a segment file unchanged while a core holds it open, and it must detach every core from that file before it deletes the file.
+
+### Paged Vector Field
+
+```text
+PageSection {
+  file:      PagedFileHandle
+  offset:    uint64
+  length:    uint64
+  pageBytes: uint32
+  checksums: bytes
+}
+
+PagedVectorFile {
+  first:   uint32
+  count:   uint32
+  dead:    bytes or nil
+  vectors: PageSection
+  records: PageSection or nil
+}
+
+PagedGraphPart {
+  first:       uint32
+  count:       uint32
+  levels:      List<uint8>
+  nodeOffsets: List<uint32>
+  neighbours:  PageSection
+}
+
+PagedVectorField {
+  dimension:  uint32
+  metric:     cosine, dotProduct, or euclidean
+  total:      uint32
+  entryPoint: uint32 or nil
+  maxLayer:   uint32
+  codes:      { bits: uint32, centroid: List<float32> } or nil
+  files:      List<PagedVectorFile>
+  graphParts: List<PagedGraphPart>
+}
+
+searchPagedVectors(
+  field: PagedVectorField,
+  query: List<float32>,
+  k: uint32,
+  ef: uint32,
+  rescoreDepth: uint32,
+  explicitRescoreWindow: boolean,
+  minSimilarity: float64,
+  accepted: bitset or nil,
+  excluded: bitset or nil,
+  meter: WorkMeter
+) -> List<{ ordinal: uint32, score: float64 }>
+```
+
+A `PagedFileHandle` is an open read-only file with a stable identity and a length. The core must read it by absolute position without changing a shared file position. `PageSection.offset` is the absolute byte offset from the start of that file. Its `pageBytes` and checksums must match a `Section` of the vector or graph payload in [Vector File Payload](envelope.md#vector-file-payload) or [Vector Graph Payload](envelope.md#vector-graph-payload). The checksums hold one little-endian uint32 per page. The core must refuse a section whose offset and length overflow or end after the file, whose page size is not 16,384 or 65,536, or whose checksum byte length differs from `4 * ceiling(length / pageBytes)`. A page fault must identify the file's stable identity, the section's absolute offset, and the page number, so that the implementation can report the file, section, and page.
+
+The vector files must ascend by `first`, cover every number from 0 to `total` once with no gap, and hold no empty file. The `vectors` section of each file must hold exactly `count * dimension` float32 values. Where `codes` is present, its `bits` must be 1, 2, 4, or 8, its centroid must hold `dimension` values, and every file must hold one OSQ record per vector in `records`. Where `codes` is nil, every `records` section must be nil. A nil `dead` value marks every vector in that file live. Otherwise, `dead` holds one bit per local vector as [VectorFileRef](durability.md#manifest) defines, and the core must ignore its padding bits. The core must compute every range end and byte length without narrowing, and it must refuse an overflow.
+
+The graph parts must ascend by `first`, cover every number from 0 to `total` once with no gap, and hold at most 16,384 numbers each. Every part before the last must hold 16,384 numbers. `levels` must hold `count` entries, and no entry may exceed `maxLayer + 1`. `maxLayer` must not exceed the limit in [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world). `nodeOffsets` must hold `count + 1` ascending entries whose first entry is 0 and whose last entry does not pass the length of `neighbours`. A level of 0 means that the vector has no node; every live vector must have a node. Each node must hold one neighbour list for every layer from 0 through its top layer, as [Vector Graph Payload](envelope.md#vector-graph-payload) defines. The core must skip a neighbour that has no node or whose top layer is below the list's layer, and it must return `pageInvalid` where a list ends after its node. An empty field must have no files or graph parts and a nil entry point. In a non-empty field, the entry point must be nil or below `total`; a nil entry point or one with no node makes the core start from a node on the highest layer.
+
+The implementation must resolve the existing `efSearch`, oversampling, and rescore-window defaults before it calls `searchPagedVectors`. It must pass `ef` as at least `rescoreDepth`, and the core must refuse an `ef` of 0 for a non-empty search or a `rescoreDepth` above `ef`. The query must hold `dimension` finite values. `minSimilarity` must be finite or negative infinity. A call with `k` of 0 must validate the resident field structure and the other arguments, then return no candidates without reading a page.
+
+The core must perform the complete upper-layer and base-layer walk of [HNSW Search](algorithms.md#search). Where `codes` is present, it must use [Optimised Scalar Quantisation](algorithms.md#optimised-scalar-quantisation-osq) for the walk and score the nearest `rescoreDepth` admitted candidates from their full-precision vectors. Where `codes` is nil, it must score every visited candidate from its full-precision vector. It must include an estimated candidate beyond `rescoreDepth` only where `explicitRescoreWindow` is true and `minSimilarity` is negative infinity. It must apply `minSimilarity` to every candidate that it returns.
+
+The `accepted` and `excluded` bitsets use global vector numbers. A nil `accepted` bitset admits every live vector, and a nil `excluded` bitset excludes none. The core must admit a vector only where it is live, `accepted` admits it, and `excluded` does not exclude it. Admission controls which vectors the core can return, while the walk may pass through a vector that admission rejects. Each supplied bitset must cover `total` numbers, and the core must ignore its padding bits.
+
+The core must return candidates by [Score Order](algorithms.md#score-order), highest first. Where at least `k` candidates remain, it must keep every further candidate whose score ties the score at place `k - 1`, so that the implementation can fetch their document IDs, break the tie in code point order, and then keep `k`. The returned list can therefore hold more than `k` entries, but it cannot hold more than `ef` entries.
+
+For every neighbour list that it examines, the core must add the list's entry count times `dimension` to `meter`, including entries that it later skips. A cache hit, read-ahead, and the number of pages that one list crosses must not change that count. The core must use the statuses and output rules of [Work Meter](#work-meter) when the cap, stop flag, or deadline ends the search.
+
+The implementation must allocate one page cache for each thread that calls the operation. The core may retain pages in that cache after a call. A cache entry must use the file's stable identity, the section's absolute offset, and the page number as its key, and every read from the file must check the page checksum before the cache can hold it. A `pageCorrupt`, `pageUnreadable`, `pageInvalid`, invalid-argument, out-of-memory, or `needsRoom` result must leave the candidate output unchanged. Work already added to the meter and pages already added to the cache may remain. The output of a stopped or work-capped call follows [Work Meter](#work-meter).
+
+The implementation must keep the field, the query, both bitsets, the meter, the page cache, and every file handle alive until the operation returns. An asynchronous binding must retain them until the core has returned after completion or cancellation, and it must finish every argument and property access before native code retains a pointer.
 
 ### Growing Segment
 
@@ -176,6 +250,7 @@ A term's slot starts at `termHash(term) AND (slotCapacity - 1)`, and a writer an
 
 ```text
 lookupExact(segment, term: List<uint16>) -> uint32 or 'absent'
+lookupExactBatch(segment, units: List<uint16>, offsets: List<uint32>) -> List<uint32 or 'absent'>
 lookupPrefix(segment, prefix: List<uint16>, limit: uint32) -> List<uint32>
 lookupTypo(segment, term: List<uint16>, tolerance: uint32, prefixLength: uint32) -> List<uint32>
 documentFrequency(segment, token: uint32) -> uint32
@@ -184,6 +259,8 @@ documentFrequency(segment, token: uint32) -> uint32
 `segment` is a growing, a frozen, or a paged segment, and a lookup returns term ordinals of a growing segment and token indexes of the others. `documentFrequency` returns the live document frequency, which for a frozen or a paged segment is `documentFrequencies` minus `removedDocuments`. Every lookup must return the same tokens, in the same order, for each kind of segment that holds the same documents.
 
 Each lookup returns tokens whose live document frequency is above 0, and nothing else. `lookupPrefix` returns nothing for an empty prefix or a `limit` of 0. Otherwise, it must return the tokens whose code points start with `prefix`, ordered by live document frequency, highest first, and then in code point order, up to `limit`. `lookupTypo` must return `lookupExact` at a `tolerance` of 0. Otherwise, it must return, in code point order, the tokens that start with the first `prefixLength` code points of `term`, or with the whole of `term` where it holds fewer, and that lie within `tolerance` of `term` under [Bounded Levenshtein Distance](algorithms.md#bounded-levenshtein-distance).
+
+`lookupExactBatch` must validate the segment once and apply `lookupExact` in order to each slice from `offsets[i]` through `offsets[i + 1]` of `units`. `offsets` must hold at least one entry, start with 0, ascend without decreasing, and end at the length of `units`. The result must hold one entry for each adjacent pair of offsets, using `UINT32_MAX` where that term is absent. An `offsets` value of `[0]` and empty `units` returns an empty result. The binding must require an output region of at least that result length, and the output must not overlap `units`, `offsets`, or a segment region. It must return the result length on success or an existing negative status on refusal, and a refusal must leave the whole output region unchanged, including where the segment, offsets, text slice, overlap, capacity, or allocation is invalid.
 
 ### Surface Forms
 
@@ -224,18 +301,25 @@ A growing segment holds the written spellings of [Partial-Word Search](algorithm
 ### Segment Operations
 
 ```text
-indexTerms(segment, ordinal: uint32, field: uint16, tokens: List<Token>) -> nothing or 'needsRoom'
+FieldTokens {
+  field:  uint16
+  tokens: List<Token>
+}
+
+indexTerms(segment, ordinal: uint32, fields: List<FieldTokens>) -> nothing or 'needsRoom' or 'segmentFull'
 removeDocument(segment, ordinal: uint32, tokens: List<Token>) -> nothing
 removeFrozenDocument(segment, state: FrozenSegmentState, ordinal: uint32, tokens: List<Token>) -> nothing
 beginBatch(segment) -> nothing
 endBatch(segment) -> nothing
-measureMerge(inputs: List<segment>, mapping: List<uint32>) -> RegionSizes
-writeMerge(inputs: List<segment>, mapping: List<uint32>, target) -> nothing
+measureMerge(inputs: List<segment>, mapping: List<uint32>) -> RegionSizes or 'segmentFull'
+writeMerge(inputs: List<segment>, mapping: List<uint32>, target) -> nothing or 'segmentFull'
 ```
 
-`indexTerms` must add the postings, the positions, the field length, the surface forms, the written spellings, and the statistics of one field of one document. `removeDocument` must take that document out of every count that a search reads, and `removeFrozenDocument` must record the same removal in the copy's state. Both take the tokens that `analyse` returns for the document with `collectSurfaces` set, so that they can subtract the surfaces and the spellings. Between `beginBatch` and `endBatch`, the core may defer the compaction of the term table, the pools, and the run lists, and `endBatch` must leave every count, list, and lookup result that a series of single writes would leave.
+`indexTerms` must add the postings, the positions, the field lengths, the surface forms, the written spellings, and the statistics of one document. `fields` must hold each indexed text field at most once, in ascending field order. An empty `fields` list must still add the document to `totalDocuments`. `removeDocument` must take that document out of every count that a search reads, and `removeFrozenDocument` must record the same removal in the copy's state. Both take the tokens that `analyse` returns for the document with `collectSurfaces` set, so that they can subtract the surfaces and the spellings. Between `beginBatch` and `endBatch`, the core may defer the compaction of the term table, the pools, and the run lists, and `endBatch` must leave every count, list, and lookup result that a series of single writes would leave.
 
 `measureMerge` must return the size of every region that the merged segment needs, so that the implementation can allocate them, and `writeMerge` must then fill them. `mapping` holds the target ordinal of each source ordinal, or `0xFFFFFFFF` for a dropped one. A merge must check every page of a paged input first, as [Checks on a paged segment](envelope.md#checks-on-a-paged-segment) requires.
+
+A surface or spelling count belongs to one segment and must not pass `0xFFFFFFFF`. `indexTerms`, `measureMerge`, and `writeMerge` must leave every region unchanged and return `segmentFull` where the operation would make one of those counts larger. The implementation must freeze the growing segment and retry the complete document in a new growing segment when `indexTerms` returns `segmentFull`. It must split a merge into disjoint sets of kept source ordinals in original target-ordinal order, renumber each output from zero, and retry when either merge operation returns `segmentFull`, so that every source ordinal that the original mapping kept appears in exactly one output segment. It must publish none of those output segments until every split output succeeds. `segmentFull` is an internal capacity result and raises no client-facing error. `needsRoom` keeps the meaning in [Memory](#memory): the implementation grows the region that was too small at the same address and retries the same operation.
 
 ---
 
@@ -384,7 +468,7 @@ KeywordResult {
 
 A document covers a query term where it holds a row of a slot of that term whose factor in the row's field is above 0, and every row of a term slot counts. A phrase slot covers no term. Where `termMatch` and `terms` are both above 0, the core must keep only the documents that cover at least `termMatch` terms, and it must keep none where `termMatch` exceeds `terms`. A query with no words takes no coverage test, as [Matching](algorithms.md#matching) requires. The implementation must count each distinct query token as one term. Where `termMatch` equals `terms`, the core may first mark the documents of the slots of the `anchor` term and score only those, because every kept document covers that term.
 
-The core must then keep a document whose score is at least `minScore` where `minScore` is above 0, and every remaining document otherwise. It must return the `limit` best ordinals, best first, plus every further ordinal that ties the score of the last one that it keeps, so that the implementation can break those ties on the document ID. Where `limit` is none, it must return every document that it keeps. `totalMatched` counts every document that it keeps.
+The core must then keep a document whose score is at least `minScore` where `minScore` is above 0, and every remaining document otherwise. A NaN score fails that numeric lower-bound test. It must return the `limit` best ordinals in [Score Order](algorithms.md#score-order), plus every further ordinal that ties the score of the last one that it keeps, so that the implementation can break those ties on the document ID. A NaN cutoff therefore keeps every NaN candidate. Where `limit` is 0, the core must return no ordinals. Where `limit` is none, it must return every document that it keeps. `totalMatched` counts every document that passes the coverage and score tests, before the limit applies.
 
 The core must compute IDF through the natural logarithm of [Deterministic Functions](algorithms.md#deterministic-functions).
 
@@ -556,12 +640,13 @@ A typo test must fold `text`, count its preparation once for the search, find th
 ```text
 numberFacet(index: NumericIndex, matched: bitset) -> { values: List<float64>, counts: List<uint32> }
 rangeFacet(index: NumericIndex, matched: bitset, ranges: List<float64>) -> List<uint32>
+storedRangeFacet(values: StoredValues, matched: bitset, ranges: List<float64>) -> List<uint32>
 enumFacet(index: EnumIndex, matched: bitset) -> List<uint32>
 booleanFacet(index: BooleanIndex, matched: bitset) -> { trueCount: uint32, falseCount: uint32 }
 valueFacet(values: StoredValues, matched: bitset) -> List<{ value: uint32, count: uint32 }>
 ```
 
-`numberFacet` must return each distinct value with the number of matched documents that hold it, in ascending order of value, so that a document counts once for each distinct value that it holds, where -0 and 0 are one value. `rangeFacet` takes `from` and `to` for each range, and it must count the matched documents that hold an entry from `lower(from)` to before `lower(to)`, giving 0 for a range with a NaN bound. `enumFacet` must return a count for each value index. `valueFacet` must count a field that has no index from its stored values, counting each element of a matched document once and skipping a null and an `other` value, because neither has a bucket key, and it must return one entry for each distinct value, which gives the place of the first stored value that holds it. A number and a string with the same text are two values, and the implementation must give them one bucket where their keys are equal.
+`numberFacet` must return each distinct value with the number of matched documents that hold it, in ascending order of value, so that a document counts once for each distinct value that it holds, where -0 and 0 are one value. `rangeFacet` takes `from` and `to` for each range, and it must count the matched documents that hold an entry from `lower(from)` to before `lower(to)`, giving 0 for a range with a NaN bound. `storedRangeFacet` must count each matched document once in each range where its scalar number, or one of the direct number elements of its array, is at least `from` and below `to`. It must skip a null, a boolean, a string, an `other` value, and every non-number element of an array. A NaN value matches no range, and a range with a NaN bound has a count of 0. `enumFacet` must return a count for each value index. `valueFacet` must count a field that has no index from its stored values, counting each element of a matched document once and skipping a null and an `other` value, because neither has a bucket key, and it must return one entry for each distinct value, which gives the place of the first stored value that holds it. A number and a string with the same text are two values, and the implementation must give them one bucket where their keys are equal.
 
 The implementation must turn each value into its bucket key, writing a number the way ECMAScript converts a number to a string, order the buckets, apply the limit, and compute the error bound, as [Distributed Facets](distribution/query-routing.md#distributed-facets) defines.
 
@@ -570,10 +655,20 @@ The implementation must turn each value into its bucket key, writing a number th
 ## Sort
 
 ```text
-sortSelect(columns: List<{ column: SortColumn, direction }>, filter: bitset, live: bitset, limit: uint32, anchor: List<int32> or nil) -> List<uint32>
+sortSelect(
+  columns: List<{ column: SortColumn, direction }>,
+  filter: bitset,
+  live: bitset,
+  limit: uint32,
+  anchor: { ranks: List<int32>, values: SortValues } or nil
+) -> List<uint32>
 ```
 
-A rank of -1 marks a missing value, and a missing value orders last in both directions, while `desc` reverses every other rank. `sortSelect` must return the `limit` best ordinals by their tuple of ranks, plus every further ordinal whose tuple equals the tuple of the last one that it keeps. The core must order each set of equal tuples by value where the shared rank is odd, and the implementation must then order it by document ID. Where a cursor gives an anchor, the implementation must turn the anchor's values into ranks, the core must keep the tuples at or after the anchor, and the implementation must drop the ordinals of an equal tuple whose document ID is not after the anchor's.
+A rank of -1 marks a missing value, and a missing value orders last in both directions, while `desc` reverses every other rank. To compare two ordinals, `sortSelect` must visit the columns in the order in which the sort names them. In each column it must compare the ranks first. Where equal ranks are odd, it must compare the two current values under that column's direction before it visits the next column. The first rank or value comparison that differs decides the order. Ordinals whose ranks and, for every odd rank, current values are equal in every column share one complete sort key.
+
+`sortSelect` must return the `limit` best ordinals in that order, plus every further ordinal whose complete sort key equals the complete sort key of the last one that it keeps. The implementation must order ordinals that share one complete sort key by document ID.
+
+Where a cursor gives an anchor, the implementation must pass the reduced anchor value and its rank for every column. The core must compare an ordinal with the anchor through the same field-by-field rule and keep every complete sort key that is equal to or after the anchor. The implementation must drop an ordinal whose complete sort key equals the anchor's where its document ID is not after the anchor's. Where that removal leaves a short page and the core may have omitted a later complete sort key, the implementation must call `sortSelect` with a larger limit until the page is full or the core has returned every remaining ordinal.
 
 ---
 
@@ -590,18 +685,24 @@ Group {
 
 The implementation must pass the hits in final order. `groupHits` must put two hits in one group exactly where the stored values of every group field, in field order, are equal. Two values are equal where they have the same shape and the same elements in the same order, comparing numbers by value with -0 equal to 0, strings by code unit, and `other` values by their bytes, and the core must treat an absent value as a null. A hit with no score takes 0. It must order the groups by the score of their first hit, highest first, and then by the `idRanks` entry of that hit. The implementation must call a group's reducer, because a reducer is a caller's function.
 
+For grouping equality, the core must treat every NaN number as equal to every other NaN number, regardless of its sign or payload bits. A NaN number differs from every finite number, both infinities, null, and an absent value. Positive infinity equals only positive infinity, and negative infinity equals only negative infinity. These rules apply to values whose `kind` is number, including the elements of an array; `other` values retain byte equality. Grouping must leave every input value and its stored bytes unchanged, including NaN payload bits.
+
 ---
 
 ## Pinned Documents and Pages
 
 ```text
 placePinned(count: uint32, pins: List<{ ranked: int32, position: uint32 }>, depth: uint32 or none) -> List<int32>
-pageStart(scores: List<float64> or nil, afterAnchor: bitset, anchorScore: float64 or nil) -> uint32
+pageStart(count: uint32, sorted: boolean, scores: List<float64> or nil, scorePresent: bitset or nil, afterAnchor: bitset, anchorScore: float64 or nil) -> uint32
 ```
 
-`placePinned` must place [pinned documents](distribution/query-routing.md#pinned-documents) into a ranked list of `count` entries. The implementation must pass each pin once, at its first listed position, and leave out a pin whose document no segment holds. `ranked` gives the pin's place in the ranked list, or -1 where the list lacks it. The core must remove every ranked pin from the list, take the pins in ascending order of `position`, keeping the order of the request on a tie, and insert each one at `minimum(position, length)` of the list as it then stands. Where `depth` is not none, it must skip a pin whose position is at or beyond `depth`, because a merge that lacks some matches cannot place the end of the results. It returns each entry as its index in the ranked list, or as `-1 - p` for pin `p`.
+`placePinned` must place [pinned documents](distribution/query-routing.md#pinned-documents) into a ranked list of `count` entries. The implementation must pass each pin once, at its first listed position, and leave out a pin whose document no segment holds. `ranked` gives the pin's place in the ranked list, or -1 where the list lacks it. The core must remove every ranked pin from the list, take the pins in ascending order of `position`, keeping the order of the request on a tie, and insert each one at `minimum(position, length)` of the list as it then stands. Where `depth` is not none, it must skip a pin whose position is at or beyond `depth`, because a merge that lacks some matches cannot place the end of the results. It returns each entry as its index in the ranked list, or as `-1 - p` for pin `p`. `count` and the number of pins must each be at most 2^31 - 1, so that every returned entry fits an int32, and the core must refuse a larger value as [Refusals](#refusals) requires.
 
-`pageStart` must return the place of the first result after a [cursor](partitioning.md#deep-pagination)'s anchor. Without a sort, a result orders after the anchor where the anchor holds no score, where the result holds no score, where its score is below `anchorScore`, or where its score equals `anchorScore` and `afterAnchor` holds it. With a sort, `afterAnchor` alone decides. The implementation must set a result in `afterAnchor` where its sort values, and then its document ID, order after the anchor's, comparing the document IDs, because the core holds none. The implementation must slice the page from that place plus the offset, and it must anchor the next cursor on the last result of the page that is not a pinned placement.
+`pageStart` must return the place of the first result after a [cursor](partitioning.md#deep-pagination)'s anchor, or `count` where no result orders after it. `count` gives the number of results in their final order, so an empty list returns 0. The bitsets use result positions, with the word layout of [Bitsets](#bitsets), and the core must ignore bits at or above `count`.
+
+Where `scores` is nil, every result holds no score and `scorePresent` must be nil. Otherwise, `scores` must hold exactly `count` entries, and a nil `scorePresent` means that every score is present. A set bit in `scorePresent` marks a present score, and a clear bit marks an absent score whose array entry the core must not read. Zero is a present score wherever its bit is set. `afterAnchor` and a supplied `scorePresent` must each hold at least `max(1, ceil(count / 32))` uint32 words. The core must refuse a shorter region, a scores length that differs from `count`, or a supplied `scorePresent` with nil `scores`, as [Refusals](#refusals) requires.
+
+Where `sorted` is false, a result orders after the anchor where `anchorScore` is nil, where the result holds no score, where its score ranks below `anchorScore` under [Score Order](algorithms.md#score-order), or where the scores tie under that order and `afterAnchor` holds it. Where `sorted` is true, `afterAnchor` alone decides, regardless of score presence or value. The implementation must set a result in `afterAnchor` where its document ID orders after the anchor's without a sort, or where its sort values, and then its document ID, order after the anchor's with a sort. The implementation must validate the cursor before calling the core, slice the page from the returned place plus the offset, and anchor the next cursor on the last result of the page that is not a pinned placement. A request without a cursor starts at place 0 without calling `pageStart`.
 
 ---
 
@@ -647,7 +748,7 @@ Suggestion {
 fuse(strategy, k: float64, alpha: float64, text: List<{ key: uint32, score: float64 }>, vector: List<{ key: uint32, score: float64 }>, idRanks: List<uint32>) -> List<{ key: uint32, score: float64 }>
 ```
 
-`fuse` must compute [Reciprocal Rank Fusion](algorithms.md#reciprocal-rank-fusion) or the linear combination that [Hybrid Search](vector-index.md#hybrid-search) defines. Under the linear combination, it must normalise each list by its minimum and maximum, give 1.0 to every entry of a list whose range is 0, and give 0 to a key that a list lacks. It must order the result by score, highest first, and then by `idRanks`. The implementation must validate `k` and `alpha` and raise `CONFIG_INVALID` for a bad value. Each key must appear at most once in each list, and the core must refuse a key that repeats within one list.
+`fuse` must compute [Reciprocal Rank Fusion](algorithms.md#reciprocal-rank-fusion) or the [Linear Combination](vector-index.md#linear-combination), including its treatment of infinities, NaN, and a subtraction that overflows. Under the linear combination, it must normalise each list separately and give 0 to a key that a list lacks. It must order the result by score, highest first, and then by `idRanks`. The implementation must validate `k` and `alpha` and raise `CONFIG_INVALID` for a bad value. Each key must appear at most once in each list, and the core must refuse a key that repeats within one list.
 
 ---
 
@@ -657,16 +758,18 @@ fuse(strategy, k: float64, alpha: float64, text: List<{ key: uint32, score: floa
 mergeRankings(lists: List<{ scores: List<float64>, idRanks: List<uint32> }>, limit: uint32) -> List<{ list: uint32, index: uint32 }>
 mergeSorted(lists: List<{ ranks: List<uint32> }>, limit: uint32) -> List<{ list: uint32, index: uint32 }>
 mergeFacets(lists: List<List<{ value: uint32, count: uint32 }>>, bounds: List<uint32>, valueRanks: List<uint32>, ascending: boolean, limit: uint32 or none) -> { buckets: List<{ value: uint32, count: uint32 }>, errorBound: uint32 }
-mergeGroups(lists: List<List<{ key: uint32, entries: List<{ score: float64 or none, rank: uint32 }> }>>, maxPerGroup: uint32, limit: uint32 or none) -> List<{ key: uint32, entries: List<{ list: uint32, index: uint32 }> }>
+mergeGroups(lists: List<List<{ key: uint32, entries: List<{ score: float64 or none, rank: uint32, idRank: uint32 }> }>>, sorted: boolean, maxPerGroup: uint32, limit: uint32 or none) -> List<{ key: uint32, entries: List<{ list: uint32, index: uint32 }> }>
 measureFieldMerge(sources, mapping: List<uint32>) -> RegionSizes
 writeFieldMerge(sources, mapping: List<uint32>, targets) -> nothing
 ```
 
-`mergeRankings` must merge lists that are each ordered by score, highest first, into one list of at most `limit` entries, ordered by score and then by `idRanks`, and it must keep list order where both are equal. `mergeSorted` must merge lists that are each ordered by sort value into one list ordered by `ranks`, where the implementation gives every entry its place among the entries of every list in [sort value order](algorithms.md#sort-value-order), and then in code point order of document ID. Both serve the merge across segments, partitions, and nodes.
+`mergeRankings` must merge lists that each follow [Score Order](algorithms.md#score-order), with ties ordered by `idRanks`, into one list of at most `limit` entries under that same order. It must keep list order where both the score class and `idRanks` are equal, including ties among NaNs. An empty input or a limit of 0 produces an empty list. `mergeSorted` must merge lists that are each ordered by sort value into one list ordered by `ranks`, where the implementation gives every entry its place among the entries of every list in [sort value order](algorithms.md#sort-value-order), and then in code point order of document ID. Both serve the merge across segments, partitions, and nodes.
 
 `mergeFacets` must sum the counts of each value across the lists, order the values by count, highest first or lowest first where `ascending` is set, and then by `valueRanks`, which hold the place of each value's bucket key in code point order, and keep the first `limit`. Its `errorBound` must be the sum of `bounds` plus the largest count that it leaves out, as [Distributed Facets](distribution/query-routing.md#distributed-facets) defines. The implementation must give one value the same number in every list.
 
-`mergeGroups` must merge the groups that share a key, which the implementation assigns from the groups' field values in field order. It must merge each group's entries as `mergeRankings` merges them where the entries hold scores, taking `rank` as the place of the entry's document ID, or as `mergeSorted` merges them otherwise, keep the first `maxPerGroup`, order the groups by the score of their first entry, highest first, with 0 for an entry without one, and then by the `rank` of that entry, and keep the first `limit`, as [Distributed Grouping](distribution/query-routing.md#distributed-grouping) defines.
+`mergeGroups` must merge the groups that share a key, which the implementation assigns from the groups' field values in field order. Where `sorted` is true, it must merge each group's entries as `mergeSorted` merges them, even where they hold scores. In that case, `rank` gives each entry's place across every input list by sort values and then document ID. Where `sorted` is false, `rank` must equal `idRank`, and the core must merge entries as `mergeRankings` merges them, treating an absent score as negative infinity for that merge alone. Each input entry list must follow the selected order. The core must keep source-list order on an equal entry comparison.
+
+The core must keep the first `maxPerGroup` entries of each merged group, order the groups by their first retained entry's score under [Score Order](algorithms.md#score-order), and break a tie by that entry's `idRank`. `idRank` gives the document ID's place in code point order across every input list, independently of the sort values. An absent score counts as 0 for group ordering alone. An empty group has score 0 and an empty document ID for this comparison, and equal group comparisons keep the order in which their keys first appeared in the inputs. The core must then keep the first `limit` groups, or every group where `limit` is none. A limit of 0 returns no groups; `maxPerGroup` of 0 retains no entries. [Distributed Grouping](distribution/query-routing.md#distributed-grouping) defines the scores that the implementation must preserve before this call.
 
 `measureFieldMerge` and `writeFieldMerge` merge the field indexes, the stored values, and the pattern indexes of several segments, as `measureMerge` and `writeMerge` merge their keyword regions. The core must remap each numeric, size, and geo entry through `mapping` and sort the result again, remap and unite the boolean bitsets, unite the enum values while it remaps their postings, and remap the ordinals of each pattern run, keeping each list ascending. An ordinal that `mapping` drops leaves every target region.
 
