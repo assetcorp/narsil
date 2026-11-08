@@ -31,16 +31,18 @@ static int compare_text(const narsil_stored_values *values, uint32_t lhs, uint32
   return left_length < right_length ? -1 : 1;
 }
 
+static int compare_numbers(double first, double second) {
+  if (first == second) { return 0; }
+  if (isnan(first)) { return isnan(second) ? 0 : 1; }
+  return isnan(second) || first < second ? -1 : 1;
+}
+
 int stored_element_compare(const narsil_stored_values *values, uint32_t left, uint32_t right) {
   uint8_t kind = values->kinds[left];
   if (kind != values->kinds[right]) { return kind < values->kinds[right] ? -1 : 1; }
   if (kind == STORED_STRING || kind == STORED_OTHER) { return compare_text(values, left, right); }
   if (kind != STORED_NUMBER) { return 0; }
-  double first = values->numbers[left];
-  double second = values->numbers[right];
-  if (first == second) { return 0; }
-  if (isnan(first)) { return isnan(second) ? 0 : 1; }
-  return isnan(second) || first < second ? -1 : 1;
+  return compare_numbers(values->numbers[left], values->numbers[right]);
 }
 
 static uint8_t effective_shape(const narsil_stored_values *values, uint32_t ordinal) {

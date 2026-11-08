@@ -10,7 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 narsil_status paged_open(narsil_paged_file *file, const char *path) {

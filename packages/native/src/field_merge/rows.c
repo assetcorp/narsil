@@ -44,6 +44,10 @@ static int valid_coordinate(const narsil_field_merge_source *source, size_t inde
          lon[index] >= -MAX_LONGITUDE && lon[index] <= MAX_LONGITUDE;
 }
 
+static int valid_number(const narsil_field_merge_source *source, size_t index) {
+  return !isnan(((const double *)source->regions[0].data)[index]);
+}
+
 static narsil_status count_rows(const narsil_field_merge_request *request, size_t *count) {
   int geo = request->kind == NARSIL_MERGE_GEO;
   for (size_t source_index = 0; source_index < request->source_count; source_index++) {
@@ -51,9 +55,8 @@ static narsil_status count_rows(const narsil_field_merge_request *request, size_
     const uint32_t *ordinals = source->regions[geo ? 3 : 1].data;
     for (size_t at = 0; at < source->regions[0].length; at++) {
       uint32_t ordinal = ordinals[at];
-      if (ordinal >= source->document_count) { return NARSIL_FILE_UNREADABLE; }
-      if (!geo && isnan(((const double *)source->regions[0].data)[at])) { return NARSIL_FILE_UNREADABLE; }
-      if (geo && !valid_coordinate(source, at)) { return NARSIL_FILE_UNREADABLE; }
+      int valid = geo ? valid_coordinate(source, at) : valid_number(source, at);
+      if (ordinal >= source->document_count || !valid) { return NARSIL_FILE_UNREADABLE; }
       if (source->mapping[ordinal] != UINT32_MAX) {
         if (*count == UINT32_MAX) { return NARSIL_INVALID_ARGUMENT; }
         (*count)++;

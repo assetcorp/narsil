@@ -153,6 +153,13 @@ static int slice_order(const void *first, const void *second) {
   return left->start < right->start ? -1 : left->start > right->start;
 }
 
+static int term_counts_invalid(const narsil_term_columns *columns, uint32_t ordinal) {
+  return columns->doc_frequency[ordinal] < columns->dead_documents[ordinal] ||
+         columns->doc_frequency[ordinal] > columns->lengths[ordinal] ||
+         !isfinite(columns->total_term_frequency[ordinal]) || columns->total_term_frequency[ordinal] < 0 ||
+         !isfinite(columns->surface_occurrences[ordinal]) || columns->surface_occurrences[ordinal] < 0;
+}
+
 static narsil_status validate_columns(segment_vacuum *plan, const narsil_growing_segment *segment) {
   const narsil_term_columns *columns = &segment->columns;
   const narsil_posting_pool *pool = &segment->postings;
@@ -163,11 +170,7 @@ static narsil_status validate_columns(segment_vacuum *plan, const narsil_growing
     plan->mapping[at] = UINT32_MAX;
     if ((columns->flags[at] & SEGMENT_TERM_LIVE) == 0) { continue; }
     live++;
-    if (columns->doc_frequency[at] < columns->dead_documents[at] || columns->doc_frequency[at] > columns->lengths[at] ||
-        !isfinite(columns->total_term_frequency[at]) || columns->total_term_frequency[at] < 0 ||
-        !isfinite(columns->surface_occurrences[at]) || columns->surface_occurrences[at] < 0) {
-      return NARSIL_INVALID_ARGUMENT;
-    }
+    if (term_counts_invalid(columns, at)) { return NARSIL_INVALID_ARGUMENT; }
     uint8_t kind = columns->slice_class[at];
     if (kind == SEGMENT_NO_SLICE && columns->lengths[at] == 0) { continue; }
     if (kind >= pool->allocator.class_count || columns->slice_start[at] > end) { return NARSIL_INVALID_ARGUMENT; }
