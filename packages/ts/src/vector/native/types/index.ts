@@ -1,128 +1,46 @@
-import type { NativeAnalysisCore } from './analysis-types'
-import type { NativeKeywordCore } from './keyword-types'
+import type { NativeAnalysisCore } from '../analysis-types'
+import type { NativeKeywordCore } from '../keyword-types'
+import type { NativeExpansionCore } from './expansion'
+import type { NativeFacetCore } from './facets'
+import type { NativeFieldMergeCore } from './field-merge'
+import type { NativeFilterCore } from './filters'
+import type { NativeFrozenSegmentCore } from './frozen-segments'
+import type { NativeGroupCore } from './groups'
+import type { NativeHighlightCore } from './highlight'
+import type {
+  NativeConnectResult,
+  NativeGraphHandle,
+  NativeGraphMemory,
+  NativeScoreResult,
+  NativeSearchResult,
+  NativeStoreHandle,
+  NativeStoreMemory,
+} from './memory'
+import type { NativePagedCore } from './paged'
+import type { NativePatternCore } from './pattern'
+import type { NativePhraseCore } from './phrases'
+import type { NativeResultCore } from './results'
+import type { NativeSegmentMergeCore } from './segment-merge'
+import type { NativeSegmentCore } from './segments'
+import type { NativeSortCore } from './sort'
+import type { NativeSynonymCore } from './synonyms'
+import type { NativeTermCore } from './terms'
 
-/**
- * The regions of one HNSW graph that the native search core reads and writes.
- *
- * @internal
- */
-export interface NativeGraphMemory {
-  /** The graph's header words, which hold the entry point, the top layer, the link limits, the counts, and the graph lock. */
-  graphHeader: Int32Array
-  /** The top layer of each node, one byte for each ordinal. */
-  nodeLevels: Uint8Array
-  /** The neighbour lists on layer 0, a fixed number of words for each ordinal. */
-  level0: Int32Array
-  /** The position in {@link NativeGraphMemory.upper} where each node's upper-layer lists start, one word for each ordinal. */
-  upperBase: Int32Array
-  /** The neighbour lists on every layer above layer 0. */
-  upper: Int32Array
-  /** One lock word for each node, which a writer takes before it changes that node's lists. */
-  locks: Int32Array
-  /** One byte for each ordinal, which the core sets once it removes that node. */
-  tombstones: Uint8Array
-  /** The number of neighbour lists that hold each node, one word for each ordinal. */
-  incoming: Int32Array
-  /** One byte for each ordinal, which the core sets when that node's links have to be checked again. */
-  nearestLinkDue: Uint8Array
-  /** The locks that each thread slot holds, 32 words for each slot. */
-  heldLocks: Int32Array
-}
+export type {
+  NativeConnectResult,
+  NativeGraphHandle,
+  NativeGraphMemory,
+  NativeScoreResult,
+  NativeSearchResult,
+  NativeStoreHandle,
+  NativeStoreMemory,
+} from './memory'
 
-/**
- * The regions and layout of one vector store that the native search core reads.
- *
- * @internal
- */
-export interface NativeStoreMemory {
-  /** The store's header words, which hold the slot count, the live count, and the calibration state. */
-  storeHeader: Int32Array
-  /** The number of values in each vector. */
-  dimension: number
-  /** The number of bits for each value in a quantised code, or 0 when the store keeps no codes. */
-  bits: number
-  /** The number of quantised records that each code block holds. */
-  recordsPerBlock: number
-  /** The number of full-precision vectors that each vector block holds. */
-  vectorsPerBlock: number
-  /** The number of bytes from the start of one vector to the start of the next in a vector block. */
-  vectorStrideBytes: number
-  /** One byte for each ordinal, set when that ordinal has a quantised code. */
-  codePresent: Uint8Array
-  /** The mean vector that the quantised codes are measured from. */
-  centroid: Float32Array
-  /** The length of each full-precision vector, one value for each ordinal. */
-  magnitudes: Float64Array
-  /** One byte for each ordinal, set when that ordinal holds a vector. */
-  present: Uint8Array
-  /** For each ordinal, the position in {@link NativeStoreMemory.vectorFiles} of the file that holds its vector, or -1 when the vector is in a block. */
-  vectorFile: Int32Array
-  /** For each ordinal whose vector is in a file, the vector's offset within that file. */
-  vectorOffset: Uint32Array
-  /** The paths of the files that hold full-precision vectors. */
-  vectorFiles: string[]
-  /** The blocks of quantised codes, in ordinal order. */
-  codeBlocks: Uint8Array[]
-  /** The blocks of full-precision vectors, in ordinal order, with `null` in place of a block that the store holds no memory for. */
-  vectorBlocks: Array<Uint8Array | null>
-}
-
-/**
- * A graph that the native search core has attached.
- *
- * @internal
- */
-export type NativeGraphHandle = object
-
-/**
- * A vector store that the native search core has attached.
- *
- * @internal
- */
-export type NativeStoreHandle = object
-
-/**
- * The candidates that a search on a native thread found.
- *
- * @internal
- */
-export interface NativeSearchResult {
-  /** The number of candidates found, or a negative status code when the search failed. */
-  count: number
-  /** The ordinal of each candidate, of which the first `count` entries hold results. */
-  ordinals: Int32Array
-  /** The distance of each candidate, in the same order as {@link NativeSearchResult.ordinals}. */
-  distances: Float64Array
-}
-
-/**
- * The distances that a scoring call on a native thread measured.
- *
- * @internal
- */
-export interface NativeScoreResult {
-  /** A status code from the core's header. */
-  status: number
-  /** One distance for each ordinal that the call measured. */
-  distances: Float64Array
-}
-
-/**
- * The outcome of a connecting pass that ran on a native thread.
- *
- * @internal
- */
-export interface NativeConnectResult {
-  /** A status code from the core's header. */
-  status: number
-  /** The count of waiting writers to wake in its first word, followed by their ordinals. */
-  wakes: Int32Array
-}
-
-export const NATIVE_CORE_ABI_VERSION = 8
+export const NATIVE_CORE_ABI_VERSION = 49
 export const NATIVE_OK = 0
 export const NATIVE_NEEDS_ROOM = 3
 export const NATIVE_GRAPH_NOT_HELD_ALONE = 4
+export const NATIVE_SEGMENT_FULL = 8
 
 /**
  * The operations of the native search core, which each return a status code from the core's header, or, for a
@@ -130,7 +48,25 @@ export const NATIVE_GRAPH_NOT_HELD_ALONE = 4
  *
  * @internal
  */
-export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
+export interface NativeCore
+  extends NativeAnalysisCore,
+    NativeExpansionCore,
+    NativeKeywordCore,
+    NativeFacetCore,
+    NativeFieldMergeCore,
+    NativeFilterCore,
+    NativeFrozenSegmentCore,
+    NativeGroupCore,
+    NativeHighlightCore,
+    NativePagedCore,
+    NativePatternCore,
+    NativePhraseCore,
+    NativeResultCore,
+    NativeSegmentCore,
+    NativeSegmentMergeCore,
+    NativeSortCore,
+    NativeSynonymCore,
+    NativeTermCore {
   /** Returns the version of the core's binary interface, which the engine compares with the version that it was built for. */
   abiVersion(): number
   /** Returns the number of bytes that the core's working memory holds. */
@@ -179,6 +115,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
    * @param query - The query vector.
    * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
    * @param candidateCount - The number of candidates to keep.
+   * @param pin - The write sequence that the search reads the store at, so that it returns only the ordinals that this pin admits.
    * @param threadSlot - The slot of the calling thread.
    * @param ordinals - Receives the ordinal of each candidate.
    * @param distances - Receives the distance of each candidate.
@@ -191,6 +128,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     query: Float32Array,
     metric: number,
     candidateCount: number,
+    pin: number,
     threadSlot: number,
     ordinals: Int32Array,
     distances: Float64Array,
@@ -204,6 +142,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
    * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
    * @param ordinals - The ordinals to measure.
    * @param count - The number of ordinals to read from `ordinals`.
+   * @param pin - The write sequence that the scores read the store at, so that every ordinal that this pin leaves out scores infinity.
    * @param distances - Receives one distance for each ordinal.
    * @returns A status code.
    */
@@ -213,6 +152,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     metric: number,
     ordinals: Int32Array,
     count: number,
+    pin: number,
     distances: Float64Array,
   ): number
   /**
@@ -224,6 +164,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
    * @param query - The query vector, which the core copies before the promise settles.
    * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
    * @param candidateCount - The number of candidates to keep.
+   * @param pin - The write sequence that the search reads the store at, so that it returns only the ordinals that this pin admits.
    * @param threadSlot - A slot that no other thread uses until the promise settles.
    * @param accepted - A bit set of the ordinals that a search may return, or `null` to accept every ordinal.
    * @returns The candidates found.
@@ -234,6 +175,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     query: Float32Array,
     metric: number,
     candidateCount: number,
+    pin: number,
     threadSlot: number,
     accepted: Uint8Array | null,
   ): Promise<NativeSearchResult>
@@ -246,6 +188,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
    * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
    * @param ordinals - The ordinals to measure, which the core copies before the promise settles.
    * @param count - The number of ordinals to read from `ordinals`.
+   * @param pin - The write sequence that the scores read the store at, so that every ordinal that this pin leaves out scores infinity.
    * @param threadSlot - A slot that no other thread uses until the promise settles.
    * @returns The status and one distance for each ordinal.
    */
@@ -255,6 +198,7 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     metric: number,
     ordinals: Int32Array,
     count: number,
+    pin: number,
     threadSlot: number,
   ): Promise<NativeScoreResult>
   /**

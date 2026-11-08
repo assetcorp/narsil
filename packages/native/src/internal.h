@@ -1,7 +1,20 @@
 #ifndef NARSIL_CORE_INTERNAL_H
 #define NARSIL_CORE_INTERNAL_H
 
+#include "expansion/internal.h"
+#include "facets/scratch.h"
+#include "filters/internal.h"
+#include "group_merge/scratch.h"
+#include "groups/scratch.h"
+#include "highlight/scratch.h"
 #include "keyword/scratch.h"
+#include "paged/cache.h"
+#include "paged_vectors/scratch.h"
+#include "pattern/internal.h"
+#include "phrases/scratch.h"
+#include "segments/scratch.h"
+#include "sort/scratch.h"
+#include "terms/scratch.h"
 
 #include "../include/narsil_core.h"
 
@@ -34,6 +47,7 @@
 
 #if defined(NARSIL_SSE2) && (defined(__GNUC__) || defined(__clang__)) && !defined(NARSIL_SSE2_ONLY)
 #define NARSIL_HARDWARE_POPCOUNT 1
+#define NARSIL_AVX2 1
 #endif
 
 #define INLINED_IN_EACH_KERNEL static inline __attribute__((always_inline))
@@ -73,6 +87,7 @@ typedef struct {
 typedef struct {
   uint32_t bits;
   level_range range;
+  double step;
   double correction;
   double sum;
   uint8_t *levels;
@@ -100,8 +115,9 @@ typedef struct {
 typedef struct {
   uint32_t candidate_limit;
   int32_t layer;
-  int excludes_tombstones;
+  int keeps_pinned_only;
   narsil_ordinal_set accepted;
+  int64_t pin;
 } layer_search;
 
 typedef struct {
@@ -130,6 +146,7 @@ typedef struct {
   float_query query;
   int32_t *fence;
   prepared_code code;
+  int64_t oldest_pin;
 } walk_context;
 
 struct narsil_workspace {
@@ -165,6 +182,20 @@ struct narsil_workspace {
   double kept_distances[MAX_NEIGHBOURS_PER_LIST];
   uint8_t replacement_tried[MAX_NEIGHBOURS_PER_LIST];
   keyword_scratch keyword;
+  group_merge_scratch group_merge;
+  group_scratch groups;
+  sort_scratch sort;
+  sort_order_scratch sort_order;
+  facet_scratch facets;
+  filter_scratch filters;
+  pattern_scratch pattern;
+  term_scratch terms;
+  segment_scratch segments;
+  phrase_scratch phrases;
+  expansion_scratch expansion;
+  highlight_scratch highlight;
+  paged_scratch paged;
+  paged_vector_scratch paged_vectors;
 };
 
 typedef struct {
@@ -175,6 +206,15 @@ typedef struct {
 
 static inline int32_t load_word(const int32_t *words, uint32_t index) {
   return atomic_load((const _Atomic(int32_t) *)(words + index));
+}
+
+static inline int store_admits(int32_t ordinal, const narsil_store *store, int64_t pin) {
+  if (ordinal < 0) { return 0; }
+  if ((uint32_t)ordinal >= (uint32_t)load_word(store->header, NARSIL_STORE_WORD_SLOTS)) { return 0; }
+  int64_t born = atomic_load((const _Atomic(int64_t) *)(store->born_at + ordinal));
+  if (born > pin) { return 0; }
+  int64_t retired = atomic_load((const _Atomic(int64_t) *)(store->retired_at + ordinal));
+  return retired == 0 || retired > pin;
 }
 
 static inline _Atomic(int32_t) *atomic_word(int32_t *words, uint32_t index) {
@@ -191,6 +231,8 @@ static inline int is_tombstoned(const walk_context *context, int32_t ordinal) {
 
 uint32_t grown_capacity(uint32_t first, uint32_t needed);
 keyword_scratch *workspace_keyword_scratch(narsil_workspace *workspace);
+group_merge_scratch *workspace_group_merge_scratch(narsil_workspace *workspace);
+group_scratch *workspace_group_scratch(narsil_workspace *workspace);
 
 narsil_status heap_reserve(distance_heap *heap, uint32_t capacity);
 void heap_release(distance_heap *heap);
@@ -271,6 +313,9 @@ uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes);
 uint32_t kernel_products_bits(packed_code document, const uint8_t *planes);
 uint32_t kernel_pair_products(packed_code first, const uint8_t *second, uint32_t dimension);
+#ifdef NARSIL_AVX2
+int uses_hardware_avx2(void);
+#endif
 #ifdef NARSIL_HARDWARE_POPCOUNT
 int uses_hardware_popcount(void);
 #endif
@@ -280,6 +325,8 @@ int is_code_width(uint32_t bits);
 int store_is_complete(const narsil_store *store);
 int graph_is_complete(const narsil_graph *graph);
 const float *stored_vector(const narsil_store *store, int32_t ordinal, float *scratch);
+int64_t oldest_held_pin(const narsil_store *store);
+int store_may_free(const walk_context *context, int32_t ordinal);
 uint8_t *stored_record(const narsil_store *store, int32_t ordinal);
 double float_distance(const walk_context *context, float_query query, int32_t ordinal);
 double walk_distance(const walk_context *context, int32_t ordinal);

@@ -4,6 +4,7 @@
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
+#include "../include/narsil_packed_tokens.h"
 
 #include <js_native_api.h>
 #include <js_native_api_types.h>
@@ -236,19 +237,30 @@ static int write_records(const narsil_tokens *tokens, uint32_t *records, size_t 
 }
 
 static napi_value analyse(napi_env env, napi_callback_info info) {
-  napi_value argv[ANALYSE_ARGUMENT_COUNT];
+  napi_value argv[ANALYSE_ARGUMENT_COUNT + 1];
+  size_t arguments = ANALYSE_ARGUMENT_COUNT + 1;
   thread_state *state = thread_state_of(env);
-  if (state == NULL || !callback_arguments(env, info, ANALYSE_ARGUMENT_COUNT, argv)) {
+  if (state == NULL || napi_get_cb_info(env, info, &arguments, argv, NULL, NULL) != napi_ok ||
+      arguments < ANALYSE_ARGUMENT_COUNT) {
     return throw_error(env, "analyse takes a language, flags, a text, a stop word set or null, and a record array");
   }
   narsil_analysis_request request = {0, NULL, 0, NULL, 0};
   void *records = NULL;
+  void *units = NULL;
   size_t capacity = 0;
+  size_t unit_capacity = 0;
+  napi_valuetype output_type = napi_undefined;
+  if (arguments > ANALYSE_ARGUMENT_COUNT && napi_typeof(env, argv[ANALYSE_ARGUMENT_COUNT], &output_type) != napi_ok) {
+    return NULL;
+  }
+  int packed = output_type != napi_undefined;
   if (napi_get_value_uint32(env, argv[ANALYSE_LANGUAGE], &request.language) != napi_ok ||
       napi_get_value_uint32(env, argv[ANALYSE_FLAGS], &request.flags) != napi_ok ||
       !read_stop_words(env, argv[ANALYSE_STOP_WORDS], &request.stop_words) ||
       !typed_data(env, argv[ANALYSE_RECORDS], napi_uint32_array, &records, &capacity) || capacity == 0 ||
-      !read_text(env, state, argv[ANALYSE_TEXT], &request.length)) {
+      !read_text(env, state, argv[ANALYSE_TEXT], &request.length) ||
+      (packed &&
+       !possibly_empty_typed_data(env, argv[ANALYSE_ARGUMENT_COUNT], napi_uint16_array, &units, &unit_capacity))) {
     return throw_error(env, "an argument to analyse has the wrong type, or the text is too long");
   }
   narsil_analyser *analyser = analyser_of(state);
@@ -257,6 +269,13 @@ static napi_value analyse(napi_env env, napi_callback_info info) {
   narsil_tokens tokens;
   narsil_status status = narsil_analyse(analyser, &request, &tokens);
   if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
+  if (packed) {
+    uint32_t unit_count = 0;
+    status = narsil_pack_tokens(&tokens, records, capacity, units, unit_capacity, &unit_count);
+    if (status != NARSIL_OK && status != NARSIL_NEEDS_ROOM) { return number_of(env, -(int32_t)status); }
+    napi_value result = NULL;
+    return napi_create_uint32(env, unit_count, &result) == napi_ok ? result : NULL;
+  }
   if (!write_records(&tokens, records, capacity)) {
     napi_value none = NULL;
     return napi_get_null(env, &none) == napi_ok ? none : NULL;
