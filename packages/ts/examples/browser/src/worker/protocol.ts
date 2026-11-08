@@ -25,6 +25,7 @@ export interface SyncStartRequest {
   indexName: string
   serverUrl: string
   grantUrl: string
+  deviceKey?: string
 }
 
 export interface DeviceSyncView {
@@ -33,6 +34,7 @@ export interface DeviceSyncView {
   connection: 'connected' | 'connecting' | 'stopped'
   queuedWrites: number
   epoch: string | null
+  serverPosition: number | null
   lastError: string | null
   refusedWrites: number
 }
@@ -66,6 +68,8 @@ export interface WorkerCallMap {
   startSync: { args: [SyncStartRequest]; result: DeviceSyncView[] }
   stopSync: { args: [string]; result: DeviceSyncView[] }
   syncStatus: { args: []; result: DeviceSyncView[] }
+  openNotes: { args: [SyncStartRequest]; result: DeviceSyncView[] }
+  pauseSync: { args: [string, boolean]; result: DeviceSyncView[] }
 }
 
 export type WorkerMethod = keyof WorkerCallMap

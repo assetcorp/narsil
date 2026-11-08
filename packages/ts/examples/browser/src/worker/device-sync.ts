@@ -3,13 +3,13 @@ import { createDeviceSync, type DeviceSync, type DeviceSyncStore } from '@delali
 import { createIndexedDBDeviceStore } from '@delali/narsil/sync/indexeddb'
 import { MAX_SYNC_INDEX_NAME_LENGTH, readBoundedText } from '@delali/narsil-example-shared/lib/bounded-read'
 import * as v from 'valibot'
+import { GRANT_TIMEOUT_MS, MAX_GRANT_RESPONSE_BYTES } from './constants'
 import type { DeviceSyncView, SyncStartRequest } from './protocol'
 
 const SYNC_LOCK_PREFIX = 'narsil-browser-demo-sync:'
 const SYNC_STORE_PREFIX = 'narsil-browser-demo-sync-'
-const MAX_GRANT_RESPONSE_BYTES = 4_096
 
-const GrantAnswerSchema = v.object({ credential: v.pipe(v.string(), v.minLength(1)) })
+const GrantAnswerSchema = v.object({ credential: v.pipe(v.string(), v.minLength(1)), indexName: v.string() })
 
 interface SyncSession {
   indexName: string
@@ -33,6 +33,7 @@ async function fetchGrant(grantUrl: string, indexName: string): Promise<string> 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ indexName }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(GRANT_TIMEOUT_MS),
   })
   const text = await readBoundedText(response, MAX_GRANT_RESPONSE_BYTES)
   if (text === null) throw new Error('The sync grant answer is too large')
@@ -44,7 +45,8 @@ async function fetchGrant(grantUrl: string, indexName: string): Promise<string> 
     throw new Error('The sync grant answer is not JSON')
   }
   const parsed = v.safeParse(GrantAnswerSchema, body)
-  if (!parsed.success) throw new Error('The sync grant answer holds no credential')
+  if (!parsed.success || parsed.output.indexName !== indexName)
+    throw new Error('The sync grant does not cover this notes space')
   return parsed.output.credential
 }
 
@@ -83,6 +85,7 @@ export function describeSessions(): DeviceSyncView[] {
       connection: status.connection,
       queuedWrites: status.queuedWrites,
       epoch: status.position?.epoch ?? null,
+      serverPosition: status.position === null ? null : status.position.seqNos.reduce((sum, seqNo) => sum + seqNo, 0),
       lastError: session.lastError,
       refusedWrites: session.refusedWrites,
     }
@@ -96,7 +99,8 @@ export async function startSync(engine: Narsil, request: SyncStartRequest): Prom
   }
   if (sessions.has(indexName)) return describeSessions()
 
-  const releaseLock = await holdLock(indexName)
+  const storageKey = request.deviceKey === undefined ? indexName : `${indexName}-${request.deviceKey}`
+  const releaseLock = await holdLock(storageKey)
   if (releaseLock === null) {
     throw new Error(
       `Another tab syncs ${indexName}. This tab sees every change it applies, and its edits go through that tab.`,
@@ -105,7 +109,7 @@ export async function startSync(engine: Narsil, request: SyncStartRequest): Prom
 
   let store: DeviceSyncStore | null = null
   try {
-    store = await createIndexedDBDeviceStore({ databaseName: `${SYNC_STORE_PREFIX}${indexName}` })
+    store = await createIndexedDBDeviceStore({ databaseName: `${SYNC_STORE_PREFIX}${storageKey}` })
     const opened = store
     const session: SyncSession = {
       indexName,
@@ -138,6 +142,14 @@ export async function startSync(engine: Narsil, request: SyncStartRequest): Prom
     releaseLock()
     throw err
   }
+}
+
+export async function pauseSync(indexName: string, paused: boolean): Promise<DeviceSyncView[]> {
+  const session = sessions.get(indexName)
+  if (session === undefined) throw new Error('Open a notes device before changing sync.')
+  if (paused) await session.sync.stop()
+  else await session.sync.start()
+  return describeSessions()
 }
 
 export async function stopSync(indexName: string): Promise<DeviceSyncView[]> {

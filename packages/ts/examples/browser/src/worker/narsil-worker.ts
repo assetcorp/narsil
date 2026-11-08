@@ -18,8 +18,9 @@ import { registerLocalModels } from './local-adapters'
 import { transferableBuffersIn, type WorkerOutbound, type WorkerRequest } from './protocol'
 import { listenForRelayedWrites } from './sync-relay'
 
-const PERSISTENCE_DB_NAME = 'narsil-browser-demo'
-const INVALIDATION_CHANNEL_NAME = 'narsil-browser-demo-invalidation'
+const deviceNamespace = self.name
+const PERSISTENCE_DB_NAME = deviceNamespace.length === 0 ? 'narsil-browser-demo' : `narsil-notes-${deviceNamespace}`
+const INVALIDATION_CHANNEL_NAME = `${PERSISTENCE_DB_NAME}-invalidation`
 
 let engine: Narsil | null = null
 let starting: Promise<Narsil> | null = null

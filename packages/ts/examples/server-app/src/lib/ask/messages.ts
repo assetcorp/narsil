@@ -1,5 +1,6 @@
 import type { UIMessage } from 'ai'
 import { THREAD_ID_PATTERN } from '../chat/validation'
+import { isNotesIndex } from '../notes-scope'
 import type { AskUIMessage } from './types'
 import { RETRIEVAL_MODES, type RetrievalMode } from './types'
 
@@ -86,6 +87,7 @@ export function parseAskRequest(body: unknown): AskRequest {
   if (typeof indexName !== 'string' || !INDEX_NAME_PATTERN.test(indexName)) {
     throw new AskRequestError('Field "indexName" must name an index')
   }
+  if (isNotesIndex(indexName)) throw new AskRequestError('Personal notes are not available to Ask', 403)
   if (typeof threadId !== 'string' || !THREAD_ID_PATTERN.test(threadId)) {
     throw new AskRequestError('Field "threadId" must identify the conversation')
   }

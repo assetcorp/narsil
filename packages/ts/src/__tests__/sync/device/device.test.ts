@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { QueuedWrite, RefusedWrite, UploadOutcome } from '../../../sync/device'
 import {
+  DEVICE_TOKEN,
   documentsOf,
   INDEX,
   type Note,
@@ -19,6 +20,7 @@ import {
 
 const SEEDED = 60
 const NETWORK_CUT_TEST_TIMEOUT_MS = 30_000
+const CREDENTIAL_POLL_MS = 20
 
 describe('a synced device', () => {
   let directory: { path: string; remove(): Promise<void> } | null = null
@@ -157,6 +159,46 @@ describe('a synced device', () => {
       await settledWithin(started.sync)
       expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
       expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'reconnects after the credential function rejects while the feed is down, and delivers the write queued afterwards',
+    async () => {
+      const oracle = await seed()
+      let refusing = false
+      let refusals = 0
+      const started = await device('credential', {
+        credential: async () => {
+          if (refusing) {
+            refusals += 1
+            throw new Error('The grant service is unavailable')
+          }
+          return DEVICE_TOKEN
+        },
+      })
+      await settledWithin(started.sync)
+
+      refusing = true
+      serving().proxy.cut()
+      const deadline = Date.now() + NETWORK_CUT_TEST_TIMEOUT_MS / 2
+      while (refusals === 0) {
+        if (Date.now() > deadline) throw new Error('The device never asked for a credential while the feed was down')
+        await new Promise(resolve => setTimeout(resolve, CREDENTIAL_POLL_MS))
+      }
+      refusing = false
+      serving().proxy.heal()
+      await started.sync.put('after-refusal', note('after-refusal'))
+      oracle.set('after-refusal', note('after-refusal'))
+
+      await settledWithin(started.sync)
+      expect(started.sync.status().connection).toBe('connected')
+      expect(
+        started.errors.some(error => error instanceof Error && error.message === 'The grant service is unavailable'),
+      ).toBe(true)
+      expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+      expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
     },
     NETWORK_CUT_TEST_TIMEOUT_MS,
   )

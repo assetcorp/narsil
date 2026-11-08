@@ -81,7 +81,7 @@ const config = defineConfig({
       },
       [`^${SERVER_APP_PATH_PREFIX}/`]: {
         target: serverAppUrl,
-        changeOrigin: true,
+        changeOrigin: false,
         ws: false,
         rewrite: withoutServerAppPrefix,
       },

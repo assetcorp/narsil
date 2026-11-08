@@ -1,159 +1,199 @@
-import { useIndexWorkspace } from '@delali/narsil-example-shared'
-import { MAX_SYNC_INDEX_NAME_LENGTH } from '@delali/narsil-example-shared/lib/bounded-read'
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from 'react'
-import { Button } from '#/components/ui/button'
+import { useNavigate } from '@tanstack/react-router'
+import { CloudOff, NotebookPen, Search, TriangleAlert } from 'lucide-react'
+import { type ChangeEvent, useCallback, useEffect, useId, useState } from 'react'
 import { Input } from '#/components/ui/input'
-import { SERVER_APP_PATH_PREFIX } from '#/lib/server-app-path'
-import { narsilWorker } from '#/worker/bridge'
-import type { DeviceSyncView } from '#/worker/protocol'
+import { Separator } from '#/components/ui/separator'
+import { Switch } from '#/components/ui/switch'
+import { NOTES_PAGE_SIZE } from './constants'
+import { DeviceDialog } from './device-dialog'
+import { isValidDeviceName, rememberDevice } from './device-registry'
+import { FailedScreen, LockedScreen, OnboardingScreen } from './device-screens'
+import { NewNoteCard, type Note, NoteCard } from './note-cards'
+import { Notice } from './notice'
+import { OpeningProgress } from './opening-progress'
+import { SyncStatusStrip } from './sync-status-strip'
+import { type NotesResult, useNotes } from './use-notes'
 
-const SYNC_STATUS_POLL_MS = 1_000
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
-function SessionRow({ session, onStopped }: { session: DeviceSyncView; onStopped: (next: DeviceSyncView[]) => void }) {
-  const [stopError, setStopError] = useState<string | null>(null)
-
-  const handleStop = useCallback(() => {
-    setStopError(null)
-    narsilWorker
-      .call('stopSync', [session.indexName])
-      .then(onStopped)
-      .catch((err: unknown) => setStopError(errorText(err)))
-  }, [session.indexName, onStopped])
-
-  return (
-    <li className="rounded-lg border p-4" data-testid="sync-session" data-index-name={session.indexName}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-sm font-medium">{session.indexName}</p>
-          <p className="truncate text-xs text-muted-foreground">{session.serverUrl}</p>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={handleStop}>
-          Stop sync
-        </Button>
-      </div>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-        <dt className="text-muted-foreground">Connection</dt>
-        <dd data-testid="sync-connection">{session.connection}</dd>
-        <dt className="text-muted-foreground">Writes waiting to upload</dt>
-        <dd data-testid="sync-queued-writes">{session.queuedWrites}</dd>
-        <dt className="text-muted-foreground">Server epoch</dt>
-        <dd className="truncate font-mono">{session.epoch ?? 'none yet'}</dd>
-        <dt className="text-muted-foreground">Refused writes</dt>
-        <dd data-testid="sync-refused-writes">{session.refusedWrites}</dd>
-      </dl>
-      {session.lastError === null ? null : (
-        <p className="mt-2 text-xs text-destructive" data-testid="sync-last-error">
-          {session.lastError}
-        </p>
-      )}
-      {stopError === null ? null : (
-        <p role="alert" className="mt-2 text-xs text-destructive">
-          {stopError}
-        </p>
-      )}
-    </li>
-  )
-}
-
-export function SyncPanel() {
-  const { activeIndexName } = useIndexWorkspace()
-  const [indexName, setIndexName] = useState(activeIndexName ?? '')
-  const [sessions, setSessions] = useState<DeviceSyncView[]>([])
-  const [isStarting, setIsStarting] = useState(false)
-  const [startError, setStartError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const read = () => {
-      narsilWorker
-        .call('syncStatus', [])
-        .then(next => {
-          if (!cancelled) setSessions(next)
-        })
-        .catch(() => undefined)
-    }
-    read()
-    const timer = setInterval(read, SYNC_STATUS_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [])
-
-  const handleIndexNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setIndexName(event.target.value)
-  }, [])
-
-  const handleStart = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      const name = indexName.trim()
-      if (name.length === 0) {
-        setStartError('Give the name of an index that the server app holds.')
-        return
-      }
-      setIsStarting(true)
-      setStartError(null)
-      narsilWorker
-        .call('startSync', [
-          {
-            indexName: name,
-            serverUrl: `${window.location.origin}${SERVER_APP_PATH_PREFIX}/api/narsil`,
-            grantUrl: `${SERVER_APP_PATH_PREFIX}/api/sync-grant`,
-          },
-        ])
-        .then(setSessions)
-        .catch((err: unknown) => setStartError(errorText(err)))
-        .finally(() => setIsStarting(false))
+function useOpenDevice(): (name: string) => void {
+  const navigate = useNavigate()
+  return useCallback(
+    (name: string) => {
+      rememberDevice(name)
+      void navigate({ to: '/sync', search: { device: name } })
     },
-    [indexName],
+    [navigate],
   )
+}
 
+function notesFrom(result: NotesResult | null): Note[] {
+  return (result?.hits ?? []).map(hit => ({
+    id: hit.id,
+    title: String(hit.document.title ?? ''),
+    body: String(hit.document.body ?? ''),
+  }))
+}
+
+function PageHeader({
+  device,
+  syncing,
+  syncDisabled,
+  onSyncChange,
+  onPick,
+}: {
+  device: string
+  syncing: boolean
+  syncDisabled: boolean
+  onSyncChange: (enabled: boolean) => void
+  onPick: (name: string) => void
+}) {
+  const switchId = useId()
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="mb-1 text-3xl font-bold tracking-tight">Device Sync</h1>
-      <p className="mb-6 max-w-2xl text-sm text-muted-foreground">
-        This page keeps an index in this browser in step with the same index in the server app. Turn sync on for the
-        index in the server app's Inspector first, under Manage. Edits that you make on the Documents page then upload
-        to the server, and edits on the server arrive here over the sync feed. A second tab of this app sees every
-        change and sends its edits through the tab that syncs.
+    <header className="flex flex-wrap items-center gap-3">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+        <NotebookPen className="size-5" aria-hidden="true" />
+      </div>
+      <div className="min-w-0">
+        <h1 className="text-xl leading-tight font-bold tracking-tight">Personal notes</h1>
+        <p className="text-sm text-muted-foreground">Search and edit offline, and sync between devices</p>
+      </div>
+      <div className="ml-auto flex items-center gap-3">
+        <DeviceDialog currentDevice={device} onPick={onPick} />
+        <Separator orientation="vertical" className="h-6" />
+        <div className="flex items-center gap-2">
+          <Switch id={switchId} checked={syncing} disabled={syncDisabled} onCheckedChange={onSyncChange} />
+          <label htmlFor={switchId} className="text-sm font-medium">
+            Sync
+          </label>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+function NotesGrid({
+  result,
+  term,
+  onSave,
+}: {
+  result: NotesResult | null
+  term: string
+  onSave: (id: string, title: string, body: string) => Promise<void>
+}) {
+  const notes = notesFrom(result)
+  const count = result?.count ?? 0
+  return (
+    <section aria-label="Your notes" className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {result === null
+          ? 'Reading notes'
+          : term.trim().length > 0
+            ? `${count} matching ${count === 1 ? 'note' : 'notes'}`
+            : `${count} ${count === 1 ? 'note' : 'notes'} on this device`}
       </p>
-
-      <form className="mb-6 flex max-w-2xl flex-wrap items-end gap-3" onSubmit={handleStart}>
-        <label className="flex min-w-60 flex-1 flex-col gap-1 text-xs font-medium" htmlFor="sync-index-name">
-          Index to sync
-          <Input
-            id="sync-index-name"
-            value={indexName}
-            maxLength={MAX_SYNC_INDEX_NAME_LENGTH}
-            onChange={handleIndexNameChange}
-            placeholder="places"
-          />
-        </label>
-        <Button type="submit" disabled={isStarting}>
-          {isStarting ? 'Starting' : 'Start sync'}
-        </Button>
-      </form>
-
-      {startError === null ? null : (
-        <p role="alert" className="mb-4 text-sm text-destructive">
-          {startError}
-        </p>
-      )}
-
-      {sessions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">This tab syncs no index yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {sessions.map(session => (
-            <SessionRow key={session.indexName} session={session} onStopped={setSessions} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <NewNoteCard onSave={onSave} />
+        <ul data-testid="notes-list" className="contents">
+          {notes.map(note => (
+            <NoteCard key={note.id} note={note} onSave={onSave} />
           ))}
         </ul>
+        {result !== null && count === 0 ? (
+          <p className="flex min-h-32 items-center justify-center rounded-xl border border-dashed px-4 text-center text-sm text-muted-foreground">
+            {term.trim().length > 0
+              ? 'No notes match your search.'
+              : 'Save your first note, then open another device to watch it arrive.'}
+          </p>
+        ) : null}
+      </div>
+      {count > NOTES_PAGE_SIZE ? (
+        <p className="text-sm text-muted-foreground">
+          Showing the first {NOTES_PAGE_SIZE} notes. Refine your search to find another one.
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+function NotesDevice({ device }: { device: string }) {
+  const notes = useNotes(device)
+  const openDevice = useOpenDevice()
+  const [dismissedRefusals, setDismissedRefusals] = useState(0)
+  const { session, online, setTerm } = notes
+  const changeSearch = useCallback((event: ChangeEvent<HTMLInputElement>) => setTerm(event.target.value), [setTerm])
+  const refusedWrites = session?.refusedWrites ?? 0
+  const dismissRefusals = useCallback(() => setDismissedRefusals(refusedWrites), [refusedWrites])
+
+  if (notes.phase === 'locked') return <LockedScreen name={device} onPick={openDevice} />
+  if (notes.phase === 'failed') return <FailedScreen name={device} failure={notes.failure ?? 'Unknown failure'} />
+
+  const ready = notes.phase === 'ready'
+  const serverUnavailable = session?.connection === 'connecting' && online && session.lastError !== null
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8">
+      <PageHeader
+        device={device}
+        syncing={session !== null && session.connection !== 'stopped'}
+        syncDisabled={!ready || notes.changingSync}
+        onSyncChange={notes.setSyncEnabled}
+        onPick={openDevice}
+      />
+      <SyncStatusStrip session={session} online={online} />
+      {notes.controlError === null ? null : (
+        <Notice icon={<TriangleAlert />} tone="destructive" urgent title="Sync could not change">
+          {notes.controlError}
+        </Notice>
+      )}
+      {serverUnavailable ? (
+        <Notice icon={<CloudOff />} title="The server is unavailable">
+          Your edits stay on this device and upload when it reconnects.
+        </Notice>
+      ) : null}
+      {refusedWrites > dismissedRefusals ? (
+        <Notice icon={<TriangleAlert />} tone="destructive" urgent title="Sync is failing" onDismiss={dismissRefusals}>
+          {session?.lastError}
+        </Notice>
+      ) : null}
+      {ready ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="notes-search" className="sr-only">
+              Search notes
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                id="notes-search"
+                type="search"
+                value={notes.term}
+                onChange={changeSearch}
+                placeholder="Search titles and text on this device"
+                className="h-10 pl-9"
+              />
+            </div>
+            {notes.readError === null ? null : (
+              <p role="alert" className="text-sm text-destructive">
+                {notes.readError}
+              </p>
+            )}
+          </div>
+          <NotesGrid result={notes.result} term={notes.term} onSave={notes.save} />
+        </>
+      ) : (
+        <OpeningProgress device={device} stage={notes.stage} />
       )}
     </div>
   )
+}
+
+export function SyncPanel({ device }: { device: string | undefined }) {
+  const openDevice = useOpenDevice()
+  const valid = device !== undefined && isValidDeviceName(device)
+  useEffect(() => {
+    if (valid) rememberDevice(device)
+  }, [valid, device])
+  if (!valid) return <OnboardingScreen rejectedName={device} onPick={openDevice} />
+  return <NotesDevice key={device} device={device} />
 }

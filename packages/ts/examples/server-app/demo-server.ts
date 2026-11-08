@@ -21,6 +21,7 @@ import { registerLocalModels } from './demo-server-models.ts'
  * specifiers exactly as written. */
 import { type DemoNarsilServer, demoServerPromise, setDemoServerPromise } from './src/lib/demo-server-state.ts'
 import { OPENAI_EMBEDDING_ADAPTER_NAME, readOpenAIEmbeddingConfig } from './src/lib/embedding-config.ts'
+import { persistentNotesSecret } from './src/lib/notes-secret.ts'
 import { createSyncGrantSecret, SYNC_GRANT_SECRET_ENV, syncGrantSecretFromEnv } from './src/lib/sync-grant.ts'
 
 export type { DemoNarsilServer } from './src/lib/demo-server-state.ts'
@@ -174,11 +175,16 @@ function spawnDemoNarsilServer(onExitAfterReady: (detail: string) => void): Prom
 export function ensureDemoNarsilServer(): Promise<DemoNarsilServer> {
   const existing = demoServerPromise()
   if (existing) return existing
-  if (syncGrantSecretFromEnv(process.env) === null) process.env[SYNC_GRANT_SECRET_ENV] = createSyncGrantSecret()
-  const starting = spawnDemoNarsilServer(detail => {
-    setDemoServerPromise(undefined)
-    console.error(`[narsil] the demo Narsil server exited unexpectedly (${detail})`)
-  })
+  const starting = (async () => {
+    if (!process.env.NARSIL_API_KEY) process.env.NARSIL_API_KEY = createSyncGrantSecret()
+    if (syncGrantSecretFromEnv(process.env) === null) {
+      process.env[SYNC_GRANT_SECRET_ENV] = await persistentNotesSecret(dataDirectory())
+    }
+    return spawnDemoNarsilServer(detail => {
+      setDemoServerPromise(undefined)
+      console.error(`[narsil] the demo Narsil server exited unexpectedly (${detail})`)
+    })
+  })()
   setDemoServerPromise(starting)
   starting
     .then(server => {

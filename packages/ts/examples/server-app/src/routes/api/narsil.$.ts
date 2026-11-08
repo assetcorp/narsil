@@ -19,11 +19,6 @@ function errorResponse(status: number, code: string, message: string): Response 
   })
 }
 
-/**
- * Passes a browser request on to the search server with the API key attached.
- * The browser therefore reaches every route the client SDK uses without ever
- * holding a credential, which is the arrangement a deployed app wants.
- */
 async function forward(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname.slice(PREFIX.length)
@@ -39,11 +34,17 @@ async function forward(request: Request): Promise<Response> {
   const starting = demoServerPromise()
   if (starting) await starting
 
+  const { proxyAccess, publicIndexList } = await import('#/lib/notes-proxy')
+  const access = await proxyAccess(request, path)
+  if (access instanceof Response) return access
+
   let target: string
   let apiKey: string | undefined
+  let baseUrl: string
   try {
     const config = readServerConfig()
     target = `${config.baseUrl}${path}${url.search}`
+    baseUrl = config.baseUrl
     apiKey = config.apiKey
   } catch (err) {
     return errorResponse(503, 'SERVICE_UNAVAILABLE', err instanceof Error ? err.message : String(err))
@@ -54,15 +55,24 @@ async function forward(request: Request): Promise<Response> {
     const value = request.headers.get(name)
     if (value !== null) headers.set(name, value)
   }
-  if (apiKey !== undefined) headers.set('authorization', `Bearer ${apiKey}`)
+  if (access.notes) {
+    const credential = request.headers.get('authorization')
+    if (credential !== null) headers.set('authorization', credential)
+  } else if (apiKey !== undefined) headers.set('authorization', `Bearer ${apiKey}`)
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
   let upstream: Response
   try {
+    const task = /^\/tasks\/([^/]+)(?:\/_cancel)?$/.exec(path)
+    if (task?.[1] !== undefined) {
+      const { publicTask } = await import('#/lib/public-metadata')
+      const denied = await publicTask(`${baseUrl}/tasks/${task[1]}`, apiKey, request.signal)
+      if (denied !== null) return denied
+    }
     upstream = await fetch(target, {
       method: request.method,
       headers,
-      body: hasBody ? request.body : undefined,
+      body: hasBody ? (access.body ?? request.body) : undefined,
       duplex: hasBody ? 'half' : undefined,
       signal: request.signal,
     } as RequestInit)
@@ -72,6 +82,12 @@ async function forward(request: Request): Promise<Response> {
       'SERVICE_UNAVAILABLE',
       `The search server did not answer: ${err instanceof Error ? err.message : String(err)}`,
     )
+  }
+
+  if (path === '/indexes' && request.method === 'GET' && upstream.ok) return publicIndexList(upstream)
+  if ((path === '/tasks' || path === '/stats/memory') && upstream.ok) {
+    const { publicMetadata } = await import('#/lib/public-metadata')
+    return publicMetadata(upstream, path)
   }
 
   const responseHeaders = new Headers()
