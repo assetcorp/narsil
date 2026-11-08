@@ -3,6 +3,8 @@ import type { SegmentManifest } from '../durability/segment/manifest'
 import { readSegmentFile } from '../durability/segment/segment-file'
 import type { CheckpointStore } from '../durability/segment/store'
 import { readGraphParts, readVectorFile } from '../durability/segment/vector-load'
+import { checkPagedSegmentFully } from '../paged/segment-scan'
+import { isPagedSegmentFile } from '../paged/verify'
 
 function requireDimension(key: string, found: number, expected: number | null): void {
   if (expected === found) return
@@ -30,7 +32,6 @@ export async function validateStagedCheckpoint(store: CheckpointStore, manifest:
     for (const ref of partition.segments) {
       const { directory } = store
       if (directory !== undefined) {
-        const { checkPagedSegmentFully, isPagedSegmentFile } = await import('../storage-leaf')
         if (await isPagedSegmentFile(directory, ref.key)) {
           requireSchemaOfManifest(ref.key, await checkPagedSegmentFully(directory, ref), manifest)
           continue

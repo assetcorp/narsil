@@ -13,6 +13,7 @@ type EngineNames = Pick<
   | 'dropEngineIndex'
   | 'emitWriteEventAfter'
   | 'flattenSchema'
+  | 'loadGzip'
   | 'loadSuggestionsCode'
 >
 type MsgpackNames = Pick<typeof MsgpackCode, 'encode'>
@@ -28,6 +29,7 @@ export let VERSION: EngineNames['VERSION']
 export let dropEngineIndex: EngineNames['dropEngineIndex']
 export let emitWriteEventAfter: EngineNames['emitWriteEventAfter']
 export let flattenSchema: EngineNames['flattenSchema']
+export let loadGzip: EngineNames['loadGzip']
 export let loadSuggestionsCode: EngineNames['loadSuggestionsCode']
 export let encode: MsgpackNames['encode']
 
@@ -43,6 +45,7 @@ export function bindSuggestionStoreHost(host: EngineNames, msgpack: MsgpackNames
     dropEngineIndex,
     emitWriteEventAfter,
     flattenSchema,
+    loadGzip,
     loadSuggestionsCode,
   } = host)
   ;({ encode } = msgpack)

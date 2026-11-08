@@ -10,6 +10,7 @@ import { loadSegmentedCheckpoint } from '../../persistence/durability/segment/lo
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
+import { bytesThatSegmentsHoldInMemory } from '../../persistence/paged/segment-scan'
 import { decodeIndexConfiguration } from './index-configuration-decode'
 import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
@@ -113,7 +114,6 @@ async function stageArchive(
   if (manifest === null) missingPart('manifest')
   const { directory } = staging
   if (keepsTextOnDisk(prepared, staging) && directory !== undefined) {
-    const { bytesThatSegmentsHoldInMemory } = await import('../../persistence/storage-leaf')
     const replacesIndex = deps.indexRegistry.has(indexName)
     const segmentBytes = await bytesThatSegmentsHoldInMemory(directory, manifest)
     requireRestoreMemory(indexName, archiveFootprint(prepared, manifest, replacesIndex, segmentBytes), replacesIndex)

@@ -138,6 +138,7 @@ export {
   packEnvelopeWithChecksum,
   requireWithinFileLimit,
 } from '../../serialization/envelope-file'
+export { loadGzip } from '../../serialization/gzip-code'
 export { HEADER_SIZE, hasNrslMagic, readHeader, writeHeader } from '../../serialization/header'
 export { decode, decodeMulti } from '../../serialization/msgpack'
 export { decodeMapWithoutFields, endOfValue } from '../../serialization/msgpack-without-fields'

@@ -6,6 +6,7 @@ import type { HeldCheckpointReport } from '../types/memory'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
+import { scheduleSyncRetention } from './sync/retention'
 
 export { createInvalidationFromConfig } from './invalidation'
 
@@ -53,9 +54,11 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     keepsSyncHistory: indexName => wiring.indexRegistry.get(indexName)?.sync?.active === true,
     onHistoryMoved(indexName) {
       if (wiring.indexRegistry.get(indexName)?.sync?.active !== true) return
-      import('../persistence/storage-leaf')
-        .then(retention => retention.scheduleSyncRetention(wiring.engineCore(), indexName))
-        .catch((error: unknown) => wiring.emitFatalError(error instanceof Error ? error : new Error(String(error))))
+      try {
+        scheduleSyncRetention(wiring.engineCore(), indexName)
+      } catch (error) {
+        wiring.emitFatalError(error instanceof Error ? error : new Error(String(error)))
+      }
     },
   })
 }

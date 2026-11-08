@@ -1,4 +1,4 @@
-import { ErrorCodes, MAX_FILE_BYTES, NarsilError } from '#platform/suggestion-store-host'
+import { ErrorCodes, loadGzip, MAX_FILE_BYTES, NarsilError } from '#platform/suggestion-store-host'
 import { checksumOfChunks } from './chunk-checksum'
 import { HEADER_SIZE, type NrslHeader, readHeader, writeHeader } from './header'
 
@@ -65,7 +65,7 @@ function loadFailed(message: string, details?: Record<string, unknown>): never {
 }
 
 async function gunzipWithinLimit(compressed: Uint8Array, what: string): Promise<Uint8Array> {
-  const { gunzip } = await import('#platform/gzip')
+  const { gunzip } = await loadGzip()
   try {
     return await gunzip(compressed, MAX_FILE_BYTES)
   } catch (error) {

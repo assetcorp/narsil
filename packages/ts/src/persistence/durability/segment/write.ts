@@ -16,6 +16,7 @@ import type { ReplicationLogEntry } from '../../../distribution/replication/type
 import type { IndexMetadata } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
+import { pagedTombstonesFor } from '../../paged/older-holders'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
@@ -131,7 +132,6 @@ async function tombstonesOfDelta(
 ): Promise<string[]> {
   const { directory } = context.input.store
   if (context.input.metadata.textStorage !== 'disk' || directory === undefined) return deleted
-  const { pagedTombstonesFor } = await import('../../storage-leaf')
   return pagedTombstonesFor(
     directory,
     older,

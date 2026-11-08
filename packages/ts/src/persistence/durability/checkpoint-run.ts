@@ -3,6 +3,13 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { PartitionWriteLog } from '../../partitioning/manager/write-log'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexMetadata } from '../../types/internal'
+import {
+  actionPartitionsOf,
+  closeUnusedSegments,
+  keysThatSegmentsStillRead,
+  prepareDiskAdoption,
+  swapPreparedPartitions,
+} from '../paged/adopt'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import {
   aTargetFailed,
@@ -166,9 +173,6 @@ async function adoptWrittenSegments(
   changes: PartitionWriteLog,
 ): Promise<readonly string[]> {
   const { indexName, indexState, hooks } = input
-  const { actionPartitionsOf, closeUnusedSegments, prepareDiskAdoption, swapPreparedPartitions } = await import(
-    '../storage-leaf'
-  )
   const adoption = await prepareDiskAdoption(input.directory, manager, partitions)
   if (adoption === null) return []
   const adopted = await whileNoMutationApplies([...indexState.partitions.values()], () =>
@@ -239,10 +243,7 @@ async function finishBoundedCheckpoint(
       : new Set<string>()
   if (!input.holdsCheckpointFiles()) {
     const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage)
-    const stillRead =
-      metadata.textStorage === 'disk'
-        ? (await import('../storage-leaf')).keysThatSegmentsStillRead(manager)
-        : new Set<string>()
+    const stillRead = metadata.textStorage === 'disk' ? keysThatSegmentsStillRead(manager) : new Set<string>()
     const keptForSync = await input.keepsCheckpointKey()
     await removeCheckpointGarbage(
       store,

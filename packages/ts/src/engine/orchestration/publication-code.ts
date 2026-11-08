@@ -1,22 +1,25 @@
 import type { WorkerAction } from '../../workers/protocol'
-import type * as PublicationCode from './publication'
+import {
+  publishToWorkers as publishLoadedCopies,
+  releasePublicationOf as releaseLoadedPublication,
+  retainPublicationOf as retainLoadedPublication,
+} from './publication'
 import type { OrchestratorState } from './types'
 
-let publicationCode: typeof PublicationCode | null = null
+let publicationLoaded = false
 
-export async function loadPublicationCode(): Promise<typeof PublicationCode> {
-  publicationCode ??= await import('../worker-copies')
-  return publicationCode
+export async function loadPublicationCode(): Promise<void> {
+  publicationLoaded = true
 }
 
 export function publishToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> | undefined {
-  return publicationCode?.publishToWorkers(state, action)
+  return publicationLoaded ? publishLoadedCopies(state, action) : undefined
 }
 
 export function releasePublicationOf(action: WorkerAction): void {
-  publicationCode?.releasePublicationOf(action)
+  if (publicationLoaded) releaseLoadedPublication(action)
 }
 
 export function retainPublicationOf(action: WorkerAction): (() => void) | undefined {
-  return publicationCode?.retainPublicationOf(action)
+  return publicationLoaded ? retainLoadedPublication(action) : undefined
 }

@@ -10,8 +10,9 @@ import {
   toError,
   workerIneligibility,
 } from '#platform/worker-copies-host'
-import type { WorkerPool } from '../../workers/pool'
+import { createWorkerPool, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
+import { transferIndexToPool } from '../worker-resync'
 import { scheduleIdleMerge } from './compaction'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { loadPublicationCode, releasePublicationOf } from './publication-code'
@@ -53,7 +54,7 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     )
   }
   eligibleIndexNames(state)
-  const [factory, { createWorkerPool }] = await Promise.all([createWorkerFactory(), import('../worker-copies')])
+  const factory = await createWorkerFactory()
   let started: WorkerPool | null = null
   const pool = createWorkerPool({
     count: state.keywordWorkerCount + state.longQueryWorkerCount,
@@ -167,7 +168,6 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   let dispatched = false
   state.copyLoadBuffers.set(indexName, buffered)
   try {
-    const { transferIndexToPool } = await import('../worker-copies')
     await freezeLiveTailsBeforeCopiesLoad(manager)
     const copyLoad = await transferIndexToPool(
       indexName,

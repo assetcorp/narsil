@@ -18,7 +18,7 @@ import {
 } from '../../serialization/keyword-segment/types'
 import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './import'
 import { encodeDocumentJson, encodeExactJson } from './json-line'
-import type { VectorReads } from './paged-lines'
+import { openFileVectorReads, pagedPartitionLines, type VectorReads } from './paged-lines'
 
 const VECTOR_FILE_ENVELOPE_VERSION = 2
 const FLOAT32_BYTES = 4
@@ -123,7 +123,6 @@ async function wholeFileVectorReads(checkpoint: ArchiveCheckpoint): Promise<Vect
 }
 
 async function* pagedDocumentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<string> {
-  const { openFileVectorReads, pagedPartitionLines } = await import('../../persistence/storage-leaf')
   const vectors = await openFileVectorReads(checkpoint, () => wholeFileVectorReads(checkpoint))
   try {
     for (const partition of checkpoint.manifest.partitions) {
