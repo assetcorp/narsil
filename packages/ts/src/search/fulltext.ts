@@ -1,5 +1,4 @@
 import { bitsetIsEmpty } from '../core/bitset'
-import { fuzzyTermMatches } from '../core/fuzzy'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import type { PatternWorkMeter } from '../core/pattern-index/types'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
@@ -7,16 +6,10 @@ import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
-import type {
-  AnalysedPhrase,
-  ExpandedTermGroup,
-  GlobalStatistics,
-  InternalSearchResult,
-  ScoredDocument,
-} from '../types/internal'
+import type { AnalysedPhrase, GlobalStatistics, InternalSearchResult } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
-import type { QueryParams, TermMatchPolicy } from '../types/search'
+import type { QueryParams } from '../types/search'
 import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE } from './constants'
 import { clampRowCount } from './pagination'
 import { analyseQueryPhrases, requireLoadedPhraseCode } from './phrase-code'
@@ -29,12 +22,30 @@ export interface FulltextSearchOptions {
   globalStats?: GlobalStatistics
   patternWork?: PatternWorkMeter
   synonyms?: SynonymLookup | null
+  turns?: ScanTurns
+}
+
+/** How a scan across partitions shares the thread with writes while one search answers from one state. */
+export interface ScanTurns {
+  /** Throws once a write ran while the scan gave up the thread. */
+  afterYield(): void
 }
 
 interface PreparedFulltextQuery extends ResolvedTermGroups {
   queryTokens: Array<{ token: string; position: number }>
   phrases?: readonly AnalysedPhrase[]
   filterBitset?: Uint32Array
+}
+
+export function returnsEveryMatch(params: QueryParams): boolean {
+  return (
+    params.minScore !== undefined ||
+    (params.termMatch !== undefined && params.termMatch !== 'any') ||
+    params.sort !== undefined ||
+    params.group !== undefined ||
+    params.pinned !== undefined ||
+    params.searchAfter !== undefined
+  )
 }
 
 function analysedWords(term: string, language: LanguageModule, options: FulltextSearchOptions | undefined) {
@@ -142,20 +153,13 @@ export function fulltextSearch(
   }
   const { queryTokens, phrases, termGroups, partialFields, filterBitset } = prepared
 
-  const needsAllResults =
-    params.minScore !== undefined ||
-    (params.termMatch !== undefined && params.termMatch !== 'any') ||
-    params.sort !== undefined ||
-    params.group !== undefined ||
-    params.pinned !== undefined ||
-    params.searchAfter !== undefined
+  const needsAllResults = returnsEveryMatch(params)
   const maxResults = needsAllResults
     ? undefined
     : clampRowCount(params.limit, DEFAULT_PAGE_SIZE) + clampRowCount(params.offset, 0) + 1
   const collectMatchedSet = params.facets !== undefined && !needsAllResults ? ('ordinals' as const) : undefined
 
-  const collectComponents =
-    params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
+  const collectComponents = params.includeScoreComponents === true
 
   const rawResult = partition.searchFulltext({
     queryTokens,
@@ -178,21 +182,6 @@ export function fulltextSearch(
   })
 
   let scored = rawResult.scored
-
-  const termMatch = params.termMatch ?? 'any'
-  if (termMatch !== 'any' && queryTokens.length > 0) {
-    scored = filterByTermCoverage(
-      scored,
-      queryTokens,
-      termMatch,
-      params.tolerance ?? 0,
-      params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
-      params.exact ?? false,
-      termGroups,
-      partialFields ?? [],
-      phrases,
-    )
-  }
 
   if (params.minScore !== undefined && params.minScore > 0) {
     const threshold = params.minScore
@@ -237,121 +226,4 @@ function deduplicateTokens(
     }
   }
   return result
-}
-
-function filterByTermCoverage(
-  scored: ScoredDocument[],
-  queryTokens: Array<{ token: string; position: number }>,
-  policy: TermMatchPolicy,
-  tolerance: number,
-  prefixLength: number,
-  exact: boolean,
-  termGroups: readonly ExpandedTermGroup[] | undefined,
-  partialFields: readonly string[],
-  phrases: readonly AnalysedPhrase[] | undefined,
-): ScoredDocument[] {
-  const requiredCount = policy === 'all' ? queryTokens.length : (policy as number)
-  const phraseKeys = phrases === undefined ? null : new Set(phrases.map(phrase => phrase.key))
-
-  if (requiredCount <= 0) return scored
-  if (requiredCount > queryTokens.length) return []
-
-  const groups = new Map<string, CoverageGroup>()
-  for (const group of termGroups ?? []) {
-    const partialOnly = new Set<string>()
-    for (const member of group.members) {
-      if (member.factor === 0) partialOnly.add(member.token)
-    }
-    groups.set(group.token, {
-      members: new Set([...group.members.map(member => member.token), ...(group.synonyms?.tokens ?? [])]),
-      partialOnly,
-      typoMatches: group.typoMatches,
-    })
-  }
-
-  return scored.filter(doc => {
-    const matched = countDocTermMatches(
-      doc,
-      queryTokens,
-      tolerance,
-      prefixLength,
-      exact,
-      groups,
-      partialFields,
-      phraseKeys,
-    )
-    return matched >= requiredCount
-  })
-}
-
-interface CoverageGroup {
-  members: ReadonlySet<string>
-  partialOnly: ReadonlySet<string>
-  typoMatches: boolean
-}
-
-function countDocTermMatches(
-  doc: ScoredDocument,
-  queryTokens: Array<{ token: string; position: number }>,
-  tolerance: number,
-  prefixLength: number,
-  exact: boolean,
-  groups: ReadonlyMap<string, CoverageGroup>,
-  partialFields: readonly string[],
-  phraseKeys: ReadonlySet<string> | null,
-): number {
-  const componentKeys = Object.keys(doc.idf)
-  const indexTokens = phraseKeys === null ? componentKeys : componentKeys.filter(key => !phraseKeys.has(key))
-  if (indexTokens.length === 0) return 0
-
-  let count = 0
-  for (const qt of queryTokens) {
-    const group = groups.get(qt.token)
-    const satisfied =
-      group === undefined
-        ? queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact)
-        : groupSatisfied(group, doc, indexTokens, partialFields) ||
-          (group.typoMatches && queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact))
-    if (satisfied) count++
-  }
-  return count
-}
-
-function matchedInPartialField(doc: ScoredDocument, token: string, partialFields: readonly string[]): boolean {
-  for (const field of partialFields) {
-    if (doc.termFrequencies[`${field}:${token}`] !== undefined) return true
-  }
-  return false
-}
-
-function groupSatisfied(
-  group: CoverageGroup,
-  doc: ScoredDocument,
-  indexTokens: readonly string[],
-  partialFields: readonly string[],
-): boolean {
-  for (const indexToken of indexTokens) {
-    if (!group.members.has(indexToken)) continue
-    if (!group.partialOnly.has(indexToken) || matchedInPartialField(doc, indexToken, partialFields)) return true
-  }
-  return false
-}
-
-function queryTermSatisfied(
-  queryToken: string,
-  indexTokens: string[],
-  tolerance: number,
-  prefixLength: number,
-  exact: boolean,
-): boolean {
-  if (exact || tolerance === 0) {
-    return indexTokens.includes(queryToken)
-  }
-
-  for (const indexToken of indexTokens) {
-    if (fuzzyTermMatches(queryToken, indexToken, tolerance, prefixLength)) {
-      return true
-    }
-  }
-  return false
 }
