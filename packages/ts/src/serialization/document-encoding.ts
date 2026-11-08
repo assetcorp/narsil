@@ -1,5 +1,4 @@
-import { encode } from '#msgpack/encode'
-import { Encoder } from '#msgpack/encoder'
+import { Encoder, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../errors'
 import {
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,

@@ -1,4 +1,4 @@
-import { encode } from '#msgpack/encode'
+import { encode } from '@msgpack/msgpack'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
