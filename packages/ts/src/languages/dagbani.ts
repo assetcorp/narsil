@@ -102,7 +102,7 @@ function normalize(token: string): string {
  */
 export const dagbani: LanguageModule = {
   name: 'dagbani',
-  revision: '1',
+  revision: '8e3e54532619398d',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

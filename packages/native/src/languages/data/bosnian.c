@@ -53,7 +53,7 @@ static const uint32_t keep_ranges[16] = {
 
 const narsil_language narsil_language_bosnian = {
   .name = "bosnian",
-  .revision = "1",
+  .revision = "06964022dccb148b",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 185,

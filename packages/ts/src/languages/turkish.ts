@@ -264,7 +264,7 @@ const stopWords = new Set([
  */
 export const turkish: LanguageModule = {
   name: 'turkish',
-  revision: 'c537dbdae6350a3c',
+  revision: '32147ab4c7ffccc8',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çğıöşüâî]+/gi },

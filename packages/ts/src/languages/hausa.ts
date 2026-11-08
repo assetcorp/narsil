@@ -252,7 +252,7 @@ const stopWords = new Set([
  */
 export const hausa: LanguageModule = {
   name: 'hausa',
-  revision: '1',
+  revision: '1af65afd0c850c00',
   stemmer: null,
   stopWords,
   tokenizer: {

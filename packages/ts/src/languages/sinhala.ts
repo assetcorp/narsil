@@ -190,7 +190,7 @@ function normalize(token: string): string {
  */
 export const sinhala: LanguageModule = {
   name: 'sinhala',
-  revision: '1',
+  revision: 'f5755a280fb19e1f',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

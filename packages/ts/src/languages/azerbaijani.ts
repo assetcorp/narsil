@@ -160,7 +160,7 @@ const stopWords = new Set([
  */
 export const azerbaijani: LanguageModule = {
   name: 'azerbaijani',
-  revision: '1',
+  revision: 'b709eb034af8ec92',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çəğıöşü]+/gi },

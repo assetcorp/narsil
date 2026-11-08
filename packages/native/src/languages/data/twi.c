@@ -68,7 +68,7 @@ static const uint32_t keep_ranges[696] = {
 
 const narsil_language narsil_language_twi = {
   .name = "twi",
-  .revision = "1",
+  .revision = "b0ea6367076ead13",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 69,

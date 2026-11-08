@@ -4,6 +4,7 @@ import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/bac
 import type { NativeCore } from '../../vector/native/types'
 import { NATIVE_OK } from '../../vector/native/types'
 import { compareCodePoints } from '../ordering/code-points'
+import { compareScores } from '../ordering/scores'
 import { keywordComponents } from '../partition/keyword-components'
 import { loadKeywordFields } from '../partition/keyword-fields'
 import { planKeywordSlots } from '../partition/keyword-slots'
@@ -14,7 +15,6 @@ import { NO_LIMIT, OUTCOME_COUNT, OUTCOME_LENGTH, OUTCOME_SCORING_PATH, OUTCOME_
 import { type KeywordOutput, type KeywordRequest, KeywordRequestBuilder } from './request'
 import { type SegmentStorage, segmentStorageOf } from './segment-storage'
 
-const TERM_MATCH_LEFT_TO_THE_CALLER = 0
 const NO_MINIMUM_SCORE = 0
 const FIRST_TERM_ANCHOR = 0
 
@@ -81,8 +81,7 @@ function scoredByTheCore(core: NativeCore, request: KeywordRequest, written: Key
 }
 
 function byScoreThenId(left: ScoredDocument, right: ScoredDocument): number {
-  if (left.score !== right.score) return left.score > right.score ? -1 : 1
-  return compareCodePoints(left.docId, right.docId)
+  return compareScores(left.score, right.score) || compareCodePoints(left.docId, right.docId)
 }
 
 function pageOf(
@@ -136,7 +135,7 @@ function plannedRequest(
   storage: SegmentStorage,
   capacity: number,
 ): { request: KeywordRequest; labels: readonly string[] } {
-  const { queryTokens, globalStats, maxResults } = params
+  const { queryTokens, globalStats, maxResults, termMatch } = params
   const fields = loadKeywordFields(
     state,
     params.fields,
@@ -158,7 +157,7 @@ function plannedRequest(
     {
       terms: queryTokens.length,
       totalDocuments: globalStats?.totalDocuments ?? state.stats.totalDocuments,
-      termMatch: TERM_MATCH_LEFT_TO_THE_CALLER,
+      termMatch: termMatch === 'all' ? queryTokens.length : typeof termMatch === 'number' ? termMatch : 0,
       anchor: FIRST_TERM_ANCHOR,
       limit: maxResults === undefined ? NO_LIMIT : Math.max(0, Math.floor(maxResults)),
       minScore: NO_MINIMUM_SCORE,

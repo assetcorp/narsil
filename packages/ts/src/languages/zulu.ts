@@ -119,7 +119,7 @@ const stopWords = new Set([
  */
 export const zulu: LanguageModule = {
   name: 'zulu',
-  revision: '1',
+  revision: 'ec07f7bc9cceda57',
   stemmer: null,
   stopWords,
   tokenizer: {

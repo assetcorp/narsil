@@ -87,7 +87,7 @@ const stopWords = new Set([
  */
 export const wolof: LanguageModule = {
   name: 'wolof',
-  revision: '1',
+  revision: 'ca1435b74241c15e',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

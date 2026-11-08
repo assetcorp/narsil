@@ -86,7 +86,7 @@ const stopWords = new Set([
  */
 export const oromo: LanguageModule = {
   name: 'oromo',
-  revision: '1',
+  revision: '22d9cb6628ba7036',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9']+/gi },

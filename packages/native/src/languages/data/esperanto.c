@@ -51,7 +51,7 @@ static const uint32_t keep_ranges[18] = {
 
 const narsil_language narsil_language_esperanto = {
   .name = "esperanto",
-  .revision = "dacc9f709c07f8ad",
+  .revision = "bbbfad28a7aaae20",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 167,

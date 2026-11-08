@@ -267,7 +267,7 @@ const stopWords = new Set([
  */
 export const hungarian: LanguageModule = {
   name: 'hungarian',
-  revision: '7b9c2fc79181fc11',
+  revision: '3876868b292f34e3',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíóöőúüű]+/gi },

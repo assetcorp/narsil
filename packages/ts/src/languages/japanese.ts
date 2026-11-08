@@ -113,7 +113,7 @@ const stopWords = new Set([
  */
 export const japanese: LanguageModule = {
   name: 'japanese',
-  revision: '1',
+  revision: '10974e8fe1f5217c',
   stemmer: null,
   stopWords,
   tokenizer: {

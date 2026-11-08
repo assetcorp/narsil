@@ -74,7 +74,7 @@ const stopWords = new Set([
  */
 export const thai: LanguageModule = {
   name: 'thai',
-  revision: '1',
+  revision: 'c69290cdd0026808',
   stemmer: null,
   stopWords,
   tokenizer: {

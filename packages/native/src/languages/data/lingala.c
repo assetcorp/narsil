@@ -68,7 +68,7 @@ static const uint32_t keep_ranges[732] = {
 
 const narsil_language narsil_language_lingala = {
   .name = "lingala",
-  .revision = "1",
+  .revision = "9ccc35f10a3ad3c0",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 49,

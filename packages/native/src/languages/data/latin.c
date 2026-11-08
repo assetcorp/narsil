@@ -26,7 +26,7 @@ static const uint32_t keep_ranges[16] = {
 
 const narsil_language narsil_language_latin = {
   .name = "latin",
-  .revision = "1",
+  .revision = "fab8e50be7996c2e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 49,

@@ -99,7 +99,7 @@ const stopWords = new Set([
  */
 export const shona: LanguageModule = {
   name: 'shona',
-  revision: '1',
+  revision: '839258fda4fd93bb',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

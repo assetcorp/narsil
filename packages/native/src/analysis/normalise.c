@@ -158,7 +158,7 @@ int narsil_lowercase(const uint16_t *units, size_t length, narsil_text *out) {
   return status;
 }
 
-static uint16_t fold_width(uint16_t unit) {
+uint16_t narsil_fold_width(uint16_t unit) {
   if (unit >= FULLWIDTH_ASCII_FIRST && unit <= FULLWIDTH_ASCII_LAST) {
     return (uint16_t)(unit - FULLWIDTH_ASCII_OFFSET);
   }
@@ -168,6 +168,18 @@ static uint16_t fold_width(uint16_t unit) {
   if (unit == HALFWIDTH_VOICED_MARK) { return COMBINING_VOICED_MARK; }
   if (unit == HALFWIDTH_SEMI_VOICED_MARK) { return COMBINING_SEMI_VOICED_MARK; }
   return unit;
+}
+
+uint32_t narsil_fold_form(uint32_t point) {
+  if (point == COMBINING_DOT_ABOVE || (point >= ARMENIAN_MARKS_FIRST && point <= ARMENIAN_MARKS_LAST)) {
+    return UINT32_MAX;
+  }
+  if (point == DOTTED_CAPITAL_I) { return LATIN_SMALL_I; }
+  if (point == LEFT_SINGLE_QUOTE || point == RIGHT_SINGLE_QUOTE || point == MODIFIER_APOSTROPHE ||
+      point == MODIFIER_TURNED_COMMA) {
+    return APOSTROPHE;
+  }
+  return point;
 }
 
 static int fold_forms(const narsil_text *source, narsil_text *out) {
@@ -204,7 +216,7 @@ int narsil_fold_for_splitting(const uint16_t *units, size_t length, narsil_text 
   scratch->first.length = 0;
   int status = narsil_text_reserve(&scratch->first, length);
   if (status != NARSIL_OK) { return status; }
-  for (size_t i = 0; i < length; i++) { scratch->first.units[i] = fold_width(units[i]); }
+  for (size_t i = 0; i < length; i++) { scratch->first.units[i] = narsil_fold_width(units[i]); }
   scratch->first.length = length;
   status = narsil_nfc(scratch->first.units, scratch->first.length, &scratch->second, &scratch->points);
   if (status == NARSIL_OK) { status = fold_forms(&scratch->second, &scratch->first); }

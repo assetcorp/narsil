@@ -145,7 +145,7 @@ function normalize(token: string): string {
  */
 export const guarani: LanguageModule = {
   name: 'guarani',
-  revision: '1',
+  revision: 'a8c29bc746811dec',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

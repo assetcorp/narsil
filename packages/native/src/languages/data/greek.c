@@ -182,7 +182,7 @@ static const uint32_t keep_ranges[14] = {
 
 const narsil_language narsil_language_greek = {
   .name = "greek",
-  .revision = "4f02e255d00e5848",
+  .revision = "db2514c2c2b883f1",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 593,

@@ -181,7 +181,7 @@ const stopWords = new Set([
  */
 export const latvian: LanguageModule = {
   name: 'latvian',
-  revision: '1',
+  revision: '1fb8c19cab0204fb',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9āčēģīķļņšūž]+/gi },

@@ -52,7 +52,7 @@ static const uint32_t keep_ranges[46] = {
 
 const narsil_language narsil_language_czech = {
   .name = "czech",
-  .revision = "48b013a41884beb9",
+  .revision = "56a7b1116351c68c",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 171,

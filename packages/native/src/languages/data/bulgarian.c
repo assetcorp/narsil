@@ -124,7 +124,7 @@ static const uint32_t keep_ranges[678] = {
 
 const narsil_language narsil_language_bulgarian = {
   .name = "bulgarian",
-  .revision = "1",
+  .revision = "ba8c088d7f077308",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 258,

@@ -1,4 +1,5 @@
 #include "pass.h"
+#include "regions.h"
 #include "score.h"
 #include "scratch.h"
 
@@ -152,7 +153,7 @@ static int request_is_valid(const narsil_keyword_request *request, const narsil_
                             request_check *check) {
   return read_limit(request->limit, check->pass) && rows_are_present(request) && bitsets_are_present(request) &&
          fields_are_present(request) && slots_are_valid(request, check) && lists_are_valid(request, check) &&
-         output_is_valid(request, output);
+         output_is_valid(request, output) && keyword_regions_are_disjoint(request, output);
 }
 
 narsil_status narsil_keyword_score(narsil_workspace *workspace, const narsil_keyword_request *request,
@@ -161,14 +162,14 @@ narsil_status narsil_keyword_score(narsil_workspace *workspace, const narsil_key
   keyword_needs needs = {0, 0, 0, 0, 0, 0};
   keyword_pass pass = {0};
   request_check check = {&needs, &pass, 0};
-  output->count = 0;
-  output->total_matched = 0;
-  output->scoring_path = NARSIL_KEYWORD_SCORED_IN_FULL;
   if (!request_is_valid(request, output, &check)) { return NARSIL_INVALID_ARGUMENT; }
   load_pass(request, &check);
   keyword_scratch *scratch = workspace_keyword_scratch(workspace);
   narsil_status status = keyword_reserve(scratch, &needs);
   if (status != NARSIL_OK) { return status; }
+  output->count = 0;
+  output->total_matched = 0;
+  output->scoring_path = NARSIL_KEYWORD_SCORED_IN_FULL;
   pass.scratch = scratch;
   pass.output = output;
   if (pass.capacity > 0 && keyword_words_for(pass.capacity) <= check.total_rows) {

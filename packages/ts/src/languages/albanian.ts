@@ -110,7 +110,7 @@ const stopWords = new Set([
  */
 export const albanian: LanguageModule = {
   name: 'albanian',
-  revision: '1',
+  revision: '173f9f764898898c',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çë]+/gi },

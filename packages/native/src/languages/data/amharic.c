@@ -73,7 +73,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_amharic = {
   .name = "amharic",
-  .revision = "1",
+  .revision = "c4abaf1376b7d3e7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 228,
