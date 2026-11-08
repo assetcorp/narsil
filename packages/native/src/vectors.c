@@ -3,6 +3,7 @@
 #include "../include/narsil_core.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -28,9 +29,30 @@ int is_code_width(uint32_t bits) {
   }
 }
 
+static int64_t load_sequence(const int64_t *sequences, uint32_t index) {
+  return atomic_load((const _Atomic(int64_t) *)(sequences + index));
+}
+
+int64_t oldest_held_pin(const narsil_store *store) {
+  int64_t oldest = INT64_MAX;
+  for (uint32_t slot = 0; slot < store->pin_slots; slot++) {
+    int64_t entry = load_sequence(store->pins, slot);
+    if (entry != 0 && entry - 1 < oldest) { oldest = entry - 1; }
+  }
+  return oldest;
+}
+
+int store_may_free(const walk_context *context, int32_t ordinal) {
+  if (ordinal < 0) { return 0; }
+  int64_t retired = load_sequence(context->store->retired_at, (uint32_t)ordinal);
+  return retired > 0 && retired <= context->oldest_pin;
+}
+
 int store_is_complete(const narsil_store *store) {
   return store->header != NULL && store->code_present != NULL && store->centroid != NULL && store->magnitudes != NULL &&
-         store->present != NULL && (store->code_block_count == 0 || store->code_blocks != NULL) &&
+         store->present != NULL && store->born_at != NULL && store->retired_at != NULL &&
+         (store->pin_slots == 0 || store->pins != NULL) &&
+         (store->code_block_count == 0 || store->code_blocks != NULL) &&
          (store->vector_block_count == 0 || store->vector_blocks != NULL) &&
          (store->file_count == 0 ||
           (store->files != NULL && store->vector_file != NULL && store->vector_offset != NULL));

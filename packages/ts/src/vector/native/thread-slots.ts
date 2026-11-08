@@ -38,7 +38,7 @@ export function returnSlot(slot: number): void {
 }
 
 export async function withNativeThreadSlot<T>(work: (slot: number) => Promise<T>): Promise<T> {
-  const slot = await claimSlot()
+  const slot = claimNativeThreadSlotNow() ?? (await claimSlot())
   try {
     return await work(slot)
   } finally {

@@ -329,13 +329,13 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
   }
 }
 
-export function compactTombstones(state: HNSWGraphState): void {
+export function compactTombstones(state: HNSWGraphState, mayFree: (ord: number) => boolean): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
   countIncomingBeforeWriting(state, true)
   const tombstonedOrds: number[] = []
   const slots = adjacencySlots(state.adjacency)
   for (let ord = 0; ord < slots; ord++) {
-    if (isTombstoned(state, ord) && nodeExists(state, ord)) {
+    if (isTombstoned(state, ord) && nodeExists(state, ord) && mayFree(ord)) {
       tombstonedOrds.push(ord)
     }
   }

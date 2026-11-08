@@ -302,6 +302,20 @@ export function planCheckpoint(
   pinsRetiredVectors = false,
 ): VectorCheckpointPlan {
   if (pinsRetiredVectors) state.store.pinRetiredVectors()
+  try {
+    return prepareCheckpoint(state, listedKeys, rewritesGraph, pinsRetiredVectors)
+  } catch (error) {
+    if (pinsRetiredVectors) state.store.unpinRetiredVectors()
+    throw error
+  }
+}
+
+function prepareCheckpoint(
+  state: VectorIndexState,
+  listedKeys: readonly string[] | null,
+  rewritesGraph: boolean,
+  pinsRetiredVectors: boolean,
+): VectorCheckpointPlan {
   let pinned = pinsRetiredVectors
   const signature = signatureOf(state)
   const calibration = signature.calibration

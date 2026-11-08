@@ -5,6 +5,7 @@ import { type ThreadedNativeCore, threadedNativeCore, withNativeThreadSlot } fro
 import { NATIVE_OK } from '../native/types'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { magnitude } from '../similarity'
+import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import {
   bestResolvedHits,
   endOfRescored,
@@ -30,6 +31,7 @@ interface OffThreadRescore {
   metric: VectorMetric
   minSimilarity: number
   filter: OrdinalFilter | undefined
+  pin: number
   slot: number
 }
 
@@ -53,12 +55,13 @@ function onFullPrecision(rescore: OffThreadRescore): OrdinalHit[] {
 }
 
 async function rescoredOffThread(rescore: OffThreadRescore): Promise<OrdinalHit[]> {
-  const { core, field, candidates, query, depth, metric, minSimilarity, filter, slot } = rescore
+  const { core, field, candidates, query, depth, metric, minSimilarity, filter, pin, slot } = rescore
   const ordinals = chosenOrdinals(candidates, depth, filter)
   if (ordinals.length === 0) return []
   let scored: Awaited<ReturnType<ThreadedNativeCore['scoreAsync']>>
   try {
-    scored = await core.scoreAsync(field.store.handle, query, nativeMetricCode(metric), ordinals, ordinals.length, slot)
+    const code = nativeMetricCode(metric)
+    scored = await core.scoreAsync(field.store.handle, query, code, ordinals, ordinals.length, pin, slot)
   } catch {
     return onFullPrecision(rescore)
   }
@@ -76,7 +79,7 @@ async function rescoredOffThread(rescore: OffThreadRescore): Promise<OrdinalHit[
 
 export async function searchOffThread(
   state: HNSWSearchState,
-  docIdOf: (ord: number) => string | undefined,
+  docIdOf: (ordinal: number) => string | undefined,
   query: Float32Array,
   k: number,
   metric: VectorMetric,
@@ -87,9 +90,23 @@ export async function searchOffThread(
   if (graphIsEmpty(state)) return []
   const core = threadedNativeCore()
   const field = nativeFieldFor(state)
-  if (core === null || field === null) return null
+  const admission = options.admission
+  if (core === null || field === null || admission === undefined) return null
   const { ef, depth, useQuantized } = searchDepths(state, k, options)
   const filter = options.filter
+  const pin = admission.pin
+  const header = state.store.handles.header
+  const generation = Atomics.load(header, STORE_ORDINAL_LAYOUT_GENERATION)
+  const cachedDocIdOf = (ordinal: number): string | undefined => {
+    if (!admission.admits(ordinal)) return undefined
+    return docIdOf(ordinal) ?? admission.docIdOf(ordinal)
+  }
+  const resolveHits = (hits: OrdinalHit[]): ResolvedHit[] =>
+    bestResolvedHits(
+      hits,
+      k,
+      Atomics.load(header, STORE_ORDINAL_LAYOUT_GENERATION) === generation ? cachedDocIdOf : admission.docIdOf,
+    )
 
   return withNativeThreadSlot(async slot => {
     let found: Awaited<ReturnType<ThreadedNativeCore['searchAsync']>>
@@ -100,6 +117,7 @@ export async function searchOffThread(
         query,
         nativeMetricCode(metric),
         ef,
+        pin,
         slot,
         filter === undefined ? null : filter.bits,
       )
@@ -108,7 +126,7 @@ export async function searchOffThread(
     }
     if (found.count < 0) return null
     const candidates: DistanceList = { ords: found.ordinals, distances: found.distances, size: found.count }
-    if (!useQuantized) return bestResolvedHits(estimatedHits(candidates, 0, metric, minSimilarity, filter), k, docIdOf)
+    if (!useQuantized) return resolveHits(estimatedHits(candidates, 0, metric, minSimilarity, filter))
 
     const rescored = await rescoredOffThread({
       state,
@@ -120,12 +138,13 @@ export async function searchOffThread(
       metric,
       minSimilarity,
       filter,
+      pin,
       slot,
     })
     if (options.rescoreWindow === undefined || minSimilarity !== Number.NEGATIVE_INFINITY) {
-      return bestResolvedHits(rescored, k, docIdOf)
+      return resolveHits(rescored)
     }
     const rest = endOfRescored(candidates, depth, filter)
-    return bestResolvedHits(rescored.concat(estimatedHits(candidates, rest, metric, minSimilarity, filter)), k, docIdOf)
+    return resolveHits(rescored.concat(estimatedHits(candidates, rest, metric, minSimilarity, filter)))
   })
 }

@@ -1,4 +1,5 @@
 import type { SearchClock } from '../../core/search-clock'
+import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
@@ -34,6 +35,16 @@ export function readNeighborsLocked(state: HNSWSearchState, ord: number, layer: 
   }
 }
 
+function leftOut(
+  state: HNSWSearchState,
+  ord: number,
+  excludeTombstones: boolean,
+  admission: OrdinalAdmission | undefined,
+): boolean {
+  if (admission !== undefined) return !admission.admits(ord)
+  return excludeTombstones && isTombstoned(state, ord)
+}
+
 export function searchLayer(
   state: HNSWSearchState,
   qVec: Float32Array,
@@ -46,6 +57,7 @@ export function searchLayer(
   results: DistanceList,
   accepted?: OrdinalFilter,
   clock?: SearchClock,
+  admission?: OrdinalAdmission,
 ): void {
   const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
   const workspace = state.workspace
@@ -67,7 +79,7 @@ export function searchLayer(
     const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     pushHeap(frontier, epOrd, dist)
-    if (excludeTombstones && isTombstoned(state, epOrd)) continue
+    if (leftOut(state, epOrd, excludeTombstones, admission)) continue
     if (accepted && !ordinalFilterHas(accepted, epOrd)) continue
     pushHeap(found, epOrd, dist)
     if (found.size > ef) {
@@ -95,7 +107,7 @@ export function searchLayer(
 
       if (dist < furthestDist || found.size < ef) {
         pushHeap(frontier, neighborOrd, dist)
-        if (excludeTombstones && isTombstoned(state, neighborOrd)) continue
+        if (leftOut(state, neighborOrd, excludeTombstones, admission)) continue
         if (accepted && !ordinalFilterHas(accepted, neighborOrd)) continue
         pushHeap(found, neighborOrd, dist)
         if (found.size > ef) {

@@ -21,6 +21,7 @@ export function nativeTraverse(
   candidateCount: number,
   metric: VectorMetric,
   filter: OrdinalFilter | undefined,
+  pin: number,
   candidates: DistanceList,
 ): boolean {
   const store = field.store
@@ -33,6 +34,7 @@ export function nativeTraverse(
       query,
       nativeMetricCode(metric),
       candidateCount,
+      pin,
       state.locks.threadSlot,
       store.ordinals,
       store.distances,
@@ -55,6 +57,7 @@ export function nativeRescoredHits(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter | undefined,
+  pin: number,
 ): OrdinalHit[] | null {
   const nearest = Math.min(candidates.size, depth)
   reserveOrdinals(store, nearest)
@@ -66,7 +69,7 @@ export function nativeRescoredHits(
     ordinals[kept++] = ord
   }
 
-  const distances = nativeScores(store, query, metric, kept)
+  const distances = nativeScores(store, query, metric, kept, pin)
   if (distances === null) return null
 
   const hits: OrdinalHit[] = []

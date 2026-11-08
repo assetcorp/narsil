@@ -22,24 +22,30 @@ import {
 import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
+  state.store.freeRetiredVectors()
+  const oldestPin = state.store.oldestPin()
+  state.buffer.forgetRetired(ordinal => state.store.mayFreeOrdinal(ordinal, oldestPin))
   if (state.tombstones.size === 0 && state.store.replacedVectorCount === 0) return
 
   if (state.hnsw) {
-    state.compactedNodeCount += state.hnsw.tombstoneCount
-    state.hnsw.compactTombstones()
+    const before = state.hnsw.tombstoneCount
+    state.hnsw.compactTombstones(oldestPin)
+    state.compactedNodeCount += before - state.hnsw.tombstoneCount
   }
-  state.freshGraph?.compactTombstones()
+  state.freshGraph?.compactTombstones(oldestPin)
 
   for (const docId of state.tombstones) {
-    state.store.remove(docId)
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal !== undefined && !state.store.mayFreeOrdinal(ordinal, oldestPin)) continue
+    state.store.remove(docId, oldestPin)
     state.buffer.delete(docId)
+    state.tombstones.delete(docId)
     if (state.osq) {
       state.osq.remove(docId)
     }
   }
 
-  releaseReplacedVectors(state)
-  state.tombstones.clear()
+  releaseReplacedVectors(state, oldestPin)
 }
 
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
