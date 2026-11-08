@@ -15,6 +15,7 @@ typedef struct {
   uint32_t token;
   uint32_t count;
   uint32_t points;
+  uint32_t hash;
 } segment_string;
 
 typedef struct {
@@ -35,6 +36,8 @@ size_t segment_strings_bytes(const segment_strings *strings);
 segment_string *segment_string_find(segment_strings *strings, const uint16_t *text, size_t length);
 narsil_status segment_string_prepare(segment_strings *strings, const narsil_term_table *table, const uint16_t *text,
                                      size_t length, segment_string **entry);
+narsil_status segment_string_prepare_existing(segment_strings *strings, const narsil_term_table *table,
+                                              const uint16_t *text, size_t length, segment_string **entry);
 narsil_status segment_strings_check(segment_strings *strings, const narsil_term_table *table);
 void segment_strings_publish(const segment_strings *strings, narsil_term_table *table);
 void segment_string_remove(narsil_term_table *table, const segment_string *entry);

@@ -220,6 +220,7 @@ static void release_thread_state(napi_env env, void *finalize_data, void *finali
   free(state->text_units);
   free(state->keyword_lengths);
   free((void *)state->keyword_length_values);
+  free(state->segment_view);
   free(state);
 }
 
