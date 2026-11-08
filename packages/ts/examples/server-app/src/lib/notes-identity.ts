@@ -2,7 +2,7 @@ import { readBoundedText } from '@delali/narsil-example-shared/lib/bounded-read'
 import * as v from 'valibot'
 import { MAX_NOTES_REQUEST_BYTES, NOTES_INDEX_PREFIX } from './constants'
 import { demoServerPromise } from './demo-server-state'
-import { hasNotesCookie, newNotesSpace, notesCookie, notesSpaceFromCookie, sameOrigin } from './notes-access'
+import { newNotesSpace, notesCookie, notesSpaceFromCookie, sameOrigin } from './notes-access'
 import { ensureNotesSpace } from './notes-space'
 import { mintSyncGrant, syncGrantLifetimeFromEnv, syncGrantSecretFromEnv } from './sync-grant'
 
@@ -26,7 +26,7 @@ export async function notesIdentity(request: Request, create: boolean): Promise<
   if (secret === null) return notesError(503, 'SERVICE_UNAVAILABLE', 'Device sync needs the bundled demo server')
   const header = request.headers.get('cookie')
   const existing = notesSpaceFromCookie(header, secret)
-  if (existing === null && (!create || hasNotesCookie(header))) {
+  if (existing === null && !create) {
     return notesError(401, 'UNAUTHORIZED', 'A valid notes cookie is required')
   }
   const space = existing ?? newNotesSpace()

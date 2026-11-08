@@ -22,10 +22,6 @@ export function notesSpaceFromCookie(header: string | null, secret: string): str
   return expected.length === presented.length && timingSafeEqual(expected, presented) ? space : null
 }
 
-export function hasNotesCookie(header: string | null): boolean {
-  return (header ?? '').split(';').some(value => value.trim().startsWith(`${NOTES_COOKIE_NAME}=`))
-}
-
 export function newNotesSpace(): string {
   return randomUUID()
 }
