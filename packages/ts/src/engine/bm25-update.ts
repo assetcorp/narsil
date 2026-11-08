@@ -7,20 +7,31 @@ import { emitSyncChange } from './sync-notify'
 
 async function replaceNow(core: EngineCore, indexName: string, bm25: BM25Params | undefined): Promise<void> {
   const { config } = core.requireIndex(indexName)
+  const manager = core.requireManager(indexName)
   const previous = config.bm25
-  config.bm25 = bm25
+  await manager.publication.write(() => {
+    config.bm25 = bm25
+    core.orchestrator.publishToWorkers({
+      type: 'replaceBm25',
+      indexName,
+      requestId: `replace-bm25-${indexName}`,
+      bm25,
+    })
+  })
   try {
     if (core.durability) await core.durability.manager.persistMetadata(indexName)
   } catch (err) {
-    config.bm25 = previous
+    await manager.publication.write(() => {
+      config.bm25 = previous
+      core.orchestrator.publishToWorkers({
+        type: 'replaceBm25',
+        indexName,
+        requestId: `restore-bm25-${indexName}`,
+        bm25: previous,
+      })
+    })
     throw err
   }
-  await core.orchestrator.replicateToWorkers({
-    type: 'replaceBm25',
-    indexName,
-    requestId: `replace-bm25-${indexName}`,
-    ...(bm25 !== undefined ? { bm25 } : {}),
-  })
   await core.orchestrator.awaitWrites(indexName)
   if (core.requireIndex(indexName).sync !== null) emitSyncChange(core.indexRegistry, { kind: 'settings', indexName })
 }

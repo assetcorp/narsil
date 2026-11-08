@@ -6,7 +6,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { CapacityScope } from '../partitioning/manager/capacity'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
-import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
+import type { BufferedMutation, createWriteAheadQueue, QueuedWrite } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
 import { DEFAULT_MAX_RERANK_WINDOW, DEFAULT_RERANK_TIMEOUT_MS } from '../rerank/constants'
 import { validateRerankAdapter } from '../rerank/registry'
@@ -23,13 +23,13 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import type { DurabilityIntegration } from './durability-integration'
 import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
-import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
-import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
+import type { InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
-import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
+import type { WorkerOrchestrator } from './orchestration'
+import { createWorkerOrchestrator, workersEnabledByDefault } from './orchestration/loader'
 import type { RebalanceContext } from './rebalance-executor'
 import type { IndexRegistryEntry } from './registry-entry'
 import { validateWorkerConfig } from './validation'
@@ -63,7 +63,7 @@ export interface EngineCore {
   readonly guardShutdown: () => void
   readonly requireIndex: (indexName: string) => IndexRegistryEntry
   readonly requireManager: (indexName: string) => PartitionManager
-  readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+  readonly bufferIfRebalancing: (indexName: string, entry: BufferedMutation) => QueuedWrite | undefined
   readonly watermarkNotifier: WatermarkNotifier
   readonly heapPressureNotifier: HeapPressureNotifier
   readonly analysisRebuild: AnalysisRebuildCoordinator
@@ -135,7 +135,7 @@ export async function createEngineCore(
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
 
-  const orchestrator = createWorkerOrchestrator(
+  const orchestrator = await createWorkerOrchestrator(
     config,
     executor,
     indexRegistry,
@@ -186,13 +186,13 @@ export async function createEngineCore(
     return entry
   }
 
-  function bufferIfRebalancing(indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>): boolean {
-    if (!rebalancingIndexes.has(indexName)) return false
+  function bufferIfRebalancing(indexName: string, entry: BufferedMutation): QueuedWrite | undefined {
+    if (!rebalancingIndexes.has(indexName)) return
     const waq = waqMap.get(indexName)
-    if (!waq) return false
-    const clonedEntry = entry.document ? { ...entry, document: structuredClone(entry.document) } : entry
-    waq.push(clonedEntry)
-    return true
+    if (!waq) return
+    const prepare = rebalanceCtx.prepareQueuedMutation
+    if (prepare === undefined) throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The write queue is not ready')
+    return prepare(waq, requireManager(indexName), entry, requireIndex(indexName).vectorFieldPaths, durability !== null)
   }
 
   function requireManager(indexName: string): PartitionManager {
@@ -203,7 +203,8 @@ export async function createEngineCore(
     return manager
   }
 
-  function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+  async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+    const { createIndexFromMetadata: createIndexFromMetadataOp } = await import('./index-from-metadata')
     return createIndexFromMetadataOp(
       {
         config,
@@ -250,29 +251,28 @@ export async function createEngineCore(
           engineCore: () => engineCore,
         })
 
-  invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {
-    getManager: indexName => executor.getManager(indexName) ?? undefined,
-    listBroadcastIndexNames: () => {
-      const names: string[] = []
-      for (const [name, entry] of indexRegistry) {
-        if (entry.config.defaultScoring === 'broadcast') {
-          names.push(name)
-        }
-      }
-      return names
-    },
-    reloadIndex: indexName =>
-      emitWriteEventAfter(
-        { eventHandlers, mutationCtx },
-        indexName,
-        durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
-      ),
-    onError(error: Error) {
-      if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
-        console.warn('Invalidation error:', error)
-      }
-    },
-  })
+  invalidation =
+    config?.invalidation === undefined
+      ? null
+      : (durabilityWiring ?? (await import('./durability-wiring'))).createInvalidationFromConfig(
+          config,
+          durabilityTier?.kind ?? null,
+          {
+            getManager: indexName => executor.getManager(indexName) ?? undefined,
+            reloadIndex: indexName =>
+              emitWriteEventAfter(
+                { eventHandlers, mutationCtx },
+                indexName,
+                durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+              ),
+            onError(error: Error) {
+              if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
+                console.warn('Invalidation error:', error)
+              }
+            },
+          },
+          indexRegistry,
+        )
 
   const notifierWiring: NotifierWiring = {
     eventHandlers,

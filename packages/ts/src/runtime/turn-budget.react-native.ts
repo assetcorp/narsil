@@ -74,11 +74,11 @@ export function waitOutsideCountedWrite<T>(wait: () => Promise<T>): Promise<T> {
   return scheduler.waitOutsideCountedWrite(wait)
 }
 
-export function changeIndexOutsideExternalWaits<T>(change: () => Promise<T>): Promise<T> {
+export function changeIndexOutsideExternalWaits<T>(change: () => T | Promise<T>): Promise<T> {
   return scheduler.changeIndexOutsideExternalWaits(change)
 }
 
-export function indexChangeOutsideExternalWaits<T>(change: () => Promise<T>): () => Promise<T> {
+export function indexChangeOutsideExternalWaits<T>(change: () => T | Promise<T>): () => Promise<T> {
   return () => scheduler.changeIndexOutsideExternalWaits(change)
 }
 

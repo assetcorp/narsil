@@ -1,7 +1,6 @@
 import type { EngineCore } from '../engine/core'
 import { announceIndexCreated, announceIndexDropped } from '../engine/index-lifecycle'
 import type { SnapshotDeps } from '../engine/snapshot'
-import { indexConfigurationOf } from '../engine/snapshot/index-configuration'
 import { validateIndexName } from '../engine/validation'
 import { getVectorFieldPaths } from '../engine/vector-fields'
 import { emitWriteEventAfter } from '../engine/write-events'
@@ -82,9 +81,10 @@ export function portabilityOperations(
 
     exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>> {
       return withOpenIndex(indexName, async () => {
-        const [{ checkpointForArchive }, { documentExportStream }] = await Promise.all([
+        const [{ checkpointForArchive }, { documentExportStream }, { indexConfigurationOf }] = await Promise.all([
           import('../engine/snapshot'),
           import('../engine/export/write'),
+          import('../engine/snapshot/index-configuration-encode'),
         ])
         const header = indexConfigurationOf(core.requireIndex(indexName))
         return documentExportStream(header, await checkpointForArchive(snapshotDepsOf(indexName)))

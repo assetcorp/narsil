@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ClientErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import { isSyncEpoch } from '../epoch'
 import type { ResyncReason, SyncPosition, SyncSettings } from '../protocol'
 import type { KeptEntry } from './types'

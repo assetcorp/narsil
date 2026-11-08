@@ -67,6 +67,7 @@ export type ThreadOnlyRoute = 'livez' | 'version' | 'capabilities'
 export type RelayedRoute = Exclude<keyof ServerHandlers, ThreadOnlyRoute>
 
 export interface RelayedRequest {
+  stop?: SharedArrayBuffer
   type: 'request'
   requestId: number
   route: RelayedRoute

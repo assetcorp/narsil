@@ -1,3 +1,4 @@
+import { withTransientAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { GRAPH_RETIRED } from '../hnsw/handles'
 import { insertNode } from '../hnsw/mutation'
@@ -133,8 +134,14 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
     },
 
     searchOrdinals(query, k, metric, minSimilarity, options) {
-      if (graph === null) return []
-      return searchOrdinals(graph, docIdOf, query, k, metric, minSimilarity, options)
+      const current = graph
+      if (current === null) return []
+      if (options.admission !== undefined) {
+        return searchOrdinals(current, docIdOf, query, k, metric, minSimilarity, options)
+      }
+      return withTransientAdmission(store, admission =>
+        searchOrdinals(current, docIdOf, query, k, metric, minSimilarity, { ...options, admission }),
+      )
     },
   }
 }

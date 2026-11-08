@@ -13,6 +13,14 @@ export function moveClock(moveAfterMs: number): SearchClock {
   let overranOnce = false
   let pending = 0
   const clock: SearchClock = {
+    nativeWindow() {
+      return {
+        milliseconds: Math.max(0, moveAt + (overranOnce ? 0 : moveAfterMs) - performance.now()),
+        expired(): never {
+          throw new SearchMoved()
+        },
+      }
+    },
     tick(units: number): void {
       pending += units
       if (pending >= SEARCH_CLOCK_SAMPLE_UNITS) clock.check()

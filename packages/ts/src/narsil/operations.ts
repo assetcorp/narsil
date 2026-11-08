@@ -13,11 +13,8 @@ import type { EngineCore, EventHandler } from '../engine/core'
 import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import { withRenewedSyncEpoch } from '../engine/sync-epoch'
-import { validatePartitionConfig } from '../engine/validation'
 import { emitWriteEventAfter } from '../engine/write-events'
-import { ErrorCodes, NarsilError } from '../errors'
 import { registerEngineRerankAdapter } from '../rerank/registry'
-import { readProcessMemory } from '../runtime/process-memory'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { AnalysisChange } from '../types/analysis-operations'
 import type { NarsilConfig } from '../types/config'
@@ -39,7 +36,7 @@ import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOpt
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import { loadedVectorCode, loadVectorCode } from '../workers/vector-code'
 import { bm25Operations } from './bm25'
-import { bindEngineCore } from './internals'
+import { bindEngineCore, queryReadOptionsOf } from './internals'
 import { portabilityOperations } from './portability'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
 import { syncOperations } from './sync'
@@ -54,7 +51,6 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     shutdownState,
     abortController,
     orchestrator,
-    rebalancingIndexes,
     guardShutdown,
     requireIndex,
     requireManager,
@@ -146,6 +142,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         estimatedMemoryBytes: manager?.estimateMemoryBytes() ?? 0,
         language: entry.language.name,
         schema: entry.config.schema,
+        heldSearchStates: manager?.heldSearchStates ?? 0,
       }
     },
 
@@ -211,11 +208,11 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return runEngineListDocuments<T>(core, indexName, params ?? {})
     },
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return runEngineQuery<T>(core, indexName, params)
+      return runEngineQuery<T>(core, indexName, params, queryReadOptionsOf(params))
     },
 
     async preflight(indexName: string, params: QueryParams): Promise<PreflightResult> {
-      return runEnginePreflight(core, indexName, params)
+      return runEnginePreflight(core, indexName, params, queryReadOptionsOf(params))
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
       return runEngineSuggest(core, indexName, params)
@@ -284,42 +281,8 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>): Promise<void> {
       guardShutdown()
       return withOpenIndex(indexName, async () => {
-        const entry = requireIndex(indexName)
-        const manager = requireManager(indexName)
-        if (rebalancingIndexes.has(indexName)) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
-            `Index "${indexName}" is currently being rebalanced`,
-          )
-        }
-        validatePartitionConfig(partitionConfig)
-        if (partitionConfig.maxPartitions !== undefined && partitionConfig.maxPartitions < manager.partitionCount) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-            `maxPartitions (${partitionConfig.maxPartitions}) is less than the current partition count (${manager.partitionCount})`,
-            { maxPartitions: partitionConfig.maxPartitions, partitionCount: manager.partitionCount },
-          )
-        }
-        const currentDocCount = manager.countDocuments()
-        const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
-        if (newMaxDocs !== undefined) {
-          const newTotalCapacity = newMaxDocs * manager.partitionCount
-          if (newTotalCapacity < currentDocCount) {
-            throw new NarsilError(
-              ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-              `New capacity (${newTotalCapacity}) is less than current document count (${currentDocCount})`,
-              { newTotalCapacity, currentDocCount },
-            )
-          }
-        }
-        if (!entry.config.partitions) entry.config.partitions = {}
-        if (partitionConfig.maxDocsPerPartition !== undefined)
-          entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
-        if (partitionConfig.maxPartitions !== undefined)
-          entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
-        if (partitionConfig.watermark !== undefined) entry.config.partitions.watermark = partitionConfig.watermark
-        if (durability) await durability.manager.persistMetadata(indexName)
-        core.watermarkNotifier.check(indexName)
+        const { updateEnginePartitionConfig } = await import('../engine/partition-config')
+        await updateEnginePartitionConfig(core, indexName, partitionConfig)
       })
     },
 
@@ -329,6 +292,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         estimatedIndexBytes += executor.getManager(name)?.estimateMemoryBytes() ?? 0
       }
       const workers = await orchestrator.getWorkerMemoryStats()
+      const { readProcessMemory } = await import('../runtime/process-memory')
       const lifecycleCounts = core.indexState.counts()
       return {
         process: readProcessMemory(),

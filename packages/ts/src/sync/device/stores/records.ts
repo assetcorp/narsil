@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { AnyDocument } from '../../../types/schema'
 import { isSyncEpoch } from '../../epoch'
 import type { DevicePosition, KeptEntry, QueuedWrite } from '../types'

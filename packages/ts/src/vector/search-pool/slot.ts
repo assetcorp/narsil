@@ -1,6 +1,7 @@
 import { noteThreadSlotGone, noteThreadSlotLive } from '../../workers/thread-slot'
-import type { SharedGraphHandles } from '../hnsw/handles'
 import { releaseLocksHeldBy } from '../hnsw/locks'
+import type { SharedVectorFieldHandles } from '../shared-field/types'
+import { releasePinsHeldBy } from '../vector-store/pins'
 import type { VectorWorkerMessage } from './messages'
 import type { WorkerHandle } from './spawn'
 
@@ -16,7 +17,7 @@ export interface WorkerSlot {
   pending: Map<string, PendingRequest>
   alive: boolean
   outstanding: number
-  graphs: Map<string, SharedGraphHandles>
+  fields: Map<string, SharedVectorFieldHandles>
   working: Map<string, string>
   idleWaiters: Set<() => void>
 }
@@ -29,14 +30,14 @@ export function createSlot(worker: WorkerHandle, scratchSlot: number): WorkerSlo
     pending: new Map(),
     alive: true,
     outstanding: 0,
-    graphs: new Map(),
+    fields: new Map(),
     working: new Map(),
     idleWaiters: new Set(),
   }
 }
 
-export function noteGraphOpened(slot: WorkerSlot, handle: string, graph: SharedGraphHandles | null): void {
-  if (graph !== null) slot.graphs.set(handle, graph)
+export function noteFieldOpened(slot: WorkerSlot, handle: string, handles: SharedVectorFieldHandles): void {
+  slot.fields.set(handle, handles)
 }
 
 export function noteWorkStarted(slot: WorkerSlot, requestId: string, handle: string): void {
@@ -49,8 +50,8 @@ function stillWorkingOn(slot: WorkerSlot, handle: string): boolean {
 }
 
 export function forgetDroppedGraphs(slot: WorkerSlot, shared: ReadonlyMap<string, unknown>): void {
-  for (const handle of [...slot.graphs.keys()]) {
-    if (!shared.has(handle) && !stillWorkingOn(slot, handle)) slot.graphs.delete(handle)
+  for (const handle of [...slot.fields.keys()]) {
+    if (!shared.has(handle) && !stillWorkingOn(slot, handle)) slot.fields.delete(handle)
   }
 }
 
@@ -76,8 +77,11 @@ export function untilIdle(slot: WorkerSlot, deadlineMs: number): Promise<void> {
 
 export function releaseSlotLocks(slot: WorkerSlot): void {
   noteThreadSlotGone(slot.scratchSlot)
-  for (const graph of slot.graphs.values()) releaseLocksHeldBy(graph, slot.scratchSlot)
-  slot.graphs.clear()
+  for (const field of slot.fields.values()) {
+    releasePinsHeldBy(field.store.pins, slot.scratchSlot)
+    if (field.graph !== null) releaseLocksHeldBy(field.graph, slot.scratchSlot)
+  }
+  slot.fields.clear()
   slot.working.clear()
   for (const waiter of [...slot.idleWaiters]) waiter()
 }

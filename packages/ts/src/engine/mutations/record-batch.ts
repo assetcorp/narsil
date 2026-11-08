@@ -1,6 +1,6 @@
 import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { AnyDocument } from '../../types/schema'
-import type { MutationContext } from './context'
+import type { ApplyMutation, MutationContext } from './context'
 
 export interface ChunkFailure {
   error: unknown
@@ -15,7 +15,7 @@ export async function recordChunk(
   ctx: MutationContext,
   indexName: string,
   mutations: readonly RecordedMutation[],
-  applies: readonly (() => Promise<void>)[],
+  applies: readonly ApplyMutation[],
 ): Promise<(ChunkFailure | null)[]> {
   if (mutations.length === 0) return []
   if (ctx.durability) {

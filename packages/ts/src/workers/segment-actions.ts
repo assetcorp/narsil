@@ -1,50 +1,22 @@
 import { isCompositePartition } from '../core/partition/composite'
-import {
-  createSharedFrozenSegment,
-  freezeSegmentShared,
-  type PagedSegmentSnapshot,
-  type SharedSegmentSnapshot,
-} from '../core/partition/frozen'
-import { mergeFrozenSegments } from '../core/partition/frozen/merge'
+import type { PagedSegmentSnapshot, SharedSegmentSnapshot } from '../core/partition/frozen'
+import { mergeFrozenSegmentOutputs } from '../core/partition/frozen/merge-split'
 import { NO_REMOVED_SPELLINGS } from '../core/partition/frozen/removal-pass'
-import { buildSegmentPayload } from '../core/partition/segment-builder'
+import { createSharedFrozenSegment } from '../core/partition/frozen/shared'
+import { freezeSegmentShared } from '../core/partition/frozen/shared-snapshot'
+import { buildSegmentPayloads } from '../core/partition/segment-builder'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
-import type { BuiltSegmentResult, WorkerAction } from './protocol'
+import type { BuiltSegmentResult } from './protocol'
+import { growPartitionsTo, type SegmentAction } from './segment-action-code'
 
 export interface SegmentIndexEntry {
   manager: PartitionManager
   config: IndexConfig
   language: LanguageModule
-}
-
-export type SegmentAction = Extract<
-  WorkerAction,
-  {
-    type:
-      | 'buildSegment'
-      | 'mergeSegments'
-      | 'attachSegments'
-      | 'compactSegments'
-      | 'swapSegments'
-      | 'freezeLiveTail'
-      | 'adoptDiskSegments'
-  }
->
-
-export function isSegmentAction(action: WorkerAction): action is SegmentAction {
-  return (
-    action.type === 'buildSegment' ||
-    action.type === 'mergeSegments' ||
-    action.type === 'attachSegments' ||
-    action.type === 'compactSegments' ||
-    action.type === 'swapSegments' ||
-    action.type === 'freezeLiveTail' ||
-    action.type === 'adoptDiskSegments'
-  )
 }
 
 function isPagedSnapshot(snapshot: SharedSegmentSnapshot | PagedSegmentSnapshot): snapshot is PagedSegmentSnapshot {
@@ -67,12 +39,6 @@ async function attachSegments(
   }
 }
 
-export function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
-  while (manager.partitionCount <= partitionId) {
-    manager.addPartition()
-  }
-}
-
 function requireComposite(entry: SegmentIndexEntry, indexName: string, partitionId: number, verb: string) {
   const partition = entry.manager.getPartition(partitionId)
   if (!isCompositePartition(partition)) {
@@ -89,20 +55,21 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
   switch (action.type) {
     case 'buildSegment': {
       const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
-      const payload = buildSegmentPayload(
+      const outputs = buildSegmentPayloads(
         action.documents,
         entry.config.schema,
         entry.language,
         options,
         entry.config.trackPositions ?? true,
       )
-      const snapshot = freezeSegmentShared(
-        payload,
-        action.documents.map(doc => doc.document),
-        action.segmentId,
-      )
-      const built: BuiltSegmentResult = snapshot === null ? { kind: 'payload', payload } : { kind: 'shared', snapshot }
-      return built
+      return outputs.map(({ payload, documents }, index): BuiltSegmentResult => {
+        const snapshot = freezeSegmentShared(
+          payload,
+          documents.map(doc => doc.document),
+          index === 0 ? action.segmentId : undefined,
+        )
+        return snapshot === null ? { kind: 'payload', payload } : { kind: 'shared', snapshot }
+      })
     }
 
     case 'mergeSegments': {
@@ -126,7 +93,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')
-      return mergeFrozenSegments(
+      return mergeFrozenSegmentOutputs(
         partition.frozenSegmentsById(action.segmentIds),
         entry.manager.partialWordAnalysis,
         entry.manager.textAnalysis,
@@ -138,7 +105,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
       entry.manager.swapFrozenSegments(
         action.partitionId,
         action.dropSegmentIds,
-        createSharedFrozenSegment(action.snapshot),
+        action.snapshots.map(snapshot => createSharedFrozenSegment(snapshot)),
         action.removedSpellings,
       )
       return undefined
