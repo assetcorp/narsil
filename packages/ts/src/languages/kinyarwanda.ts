@@ -107,7 +107,7 @@ const stopWords = new Set([
  */
 export const kinyarwanda: LanguageModule = {
   name: 'kinyarwanda',
-  revision: '1',
+  revision: 'b6f6ae30977c9744',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

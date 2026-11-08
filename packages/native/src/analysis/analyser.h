@@ -45,5 +45,7 @@ int narsil_transform_token(narsil_analyser *analyser, const narsil_language *lan
                            narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result, uint32_t *term_slot);
 int narsil_surface_of(narsil_analyser *analyser, const narsil_language *language, narsil_unit_view candidate,
                       narsil_unit_view *result);
+int narsil_stem_token(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
+                      narsil_unit_view candidate, narsil_unit_view *result);
 
 #endif

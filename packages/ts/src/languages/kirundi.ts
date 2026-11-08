@@ -100,7 +100,7 @@ const stopWords = new Set([
  */
 export const kirundi: LanguageModule = {
   name: 'kirundi',
-  revision: '1',
+  revision: 'b5cbdb343385cf5e',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

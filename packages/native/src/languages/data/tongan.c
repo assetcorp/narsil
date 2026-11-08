@@ -27,7 +27,7 @@ static const uint32_t keep_ranges[76] = {
 
 const narsil_language narsil_language_tongan = {
   .name = "tongan",
-  .revision = "1",
+  .revision = "dda52bdfc7792357",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 44,

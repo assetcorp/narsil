@@ -64,7 +64,7 @@ static const uint32_t keep_ranges[20] = {
 
 const narsil_language narsil_language_serbian = {
   .name = "serbian",
-  .revision = "86c7d873d1fd8723",
+  .revision = "06dd885b68bfdecc",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 222,

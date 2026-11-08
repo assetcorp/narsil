@@ -78,7 +78,7 @@ const stopWords = new Set([
  */
 export const ga: LanguageModule = {
   name: 'ga',
-  revision: '1',
+  revision: 'df8960aea20dc7b7',
   stemmer: null,
   stopWords,
   tokenizer: {

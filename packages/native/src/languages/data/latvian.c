@@ -55,7 +55,7 @@ static const uint32_t keep_ranges[28] = {
 
 const narsil_language narsil_language_latvian = {
   .name = "latvian",
-  .revision = "1",
+  .revision = "1fb8c19cab0204fb",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 161,

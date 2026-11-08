@@ -1,5 +1,6 @@
 #include "select.h"
 
+#include "../score_order.h"
 #include "pass.h"
 #include "scratch.h"
 
@@ -14,7 +15,8 @@ typedef struct {
 } best_heap;
 
 static int ranks_below(const best_heap *heap, uint64_t lhs, uint64_t rhs) {
-  if (heap->scores[lhs] != heap->scores[rhs]) { return heap->scores[lhs] < heap->scores[rhs]; }
+  int order = score_order(heap->scores[lhs], heap->scores[rhs]);
+  if (order != 0) { return order > 0; }
   return heap->ordinals[lhs] > heap->ordinals[rhs];
 }
 
@@ -53,14 +55,14 @@ static void sort_best_first(int32_t *ordinals, double *scores, uint32_t count) {
 }
 
 static uint32_t offer_score(double *selection, uint32_t size, uint32_t limit, double score) {
-  if (size == limit && !(score > selection[0])) { return size; }
+  if (size == limit && score_order(score, selection[0]) >= 0) { return size; }
   uint32_t node = 0;
   uint32_t grown = size;
   if (size < limit) {
     node = grown++;
     while (node > 0) {
       uint32_t parent = (node - 1) / 2;
-      if (!(selection[parent] > score)) { break; }
+      if (score_order(selection[parent], score) >= 0) { break; }
       selection[node] = selection[parent];
       node = parent;
     }
@@ -69,8 +71,8 @@ static uint32_t offer_score(double *selection, uint32_t size, uint32_t limit, do
       uint64_t left = (2 * (uint64_t)node) + 1;
       if (left >= size) { break; }
       uint64_t right = left + 1;
-      uint64_t child = right < size && selection[right] < selection[left] ? right : left;
-      if (!(selection[child] < score)) { break; }
+      uint64_t child = right < size && score_order(selection[right], selection[left]) > 0 ? right : left;
+      if (score_order(selection[child], score) <= 0) { break; }
       selection[node] = selection[child];
       node = (uint32_t)child;
     }
@@ -113,7 +115,7 @@ uint32_t keyword_keep_best(const keyword_pass *pass, uint32_t candidates) {
     if (pass->limit > 0) {
       double lowest = limit_best_score(pass, candidates);
       for (uint32_t index = 0; index < candidates; index++) {
-        if (!(scores[index] >= lowest)) { continue; }
+        if (score_order(scores[index], lowest) > 0) { continue; }
         ordinals[count] = ordinals[index];
         scores[count] = scores[index];
         count++;

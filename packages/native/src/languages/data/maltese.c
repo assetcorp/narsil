@@ -82,7 +82,7 @@ static const uint32_t keep_ranges[734] = {
 
 const narsil_language narsil_language_maltese = {
   .name = "maltese",
-  .revision = "1",
+  .revision = "40d4e47c7e3b17f7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 127,

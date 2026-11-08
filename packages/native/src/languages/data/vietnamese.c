@@ -68,7 +68,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_vietnamese = {
   .name = "vietnamese",
-  .revision = "1",
+  .revision = "f3f6d81a6e630503",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 265,

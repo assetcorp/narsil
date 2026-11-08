@@ -100,7 +100,7 @@ function normalize(token: string): string {
  */
 export const ewe: LanguageModule = {
   name: 'ewe',
-  revision: '1',
+  revision: 'b84f9e404bae429c',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

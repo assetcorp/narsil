@@ -252,7 +252,7 @@ const stopWords = new Set([
  */
 export const finnish: LanguageModule = {
   name: 'finnish',
-  revision: 'cd95cb543801a620',
+  revision: '5c1190c245dcbefd',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9äöš]+/gi },

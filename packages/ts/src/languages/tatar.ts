@@ -1025,7 +1025,7 @@ const stopWords = new Set([
  */
 export const tatar: LanguageModule = {
   name: 'tatar',
-  revision: '1',
+  revision: '30716ed0a7888128',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9а-яәҗңөүһ]+/gi },

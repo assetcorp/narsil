@@ -131,7 +131,7 @@ const stopWords = new Set([
  */
 export const tamil: LanguageModule = {
   name: 'tamil',
-  revision: 'f859bf3d19447fbc',
+  revision: '4472926802515546',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0B80-\u0BFFa-z0-9]+/gi },

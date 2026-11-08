@@ -111,7 +111,7 @@ const stopWords = new Set([
  */
 export const yoruba: LanguageModule = {
   name: 'yoruba',
-  revision: '1',
+  revision: 'dbf7313746b212bf',
   stemmer: null,
   stopWords,
   tokenizer: {

@@ -58,7 +58,7 @@ const stopWords = new Set([
  */
 export const kurmanji: LanguageModule = {
   name: 'kurmanji',
-  revision: '1',
+  revision: 'b10d7b42c95f033c',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çêîşû]+/gi },

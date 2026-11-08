@@ -257,7 +257,7 @@ const stopWords = new Set([
  */
 export const chinese: LanguageModule = {
   name: 'chinese',
-  revision: '1',
+  revision: '5915d28728bb7215',
   stemmer: null,
   stopWords,
   tokenizer: {

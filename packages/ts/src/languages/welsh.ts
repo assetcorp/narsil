@@ -455,7 +455,7 @@ const stopWords = new Set([
  */
 export const welsh: LanguageModule = {
   name: 'welsh',
-  revision: '1',
+  revision: '649414fad442f4eb',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

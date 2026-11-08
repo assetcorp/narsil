@@ -64,7 +64,7 @@ static const uint32_t keep_ranges[34] = {
 
 const narsil_language narsil_language_catalan = {
   .name = "catalan",
-  .revision = "1be0db9e03d63aa3",
+  .revision = "734bd7bdd670881f",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 204,

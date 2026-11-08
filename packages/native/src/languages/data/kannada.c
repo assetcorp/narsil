@@ -40,7 +40,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_kannada = {
   .name = "kannada",
-  .revision = "1",
+  .revision = "8a53051f6d0a6f37",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 82,

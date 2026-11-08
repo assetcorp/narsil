@@ -438,7 +438,7 @@ const stopWords = new Set([
  */
 export const slovak: LanguageModule = {
   name: 'slovak',
-  revision: '1',
+  revision: '96238badf66843b7',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áäčďéíĺľňóôŕšťúýž]+/gi },

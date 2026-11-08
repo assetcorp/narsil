@@ -128,7 +128,7 @@ const stopWords = new Set([
  */
 export const tibetan: LanguageModule = {
   name: 'tibetan',
-  revision: '1',
+  revision: 'ac192f514e42c9ca',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0f20-\u0f33\u0f40-\u0fbca-z0-9]+/gi },

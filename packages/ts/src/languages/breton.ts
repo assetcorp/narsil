@@ -104,7 +104,7 @@ const stopWords = new Set([
  */
 export const breton: LanguageModule = {
   name: 'breton',
-  revision: '1',
+  revision: '504f4018f2626ecf',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9êñù']+/gi },

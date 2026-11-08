@@ -132,7 +132,7 @@ const stopWords = new Set([
  */
 export const irish: LanguageModule = {
   name: 'irish',
-  revision: 'c79c8adddaf02ae4',
+  revision: '44a0fd948a0685bd',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíóú'-]+/gi },

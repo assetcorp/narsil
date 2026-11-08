@@ -39,7 +39,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_swahili = {
   .name = "swahili",
-  .revision = "1",
+  .revision = "14735f50ab457f39",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 97,
