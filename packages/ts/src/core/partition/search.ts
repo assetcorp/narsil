@@ -25,6 +25,7 @@ import {
   type ScoreComponents,
 } from './scoring'
 import { prunableSingleTermList, singleTermTopK } from './single-term-topk'
+import { termCoverage } from './term-coverage'
 import type { PartitionReadState } from './utils'
 
 export { prunableSingleTermList } from './single-term-topk'
@@ -107,6 +108,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const scoreBuffer = state.scoreBuffer
   beginScoring(scoreBuffer, state.docStore.internalIdCapacity())
   const components = collectComponents ? new Map<number, ScoreComponents>() : null
+  const coverage = termCoverage(state.docStore.internalIdCapacity(), queryTokens.length, termMatch)
 
   function documentFrequency(token: string, list: PostingListView): number {
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
@@ -166,6 +168,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   }
 
   function mergeGroupContribution(internalId: number, contribution: GroupContribution): void {
+    coverage?.mark(internalId)
     addScore(scoreBuffer, internalId, contribution.score)
     if (components !== null) mergeGroupComponents(components, internalId, contribution)
   }
@@ -181,7 +184,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     )
     let runStart = 0
     let runEnd = 0
-    if (only === null && !hasDeleted && filterBitset === undefined && components === null) {
+    if (only === null && !hasDeleted && filterBitset === undefined && components === null && coverage === null) {
       for (let at = 0; at < count; at++) {
         const internalId = docIds[at]
         let pi = at
@@ -226,6 +229,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       }
       const fieldIndex = fieldNameIndices[pi]
       if (searchable[fieldIndex] === 0) continue
+      coverage?.mark(internalId)
       const termFrequency = termFrequencies[pi]
       const avgLen = averageLengths[fieldIndex]
       const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
@@ -315,11 +319,13 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     components?.clear()
 
     for (const term of resolved) {
+      coverage?.nextTerm()
       for (const match of term.matches) scorePostings(match, anchorDocuments)
       scoreGroup(term.group, anchorDocuments)
     }
   } else {
     for (const qt of queryTokens) {
+      coverage?.nextTerm()
       const group = termGroupOf(termGroups, qt.token)
       for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
         scorePostings(resolveMatch(m.token, m.postingList), null)
@@ -332,6 +338,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     for (const rows of phraseMatches.rows) scorePhraseRows(rows, phraseMatches.matched)
   }
 
+  coverage?.retainCovered(scoreBuffer)
   const totalMatched = scoreBuffer.touchedCount
   const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
   const scored = topKFromBuffer(scoreBuffer, k, resolver, components)

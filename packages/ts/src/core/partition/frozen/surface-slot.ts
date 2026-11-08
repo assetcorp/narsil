@@ -1,5 +1,7 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
+import type { NativeFrozenStrings } from '../../../vector/native/types/frozen-segments'
+import { documentValueBytes } from '../../document-store'
 import {
   createSurfaceRegistry,
   type SurfaceFormCandidate,
@@ -11,6 +13,8 @@ import {
   visitDocumentSpellings,
   visitDocumentSurfaceSpellings,
 } from '../partial-words/spellings'
+import { REMOVED_SURFACE_ENTRY_BYTES } from './constants'
+import { createSurfaceRemovalState } from './surface-state'
 
 export type TextAnalysis = Omit<PartialWordAnalysis, 'fields'>
 
@@ -31,10 +35,19 @@ export interface FrozenSurfaceSlot {
   readonly reader: SurfaceRegistryReader
   heldBytes(): number
   tableStaysOnDisk(): boolean
-  subtractOnceLoaded(ordinal: number, analysis: PartialWordAnalysis): void
   holdsAny(): boolean
   holds(spelling: string): boolean
   subtractSpellings(ordinal: number, spellings: RemovedSpellings): void
+  prepareRemoval(ordinal: number, spellings: RemovedSpellings): () => void
+  coreRegions(): { table: NativeFrozenStrings; removed: Uint32Array }
+  prepareCoreRemoval(
+    ordinal: number,
+    spellings: RemovedSpellings,
+  ): {
+    table: NativeFrozenStrings
+    removed: Uint32Array
+    publish(): void
+  }
   addKeptForms(target: SurfaceRegistry, mergedOrdinals: Int32Array, analysis: TextAnalysis | null): void
 }
 
@@ -68,18 +81,12 @@ export function createFrozenSurfaceSlot(
   let registry: SurfaceRegistry | null = null
   let uncounted: Uint8Array | null = null
   let table = tableOnDisk
-  let waitingRemovals: number[] = []
-  let waitingAnalysis: PartialWordAnalysis | null = null
+  let removalState: ReturnType<typeof createSurfaceRemovalState> | null = null
+  const waitingRemovals = new Map<string, number>()
+  let waitingBytes = 0
 
   function subtractWaitingRemovals(target: SurfaceRegistry): void {
-    if (waitingAnalysis === null || target.size() === 0) return
-    for (const ordinal of waitingRemovals) {
-      const spellings: string[] = []
-      visitDocumentSurfaceSpellings(documents.documentAt(ordinal), waitingAnalysis, spelling => {
-        if (target.holds(spelling)) spellings.push(spelling)
-      })
-      for (const spelling of spellings) target.subtract(spelling, 1)
-    }
+    for (const [spelling, count] of waitingRemovals) target.subtract(spelling, count)
   }
 
   function loaded(): SurfaceRegistry {
@@ -90,8 +97,8 @@ export function createFrozenSurfaceSlot(
       subtractWaitingRemovals(built)
       registry = built
       table = undefined
-      waitingRemovals = []
-      waitingAnalysis = null
+      waitingRemovals.clear()
+      waitingBytes = 0
     }
     return registry
   }
@@ -100,12 +107,32 @@ export function createFrozenSurfaceSlot(
     return uncounted === null || uncounted[ordinal] === 0
   }
 
+  function prepareRemoval(ordinal: number, spellings: RemovedSpellings): () => void {
+    const marks = uncounted ?? new Uint8Array(documents.count)
+    const target = spellings.length > 0 && table === undefined ? loaded() : null
+    return () => {
+      uncounted ??= marks
+      uncounted[ordinal] = 1
+      for (const spelling of spellings) {
+        if (target !== null) {
+          removalState?.subtract(spelling, 1)
+          target.subtract(spelling, 1)
+        } else {
+          const previous = waitingRemovals.get(spelling)
+          if (previous === undefined) waitingBytes += REMOVED_SURFACE_ENTRY_BYTES + documentValueBytes(spelling)
+          waitingRemovals.set(spelling, (previous ?? 0) + 1)
+        }
+      }
+    }
+  }
+
   return {
-    heldBytes: () => table?.heldBytes() ?? 0,
+    heldBytes: () =>
+      (table?.heldBytes() ?? 0) + waitingBytes + (uncounted?.byteLength ?? 0) + (removalState?.bytes() ?? 0),
 
     reader: {
       candidatesForPrefix: prefix =>
-        table !== undefined && waitingRemovals.length === 0
+        table !== undefined && waitingRemovals.size === 0
           ? table.candidatesForPrefix(prefix)
           : loaded().candidatesForPrefix(prefix),
       stemChangedTotalFor: token => loaded().stemChangedTotalFor(token),
@@ -117,13 +144,6 @@ export function createFrozenSurfaceSlot(
       return registry === null && tableOnDisk !== undefined
     },
 
-    subtractOnceLoaded(ordinal: number, analysis: PartialWordAnalysis): void {
-      uncounted ??= new Uint8Array(documents.count)
-      uncounted[ordinal] = 1
-      waitingAnalysis = analysis
-      waitingRemovals.push(ordinal)
-    },
-
     holdsAny(): boolean {
       return loaded().size() > 0
     },
@@ -133,11 +153,29 @@ export function createFrozenSurfaceSlot(
     },
 
     subtractSpellings(ordinal: number, spellings: RemovedSpellings): void {
-      uncounted ??= new Uint8Array(documents.count)
-      uncounted[ordinal] = 1
-      if (spellings.length === 0) return
-      const target = loaded()
-      for (const spelling of spellings) target.subtract(spelling, 1)
+      prepareRemoval(ordinal, spellings)()
+    },
+
+    prepareRemoval,
+
+    coreRegions() {
+      removalState ??= createSurfaceRemovalState(loaded())
+      return { table: removalState.table, removed: removalState.removed }
+    },
+
+    prepareCoreRemoval(ordinal, spellings) {
+      removalState ??= createSurfaceRemovalState(loaded())
+      const marks = uncounted ?? new Uint8Array(documents.count)
+      const synchronise = removalState.prepareSync(spellings)
+      return {
+        table: removalState.table,
+        removed: removalState.removed,
+        publish() {
+          uncounted ??= marks
+          uncounted[ordinal] = 1
+          synchronise()
+        },
+      }
     },
 
     addKeptForms(target: SurfaceRegistry, mergedOrdinals: Int32Array, analysis: TextAnalysis | null): void {

@@ -132,6 +132,7 @@ export function segmentArraysOf(
     enums: payload.enums,
     geo: payload.geo,
     pattern: payload.pattern,
+    storedFields: payload.storedFields,
     surfaceTable: surfaceTable === null || surfaceTable.counts.length === 0 ? null : surfaceTable,
     partialWords,
   }
@@ -221,6 +222,19 @@ export function freezeEncodedSegmentShared(
       runs: sharedUint32(entry.runs),
       offsets: sharedUint32(entry.offsets),
       postings: sharedUint32(entry.postings),
+    })),
+    storedFields: payload.storedFields?.map(({ field, values }) => ({
+      field,
+      values: {
+        shapes: sharedUint8(values.shapes),
+        starts: sharedUint32(values.starts),
+        kinds: sharedUint8(values.kinds),
+        numbers: sharedFloat64(values.numbers),
+        textStart: sharedUint32(values.textStart),
+        textLength: sharedUint32(values.textLength),
+        units: sharedUint16(values.units),
+        bytes: sharedUint8(values.bytes),
+      },
     })),
     surfaceTable: sharedSurfaceTable(payload),
     partialWords:

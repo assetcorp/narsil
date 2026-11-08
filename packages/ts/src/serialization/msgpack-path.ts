@@ -1,5 +1,5 @@
-import { Decoder } from '@msgpack/msgpack'
 import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
+import { Decoder } from './msgpack'
 import { endOfValue, headerAt } from './msgpack-without-fields'
 
 export interface EncodedPathRead {

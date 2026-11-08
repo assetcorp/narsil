@@ -7,6 +7,7 @@ export interface SurfaceFormCandidate {
 }
 
 export interface SurfaceRegistryReader {
+  holds?(surface: string): boolean
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   stemChangedTotalFor(token: string): number
   size(): number
@@ -14,6 +15,8 @@ export interface SurfaceRegistryReader {
 }
 
 export interface SurfaceRegistry extends SurfaceRegistryReader {
+  adopt(reader: SurfaceRegistryReader): void
+  detach(): void
   holds(surface: string): boolean
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
@@ -30,6 +33,7 @@ export function createSurfaceRegistry(): SurfaceRegistry {
   const entries = new Map<string, SurfaceEntry>()
   const buckets = new Map<string, Set<string>>()
   let totalsByToken: Map<string, number> | null = null
+  let source: SurfaceRegistryReader | null = null
 
   function track(surface: string): void {
     const ch = surface[0]
@@ -57,14 +61,33 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     else totalsByToken.set(token, next)
   }
 
-  return {
+  const registry: SurfaceRegistry = {
+    adopt(reader): void {
+      entries.clear()
+      buckets.clear()
+      totalsByToken = null
+      source = reader
+    },
+
+    detach(): void {
+      if (source === null) return
+      const data = source.serialize()
+      registry.deserialize(data)
+    },
+
     holds(surface: string): boolean {
+      if (source !== null)
+        return (
+          source.holds?.(surface) ??
+          source.candidatesForPrefix(surface).some(candidate => candidate.surface === surface)
+        )
       return entries.has(surface)
     },
 
     add(surface: string, token: string, occurrences: number): void {
       if (surface.length === 0 || token.length === 0 || occurrences <= 0) return
       if (surface === token) return
+      registry.detach()
       const existing = entries.get(surface)
       if (existing) {
         existing.count += occurrences
@@ -78,6 +101,7 @@ export function createSurfaceRegistry(): SurfaceRegistry {
 
     subtract(surface: string, occurrences: number): void {
       if (occurrences <= 0) return
+      registry.detach()
       const existing = entries.get(surface)
       if (!existing) return
       const removed = Math.min(occurrences, existing.count)
@@ -90,6 +114,7 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     },
 
     candidatesForPrefix(prefix: string): SurfaceFormCandidate[] {
+      if (source !== null) return source.candidatesForPrefix(prefix)
       if (prefix.length === 0) return []
       const bucket = buckets.get(prefix[0])
       if (!bucket) return []
@@ -104,6 +129,7 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     },
 
     stemChangedTotalFor(token: string): number {
+      if (source !== null) return source.stemChangedTotalFor(token)
       if (!totalsByToken) {
         totalsByToken = new Map()
         for (const entry of entries.values()) {
@@ -114,16 +140,19 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     },
 
     size(): number {
+      if (source !== null) return source.size()
       return entries.size
     },
 
     clear(): void {
+      source = null
       entries.clear()
       buckets.clear()
       totalsByToken = null
     },
 
     serialize(): SerializedSurfaceForms {
+      if (source !== null) return source.serialize()
       const result: SerializedSurfaceForms = Object.create(null)
       for (const [surface, entry] of entries) {
         result[surface] = [entry.count, entry.token]
@@ -132,6 +161,7 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     },
 
     deserialize(data: SerializedSurfaceForms): void {
+      source = null
       entries.clear()
       buckets.clear()
       totalsByToken = null
@@ -147,4 +177,5 @@ export function createSurfaceRegistry(): SurfaceRegistry {
       }
     },
   }
+  return registry
 }

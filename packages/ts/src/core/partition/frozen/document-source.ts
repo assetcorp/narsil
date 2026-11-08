@@ -1,9 +1,9 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
+import { decode } from '../../../serialization/msgpack'
 import { encodePathSegments, readEncodedPath } from '../../../serialization/msgpack-path'
 import type { AnyDocument } from '../../../types/schema'
-import { documentValueBytes, documentWithOwnBuffers, valueWithOwnBuffers } from '../../document-store'
+import { documentWithOwnBuffers, valueWithOwnBuffers } from '../../document-store'
 import {
   cloneProjected,
   type ProjectedPathRead,
@@ -184,37 +184,6 @@ export function createEncodedDocumentSource(
       if (projection.kind === 'none') return {}
       if (projection.include === null) return cloneProjected(docAt(ordinal) as Record<string, unknown>, projection)
       return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path))
-    },
-  }
-}
-
-/**
- * Reads documents from an in-memory array, which a segment built in this
- * process holds.
- *
- * @param documents - The documents in ordinal order.
- * @returns A source whose `byteLength` estimates the resident size of every
- * document.
- */
-export function wrapDocumentArray(documents: ReadonlyArray<AnyDocument>): FrozenDocumentSource {
-  let residentBytes = 0
-  for (const document of documents) {
-    residentBytes += documentValueBytes(document)
-  }
-  return {
-    count: documents.length,
-    byteLength: residentBytes,
-    docAt(ordinal: number): AnyDocument {
-      return documents[ordinal]
-    },
-    readAt(ordinal: number): AnyDocument {
-      return documents[ordinal]
-    },
-    fieldReader(fieldPath: string): (ordinal: number) => unknown {
-      return ordinal => getNestedValue(documents[ordinal] as Record<string, unknown>, fieldPath)
-    },
-    projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
-      return cloneProjected(documents[ordinal] as Record<string, unknown>, projection)
     },
   }
 }

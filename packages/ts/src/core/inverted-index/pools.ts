@@ -1,10 +1,15 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { POOL_GROWTH_FACTOR, SLICE_GROWTH_FACTOR } from './constants'
 
 export const NO_SLICE = 255
 export const EMPTY_POSITIONS = 0
 const MAX_POOL_ENTRIES = 2 ** 32 - 1
+const NO_FREE_SLICE = 0xffffffff
+const ALLOCATION_END = 0
+const ALLOCATION_FREE = 1
+const ALLOCATION_WORDS = 2
 
-const SLICE_CAPACITIES = ((): Uint32Array => {
+export const SLICE_CAPACITIES = ((): Uint32Array => {
   const capacities: number[] = [1]
   while (capacities[capacities.length - 1] < MAX_POOL_ENTRIES) {
     const previous = capacities[capacities.length - 1]
@@ -29,7 +34,13 @@ export function sliceCapacity(sliceClass: number): number {
 }
 
 export function grownCapacity(current: number, needed: number): number {
+  requirePoolSize(needed)
   return Math.min(MAX_POOL_ENTRIES, Math.max(needed, Math.ceil(current * POOL_GROWTH_FACTOR)))
+}
+
+function requirePoolSize(size: number): void {
+  if (!Number.isInteger(size) || size < 0 || size > MAX_POOL_ENTRIES)
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The posting pool exceeds its uint32 address space')
 }
 
 export class PostingPool {
@@ -37,26 +48,40 @@ export class PostingPool {
   frequencies: Uint16Array
   fieldIndices: Uint16Array
   positionStarts: Uint32Array | null = null
-  end = 0
+  readonly allocation = new Uint32Array(ALLOCATION_WORDS)
+  readonly freeHeads = new Uint32Array(SLICE_CAPACITIES.length).fill(NO_FREE_SLICE)
   epoch = 0
-  freeEntries = 0
-  private freeLists: number[][] = []
 
   constructor(capacity: number) {
+    requirePoolSize(capacity)
     this.docIds = new Uint32Array(capacity)
     this.frequencies = new Uint16Array(capacity)
     this.fieldIndices = new Uint16Array(capacity)
   }
 
+  get end(): number {
+    return this.allocation[ALLOCATION_END]
+  }
+
+  set end(value: number) {
+    this.allocation[ALLOCATION_END] = value
+  }
+
+  get freeEntries(): number {
+    return this.allocation[ALLOCATION_FREE]
+  }
+
+  prepareWrite(needed: number): void {
+    this.reserve(needed)
+  }
+
   allocate(sliceClass: number): number {
     const size = sliceCapacity(sliceClass)
-    const free = this.freeLists[sliceClass]
-    if (free !== undefined) {
-      const reused = free.pop()
-      if (reused !== undefined) {
-        this.freeEntries -= size
-        return reused
-      }
+    const reused = this.freeHeads[sliceClass]
+    if (reused !== NO_FREE_SLICE) {
+      this.freeHeads[sliceClass] = this.docIds[reused]
+      this.allocation[ALLOCATION_FREE] -= size
+      return reused
     }
     const start = this.end
     this.reserve(start + size)
@@ -66,13 +91,9 @@ export class PostingPool {
 
   release(start: number, sliceClass: number): void {
     if (sliceClass === NO_SLICE) return
-    let free = this.freeLists[sliceClass]
-    if (free === undefined) {
-      free = []
-      this.freeLists[sliceClass] = free
-    }
-    free.push(start)
-    this.freeEntries += sliceCapacity(sliceClass)
+    this.docIds[start] = this.freeHeads[sliceClass]
+    this.freeHeads[sliceClass] = start
+    this.allocation[ALLOCATION_FREE] += sliceCapacity(sliceClass)
   }
 
   trackPositions(): Uint32Array {
@@ -92,18 +113,28 @@ export class PostingPool {
 
   byteLength(): number {
     const positionBytes = this.positionStarts === null ? 0 : this.positionStarts.byteLength
-    return this.docIds.byteLength + this.frequencies.byteLength + this.fieldIndices.byteLength + positionBytes
+    return (
+      this.docIds.byteLength +
+      this.frequencies.byteLength +
+      this.fieldIndices.byteLength +
+      positionBytes +
+      this.allocation.byteLength +
+      this.freeHeads.byteLength
+    )
   }
 
   protected reserve(needed: number): void {
     if (needed <= this.docIds.length) return
     const capacity = grownCapacity(this.docIds.length, needed)
-    this.docIds = grownCopy(this.docIds, new Uint32Array(capacity), this.end)
-    this.frequencies = grownCopy(this.frequencies, new Uint16Array(capacity), this.end)
-    this.fieldIndices = grownCopy(this.fieldIndices, new Uint16Array(capacity), this.end)
-    if (this.positionStarts !== null) {
-      this.positionStarts = grownCopy(this.positionStarts, new Uint32Array(capacity), this.end)
-    }
+    const docIds = grownCopy(this.docIds, new Uint32Array(capacity), this.end)
+    const frequencies = grownCopy(this.frequencies, new Uint16Array(capacity), this.end)
+    const fieldIndices = grownCopy(this.fieldIndices, new Uint16Array(capacity), this.end)
+    const positionStarts =
+      this.positionStarts === null ? null : grownCopy(this.positionStarts, new Uint32Array(capacity), this.end)
+    this.docIds = docIds
+    this.frequencies = frequencies
+    this.fieldIndices = fieldIndices
+    this.positionStarts = positionStarts
     this.epoch++
   }
 }
@@ -115,11 +146,27 @@ function grownCopy<T extends Uint32Array | Uint16Array>(source: T, target: T, us
 
 export class PositionPool {
   values: Uint32Array
-  end = 1
-  freeValues = 0
+  readonly allocation = new Uint32Array([1, 0])
 
   constructor(capacity: number) {
+    requirePoolSize(capacity)
     this.values = new Uint32Array(Math.max(1, capacity))
+  }
+
+  get end(): number {
+    return this.allocation[ALLOCATION_END]
+  }
+
+  set end(value: number) {
+    this.allocation[ALLOCATION_END] = value
+  }
+
+  get freeValues(): number {
+    return this.allocation[ALLOCATION_FREE]
+  }
+
+  prepareWrite(needed: number): void {
+    this.reserve(needed)
   }
 
   append(positions: readonly number[]): number {
@@ -163,7 +210,7 @@ export class PositionPool {
 
   release(start: number): void {
     if (start === EMPTY_POSITIONS) return
-    this.freeValues += this.values[start] + 1
+    this.allocation[ALLOCATION_FREE] += this.values[start] + 1
   }
 
   protected reserve(needed: number): void {

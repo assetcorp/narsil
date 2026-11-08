@@ -1,6 +1,8 @@
+import type { NativeTermDictionary } from '../../../vector/native/types/terms'
 import { codePointOrder, encodeLookupKey, encodeStringBlob } from './string-blob'
 
 export interface FrozenTokenTable {
+  readonly data: FrozenTokenTableData
   readonly size: number
   /** The table's arrays hold this many bytes, read from each array as it stands. */
   readonly bytes: number
@@ -12,6 +14,7 @@ export interface FrozenTokenTable {
   documentFrequencyAt(sortedIndex: number): number
   prefixRange(prefix: string): { start: number; end: number }
   firstCharRange(token: string): { start: number; end: number }
+  dictionary(removed: Uint32Array): NativeTermDictionary
 }
 
 export interface FrozenTokenTableData {
@@ -22,7 +25,7 @@ export interface FrozenTokenTableData {
 }
 
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 function compareBytes(blob: Uint8Array, start: number, end: number, query: Uint8Array): number {
   const length = end - start
@@ -94,7 +97,11 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
   }
 
   return {
+    data,
     size,
+    dictionary(removed): NativeTermDictionary {
+      return { growing: null, tokens: blob, offsets, frequencies: documentFrequencies, removed }
+    },
     bytes: blob.byteLength + offsets.byteLength + payloadSlots.byteLength + documentFrequencies.byteLength,
 
     find(token: string): number {

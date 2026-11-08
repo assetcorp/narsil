@@ -1,6 +1,12 @@
 import { readResidentMemory } from '#platform/process-limit'
+import type { NativeExpansionSegment } from '../../../vector/native/types/expansion'
+import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
+import type { NativeTermDictionary } from '../../../vector/native/types/terms'
+import { prepareFrozenPublication } from '../../frozen-writes/publication'
+import { TermLookup } from '../../term-table/lookup'
 import { FROZEN_REMOVAL_INDEX_MAX_PROCESS_FRACTION } from '../constants'
 import type { SegmentColumns } from './columns'
+import type { FrozenStringRemoval } from './removal-strings'
 import type { FrozenTokenTable } from './token-table'
 import type { FrozenTombstones } from './tombstones'
 
@@ -10,6 +16,8 @@ type CountedColumns = Pick<
   | 'postingOffsets'
   | 'postingDocIds'
   | 'postingFrequencies'
+  | 'postingFieldIndices'
+  | 'fieldNames'
   | 'fieldLengthNames'
   | 'fieldLengthColumns'
   | 'totalFieldLengths'
@@ -21,24 +29,23 @@ export interface FrozenLiveCounts {
   documentFrequency(sortedIndex: number): number
   removedOccurrences(sortedIndex: number): number
   docFrequencies(): Readonly<Record<string, number>>
-  subtractRemoved(ordinal: number): void
+  prepareRemoval(ordinal: number, strings?: FrozenStringRemoval): () => void
   bytes(): number
+  dictionary(): NativeTermDictionary
+  expansionSource?(): NativeExpansionSegment
 }
 
 interface RemovalIndex {
   starts: Uint32Array
   rows: Uint32Array
   termOfSlot: Uint32Array
-  documents: Uint32Array
-  occurrences: Float64Array
 }
 
 const UINT32_BYTES = 4
-const FLOAT64_BYTES = 8
 
 function removalIndexBytes(columns: CountedColumns, terms: number): number {
   const documentWords = 2 * (columns.documentCount + 1)
-  return (columns.postingDocIds.length + documentWords + 2 * terms) * UINT32_BYTES + terms * FLOAT64_BYTES
+  return (columns.postingDocIds.length + documentWords + terms) * UINT32_BYTES
 }
 
 function processHasRoomFor(bytes: number): boolean {
@@ -63,8 +70,6 @@ function buildRemovalIndex(columns: CountedColumns, table: FrozenTokenTable): Re
     starts,
     rows,
     termOfSlot,
-    documents: new Uint32Array(table.size),
-    occurrences: new Float64Array(table.size),
   }
 }
 
@@ -78,17 +83,6 @@ function tryBuildRemovalIndex(columns: CountedColumns, table: FrozenTokenTable):
   }
 }
 
-function slotOfRow(postingOffsets: Uint32Array, slots: number, row: number): number {
-  let low = 0
-  let high = slots
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (postingOffsets[middle + 1] <= row) low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
 export function createFrozenLiveCounts(
   columns: CountedColumns,
   table: FrozenTokenTable,
@@ -100,59 +94,44 @@ export function createFrozenLiveCounts(
   let lengths: Record<string, number> | null = null
   let frequencies: Readonly<Record<string, number>> | null = null
   let frequenciesRevision = -1
+  const documents = new Uint32Array(table.size)
+  const occurrences = new Float64Array(table.size)
+  const dictionary = table.dictionary(documents)
+  const lookups = new TermLookup()
 
-  function countRemoval(built: RemovalIndex, ordinal: number): void {
-    const { starts, rows, termOfSlot, documents, occurrences } = built
-    let previousSlot = -1
-    for (let at = starts[ordinal]; at < starts[ordinal + 1]; at++) {
-      const row = rows[at]
-      const slot = slotOfRow(postingOffsets, table.size, row)
-      const sortedIndex = termOfSlot[slot]
-      if (slot !== previousSlot) documents[sortedIndex]++
-      occurrences[sortedIndex] += postingFrequencies[row]
-      previousSlot = slot
-    }
+  const empty = new Uint32Array(0)
+  const segment: NativeFrozenSegment = {
+    terms: { text: table.data.blob, offsets: table.data.offsets, counts: table.data.documentFrequencies },
+    payloadSlots: table.data.payloadSlots,
+    postingOffsets,
+    postingDocuments: postingDocIds,
+    postingFrequencies,
+    postingFields: columns.postingFieldIndices,
+    partialFields: new Uint8Array(columns.fieldNames.length),
+    documentCount: columns.documentCount,
+    surfaces: null,
+    spellings: null,
+    spellingTokens: empty,
+    removalIndex: null,
   }
-
-  function removedDocumentsOf(sortedIndex: number): number {
-    const slot = table.payloadSlot(sortedIndex)
-    const end = postingOffsets[slot + 1]
-    let removed = 0
-    let previous = -1
-    let ordered = true
-    for (let row = postingOffsets[slot]; row < end; row++) {
-      const ordinal = postingDocIds[row]
-      if (ordinal < previous) ordered = false
-      if (ordinal !== previous && tombstones.has(ordinal)) removed++
-      previous = ordinal
-    }
-    if (ordered) return removed
-    const seen = new Set<number>()
-    for (let row = postingOffsets[slot]; row < end; row++) {
-      const ordinal = postingDocIds[row]
-      if (tombstones.has(ordinal)) seen.add(ordinal)
-    }
-    return seen.size
-  }
-
-  function removedOccurrencesOf(sortedIndex: number): number {
-    const slot = table.payloadSlot(sortedIndex)
-    const end = postingOffsets[slot + 1]
-    let removed = 0
-    for (let row = postingOffsets[slot]; row < end; row++) {
-      if (tombstones.has(postingDocIds[row])) removed += postingFrequencies[row]
-    }
-    return removed
+  const removalState: NativeFrozenSegmentState = {
+    tombstones: tombstones.bits,
+    tombstoneCount: tombstones.count,
+    removedDocuments: documents,
+    removedOccurrences: occurrences,
+    removedSurfaces: empty,
+    removedSpellings: empty,
   }
 
   function documentFrequency(sortedIndex: number): number {
-    const stored = table.documentFrequencyAt(sortedIndex)
-    if (tombstones.size === 0) return stored
-    if (index !== null) return stored - index.documents[sortedIndex]
-    return stored - removedDocumentsOf(sortedIndex)
+    return lookups.frequency(dictionary, sortedIndex)
   }
 
   return {
+    expansionSource: () => ({ growing: null, frozen: segment, state: removalState }),
+    dictionary(): NativeTermDictionary {
+      return dictionary
+    },
     totalDocuments(): number {
       return columns.documentCount - tombstones.size
     },
@@ -164,9 +143,7 @@ export function createFrozenLiveCounts(
     documentFrequency,
 
     removedOccurrences(sortedIndex: number): number {
-      if (tombstones.size === 0) return 0
-      if (index !== null) return index.occurrences[sortedIndex]
-      return removedOccurrencesOf(sortedIndex)
+      return occurrences[sortedIndex]
     },
 
     docFrequencies(): Readonly<Record<string, number>> {
@@ -174,38 +151,42 @@ export function createFrozenLiveCounts(
       if (frequencies !== null && frequenciesRevision === tombstones.revision) return frequencies
       const live: Record<string, number> = Object.create(null)
       for (let at = 0; at < table.size; at++) {
-        const documents = documentFrequency(at)
-        if (documents > 0) live[table.tokenAt(at)] = documents
+        const frequency = documentFrequency(at)
+        if (frequency > 0) live[table.tokenAt(at)] = frequency
       }
       frequencies = live
       frequenciesRevision = tombstones.revision
       return frequencies
     },
 
-    subtractRemoved(ordinal: number): void {
-      lengths ??= { ...columns.totalFieldLengths }
-      for (let field = 0; field < columns.fieldLengthNames.length; field++) {
-        lengths[columns.fieldLengthNames[field]] -= columns.fieldLengthColumns[field][ordinal]
+    prepareRemoval(ordinal: number, strings?: FrozenStringRemoval): () => void {
+      const nextLengths = lengths ?? { ...columns.totalFieldLengths }
+      index ??= tryBuildRemovalIndex(columns, table)
+      segment.removalIndex = index
+      const preparedSegment = strings === undefined ? segment : { ...segment, ...strings }
+      const preparedState =
+        strings === undefined
+          ? removalState
+          : {
+              ...removalState,
+              removedSurfaces: strings.removedSurfaces,
+              removedSpellings: strings.removedSpellings,
+            }
+      const publish = prepareFrozenPublication(preparedSegment, preparedState, ordinal, strings?.fields ?? [])
+      return () => {
+        lengths ??= nextLengths
+        for (let field = 0; field < columns.fieldLengthNames.length; field++) {
+          lengths[columns.fieldLengthNames[field]] -= columns.fieldLengthColumns[field][ordinal]
+        }
+        publish()
       }
-      if (index !== null) {
-        countRemoval(index, ordinal)
-        return
-      }
-      const built = tryBuildRemovalIndex(columns, table)
-      if (built === null) return
-      for (const removed of tombstones.values()) countRemoval(built, removed)
-      index = built
     },
 
     bytes(): number {
-      if (index === null) return 0
-      return (
-        index.starts.byteLength +
-        index.rows.byteLength +
-        index.termOfSlot.byteLength +
-        index.documents.byteLength +
-        index.occurrences.byteLength
-      )
+      const retained = documents.byteLength + occurrences.byteLength + segment.partialFields.byteLength
+      return index === null
+        ? retained
+        : retained + index.starts.byteLength + index.rows.byteLength + index.termOfSlot.byteLength
     },
   }
 }

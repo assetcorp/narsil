@@ -1,8 +1,8 @@
 import type { GlobalStatistics, InternalSearchParams } from '../../../types/internal'
 import type { PartitionStatsView } from '../../statistics'
+import { partitionDocumentFrequency } from '../document-frequency'
 import { termGroupOf, typoMatchesFor } from '../group-scoring'
 import type { PartitionReadState } from '../read-state'
-import { partitionDocumentFrequency } from '../suggestions'
 
 function collectCandidateTerms(subs: readonly PartitionReadState[], params: InternalSearchParams): Set<string> {
   const { queryTokens, termGroups, tolerance = 0, prefixLength = 2, exact = false } = params

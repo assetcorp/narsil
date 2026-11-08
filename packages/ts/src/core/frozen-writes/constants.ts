@@ -1,0 +1,2 @@
+export const REMOVAL_CHANGE_CAPACITY = 32
+export const REMOVAL_CHANGE_GROWTH = 2
