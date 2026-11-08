@@ -169,7 +169,7 @@ class _Builder:
         name = ref[len(SCHEMA_PREFIX) :]
         if name not in self.schemas:
             raise SpecError(f"The file holds no schema for the reference {ref}")
-        return name
+        return "Hit" if name == "HttpHit" else name
 
     def is_model(self, schema: dict[str, Any]) -> bool:
         if "properties" not in schema:
@@ -178,6 +178,8 @@ class _Builder:
         return extra is not True and extra != {}
 
     def top_level(self, name: str, schema: dict[str, Any]) -> None:
+        if name == "HttpHit":
+            name = "Hit"
         if self.is_model(schema):
             self.model(name, schema)
             return
@@ -188,7 +190,9 @@ class _Builder:
         fields = tuple(
             FieldDef(
                 json_name=key,
-                type=self.convert(value, name + pascal(key), f"the `{key}` field of `{name}`"),
+                type=NUMBER
+                if name == "Hit" and key == "score"
+                else self.convert(value, name + pascal(key), f"the `{key}` field of `{name}`"),
                 required=key in required,
                 description=_description(value),
             )

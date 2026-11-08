@@ -579,21 +579,6 @@ type HighlightMatchPositionsItem struct {
 	End float64 `json:"end"`
 }
 
-// Hit: One matching document, with the score that ranked it.
-type Hit struct {
-	// The document is stored under this id.
-	ID string `json:"id"`
-	// This score ranked the hit. Scores compare within one result set, never across searches. A sorted
-	// query ranks by sort values instead and carries no score unless it sets `includeScores`.
-	Score *float64 `json:"score,omitempty"`
-	// This is the stored document.
-	Document AnyDocument `json:"document"`
-	// These are the parts the score was built from, which arrive when the query asked for them.
-	ScoreComponents *ScoreComponents `json:"scoreComponents,omitempty"`
-	// These highlighted snippets are keyed by field, and arrive when the query asked for highlighting.
-	Highlights map[string]HighlightMatch `json:"highlights,omitzero"`
-}
-
 // HTTPCreateIndexBody: The body of `POST /indexes`, which is CreateIndexRequest with the settings of
 // HttpIndexBody.
 type HTTPCreateIndexBody struct {
@@ -606,10 +591,51 @@ type HTTPCreateIndexBody struct {
 // HTTPGroupResult: One group of hits as the server sends it, which is GroupResult with no reducer
 // output, because the server refuses a query with a reducer.
 type HTTPGroupResult struct {
-	// These hits fall in the group, cut to the query's `maxPerGroup`.
-	Hits []Hit `json:"hits"`
 	// Each grouping field holds this value for the group, keyed by field.
 	Values map[string]any `json:"values"`
+	// These hits retain the scores of the group's ranking.
+	Hits []Hit `json:"hits"`
+}
+
+// Hit: A search hit whose score uses the HTTP representation of HttpScore.
+type Hit struct {
+	// This is the stored document.
+	Document AnyDocument `json:"document"`
+	// The document is stored under this id.
+	ID string `json:"id"`
+	// These are the parts the score was built from, which arrive when the query asked for them.
+	ScoreComponents *ScoreComponents `json:"scoreComponents,omitempty"`
+	// These highlighted snippets are keyed by field, and arrive when the query asked for highlighting.
+	Highlights map[string]HighlightMatch `json:"highlights,omitzero"`
+	// The client decodes this value to a numeric score, or leaves it absent when the search returns no
+	// score.
+	Score *float64 `json:"score,omitempty"`
+}
+
+func (h Hit) MarshalJSON() ([]byte, error) {
+	type plain Hit
+	return json.Marshal(struct {
+		plain
+		Score any `json:"score,omitempty"`
+	}{plain: plain(h), Score: encodeHitScore(h.Score)})
+}
+
+func (h *Hit) UnmarshalJSON(data []byte) error {
+	type plain Hit
+	var decoded struct {
+		plain
+		Score json.RawMessage `json:"score"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	score, err := decodeHitScore(decoded.Score)
+	if err != nil {
+		return err
+	}
+	decoded.plain.Score = score
+	*h = Hit(decoded.plain)
+	return nil
 }
 
 // HTTPIndexBody: The settings of a new index as `POST /indexes` reads them, which is HttpIndexConfig
@@ -807,8 +833,6 @@ type HTTPQueryParamsGroup struct {
 type HTTPQueryResult struct {
 	// These facet counts are keyed by the field each facet was asked for.
 	Facets map[string]FacetResult `json:"facets,omitzero"`
-	// These documents match, cut to the query's `limit`, best score first or in the query's sort order.
-	Hits []Hit `json:"hits"`
 	// This many documents match in total, before the engine applies `limit` and `offset`. For a keyword
 	// search the engine counts every match. For a vector search it counts every vector that passes the
 	// query's filter and its `similarity` floor, which is every vector in the field where the query sets
@@ -832,6 +856,8 @@ type HTTPQueryResult struct {
 	AnalysisStale *bool `json:"analysisStale,omitempty"`
 	// The search read this much of the index, which is how you spot a degraded answer.
 	Coverage QueryCoverage `json:"coverage"`
+	// These hits follow the search's ranking, with scores encoded for HTTP.
+	Hits []Hit `json:"hits"`
 	// These groups arrive when the query asked for grouping.
 	Groups []HTTPGroupResult `json:"groups,omitzero"`
 }
@@ -987,6 +1013,10 @@ type IndexStats struct {
 	Language string `json:"language"`
 	// The index was created with this field layout.
 	Schema SchemaDefinition `json:"schema"`
+	// This many searches on this instance's main copy hold a state of the index open right now. Each
+	// search holds one state from its start until it answers, fails, or is cancelled, so the figure falls
+	// back to 0 once every search has finished. A cluster reports no figure.
+	HeldSearchStates *float64 `json:"heldSearchStates,omitempty"`
 }
 
 // InsertBody: The body of `POST /indexes/{name}/documents`.
