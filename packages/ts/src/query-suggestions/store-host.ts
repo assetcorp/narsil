@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 
 export { encode } from '@msgpack/msgpack'
 export { VERSION } from '..'
@@ -10,4 +11,4 @@ export { CHECKSUM_YIELD_CHUNK_BYTES, MAX_FILE_BYTES, NATIVE_CRC32_MIN_BYTES } fr
 export { GROUP_PATTERN_SOURCE } from './index-names/constants'
 export { loadSuggestionsCode } from './suggestions-code'
 
-export function bindSuggestionStoreHost(_host: OptionalCodeHost): void {}
+export function bindSuggestionStoreHost(_host: OptionalCodeHost, _msgpack: typeof MsgpackCode): void {}

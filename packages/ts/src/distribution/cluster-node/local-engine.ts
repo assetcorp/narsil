@@ -39,6 +39,7 @@ import type {
   PartitionFailureHandler,
   PartitionLogPosition,
 } from '../../persistence/durability/types'
+import { loadMessagePack } from '../../serialization/msgpack-code'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
 import type { NarsilEventMap } from '../../types/events'
@@ -152,7 +153,7 @@ export async function createClusterLocalEngine(
   },
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
-  await importOptionalReads()
+  await Promise.all([importOptionalReads(), loadMessagePack()])
   const runnableConfig = await resolveRunnableConfig(config)
   const writeRecords = createClusterWriteRecords()
   const core = await createEngineCore(

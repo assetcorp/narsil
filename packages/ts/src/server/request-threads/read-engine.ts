@@ -10,6 +10,7 @@ import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { lazyQueryBinding } from '../../search/cursor-binding'
 import { holdsQuotedText } from '../../search/quotes'
 import { loadSortingFor } from '../../search/sorting-code'
+import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-code'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -294,6 +295,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
       const { executeListDocuments } = await importOptionalReads()
       const loading = loadSortingFor(params?.sort, params?.filters)
       if (loading !== null) await loading
+      if (loading !== null && loadedMessagePack() === null) await loadMessagePack()
       return readCopy(indexName, true, (manager, context) =>
         executeListDocuments<T>(params ?? {}, {
           manager,

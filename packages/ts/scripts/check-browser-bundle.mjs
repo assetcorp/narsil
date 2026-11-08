@@ -12,7 +12,7 @@ const BROWSER_ENTRIES = [
   'dist/index.browser.mjs',
   'dist/client.mjs',
   'dist/react.mjs',
-  'dist/pattern.mjs',
+  'dist/pattern.browser.mjs',
   'dist/partial-words.browser.mjs',
   'dist/rerankers/http.mjs',
   'dist/synonyms.browser.mjs',
@@ -21,7 +21,7 @@ const BROWSER_ENTRIES = [
   'dist/react-native/partial-words.mjs',
   'dist/react-native/synonyms.mjs',
   'dist/sync.browser.mjs',
-  'dist/sync/indexeddb.mjs',
+  'dist/sync/indexeddb.browser.mjs',
   'dist/react-native/sync.mjs',
   'dist/query-suggestions.browser.mjs',
   'dist/react-native/query-suggestions.mjs',
@@ -38,7 +38,12 @@ const OPTIONAL_CODE_PATHS = [
   'src/persistence/durability/',
   'src/core/partition/phrase-matching.ts',
   'src/search/phrase-analysis.ts',
+  'src/serialization/document-encoding.ts',
+  'src/serialization/msgpack.ts',
+  'src/serialization/msgpack-header.ts',
+  'src/serialization/msgpack-leaf.ts',
 ]
+const OPTIONAL_PACKAGE_PATHS = ['/node_modules/@msgpack/msgpack/']
 const CONSTANTS_FILE = '/constants.ts'
 
 const { values: options } = parseArgs({ options: { 'update-baseline': { type: 'boolean', default: false } } })
@@ -145,6 +150,7 @@ function startupOutputs(metafile) {
 }
 
 function isOptionalCode(input) {
+  if (OPTIONAL_PACKAGE_PATHS.some(path => input.includes(path))) return true
   return OPTIONAL_CODE_PATHS.some(path => input.startsWith(path)) && !input.endsWith(CONSTANTS_FILE)
 }
 
@@ -188,15 +194,15 @@ async function gzippedAppBytes() {
 const optionalCode = await optionalCodeAtStartup()
 if (optionalCode.size > 0) {
   console.error(
-    `FAIL ${SIZE_APP} declares no vector field, sets no durability, and quotes no phrase, yet it downloads this code at start-up:`,
+    `FAIL ${SIZE_APP} declares no vector field, sets no durability, quotes no phrase, and stores no object value, yet it downloads this code at start-up:`,
   )
   for (const [input, bytes] of optionalCode) console.error(`  ${input} (${bytes} bytes minified)`)
   console.error(
-    'Load vector code through workers/vector-code.ts, phrase code through search/phrase-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
+    'Load vector code through workers/vector-code.ts, phrase code through search/phrase-code.ts, MessagePack code through serialization/msgpack-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
   )
   process.exit(1)
 }
-console.log(`ok  ${SIZE_APP} downloads no vector, durability, or phrase code at start-up`)
+console.log(`ok  ${SIZE_APP} downloads no vector, durability, phrase, or MessagePack code at start-up`)
 
 const LEAF_CHECK_ENTRIES = BROWSER_ENTRIES.filter(entry => !entry.includes('react-native'))
 const LEAF_CHECK_OUTDIR = 'dist/lazy-leaves'

@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 import type * as SegmentCodecCode from './segment-codec-leaf'
 
 type EngineNames = Pick<
@@ -20,7 +21,6 @@ type EngineNames = Pick<
   | 'decodeSurfaceTable'
   | 'documentsOf'
   | 'embedded'
-  | 'encodeDocument'
   | 'encodeExternalIdTableData'
   | 'encodeFieldIndexes'
   | 'encodeFrozenTokenTableData'
@@ -52,6 +52,7 @@ type EngineNames = Pick<
   | 'words'
   | 'wrapFrozenTokenTable'
 >
+type MsgpackNames = Pick<typeof MsgpackCode, 'encodeDocument'>
 type SegmentCodecNames = Pick<
   typeof SegmentCodecCode,
   'encodeDocumentTableData' | 'storedDocumentsOf' | 'topLevelMapKeys'
@@ -78,7 +79,6 @@ export let createSurfaceRegistry: EngineNames['createSurfaceRegistry']
 export let decodeSurfaceTable: EngineNames['decodeSurfaceTable']
 export let documentsOf: EngineNames['documentsOf']
 export let embedded: EngineNames['embedded']
-export let encodeDocument: EngineNames['encodeDocument']
 export let encodeExternalIdTableData: EngineNames['encodeExternalIdTableData']
 export let encodeFieldIndexes: EngineNames['encodeFieldIndexes']
 export let encodeFrozenTokenTableData: EngineNames['encodeFrozenTokenTableData']
@@ -109,11 +109,12 @@ export let validateDocument: EngineNames['validateDocument']
 export let validateDocumentStrict: EngineNames['validateDocumentStrict']
 export let words: EngineNames['words']
 export let wrapFrozenTokenTable: EngineNames['wrapFrozenTokenTable']
+export let encodeDocument: MsgpackNames['encodeDocument']
 export let encodeDocumentTableData: SegmentCodecNames['encodeDocumentTableData']
 export let storedDocumentsOf: SegmentCodecNames['storedDocumentsOf']
 export let topLevelMapKeys: SegmentCodecNames['topLevelMapKeys']
 
-export function bindSegmentMergeHost(host: EngineNames, segmentCodec: SegmentCodecNames): void {
+export function bindSegmentMergeHost(host: EngineNames, msgpack: MsgpackNames, segmentCodec: SegmentCodecNames): void {
   ;({
     ErrorCodes,
     GrowingSegment,
@@ -132,7 +133,6 @@ export function bindSegmentMergeHost(host: EngineNames, segmentCodec: SegmentCod
     decodeSurfaceTable,
     documentsOf,
     embedded,
-    encodeDocument,
     encodeExternalIdTableData,
     encodeFieldIndexes,
     encodeFrozenTokenTableData,
@@ -164,5 +164,6 @@ export function bindSegmentMergeHost(host: EngineNames, segmentCodec: SegmentCod
     words,
     wrapFrozenTokenTable,
   } = host)
+  ;({ encodeDocument } = msgpack)
   ;({ encodeDocumentTableData, storedDocumentsOf, topLevelMapKeys } = segmentCodec)
 }

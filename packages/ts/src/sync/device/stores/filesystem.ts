@@ -5,6 +5,7 @@ import {
   createDurableDirectory,
   type DurableDirectory,
 } from '../../../persistence/durability/durable-filesystem'
+import { loadMessagePack } from '../../../serialization/msgpack-code'
 import { QUEUE_COMPACTION_BYTES } from '../constants'
 import type { DeviceSyncStore, KeptEntry } from '../types'
 import { openFilesystemDownload } from './filesystem-download'
@@ -72,6 +73,7 @@ export async function createFilesystemDeviceStore(config: FilesystemDeviceStoreC
   if (typeof config.directory !== 'string' || config.directory.trim().length === 0) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The device sync store needs a directory')
   }
+  await loadMessagePack()
   const directory = createDurableDirectory(config.directory)
   const lock: DirectoryLock | null = (await directory.lock?.()) ?? null
   try {

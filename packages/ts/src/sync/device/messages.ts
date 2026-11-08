@@ -1,5 +1,5 @@
 import { ClientErrorCodes, NarsilError } from '../../errors'
-import { decode } from '../../serialization/msgpack'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import { isSyncEpoch } from '../epoch'
 import type { ResyncReason, SyncPosition, SyncSettings } from '../protocol'
 import type { KeptEntry } from './types'
@@ -101,6 +101,7 @@ function entriesOf(partitionId: number, raw: unknown): KeptEntry[] {
 }
 
 export function decodeFeedMessage(bytes: Uint8Array): FeedMessage {
+  const { decode } = requireLoadedMessagePack()
   let raw: unknown
   try {
     raw = decode(bytes)

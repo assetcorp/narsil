@@ -5,7 +5,6 @@ import {
   getLanguage,
   NarsilError,
   prepareConfiguredSynonyms,
-  requireConfigurationWithinSizeLimit,
   resolveIndexAnalysis,
   rulesOfStoredSynonyms,
 } from '#platform/storage-host'
@@ -14,6 +13,7 @@ import type { NamedAnalysisSettings } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { DurableAnalysis, IndexRegistryEntry } from '../core'
+import { requireConfigurationWithinSizeLimit } from '../snapshot/index-configuration-limit'
 import type { AnalysisTarget } from './pending-target'
 import { configUnderAnalysis } from './pending-target'
 

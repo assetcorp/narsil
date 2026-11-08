@@ -12,6 +12,7 @@ import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
 import { lazyQueryBinding } from '../search/cursor-binding'
+import { loadMessagePackForStoredValues } from '../search/object-values'
 import { loadPhraseCodeFor, requireLoadedPhraseCode } from '../search/phrase-code'
 import { loadSortingFor } from '../search/sorting-code'
 import type { GlobalStatistics } from '../types/internal'
@@ -315,6 +316,8 @@ export async function runEngineListDocuments<T = AnyDocument>(
   try {
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
+    const storedValueCode = loadMessagePackForStoredValues(params, entry.config)
+    if (storedValueCode !== null) await storedValueCode
     return await manager.publication.read(() =>
       executeListDocuments<T>(params, {
         manager,

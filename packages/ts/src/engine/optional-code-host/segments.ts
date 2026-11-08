@@ -33,16 +33,19 @@ import { createLoadedGeoIndex } from '../../geo/geo-code'
 import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { isWordIndexedBase } from '../../schema/validator/field-type'
 import { PROTOTYPE_POLLUTION_KEYS } from '../../schema/validator/shared'
-import { encodeDocument } from '../../serialization/document-encoding'
-import { Decoder, decode } from '../../serialization/msgpack'
-import { headerAt, MAP_TAGS } from '../../serialization/msgpack-header'
+import {
+  DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
+  DOCUMENT_REPLY_ENVELOPE_DEPTH,
+  MAX_DOCUMENT_ENCODING_DEPTH,
+} from '../../serialization/constants'
 
 export function segmentsHostPart() {
   return {
-    Decoder,
+    DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
+    DOCUMENT_REPLY_ENVELOPE_DEPTH,
     GrowingSegment,
     LivePostings,
-    MAP_TAGS,
+    MAX_DOCUMENT_ENCODING_DEPTH,
     PROTOTYPE_POLLUTION_KEYS,
     assembleFrozenSegment,
     bitsetIterator,
@@ -55,12 +58,10 @@ export function segmentsHostPart() {
     createNumericIndex,
     createSpellingTable,
     createSurfaceRegistry,
-    decode,
     decodeSurfaceTable,
     documentWithOwnBuffers,
     documentsOf,
     embedded,
-    encodeDocument,
     encodeExternalIdTableData,
     encodeFieldIndexes,
     encodeFrozenTokenTableData,
@@ -68,7 +69,6 @@ export function segmentsHostPart() {
     encodeStringBlob,
     encodeSurfaceTable,
     getNestedValue,
-    headerAt,
     isWordIndexedBase,
     mergeFieldRegionsWith,
     mergeKeywordSources,

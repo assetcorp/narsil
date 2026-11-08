@@ -110,7 +110,8 @@ export async function insertDocumentBatch(
 
       const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
-        requireDocumentObject(documents[i])
+        const sizing = requireDocumentObject(documents[i])
+        if (sizing !== null) await sizing
         validateDocId(batchDocId)
 
         if (hasBeforeHook) {

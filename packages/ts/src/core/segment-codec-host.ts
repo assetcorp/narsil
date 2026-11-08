@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 
 export { yieldToEventLoop } from '../engine/orchestration/turn'
 export { ErrorCodes, NarsilError } from '../errors'
@@ -19,4 +20,4 @@ export { writePartitionDocument } from './partition/rollover'
 export { getNestedValue } from './partition/utils'
 export { cloneProjected, projectIncludedPaths, readProjectedPath } from './projection'
 
-export function bindSegmentCodecHost(_host: OptionalCodeHost): void {}
+export function bindSegmentCodecHost(_host: OptionalCodeHost, _msgpack: typeof MsgpackCode): void {}

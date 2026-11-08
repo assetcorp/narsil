@@ -1,5 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { ClientErrorCodes, ErrorCodes, NarsilError } from '../../errors'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import { type DeviceMessage, SYNC_SUBPROTOCOL } from '../protocol'
 import { decodeFeedMessage, type FeedMessage } from './messages'
 
@@ -101,7 +101,7 @@ export function openFeedConnection(url: string, credential: string | null, handl
 
   return {
     send(message) {
-      if (!closed && socket.readyState === WebSocket.OPEN) socket.send(encode(message))
+      if (!closed && socket.readyState === WebSocket.OPEN) socket.send(requireLoadedMessagePack().encode(message))
     },
     close(reason) {
       closeSocket(reason)
