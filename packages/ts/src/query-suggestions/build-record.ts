@@ -1,8 +1,9 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../core/ordering'
 import { sha256 } from '../persistence/durability/sha256'
 import { crc32 } from '../serialization/crc32'
 import { openChecksummedEnvelope, packEnvelopeWithChecksum } from '../serialization/envelope-file'
+import { decode } from '../serialization/msgpack'
 import type { QuerySuggestionsBuild, QuerySuggestionsBuildTrigger } from '../types/query-suggestions'
 
 const BUILD_RECORD_FORMAT_VERSION = 1

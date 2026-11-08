@@ -1,4 +1,8 @@
+import { completePrefix, type PrefixCompletion } from '../expansion/host'
+import { suggestPartitionTerms } from '../expansion/suggestion-host'
 import { compareCodePoints } from '../ordering'
+import { codePointCount } from '../ordering/code-points'
+import { partitionDocumentFrequency } from './document-frequency'
 import type { PartitionReadState } from './utils'
 
 export interface PartitionSuggestion {
@@ -26,6 +30,8 @@ export function suggestDisplayTerms(
   limit: number,
 ): PartitionSuggestion[] {
   if (limit <= 0 || surfacePrefix.length === 0) return []
+  const native = suggestPartitionTerms([state], surfacePrefix, stemmedPrefix, limit)
+  if (native !== null) return native
 
   const groups = new Map<string, TokenGroup>()
 
@@ -71,19 +77,15 @@ export function suggestDisplayTerms(
   return results
 }
 
-export function partitionDocumentFrequency(subs: readonly PartitionReadState[], token: string): number {
-  let documents = 0
-  for (const sub of subs) documents += sub.invertedIdx.documentFrequency(token)
-  return documents
-}
-
 export function expandTermPrefix(
   subs: readonly PartitionReadState[],
   surfacePrefix: string,
   stemmedToken: string,
   maxExpansions: number,
-): string[] {
+): PrefixCompletion[] {
   if (maxExpansions <= 0 || surfacePrefix.length === 0) return []
+  const completions = completePrefix(subs, surfacePrefix, stemmedToken, maxExpansions)
+  if (completions !== null) return completions
 
   const candidates = new Set<string>()
   const holdsSurfaceForms = subs.some(sub => sub.surfaceRegistry.size() > 0)
@@ -109,5 +111,6 @@ export function expandTermPrefix(
   }
   ranked.sort((a, b) => b.documents - a.documents || compareCodePoints(a.token, b.token))
   if (ranked.length > maxExpansions) ranked.length = maxExpansions
-  return ranked.map(entry => entry.token)
+  const ownLength = codePointCount(stemmedToken)
+  return ranked.map(entry => ({ token: entry.token, factor: Math.min(1, ownLength / codePointCount(entry.token)) }))
 }

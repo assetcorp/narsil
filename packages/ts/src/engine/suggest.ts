@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../core/ordering'
+import { loadSuggestions } from '../core/partition/suggestion-code'
 import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
 import { clampRowCount } from '../search/pagination'
@@ -12,12 +13,14 @@ interface MergedSuggestion {
   surfaceOccurrences: Map<string, number>
 }
 
-export function executeSuggest(
+export async function executeSuggest(
   manager: PartitionManager,
   language: LanguageModule,
   params: SuggestParams,
   partitionIds?: number[],
-): SuggestResult {
+): Promise<SuggestResult> {
+  const loading = loadSuggestions()
+  if (loading !== null) await loading
   const t0 = performance.now()
   const ceiling = partitionIds === undefined ? MAX_SUGGEST_LIMIT : MAX_SUGGEST_SCATTER_LIMIT
   const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), ceiling))
