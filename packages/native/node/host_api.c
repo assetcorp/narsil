@@ -58,6 +58,10 @@ enum {
   HOST_DELETE_ASYNC_WORK,
   HOST_CREATE_PROMISE,
   HOST_RESOLVE_DEFERRED,
+  HOST_CREATE_ARRAYBUFFER,
+  HOST_CREATE_TYPEDARRAY,
+  HOST_GET_REFERENCE_VALUE,
+  HOST_STRICT_EQUALS,
   HOST_FUNCTION_COUNT
 };
 
@@ -76,6 +80,10 @@ static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
     [HOST_DELETE_ASYNC_WORK] = "napi_delete_async_work",
     [HOST_CREATE_PROMISE] = "napi_create_promise",
     [HOST_RESOLVE_DEFERRED] = "napi_resolve_deferred",
+    [HOST_CREATE_ARRAYBUFFER] = "napi_create_arraybuffer",
+    [HOST_CREATE_TYPEDARRAY] = "napi_create_typedarray",
+    [HOST_GET_REFERENCE_VALUE] = "napi_get_reference_value",
+    [HOST_STRICT_EQUALS] = "napi_strict_equals",
     [HOST_ADJUST_EXTERNAL_MEMORY] = "napi_adjust_external_memory",
     [HOST_CREATE_ARRAY_WITH_LENGTH] = "napi_create_array_with_length",
     [HOST_CREATE_DOUBLE] = "napi_create_double",
@@ -343,6 +351,24 @@ napi_status NAPI_CDECL napi_create_promise(napi_env env, napi_deferred *deferred
 
 napi_status NAPI_CDECL napi_resolve_deferred(napi_env env, napi_deferred deferred, napi_value resolution) {
   return HOST_FUNCTION(HOST_RESOLVE_DEFERRED, napi_resolve_deferred)(env, deferred, resolution);
+}
+
+napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env, size_t byte_length, void **data, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_ARRAYBUFFER, napi_create_arraybuffer)(env, byte_length, data, result);
+}
+
+napi_status NAPI_CDECL napi_create_typedarray(napi_env env, napi_typedarray_type type, size_t length,
+                                              napi_value arraybuffer, size_t byte_offset, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_TYPEDARRAY, napi_create_typedarray)(env, type, length, arraybuffer, byte_offset,
+                                                                       result);
+}
+
+napi_status NAPI_CDECL napi_get_reference_value(napi_env env, napi_ref ref, napi_value *result) {
+  return HOST_FUNCTION(HOST_GET_REFERENCE_VALUE, napi_get_reference_value)(env, ref, result);
+}
+
+napi_status NAPI_CDECL napi_strict_equals(napi_env env, napi_value lhs, napi_value rhs, bool *result) {
+  return HOST_FUNCTION(HOST_STRICT_EQUALS, napi_strict_equals)(env, lhs, rhs, result);
 }
 
 #else
