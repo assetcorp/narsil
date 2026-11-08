@@ -5,6 +5,7 @@ import type { DurableDirectory } from '../durability/durable-filesystem'
 import { FILE_ASSEMBLY_CHUNK_BYTES } from './constants'
 import { loadFailed, PAGED_SEGMENT_ENVELOPE_VERSION } from './format'
 import type { PagedFileListing } from './resident'
+import { readFileRangeLater } from './section-file'
 
 async function orLoadFailure<T>(key: string, read: () => Promise<T>): Promise<T> {
   try {
@@ -42,10 +43,29 @@ export async function requirePagedPayloadChecksum(
   if (HEADER_SIZE + header.payloadLength !== bytes) {
     loadFailed(`The segment "${key}" holds ${bytes} bytes where its header gives ${HEADER_SIZE + header.payloadLength}`)
   }
+  await requirePayloadChecksum(key, header, (offset, length) => readRange.call(directory, key, offset, length))
+}
+
+export async function requirePagedPathChecksum(path: string): Promise<void> {
+  const read = async (offset: number, length: number): Promise<Uint8Array> => {
+    const bytes = new Uint8Array(length)
+    if (!(await readFileRangeLater(path, offset, bytes)))
+      loadFailed(`The segment "${path}" cannot be read at ${offset}`)
+    return bytes
+  }
+  await requirePayloadChecksum(path, readHeader(await read(0, HEADER_SIZE)), read)
+}
+
+async function requirePayloadChecksum(
+  key: string,
+  header: ReturnType<typeof readHeader>,
+  read: (offset: number, length: number) => Promise<Uint8Array>,
+): Promise<void> {
+  const bytes = HEADER_SIZE + header.payloadLength
   let state = crc32Init()
   for (let at = HEADER_SIZE; at < bytes; at += FILE_ASSEMBLY_CHUNK_BYTES) {
     const size = Math.min(FILE_ASSEMBLY_CHUNK_BYTES, bytes - at)
-    state = crc32Update(state, await readRange.call(directory, key, at, size))
+    state = crc32Update(state, await read(at, size))
   }
   const computed = crc32Final(state)
   if (computed !== header.checksum) {

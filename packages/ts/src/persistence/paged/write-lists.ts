@@ -7,6 +7,7 @@ import { WRITER_YIELD_INTERVAL_TOKENS } from './constants'
 import { BLOCK_SUMMARY_BYTES, SMALLEST_BLOCK_POSTINGS } from './format'
 import type { RemovalWriter } from './removal-sort'
 import type { SectionSink } from './sink'
+import { TokenRows } from './write-rows'
 
 const NO_DELETED_DOCUMENTS = { size: 0, has: () => false }
 
@@ -25,16 +26,6 @@ export interface WrittenTokenColumns {
   blockSummaries: Uint8Array
 }
 
-interface SourceRows {
-  start: number
-  end: number
-  docIds: ArrayLike<number>
-  termFrequencies: ArrayLike<number>
-  fieldNameIndices: ArrayLike<number>
-  positionOffsets: ArrayLike<number> | null
-  positionValues: Uint32Array | null
-}
-
 interface TokenCursor {
   input: SegmentRemap
   at: number
@@ -47,34 +38,6 @@ function compareBytes(left: Uint8Array, right: Uint8Array): number {
     if (left[at] !== right[at]) return left[at] - right[at]
   }
   return left.byteLength - right.byteLength
-}
-
-function rowsOf(input: SegmentRemap, sortedIndex: number): SourceRows {
-  const { segment } = input
-  const { arrays, paged } = segment
-  const slot = arrays.tokenTable.payloadSlot(sortedIndex)
-  if (paged !== null) {
-    const list = paged.listAt(slot)
-    const positions = paged.positionsAt(slot)
-    return {
-      start: 0,
-      end: list.docIds.length,
-      docIds: list.docIds,
-      termFrequencies: list.termFrequencies,
-      fieldNameIndices: list.fieldNameIndices,
-      positionOffsets: positions?.offsets ?? null,
-      positionValues: positions?.values ?? null,
-    }
-  }
-  return {
-    start: arrays.postingOffsets[slot],
-    end: arrays.postingOffsets[slot + 1],
-    docIds: arrays.postingDocIds,
-    termFrequencies: arrays.postingFrequencies,
-    fieldNameIndices: arrays.postingFieldIndices,
-    positionOffsets: arrays.positionOffsets,
-    positionValues: arrays.positionValues,
-  }
 }
 
 class GrowingBytes {
@@ -116,118 +79,6 @@ class GrowingUint32s {
     const target = new Uint32Array(shared ? new SharedArrayBuffer(this.length * 4) : new ArrayBuffer(this.length * 4))
     target.set(this.values.subarray(0, this.length))
     return target
-  }
-}
-
-class TokenRows {
-  docIds = new Uint32Array(1_024)
-  frequencies = new Uint16Array(1_024)
-  fields = new Uint16Array(1_024)
-  positionStarts = new Uint32Array(1_025)
-  positions = new Uint32Array(4_096)
-  count = 0
-  positionCount = 0
-
-  ensureRows(wanted: number): void {
-    if (wanted <= this.docIds.length) return
-    const capacity = Math.max(wanted, this.docIds.length * 2)
-    const docIds = new Uint32Array(capacity)
-    docIds.set(this.docIds.subarray(0, this.count))
-    this.docIds = docIds
-    const frequencies = new Uint16Array(capacity)
-    frequencies.set(this.frequencies.subarray(0, this.count))
-    this.frequencies = frequencies
-    const fields = new Uint16Array(capacity)
-    fields.set(this.fields.subarray(0, this.count))
-    this.fields = fields
-    const starts = new Uint32Array(capacity + 1)
-    starts.set(this.positionStarts.subarray(0, this.count + 1))
-    this.positionStarts = starts
-  }
-
-  ensurePositions(wanted: number): void {
-    if (wanted <= this.positions.length) return
-    const positions = new Uint32Array(Math.max(wanted, this.positions.length * 2))
-    positions.set(this.positions.subarray(0, this.positionCount))
-    this.positions = positions
-  }
-
-  clear(): void {
-    this.count = 0
-    this.positionCount = 0
-  }
-
-  appendFrom(input: SegmentRemap, rows: SourceRows): void {
-    const { remap, fieldIndexRemap } = input
-    this.ensureRows(this.count + rows.end - rows.start)
-    for (let row = rows.start; row < rows.end; row++) {
-      const target = remap[rows.docIds[row]]
-      if (target < 0) continue
-      const at = this.count
-      this.docIds[at] = target
-      this.frequencies[at] = rows.termFrequencies[row]
-      this.fields[at] = fieldIndexRemap[rows.fieldNameIndices[row]]
-      this.positionStarts[at] = this.positionCount
-      if (rows.positionOffsets !== null && rows.positionValues !== null) {
-        const from = rows.positionOffsets[row]
-        const to = rows.positionOffsets[row + 1]
-        this.ensurePositions(this.positionCount + to - from)
-        this.positions.set(rows.positionValues.subarray(from, to), this.positionCount)
-        this.positionCount += to - from
-      }
-      this.count += 1
-    }
-    this.positionStarts[this.count] = this.positionCount
-  }
-
-  isOrdered(): boolean {
-    for (let at = 1; at < this.count; at++) {
-      const before = this.docIds[at - 1]
-      if (this.docIds[at] < before) return false
-      if (this.docIds[at] === before && this.fields[at] <= this.fields[at - 1]) return false
-    }
-    return true
-  }
-
-  sort(): void {
-    const order = Array.from({ length: this.count }, (_, at) => at)
-    order.sort((left, right) => this.docIds[left] - this.docIds[right] || this.fields[left] - this.fields[right])
-    const docIds = new Uint32Array(this.count)
-    const frequencies = new Uint16Array(this.count)
-    const fields = new Uint16Array(this.count)
-    const starts = new Uint32Array(this.count + 1)
-    const positions = new Uint32Array(this.positionCount)
-    let cursor = 0
-    for (let at = 0; at < this.count; at++) {
-      const from = order[at]
-      docIds[at] = this.docIds[from]
-      frequencies[at] = this.frequencies[from]
-      fields[at] = this.fields[from]
-      starts[at] = cursor
-      const held = this.positions.subarray(this.positionStarts[from], this.positionStarts[from + 1])
-      positions.set(held, cursor)
-      cursor += held.length
-    }
-    starts[this.count] = cursor
-    this.docIds.set(docIds)
-    this.frequencies.set(frequencies)
-    this.fields.set(fields)
-    this.positionStarts.set(starts)
-    this.positions.set(positions)
-  }
-
-  distinctDocuments(): number {
-    let documents = 0
-    for (let at = 0; at < this.count; at++) {
-      if (at === 0 || this.docIds[at] !== this.docIds[at - 1]) documents += 1
-    }
-    return documents
-  }
-
-  occurrences(): number {
-    let total = 0
-    for (let at = 0; at < this.count; at++) total += this.frequencies[at]
-    return total
   }
 }
 
@@ -286,6 +137,7 @@ function yieldToEventLoop(): Promise<void> {
 
 export async function writeMergedLists(
   inputs: readonly SegmentRemap[],
+  documentCount: number,
   lengthColumnsByField: ReadonlyArray<Uint32Array | null>,
   sinks: ListSinks,
   removals: RemovalWriter,
@@ -301,7 +153,7 @@ export async function writeMergedLists(
   tokenOffsets.add(0)
   postingOffsets.add(0)
   blockListOffsets.add(0)
-  const rows = new TokenRows()
+  const rows = new TokenRows(documentCount, lengthColumnsByField.length)
   const total = new Float64Array(1)
   const offsetScratch = new Uint32Array(1)
   const cursors = openCursors(inputs)
@@ -318,7 +170,7 @@ export async function writeMergedLists(
     for (let at = 0; at < cursors.length; at++) {
       const cursor = cursors[at]
       if (compareBytes(cursor.bytes, smallest) !== 0) continue
-      rows.appendFrom(cursor.input, rowsOf(cursor.input, cursor.at))
+      rows.appendFrom(cursor.input, cursor.at)
       cursor.at += 1
     }
     const held = smallest
@@ -331,8 +183,8 @@ export async function writeMergedLists(
     }
     tokensWalked += 1
     if (tokensWalked % WRITER_YIELD_INTERVAL_TOKENS === 0) await yieldToEventLoop()
+    rows.finish()
     if (rows.count === 0) continue
-    if (!rows.isOrdered()) rows.sort()
 
     const token = frequencies.length
     tokens.add(held)

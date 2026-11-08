@@ -1,12 +1,13 @@
-import { decode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../../../core/ordering'
+import { decode } from '../../../serialization/msgpack'
 import type { VectorMetric } from '../../../vector/brute-force'
 import { isDead } from '../../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../../vector/vector-index/payload'
 import type { ColdVectorField } from '../../../vector/vector-index/shared'
 import { searchColdGraph, searchColdGraphConcurrently } from '../cold-search'
+import { COLD_GRAPH_PART_VECTORS } from '../constants'
 import { loadFailed } from '../format'
-import type { SectionReader } from '../section-file'
+import { cachedFileBytes, type SectionReader } from '../section-file'
 import {
   type ColdCodes,
   type ColdFile,
@@ -18,7 +19,9 @@ import {
   openFiles,
   openParts,
 } from './open-files'
+import { validateColdLayout } from './validation'
 
+export { COLD_GRAPH_PART_VECTORS } from '../constants'
 export type {
   ColdCodes,
   ColdFile,
@@ -30,7 +33,6 @@ export type {
 } from './open-files'
 export { codesOfFile } from './open-files'
 
-export const COLD_GRAPH_PART_VECTORS = 16_384
 const FIXSTR = 0xa0
 const FIXSTR_MAX_BYTES = 31
 const ASCII_MAX = 0x7f
@@ -208,7 +210,18 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
     return null
   }
   const { parts, graph } = graphed
+  try {
+    validateColdLayout(input, opened, parts, graph)
+  } catch (error) {
+    closeHeldFiles(opened.files)
+    closeHeldFiles(parts)
+    throw error
+  }
+  let activeSearches = 0
+  let closing = false
   function closeAll(): void {
+    closing = true
+    if (activeSearches > 0) return
     closeHeldFiles(opened?.files ?? [])
     closeHeldFiles(parts)
   }
@@ -238,15 +251,28 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
 
   return {
     liveCount: live,
-    residentBytes,
+    get residentBytes() {
+      let bytes = residentBytes
+      for (const file of opened.files) bytes += cachedFileBytes(file.file)
+      for (const part of parts) bytes += cachedFileBytes(part.file)
+      return bytes
+    },
     numberOf: liveNumberOf,
     vectorOfNumber: number => data.vectorAt(number),
     reusedVectorOfNumber: number => data.reusedVectorAt(number),
     partitionOf: docId => input.resolvePartition(docId),
     filePaths: () => [...input.files, ...input.graphParts].map(file => file.path),
     search: (query, k, options, accepts, excluded) => searchColdGraph(data, query, k, options, accepts, excluded),
-    searchConcurrently: (query, k, options, accepts, excluded) =>
-      searchColdGraphConcurrently(data, query, k, options, accepts, excluded),
+    async searchConcurrently(query, k, options, accepts, excluded) {
+      if (closing) loadFailed('The disk vector field is closed')
+      activeSearches += 1
+      try {
+        return await searchColdGraphConcurrently(data, query, k, options, accepts, excluded)
+      } finally {
+        activeSearches -= 1
+        if (closing) closeAll()
+      }
+    },
     close: closeAll,
   }
 }

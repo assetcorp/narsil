@@ -2,12 +2,9 @@ import type { ResolvedAnalysis } from '../../analysis/registry'
 import { generateId } from '../../core/id-generator'
 import { createPartitionIndex, type PartitionIndex } from '../../core/partition'
 import { createCompositePartition, isCompositePartition } from '../../core/partition/composite'
-import {
-  createFrozenSegment,
-  createSharedFrozenSegment,
-  type FrozenSegment,
-  freezeSegmentShared,
-} from '../../core/partition/frozen'
+import { createFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
+import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
+import { freezeSegmentShared } from '../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import { resolvePartitionInsertOptions } from '../../partitioning/insert-options'

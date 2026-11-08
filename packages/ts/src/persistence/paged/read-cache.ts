@@ -1,5 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { LARGEST_CACHED_ENTRY_SHARE, MAX_THREAD_FILE_NUMBER, THREAD_READ_CACHE_BYTES } from './constants'
+import type { NativePageCache } from '../../vector/native/types/paged'
+import { createAsyncPageCaches } from './async-page-cache'
+import {
+  LARGEST_CACHED_ENTRY_SHARE,
+  MAX_THREAD_FILE_NUMBER,
+  NATIVE_PAGE_CACHE_SHARE,
+  THREAD_READ_CACHE_BYTES,
+} from './constants'
+import { createPageCache, pageCacheBytes, pageCacheFileBytes, releasePageFile } from './page-cache'
 
 const FILE_NUMBER_SCALE = 2 ** 34
 const ENTRY_NUMBER_SCALE = 4
@@ -24,8 +32,12 @@ interface CacheEntry {
 export interface ReadCache {
   readonly bytes: number
   readonly capacity: number
+  pageCache(): NativePageCache
+  withPageCache<T>(read: (cache: NativePageCache) => Promise<T>): Promise<T>
+  releasePageFile(identity: bigint): void
   fileNumber(): number
   bytesOfFile(fileNumber: number): number
+  bytesOfPageFile(identity: bigint): number
   get<Value>(fileNumber: number, kind: CachedKind, entry: number): Value | undefined
   put(fileNumber: number, kind: CachedKind, entry: number, value: unknown, bytes: number): void
   releaseFile(fileNumber: number): void
@@ -37,7 +49,13 @@ export function createReadCache(capacity: number): ReadCache {
   const perFile = new Map<number, number>()
   const freedFileNumbers: number[] = []
   let held = 0
+  let pages: NativePageCache | null = null
+  let reserved = 0
   let nextFileNumber = 1
+  const asyncPages = createAsyncPageCaches(capacity * NATIVE_PAGE_CACHE_SHARE, bytes => {
+    reserved += bytes
+    evictDownTo(capacity - reserved)
+  })
 
   function drop(key: number, entry: CacheEntry): void {
     entries.delete(key)
@@ -58,13 +76,33 @@ export function createReadCache(capacity: number): ReadCache {
     entries.clear()
     perFile.clear()
     held = 0
+    if (pages !== null) reserved -= pageCacheBytes(pages)
+    pages = null
+    asyncPages.clear()
   }
 
   return {
     get bytes() {
-      return held
+      return held + reserved
     },
     capacity,
+
+    pageCache(): NativePageCache {
+      if (pages === null) {
+        const created = createPageCache(capacity * NATIVE_PAGE_CACHE_SHARE)
+        reserved += pageCacheBytes(created)
+        evictDownTo(capacity - reserved)
+        pages = created
+      }
+      return pages
+    },
+
+    withPageCache: asyncPages.withCache,
+
+    releasePageFile(identity: bigint): void {
+      if (pages !== null) releasePageFile(pages, identity)
+      asyncPages.releaseFile(identity)
+    },
 
     fileNumber(): number {
       const freed = freedFileNumbers.pop()
@@ -85,6 +123,10 @@ export function createReadCache(capacity: number): ReadCache {
       return perFile.get(fileNumber) ?? 0
     },
 
+    bytesOfPageFile(identity: bigint): number {
+      return (pages === null ? 0 : pageCacheFileBytes(pages, identity)) + asyncPages.bytesOfFile(identity)
+    },
+
     get<Value>(fileNumber: number, kind: CachedKind, entry: number): Value | undefined {
       const key = fileNumber * FILE_NUMBER_SCALE + entry * ENTRY_NUMBER_SCALE + kind
       const found = entries.get(key)
@@ -102,7 +144,7 @@ export function createReadCache(capacity: number): ReadCache {
       entries.set(key, { value, bytes, fileNumber })
       held += bytes
       perFile.set(fileNumber, (perFile.get(fileNumber) ?? 0) + bytes)
-      evictDownTo(capacity)
+      evictDownTo(capacity - reserved)
     },
 
     releaseFile(fileNumber: number): void {

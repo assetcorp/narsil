@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { yieldToEventLoop } from '../../engine/orchestration/turn'
 import { HEADER_SIZE } from '../../serialization/header'
+import { decode } from '../../serialization/msgpack'
 import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
 import type { VectorCheckpointRestore } from '../../vector/vector-index/checkpoint-restore'
 import { bytesToVectors } from '../../vector/vector-index/payload'

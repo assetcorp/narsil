@@ -39,16 +39,18 @@ export async function openRemovalWriter(
   const ordinalsPerBucket = Math.max(1, Math.ceil(documentCount / bucketCount))
   const heldValues = Math.floor(REMOVAL_BUCKET_WRITE_BUFFER_BYTES / TRIPLE_BYTES) * TRIPLE_VALUES
   const buckets: RemovalBucket[] = []
-  for (let at = 0; at < bucketCount; at++) {
-    const key = `${keyPrefix}.part-removals-${at}`
-    await directory.remove(key)
-    buckets.push({
-      key,
-      handle: await directory.appendHandle(key),
-      held: new Uint32Array(heldValues),
-      heldValues: 0,
-      triples: 0,
-    })
+  try {
+    for (let at = 0; at < bucketCount; at++) {
+      const key = `${keyPrefix}.part-removals-${at}`
+      const held = new Uint32Array(heldValues)
+      await directory.remove(key)
+      buckets.push({ key, handle: await directory.appendHandle(key), held, heldValues: 0, triples: 0 })
+    }
+  } catch (error) {
+    for (const bucket of buckets) await bucket.handle.close().catch(() => undefined)
+    for (let at = 0; at <= buckets.length; at++)
+      await directory.remove(`${keyPrefix}.part-removals-${at}`).catch(() => undefined)
+    throw error
   }
 
   async function flush(bucket: RemovalBucket): Promise<void> {

@@ -1,4 +1,6 @@
-import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../core/partition/frozen'
+import type { FrozenSegment } from '../../core/partition/frozen'
+import { createSharedFrozenSegment } from '../../core/partition/frozen/shared'
+import { shareSegmentArrays } from '../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentWriteRecords } from '../../serialization/keyword-segment/types'
@@ -11,7 +13,7 @@ import { MERGE_READ_CACHE_BYTES } from './constants'
 import { createPagedFrozenSegment } from './open-segment'
 import { createReadCache } from './read-cache'
 import { openPagedSnapshot } from './resident'
-import { isPagedSegmentFile, pagedListingOf, requirePagedPayloadChecksum } from './verify'
+import { isPagedSegmentFile, pagedListingOf } from './verify'
 
 export interface PagedWindowMerge {
   store: CheckpointStore
@@ -37,7 +39,6 @@ async function openSource(input: PagedWindowMerge, ref: SegmentRef, cache: Retur
   const { directory, store } = input
   if (await isPagedSegmentFile(directory, ref.key)) {
     const listing = await pagedListingOf(directory, ref)
-    await requirePagedPayloadChecksum(directory, listing)
     const snapshot = openPagedSnapshot(listing)
     const segment = createPagedFrozenSegment(snapshot, cache)
     const opened: OpenedSource = {
