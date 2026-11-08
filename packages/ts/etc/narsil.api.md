@@ -220,6 +220,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -504,6 +505,7 @@ export interface IndexLifecycleOperations {
 export interface IndexStats {
     documentCount: number;
     estimatedMemoryBytes: number;
+    heldSearchStates?: number;
     language: string;
     partitionCount: number;
     schema: SchemaDefinition;
@@ -756,7 +758,7 @@ export interface NarsilPlugin {
 //
 // @internal
 export interface NativeAnalysisCore {
-    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array): string | number | null;
+    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array, units?: Uint16Array): string | number | null;
     createStopWordSet(words: string[]): NativeStopWordSetHandle;
     languageCount(): number;
     languageName(language: number): string;
@@ -776,7 +778,7 @@ export interface NativeConnectResult {
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
+export interface NativeCore extends NativeAnalysisCore, NativeExpansionCore, NativeKeywordCore, NativeFacetCore, NativeFieldMergeCore, NativeFilterCore, NativeFrozenSegmentCore, NativeGroupCore, NativeHighlightCore, NativePagedCore, NativePatternCore, NativePhraseCore, NativeResultCore, NativeSegmentCore, NativeSegmentMergeCore, NativeSortCore, NativeSynonymCore, NativeTermCore {
     abiVersion(): number;
     applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
@@ -789,11 +791,150 @@ export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     place(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, ordinal: number, topLayer: number, graphHeldAlone: number, threadSlot: number, wakes: Int32Array): number;
     quantise(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number): number;
     remove(graph: NativeGraphHandle, ordinal: number, threadSlot: number, wakes: Int32Array): number;
-    score(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, distances: Float64Array): number;
-    scoreAsync?(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, threadSlot: number): Promise<NativeScoreResult>;
-    search(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, ordinals: Int32Array, distances: Float64Array, accepted: Uint8Array | null): number;
-    searchAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, accepted: Uint8Array | null): Promise<NativeSearchResult>;
+    score(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, pin: number, distances: Float64Array): number;
+    scoreAsync?(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, pin: number, threadSlot: number): Promise<NativeScoreResult>;
+    search(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, pin: number, threadSlot: number, ordinals: Int32Array, distances: Float64Array, accepted: Uint8Array | null): number;
+    searchAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, pin: number, threadSlot: number, accepted: Uint8Array | null): Promise<NativeSearchResult>;
     workspaceBytes(): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeExpansionCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeExpansionCore extends NativePartialExpansionCore {
+    expandPrefix(segments: readonly NativeExpansionSegment[], typed: Uint16Array, stemmed: Uint16Array, own: Uint16Array, outSegments: Uint32Array, outTokens: Uint32Array, outFactors: Float64Array): number;
+    suggestTerms(segments: readonly NativeExpansionSegment[], typed: Uint16Array, stemmed: Uint16Array, limit: number, outTerms: Uint32Array, outStarts: Uint32Array, outSpellings: Uint32Array, outOccurrences: Float64Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeExpansionSegment" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeExpansionSegment {
+    frozen: NativeFrozenSegment | null;
+    growing: NativeGrowingSegment | null;
+    occurrences?: Float64Array | null;
+    state: NativeFrozenSegmentState | null;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFacetCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFacetCore {
+    booleanFacet(trueBits: Uint32Array, falseBits: Uint32Array, matched: Uint32Array, counts: Uint32Array): number;
+    enumFacet(offsets: Uint32Array, postings: Uint32Array, matched: Uint32Array, outCounts: Uint32Array): number;
+    mergeFacets(offsets: Uint32Array, values: Uint32Array, counts: Uint32Array, bounds: Uint32Array, valueRanks: Uint32Array, ascending: boolean, limit: number | null, outValues: Uint32Array, outCounts: Uint32Array, outBound: Uint32Array): number;
+    numberFacet(values: Float64Array, ordinals: Uint32Array, matched: Uint32Array, outValues: Float64Array, outCounts: Uint32Array): number;
+    rangeFacet(values: Float64Array, ordinals: Uint32Array, matched: Uint32Array, ranges: Float64Array, outCounts: Uint32Array): number;
+    storedRangeFacet(values: NativeStoredValues, matched: Uint32Array, ranges: Float64Array, outCounts: Uint32Array): number;
+    valueFacet(values: NativeStoredValues, matched: Uint32Array, outValues: Uint32Array, outCounts: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFieldMergeCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFieldMergeCore {
+    measureFieldMerge(kind: number, sources: readonly NativeFieldMergeSource[], documentCount: number, sizes: Uint32Array): number;
+    writeFieldMerge(kind: number, sources: readonly NativeFieldMergeSource[], documentCount: number, output: readonly NativeFieldMergeRegion[]): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFieldMergeRegion" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeFieldMergeRegion = Uint8Array | Uint16Array | Uint32Array | Float64Array | BigUint64Array;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFieldMergeSource" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFieldMergeSource {
+    mapping: Uint32Array;
+    regions: readonly NativeFieldMergeRegion[];
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFieldTokens" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFieldTokens {
+    field: number;
+    tokens: Uint32Array;
+    units: Uint16Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFilterCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFilterCore {
+    evaluateFilter(plan: Uint32Array, numbers: Float64Array, units: Uint16Array, offsets: Uint32Array, lists: Uint32Array, bitsets: readonly Uint32Array[], kinds: Uint8Array, fields: readonly (readonly NativeFilterRegion[])[], live: Uint32Array, into: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFilterRegion" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeFilterRegion = Uint16Array | Uint32Array | Float64Array | BigUint64Array;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenRemovalIndex" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenRemovalIndex {
+    rows: Uint32Array;
+    starts: Uint32Array;
+    termOfSlot: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenRuns" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenRuns {
+    members: Uint32Array;
+    offsets: Uint32Array;
+    runs: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenSegment" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenSegment {
+    documentCount: number;
+    partialFields: Uint8Array;
+    payloadSlots: Uint32Array;
+    postingDocuments: Uint32Array;
+    postingFields: Uint16Array;
+    postingFrequencies: Uint16Array;
+    postingOffsets: Uint32Array;
+    removalIndex: NativeFrozenRemovalIndex | null;
+    removalTerms?: Uint32Array | null;
+    spellings: NativeFrozenStrings | null;
+    spellingTokens: Uint32Array;
+    surfaces: NativeFrozenStrings | null;
+    terms: NativeFrozenStrings;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenSegmentCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenSegmentCore {
+    prepareFrozenRemoval(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, ordinal: number, fields: readonly NativeFieldTokens[], entries: Uint32Array, values: Float64Array): number;
+    removeFrozenDocument(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, ordinal: number, fields: readonly NativeFieldTokens[]): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenSegmentState" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenSegmentState {
+    removedDocuments: Uint32Array;
+    removedOccurrences: Float64Array;
+    removedSpellings: Uint32Array;
+    removedSurfaces: Uint32Array;
+    tombstoneCount: Uint32Array;
+    tombstones: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenStrings" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFrozenStrings {
+    counts: Uint32Array;
+    offsets: Uint32Array;
+    text: Uint8Array;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeGraphHandle" should be prefixed with an underscore because the declaration is marked as @internal
@@ -817,11 +958,320 @@ export interface NativeGraphMemory {
     upperBase: Int32Array;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeGroupCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeGroupCore {
+    groupHits(values: readonly NativeStoredValues[], ordinals: Uint32Array, scores: Float64Array, idRanks: Uint32Array, maxPerGroup: number, limit: number | null, outHeads: Uint32Array, outOffsets: Uint32Array, outHits: Uint32Array, outMembers: Uint32Array): number;
+    mergeGroups(keys: Uint32Array, offsets: Uint32Array, scores: Float64Array | null, scorePresent: Uint32Array | null, ranks: Uint32Array, idRanks: Uint32Array, sorted: boolean, maxPerGroup: number, limit: number | null, outKeys: Uint32Array, outOffsets: Uint32Array, outSources: Uint32Array, outIndices: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeGrowingSegment" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeGrowingSegment {
+    columns: NativeTermColumns;
+    fieldLengths: Uint32Array;
+    ordinalCapacity: number;
+    partialFields: Uint8Array;
+    positions: NativePositionPool | null;
+    postings: NativePostingPool;
+    retired: Uint32Array;
+    spellings: NativeSpellingTable | null;
+    surfaces: NativeSurfaceTable | null;
+    terms: NativeTermTable;
+    totalDocuments: Uint32Array;
+    totalFieldLengths: Float64Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeHighlightCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeHighlightCore {
+    highlight(language: number, text: Uint16Array, query: NativeHighlightQuery, preTag: Uint16Array, postTag: Uint16Array, maxSnippetLength: number, outSnippet: Uint16Array, outPositions: Uint32Array, outLength: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeHighlightQuery" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeHighlightQuery {
+    partialWords: readonly Uint16Array[] | null;
+    prefix: Uint16Array | null;
+    prefixLength: number;
+    synonyms: readonly Uint16Array[];
+    terms: readonly {
+        term: Uint16Array;
+        tolerance: number;
+    }[];
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeKeywordCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
 export interface NativeKeywordCore {
     keywordScore(poolDocIds: Uint32Array, poolFrequencies: Uint16Array, poolFields: Uint16Array, rowDocIds: Uint32Array, rowFrequencies: Float64Array, rowFields: Uint16Array, slots: Uint32Array, lists: Uint32Array, listValues: Float64Array, slotValues: Float64Array, searchable: Uint8Array, partialMarks: Uint8Array, nameRanks: Uint16Array, fieldNumbers: Float64Array, lengths: ReadonlyArray<Uint32Array | null>, filter: Uint32Array | null, live: Uint32Array, removed: Uint32Array, settings: Float64Array, ordinals: Int32Array, scores: Float64Array, matched: Uint32Array, outcome: Float64Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeKeywordMergeInput" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeKeywordMergeInput {
+    documentCount: number;
+    fieldLengths: readonly (Uint32Array | null)[];
+    fieldMapping: Uint16Array;
+    growing?: NativeGrowingSegment | null;
+    mapping: Uint32Array;
+    payloadSlots: Uint32Array;
+    positionOffsets: Uint32Array | null;
+    positionValues: Uint32Array | null;
+    postingDocuments: Uint32Array;
+    postingFields: Uint16Array;
+    postingFrequencies: Uint16Array;
+    postingOffsets: Uint32Array;
+    spellings: NativeFrozenStrings | null;
+    surfaces: NativeFrozenStrings | null;
+    terms: NativeFrozenStrings;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeKeywordMergeOutput" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeKeywordMergeOutput {
+    fieldLengths: Uint32Array;
+    positionOffsets: Uint32Array | null;
+    positionValues: Uint32Array | null;
+    postingDocuments: Uint32Array;
+    postingFields: Uint16Array;
+    postingFrequencies: Uint16Array;
+    postingOffsets: Uint32Array;
+    spellings: NativeFrozenStrings;
+    surfaces: NativeFrozenStrings;
+    terms: NativeFrozenStrings;
+    totalFieldLengths: Float64Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePageCache" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePageCache {
+    bytes: Uint8Array;
+    checksums: Uint32Array;
+    files: BigUint64Array;
+    lengths: Uint32Array;
+    offsets: BigUint64Array;
+    pages: BigUint64Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedCore {
+    closePagedFile(file: NativePagedFileHandle): number;
+    openPagedFile(path: string): NativePagedFileHandle | number;
+    readPage(section: NativePageSection, cache: NativePageCache | null, page: bigint, output: Uint8Array, fault: BigUint64Array): number;
+    readPageAsync(section: NativePageSection, cache: NativePageCache | null, page: bigint, output: Uint8Array, fault: BigUint64Array): number | Promise<number>;
+    readPagedId(offsetSection: NativePageSection, valueSection: NativePageSection, cache: NativePageCache | null, ordinal: number, output: Uint8Array, fault: BigUint64Array): number;
+    readPagedOrdinal(section: NativePageSection, cache: NativePageCache | null, position: number, documents: number, output: Uint32Array, fault: BigUint64Array): number;
+    readPagedPositions(offsetSection: NativePageSection, valueSection: NativePageSection, cache: NativePageCache | null, first: number, count: number, offsets: Uint32Array, values: Uint32Array, fault: BigUint64Array): number;
+    readPagedPostings(section: NativePageSection, cache: NativePageCache | null, first: number, count: number, documents: number, fields: number, output: Uint8Array, fault: BigUint64Array): number;
+    readPagedRemovals(offsetSection: NativePageSection, valueSection: NativePageSection, cache: NativePageCache | null, ordinal: number, tokens: number, values: Uint32Array, fault: BigUint64Array): number;
+    readPagedTotals(section: NativePageSection, cache: NativePageCache | null, first: number, count: number, output: Float64Array, fault: BigUint64Array): number;
+    readPagedWriteRecord(sequences: NativePageSection, terms: NativePageSection, cache: NativePageCache | null, ordinal: number, output: BigUint64Array, fault: BigUint64Array): number;
+    searchPagedVectors(field: NativePagedVectorField, request: NativePagedVectorRequest, cache: NativePageCache | null, meter: BigInt64Array, stop: Uint32Array, deadline: BigUint64Array, ordinals: Uint32Array, scores: Float64Array, fault: BigUint64Array): number;
+    searchPagedVectorsAsync(field: NativePagedVectorField, request: NativePagedVectorRequest, cache: NativePageCache | null, meter: BigInt64Array, stop: Uint32Array, deadline: BigUint64Array, ordinals: Uint32Array, scores: Float64Array, fault: BigUint64Array): number | Promise<number>;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedFileHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedFileHandle {
+    readonly identity: bigint;
+    readonly length: bigint;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedGraphPart" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedGraphPart {
+    count: number;
+    first: number;
+    levels: Uint8Array;
+    neighbours: NativePageSection;
+    nodeOffsets: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedVectorField" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedVectorField {
+    codes: {
+        bits: number;
+        centroid: Float32Array;
+    } | null;
+    dimension: number;
+    entryPoint: number | null;
+    files: readonly NativePagedVectorFile[];
+    graphParts: readonly NativePagedGraphPart[];
+    maxLayer: number;
+    metric: number;
+    total: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedVectorFile" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedVectorFile {
+    count: number;
+    dead: Uint8Array | null;
+    first: number;
+    records: NativePageSection | null;
+    vectors: NativePageSection;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePagedVectorRequest" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePagedVectorRequest {
+    accepted: Uint32Array | null;
+    ef: number;
+    excluded: Uint32Array | null;
+    explicitRescoreWindow: boolean;
+    k: number;
+    minSimilarity: number;
+    query: Float32Array;
+    rescoreDepth: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePageSection" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePageSection {
+    checksums: Uint8Array;
+    file: NativePagedFileHandle;
+    length: bigint;
+    offset: bigint;
+    pageBytes: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePartialExpansionCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePartialExpansionCore {
+    expandPartialWords(sources: readonly NativePartialSource[], requests: readonly NativePartialRequest[], outStarts: Uint32Array, outSegments: Uint32Array, outTokens: Uint32Array, outFactors: Float64Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePartialRequest" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePartialRequest {
+    own: Uint16Array;
+    prefixLength: number;
+    tolerance: number;
+    written: Uint16Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePartialSource" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePartialSource {
+    runs: NativeFrozenRuns | null;
+    segment: NativeExpansionSegment;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePatternCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePatternCore {
+    clockNow(into: BigUint64Array): number;
+    patternTest(documents: Uint32Array, runs: Uint32Array, offsets: Uint32Array, postings: Uint32Array, values: NativeStoredValues, text: Uint16Array, options: Uint32Array, meter: BigInt64Array, stop: Uint32Array, deadline: BigUint64Array, into: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePhraseCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePhraseCore {
+    matchPhrases(request: NativePhraseRequest, meter: BigInt64Array, stop: Uint32Array, deadline: BigUint64Array, matched: Uint32Array, starts: Uint32Array, documents: Uint32Array, fields: Uint16Array, frequencies: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePhrasePostings" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePhrasePostings {
+    documents: Uint32Array;
+    fields: Uint16Array;
+    ordered: boolean;
+    positionCounts: Uint32Array;
+    positions: Uint32Array;
+    positionStarts: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePhraseRequest" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePhraseRequest {
+    collect: boolean;
+    filter: Uint32Array | null;
+    offsets: Uint32Array;
+    ordinalCount: number;
+    postings: readonly NativePhrasePostings[];
+    removed: Uint32Array;
+    searchable: Uint8Array;
+    starts: Uint32Array;
+    tokens: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePositionPool" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePositionPool {
+    allocation: Uint32Array;
+    values: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePostingMergeOutput" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePostingMergeOutput {
+    documents: Uint32Array;
+    fields: Uint16Array;
+    frequencies: Uint16Array;
+    positionOffsets: Uint32Array;
+    positions: Uint32Array;
+    totals: Float64Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativePostingPool" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativePostingPool extends NativeSliceAllocator {
+    docIds: Uint32Array;
+    fieldIndices: Uint16Array;
+    frequencies: Uint16Array;
+    positionStarts: Uint32Array | null;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeResultCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeResultCore {
+    fuse(strategy: number, k: number, alpha: number, textKeys: Uint32Array, textScores: Float64Array, vectorKeys: Uint32Array, vectorScores: Float64Array, idRanks: Uint32Array, keys: Uint32Array, scores: Float64Array): number;
+    mergeRankings(offsets: Uint32Array, scores: Float64Array, idRanks: Uint32Array, limit: number, lists: Uint32Array, indices: Uint32Array): number;
+    mergeSorted(offsets: Uint32Array, ranks: Uint32Array, limit: number, lists: Uint32Array, indices: Uint32Array): number;
+    pageStart(count: number, sorted: boolean, scores: Float64Array | null, scorePresent: Uint32Array | null, afterAnchor: Uint32Array, anchorScore: number | null): number;
+    placePinned(count: number, ranked: Int32Array, positions: Uint32Array, depth: number | null, output: Int32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeRunTable" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeRunTable extends NativeSliceAllocator {
+    header: Uint32Array;
+    listClass: Uint8Array;
+    listLength: Uint32Array;
+    listStart: Uint32Array;
+    members: Uint32Array;
+    runs: Uint32Array;
+    slots: Int32Array;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeScoreResult" should be prefixed with an underscore because the declaration is marked as @internal
@@ -841,10 +1291,92 @@ export interface NativeSearchResult {
     ordinals: Int32Array;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeSegmentCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSegmentCore {
+    beginBatch(segment: NativeGrowingSegment): number;
+    endBatch(segment: NativeGrowingSegment): number;
+    indexTerms(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number;
+    removeDocument(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSegmentMergeCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSegmentMergeCore {
+    measureMerge(inputs: readonly NativeKeywordMergeInput[], documentCount: number, fieldCount: number, sizes: Uint32Array, retainedTerms?: NativeFrozenStrings | null): number;
+    mergePostings(inputs: readonly NativeKeywordMergeInput[], documentCount: number, fieldCount: number, output: NativePostingMergeOutput): number;
+    writeMerge(inputs: readonly NativeKeywordMergeInput[], documentCount: number, fieldCount: number, output: NativeKeywordMergeOutput, retainedTerms?: NativeFrozenStrings | null): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSliceAllocator" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSliceAllocator {
+    allocation: Uint32Array;
+    freeHeads: Uint32Array;
+    sliceCapacities: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSortColumn" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSortColumn {
+    current: NativeSortValues;
+    dirty: Uint32Array;
+    ordered: Uint32Array;
+    ranks: Int32Array;
+    values: NativeSortValues;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSortCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSortCore {
+    buildSortOrder(current: NativeSortValues, live: Uint32Array, values: NativeSortValues, ranks: Int32Array, ordered: Uint32Array, dirty: Uint32Array, counts: Uint32Array): number;
+    sortSelect(columns: readonly NativeSortColumn[], directions: Uint8Array, filter: Uint32Array, live: Uint32Array, limit: number, anchorRanks: Int32Array | null, anchorValues: NativeSortValues | null, output: Uint32Array): number;
+    sortValue(values: NativeStoredValues, ordinal: number, mode: number, outNumber: Float64Array, outText: Uint32Array): number;
+    textRange(column: NativeSortColumn, lower: Uint16Array | null, lowerInclusive: boolean, upper: Uint16Array | null, upperInclusive: boolean, live: Uint32Array, output: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSortValues" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSortValues {
+    kinds: Uint8Array;
+    numbers: Float64Array;
+    textLength: Uint32Array;
+    textStart: Uint32Array;
+    units: Uint16Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSpellingTable" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSpellingTable extends NativeSurfaceTable {
+    codePoints: Uint32Array;
+    runs: NativeRunTable;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeStopWordSetHandle" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
 export type NativeStopWordSetHandle = object;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeStoredValues" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeStoredValues {
+    bytes: Uint8Array;
+    kinds: Uint8Array;
+    numbers: Float64Array;
+    shapes: Uint8Array;
+    starts: Uint32Array;
+    textLength: Uint32Array;
+    textStart: Uint32Array;
+    units: Uint16Array;
+}
 
 // Warning: (ae-internal-missing-underscore) The name "NativeStoreHandle" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -856,13 +1388,16 @@ export type NativeStoreHandle = object;
 // @internal
 export interface NativeStoreMemory {
     bits: number;
+    bornAt: BigInt64Array;
     centroid: Float32Array;
     codeBlocks: Uint8Array[];
     codePresent: Uint8Array;
     dimension: number;
     magnitudes: Float64Array;
+    pins: BigInt64Array;
     present: Uint8Array;
     recordsPerBlock: number;
+    retiredAt: BigInt64Array;
     storeHeader: Int32Array;
     vectorBlocks: Array<Uint8Array | null>;
     vectorFile: Int32Array;
@@ -870,6 +1405,85 @@ export interface NativeStoreMemory {
     vectorOffset: Uint32Array;
     vectorsPerBlock: number;
     vectorStrideBytes: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSurfaceTable" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSurfaceTable {
+    count: Uint32Array;
+    strings: NativeTermTable;
+    token: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSynonymCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSynonymCore {
+    expandSynonyms(table: NativeSynonymTable, units: Uint16Array, starts: Uint32Array, queries: Uint32Array, offsets: Uint32Array, tokens: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSynonymTable" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSynonymTable {
+    offsets: Uint32Array;
+    ruleSource: Int32Array;
+    ruleStart: Uint32Array;
+    ruleTokens: Uint32Array;
+    tokenRules: Uint32Array;
+    tokens: Uint8Array;
+    tokenStart: Uint32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeTermColumns" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeTermColumns {
+    deadDocuments: Uint32Array;
+    docFrequency: Uint32Array;
+    flags: Uint8Array;
+    lengths: Uint32Array;
+    revision: Uint32Array;
+    sliceClass: Uint8Array;
+    sliceStart: Uint32Array;
+    surfaceOccurrences: Float64Array;
+    totalTermFrequency: Float64Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeTermCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeTermCore {
+    documentFrequency(dictionary: NativeTermDictionary, ordinal: number, output: Uint32Array): number;
+    lookupExact(dictionary: NativeTermDictionary, text: Uint16Array, output: Uint32Array): number;
+    lookupExactBatch(dictionary: NativeTermDictionary, units: Uint16Array, offsets: Uint32Array, output: Uint32Array): number;
+    lookupPrefix(dictionary: NativeTermDictionary, text: Uint16Array, limit: number, output: Uint32Array): number;
+    lookupTypo(dictionary: NativeTermDictionary, text: Uint16Array, tolerance: number, prefixLength: number, output: Uint32Array): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeTermDictionary" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeTermDictionary {
+    frequencies: Uint32Array;
+    growing: NativeTermTable | null;
+    offsets: Uint32Array;
+    removed: Uint32Array;
+    tokens: Uint8Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeTermTable" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeTermTable {
+    firstUnitHead: Uint32Array;
+    firstUnitNext: Uint32Array;
+    header: Uint32Array;
+    slots: Int32Array;
+    termLength: Uint32Array;
+    termOffset: Uint32Array;
+    units: Uint16Array;
 }
 
 // @public

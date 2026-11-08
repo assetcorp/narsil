@@ -120,6 +120,7 @@ export interface SharedVectorFieldHandles {
 // @internal
 export interface SharedVectorStoreHandles {
     blocks: Array<VectorBlockHandle<VectorBlockLayout> | null>;
+    bornAt: GrowableBuffer;
     centroid: Float32Array;
     codeBits: OsqBits | null;
     codeBlocks: VectorBlockHandle<VectorCodeBlockLayout>[];
@@ -135,8 +136,10 @@ export interface SharedVectorStoreHandles {
     layoutRevision: number;
     magnitudes: GrowableBuffer;
     partitions: GrowableBuffer;
+    pins: BigInt64Array;
     present: GrowableBuffer;
     removed: GrowableBuffer;
+    retiredAt: GrowableBuffer;
     unplaced: GrowableBuffer;
     unplacedChunks: GrowableBuffer;
     vectorFiles: string[];
