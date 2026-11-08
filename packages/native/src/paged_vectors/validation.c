@@ -121,7 +121,8 @@ static int field_settings_invalid(const narsil_paged_vector_field *field) {
          (field->bits == 0 ? field->centroid_count != 0 : field->centroid_count != field->dimension);
 }
 
-static int request_settings_invalid(const narsil_paged_vector_field *field, const narsil_paged_vector_request *request) {
+static int request_settings_invalid(const narsil_paged_vector_field *field,
+                                    const narsil_paged_vector_request *request) {
   size_t words = field->total == 0 ? 1 : (((size_t)field->total - 1) / PAGED_BIT_WORD_BITS) + 1;
   return request->query_count != field->dimension || request->explicit_rescore_window < 0 ||
          request->explicit_rescore_window > 1 || request->rescore_depth > request->ef ||
