@@ -15,6 +15,119 @@
     "url": "https://github.com/assetcorp/narsil/issues"
   },
   "imports": {
+    "#platform/stored-field-merges": {
+      "react-native": "./src/core/field-merges/stored-host.ts",
+      "browser": "./src/core/field-merges/stored-host.browser.ts",
+      "default": "./src/core/field-merges/stored-host.ts"
+    },
+    "#msgpack/encode": {
+      "types": "@msgpack/msgpack",
+      "default": "@msgpack/msgpack/dist.esm/encode.mjs"
+    },
+    "#msgpack/encoder": {
+      "types": "@msgpack/msgpack",
+      "default": "@msgpack/msgpack/dist.esm/Encoder.mjs"
+    },
+    "#platform/highlight": {
+      "react-native": "./src/highlighting/native.ts",
+      "browser": "./src/highlighting/native.browser.ts",
+      "default": "./src/highlighting/native.ts"
+    },
+    "#platform/term-suggestions": {
+      "react-native": "./src/core/expansion/suggestions-native.ts",
+      "browser": "./src/core/expansion/suggestions.ts",
+      "default": "./src/core/expansion/suggestions-native.ts"
+    },
+    "#platform/phrase-core": {
+      "react-native": "./src/core/phrases/native.ts",
+      "browser": "./src/core/phrases/portable.ts",
+      "default": "./src/core/phrases/native.ts"
+    },
+    "#platform/synonym-expansion": {
+      "react-native": "./src/core/synonyms/native.ts",
+      "browser": "./src/core/synonyms/portable.ts",
+      "default": "./src/core/synonyms/native.ts"
+    },
+    "#platform/field-merges": {
+      "react-native": "./src/core/field-merges/native.ts",
+      "browser": "./src/core/field-merges/portable.ts",
+      "default": "./src/core/field-merges/native.ts"
+    },
+    "#platform/segment-merges": {
+      "react-native": "./src/core/segment-merges/native.ts",
+      "browser": "./src/core/segment-merges/portable.ts",
+      "default": "./src/core/segment-merges/native.ts"
+    },
+    "#platform/frozen-writes": {
+      "react-native": "./src/core/frozen-writes/native.ts",
+      "browser": "./src/core/frozen-writes/portable.ts",
+      "default": "./src/core/frozen-writes/native.ts"
+    },
+    "#platform/segment-writes": {
+      "react-native": "./src/core/segment-writes/native.ts",
+      "browser": "./src/core/segment-writes/portable.ts",
+      "default": "./src/core/segment-writes/native.ts"
+    },
+    "#platform/term-lookups": {
+      "react-native": "./src/core/term-table/native.ts",
+      "browser": "./src/core/term-table/portable.ts",
+      "default": "./src/core/term-table/native.ts"
+    },
+    "#platform/pattern-test": {
+      "react-native": "./src/pattern/native.ts",
+      "browser": "./src/pattern/evaluate.ts",
+      "default": "./src/pattern/evaluate.ts"
+    },
+    "#platform/filter-plan": {
+      "react-native": "./src/core/filters/native.ts",
+      "browser": "./src/core/filters/portable.ts",
+      "default": "./src/core/filters/native.ts"
+    },
+    "#platform/facet-count": {
+      "react-native": "./src/core/facets/native.ts",
+      "browser": "./src/core/facets/browser.ts",
+      "default": "./src/core/facets/native.ts"
+    },
+    "#platform/sort-value": {
+      "react-native": "./src/core/sort-values/native.ts",
+      "browser": "./src/core/sort-values/browser.ts",
+      "default": "./src/core/sort-values/native.ts"
+    },
+    "#platform/group-hits": {
+      "react-native": "./src/core/groups/native.ts",
+      "browser": "./src/core/groups/portable.ts",
+      "default": "./src/core/groups/native.ts"
+    },
+    "#platform/group-merge": {
+      "react-native": "./src/core/merges/groups.native.ts",
+      "browser": "./src/core/merges/groups.ts",
+      "default": "./src/core/merges/groups.native.ts"
+    },
+    "#platform/facet-merge": {
+      "react-native": "./src/core/merges/facets.native.ts",
+      "browser": "./src/core/merges/facets.ts",
+      "default": "./src/core/merges/facets.native.ts"
+    },
+    "#platform/pinned-core": {
+      "react-native": "./src/search/pinned-core.native.ts",
+      "browser": "./src/search/pinned-core.ts",
+      "default": "./src/search/pinned-core.native.ts"
+    },
+    "#platform/result-merges": {
+      "react-native": "./src/core/merges/native.ts",
+      "browser": "./src/core/merges/portable.ts",
+      "default": "./src/core/merges/native.ts"
+    },
+    "#platform/fusion-core": {
+      "react-native": "./src/search/fusion-core.native.ts",
+      "browser": "./src/search/fusion-core.ts",
+      "default": "./src/search/fusion-core.native.ts"
+    },
+    "#platform/page-start": {
+      "react-native": "./src/search/page-start.native.ts",
+      "browser": "./src/search/page-start.ts",
+      "default": "./src/search/page-start.native.ts"
+    },
     "#platform/worker-factory": {
       "react-native": "./src/workers/factory.react-native.ts",
       "browser": "./src/workers/factory.browser.ts",
@@ -125,6 +238,14 @@
       "browser": "./src/core/partition/partial-words/platform.browser.ts",
       "default": "./src/core/partition/partial-words/platform.ts"
     },
+    "#platform/prefix-expansion": {
+      "browser": "./src/core/expansion/portable.ts",
+      "default": "./src/core/expansion/native.ts"
+    },
+    "#platform/partial-expansion": {
+      "browser": "./src/core/expansion/partial.ts",
+      "default": "./src/core/expansion/partial-native.ts"
+    },
     "#platform/synonym-search": {
       "browser": "./src/core/synonyms/platform.browser.ts",
       "default": "./src/core/synonyms/platform.ts"
@@ -171,9 +292,10 @@
   "scripts": {
     "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && node scripts/check-vector-chunk.mjs && tsx scripts/api-surface.ts",
     "build:code": "rm -rf dist && NARSIL_BUILD_CODE_ONLY=1 tsup",
+    "build:types": "NARSIL_BUILD_TYPES_ONLY=1 tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts' --exclude='**/persistence/live-object-stores/**'",
     "test:object-stores": "vitest run src/__tests__/persistence/live-object-stores",
-    "test:native": "vitest run src/__tests__/core/tokenizer src/__tests__/core/keyword-score src/__tests__/math src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",
+    "test:native": "vitest run src/__tests__/core/tokenizer src/__tests__/core/keyword-score src/__tests__/math src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread src/__tests__/integration/sort-value-reduction.test.ts src/__tests__/integration/hybrid-fusion-extreme-scores.test.ts",
     "test:cluster": "vitest run src/__tests__/e2e/cluster-memory --no-file-parallelism",
     "test:faults": "vitest run src/__tests__/e2e/cluster-faults --no-file-parallelism",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
@@ -276,6 +398,10 @@
         "types": "./dist/partial-words.d.ts",
         "default": "./dist/react-native/partial-words.mjs"
       },
+      "browser": {
+        "types": "./dist/partial-words.d.ts",
+        "default": "./dist/partial-words.browser.mjs"
+      },
       "import": "./dist/partial-words.mjs",
       "types": "./dist/partial-words.d.ts"
     },
@@ -283,6 +409,10 @@
       "react-native": {
         "types": "./dist/synonyms.d.ts",
         "default": "./dist/react-native/synonyms.mjs"
+      },
+      "browser": {
+        "types": "./dist/synonyms.d.ts",
+        "default": "./dist/synonyms.browser.mjs"
       },
       "import": "./dist/synonyms.mjs",
       "types": "./dist/synonyms.d.ts"

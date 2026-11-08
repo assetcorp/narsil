@@ -83,6 +83,8 @@ const codeBuilds: Options[] = [
     ...shared,
     entry: {
       'index.browser': 'src/index.ts',
+      'partial-words.browser': 'src/partial-words/index.ts',
+      'synonyms.browser': 'src/synonyms/index.ts',
       'sync.browser': 'src/sync/device/index.ts',
       'query-suggestions.browser': 'src/query-suggestions/index.ts',
     },
@@ -124,4 +126,10 @@ const typeBuild: Options = {
   external: [...NODE_EXTERNAL, ...OPTIONAL_PEERS],
 }
 
-export default defineConfig(process.env.NARSIL_BUILD_CODE_ONLY === '1' ? codeBuilds : [...codeBuilds, typeBuild])
+export default defineConfig(
+  process.env.NARSIL_BUILD_TYPES_ONLY === '1'
+    ? [typeBuild]
+    : process.env.NARSIL_BUILD_CODE_ONLY === '1'
+      ? codeBuilds
+      : [...codeBuilds, typeBuild],
+)
