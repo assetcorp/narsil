@@ -2,23 +2,43 @@ import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-
 import { rowRemoved } from '../segment-writes/postings'
 import { requireSegment } from '../segment-writes/status'
 import { storedText } from '../stored-values/text'
-import type { MergePosting } from './plan'
-import { mergeText } from './text'
+import { mergeTextBytes } from './text'
+
+const encoder = new TextEncoder()
+
+export interface MergePosting {
+  input: NativeKeywordMergeInput
+  row: number
+  target: number
+  source: number
+  positionStart: number
+  positionCount: number
+  positions: Uint32Array | null
+  frequency: number
+  field: number
+}
 
 export function sourceTermCount(input: NativeKeywordMergeInput): number {
   return input.growing?.terms.header[0] ?? input.terms.counts.length
 }
 
-export function sourceTerm(input: NativeKeywordMergeInput, ordinal: number) {
+export interface SourceTerm {
+  text: string | null
+  bytes: Uint8Array
+  start: number
+  end: number
+}
+
+export function sourceTerm(input: NativeKeywordMergeInput, ordinal: number): SourceTerm | null {
   const segment = input.growing
   if (segment == null) {
     const slot = input.payloadSlots[ordinal]
     if (slot >= input.terms.counts.length) return null
-    const text = mergeText(input.terms, ordinal)
-    if (text === null) return null
+    const bytes = mergeTextBytes(input.terms, ordinal)
+    if (bytes === null) return null
     const start = input.postingOffsets[slot]
     const end = input.postingOffsets[slot + 1]
-    return start >= end || end > input.postingDocuments.length ? null : { text, start, end }
+    return start >= end || end > input.postingDocuments.length ? null : { text: null, bytes, start, end }
   }
   const { columns, terms, postings } = segment
   if ((columns.flags[ordinal] & 1) === 0) return null
@@ -45,7 +65,59 @@ export function sourceTerm(input: NativeKeywordMergeInput, ordinal: number) {
     if (unit >= 0xdc00 || ++at >= from + length) return null
     if (terms.units[at] < 0xdc00 || terms.units[at] >= 0xe000) return null
   }
-  return { text: storedText(terms.units, from, length), start, end: start + rows }
+  const text = storedText(terms.units, from, length)
+  return { text, bytes: encoder.encode(text), start, end: start + rows }
+}
+
+export interface PostingRead {
+  target: number
+  field: number
+  frequency: number
+  positions: Uint32Array | null
+  positionStart: number
+  positionCount: number
+}
+
+export function createPostingRead(): PostingRead {
+  return { target: 0, field: 0, frequency: 0, positions: null, positionStart: 0, positionCount: 0 }
+}
+
+export function readPosting(input: NativeKeywordMergeInput, token: number, row: number, read: PostingRead): boolean {
+  const segment = input.growing
+  const document = segment == null ? input.postingDocuments[row] : segment.postings.docIds[row]
+  const field = segment == null ? input.postingFields[row] : segment.postings.fieldIndices[row]
+  if (document >= input.documentCount || field >= input.fieldMapping.length) return false
+  const target = input.mapping[document]
+  if (target === 0xffffffff || (segment != null && rowRemoved(segment, document))) return false
+  read.target = target
+  read.field = field
+  read.frequency = segment == null ? input.postingFrequencies[row] : segment.postings.frequencies[row]
+  read.positions = null
+  read.positionStart = 0
+  read.positionCount = 0
+  if (segment == null) {
+    if (input.positionOffsets !== null && input.positionValues !== null) {
+      const start = input.positionOffsets[row]
+      const end = input.positionOffsets[row + 1]
+      if (start <= end && end <= input.positionValues.length) {
+        read.positionStart = start
+        read.positionCount = end - start
+        read.positions = input.positionValues
+      }
+    }
+  } else if (segment.positions !== null && (segment.columns.flags[token] & 4) !== 0) {
+    const starts = segment.postings.positionStarts
+    requireSegment(starts !== null)
+    const start = starts[row]
+    const end = segment.positions.allocation[0]
+    if (end > segment.positions.values.length || start >= end || start === 0) return true
+    const count = segment.positions.values[start]
+    if (count >= end - start) return true
+    read.positionStart = start + 1
+    read.positionCount = count
+    read.positions = segment.positions.values
+  }
+  return true
 }
 
 export function sourcePosting(
@@ -54,46 +126,7 @@ export function sourcePosting(
   token: number,
   row: number,
 ): MergePosting | null {
-  const segment = input.growing
-  const document = segment == null ? input.postingDocuments[row] : segment.postings.docIds[row]
-  const field = segment == null ? input.postingFields[row] : segment.postings.fieldIndices[row]
-  if (document >= input.documentCount || field >= input.fieldMapping.length) {
-    return null
-  }
-  if (input.mapping[document] === 0xffffffff || (segment != null && rowRemoved(segment, document))) return null
-  const result: MergePosting = {
-    input,
-    row,
-    source,
-    target: input.mapping[document],
-    field,
-    frequency: segment == null ? input.postingFrequencies[row] : segment.postings.frequencies[row],
-    positions: null,
-    positionStart: 0,
-    positionCount: 0,
-  }
-  if (segment == null) {
-    if (input.positionOffsets !== null && input.positionValues !== null) {
-      const start = input.positionOffsets[row]
-      const end = input.positionOffsets[row + 1]
-      if (start <= end && end <= input.positionValues.length) {
-        result.positionStart = start
-        result.positionCount = end - start
-        result.positions = input.positionValues
-      }
-    }
-  } else if (segment.positions !== null && (segment.columns.flags[token] & 4) !== 0) {
-    const starts = segment.postings.positionStarts
-    requireSegment(starts !== null)
-    const start = starts[row]
-    const end = segment.positions.allocation[0]
-    if (end > segment.positions.values.length || start >= end) return result
-    if (start === 0) return result
-    const count = segment.positions.values[start]
-    if (count >= end - start) return result
-    result.positionStart = start + 1
-    result.positionCount = count
-    result.positions = segment.positions.values
-  }
-  return result
+  const read = createPostingRead()
+  if (!readPosting(input, token, row, read)) return null
+  return { input, row, source, ...read }
 }

@@ -11,8 +11,6 @@ export interface MergeString {
   count: number
 }
 
-const encoder = new TextEncoder()
-
 export function mergeStrings(inputs: readonly NativeKeywordMergeInput[], terms: ReadonlySet<string>, partial: boolean) {
   const collected = new Map<string, Map<string, MergeString>>()
   for (const input of inputs) {
@@ -35,8 +33,8 @@ export function mergeStrings(inputs: readonly NativeKeywordMergeInput[], terms: 
         byToken.set(key, {
           spelling,
           token,
-          spellingBytes: encoder.encode(spelling),
-          tokenBytes: encoder.encode(token),
+          spellingBytes: table.text.subarray(table.offsets[at * 2], table.offsets[at * 2 + 1]),
+          tokenBytes: table.text.subarray(table.offsets[at * 2 + 1], table.offsets[at * 2 + 2]),
           count,
         })
       } else {
