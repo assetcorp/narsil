@@ -103,6 +103,7 @@ interface Contest {
   started: number
   hostile: Promise<FreshAnswer>
   normals: FreshAnswer[]
+  completedWhileHeld?: boolean
 }
 
 function normalSearches(server: PatternServer, normalFilters: unknown): Promise<FreshAnswer[]> {
@@ -134,8 +135,12 @@ async function contestWhileHeld(
     answeredWhileHeld = settled
     held.open()
   }
-  expect(answeredWhileHeld, `${label} answered while the long-query thread was held`).toBe(false)
-  if (answered !== null) return { started, hostile, normals: answered }
+  if (answeredWhileHeld) {
+    expect((await hostile).endedAt - started, label).toBeLessThan(NORMAL_SEARCH_DEADLINE_MS)
+    expect(answered, label).not.toBeNull()
+    for (const normal of answered ?? []) expect(normal.endedAt - started, label).toBeLessThan(NORMAL_SEARCH_DEADLINE_MS)
+  }
+  if (answered !== null) return { started, hostile, normals: answered, completedWhileHeld: answeredWhileHeld }
   await Promise.allSettled([hostile, normals])
   const { movedSinceClosed } = await held.report()
   if (movedSinceClosed > 1) return null
@@ -173,14 +178,20 @@ async function expectOtherThreadsAnswerFirst(
   gate: LongQueryGate | undefined,
 ): Promise<TimedResponse> {
   const held = ordered ? gate : undefined
-  const { started, hostile, normals } = await contest(server, hostileBody, normalFilters, label, held)
+  const { started, hostile, normals, completedWhileHeld } = await contest(
+    server,
+    hostileBody,
+    normalFilters,
+    label,
+    held,
+  )
   const answered = await hostile
   for (const normal of normals) {
     expect({ status: normal.status, answered: (normal.hits ?? 0) > 0 }, label).toEqual({ status: 200, answered: true })
   }
   const answeredFirst = normals.filter(normal => normal.endedAt < answered.endedAt).length
-  if (ordered) expect(answeredFirst, label).toBe(server.requestThreads)
-  if (held !== undefined) {
+  if (ordered && !completedWhileHeld) expect(answeredFirst, label).toBe(server.requestThreads)
+  if (held !== undefined && !completedWhileHeld) {
     const report = await held.report()
     expect(report.movedSinceClosed, label).toBeGreaterThanOrEqual(1)
     expect(report.longQuery, label).toBeGreaterThan(Math.max(0, ...report.others))

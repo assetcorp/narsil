@@ -64,4 +64,27 @@ describe('a restart on the write-ahead-log tier after a rebalance', { timeout: 3
     expect(await reader.get('products', 'later39')).toMatchObject({ title: 'Later 39' })
     await reader.shutdown()
   })
+
+  it('retains an empty layout through repeated partition changes and a restart', async () => {
+    const writer = await createNarsil({
+      durability: { directory: root, checkpointIntervalMs: 0 },
+      workers: { enabled: false },
+    })
+    try {
+      await writer.createIndex('products', { ...PRODUCT_SCHEMA, partitions: { maxPartitions: 4 } })
+      await writer.rebalance('products', 1)
+      await writer.rebalance('products', 3)
+    } finally {
+      await writer.shutdown()
+    }
+    const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    try {
+      expect(reader.getPartitionStats('products')).toHaveLength(3)
+      expect(await reader.countDocuments('products')).toBe(0)
+      await reader.insert('products', { title: 'Oak table', price: 100 }, 'first')
+      expect((await reader.query('products', { term: 'oak' })).hits.map(hit => hit.id)).toEqual(['first'])
+    } finally {
+      await reader.shutdown()
+    }
+  })
 })
