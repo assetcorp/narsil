@@ -20,14 +20,6 @@
       "browser": "./src/core/field-merges/stored-host.browser.ts",
       "default": "./src/core/field-merges/stored-host.ts"
     },
-    "#msgpack/encode": {
-      "types": "@msgpack/msgpack",
-      "default": "@msgpack/msgpack/dist.esm/encode.mjs"
-    },
-    "#msgpack/encoder": {
-      "types": "@msgpack/msgpack",
-      "default": "@msgpack/msgpack/dist.esm/Encoder.mjs"
-    },
     "#platform/highlight": {
       "react-native": "./src/highlighting/native.ts",
       "browser": "./src/highlighting/native.browser.ts",
