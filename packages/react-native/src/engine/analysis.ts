@@ -73,9 +73,11 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
     languageRevision: language => textOf(languageRevision(language), 'languageRevision'),
     languageStopWords: language => textListOf(languageStopWords(language), 'languageStopWords'),
     createStopWordSet: words => handleOf(createStopWordSet(words)),
-    analyse: (language, flags, text, stopWords, records) =>
+    analyse: (language, flags, text, stopWords, records, units) =>
       analysisResultOf(
-        analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length),
+        units === undefined
+          ? analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length)
+          : analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length, units),
         'analyse',
       ),
     transform(language, flags, token) {

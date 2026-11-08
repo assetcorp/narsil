@@ -1,11 +1,14 @@
 #include "HostMemory.hpp"
 #include "HybridNarsilCoreImpl.hpp"
+#include "TypedElements.hpp"
+#include "narsil_packed_tokens.h"
 
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -158,6 +161,7 @@ jsi::Value textOf(jsi::Runtime& runtime, std::u16string& out, const uint16_t* un
 void HybridNarsilCoreImpl::loadHybridMethods() {
   HybridNarsilCoreSpec::loadHybridMethods();
   registerHybrids(this, [](Prototype& prototype) {
+    prototype.registerRawHybridMethod("matchPhrases", MATCH_PHRASES_ARGUMENT_COUNT, &HybridNarsilCoreImpl::matchPhrases);
     prototype.registerRawHybridMethod("languageCount", 0, &HybridNarsilCoreImpl::languageCount);
     prototype.registerRawHybridMethod("languageName", 1, &HybridNarsilCoreImpl::languageName);
     prototype.registerRawHybridMethod("languageRevision", 1, &HybridNarsilCoreImpl::languageRevision);
@@ -167,6 +171,64 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("transform", TRANSFORM_ARGUMENT_COUNT, &HybridNarsilCoreImpl::transform);
     prototype.registerRawHybridMethod("keywordScore", KEYWORD_SCORE_ARGUMENT_COUNT,
                                       &HybridNarsilCoreImpl::keywordScore);
+    prototype.registerRawHybridMethod("fuse", FUSION_ARGUMENT_COUNT, &HybridNarsilCoreImpl::fuse);
+    prototype.registerRawHybridMethod("mergeRankings", MERGE_RANKINGS_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::mergeRankings);
+    prototype.registerRawHybridMethod("mergeSorted", MERGE_SORTED_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::mergeSorted);
+    prototype.registerRawHybridMethod("placePinned", PINNED_ARGUMENT_COUNT, &HybridNarsilCoreImpl::placePinned);
+    prototype.registerRawHybridMethod("mergeFacets", FACET_MERGE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::mergeFacets);
+    prototype.registerRawHybridMethod("mergeGroups", GROUP_MERGE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::mergeGroups);
+    prototype.registerRawHybridMethod("groupHits", GROUP_HITS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::groupHits);
+    prototype.registerRawHybridMethod("pageStart", PAGE_START_ARGUMENT_COUNT, &HybridNarsilCoreImpl::pageStart);
+    prototype.registerRawHybridMethod("sortValue", SORT_VALUE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::sortValue);
+    prototype.registerRawHybridMethod("buildSortOrder", SORT_ORDER_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::buildSortOrder);
+    prototype.registerRawHybridMethod("textRange", TEXT_RANGE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::textRange);
+    prototype.registerRawHybridMethod("booleanFacet", BOOLEAN_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::booleanFacet);
+    prototype.registerRawHybridMethod("numberFacet", NUMERIC_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::numberFacet);
+    prototype.registerRawHybridMethod("rangeFacet", NUMERIC_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::rangeFacet);
+    prototype.registerRawHybridMethod("enumFacet", ENUM_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::enumFacet);
+    prototype.registerRawHybridMethod("valueFacet", VALUE_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::valueFacet);
+    prototype.registerRawHybridMethod("storedRangeFacet", STORED_RANGE_FACET_ARGUMENT_COUNT, &HybridNarsilCoreImpl::storedRangeFacet);
+    prototype.registerRawHybridMethod("sortSelect", SORT_SELECT_ARGUMENT_COUNT, &HybridNarsilCoreImpl::sortSelect);
+    prototype.registerRawHybridMethod("evaluateFilter", FILTER_ARGUMENT_COUNT, &HybridNarsilCoreImpl::evaluateFilter);
+    prototype.registerRawHybridMethod("patternTest", PATTERN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::patternTest);
+    prototype.registerRawHybridMethod("lookupExact", LOOKUP_EXACT_ARGUMENT_COUNT, &HybridNarsilCoreImpl::lookupExact);
+    prototype.registerRawHybridMethod("lookupExactBatch", LOOKUP_EXACT_BATCH_ARGUMENT_COUNT, &HybridNarsilCoreImpl::lookupExactBatch);
+    prototype.registerRawHybridMethod("expandSynonyms", EXPAND_SYNONYMS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::expandSynonyms);
+    prototype.registerRawHybridMethod("expandPrefix", EXPAND_PREFIX_ARGUMENT_COUNT, &HybridNarsilCoreImpl::expandPrefix);
+    prototype.registerRawHybridMethod("expandPartialWords", EXPAND_PARTIAL_ARGUMENT_COUNT, &HybridNarsilCoreImpl::expandPartialWords);
+    prototype.registerRawHybridMethod("suggestTerms", SUGGEST_TERMS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::suggestTerms);
+    prototype.registerRawHybridMethod("highlight", HIGHLIGHT_ARGUMENT_COUNT, &HybridNarsilCoreImpl::highlight);
+    prototype.registerRawHybridMethod("openPagedFile", 1, &HybridNarsilCoreImpl::openPagedFile);
+    prototype.registerRawHybridMethod("closePagedFile", 1, &HybridNarsilCoreImpl::closePagedFile);
+    prototype.registerRawHybridMethod("readPage", 5, &HybridNarsilCoreImpl::readPage);
+    prototype.registerRawHybridMethod("readPageAsync", 5, &HybridNarsilCoreImpl::readPageAsync);
+    prototype.registerRawHybridMethod("readPagedPostings", 8, &HybridNarsilCoreImpl::readPagedPostings);
+    prototype.registerRawHybridMethod("readPagedPositions", 8, &HybridNarsilCoreImpl::readPagedPositions);
+    prototype.registerRawHybridMethod("readPagedRemovals", 7, &HybridNarsilCoreImpl::readPagedRemovals);
+    prototype.registerRawHybridMethod("readPagedId", 6, &HybridNarsilCoreImpl::readPagedId);
+    prototype.registerRawHybridMethod("readPagedOrdinal", 6, &HybridNarsilCoreImpl::readPagedOrdinal);
+    prototype.registerRawHybridMethod("readPagedWriteRecord", 6, &HybridNarsilCoreImpl::readPagedWriteRecord);
+    prototype.registerRawHybridMethod("readPagedTotals", 6, &HybridNarsilCoreImpl::readPagedTotals);
+    prototype.registerRawHybridMethod("searchPagedVectors", 9, &HybridNarsilCoreImpl::searchPagedVectors);
+    prototype.registerRawHybridMethod("searchPagedVectorsAsync", 9, &HybridNarsilCoreImpl::searchPagedVectorsAsync);
+    prototype.registerRawHybridMethod("lookupPrefix", LOOKUP_PREFIX_ARGUMENT_COUNT, &HybridNarsilCoreImpl::lookupPrefix);
+    prototype.registerRawHybridMethod("lookupTypo", LOOKUP_TYPO_ARGUMENT_COUNT, &HybridNarsilCoreImpl::lookupTypo);
+    prototype.registerRawHybridMethod("documentFrequency", DOCUMENT_FREQUENCY_ARGUMENT_COUNT, &HybridNarsilCoreImpl::documentFrequency);
+    prototype.registerRawHybridMethod("indexTerms", INDEX_TERMS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::indexTerms);
+    prototype.registerRawHybridMethod("removeDocument", INDEX_TERMS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::removeDocument);
+    prototype.registerRawHybridMethod("removeFrozenDocument", REMOVE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::removeFrozenDocument);
+    prototype.registerRawHybridMethod("prepareFrozenRemoval", PREPARE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::prepareFrozenRemoval);
+    prototype.registerRawHybridMethod("beginBatch", 1, &HybridNarsilCoreImpl::beginBatch);
+    prototype.registerRawHybridMethod("measureMerge", 4, &HybridNarsilCoreImpl::measureMerge);
+    prototype.registerRawHybridMethod("writeMerge", 4, &HybridNarsilCoreImpl::writeMerge);
+    prototype.registerRawHybridMethod("mergePostings", 4, &HybridNarsilCoreImpl::mergePostings);
+    prototype.registerRawHybridMethod("measureFieldMerge", 4, &HybridNarsilCoreImpl::measureFieldMerge);
+    prototype.registerRawHybridMethod("writeFieldMerge", 4, &HybridNarsilCoreImpl::writeFieldMerge);
+    prototype.registerRawHybridMethod("endBatch", 1, &HybridNarsilCoreImpl::endBatch);
+    prototype.registerRawHybridMethod("clockNow", 1, &HybridNarsilCoreImpl::clockNow);
   });
 }
 
@@ -241,17 +303,30 @@ jsi::Value HybridNarsilCoreImpl::analyse(jsi::Runtime& runtime, const jsi::Value
   request.flags = wholeArgument(arguments, count, ANALYSE_FLAGS, "The analysis flags");
   if (count < ANALYSE_ARGUMENT_COUNT) throwInvalid("analyse takes seven arguments");
   request.stop_words = stopWordsArgument(runtime, arguments[ANALYSE_STOP_WORDS]);
-  size_t capacity = 0;
-  uint32_t* records = recordsArgument(runtime, arguments, count, &capacity);
+  std::optional<TypedElements> packed;
+  if (count > ANALYSE_ARGUMENT_COUNT && !arguments[ANALYSE_ARGUMENT_COUNT].isUndefined()) {
+    packed.emplace(1);
+    packed->prepare(runtime, 0, arguments[ANALYSE_ARGUMENT_COUNT]);
+  }
   RuntimeState& analysis = stateOf(runtime);
   readText(runtime, arguments[ANALYSE_TEXT], "The text", analysis.textUnits);
   narsil_analyser* active = analyserOf(analysis.analyser);
   if (active == nullptr) return statusValue(NARSIL_OUT_OF_MEMORY);
+  size_t capacity = 0;
+  uint32_t* records = recordsArgument(runtime, arguments, count, &capacity);
+  Elements<uint16_t> units{nullptr, 0};
+  if (packed) units = packed->read<uint16_t>(runtime, 0, "The packed analysis text");
   request.text = analysis.textUnits.empty() ? NO_UNITS : analysis.textUnits.data();
   request.length = static_cast<uint32_t>(analysis.textUnits.size());
   narsil_tokens tokens = {nullptr, 0, nullptr, 0};
   narsil_status status = narsil_analyse(active, &request, &tokens);
   if (status != NARSIL_OK) return statusValue(status);
+  if (packed) {
+    uint32_t required = 0;
+    status = narsil_pack_tokens(&tokens, records, capacity, units.data, units.length, &required);
+    if (status != NARSIL_OK && status != NARSIL_NEEDS_ROOM) return statusValue(status);
+    return jsi::Value(static_cast<double>(required));
+  }
   if (!writeRecords(tokens, records, capacity)) return jsi::Value::null();
   return textOf(runtime, analysis.textOut, tokens.units, tokens.unit_count);
 }

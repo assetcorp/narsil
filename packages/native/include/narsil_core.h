@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define NARSIL_CORE_ABI_VERSION 8
+#define NARSIL_CORE_ABI_VERSION 49
 
 #define NARSIL_GRAPH_HEADER_WORDS 160
 #define NARSIL_STORE_HEADER_WORDS 16
@@ -61,6 +61,12 @@ typedef enum {
   NARSIL_NEEDS_ROOM = 3,
   NARSIL_GRAPH_NOT_HELD_ALONE = 4,
   NARSIL_FILE_UNREADABLE = 5,
+  NARSIL_WORK_CAP_EXCEEDED = 6,
+  NARSIL_STOPPED = 7,
+  NARSIL_SEGMENT_FULL = 8,
+  NARSIL_PAGE_CORRUPT = 9,
+  NARSIL_PAGE_UNREADABLE = 10,
+  NARSIL_PAGE_INVALID = 11,
 } narsil_status;
 
 typedef void (*narsil_wake)(void *context, int32_t ordinal);
@@ -106,6 +112,10 @@ typedef struct {
   const uint32_t *vector_offset;
   const narsil_vector_file *files;
   uint32_t file_count;
+  const int64_t *born_at;
+  const int64_t *retired_at;
+  const int64_t *pins;
+  uint32_t pin_slots;
 } narsil_store;
 
 typedef struct narsil_workspace narsil_workspace;
@@ -128,6 +138,7 @@ typedef struct {
   uint32_t candidate_count;
   uint32_t thread_slot;
   narsil_ordinal_set accepted;
+  int64_t pin;
 } narsil_search_request;
 
 typedef struct {
@@ -135,6 +146,7 @@ typedef struct {
   uint32_t metric;
   const int32_t *ordinals;
   uint32_t count;
+  int64_t pin;
 } narsil_score_request;
 
 typedef struct {
