@@ -27,7 +27,8 @@ def field_lines(model_field: FieldDef, out: Rendered) -> list[str]:
 
 
 def model_lines(model: ModelDef, out: Rendered) -> list[str]:
-    lines = [f"class {model.name}(ApiModel):"]
+    base = "ScoredHitModel" if model.name == "Hit" else "ApiModel"
+    lines = [f"class {model.name}({base}):"]
     lines.extend(docstring([model.description], "    "))
     if model.fields:
         if len(lines) > 1:
@@ -75,6 +76,8 @@ def render_models(api: Api) -> dict[str, str]:
     header.append("")
     model_imports = ["ApiModel"] + (["OPEN_ENUM"] if out.uses_open_enum else [])
     header.append(f"from narsil_client._model import {', '.join(sorted(model_imports, key=str.lower))}")
+    if "Hit" in definitions:
+        header.append("from narsil_client._score import ScoredHitModel")
     exported = sorted(definitions)
     trailer = ["", "", "__all__ = [" + ", ".join(f'"{name}"' for name in exported) + "]"]
     return {"__init__.py": "\n".join([*header, *body, *trailer]) + "\n"}
