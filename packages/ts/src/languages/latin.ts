@@ -77,7 +77,7 @@ function normalize(token: string): string {
  */
 export const latin: LanguageModule = {
   name: 'latin',
-  revision: 'fab8e50be7996c2e',
+  revision: 'a0a6a30a5aa52673',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

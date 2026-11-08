@@ -536,7 +536,7 @@ const stopWords = new Set([
  */
 export const urdu: LanguageModule = {
   name: 'urdu',
-  revision: 'fd2291bdd53aaf56',
+  revision: '54f5ce860cef32d6',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0621-\u065f\u0660-\u0669\u066e-\u06d3\u06f0-\u06f9a-z0-9]+/gi },

@@ -137,7 +137,7 @@ const stopWords = new Set([
  */
 export const bengali: LanguageModule = {
   name: 'bengali',
-  revision: '052fe4b7838b7b47',
+  revision: '80112e62f6f3c1b7',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0980-\u09ffa-z0-9]+/gi },

@@ -242,7 +242,7 @@ const stopWords = new Set([
  */
 export const gujarati: LanguageModule = {
   name: 'gujarati',
-  revision: '00256c9fc2a86f2d',
+  revision: 'b63bb984870e29fb',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0a80-\u0affa-z0-9]+/gi },

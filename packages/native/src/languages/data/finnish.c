@@ -80,7 +80,7 @@ static const uint32_t keep_ranges[16] = {
 
 const narsil_language narsil_language_finnish = {
   .name = "finnish",
-  .revision = "5c1190c245dcbefd",
+  .revision = "8c69ef0ee75e9c50",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 229,

@@ -199,7 +199,7 @@ const stopWords = new Set([
  */
 export const croatian: LanguageModule = {
   name: 'croatian',
-  revision: '82dcf695397c7408',
+  revision: '870b77164d0ae931',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9čćđšž]+/gi },

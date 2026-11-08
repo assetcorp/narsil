@@ -484,7 +484,7 @@ const stopWords = new Set([
  */
 export const arabic: LanguageModule = {
   name: 'arabic',
-  revision: '1140b26008dd7e08',
+  revision: 'd0a5c9d4e227cee2',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0621-\u065f\u0660-\u0669\u066e-\u06d3\u06f0-\u06f9a-z0-9]+/gi },

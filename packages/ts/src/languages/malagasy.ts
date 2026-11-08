@@ -75,7 +75,7 @@ const stopWords = new Set([
  */
 export const malagasy: LanguageModule = {
   name: 'malagasy',
-  revision: '20436a703d3fef51',
+  revision: 'b3855718af10ffaa',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

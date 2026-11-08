@@ -34,7 +34,7 @@ static const uint32_t keep_ranges[38] = {
 
 const narsil_language narsil_language_faroese = {
   .name = "faroese",
-  .revision = "cb081228dd8e9f98",
+  .revision = "d6187f25dde3f7c8",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 81,

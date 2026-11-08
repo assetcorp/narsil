@@ -193,7 +193,7 @@ const stopWords = new Set([
  */
 export const czech: LanguageModule = {
   name: 'czech',
-  revision: '56a7b1116351c68c',
+  revision: '30da1c9208c353ea',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áčďéěíňóřšťúůýž]+/gi },

@@ -40,7 +40,7 @@ static const uint32_t keep_ranges[24] = {
 
 const narsil_language narsil_language_swedish = {
   .name = "swedish",
-  .revision = "4cbf2b6b90090840",
+  .revision = "86206813bc1fa72f",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 114,

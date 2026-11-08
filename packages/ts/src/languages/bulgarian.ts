@@ -357,7 +357,7 @@ function normalize(token: string): string {
  */
 export const bulgarian: LanguageModule = {
   name: 'bulgarian',
-  revision: 'ba8c088d7f077308',
+  revision: 'd50ea56ee155f271',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

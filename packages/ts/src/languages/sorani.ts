@@ -171,7 +171,7 @@ function normalize(token: string): string {
  */
 export const sorani: LanguageModule = {
   name: 'sorani',
-  revision: '2179ece3ddccb9d5',
+  revision: 'bc6198eb46ccb40a',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

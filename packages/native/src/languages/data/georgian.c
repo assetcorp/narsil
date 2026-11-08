@@ -37,7 +37,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_georgian = {
   .name = "georgian",
-  .revision = "486d387dc23cf3f9",
+  .revision = "3af4391d04d49abc",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 79,

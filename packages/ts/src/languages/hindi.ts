@@ -259,7 +259,7 @@ function normalize(token: string): string {
  */
 export const hindi: LanguageModule = {
   name: 'hindi',
-  revision: '3cde2c32ee8b9b17',
+  revision: '12e5cf93cb494ee2',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

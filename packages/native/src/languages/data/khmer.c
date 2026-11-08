@@ -51,7 +51,7 @@ static const uint32_t keep_ranges[16] = {
 
 const narsil_language narsil_language_khmer = {
   .name = "khmer",
-  .revision = "24f53b6eba729318",
+  .revision = "dde90dd36274c1d7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 164,

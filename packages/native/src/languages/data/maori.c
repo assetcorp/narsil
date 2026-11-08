@@ -32,7 +32,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_maori = {
   .name = "maori",
-  .revision = "7b74c3ed675a81aa",
+  .revision = "939a82b0085c661a",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 67,

@@ -80,7 +80,7 @@ static const uint32_t keep_ranges[32] = {
 
 const narsil_language narsil_language_turkish = {
   .name = "turkish",
-  .revision = "32147ab4c7ffccc8",
+  .revision = "5e416c5901a405a0",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 242,

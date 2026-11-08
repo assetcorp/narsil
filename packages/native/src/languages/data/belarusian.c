@@ -36,7 +36,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_belarusian = {
   .name = "belarusian",
-  .revision = "4b2ebbdfb722555c",
+  .revision = "36cce2e13f0cafe9",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 88,

@@ -123,7 +123,7 @@ const stopWords = new Set([
  */
 export const dutch: LanguageModule = {
   name: 'dutch',
-  revision: 'e12df4aa23cc445e',
+  revision: '80c71cfcb1028fb9',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àäèéëìïòóöùü'-]+/gi },

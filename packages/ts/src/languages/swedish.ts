@@ -137,7 +137,7 @@ const stopWords = new Set([
  */
 export const swedish: LanguageModule = {
   name: 'swedish',
-  revision: '4cbf2b6b90090840',
+  revision: '86206813bc1fa72f',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9åäöüé-]+/gi },
