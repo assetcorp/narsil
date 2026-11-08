@@ -3,36 +3,47 @@ import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
-import { magnitude } from '../similarity'
-import { resetDocIds } from './doc-ids'
 import {
   IN_MEMORY,
-  resetStoreHeader,
   STORE_LIVE_COUNT,
   STORE_ORDINAL_LAYOUT_GENERATION,
   STORE_RELEASED_VECTORS_TO_DISK,
-  STORE_SLOTS,
   sharedVectorStoreBytes,
 } from './handles'
 import { docIdsOf, entriesOf, snapshotOf } from './listing'
+import { loadColdVector, loadReplacedVector, loadSnapshot } from './load'
 import {
   blockFullyCold,
-  claimSlot,
-  ensureOrdinal,
   fileHoldsSameBytes,
   forgetUnreferencedFiles,
   growthBytesFor,
   type OpenStore,
   openHandles,
   partitionFilterOf,
-  publishOnDisk,
-  publishOrdinal,
   relayout,
   relocateFiles,
-  writeVector,
 } from './open-store'
 import { createOrdinalReads, entryAt } from './ordinal-reads'
+import { writeSequenceOf } from './pins'
 import { createRetiredVectorPins, pinnedReads } from './retired-pins'
+import {
+  appendOrdinal,
+  beginWrite,
+  endWrite,
+  freeAwaitingOrdinals,
+  freeable,
+  freeRetired,
+  NO_PARTITION,
+  oldestPinOf,
+  readable,
+  retireDocument,
+  retireInWrite,
+  retireOrdinal,
+  type StoreState,
+  settleReplacement,
+  UNKNOWN_PARTITION,
+} from './retirement'
+import { clearStore } from './store-clear'
 import type {
   ArenaQueryVector,
   DiskLocation,
@@ -53,105 +64,51 @@ export type {
   VectorStoreSnapshot,
 } from './types'
 
-const UNKNOWN_PARTITION = -1
-const NO_PARTITION = -2
-
 export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const codeBits: OsqBits | null = options?.codeBits ?? null
   const blockBytes = Math.min(options?.blockBytes ?? VECTOR_MEMORY_LIMITS.blockBytes, VECTOR_MEMORY_LIMITS.blockBytes)
-  const docToOrd = createDocIdMap<number>()
-  const ordToDoc: Array<string | undefined> = []
-  const replacedOrdinals = new Set<number>()
-  const pins = createRetiredVectorPins()
-  let unknownPartitions = 0
-  let liveCount = 0
+  const state: StoreState = {
+    open: options?.dimension === undefined ? null : openHandles(options.dimension, codeBits, blockBytes),
+    docToOrd: createDocIdMap<number>(),
+    ordToDoc: [],
+    replacedOrdinals: new Set<number>(),
+    awaitingFree: new Set<number>(),
+    checkpointPins: createRetiredVectorPins(),
+    unknownPartitions: 0,
+    liveCount: 0,
+  }
+  const { docToOrd, ordToDoc, replacedOrdinals } = state
   let readBackVector: Float32Array | null = null
-  let open: OpenStore | null =
-    options?.dimension === undefined ? null : openHandles(options.dimension, codeBits, blockBytes)
 
   function forgetDocuments(): void {
     docToOrd.clear()
     ordToDoc.length = 0
     replacedOrdinals.clear()
-    pins.forget()
-    unknownPartitions = 0
-    liveCount = 0
+    state.awaitingFree.clear()
+    state.checkpointPins.forget()
+    state.unknownPartitions = 0
+    state.liveCount = 0
   }
 
-  function readable(ordinal: number): boolean {
-    return ordToDoc[ordinal] !== undefined || replacedOrdinals.has(ordinal)
-  }
+  const isReadable = (ordinal: number): boolean => readable(state, ordinal)
 
   function requireOpen(): OpenStore {
-    if (open === null) {
+    if (state.open === null) {
       throw new NarsilError(ErrorCodes.VECTOR_DIMENSION_MISMATCH, 'The vector store holds no vector yet')
     }
-    return open
+    return state.open
   }
 
-  function recordPartition(store: OpenStore, ordinal: number, partitionId: number | undefined): void {
-    const given = partitionId !== undefined && partitionId >= 0 ? partitionId : UNKNOWN_PARTITION
-    store.partitions[ordinal] = given
-    if (given === UNKNOWN_PARTITION) unknownPartitions += 1
-  }
-
-  function retireOrdinal(store: OpenStore, ordinal: number): void {
-    ordToDoc[ordinal] = undefined
-    Atomics.store(store.present, ordinal, 0)
-    pins.note(ordinal)
-    if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
-  }
-
-  function keepReplacedOrdinal(store: OpenStore, ordinal: number): void {
-    ordToDoc[ordinal] = undefined
-    if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
-    store.partitions[ordinal] = NO_PARTITION
-    replacedOrdinals.add(ordinal)
-  }
-
-  function restoreReplacedVector(store: OpenStore, ordinal: number, vector: Float32Array): void {
-    store.diskFile[ordinal] = IN_MEMORY
-    writeVector(store, ordinal, vector)
-    Atomics.store(store.present, ordinal, 1)
-    replacedOrdinals.add(ordinal)
-  }
-
-  function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
-    const ordinal = claimSlot(store, docId, cold)
-    recordPartition(store, ordinal, partitionId)
-    ordToDoc[ordinal] = docId
-    docToOrd.set(docId, ordinal)
-    return ordinal
-  }
-
-  function appendOrdinal(store: OpenStore, docId: string, vector: Float32Array, partitionId?: number): number {
-    const ordinal = claimOrdinal(store, docId, false, partitionId)
-    writeVector(store, ordinal, vector)
-    publishOrdinal(store, ordinal)
-    return ordinal
-  }
-
-  function settleReplacement(
-    store: OpenStore,
-    ordinal: number,
-    previous: number | undefined,
-    keepsReplacedVector: boolean,
-  ): number {
-    if (previous !== undefined) {
-      if (keepsReplacedVector) keepReplacedOrdinal(store, previous)
-      else retireOrdinal(store, previous)
-      return ordinal
-    }
-    liveCount++
-    Atomics.add(store.handles.header, STORE_LIVE_COUNT, 1)
-    return ordinal
+  function openFor(dimension: number): OpenStore {
+    state.open ??= openHandles(dimension, codeBits, blockBytes)
+    return state.open
   }
 
   return {
-    ...createOrdinalReads(() => open, readable),
+    ...createOrdinalReads(() => state.open, isReadable),
 
     get size() {
-      return liveCount
+      return state.liveCount
     },
 
     get slots() {
@@ -159,7 +116,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     },
 
     get dimension() {
-      return open === null ? 0 : open.handles.dimension
+      return state.open === null ? 0 : state.open.handles.dimension
     },
 
     get codeBits() {
@@ -179,8 +136,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     },
 
     insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector = false): number {
-      if (open === null) open = openHandles(vector.length, codeBits, blockBytes)
-      const store = open
+      const store = openFor(vector.length)
       if (vector.length !== store.handles.dimension) {
         throw new NarsilError(
           ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -189,44 +145,57 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
         )
       }
       const previous = docToOrd.get(docId)
-      const ordinal = appendOrdinal(store, docId, vector, partitionId)
-      return settleReplacement(store, ordinal, previous, keepsReplacedVector)
+      const sequence = beginWrite(state, store)
+      const ordinal = appendOrdinal(state, store, docId, vector, sequence, partitionId)
+      if (previous !== undefined) retireInWrite(store, previous, sequence)
+      endWrite(store, sequence)
+      settleReplacement(state, store, previous, keepsReplacedVector)
+      return ordinal
     },
 
-    releaseReplacedVectors(): number[] {
-      const released = [...replacedOrdinals]
-      replacedOrdinals.clear()
-      for (const ordinal of released) pins.note(ordinal)
-      if (open !== null) for (const ordinal of released) Atomics.store(open.present, ordinal, 0)
+    retire(docId: string): void {
+      retireDocument(state, docId)
+    },
+
+    freeRetiredVectors(): void {
+      freeAwaitingOrdinals(state)
+    },
+
+    oldestPin(): number {
+      return state.open === null ? Number.POSITIVE_INFINITY : oldestPinOf(state.open)
+    },
+
+    writeSequence(): number {
+      return state.open === null ? 0 : writeSequenceOf(state.open.sequences.header)
+    },
+
+    mayFreeOrdinal(ordinal: number, oldestPin: number): boolean {
+      return state.open !== null && freeable(state.open, ordinal, oldestPin)
+    },
+
+    releaseReplacedVectors(oldestPin?: number): number[] {
+      const store = state.open
+      const released: number[] = []
+      const oldest = oldestPin ?? (store === null ? Number.POSITIVE_INFINITY : oldestPinOf(store))
+      for (const ordinal of replacedOrdinals) {
+        if (store !== null && !freeable(store, ordinal, oldest)) continue
+        released.push(ordinal)
+      }
+      for (const ordinal of released) {
+        replacedOrdinals.delete(ordinal)
+        if (store !== null) freeRetired(state, store, ordinal)
+      }
       return released
     },
 
-    ...pinnedReads(pins, () => open, readable),
+    ...pinnedReads(state.checkpointPins, () => state.open, isReadable),
 
     insertCold(docId: string, vectorMagnitude: number, location: DiskLocation, partitionId?: number): number {
-      const store = requireOpen()
-      const previous = docToOrd.get(docId)
-      Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
-      const ordinal = claimOrdinal(store, docId, true, partitionId)
-      publishOnDisk(store, ordinal, vectorMagnitude, location)
-      return settleReplacement(store, ordinal, previous, false)
+      return loadColdVector(state, requireOpen(), docId, vectorMagnitude, location, partitionId)
     },
 
     insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number {
-      if (open === null) open = openHandles(vector.length, codeBits, blockBytes)
-      const store = open
-      if (location !== undefined) Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
-      const ordinal = claimSlot(store, docId, location !== undefined)
-      store.partitions[ordinal] = NO_PARTITION
-      ordToDoc[ordinal] = undefined
-      replacedOrdinals.add(ordinal)
-      if (location !== undefined) {
-        publishOnDisk(store, ordinal, magnitude(vector), location)
-        return ordinal
-      }
-      writeVector(store, ordinal, vector)
-      publishOrdinal(store, ordinal)
-      return ordinal
+      return loadReplacedVector(state, openFor(vector.length), docId, vector, location)
     },
 
     addVectorFile(path: string): number {
@@ -239,8 +208,8 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     },
 
     isCold(ordinal: number): boolean {
-      if (open === null) return false
-      return open.view.isCold(ordinal)
+      if (state.open === null) return false
+      return state.open.view.isCold(ordinal)
     },
 
     releaseToFile(ordinal: number, location: DiskLocation): boolean {
@@ -258,7 +227,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     releaseColdBlocks(): number {
       const store = requireOpen()
-      const kept = pins.keptWith(replacedOrdinals)
+      const held = new Set(replacedOrdinals)
+      for (const ordinal of state.awaitingFree) held.add(ordinal)
+      const kept = state.checkpointPins.keptWith(held)
       let released = 0
       for (let index = 0; index < store.handles.blocks.length; index++) {
         if (store.handles.blocks[index] === null || !blockFullyCold(store, index, ordToDoc, kept)) continue
@@ -271,44 +242,46 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     setPartition(docId: string, partitionId: number): void {
       const ordinal = docToOrd.get(docId)
-      if (ordinal === undefined || open === null || partitionId < 0) return
-      if (open.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
-      open.partitions[ordinal] = partitionId
+      if (ordinal === undefined || state.open === null || partitionId < 0) return
+      if (state.open.partitions[ordinal] === UNKNOWN_PARTITION) state.unknownPartitions -= 1
+      state.open.partitions[ordinal] = partitionId
     },
 
     forgetPartition(docId: string): void {
       const ordinal = docToOrd.get(docId)
-      if (ordinal === undefined || open === null) return
-      if (open.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
-      open.partitions[ordinal] = NO_PARTITION
+      if (ordinal === undefined || state.open === null) return
+      if (state.open.partitions[ordinal] === UNKNOWN_PARTITION) state.unknownPartitions -= 1
+      state.open.partitions[ordinal] = NO_PARTITION
     },
 
     partitionOfOrdinal(ordinal: number): number | undefined {
-      if (open === null || ordinal < 0 || ordinal >= ordToDoc.length) return undefined
-      const partitionId = open.partitions[ordinal]
+      if (state.open === null || ordinal < 0 || ordinal >= ordToDoc.length) return undefined
+      const partitionId = state.open.partitions[ordinal]
       return partitionId < 0 ? undefined : partitionId
     },
 
     get partitionsKnown(): boolean {
-      return unknownPartitions === 0
+      return state.unknownPartitions === 0
     },
 
     partitionFilter(partitionIds: ReadonlySet<number>): OrdinalFilter {
-      return partitionFilterOf(open, ordToDoc, partitionIds)
+      return partitionFilterOf(state.open, ordToDoc, partitionIds)
     },
 
-    remove(docId: string): void {
+    remove(docId: string, oldestPin?: number): void {
       const ordinal = docToOrd.get(docId)
-      if (ordinal === undefined || open === null) return
+      const store = state.open
+      if (ordinal === undefined || store === null) return
+      const retiredNow = retireDocument(state, docId)
       docToOrd.delete(docId)
-      retireOrdinal(open, ordinal)
-      liveCount--
-      Atomics.sub(open.handles.header, STORE_LIVE_COUNT, 1)
+      retireOrdinal(state, store, ordinal, retiredNow || oldestPin === undefined ? oldestPinOf(store) : oldestPin)
+      state.liveCount--
+      Atomics.sub(store.handles.header, STORE_LIVE_COUNT, 1)
     },
 
     get(docId: string): VectorStoreEntry | undefined {
       const ordinal = docToOrd.get(docId)
-      return ordinal === undefined || open === null ? undefined : entryAt(open, ordinal)
+      return ordinal === undefined || state.open === null ? undefined : entryAt(state.open, ordinal)
     },
 
     has(docId: string): boolean {
@@ -319,36 +292,27 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return ordinal >= 0 && ordinal < ordToDoc.length && ordToDoc[ordinal] !== undefined
     },
 
-    entries: () => entriesOf(open, ordToDoc),
+    entries: () => entriesOf(state.open, ordToDoc),
 
-    docIds: () => docIdsOf(open, ordToDoc),
+    docIds: () => docIdsOf(state.open, ordToDoc),
 
     clear(): void {
+      const store = state.open
       forgetDocuments()
-      if (open === null) return
-      open.present.fill(0, 0, open.handles.present.byteLength)
-      new Uint8Array(open.handles.codePresent, 0, open.handles.codePresent.byteLength).fill(0)
-      new Int32Array(open.handles.diskFile, 0, open.handles.diskFile.byteLength / 4).fill(IN_MEMORY)
-      open.handles.centroid.fill(0)
-      if (open.handles.vectorFiles.length > 0) {
-        open.handles.vectorFiles.length = 0
-        relayout(open)
-      }
-      resetDocIds(open.handles)
-      resetStoreHeader(open.handles.header)
+      if (store !== null) clearStore(store)
     },
 
     release(): void {
       forgetDocuments()
-      if (open !== null) Atomics.add(open.handles.header, STORE_ORDINAL_LAYOUT_GENERATION, 1)
-      open?.view.close()
-      open = null
+      if (state.open !== null) Atomics.add(state.open.handles.header, STORE_ORDINAL_LAYOUT_GENERATION, 1)
+      state.open?.view.close()
+      state.open = null
     },
 
-    closeFiles: () => open?.view.close(),
+    closeFiles: () => state.open?.view.close(),
 
     relocateVectorFiles(rewrite: (path: string) => string): void {
-      if (open !== null) relocateFiles(open, rewrite)
+      if (state.open !== null) relocateFiles(state.open, rewrite)
     },
 
     getOrdinal(docId: string): number | undefined {
@@ -360,40 +324,23 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     },
 
     prepareQueryArena(query: Float32Array): ArenaQueryVector | null {
-      return open === null ? null : open.view.prepareQueryArena(query)
+      return state.open === null ? null : state.open.view.prepareQueryArena(query)
     },
 
-    exportSnapshot: () => snapshotOf(open, ordToDoc, replacedOrdinals),
+    exportSnapshot: () => snapshotOf(state.open, ordToDoc, replacedOrdinals),
 
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {
       this.clear()
       if (snapshot.dimension === 0 || snapshot.slots === 0) return
-      if (open === null) open = openHandles(snapshot.dimension, codeBits, blockBytes)
-      const store = open
-      const replaced = new Set(snapshot.replacedOrdinals)
-      for (let ordinal = 0; ordinal < snapshot.slots; ordinal++) {
-        const docId = snapshot.docIds[ordinal]
-        const vector = snapshot.vectors.subarray(ordinal * snapshot.dimension, (ordinal + 1) * snapshot.dimension)
-        if (docId === null || docId === undefined) {
-          ensureOrdinal(store, ordinal, false)
-          ordToDoc[ordinal] = undefined
-          store.partitions[ordinal] = NO_PARTITION
-          if (replaced.has(ordinal)) restoreReplacedVector(store, ordinal, vector)
-          Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
-          continue
-        }
-        appendOrdinal(store, docId, vector)
-        liveCount++
-      }
-      Atomics.store(store.handles.header, STORE_LIVE_COUNT, liveCount)
+      loadSnapshot(state, openFor(snapshot.dimension), snapshot)
     },
 
     memoryBytes(): number {
-      return open === null ? 0 : sharedVectorStoreBytes(open.handles)
+      return state.open === null ? 0 : sharedVectorStoreBytes(state.open.handles)
     },
 
     growthBytesFor(vectors: number): number {
-      return open === null ? 0 : growthBytesFor(open, vectors)
+      return state.open === null ? 0 : growthBytesFor(state.open, vectors)
     },
   }
 }

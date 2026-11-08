@@ -3,7 +3,7 @@ import { detectRuntime } from '../runtime/detect'
 import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
-import { createWorkerExecutor, type WorkerLike } from './worker-executor'
+import type { WorkerLike } from './worker-executor'
 
 declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
@@ -20,6 +20,7 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWebWorkers) {
+    const { createWorkerExecutor } = await import('./worker-executor')
     return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
       return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })

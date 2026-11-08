@@ -1,11 +1,11 @@
 import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
+import { loadEmbedCode } from '../embed-code'
 import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
-import type { MutationContext } from './context'
-import { rollbackInsertedDocument } from './durable-rollback'
+import type { ApplyMutation, MutationContext } from './context'
 import { admitInsert, providedDocId, requireMatchingDocId } from './insert-admission'
 import { awaitWriteVisibility } from './write-visibility'
 
@@ -30,6 +30,7 @@ export async function insertDocument(
   }
 
   if (entry.config.embedding) {
+    const { assertDocumentCarriesMappedVectors, embedDocumentFields } = await loadEmbedCode()
     if (entry.embeddingAdapter) {
       await embedDocumentFields(
         document as Record<string, unknown>,
@@ -62,19 +63,23 @@ export async function insertDocument(
 
   let inserted = false
   let buffered = false
-  const insertIntoIndex = async (): Promise<void> => {
+  let preparedText: PreparedTextChange | undefined
+  let appliedRef: AnyDocument | undefined
+  const insertIntoIndex = () => {
     admitInsert(ctx, indexName, insertManager, resolvedDocId)
-    if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
+    const queued = ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })
+    if (queued !== undefined) {
       buffered = true
-      return
+      return queued
     }
-    await ctx.executor.execute({
-      type: 'insert',
-      indexName,
-      docId: resolvedDocId,
-      document: partitionDoc as AnyDocument,
-      requestId: resolvedDocId,
+    insertManager.insert(resolvedDocId, partitionDoc as AnyDocument, {
       skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
+      onPreparedText:
+        extractedVectors.size > 0 || ctx.durability !== null
+          ? change => {
+              preparedText = change
+            }
+          : undefined,
     })
     inserted = true
     try {
@@ -86,7 +91,7 @@ export async function insertDocument(
       )
     } catch (err) {
       try {
-        await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
+        insertManager.remove(resolvedDocId, undefined, { preparedText: { before: preparedText?.after } })
         inserted = false
       } catch (rollbackErr) {
         console.warn(
@@ -96,14 +101,25 @@ export async function insertDocument(
       }
       throw err
     }
+    appliedRef = ctx.durability === null ? undefined : insertManager.getRef(resolvedDocId)
+    ctx.orchestrator.publishToWorkers({
+      type: 'insert',
+      indexName,
+      docId: resolvedDocId,
+      document: partitionDoc as AnyDocument,
+      requestId: `replicate-insert-${resolvedDocId}`,
+      skipClone: options?.skipClone,
+    })
   }
-  const applyInsert = indexChangeOutsideExternalWaits(insertIntoIndex)
+  const applyInsert: ApplyMutation = () =>
+    insertManager.publication.write(indexChangeOutsideExternalWaits(insertIntoIndex))
 
   if (ctx.durability) {
+    const { rollbackInsertedDocument } = await import('./durable-rollback')
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
     } catch (err) {
-      await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err)
+      await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err, preparedText, appliedRef)
       throw err
     }
   } else {
@@ -117,20 +133,13 @@ export async function insertDocument(
     return resolvedDocId
   }
 
+  await ctx.orchestrator.settlePublications(indexName)
+
   try {
     await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
   } catch (err) {
     console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'insert',
-    indexName,
-    docId: resolvedDocId,
-    document: partitionDoc as AnyDocument,
-    requestId: `replicate-insert-${resolvedDocId}`,
-    skipClone: options?.skipClone,
-  })
 
   for (const fieldPath of extractedVectors.keys()) {
     const vecIndex = insertVecIndexes.get(fieldPath)

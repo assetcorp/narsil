@@ -6,6 +6,7 @@ import type { InvalidationAdapter, InvalidationEvent, PartitionStatistics } from
 import type { NarsilConfig } from '../types/config'
 import type { GlobalStatistics } from '../types/internal'
 import { FOREIGN_STATS_TTL_MS, STATISTICS_BROADCAST_INTERVAL_MS } from './constants'
+import type { IndexRegistryEntry } from './registry-entry'
 
 export interface InvalidationIntegrationDeps {
   adapter: InvalidationAdapter
@@ -29,7 +30,8 @@ export type EngineInvalidationDeps = Omit<InvalidationIntegrationDeps, 'adapter'
 export function createInvalidationFromConfig(
   config: NarsilConfig | undefined,
   tierKind: 'wal' | 'snapshot' | null,
-  deps: EngineInvalidationDeps,
+  deps: Omit<EngineInvalidationDeps, 'listBroadcastIndexNames'>,
+  indexRegistry: ReadonlyMap<string, IndexRegistryEntry>,
 ): InvalidationIntegration | null {
   if (config?.invalidation === undefined) {
     return null
@@ -44,6 +46,13 @@ export function createInvalidationFromConfig(
     adapter: config.invalidation,
     instanceId: generateId(),
     ...deps,
+    listBroadcastIndexNames() {
+      const indexes: string[] = []
+      for (const [name, entry] of indexRegistry) {
+        if (entry.config.defaultScoring === 'broadcast') indexes.push(name)
+      }
+      return indexes
+    },
   })
 }
 

@@ -8,9 +8,9 @@ export let yieldTurn = (): Promise<void> => Promise.resolve()
 
 export let countWrite = <T>(write: () => Promise<T>): Promise<T> => write()
 
-export let changeIndexOutsideExternalWaits = <T>(change: () => Promise<T>): Promise<T> => change()
+export let changeIndexOutsideExternalWaits = <T>(change: () => T | Promise<T>): T | Promise<T> => change()
 
-export function indexChangeOutsideExternalWaits<T>(change: () => Promise<T>): () => Promise<T> {
+export function indexChangeOutsideExternalWaits<T>(change: () => T | Promise<T>): () => T | Promise<T> {
   return () => changeIndexOutsideExternalWaits(change)
 }
 

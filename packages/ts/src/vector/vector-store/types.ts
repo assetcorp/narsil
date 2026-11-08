@@ -79,7 +79,18 @@ export interface VectorStore extends VectorBuildReader {
   /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the store keeps the document's previous vector readable at its old ordinal until {@link VectorStore.releaseReplacedVectors} runs; otherwise the store retires the old ordinal at once. */
   insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
   readonly replacedVectorCount: number
-  releaseReplacedVectors(): number[]
+  /** Stamps the document's ordinal as retired by a new write, so that every pin taken after that write leaves it out while older pins still admit it. */
+  retire(docId: string): void
+  /** Frees each retired vector that every pin held on the store now leaves out. */
+  freeRetiredVectors(): void
+  /** Reports the oldest pin that any thread holds on the store, or infinity where no thread holds one. */
+  oldestPin(): number
+  /** Returns the sequence of the last write that the store published, which a search on the writing thread reads the store at. */
+  writeSequence(): number
+  /** Reports whether every pin, the oldest of them being `oldestPin`, leaves the ordinal out, so that the store may free it. */
+  mayFreeOrdinal(ordinal: number, oldestPin: number): boolean
+  /** Releases each replaced vector that every pin leaves out, given the oldest pin held, and returns the ordinals released. */
+  releaseReplacedVectors(oldestPin?: number): number[]
   pinRetiredVectors(): void
   unpinRetiredVectors(): void
   entryForPinnedOrdinal(ordinal: number): VectorStoreEntry | undefined
@@ -98,7 +109,7 @@ export interface VectorStore extends VectorBuildReader {
   forgetPartition(docId: string): void
   partitionOfOrdinal(ordinal: number): number | undefined
   partitionFilter(partitionIds: ReadonlySet<number>): OrdinalFilter
-  remove(docId: string): void
+  remove(docId: string, oldestPin?: number): void
   get(docId: string): VectorStoreEntry | undefined
   has(docId: string): boolean
   entries(): IterableIterator<[string, VectorStoreEntry]>

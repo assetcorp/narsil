@@ -45,7 +45,12 @@ async function fusedAtDepth(
 
   if (!vectorConfig || !vectorConfig.value) {
     const textOnly = await textLeg(textOnlyParams, context)
-    return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
+    return {
+      scored: textOnly.scored,
+      totalMatched: textOnly.totalMatched,
+      facets: textOnly.facets,
+      ...(textOnly.documents !== undefined ? { documents: textOnly.documents } : {}),
+    }
   }
 
   const vectorPending = vectorLeg(
@@ -80,6 +85,7 @@ async function fusedAtDepth(
       textHoldsEveryMatch &&
       (!filtersByScore || textScored.length === textFanOutResult.totalMatched),
     facets: textFanOutResult.facets,
+    ...(textFanOutResult.documents !== undefined ? { documents: textFanOutResult.documents } : {}),
   }
 }
 

@@ -4,7 +4,7 @@ import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../sc
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, EmbeddingFieldConfig, IndexConfig } from '../../types/schema'
-import { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } from '../embed'
+import { loadEmbedCode } from '../embed-code'
 import type { MutationContext } from './context'
 
 /** Resolves a document's own `id` field as its identifier when present, so a
@@ -157,6 +157,7 @@ export async function embedChunkDocuments(
   failed: BatchResult['failed'],
 ): Promise<void> {
   if (entry.config.embedding === undefined) return
+  const { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } = await loadEmbedCode()
 
   if (entry.embeddingAdapter === null) {
     for (let i = chunkStart; i < chunkEnd; i++) {

@@ -1,5 +1,4 @@
 import type { PartitionManager } from '../partitioning/manager'
-import { rebuildTextIndexes } from '../partitioning/text-rebuild'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
@@ -110,6 +109,7 @@ export function createAnalysisRebuildCoordinator(
     const wasPromoted = deps.desyncIndex(indexName)
     let spill: RewriteSpill | null = null
     try {
+      const { rebuildTextIndexes } = await import('../partitioning/text-rebuild')
       const rebuilt = await rebuildTextIndexes(manager, {
         rewriteStorage: () => deps.rewriteStorage?.(),
         onRewriteSpill(kept) {

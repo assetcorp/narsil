@@ -89,7 +89,6 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
     })
   }
   let partitionsRebuilt = 0
-  let adopt: () => void = () => undefined
   const refusal: { byRestore: NarsilError | null } = { byRestore: null }
   const isCurrent = (): boolean =>
     run.stopReason === null &&
@@ -113,16 +112,15 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
         onPartitionBuilt(built) {
           partitionsRebuilt = built
         },
-        onSwitch: () => adopt(),
+        onSwitch: () => switchIndex(scope)(),
         ...(hold === null ? {} : { holdBeforeSwitch: keepCurrent => waitForRelease(run, hold, keepCurrent) }),
         async runSwitch(swap) {
-          const swapWithSynonyms = (): boolean => {
+          const swapWithSynonyms = (): boolean | Promise<boolean> => {
             if (!isCurrent()) return false
             if (core.restoresInFlight.has(indexName)) {
               refusal.byRestore = restoreInFlightError(indexName)
               return false
             }
-            adopt = switchIndex(scope)
             return swap()
           }
           const releaseSyncEpoch = await holdSyncEpochChange(core, indexName)

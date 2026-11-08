@@ -1,21 +1,23 @@
+import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { holdsStringArrayField } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
-import { executeListDocuments } from '../engine/list-documents'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
-import { executePreflight, executeQuery } from '../engine/query'
-import { resolveVectorText } from '../engine/resolve-vector-text'
-import { executeSuggest } from '../engine/suggest'
+import { executePreflight, executeQuery, loadQueryCode } from '../engine/query'
+import { answerFromOneState } from '../engine/query/state'
+import type { IndexRegistryEntry } from '../engine/registry-entry'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
 import { lazyQueryBinding } from '../search/cursor-binding'
 import { loadPhraseCodeFor, requireLoadedPhraseCode } from '../search/phrase-code'
+import { loadSortingFor } from '../search/sorting-code'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument, BM25Params, IndexConfig } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 
 export interface ScopedReadOptions {
+  signal?: AbortSignal
   partitionIds?: number[]
   globalStats?: GlobalStatistics
   rescoreWindow?: number
@@ -28,24 +30,14 @@ async function enterRead(core: EngineCore, indexName: string): Promise<void> {
   if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
 }
 
-async function readUnderOneAnalysis<R>(
-  core: EngineCore,
-  indexName: string,
-  read: () => Promise<R>,
-): Promise<{ result: R; analysisStale: boolean }> {
-  const manager = core.requireManager(indexName)
-  for (;;) {
-    const analysis = manager.analysis
-    const analysisStale = core.analysisRebuild.isStale(indexName)
-    try {
-      const result = await read()
-      if (manager.analysis === analysis && core.analysisRebuild.isStale(indexName) === analysisStale) {
-        return { result, analysisStale }
-      }
-    } catch (error) {
-      if (manager.analysis === analysis) throw error
-    }
-  }
+async function resolveVectorText(
+  params: QueryParams,
+  entry: IndexRegistryEntry,
+  signal: AbortSignal,
+): Promise<QueryParams> {
+  if (params.vector?.text === undefined) return params
+  const { resolveVectorText: embedQueryText } = await import('../engine/resolve-vector-text')
+  return embedQueryText(params, entry.embeddingAdapter, signal, entry.embeddingAdapterName)
 }
 
 function phraseReadinessOf(core: EngineCore, indexName: string, config: IndexConfig): () => void {
@@ -80,6 +72,11 @@ export async function runEngineQuery<T = AnyDocument>(
   params: QueryParams,
   options?: ScopedReadOptions,
 ): Promise<QueryResult<T>> {
+  const signal =
+    options?.signal === undefined
+      ? core.abortController.signal
+      : AbortSignal.any([core.abortController.signal, options.signal])
+  options?.signal?.throwIfAborted()
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
@@ -87,36 +84,48 @@ export async function runEngineQuery<T = AnyDocument>(
     const manager = core.requireManager(indexName)
 
     const scoped = scopedParams(params, options)
-    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+    if (core.pluginRegistry.hasHooks('beforeSearch')) {
+      await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+    }
 
     const rerank = scoped.rerank === undefined ? undefined : await import('../rerank/runtime')
-    const resolvedParams = await resolveVectorText(
-      rerank === undefined ? scoped : rerank.withRerankQueryText(scoped),
-      entry.embeddingAdapter,
-      core.abortController.signal,
-      entry.embeddingAdapterName,
-    )
+    const preparedParams = rerank === undefined ? scoped : rerank.withRerankQueryText(scoped)
+    const resolvedParams =
+      preparedParams.vector?.text === undefined
+        ? preparedParams
+        : await resolveVectorText(preparedParams, entry, signal)
+    const loading = loadQueryCode(resolvedParams)
+    if (loading !== null) await loading
 
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
 
-    const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
-      executeQuery<T>(resolvedParams, {
-        manager,
-        language: manager.language,
-        config: manager.config,
-        workerSearch,
-        indexName,
-        broadcastStats: broadcastStatsFor(core, options),
-        partitionIds: options?.partitionIds,
-        rescoreWindow: options?.rescoreWindow,
-        indexBm25: options?.indexBm25,
-        cursorBinding: lazyQueryBinding(params),
-        patternWorkCap: core.patternWorkCap,
-        rerank: rerank?.rerankRunnerFor(core),
-        requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
-      }),
+    let analysisStale = false
+    const result = await answerFromOneState(
+      manager,
+      attempt => {
+        analysisStale = core.analysisRebuild.isStale(indexName)
+        return executeQuery<T>(resolvedParams, {
+          manager,
+          pin: attempt.pin,
+          turns: attempt,
+          releaseRetrieval: attempt.releaseRetrieval,
+          language: manager.language,
+          config: manager.config,
+          workerSearch,
+          indexName,
+          broadcastStats: broadcastStatsFor(core, options),
+          partitionIds: options?.partitionIds,
+          rescoreWindow: options?.rescoreWindow,
+          indexBm25: options?.indexBm25,
+          cursorBinding: lazyQueryBinding(params),
+          patternWorkCap: core.patternWorkCap,
+          rerank: rerank?.rerankRunnerFor(core, options?.signal),
+          requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
+        })
+      },
+      options?.signal,
     )
     if (analysisStale) {
       result.analysisStale = true
@@ -144,38 +153,51 @@ export async function runEnginePreflight(
   params: QueryParams,
   options?: ScopedReadOptions,
 ): Promise<PreflightResult> {
+  const signal =
+    options?.signal === undefined
+      ? core.abortController.signal
+      : AbortSignal.any([core.abortController.signal, options.signal])
+  options?.signal?.throwIfAborted()
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
     const scoped = scopedParams(params, options)
-    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+    if (core.pluginRegistry.hasHooks('beforeSearch')) {
+      await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+    }
 
-    const resolvedParams = await resolveVectorText(
-      scoped,
-      entry.embeddingAdapter,
-      core.abortController.signal,
-      entry.embeddingAdapterName,
-    )
+    const resolvedParams = scoped.vector?.text === undefined ? scoped : await resolveVectorText(scoped, entry, signal)
 
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
-    const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
-      executePreflight(resolvedParams, {
-        manager,
-        language: manager.language,
-        config: manager.config,
-        workerSearch,
-        indexName,
-        broadcastStats: broadcastStatsFor(core, options),
-        partitionIds: options?.partitionIds,
-        indexBm25: options?.indexBm25,
-        cursorBinding: lazyQueryBinding(params),
-        patternWorkCap: core.patternWorkCap,
-        requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
-      }),
+    const loading = loadQueryCode(resolvedParams)
+    if (loading !== null) await loading
+    let analysisStale = false
+    const result = await answerFromOneState(
+      manager,
+      attempt => {
+        analysisStale = core.analysisRebuild.isStale(indexName)
+        return executePreflight(resolvedParams, {
+          manager,
+          pin: attempt.pin,
+          turns: attempt,
+          releaseRetrieval: attempt.releaseRetrieval,
+          language: manager.language,
+          config: manager.config,
+          workerSearch,
+          indexName,
+          broadcastStats: broadcastStatsFor(core, options),
+          partitionIds: options?.partitionIds,
+          indexBm25: options?.indexBm25,
+          cursorBinding: lazyQueryBinding(params),
+          patternWorkCap: core.patternWorkCap,
+          requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
+        })
+      },
+      options?.signal,
     )
     if (analysisStale) {
       result.analysisStale = true
@@ -192,15 +214,12 @@ export async function runEngineSuggest(
   params: SuggestParams,
   partitionIds?: number[],
 ): Promise<SuggestResult> {
+  const { executeSuggest } = await import('../engine/suggest')
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
-    const result = executeSuggest(
-      core.requireManager(indexName),
-      core.requireIndex(indexName).language,
-      params,
-      partitionIds,
-    )
+    const manager = core.requireManager(indexName)
+    const result = await manager.publication.read(() => executeSuggest(manager, manager.language, params, partitionIds))
     if (core.analysisRebuild.isStale(indexName)) {
       result.analysisStale = true
     }
@@ -254,21 +273,26 @@ export async function runEngineQueryStats(
     const term = terms.join(' ')
     const loadingPhraseCode = loadPhraseCodeFor(term)
     if (loadingPhraseCode !== null) await loadingPhraseCode
-    const analysis = {
-      stopWords: manager.analysis.stopWords,
-      customTokenizer: manager.analysis.customTokenizer,
-      synonyms: manager.synonyms,
-    }
-    const stats = collectQueryTermStats(manager, term, entry.language, analysis, partitionIds, {
-      expansion: scope?.expansion === undefined ? undefined : { options: scope.expansion, schema: entry.config.schema },
-      tokens: scope?.tokens,
+    const loadingPrefix = loadPrefixFor(scope?.expansion?.prefix)
+    if (loadingPrefix !== null) await loadingPrefix
+    return await manager.publication.read(() => {
+      const analysis = {
+        stopWords: manager.analysis.stopWords,
+        customTokenizer: manager.analysis.customTokenizer,
+        synonyms: manager.synonyms,
+      }
+      const stats = collectQueryTermStats(manager, term, entry.language, analysis, partitionIds, {
+        expansion:
+          scope?.expansion === undefined ? undefined : { options: scope.expansion, schema: entry.config.schema },
+        tokens: scope?.tokens,
+      })
+      return {
+        totalDocuments: stats.totalDocuments,
+        docFrequencies: stats.docFrequencies,
+        totalFieldLengths: stats.totalFieldLengths,
+        ...(stats.expanded.length > 0 ? { expanded: stats.expanded } : {}),
+      }
     })
-    return {
-      totalDocuments: stats.totalDocuments,
-      docFrequencies: stats.docFrequencies,
-      totalFieldLengths: stats.totalFieldLengths,
-      ...(stats.expanded.length > 0 ? { expanded: stats.expanded } : {}),
-    }
   } finally {
     release()
   }
@@ -280,17 +304,23 @@ export async function runEngineListDocuments<T = AnyDocument>(
   params: ListParams,
   partitionIds?: number[],
 ): Promise<ListResult<T>> {
+  const { executeListDocuments } = await import('../engine/list-documents')
+  const loading = loadSortingFor(params.sort, params.filters)
+  if (loading !== null) await loading
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
-    return executeListDocuments<T>(params, {
-      manager: core.requireManager(indexName),
-      schema: entry.config.schema,
-      strict: entry.config.strict,
-      partitionIds,
-      patternWorkCap: core.patternWorkCap,
-    })
+    const manager = core.requireManager(indexName)
+    return await manager.publication.read(() =>
+      executeListDocuments<T>(params, {
+        manager,
+        schema: entry.config.schema,
+        strict: entry.config.strict,
+        partitionIds,
+        patternWorkCap: core.patternWorkCap,
+      }),
+    )
   } finally {
     release()
   }

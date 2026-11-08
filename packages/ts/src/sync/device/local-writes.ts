@@ -1,7 +1,7 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { encodeDocument } from '../../serialization/document-encoding'
+import { decode } from '../../serialization/msgpack'
 import type { AnyDocument } from '../../types/schema'
 import type { KeptEntry, QueuedWrite } from './types'
 

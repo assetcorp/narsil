@@ -1,7 +1,9 @@
-import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
+import { compareCodePoints } from '../../core/ordering'
+import { compareComparableKeys } from '../../core/ordering/sort-comparison'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
 import { createPatternWorkMeter } from '../../core/pattern-index/work-meter'
 import { resolveProjection } from '../../core/projection'
+import { validQueryFilter } from '../../filters/query'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
 import {
@@ -13,12 +15,12 @@ import {
 } from '../../search/cursor'
 import { listBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
-import { normalizeSort, requireSortableFields, sortModesOf } from '../../search/sorting'
+import { normalizeSort, sortModesOf } from '../../search/sorting'
+import { requireSortableFields } from '../../search/sorting-runtime'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
-import { validQueryFilter } from '../query/shared'
 import { clampLimit, now } from '../validation'
 
 export interface ListContext {

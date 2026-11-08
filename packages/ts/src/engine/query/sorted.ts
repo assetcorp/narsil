@@ -1,15 +1,17 @@
 import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
-import { type ComparableSortValue, compareCodePoints, compareComparableKeys } from '../../core/ordering'
+import { type ComparableSortValue, compareCodePoints } from '../../core/ordering'
+import { compareComparableKeys } from '../../core/ordering/sort-comparison'
 import type { SortedPageEntry } from '../../core/partition'
+import { partitionsIn } from '../../partitioning/partition-selection'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { everyValueFacetConfig, mergeFacets } from '../../search/facets'
-import { fulltextMatches } from '../../search/fulltext'
+import { type FulltextSearchOptions, fulltextMatches } from '../../search/fulltext'
 import { normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { partitionsFor, type SearchContext, searchOptionsFor } from './shared'
+import type { SearchContext } from './shared'
 
 /**
  * Reports whether a sorted query ranks by sort values alone, which is what
@@ -48,6 +50,7 @@ export async function executeSortedQueryPage<T = AnyDocument>(
   limit: number,
   offset: number,
   sortSignature: string,
+  options: FulltextSearchOptions,
 ): Promise<SortedQueryPage<T>> {
   const { manager, language, config } = context
   const schema = config.schema
@@ -68,8 +71,7 @@ export async function executeSortedQueryPage<T = AnyDocument>(
   const fieldTypes = fields.map(field => flatSchema[field])
   const modes = sortModesOf(normalized)
 
-  const options = searchOptionsFor(params, context)
-  const partitions = partitionsFor(manager, context.partitionIds)
+  const partitions = partitionsIn(manager, context.partitionIds)
   const partitionLimit = offset + limit + 1
 
   const merged: SortedPageEntry[] = []
@@ -79,14 +81,15 @@ export async function executeSortedQueryPage<T = AnyDocument>(
   let count = 0
 
   const clock = context.patternWork.clock
+  const afterYield = (): void => context.turns?.afterYield()
   for (const partition of partitions) {
-    if (turnIsSpent()) await yieldTurn()
+    if (turnIsSpent()) await yieldTurn().then(afterYield)
     partition.prepareSortedPage({ fields, directions, fieldTypes, modes })
     if (partitionFacetConfig !== undefined) {
-      if (turnIsSpent()) await yieldTurn()
+      if (turnIsSpent()) await yieldTurn().then(afterYield)
       partition.prepareFacets(partitionFacetConfig, schema)
     }
-    if (turnIsSpent()) await yieldTurn()
+    if (turnIsSpent()) await yieldTurn().then(afterYield)
     clock?.check()
     const matches = fulltextMatches(partition, params, language, schema, options)
     clock?.check()

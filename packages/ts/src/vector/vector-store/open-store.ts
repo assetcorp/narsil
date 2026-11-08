@@ -16,6 +16,7 @@ import {
   STORE_SLOTS,
   unplacedChunkCount,
 } from './handles'
+import { type SequenceWrites, sequenceWritesOf } from './pins'
 import type { DiskLocation } from './types'
 import { openSharedVectorStore, type SharedVectorStoreView } from './view'
 
@@ -28,6 +29,7 @@ export interface OpenStore {
   diskFile: Int32Array
   diskOffset: Uint32Array
   longestDocIdBytes: number
+  sequences: SequenceWrites
 }
 
 export type OrdinalDocuments = ReadonlyArray<string | undefined>
@@ -43,6 +45,7 @@ export function openHandles(dimension: number, codeBits: OsqBits | null, blockBy
     diskFile: new Int32Array(handles.diskFile),
     diskOffset: new Uint32Array(handles.diskOffset),
     longestDocIdBytes: 0,
+    sequences: sequenceWritesOf(handles),
   }
 }
 
@@ -143,6 +146,8 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
     new Int32Array(handles.diskFile, 0, handles.diskFile.byteLength / 4).fill(IN_MEMORY, diskFileBytes / 4)
   }
   growBufferTo(handles.diskOffset, (ordinal + 1) * 4)
+  growBufferTo(handles.bornAt, (ordinal + 1) * 8)
+  growBufferTo(handles.retiredAt, (ordinal + 1) * 8)
   if (!cold) ensureFloatSlot(store, ordinal)
   ensureCodeSlot(store, ordinal)
 }
@@ -167,6 +172,8 @@ export function growthBytesFor(store: OpenStore, vectors: number): number {
     bufferGrowthBytes(handles.codePresent, last + 1) +
     bufferGrowthBytes(handles.diskFile, (last + 1) * 4) +
     bufferGrowthBytes(handles.diskOffset, (last + 1) * 4) +
+    bufferGrowthBytes(handles.bornAt, (last + 1) * 8) +
+    bufferGrowthBytes(handles.retiredAt, (last + 1) * 8) +
     bufferGrowthBytes(handles.docIdOffsets, (last + 2) * 4) +
     bufferGrowthBytes(handles.docIdBytes, idBytes + (last + 1 - slots) * store.longestDocIdBytes) +
     blocksGrowthBytes(handles.blocks, handles.layout, slots, last)
