@@ -33,6 +33,7 @@ export type GrowFrozenRemovalRegions = (
   segment: NativeFrozenSegment,
   state: NativeFrozenSegmentState,
   fields: readonly NativeFieldTokens[],
+  processHasRoomFor: (bytes: number) => boolean,
 ) => void
 
 export type SettleFrozenState = (
