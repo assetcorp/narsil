@@ -23,6 +23,16 @@ const bufferOf = Object.getOwnPropertyDescriptor(prototype, 'buffer')?.get
 const offsetOf = Object.getOwnPropertyDescriptor(prototype, 'byteOffset')?.get
 const lengthOf = Object.getOwnPropertyDescriptor(prototype, 'length')?.get
 
+export function regionLength(value: unknown): number | null {
+  if (!ArrayBuffer.isView(value)) return null
+  try {
+    const length: unknown = lengthOf?.call(value)
+    return typeof length === 'number' ? length : null
+  } catch {
+    return null
+  }
+}
+
 export function typedRegion<K extends keyof RegionTypes>(value: unknown, kind: K): RegionTypes[K] | null {
   if (!ArrayBuffer.isView(value) || tag?.call(value) !== kind) return null
   const length: unknown = lengthOf?.call(value)
