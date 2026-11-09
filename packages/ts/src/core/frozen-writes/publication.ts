@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
 import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { PENDING_DOCUMENTS, PENDING_HEADER_WORDS, PENDING_TOKENS, PENDING_UNITS, pendingSettled } from './pending'
+import { processHasRoomFor } from './process-room'
 import type { FrozenPagedRemovals } from './types'
 
 export type { FrozenPagedRemovals } from './types'
@@ -55,10 +56,10 @@ export function createFrozenRemovals(
   }
 
   function prepareCount(ordinal: number, fields: readonly NativeFieldTokens[]): number {
-    growFrozenRemovalRegions(segment, state, fields)
+    growFrozenRemovalRegions(segment, state, fields, processHasRoomFor)
     const count = prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, paged)
     if (count !== NEEDS_ROOM) return count
-    growFrozenRemovalRegions(segment, state, fields)
+    growFrozenRemovalRegions(segment, state, fields, processHasRoomFor)
     return prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, paged)
   }
 

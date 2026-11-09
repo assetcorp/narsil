@@ -1,11 +1,10 @@
-import { readResidentMemory } from '#platform/process-limit'
 import type { NativeExpansionSegment } from '../../../vector/native/types/expansion'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
 import type { NativeTermDictionary } from '../../../vector/native/types/terms'
+import { processHasRoomFor } from '../../frozen-writes/process-room'
 import { createFrozenRemovals, emptyPendingRegions } from '../../frozen-writes/publication'
 import type { FrozenStringRemoval } from '../../frozen-writes/removal-strings'
 import { TermLookup } from '../../term-table/lookup'
-import { FROZEN_REMOVAL_INDEX_MAX_PROCESS_FRACTION } from '../constants'
 import type { SegmentColumns } from './columns'
 import type { FrozenTokenTable } from './token-table'
 import type { FrozenTombstones } from './tombstones'
@@ -48,12 +47,6 @@ const UINT32_BYTES = 4
 function removalIndexBytes(columns: CountedColumns, terms: number): number {
   const documentWords = 2 * (columns.documentCount + 1)
   return (columns.postingDocIds.length + documentWords + terms) * UINT32_BYTES
-}
-
-function processHasRoomFor(bytes: number): boolean {
-  const memory = readResidentMemory()
-  if (memory === null) return true
-  return memory.residentBytes + bytes <= FROZEN_REMOVAL_INDEX_MAX_PROCESS_FRACTION * memory.limitBytes
 }
 
 function buildRemovalIndex(columns: CountedColumns, table: FrozenTokenTable): RemovalIndex {

@@ -5,6 +5,7 @@ import {
   PENDING_REMOVAL_DOCUMENTS,
   PENDING_REMOVAL_GROWTH_FACTOR,
   PENDING_REMOVAL_GROWTH_LIMIT_BYTES,
+  PENDING_REMOVAL_LOW_MEMORY_LIMIT_BYTES,
   PENDING_REMOVAL_TOKENS,
   PENDING_REMOVAL_UNITS,
 } from './constants'
@@ -48,7 +49,13 @@ function grown<T extends Uint32Array | Uint16Array>(held: T, length: number, cre
   return next
 }
 
-function growTo(state: NativeFrozenSegmentState, documents: number, tokens: number, units: number): boolean {
+function growTo(
+  state: NativeFrozenSegmentState,
+  documents: number,
+  tokens: number,
+  units: number,
+  processHasRoomFor: (bytes: number) => boolean,
+): boolean {
   const documentLength = grownLength(state.pendingDocuments.length, documents, PENDING_REMOVAL_DOCUMENTS)
   const tokenLength = grownLength(
     state.pendingTokens.length,
@@ -61,13 +68,15 @@ function growTo(state: NativeFrozenSegmentState, documents: number, tokens: numb
     tokenLength * Uint32Array.BYTES_PER_ELEMENT +
     unitLength * Uint16Array.BYTES_PER_ELEMENT
   if (bytes > PENDING_REMOVAL_GROWTH_LIMIT_BYTES) return false
+  const heldBytes = state.pendingDocuments.byteLength + state.pendingTokens.byteLength + state.pendingUnits.byteLength
+  if (bytes > PENDING_REMOVAL_LOW_MEMORY_LIMIT_BYTES && !processHasRoomFor(bytes - heldBytes)) return false
   state.pendingDocuments = grown(state.pendingDocuments, documentLength, Uint32Array)
   state.pendingTokens = grown(state.pendingTokens, tokenLength, Uint32Array)
   state.pendingUnits = grown(state.pendingUnits, unitLength, Uint16Array)
   return true
 }
 
-export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (_segment, state, fields) => {
+export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (_segment, state, fields, processHasRoomFor) => {
   const needed = pendingNeeds(fields)
   if (pendingFits(state, needed, false)) return
   const header = state.pendingHeader
@@ -76,6 +85,7 @@ export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (_segment, sta
     header[PENDING_DOCUMENTS] + needed.documents,
     header[PENDING_TOKENS] + needed.tokens,
     header[PENDING_UNITS] + needed.units,
+    processHasRoomFor,
   )
   if (heldGrows || pendingFits(state, needed, true)) return
   state.pendingDocuments = grown(state.pendingDocuments, needed.documents, Uint32Array)
