@@ -3,7 +3,6 @@
 #include "../../include/narsil_analysis.h"
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_frozen_segments.h"
-#include "../../include/narsil_segments.h"
 #include "../analysis/text.h"
 #include "../terms/dictionary.h"
 #include "strings.h"
@@ -96,14 +95,6 @@ typedef struct {
   size_t surface_length;
 } pending_token;
 
-int frozen_token_pending(const narsil_frozen_segment *segment, const narsil_field_tokens *field,
-                         const narsil_token *token) {
-  if (segment->partial_fields[field->field] != 0) { return 1; }
-  return token->surface_offset != NARSIL_NO_SURFACE && token->surface_length > 0 &&
-         !narsil_units_equal(field->tokens.units + token->term_offset, token->term_length,
-                             field->tokens.units + token->surface_offset, token->surface_length);
-}
-
 static narsil_status collect_token(frozen_removal_plan *plan, const narsil_frozen_segment *segment,
                                    pending_token token) {
   const uint16_t *spelling = token.term;
@@ -156,10 +147,87 @@ static int table_ascends(frozen_removal_plan *plan, const narsil_frozen_strings 
   return slot->ascends;
 }
 
+enum {
+  UTF8_WIDEST = 4,
+  UTF8_PAYLOAD_BITS = 6,
+  UTF8_PAYLOAD_MASK = 0x3f,
+  UTF8_CONTINUATION = 0x80,
+  UTF8_TWO_LEAD = 0xc0,
+  UTF8_THREE_LEAD = 0xe0,
+  UTF8_FOUR_LEAD = 0xf0,
+  UTF8_TWO_BYTE_END = 0x800
+};
+
+static size_t utf8_of(uint32_t point, uint8_t encoded[UTF8_WIDEST]) {
+  if (point < NARSIL_ASCII_END) {
+    encoded[0] = (uint8_t)point;
+    return 1;
+  }
+  if (point < UTF8_TWO_BYTE_END) {
+    encoded[0] = (uint8_t)(UTF8_TWO_LEAD | (point >> UTF8_PAYLOAD_BITS));
+    encoded[1] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+    return 2;
+  }
+  if (point < NARSIL_SUPPLEMENTARY_FIRST) {
+    encoded[0] = (uint8_t)(UTF8_THREE_LEAD | (point >> (2 * UTF8_PAYLOAD_BITS)));
+    encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+    encoded[2] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+    return 3;
+  }
+  encoded[0] = (uint8_t)(UTF8_FOUR_LEAD | (point >> (3 * UTF8_PAYLOAD_BITS)));
+  encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> (2 * UTF8_PAYLOAD_BITS)) & UTF8_PAYLOAD_MASK));
+  encoded[2] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+  encoded[3] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+  return UTF8_WIDEST;
+}
+
+static int compare_bytes_to_units(const uint8_t *bytes, size_t length, const uint16_t *units, size_t count) {
+  size_t compared = 0;
+  size_t index = 0;
+  while (index < count) {
+    uint8_t encoded[UTF8_WIDEST];
+    size_t width = utf8_of(narsil_decode_next(units, count, &index), encoded);
+    size_t available = length - compared;
+    size_t shared = available < width ? available : width;
+    int order = shared == 0 ? 0 : memcmp(bytes + compared, encoded, shared);
+    if (order != 0) { return order; }
+    if (available < width) { return -1; }
+    compared += width;
+  }
+  return compared < length ? 1 : 0;
+}
+
+static int holds_lone_surrogate(const uint16_t *units, size_t count) {
+  size_t index = 0;
+  while (index < count) {
+    uint32_t point = narsil_decode_next(units, count, &index);
+    if (point >= NARSIL_HIGH_SURROGATE_FIRST && point < NARSIL_SURROGATE_END) { return 1; }
+  }
+  return 0;
+}
+
+static int64_t find_ascending_surface(const narsil_frozen_strings *table, const uint16_t *units, size_t count) {
+  if (count > NARSIL_MAX_ANALYSED_UNITS || holds_lone_surrogate(units, count)) { return -1; }
+  size_t low = 0;
+  size_t high = table->count;
+  while (low < high) {
+    size_t middle = low + ((high - low) / 2);
+    uint32_t start = table->offsets[middle * 2];
+    int order = compare_bytes_to_units(table->text + start, table->offsets[(middle * 2) + 1] - start, units, count);
+    if (order == 0) { return (int64_t)middle; }
+    if (order < 0) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return -1;
+}
+
 static narsil_status find_surfaces(frozen_removal_plan *plan, const narsil_frozen_strings *table) {
   for (size_t at = 0; at < plan->surfaces.count; at++) {
     const segment_string *held = plan->surfaces.entries + at;
-    int64_t entry = find_entry(table, (entry_key){NULL, 0, 2}, held->text, held->length);
+    int64_t entry = find_ascending_surface(table, held->text, held->length);
     if (entry < 0) { continue; }
     narsil_status status = frozen_removal_add(plan, FROZEN_SURFACE, (uint32_t)entry, 0, held->count);
     if (status != NARSIL_OK) { return status; }

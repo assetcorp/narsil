@@ -6,7 +6,7 @@ import type {
 import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { regionsOverlap } from '../regions'
 import { requireSegment } from '../segment-writes/status'
-import { typedRegion } from '../stored-values/regions'
+import { regionLength, typedRegion } from '../stored-values/regions'
 import {
   PENDING_DOCUMENTS,
   PENDING_HEADER_WORDS,
@@ -18,6 +18,8 @@ import {
 
 type RegionKind = Parameters<typeof typedRegion>[1]
 
+const NO_VIEWS: readonly ArrayBufferView[] = []
+
 function copy<T extends object>(value: T): T {
   requireSegment(typeof value === 'object' && value !== null)
   return { ...value }
@@ -26,6 +28,11 @@ function copy<T extends object>(value: T): T {
 class Regions {
   readonly reads: ArrayBufferView[] = []
   readonly writes: ArrayBufferView[] = []
+  private readonly writesByBuffer = new Map<ArrayBufferLike, ArrayBufferView[]>()
+  private checkedWrites = 0
+  private checkedReads = 0
+
+  constructor(private readonly base: Regions | null = null) {}
 
   array<K extends RegionKind>(value: unknown, kind: K, length?: number, write = false) {
     const array = typedRegion(value, kind)
@@ -35,12 +42,32 @@ class Regions {
     return array
   }
 
+  writesOn(buffer: ArrayBufferLike): readonly ArrayBufferView[] {
+    return this.writesByBuffer.get(buffer) ?? NO_VIEWS
+  }
+
   check(): void {
-    for (let at = 0; at < this.writes.length; at++) {
-      for (let previous = 0; previous < at; previous++)
-        requireSegment(!regionsOverlap(this.writes[at], this.writes[previous]))
-      for (const read of this.reads) requireSegment(!regionsOverlap(this.writes[at], read))
+    const { base } = this
+    for (; this.checkedWrites < this.writes.length; this.checkedWrites++) {
+      const write = this.writes[this.checkedWrites]
+      for (const held of this.writesOn(write.buffer)) requireSegment(!regionsOverlap(write, held))
+      const sharing = this.writesByBuffer.get(write.buffer)
+      if (sharing === undefined) this.writesByBuffer.set(write.buffer, [write])
+      else sharing.push(write)
+      for (let read = 0; read < this.checkedReads; read++) requireSegment(!regionsOverlap(write, this.reads[read]))
+      if (base === null) continue
+      for (const held of base.writesOn(write.buffer)) requireSegment(!regionsOverlap(write, held))
+      for (const read of base.reads) requireSegment(!regionsOverlap(write, read))
     }
+    for (; this.checkedReads < this.reads.length; this.checkedReads++) {
+      const read = this.reads[this.checkedReads]
+      for (const held of this.writesOn(read.buffer)) requireSegment(!regionsOverlap(held, read))
+      if (base !== null) for (const held of base.writesOn(read.buffer)) requireSegment(!regionsOverlap(held, read))
+    }
+  }
+
+  views(): ArrayBufferView[] {
+    return [...(this.base?.views() ?? NO_VIEWS), ...this.reads, ...this.writes]
   }
 }
 
@@ -79,33 +106,86 @@ export function captureFrozen(input: NativeFrozenSegment, output: NativeFrozenSe
   return { raw, writable }
 }
 
-function readFrozen(
-  input: NativeFrozenSegment,
-  output: NativeFrozenSegmentState,
-  ordinal: number | null,
-  rawFields: readonly NativeFieldTokens[],
-) {
-  const { raw, writable } = captureFrozen(input, output)
-  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
-  const fields = rawFields.map(copy)
+type CapturedFrozen = ReturnType<typeof captureFrozen>
+
+interface HeldFrozen {
+  output: NativeFrozenSegmentState
+  raws: readonly unknown[]
+  lengths: readonly (number | null)[]
+  segment: NativeFrozenSegment
+  state: NativeFrozenSegmentState
+  regions: Regions
+}
+
+const heldFrozen = new WeakMap<NativeFrozenSegment, HeldFrozen>()
+
+function rawsOf({ raw, writable }: CapturedFrozen): unknown[] {
+  const { terms, surfaces, spellings, removalIndex } = raw
+  return [
+    raw.documentCount,
+    terms.text,
+    terms.offsets,
+    terms.counts,
+    surfaces === null,
+    surfaces?.text,
+    surfaces?.offsets,
+    surfaces?.counts,
+    spellings === null,
+    spellings?.text,
+    spellings?.offsets,
+    spellings?.counts,
+    raw.postingDocuments,
+    raw.payloadSlots,
+    raw.postingOffsets,
+    raw.postingFrequencies,
+    raw.postingFields,
+    raw.spellingTokens,
+    removalIndex === null,
+    removalIndex?.starts,
+    removalIndex?.rows,
+    removalIndex?.termOfSlot,
+    writable.tombstones,
+    writable.tombstoneCount,
+    writable.removedDocuments,
+    writable.removedOccurrences,
+    writable.removedSurfaces,
+    writable.removedSpellings,
+    writable.pendingHeader,
+    writable.pendingDocuments,
+    writable.pendingTokens,
+    writable.pendingUnits,
+  ]
+}
+
+function stillHeld(raws: readonly unknown[], held: HeldFrozen): boolean {
+  if (raws.length !== held.raws.length) return false
+  for (let at = 0; at < raws.length; at++) {
+    if (raws[at] !== held.raws[at]) return false
+    const length = held.lengths[at]
+    if (length !== null && regionLength(raws[at]) !== length) return false
+  }
+  return true
+}
+
+function readHeld(input: NativeFrozenSegment, output: NativeFrozenSegmentState, captured: CapturedFrozen): HeldFrozen {
+  const raws = rawsOf(captured)
+  const known = heldFrozen.get(input)
+  if (known !== undefined && known.output === output && stillHeld(raws, known)) return known
+  const { raw, writable } = captured
   const regions = new Regions()
   const documentCount = raw.documentCount
   requireSegment(Number.isInteger(documentCount) && documentCount >= 0 && documentCount <= 0xffffffff)
-  requireSegment(ordinal === null || (Number.isInteger(ordinal) && ordinal >= 0 && ordinal < documentCount))
   const terms = strings(raw.terms, 1, regions)
   const surfaces = raw.surfaces === null ? null : strings(raw.surfaces, 2, regions)
   const spellings = raw.spellings === null ? null : strings(raw.spellings, 1, regions)
   const postingDocuments = regions.array(raw.postingDocuments, 'Uint32Array')
   requireSegment(postingDocuments.length <= 0xffffffff)
-  const partialFields = regions.array(raw.partialFields, 'Uint8Array')
-  requireSegment(partialFields.length <= 65536 && fields.length <= partialFields.length)
-  for (const flag of partialFields) requireSegment(flag <= 1)
   const segment: NativeFrozenSegment = {
     terms,
     surfaces,
     spellings,
     postingDocuments,
-    partialFields,
+    partialFields: new Uint8Array(0),
     documentCount,
     payloadSlots: regions.array(raw.payloadSlots, 'Uint32Array', terms.counts.length),
     postingOffsets: regions.array(raw.postingOffsets, 'Uint32Array', terms.counts.length + 1),
@@ -133,10 +213,34 @@ function readFrozen(
     pendingTokens: regions.array(writable.pendingTokens, 'Uint32Array', undefined, true),
     pendingUnits: regions.array(writable.pendingUnits, 'Uint16Array', undefined, true),
   }
+  requireSegment(state.pendingTokens.length % PENDING_TOKEN_WORDS === 0)
+  regions.check()
+  const held: HeldFrozen = { output, raws, lengths: raws.map(raw => regionLength(raw)), segment, state, regions }
+  heldFrozen.set(input, held)
+  return held
+}
+
+function readFrozen(
+  input: NativeFrozenSegment,
+  output: NativeFrozenSegmentState,
+  ordinal: number | null,
+  rawFields: readonly NativeFieldTokens[],
+) {
+  const captured = captureFrozen(input, output)
+  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
+  const fields = rawFields.map(copy)
+  const held = readHeld(input, output, captured)
+  const { segment, state } = held
+  const documentCount = segment.documentCount
+  requireSegment(ordinal === null || (Number.isInteger(ordinal) && ordinal >= 0 && ordinal < documentCount))
+  const regions = new Regions(held.regions)
+  const partialFields = regions.array(captured.raw.partialFields, 'Uint8Array')
+  requireSegment(partialFields.length <= 65536 && fields.length <= partialFields.length)
+  for (const flag of partialFields) requireSegment(flag <= 1)
+  segment.partialFields = partialFields
   const header = state.pendingHeader
   requireSegment(
-    state.pendingTokens.length % PENDING_TOKEN_WORDS === 0 &&
-      header[PENDING_DOCUMENTS] <= state.pendingDocuments.length &&
+    header[PENDING_DOCUMENTS] <= state.pendingDocuments.length &&
       header[PENDING_TOKENS] <= state.pendingTokens.length / PENDING_TOKEN_WORDS &&
       header[PENDING_UNITS] <= state.pendingUnits.length,
   )
@@ -160,7 +264,9 @@ function readFrozen(
     segment,
     state,
     fields,
-    arrays: [...regions.reads, ...regions.writes],
+    get arrays() {
+      return regions.views()
+    },
     readOutput(rawEntries: Uint32Array, rawValues: Float64Array) {
       const entries = regions.array(rawEntries, 'Uint32Array', undefined, true)
       const values = regions.array(rawValues, 'Float64Array', undefined, true)

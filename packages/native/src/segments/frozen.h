@@ -65,8 +65,6 @@ narsil_status frozen_settle_counts(narsil_workspace *workspace, frozen_removal_p
                                    const narsil_frozen_paged_removals *paged);
 narsil_status frozen_settle_strings(frozen_removal_plan *plan, const narsil_frozen_segment *segment,
                                     const narsil_frozen_segment_state *state);
-int frozen_token_pending(const narsil_frozen_segment *segment, const narsil_field_tokens *field,
-                         const narsil_token *token);
 frozen_pending_size frozen_pending_needed(const narsil_remove_frozen_request *request);
 void frozen_pending_append(const narsil_remove_frozen_request *request);
 narsil_status frozen_settle(narsil_workspace *workspace, const narsil_frozen_segment *segment,

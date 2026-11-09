@@ -10,7 +10,7 @@ import {
   SegmentRefusal,
 } from '#platform/frozen-kernel-host'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
-import { type FrozenChanges, settleTermCounts } from './counts'
+import { clearTermChanges, type FrozenChanges, settleTermCounts, termChangesOf } from './counts'
 import type { PendingSize } from './pending'
 import { appendPending, pendingFits, pendingNeeds } from './pending-writes'
 import { settleStringCounts } from './string-counts'
@@ -22,16 +22,34 @@ function clamped(removed: number, stored: number, amount: number): number {
   return Math.min(stored, removed + amount)
 }
 
+function publishTerms(
+  changes: FrozenChanges,
+  segment: NativeFrozenSegment,
+  state: NativeFrozenSegmentState,
+  paged: FrozenPagedRemovals | null,
+): void {
+  const { terms } = changes
+  settleTermCounts(terms, segment, state, paged)
+  settleStringCounts(changes, segment, state)
+  for (const term of terms.touched)
+    requireSegment(Number.isFinite(state.removedOccurrences[term]) && state.removedOccurrences[term] >= 0)
+  for (const term of terms.touched) {
+    state.removedDocuments[term] = clamped(
+      state.removedDocuments[term],
+      segment.terms.counts[term],
+      terms.documents[term],
+    )
+    state.removedOccurrences[term] += terms.amounts[term]
+  }
+}
+
 function settle(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, paged: FrozenPagedRemovals | null) {
   if (pendingSettled(state)) return
-  const changes: FrozenChanges = { terms: new Map(), surfaces: new Map(), spellings: new Map() }
-  settleTermCounts(changes, segment, state, paged)
-  settleStringCounts(changes, segment, state)
-  for (const term of changes.terms.keys())
-    requireSegment(Number.isFinite(state.removedOccurrences[term]) && state.removedOccurrences[term] >= 0)
-  for (const [term, change] of changes.terms) {
-    state.removedDocuments[term] = clamped(state.removedDocuments[term], segment.terms.counts[term], change.documents)
-    state.removedOccurrences[term] += change.amount
+  const changes: FrozenChanges = { terms: termChangesOf(segment), surfaces: new Map(), spellings: new Map() }
+  try {
+    publishTerms(changes, segment, state, paged)
+  } finally {
+    clearTermChanges(changes.terms)
   }
   if (segment.surfaces !== null)
     for (const [entry, amount] of changes.surfaces)
@@ -50,7 +68,7 @@ function tombstoned(state: NativeFrozenSegmentState, ordinal: number): boolean {
 
 function makeRoom(request: ReturnType<typeof readFrozenRequest>, paged: FrozenPagedRemovals | null): PendingSize {
   const { segment, state, fields } = request
-  const needed = pendingNeeds(segment.partialFields, fields)
+  const needed = pendingNeeds(fields)
   requireRoom(pendingFits(state, needed, true))
   if (!pendingFits(state, needed, false)) settle(segment, state, paged)
   return needed
@@ -68,7 +86,7 @@ export const removeFrozenDocument: RemoveFrozenDocument = (input, output, ordina
     if (tombstoned(state, ordinal)) return 0
     requireSegment(state.tombstoneCount[0] < segment.documentCount)
     const needed = makeRoom(request, paged)
-    appendPending(state, segment.partialFields, ordinal, fields)
+    appendPending(state, ordinal, fields)
     state.pendingHeader[PENDING_DOCUMENTS] += needed.documents
     state.pendingHeader[PENDING_TOKENS] += needed.tokens
     state.pendingHeader[PENDING_UNITS] += needed.units
@@ -97,7 +115,7 @@ export const prepareFrozenRemoval: PrepareFrozenRemoval = (
     requireSegment(state.tombstoneCount[0] < segment.documentCount)
     requireRoom(entries.length / 2 >= PREPARED_REPLACEMENTS && values.length >= PREPARED_REPLACEMENTS)
     const needed = makeRoom(request, paged)
-    appendPending(state, segment.partialFields, ordinal, fields)
+    appendPending(state, ordinal, fields)
     const header = state.pendingHeader
     const replacements = [
       [4, ordinal >>> 5, (state.tombstones[ordinal >>> 5] | (1 << (ordinal & 31))) >>> 0],
