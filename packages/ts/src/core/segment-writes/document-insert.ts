@@ -16,34 +16,31 @@ const POSITIONS_FLAG = 4
 const MAX_ROW_FREQUENCY = 65535
 const MAX_POSTING_COUNT = 0xffffffff
 const ABSENT_TEXT = 0xffffffff
-const NO_ROW = 0xffffffff
+const LAST_MARK = 0xffffffff
 
 export const DOCUMENT_INSERT_DECLINED = -1
 
 class DocumentInsert {
   private readonly pool = new PoolPlan()
-  private readonly changeOfText = new StampedMemo()
   private readonly surfaceOfText = new StampedMemo()
   private termPlan: StringPlan | null = null
   private surfacePlan: StringPlan | null = null
   private surfaces: StringPlan | null = null
-  private changeCount = 0
+  private mark = 0
+  private termCount = 0
+  private terms = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private documentMarks = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private fieldMarks = new Uint32Array(WRITE_PLAN_START_CAPACITY)
   private ordinals = new Uint32Array(WRITE_PLAN_START_CAPACITY)
   private fresh = new Uint8Array(WRITE_PLAN_START_CAPACITY)
-  private heads = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private tails = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private addedRows = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private sourceStarts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private sourceClasses = new Uint8Array(WRITE_PLAN_START_CAPACITY)
+  private postingsAdded = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private lastPositions = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private firstRecords = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private positionCursors = new Uint32Array(WRITE_PLAN_START_CAPACITY)
   private targetStarts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
   private targetClasses = new Uint8Array(WRITE_PLAN_START_CAPACITY)
-  private rowCount = 0
-  private rowFields = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private rowSizes = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private rowLasts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private rowNexts = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private rowCursors = new Uint32Array(WRITE_PLAN_START_CAPACITY)
-  private tokenRows = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private recordSizes = new Uint32Array(WRITE_PLAN_START_CAPACITY)
+  private records = 0
 
   insert(segment: NativeGrowingSegment, document: number, fields: readonly PreparedSegmentField[]): number {
     const texts = sharedTexts(fields)
@@ -57,8 +54,9 @@ class DocumentInsert {
     this.surfaces?.check()
     this.allocate(segment)
     terms.publish()
-    this.publishPostings(segment, document)
-    this.writePositions(segment, fields)
+    this.pool.publish()
+    for (let at = 0; at < this.termCount; at++) this.openPostings(segment, this.terms[at], document)
+    this.appendPostings(segment, document, fields)
     publishSurfaceCounts(this.surfaces, segment)
     publishFieldLengths(segment, document, fields)
     return 0
@@ -82,57 +80,61 @@ class DocumentInsert {
     fields: readonly PreparedSegmentField[],
     terms: StringPlan,
   ): boolean {
-    this.changeOfText.claim(this, texts.length)
+    this.claim(texts.length, fields)
     this.surfaceOfText.claim(this, texts.length)
-    this.changeCount = 0
-    this.rowCount = 0
-    let records = 0
-    for (const { text } of fields) records += text.count
-    if (records > this.tokenRows.length) this.tokenRows = new Uint32Array(Math.max(records, this.tokenRows.length * 2))
-    const tokenRows = this.tokenRows
-    let token = 0
-    for (const { field, text } of fields) {
+    this.termCount = 0
+    const documentMark = this.takeMarks(fields.length + 1)
+    const documentMarks = this.documentMarks
+    const fieldMarks = this.fieldMarks
+    const lastPositions = this.lastPositions
+    const firstRecords = this.firstRecords
+    const sizes = this.recordSizes
+    let fieldMark = documentMark
+    let record = 0
+    for (const { text } of fields) {
+      fieldMark++
       const rows = text.rows
       const end = text.count * PREPARED_ROW_WORDS
       for (let row = 0; row < end; row += PREPARED_ROW_WORDS) {
         const termId = rows[row]
-        let change = this.changeOfText.get(termId)
-        if (change < 0) {
-          change = this.addChange(segment, terms, texts[termId])
-          this.changeOfText.set(termId, change)
-        }
+        if (documentMarks[termId] !== documentMark) this.addTerm(segment, terms, texts[termId], termId, documentMark)
         const surfaceId = rows[row + 1]
-        if (surfaceId !== ABSENT_TEXT && surfaceId !== termId)
-          this.countSurface(segment, texts, surfaceId, termId, change)
+        if (surfaceId !== ABSENT_TEXT && surfaceId !== termId) this.countSurface(segment, texts, surfaceId, termId)
         const position = rows[row + 2]
-        const tail = this.tails[change]
-        let target = tail
-        if (tail === NO_ROW || this.rowFields[tail] !== field) target = this.addRow(change, field)
-        else if (this.rowLasts[tail] > position) return false
-        this.rowSizes[target]++
-        this.rowLasts[target] = position
-        tokenRows[token++] = target
+        sizes[record] = 0
+        if (fieldMarks[termId] !== fieldMark) {
+          fieldMarks[termId] = fieldMark
+          firstRecords[termId] = record
+          this.postingsAdded[termId]++
+        } else if (lastPositions[termId] > position) return false
+        lastPositions[termId] = position
+        sizes[firstRecords[termId]]++
+        record++
       }
     }
     return true
   }
 
-  private addChange(segment: NativeGrowingSegment, terms: StringPlan, text: string): number {
-    const change = this.changeCount
-    if (change === this.ordinals.length) this.growChanges()
-    this.changeCount = change + 1
-    this.tails[change] = NO_ROW
+  private addTerm(
+    segment: NativeGrowingSegment,
+    terms: StringPlan,
+    text: string,
+    termId: number,
+    documentMark: number,
+  ): void {
+    this.documentMarks[termId] = documentMark
+    this.terms[this.termCount++] = termId
+    this.postingsAdded[termId] = 0
     const hash = stringHash(text)
     const found = findString(segment.terms, text, hash)
     if (found < 0) {
       const at = terms.prepareAbsent(text, hash)
-      this.ordinals[change] = terms.ordinals[at]
-      this.fresh[change] = 1
-      return change
+      this.ordinals[termId] = terms.ordinals[at]
+      this.fresh[termId] = 1
+      return
     }
-    this.ordinals[change] = found
-    this.fresh[change] = this.holdsPostings(segment, found) ? 0 : 1
-    return change
+    this.ordinals[termId] = found
+    this.fresh[termId] = this.holdsPostings(segment, found) ? 0 : 1
   }
 
   private holdsPostings(segment: NativeGrowingSegment, ordinal: number): boolean {
@@ -158,7 +160,6 @@ class DocumentInsert {
     texts: readonly string[],
     surfaceId: number,
     termId: number,
-    change: number,
   ): void {
     const surface = texts[surfaceId]
     if (surface === '' || surface === texts[termId]) return
@@ -175,175 +176,157 @@ class DocumentInsert {
     }
     const added = plan.added[at] === 1
     if (plan.counts[at] === 0) {
-      plan.tokens[at] = added ? this.ordinals[change] : table.token[plan.ordinals[at]]
+      plan.tokens[at] = added ? this.ordinals[termId] : table.token[plan.ordinals[at]]
       plan.points[at] = 0
     }
     addCount(plan, at, added ? 0 : table.count[plan.ordinals[at]], 1)
   }
 
-  private addRow(change: number, field: number): number {
-    const row = this.rowCount
-    if (row === this.rowFields.length) this.growRows()
-    this.rowCount = row + 1
-    this.rowFields[row] = field
-    this.rowSizes[row] = 0
-    this.rowNexts[row] = NO_ROW
-    const tail = this.tails[change]
-    if (tail === NO_ROW) this.heads[change] = row
-    else this.rowNexts[tail] = row
-    this.tails[change] = row
-    return row
-  }
-
   private allocate(segment: NativeGrowingSegment): void {
     const positions = segment.positions
-    const positionEnd = positions?.allocation[0] ?? 0
-    if (positions !== null)
+    if (positions !== null) {
+      const positionEnd = positions.allocation[0]
       requireSegment(positionEnd > 0 && positionEnd <= positions.values.length && positions.allocation[1] < positionEnd)
+      let positionsNeeded = this.records
+      for (let at = 0; at < this.termCount; at++) positionsNeeded += this.postingsAdded[this.terms[at]]
+      requireRoom(positionsNeeded <= positions.values.length - positionEnd)
+    }
     const postings = segment.postings
     const pool = this.pool.begin(postings, postings.docIds)
-    const positionRoom = positions === null ? 0 : positions.values.length - positionEnd
-    let positionsNeeded = 0
-    for (let change = 0; change < this.changeCount; change++) {
-      let added = 0
-      for (let row = this.heads[change]; row !== NO_ROW; row = this.rowNexts[row]) {
-        added++
-        if (positions === null) continue
-        const size = this.rowSizes[row]
-        requireRoom(size < MAX_POSTING_COUNT && size + 1 <= positionRoom - positionsNeeded)
-        positionsNeeded += size + 1
-      }
-      this.addedRows[change] = added
-    }
     const columns = segment.columns
     const capacities = postings.sliceCapacities
-    for (let change = 0; change < this.changeCount; change++) {
-      const ordinal = this.ordinals[change]
-      const fresh = this.fresh[change] === 1
+    for (let at = 0; at < this.termCount; at++) {
+      const termId = this.terms[at]
+      const ordinal = this.ordinals[termId]
+      const fresh = this.fresh[termId] === 1
       const sourceClass = fresh ? NO_SLICE_CLASS : columns.sliceClass[ordinal]
-      const sourceStart = fresh ? 0 : columns.sliceStart[ordinal]
       const kept = fresh ? 0 : columns.lengths[ordinal]
-      const added = this.addedRows[change]
+      const added = this.postingsAdded[termId]
       requireRoom(added <= MAX_POSTING_COUNT - kept)
-      let target = sourceStart
-      let targetClass = sourceClass
+      requireSegment(fresh || columns.docFrequency[ordinal] < MAX_POSTING_COUNT)
       if (kept + added > (fresh ? 0 : capacities[sourceClass])) {
-        target = pool.allocateStart(kept + added, sourceClass)
-        targetClass = pool.allocatedClass
+        this.targetStarts[termId] = pool.allocateStart(kept + added, sourceClass)
+        this.targetClasses[termId] = pool.allocatedClass
+      } else {
+        this.targetStarts[termId] = columns.sliceStart[ordinal]
+        this.targetClasses[termId] = sourceClass
       }
-      requireSegment(added === 0 || fresh || columns.docFrequency[ordinal] < MAX_POSTING_COUNT)
-      this.sourceStarts[change] = sourceStart
-      this.sourceClasses[change] = sourceClass
-      this.targetStarts[change] = target
-      this.targetClasses[change] = targetClass
     }
     pool.check()
   }
 
-  private publishPostings(segment: NativeGrowingSegment, document: number): void {
-    this.pool.publish()
+  private openPostings(segment: NativeGrowingSegment, termId: number, document: number): void {
+    const postings = segment.postings
+    const columns = segment.columns
+    const starts = postings.positionStarts
+    const docIds = postings.docIds
+    const ordinal = this.ordinals[termId]
+    const fresh = this.fresh[termId] === 1
+    const target = this.targetStarts[termId]
+    const source = fresh ? 0 : columns.sliceStart[ordinal]
+    const sourceClass = fresh ? NO_SLICE_CLASS : columns.sliceClass[ordinal]
+    const kept = fresh ? 0 : columns.lengths[ordinal]
+    let flags = fresh ? NEW_TERM_FLAGS : columns.flags[ordinal]
+    if (source !== target) {
+      const keepsPositions = (flags & POSITIONS_FLAG) !== 0
+      for (let at = 0; at < kept; at++) {
+        docIds[target + at] = docIds[source + at]
+        postings.frequencies[target + at] = postings.frequencies[source + at]
+        postings.fieldIndices[target + at] = postings.fieldIndices[source + at]
+        if (starts !== null) starts[target + at] = keepsPositions ? starts[source + at] : 0
+      }
+      if (sourceClass !== NO_SLICE_CLASS)
+        releaseRange(postings, docIds, source, postings.sliceCapacities[sourceClass], sourceClass)
+    } else if (segment.positions !== null && (flags & POSITIONS_FLAG) === 0 && kept > 0)
+      starts?.fill(0, target, target + kept)
+    if (kept > 0 && (flags & ORDERED_FLAG) !== 0 && document < docIds[target + kept - 1]) flags &= ~ORDERED_FLAG
+    if (segment.positions !== null) flags |= POSITIONS_FLAG
+    columns.sliceStart[ordinal] = target
+    columns.sliceClass[ordinal] = this.targetClasses[termId]
+    columns.lengths[ordinal] = kept
+    columns.docFrequency[ordinal] = (fresh ? 0 : columns.docFrequency[ordinal]) + 1
+    if (fresh) {
+      columns.deadDocuments[ordinal] = 0
+      columns.totalTermFrequency[ordinal] = 0
+      columns.surfaceOccurrences[ordinal] = 0
+    }
+    columns.revision[ordinal] = fresh ? 0 : columns.revision[ordinal] + 1
+    columns.flags[ordinal] = flags
+  }
+
+  private appendPostings(
+    segment: NativeGrowingSegment,
+    document: number,
+    fields: readonly PreparedSegmentField[],
+  ): void {
     const postings = segment.postings
     const columns = segment.columns
     const positions = segment.positions
     const starts = postings.positionStarts
-    const docIds = postings.docIds
+    const values = positions === null || starts === null ? null : positions.values
+    const ordinals = this.ordinals
+    const cursors = this.positionCursors
+    const sizes = this.recordSizes
     let positionEnd = positions?.allocation[0] ?? 0
-    for (let change = 0; change < this.changeCount; change++) {
-      const ordinal = this.ordinals[change]
-      const fresh = this.fresh[change] === 1
-      const target = this.targetStarts[change]
-      const kept = fresh ? 0 : columns.lengths[ordinal]
-      let flags = fresh ? NEW_TERM_FLAGS : columns.flags[ordinal]
-      if (this.sourceStarts[change] !== target) this.copyKept(segment, change, kept, flags)
-      else if (positions !== null && (flags & POSITIONS_FLAG) === 0 && kept > 0) starts?.fill(0, target, target + kept)
-      let output = target + kept
-      let frequency = 0
-      for (let row = this.heads[change]; row !== NO_ROW; row = this.rowNexts[row]) {
-        const size = this.rowSizes[row]
-        const stored = size < MAX_ROW_FREQUENCY ? size : MAX_ROW_FREQUENCY
-        docIds[output] = document
-        postings.frequencies[output] = stored
-        postings.fieldIndices[output] = this.rowFields[row]
-        if (positions !== null && starts !== null) {
-          starts[output] = positionEnd
-          positions.values[positionEnd] = size
-          this.rowCursors[row] = positionEnd + 1
-          positionEnd += size + 1
-        } else if (starts !== null) starts[output] = 0
-        frequency += stored
-        output++
-      }
-      const added = this.addedRows[change]
-      if (kept > 0 && added > 0 && (flags & ORDERED_FLAG) !== 0 && document < docIds[target + kept - 1])
-        flags &= ~ORDERED_FLAG
-      if (added > 0 && positions !== null) flags |= POSITIONS_FLAG
-      columns.sliceStart[ordinal] = target
-      columns.sliceClass[ordinal] = this.targetClasses[change]
-      columns.lengths[ordinal] = kept + added
-      columns.docFrequency[ordinal] = (fresh ? 0 : columns.docFrequency[ordinal]) + Number(added > 0)
-      if (fresh) columns.deadDocuments[ordinal] = 0
-      columns.totalTermFrequency[ordinal] = (fresh ? 0 : columns.totalTermFrequency[ordinal]) + frequency
-      if (fresh) columns.surfaceOccurrences[ordinal] = 0
-      columns.revision[ordinal] = fresh ? 0 : columns.revision[ordinal] + 1
-      columns.flags[ordinal] = flags
-    }
-    for (let change = 0; change < this.changeCount; change++) {
-      const sourceClass = this.sourceClasses[change]
-      const source = this.sourceStarts[change]
-      if (sourceClass !== NO_SLICE_CLASS && source !== this.targetStarts[change])
-        releaseRange(postings, docIds, source, postings.sliceCapacities[sourceClass], sourceClass)
-    }
-    if (positions !== null) positions.allocation[0] = positionEnd
-  }
-
-  private copyKept(segment: NativeGrowingSegment, change: number, kept: number, flags: number): void {
-    const pool = segment.postings
-    const source = this.sourceStarts[change]
-    const target = this.targetStarts[change]
-    const starts = pool.positionStarts
-    const keepsPositions = (flags & POSITIONS_FLAG) !== 0
-    for (let at = 0; at < kept; at++) {
-      pool.docIds[target + at] = pool.docIds[source + at]
-      pool.frequencies[target + at] = pool.frequencies[source + at]
-      pool.fieldIndices[target + at] = pool.fieldIndices[source + at]
-      if (starts !== null) starts[target + at] = keepsPositions ? starts[source + at] : 0
-    }
-  }
-
-  private writePositions(segment: NativeGrowingSegment, fields: readonly PreparedSegmentField[]): void {
-    const positions = segment.positions
-    if (positions === null || segment.postings.positionStarts === null) return
-    const values = positions.values
-    const cursors = this.rowCursors
-    const tokenRows = this.tokenRows
-    let token = 0
-    for (const { text } of fields) {
+    let record = 0
+    for (const { field, text } of fields) {
       const rows = text.rows
       const end = text.count * PREPARED_ROW_WORDS
-      for (let row = 2; row < end; row += PREPARED_ROW_WORDS) values[cursors[tokenRows[token++]]++] = rows[row]
+      for (let row = 0; row < end; row += PREPARED_ROW_WORDS) {
+        const termId = rows[row]
+        const size = sizes[record++]
+        if (size > 0) {
+          const ordinal = ordinals[termId]
+          const output = columns.sliceStart[ordinal] + columns.lengths[ordinal]
+          const stored = size < MAX_ROW_FREQUENCY ? size : MAX_ROW_FREQUENCY
+          postings.docIds[output] = document
+          postings.frequencies[output] = stored
+          postings.fieldIndices[output] = field
+          if (values !== null && starts !== null) {
+            starts[output] = positionEnd
+            values[positionEnd] = size
+            cursors[termId] = positionEnd + 1
+            positionEnd += size + 1
+          } else if (starts !== null) starts[output] = 0
+          columns.lengths[ordinal]++
+          columns.totalTermFrequency[ordinal] += stored
+        }
+        if (values !== null) values[cursors[termId]++] = rows[row + 2]
+      }
     }
+    if (positions !== null && values !== null) positions.allocation[0] = positionEnd
   }
 
-  private growChanges(): void {
-    const capacity = this.ordinals.length * 2
-    this.ordinals = grownWords(this.ordinals, capacity)
+  private takeMarks(count: number): number {
+    if (this.mark > LAST_MARK - count) {
+      this.documentMarks.fill(0)
+      this.fieldMarks.fill(0)
+      this.mark = 0
+    }
+    const first = this.mark + 1
+    this.mark += count
+    return first
+  }
+
+  private claim(texts: number, fields: readonly PreparedSegmentField[]): void {
+    let records = 0
+    for (const { text } of fields) records += text.count
+    this.records = records
+    if (records > this.recordSizes.length)
+      this.recordSizes = new Uint32Array(Math.max(records, this.recordSizes.length * 2))
+    if (texts <= this.terms.length) return
+    const capacity = Math.max(texts, this.terms.length * 2)
+    this.terms = new Uint32Array(capacity)
+    this.documentMarks = grownWords(this.documentMarks, capacity)
+    this.fieldMarks = grownWords(this.fieldMarks, capacity)
+    this.ordinals = new Uint32Array(capacity)
     this.fresh = grownBytes(this.fresh, capacity)
-    this.heads = grownWords(this.heads, capacity)
-    this.tails = grownWords(this.tails, capacity)
-    this.addedRows = grownWords(this.addedRows, capacity)
-    this.sourceStarts = grownWords(this.sourceStarts, capacity)
-    this.sourceClasses = grownBytes(this.sourceClasses, capacity)
-    this.targetStarts = grownWords(this.targetStarts, capacity)
-    this.targetClasses = grownBytes(this.targetClasses, capacity)
-  }
-
-  private growRows(): void {
-    const capacity = this.rowFields.length * 2
-    this.rowFields = grownWords(this.rowFields, capacity)
-    this.rowSizes = grownWords(this.rowSizes, capacity)
-    this.rowLasts = grownWords(this.rowLasts, capacity)
-    this.rowNexts = grownWords(this.rowNexts, capacity)
-    this.rowCursors = grownWords(this.rowCursors, capacity)
+    this.postingsAdded = new Uint32Array(capacity)
+    this.lastPositions = new Uint32Array(capacity)
+    this.firstRecords = new Uint32Array(capacity)
+    this.positionCursors = new Uint32Array(capacity)
+    this.targetStarts = new Uint32Array(capacity)
+    this.targetClasses = new Uint8Array(capacity)
   }
 }
 
