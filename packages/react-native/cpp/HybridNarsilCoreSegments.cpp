@@ -20,7 +20,8 @@ jsi::Value HybridNarsilCoreImpl::endBatch(jsi::Runtime& runtime, const jsi::Valu
 
 jsi::Value HybridNarsilCoreImpl::keywordBatch(jsi::Runtime& runtime, const jsi::Value* arguments,
                                             size_t count, bool ending) try {
-  if (count != 1) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  if (count != KEYWORD_BATCH_ARGUMENT_COUNT) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  requireRegionGeneration(arguments[1]);
   SegmentRegions regions;
   regions.prepare(runtime, arguments[0]);
   RuntimeState& state = stateOf(runtime);
@@ -53,27 +54,24 @@ jsi::Value HybridNarsilCoreImpl::removeDocument(jsi::Runtime& runtime, const jsi
 
 jsi::Value HybridNarsilCoreImpl::mutateDocument(jsi::Runtime& runtime, const jsi::Value* arguments,
                                               size_t count, bool removing) try {
-  if (count != INDEX_TERMS_ARGUMENT_COUNT) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
-  uint32_t ordinal = segmentUnsigned(arguments[1]);
-  if (!arguments[2].isObject() || !arguments[2].getObject(runtime).isArray(runtime)) {
+  if (count < INDEX_TERMS_ARGUMENT_COUNT || (count - INDEX_TERMS_ARGUMENT_COUNT) % INDEX_TERMS_FIELD_VALUES != 0) {
     return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
   }
-  auto input = arguments[2].getObject(runtime).getArray(runtime);
-  size_t fieldCount = input.size(runtime);
+  size_t fieldCount = (count - INDEX_TERMS_ARGUMENT_COUNT) / INDEX_TERMS_FIELD_VALUES;
   if (fieldCount > static_cast<size_t>(UINT16_MAX) + 1) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  requireRegionGeneration(arguments[1]);
+  uint32_t ordinal = segmentUnsigned(arguments[2]);
   SegmentRegions regions;
   regions.prepare(runtime, arguments[0]);
   TypedElements fieldViews(fieldCount * 2);
   std::vector<narsil_field_tokens> fields(fieldCount);
   for (size_t index = 0; index < fieldCount; index++) {
-    auto value = input.getValueAtIndex(runtime, index);
-    if (!value.isObject()) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
-    auto field = value.getObject(runtime);
-    uint32_t fieldOrdinal = segmentUnsigned(field.getProperty(runtime, "field"));
+    const jsi::Value* field = arguments + INDEX_TERMS_ARGUMENT_COUNT + (index * INDEX_TERMS_FIELD_VALUES);
+    uint32_t fieldOrdinal = segmentUnsigned(field[0]);
     if (fieldOrdinal > UINT16_MAX) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
     fields[index].field = static_cast<uint16_t>(fieldOrdinal);
-    fieldViews.prepare(runtime, index * 2, field.getProperty(runtime, "tokens"));
-    fieldViews.prepare(runtime, index * 2 + 1, field.getProperty(runtime, "units"));
+    fieldViews.prepare(runtime, index * 2, field[1]);
+    fieldViews.prepare(runtime, index * 2 + 1, field[2]);
   }
   RuntimeState& state = stateOf(runtime);
   if (state.keywordWorkspace == nullptr) {

@@ -4,7 +4,6 @@
 #include "../include/narsil_core.h"
 #include "../include/narsil_segments.h"
 #include "segment_merge.h"
-#include "terms.h"
 #include "values.h"
 
 #include <js_native_api.h>
@@ -14,8 +13,22 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-enum { SEGMENT, ORDINAL, FIELDS, ARGUMENTS };
-enum { STACK_FIELDS = 8, TOKEN_WORDS = sizeof(narsil_token) / sizeof(uint32_t) };
+enum { SEGMENT = 0, GENERATION = SEGMENT + 1, ORDINAL = GENERATION + 1, FIRST_FIELD = ORDINAL + 1 };
+enum {
+  FIELD_ORDINAL = 0,
+  FIELD_TOKENS = FIELD_ORDINAL + 1,
+  FIELD_UNITS = FIELD_TOKENS + 1,
+  FIELD_VALUES = FIELD_UNITS + 1
+};
+enum {
+  STACK_FIELDS = 8,
+  STACK_ARGUMENTS = FIRST_FIELD + (STACK_FIELDS * FIELD_VALUES),
+  BATCH_ARGUMENTS = GENERATION + 1,
+  TOKEN_WORDS = sizeof(narsil_token) / sizeof(uint32_t)
+};
+
+static const double LARGEST_GENERATION = 9007199254740991.0;
+static const uint32_t MAX_FIELDS = (uint32_t)UINT16_MAX + 1;
 
 int prepare_segment_fields(napi_env env, napi_value list, field_handles *fields, uint32_t count) {
   for (uint32_t index = 0; index < count; index++) {
@@ -29,6 +42,17 @@ int prepare_segment_fields(napi_env env, napi_value list, field_handles *fields,
         napi_get_named_property(env, field, "units", &handles->units) != napi_ok) {
       return 0;
     }
+  }
+  return 1;
+}
+
+static int prepare_positional_fields(napi_env env, const napi_value *argv, field_handles *fields, uint32_t count) {
+  for (uint32_t index = 0; index < count; index++) {
+    const napi_value *field = argv + FIRST_FIELD + ((size_t)index * FIELD_VALUES);
+    field_handles *handles = fields + index;
+    if (!segment_uint_argument(env, field[FIELD_ORDINAL], &handles->field) || handles->field > UINT16_MAX) { return 0; }
+    handles->tokens = field[FIELD_TOKENS];
+    handles->units = field[FIELD_UNITS];
   }
   return 1;
 }
@@ -57,179 +81,113 @@ static void place_segment_view(const node_segment *source, node_segment *target)
   if (source->growing.spellings != NULL) { target->growing.spellings = &target->spellings; }
 }
 
-static size_t append_handles(napi_value *arrays, size_t count, const napi_value *handles, size_t length) {
-  for (size_t index = 0; index < length; index++) { arrays[count++] = handles[index]; }
-  return count;
-}
-
-static size_t append_surface(napi_value *arrays, size_t count, const surface_handles *surface) {
-  count = append_handles(arrays, count, surface->strings, TERM_HANDLES);
-  arrays[count++] = surface->token;
-  arrays[count++] = surface->count;
-  return count;
-}
-
-static size_t segment_view_arrays(const segment_handles *handles, napi_value arrays[SEGMENT_VIEW_ARRAYS]) {
-  size_t count = append_handles(arrays, 0, handles->terms, TERM_HANDLES);
-  count = append_handles(arrays, count, handles->columns, SEGMENT_COLUMN_HANDLES);
-  count = append_handles(arrays, count, handles->postings, SEGMENT_POSTING_HANDLES);
-  count = append_handles(arrays, count, handles->values, SEGMENT_VALUE_HANDLES);
-  if (handles->has_positions) {
-    arrays[count++] = handles->positions;
-    arrays[count++] = handles->position_allocation;
-  }
-  if (handles->has_surfaces) { count = append_surface(arrays, count, &handles->surfaces); }
-  if (handles->has_spellings) {
-    count = append_surface(arrays, count, &handles->spellings);
-    arrays[count++] = handles->code_points;
-    count = append_handles(arrays, count, handles->runs, SEGMENT_RUN_HANDLES);
-  }
-  return count;
-}
-
-typedef struct {
-  napi_ref reference;
-  void *data;
-  size_t length;
-} held_array;
-
 struct segment_view {
   napi_ref regions;
-  held_array arrays[SEGMENT_VIEW_ARRAYS];
-  size_t array_count;
+  uint64_t generation;
   node_segment segment;
 };
 
 static void forget_segment_view(napi_env env, struct segment_view *view) {
   if (view->regions != NULL) { (void)napi_delete_reference(env, view->regions); }
-  for (size_t index = 0; index < view->array_count; index++) {
-    if (view->arrays[index].reference != NULL) { (void)napi_delete_reference(env, view->arrays[index].reference); }
-    view->arrays[index] = (held_array){NULL, NULL, 0};
-  }
   view->regions = NULL;
-  view->array_count = 0;
+  view->generation = 0;
 }
 
-static int array_extent(napi_env env, napi_value value, void **data, size_t *length) {
-  napi_typedarray_type type = napi_uint8_array;
-  napi_value buffer = NULL;
-  size_t offset = 0;
-  *data = NULL;
-  *length = 0;
-  if (napi_get_typedarray_info(env, value, &type, length, data, &buffer, &offset) == napi_ok) { return 1; }
-  *data = NULL;
-  *length = 0;
-  bool typed = true;
-  return napi_is_typedarray(env, value, &typed) == napi_ok && !typed;
-}
-
-static int holds_array(napi_env env, const held_array *array) {
-  napi_value value = NULL;
-  void *data = NULL;
-  size_t length = 0;
-  if (array->reference == NULL) { return 1; }
-  return napi_get_reference_value(env, array->reference, &value) == napi_ok && value != NULL &&
-         array_extent(env, value, &data, &length) && data == array->data && length == array->length;
-}
-
-static int holds_segment_view(napi_env env, const struct segment_view *view, napi_value value) {
-  napi_value held = NULL;
-  bool same = false;
-  if (view == NULL || view->regions == NULL || napi_get_reference_value(env, view->regions, &held) != napi_ok ||
-      held == NULL || napi_strict_equals(env, held, value, &same) != napi_ok || !same) {
+static int generation_argument(napi_env env, napi_value value, uint64_t *generation) {
+  double number = 0;
+  if (napi_get_value_double(env, value, &number) != napi_ok || !(number >= 1 && number <= LARGEST_GENERATION)) {
     return 0;
   }
-  for (size_t index = 0; index < view->array_count; index++) {
-    if (!holds_array(env, &view->arrays[index])) { return 0; }
-  }
-  return 1;
+  *generation = (uint64_t)number;
+  return (double)*generation == number;
 }
 
-static int weak_reference(napi_env env, napi_value value, napi_ref *reference) {
-  napi_valuetype type = napi_undefined;
-  *reference = NULL;
-  if (napi_typeof(env, value, &type) != napi_ok) { return 0; }
-  return type != napi_object || napi_create_reference(env, value, 0, reference) == napi_ok;
+static int holds_segment_view(napi_env env, const struct segment_view *view, napi_value value, uint64_t generation) {
+  napi_value held = NULL;
+  bool same = false;
+  return view != NULL && view->regions != NULL && view->generation == generation &&
+         napi_get_reference_value(env, view->regions, &held) == napi_ok && held != NULL &&
+         napi_strict_equals(env, held, value, &same) == napi_ok && same;
 }
 
-static int hold_array(napi_env env, napi_value value, held_array *array) {
-  return weak_reference(env, value, &array->reference) &&
-         (array->reference == NULL || array_extent(env, value, &array->data, &array->length));
-}
-
-static void remember_segment_view(napi_env env, thread_state *state, napi_value value, const segment_handles *handles,
+static void remember_segment_view(napi_env env, thread_state *state, napi_value value, uint64_t generation,
                                   const node_segment *segment) {
   if (state->segment_view == NULL) { state->segment_view = calloc(1, sizeof *state->segment_view); }
   struct segment_view *view = state->segment_view;
   if (view == NULL) { return; }
-  napi_value arrays[SEGMENT_VIEW_ARRAYS] = {0};
-  size_t count = segment_view_arrays(handles, arrays);
   forget_segment_view(env, view);
-  for (size_t index = 0; index < count; index++) {
-    view->array_count = index + 1;
-    if (!hold_array(env, arrays[index], &view->arrays[index])) {
-      forget_segment_view(env, view);
-      return;
-    }
-  }
-  if (!weak_reference(env, value, &view->regions) || view->regions == NULL) {
-    forget_segment_view(env, view);
+  if (napi_create_reference(env, value, 0, &view->regions) != napi_ok) {
+    view->regions = NULL;
     return;
   }
+  view->generation = generation;
   place_segment_view(segment, &view->segment);
 }
 
-static int read_segment_view(napi_env env, thread_state *state, napi_value value, node_segment *segment) {
-  if (holds_segment_view(env, state->segment_view, value)) {
+static int read_segment_view(napi_env env, thread_state *state, const napi_value *argv, node_segment *segment) {
+  uint64_t generation = 0;
+  if (!generation_argument(env, argv[GENERATION], &generation)) { return 0; }
+  if (holds_segment_view(env, state->segment_view, argv[SEGMENT], generation)) {
     place_segment_view(&state->segment_view->segment, segment);
     return 1;
   }
   segment_handles handles = {0};
-  if (!prepare_segment(env, value, &handles) || !read_segment(env, &handles, segment)) { return 0; }
-  remember_segment_view(env, state, value, &handles, segment);
+  if (!prepare_segment(env, argv[SEGMENT], &handles) || !read_segment(env, &handles, segment)) { return 0; }
+  remember_segment_view(env, state, argv[SEGMENT], generation, segment);
   return 1;
 }
 
-static narsil_status index_fields(napi_env env, thread_state *state, const napi_value argv[ARGUMENTS], uint32_t count,
+static narsil_status index_fields(napi_env env, thread_state *state, const napi_value *argv, uint32_t count,
                                   field_handles *handles, narsil_field_tokens *fields, int removing) {
   node_segment segment = {0};
   uint32_t ordinal = 0;
-  if (!segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
-      !prepare_segment_fields(env, argv[FIELDS], handles, count) ||
-      !read_segment_view(env, state, argv[SEGMENT], &segment) || !read_segment_fields(env, handles, fields, count)) {
+  if (!segment_uint_argument(env, argv[ORDINAL], &ordinal) || !prepare_positional_fields(env, argv, handles, count) ||
+      !read_segment_view(env, state, argv, &segment) || !read_segment_fields(env, handles, fields, count)) {
     return NARSIL_INVALID_ARGUMENT;
   }
   narsil_index_terms_request request = {&segment.growing, ordinal, fields, count};
   return removing ? narsil_remove_document(state->workspace, &request) : narsil_index_terms(state->workspace, &request);
 }
 
-static napi_value mutate_document(napi_env env, napi_callback_info info, int removing) {
-  napi_value argv[ARGUMENTS];
-  thread_state *state = thread_state_of(env);
-  uint32_t count = 0;
-  bool array = false;
-  if (state == NULL || !callback_arguments(env, info, ARGUMENTS, argv) ||
-      napi_is_array(env, argv[FIELDS], &array) != napi_ok || !array ||
-      napi_get_array_length(env, argv[FIELDS], &count) != napi_ok || count > (uint32_t)UINT16_MAX + 1) {
-    return status_of(env, NARSIL_INVALID_ARGUMENT);
+static narsil_status index_arguments(napi_env env, thread_state *state, int removing, const napi_value *argv,
+                                     size_t argc) {
+  if (argc < FIRST_FIELD || (argc - FIRST_FIELD) % FIELD_VALUES != 0 ||
+      (argc - FIRST_FIELD) / FIELD_VALUES > MAX_FIELDS) {
+    return NARSIL_INVALID_ARGUMENT;
   }
+  uint32_t count = (uint32_t)((argc - FIRST_FIELD) / FIELD_VALUES);
   field_handles local_handles[STACK_FIELDS] = {0};
   narsil_field_tokens local_fields[STACK_FIELDS] = {0};
-  field_handles *handles = local_handles;
-  narsil_field_tokens *fields = local_fields;
-  if (count > STACK_FIELDS) {
-    handles = calloc(count, sizeof *handles);
-    fields = calloc(count, sizeof *fields);
-    if (handles == NULL || fields == NULL) {
-      free(handles);
-      free(fields);
-      return status_of(env, NARSIL_OUT_OF_MEMORY);
-    }
+  if (count <= STACK_FIELDS) { return index_fields(env, state, argv, count, local_handles, local_fields, removing); }
+  field_handles *handles = calloc(count, sizeof *handles);
+  narsil_field_tokens *fields = calloc(count, sizeof *fields);
+  narsil_status status = handles == NULL || fields == NULL
+                             ? NARSIL_OUT_OF_MEMORY
+                             : index_fields(env, state, argv, count, handles, fields, removing);
+  free(handles);
+  free(fields);
+  return status;
+}
+
+static napi_value mutate_document(napi_env env, napi_callback_info info, int removing) {
+  napi_value local_argv[STACK_ARGUMENTS];
+  size_t argc = STACK_ARGUMENTS;
+  thread_state *state = thread_state_of(env);
+  if (state == NULL || napi_get_cb_info(env, info, &argc, local_argv, NULL, NULL) != napi_ok) {
+    return status_of(env, NARSIL_INVALID_ARGUMENT);
   }
-  narsil_status status = index_fields(env, state, argv, count, handles, fields, removing);
-  if (count > STACK_FIELDS) {
-    free(handles);
-    free(fields);
+  narsil_status status = NARSIL_INVALID_ARGUMENT;
+  if (argc <= STACK_ARGUMENTS) {
+    status = index_arguments(env, state, removing, local_argv, argc);
+  } else if (argc - FIRST_FIELD <= (size_t)MAX_FIELDS * FIELD_VALUES) {
+    napi_value *argv = (napi_value *)calloc(argc, sizeof *argv);
+    size_t held = argc;
+    if (argv == NULL) {
+      status = NARSIL_OUT_OF_MEMORY;
+    } else if (napi_get_cb_info(env, info, &held, argv, NULL, NULL) == napi_ok && held == argc) {
+      status = index_arguments(env, state, removing, argv, argc);
+    }
+    free((void *)argv);
   }
   report_workspace_memory(env, state);
   return status_of(env, status);
@@ -240,10 +198,11 @@ static napi_value index_terms(napi_env env, napi_callback_info info) { return mu
 static napi_value remove_document(napi_env env, napi_callback_info info) { return mutate_document(env, info, 1); }
 
 static napi_value batch(napi_env env, napi_callback_info info, int ending) {
-  napi_value argv[1];
+  napi_value argv[BATCH_ARGUMENTS];
   thread_state *state = thread_state_of(env);
   node_segment segment = {0};
-  if (state == NULL || !callback_arguments(env, info, 1, argv) || !read_segment_view(env, state, argv[0], &segment)) {
+  if (state == NULL || !callback_arguments(env, info, BATCH_ARGUMENTS, argv) ||
+      !read_segment_view(env, state, argv, &segment)) {
     return status_of(env, NARSIL_INVALID_ARGUMENT);
   }
   narsil_status status = ending ? narsil_end_batch(state->workspace, &segment.growing)

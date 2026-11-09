@@ -223,13 +223,13 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("removeFrozenDocument", REMOVE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::removeFrozenDocument);
     prototype.registerRawHybridMethod("prepareFrozenRemoval", PREPARE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::prepareFrozenRemoval);
     prototype.registerRawHybridMethod("settleFrozenState", SETTLE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::settleFrozenState);
-    prototype.registerRawHybridMethod("beginBatch", 1, &HybridNarsilCoreImpl::beginBatch);
+    prototype.registerRawHybridMethod("beginBatch", KEYWORD_BATCH_ARGUMENT_COUNT, &HybridNarsilCoreImpl::beginBatch);
     prototype.registerRawHybridMethod("measureMerge", 4, &HybridNarsilCoreImpl::measureMerge);
     prototype.registerRawHybridMethod("writeMerge", 4, &HybridNarsilCoreImpl::writeMerge);
     prototype.registerRawHybridMethod("mergePostings", 4, &HybridNarsilCoreImpl::mergePostings);
     prototype.registerRawHybridMethod("measureFieldMerge", 4, &HybridNarsilCoreImpl::measureFieldMerge);
     prototype.registerRawHybridMethod("writeFieldMerge", 4, &HybridNarsilCoreImpl::writeFieldMerge);
-    prototype.registerRawHybridMethod("endBatch", 1, &HybridNarsilCoreImpl::endBatch);
+    prototype.registerRawHybridMethod("endBatch", KEYWORD_BATCH_ARGUMENT_COUNT, &HybridNarsilCoreImpl::endBatch);
     prototype.registerRawHybridMethod("clockNow", 1, &HybridNarsilCoreImpl::clockNow);
   });
 }

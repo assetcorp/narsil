@@ -126,36 +126,59 @@ export interface NativeFieldTokens {
   units: Uint16Array
 }
 
+/**
+ * One value of a field passed by position: the field ordinal, then its token records, then its UTF-16 text,
+ * repeated once for each field in ascending field order. @internal
+ */
+export type NativeFieldTokenArgument = number | Uint32Array | Uint16Array
+
 /** The operations that publish complete documents into keyword segments. @internal */
 export interface NativeSegmentCore {
   /**
    * Adds all the indexed text fields and the document count in one publication.
    * @param segment - The writable keyword regions of one growing segment.
+   * @param generation - A positive integer that changes whenever the segment replaces any of its regions, so the
+   * binding reads every region again only when it changes.
    * @param ordinal - The document ordinal, below the segment's capacity.
-   * @param fields - The prepared fields, each present at most once in ascending field order.
+   * @param fields - Each prepared field as its ordinal, token records, and text, present at most once in
+   * ascending field order.
    * @returns Zero on success, three when a region needs room, eight when a count requires a new segment,
    * or another positive core status on refusal. Every nonzero status leaves all regions unchanged.
    */
-  indexTerms(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number
+  indexTerms(
+    segment: NativeGrowingSegment,
+    generation: number,
+    ordinal: number,
+    ...fields: readonly NativeFieldTokenArgument[]
+  ): number
   /**
    * Removes one document's keyword counts, surfaces, spellings, and field lengths.
    * @param segment - The writable keyword regions of one growing segment.
+   * @param generation - The segment's region generation, as {@link NativeSegmentCore.indexTerms} describes it.
    * @param ordinal - The document ordinal, below the segment's capacity.
-   * @param fields - The document's analysed tokens, grouped by ascending field ordinal.
+   * @param fields - Each of the document's analysed fields as its ordinal, token records, and text, in
+   * ascending field order.
    * @returns Zero on success, including an ordinal already retired, or a positive core status on refusal.
    * Every refusal leaves all regions unchanged.
    */
-  removeDocument(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number
+  removeDocument(
+    segment: NativeGrowingSegment,
+    generation: number,
+    ordinal: number,
+    ...fields: readonly NativeFieldTokenArgument[]
+  ): number
   /**
    * Compacts retired posting rows before a batch of writes.
    * @param segment - The writable keyword regions of one growing segment.
+   * @param generation - The segment's region generation, as {@link NativeSegmentCore.indexTerms} describes it.
    * @returns Zero on success, or a positive core status with every region unchanged on refusal.
    */
-  beginBatch(segment: NativeGrowingSegment): number
+  beginBatch(segment: NativeGrowingSegment, generation: number): number
   /**
    * Compacts retired posting rows after a batch while preserving live counts and retired ordinals.
    * @param segment - The writable keyword regions of one growing segment.
+   * @param generation - The segment's region generation, as {@link NativeSegmentCore.indexTerms} describes it.
    * @returns Zero on success, or a positive core status with every region unchanged on refusal.
    */
-  endBatch(segment: NativeGrowingSegment): number
+  endBatch(segment: NativeGrowingSegment, generation: number): number
 }

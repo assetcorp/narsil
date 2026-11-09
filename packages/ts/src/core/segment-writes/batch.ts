@@ -1,4 +1,4 @@
-import type { NativeSegmentCore } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment } from '../../vector/native/types/segments'
 import { acquirePostingPlan, releasePostingPlan } from './postings'
 import { readBatch } from './regions'
 import { preparePostingRepack } from './repack'
@@ -6,7 +6,7 @@ import { SegmentRefusal } from './status'
 import { acquireTokenPlan, releaseTokenPlan } from './tokens'
 import { prepareVacuum } from './vacuum'
 
-export const beginBatch: NativeSegmentCore['beginBatch'] = input => {
+export function beginBatch(input: NativeGrowingSegment, _generation: number): number {
   try {
     const segment = readBatch(input)
     const tokens = acquireTokenPlan(segment, [], true)
@@ -29,4 +29,4 @@ export const beginBatch: NativeSegmentCore['beginBatch'] = input => {
   }
 }
 
-export const endBatch: NativeSegmentCore['endBatch'] = beginBatch
+export const endBatch = beginBatch

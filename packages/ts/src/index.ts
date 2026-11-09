@@ -196,6 +196,7 @@ export type {
   NativeSegmentMergeCore,
 } from './vector/native/types/segment-merge'
 export type {
+  NativeFieldTokenArgument,
   NativeFieldTokens,
   NativeGrowingSegment,
   NativePositionPool,

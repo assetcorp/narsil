@@ -31,11 +31,14 @@ import { trimSegment } from './trim'
 const NEEDS_ROOM = 3
 const SEGMENT_FULL = 8
 
+let regionGenerations = 0
+
 export class GrowingSegment {
   readonly fields = new FieldLengths()
   surfaces: SurfaceTable | null = null
   spellings: SpellingTable | null = null
   private view: NativeGrowingSegment | null = null
+  private generation = 0
   private retiredSource: Uint32Array | null = null
   private retiredWords = new Uint32Array(0)
 
@@ -58,7 +61,7 @@ export class GrowingSegment {
     this.preparePublication()
     const terms = this.postings.terms
     const added = terms.liveCount === terms.nonemptyCount ? undefined : this.termsAtFrequency(tokens, 0)
-    let status = indexPreparedTerms(this.regions(), ordinal, fields)
+    let status = indexPreparedTerms(this.regions(), this.generation, ordinal, fields)
     if (status === NEEDS_ROOM) {
       const capacity = documentCapacity(packedFields(fields), this.fields.partial)
       reservePostings(this.postings, capacity, this.tracksPositions)
@@ -67,7 +70,7 @@ export class GrowingSegment {
         reserveStrings(this.surfaces, capacity.surfaces)
       }
       this.spellings?.reserveWords(capacity.spellings)
-      status = indexPreparedTerms(this.regions(), ordinal, fields)
+      status = indexPreparedTerms(this.regions(), this.generation, ordinal, fields)
     }
     if (status === SEGMENT_FULL) return false
     this.accept(status, added)
@@ -83,7 +86,7 @@ export class GrowingSegment {
         : this.postings.isRetired(ordinal)
           ? 0
           : -this.termsAtFrequency(tokens, 1)
-    this.accept(removeDocument(this.regions(), ordinal, fields), change)
+    this.accept(removeDocument(this.regions(), this.generation, ordinal, fields), change)
   }
 
   regions(): NativeGrowingSegment {
@@ -119,6 +122,7 @@ export class GrowingSegment {
       ordinalCapacity: fields.ordinalCapacity,
     })
     this.view = view
+    this.generation = ++regionGenerations
     return view
   }
 
@@ -158,7 +162,7 @@ export class GrowingSegment {
 
   batch(ending: boolean): void {
     this.finishCopies()
-    this.accept((ending ? endBatch : beginBatch)(this.regions()), 0)
+    this.accept((ending ? endBatch : beginBatch)(this.regions(), this.generation), 0)
   }
 
   private finishCopies(): void {
@@ -181,7 +185,7 @@ export class GrowingSegment {
       positions.freeValues >= POSITION_VACUUM_MIN_FREE_VALUES &&
       positions.freeValues > positions.end * POOL_VACUUM_FREE_FRACTION
     if (termVacuum || postingVacuum || positionVacuum || sparseStrings(this.surfaces) || sparseStrings(this.spellings))
-      this.accept(endBatch(this.regions()), 0)
+      this.accept(endBatch(this.regions(), this.generation), 0)
   }
 
   private termsAtFrequency(tokens: readonly string[], frequency: number): number {

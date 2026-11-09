@@ -1,12 +1,11 @@
-import type { NativeGrowingSegment, NativeSegmentCore } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment } from '../../vector/native/types/segments'
 import { prepareSpellingRuns } from '../partition/partial-words/registry'
 import { DOCUMENT_INSERT_DECLINED, insertPreparedDocument } from './document-insert'
 import { acquirePostingPlan, releasePostingPlan } from './postings'
 import type { PreparedSegmentField } from './prepared-tokens'
-import { readRequest } from './regions'
 import { requireSegment, SegmentRefusal } from './status'
 import { publishSurfaces } from './strings'
-import { preparedSources, type TokenSource, tokenSources } from './token-sources'
+import { preparedSources, type TokenSource } from './token-sources'
 import { acquireTokenPlan, releaseTokenPlan, type TokenPlan } from './tokens'
 
 export { beginBatch, endBatch } from './batch'
@@ -64,18 +63,9 @@ function publishTerms(segment: NativeGrowingSegment, ordinal: number, sources: r
   return 0
 }
 
-export const indexTerms: NativeSegmentCore['indexTerms'] = (input, ordinal, rawFields) => {
-  try {
-    const { segment, fields, text } = readRequest(input, ordinal, rawFields)
-    return publishTerms(segment, ordinal, tokenSources(fields, text))
-  } catch (error) {
-    if (error instanceof SegmentRefusal) return error.status
-    throw error
-  }
-}
-
 export function indexPreparedTerms(
   segment: NativeGrowingSegment,
+  _generation: number,
   ordinal: number,
   fields: readonly PreparedSegmentField[],
 ): number {

@@ -17,6 +17,15 @@ inline uint32_t segmentUnsigned(const jsi::Value& value) {
   return static_cast<uint32_t>(number);
 }
 
+inline void requireRegionGeneration(const jsi::Value& value) {
+  constexpr double LARGEST_GENERATION = 9007199254740991.0;
+  if (!value.isNumber()) throwInvalid("A region generation must be a number");
+  double number = value.getNumber();
+  if (!(number >= 1 && number <= LARGEST_GENERATION) || std::floor(number) != number) {
+    throwInvalid("A region generation must be a positive safe integer");
+  }
+}
+
 class SegmentRegions {
 public:
   void prepare(jsi::Runtime& runtime, const jsi::Value& value) {
