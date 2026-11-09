@@ -6,7 +6,7 @@ The maintainers update this roadmap of planned work as the work proceeds. The ro
 
 ## Available now
 
-Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, cluster backups, the React Native driver in `@delali/narsil-react-native`, device sync, and popular query suggestions are in the `next` tag on npm, and the next stable release will include them. The Python and Go clients and the conformance suite are in this repository, although neither client has a release on PyPI or a tagged Go module yet.
+Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, cluster backups, the React Native driver in `@delali/narsil-react-native`, device sync, and popular query suggestions are in the `next` tag on npm, and the next stable release will include them. The Python and Go clients and the conformance suite are in this repository.
 
 - **Embedded engine.** The engine answers full-text, vector, hybrid, and geographic searches inside your application process, in Node.js, Bun, Deno, or the browser.
 - **Single-node server.** The HTTP server offers the same engine through a REST API, with a write-ahead log, bulk NDJSON import, and snapshots that you can restore.
