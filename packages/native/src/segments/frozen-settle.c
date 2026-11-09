@@ -73,11 +73,16 @@ narsil_status frozen_settle(narsil_workspace *workspace, const narsil_frozen_seg
   }
   frozen_removal_plan *plan = &workspace_segment_scratch(workspace)->frozen;
   plan->count = 0;
-  narsil_status status = frozen_settle_counts(workspace, plan, segment, state, paged);
+  int indexed = paged == NULL && segment->removal_index != NULL;
+  narsil_status status = indexed ? frozen_check_pending(plan, segment, state)
+                                 : frozen_settle_counts(workspace, plan, segment, state, paged);
   if (status == NARSIL_OK) { status = frozen_settle_strings(plan, segment, state); }
   if (status != NARSIL_OK) { return status; }
-  if (!valid_changes(plan, state)) { return NARSIL_INVALID_ARGUMENT; }
+  if (!valid_changes(plan, state) || (indexed && !frozen_indexed_occurrences_valid(segment, state))) {
+    return NARSIL_INVALID_ARGUMENT;
+  }
   if (plan->count > 1) { qsort(plan->changes, plan->count, sizeof *plan->changes, compare_changes); }
+  if (indexed) { frozen_subtract_indexed(segment, state); }
   publish(plan, segment, state);
   return NARSIL_OK;
 }

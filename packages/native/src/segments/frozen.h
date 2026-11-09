@@ -63,6 +63,10 @@ size_t frozen_removal_bytes(const frozen_removal_plan *plan);
 narsil_status frozen_settle_counts(narsil_workspace *workspace, frozen_removal_plan *plan,
                                    const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state,
                                    const narsil_frozen_paged_removals *paged);
+narsil_status frozen_check_pending(frozen_removal_plan *plan, const narsil_frozen_segment *segment,
+                                   const narsil_frozen_segment_state *state);
+int frozen_indexed_occurrences_valid(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state);
+void frozen_subtract_indexed(const narsil_frozen_segment *segment, narsil_frozen_segment_state *state);
 narsil_status frozen_settle_strings(frozen_removal_plan *plan, const narsil_frozen_segment *segment,
                                     const narsil_frozen_segment_state *state);
 frozen_pending_size frozen_pending_needed(const narsil_remove_frozen_request *request);
