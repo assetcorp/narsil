@@ -74,7 +74,7 @@ function assembleOpenedSegment(file: PagedFile, snapshot: PagedSegmentSnapshot, 
   }
 
   const tokenTable = wrapFrozenTokenTable(snapshot.tokenTable)
-  const idTable = createPagedIdTable(file, snapshot, required('ids'), required('idOffsets'), required('idOrder'))
+  const idTable = createPagedIdTable(snapshot, required('ids'), required('idOffsets'), required('idOrder'))
   const lists = createListReader(file, snapshot, reader)
   const documents = createDocumentBlockReader(snapshot, required('documents'), cache, file.fileNumber)
   const removalOffsets = required('removalOffsets')

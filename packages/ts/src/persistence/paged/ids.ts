@@ -2,8 +2,7 @@ import { compareCodePoints } from '#platform/storage-host'
 import type { ExternalIdTable } from '../../core/partition/frozen/external-ids'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import { loadFailed } from './format'
-import { requireNativePage } from './native-file'
-import type { PagedFile, SectionReader } from './section-file'
+import type { SectionReader } from './section-file'
 
 const VALUE_BYTES = 4
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
@@ -14,7 +13,6 @@ function uint32At(reader: SectionReader, index: number): number {
 }
 
 export function createPagedIdTable(
-  file: PagedFile,
   snapshot: Pick<PagedSegmentSnapshot, 'documentCount' | 'key' | 'idSampleIds' | 'idSamplePositions'>,
   ids: SectionReader,
   idOffsets: SectionReader,
@@ -24,56 +22,20 @@ export function createPagedIdTable(
   const { idSampleIds, idSamplePositions, key } = snapshot
   let sampleBytes = idSamplePositions.byteLength
   for (const id of idSampleIds) sampleBytes += id.length
-  const fault = new BigUint64Array(3)
-  const orderedOrdinal = new Uint32Array(1)
-  let idBytes = new Uint8Array(0)
 
   function idAt(ordinal: number): string {
     const from = uint32At(idOffsets, ordinal)
     const to = uint32At(idOffsets, ordinal + 1)
     if (to < from || to > ids.length || (ordinal === 0 && from !== 0) || (ordinal + 1 === count && to !== ids.length))
       loadFailed(`The ID of document ${ordinal} of "${key}" leaves its list`, { ordinal })
-    const offsetSection = idOffsets.native
-    const valueSection = ids.native
-    let bytes: Uint8Array
-    if (offsetSection !== null && valueSection !== null && file.native !== null) {
-      const length = to - from
-      if (idBytes.length < length) idBytes = new Uint8Array(length)
-      bytes = idBytes.subarray(0, length)
-      const status = file.native.core.readPagedId(
-        offsetSection,
-        valueSection,
-        file.cache.pageCache(),
-        ordinal,
-        bytes,
-        fault,
-      )
-      if (status < 0)
-        requireNativePage(status, file.path, fault[1] === offsetSection.offset ? 'idOffsets' : 'ids', fault[2])
-    } else {
-      bytes = ids.bytesAt(from, to - from)
-    }
     try {
-      return decoder.decode(bytes)
+      return decoder.decode(ids.bytesAt(from, to - from))
     } catch {
       return loadFailed(`The ID of document ${ordinal} of "${key}" is not valid UTF-8`, { ordinal })
     }
   }
 
   function ordinalAtPosition(position: number): number {
-    const section = idOrder.native
-    if (section !== null && file.native !== null) {
-      const status = file.native.core.readPagedOrdinal(
-        section,
-        file.cache.pageCache(),
-        position,
-        count,
-        orderedOrdinal,
-        fault,
-      )
-      requireNativePage(status, file.path, 'idOrder', fault[2])
-      return orderedOrdinal[0]
-    }
     const ordinal = uint32At(idOrder, position)
     if (ordinal >= count) loadFailed(`idOrder of "${key}" names document ${ordinal} of ${count}`, { position })
     return ordinal
@@ -94,9 +56,7 @@ export function createPagedIdTable(
 
   return {
     count,
-    get bytes() {
-      return sampleBytes + idBytes.byteLength
-    },
+    bytes: sampleBytes,
     idAt,
 
     ordinalOf(docId: string): number {

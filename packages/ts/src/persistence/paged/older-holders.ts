@@ -44,7 +44,6 @@ export async function pagedTombstonesFor(
           return createSectionReader(file, section)
         }
         const table = createPagedIdTable(
-          file,
           {
             documentCount: head.documentCount,
             key: ref.key,
