@@ -40,7 +40,7 @@ static const uint32_t keep_ranges[30] = {
 
 const narsil_language narsil_language_irish = {
   .name = "irish",
-  .revision = "298a4c2c74e21528",
+  .revision = "1b2a0a857911a952",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 109,

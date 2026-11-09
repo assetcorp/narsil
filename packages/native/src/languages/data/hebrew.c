@@ -65,7 +65,7 @@ static const uint32_t keep_ranges[14] = {
 
 const narsil_language narsil_language_hebrew = {
   .name = "hebrew",
-  .revision = "93d30dd8323bd9c6",
+  .revision = "a3b69b03beba16ed",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 194,

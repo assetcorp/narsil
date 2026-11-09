@@ -103,7 +103,7 @@ const stopWords = new Set([
  */
 export const georgian: LanguageModule = {
   name: 'georgian',
-  revision: '3af4391d04d49abc',
+  revision: '7912f2dbed17cee5',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u10A0-\u10FF\u1C90-\u1CBF\u2D00-\u2D2F0-9]+/gi },

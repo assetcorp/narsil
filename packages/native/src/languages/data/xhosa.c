@@ -36,7 +36,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_xhosa = {
   .name = "xhosa",
-  .revision = "4dee4de06d1cbf55",
+  .revision = "3c480a8edc0164f0",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 83,

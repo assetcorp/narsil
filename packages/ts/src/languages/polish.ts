@@ -350,7 +350,7 @@ const stopWords = new Set([
  */
 export const polish: LanguageModule = {
   name: 'polish',
-  revision: '698f76d932b72786',
+  revision: '8946a2753a049c54',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ąćęłńóśźż]+/gi },

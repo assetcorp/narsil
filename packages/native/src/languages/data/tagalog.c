@@ -55,7 +55,7 @@ static const uint32_t keep_ranges[6] = {
 
 const narsil_language narsil_language_tagalog = {
   .name = "tagalog",
-  .revision = "d211ec620d009f38",
+  .revision = "313fbad1844b5935",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 147,

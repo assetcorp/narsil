@@ -58,7 +58,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_sinhala = {
   .name = "sinhala",
-  .revision = "22dfe7a6c4127658",
+  .revision = "e9950353d304d7c7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 163,

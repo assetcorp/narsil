@@ -102,7 +102,7 @@ const stopWords = new Set([
  */
 export const kazakh: LanguageModule = {
   name: 'kazakh',
-  revision: '8ced0013793f4176',
+  revision: '1e8f7f2f6d8a9054',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0400-\u04FF0-9]+/gi },

@@ -54,7 +54,7 @@ static const uint32_t keep_ranges[50] = {
 
 const narsil_language narsil_language_french = {
   .name = "french",
-  .revision = "06c6d039fd2a2726",
+  .revision = "1ebaef5a76307dca",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 164,

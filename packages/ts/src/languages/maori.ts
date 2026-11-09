@@ -87,7 +87,7 @@ const stopWords = new Set([
  */
 export const maori: LanguageModule = {
   name: 'maori',
-  revision: '939a82b0085c661a',
+  revision: '3221fc276f0afc29',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },

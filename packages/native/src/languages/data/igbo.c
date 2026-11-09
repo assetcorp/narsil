@@ -70,7 +70,7 @@ static const uint32_t keep_ranges[694] = {
 
 const narsil_language narsil_language_igbo = {
   .name = "igbo",
-  .revision = "60d59b625bd6fc53",
+  .revision = "ff1fc4561383dcfa",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 81,

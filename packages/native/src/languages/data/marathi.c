@@ -42,7 +42,7 @@ static const uint32_t keep_ranges[10] = {
 
 const narsil_language narsil_language_marathi = {
   .name = "marathi",
-  .revision = "dd32a15bb5bbeb30",
+  .revision = "82a776f0c644e2b7",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 99,

@@ -31,7 +31,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_malagasy = {
   .name = "malagasy",
-  .revision = "b3855718af10ffaa",
+  .revision = "91521fd818cf787e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 55,

@@ -167,7 +167,7 @@ const stopWords = new Set([
  */
 export const tagalog: LanguageModule = {
   name: 'tagalog',
-  revision: 'd211ec620d009f38',
+  revision: '313fbad1844b5935',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

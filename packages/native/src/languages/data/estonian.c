@@ -397,7 +397,7 @@ static const uint32_t keep_ranges[22] = {
 
 const narsil_language narsil_language_estonian = {
   .name = "estonian",
-  .revision = "bdc593e53888db81",
+  .revision = "6a2085f05adf952c",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 1362,

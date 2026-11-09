@@ -104,7 +104,7 @@ const stopWords = new Set([
  */
 export const igbo: LanguageModule = {
   name: 'igbo',
-  revision: '60d59b625bd6fc53',
+  revision: 'ff1fc4561383dcfa',
   stemmer: null,
   stopWords,
   tokenizer: {

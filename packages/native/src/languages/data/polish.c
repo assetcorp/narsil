@@ -91,7 +91,7 @@ static const uint32_t keep_ranges[20] = {
 
 const narsil_language narsil_language_polish = {
   .name = "polish",
-  .revision = "698f76d932b72786",
+  .revision = "8946a2753a049c54",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 328,

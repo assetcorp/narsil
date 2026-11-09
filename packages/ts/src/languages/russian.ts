@@ -181,7 +181,7 @@ const stopWords = new Set([
  */
 export const russian: LanguageModule = {
   name: 'russian',
-  revision: '8b57d93e3546e08d',
+  revision: '464c5e110a3c9fa2',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9а-яёѣі-]+/gi },

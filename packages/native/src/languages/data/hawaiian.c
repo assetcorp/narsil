@@ -30,7 +30,7 @@ static const uint32_t keep_ranges[76] = {
 
 const narsil_language narsil_language_hawaiian = {
   .name = "hawaiian",
-  .revision = "2a88955b89ac888c",
+  .revision = "bf9a6e8608ddce2e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 57,

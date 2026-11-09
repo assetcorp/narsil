@@ -28,7 +28,7 @@ static const uint32_t keep_ranges[14] = {
 
 const narsil_language narsil_language_burmese = {
   .name = "burmese",
-  .revision = "a385dd6725d337a8",
+  .revision = "6d4314997c67a9ef",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 40,
