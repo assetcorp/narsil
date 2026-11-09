@@ -1,5 +1,5 @@
 import { ExtensionCodec, Decoder as MessagePackDecoder } from '@msgpack/msgpack'
-import { BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER } from './constants'
+import { BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER } from '#platform/msgpack-host'
 import { headerAt } from './msgpack-header'
 
 const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true })
