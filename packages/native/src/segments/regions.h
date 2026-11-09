@@ -19,8 +19,15 @@ int segment_region_read(segment_regions *regions, const void *pointer, size_t co
 int segment_region_write(segment_regions *regions, const void *pointer, size_t count, size_t width);
 int segment_region_input(const segment_regions *regions, const void *pointer, size_t count, size_t width);
 int segment_valid_tokens(const segment_regions *regions, const narsil_tokens *tokens);
+typedef struct {
+  segment_regions held;
+  int valid;
+} segment_region_memo;
+
 int segment_write_regions(segment_regions *regions, const narsil_growing_segment *segment);
+int segment_write_regions_memo(segment_regions *regions, const narsil_growing_segment *segment,
+                               segment_region_memo *memo);
 narsil_status segment_request_regions(segment_regions *regions, const narsil_index_terms_request *request,
-                                      size_t *token_count);
+                                      size_t *token_count, segment_region_memo *memo);
 
 #endif

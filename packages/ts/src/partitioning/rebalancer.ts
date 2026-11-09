@@ -111,7 +111,7 @@ export function createRebalancer(): Rebalancer {
               manager.schema,
               manager.language,
               insertOptions,
-            )
+            ).partition
             documentsProcessed++
           }
 

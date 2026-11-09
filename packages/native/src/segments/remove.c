@@ -53,14 +53,14 @@ static void remove_statistics(const narsil_index_terms_request *request) {
 
 narsil_status narsil_remove_document(narsil_workspace *workspace, const narsil_index_terms_request *request) {
   if (workspace == NULL) { return NARSIL_INVALID_ARGUMENT; }
+  segment_scratch *scratch = workspace_segment_scratch(workspace);
   segment_regions regions = {0};
   size_t count = 0;
-  narsil_status status = segment_request_regions(&regions, request, &count);
+  narsil_status status = segment_request_regions(&regions, request, &count, &scratch->regions);
   if (status != NARSIL_OK) { return status; }
   narsil_growing_segment *segment = request->segment;
   if (segment_row_removed(segment, request->ordinal)) { return NARSIL_OK; }
   if (!valid_totals(segment, request->ordinal)) { return NARSIL_INVALID_ARGUMENT; }
-  segment_scratch *scratch = workspace_segment_scratch(workspace);
   status = segment_tokens_for_removal(&scratch->tokens, request, count);
   if (status != NARSIL_OK) { return status; }
   status = segment_removal_prepare(&scratch->removal, request, &scratch->tokens.terms);

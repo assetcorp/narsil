@@ -18,12 +18,24 @@ typedef struct {
   double amount;
 } frozen_change;
 
+enum { FROZEN_TABLE_ORDER_SLOTS = 16 };
+
+typedef struct {
+  const uint8_t *text;
+  const uint32_t *offsets;
+  size_t text_bytes;
+  size_t count;
+  int ascends;
+} frozen_table_order;
+
 typedef struct {
   frozen_change *changes;
   size_t count;
   size_t capacity;
   segment_strings surfaces;
   narsil_text text;
+  frozen_table_order orders[FROZEN_TABLE_ORDER_SLOTS];
+  size_t next_order;
 } frozen_removal_plan;
 
 narsil_status frozen_removal_regions(const narsil_remove_frozen_request *request);

@@ -62,7 +62,7 @@ export interface PartitionManager {
   assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
   assertPartitionCapacity(partitionId: number, pendingWrites?: number): void
   routePartition(docId: string): number
-  insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
+  insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): AnyDocument
   removedSpellingsOf(docId: string): RemovedSpellings | undefined
   remove(docId: string, removedSpellings?: RemovedSpellings, options?: PartitionInsertOptions): void
   beginBatchRemove(): void
@@ -72,7 +72,7 @@ export interface PartitionManager {
     document: AnyDocument,
     options?: PartitionInsertOptions,
     removedSpellings?: RemovedSpellings,
-  ): void
+  ): AnyDocument
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   /** Counts the states that searches still hold, which a search releases when it finishes, fails, or its caller cancels it. */

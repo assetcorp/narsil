@@ -77,7 +77,13 @@ export function createPagedLiveCounts(
               removedSurfaces: strings.removedSurfaces,
               removedSpellings: strings.removedSpellings,
             }
-      const subtractTerms = prepareFrozenPublication(segment, state, ordinal, strings?.fields ?? [])
+      const subtractTerms = prepareFrozenPublication(
+        segment,
+        state,
+        ordinal,
+        strings?.fields ?? [],
+        strings?.synchroniseSurface,
+      )
       const nextLengths = lengths ?? { ...snapshot.totalFieldLengths }
       return () => {
         lengths ??= nextLengths

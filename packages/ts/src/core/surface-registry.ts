@@ -7,7 +7,6 @@ export interface SurfaceFormCandidate {
 }
 
 export interface SurfaceRegistryReader {
-  holds?(surface: string): boolean
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   stemChangedTotalFor(token: string): number
   size(): number
@@ -17,7 +16,7 @@ export interface SurfaceRegistryReader {
 export interface SurfaceRegistry extends SurfaceRegistryReader {
   adopt(reader: SurfaceRegistryReader): void
   detach(): void
-  holds(surface: string): boolean
+  tokenOf(surface: string): string | undefined
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
   clear(): void
@@ -75,13 +74,9 @@ export function createSurfaceRegistry(): SurfaceRegistry {
       registry.deserialize(data)
     },
 
-    holds(surface: string): boolean {
-      if (source !== null)
-        return (
-          source.holds?.(surface) ??
-          source.candidatesForPrefix(surface).some(candidate => candidate.surface === surface)
-        )
-      return entries.has(surface)
+    tokenOf(surface: string): string | undefined {
+      if (source !== null) return source.candidatesForPrefix(surface).find(entry => entry.surface === surface)?.token
+      return entries.get(surface)?.token
     },
 
     add(surface: string, token: string, occurrences: number): void {

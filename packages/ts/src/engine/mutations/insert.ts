@@ -74,7 +74,7 @@ export async function insertDocument(
       buffered = true
       return queued
     }
-    insertManager.insert(resolvedDocId, partitionDoc as AnyDocument, {
+    const stored = insertManager.insert(resolvedDocId, partitionDoc as AnyDocument, {
       skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
       onPreparedText:
         extractedVectors.size > 0 || ctx.durability !== null
@@ -103,7 +103,7 @@ export async function insertDocument(
       }
       throw err
     }
-    appliedRef = ctx.durability === null ? undefined : insertManager.getRef(resolvedDocId)
+    appliedRef = ctx.durability === null ? undefined : stored
     ctx.orchestrator.publishToWorkers({
       type: 'insert',
       indexName,

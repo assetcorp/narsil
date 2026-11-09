@@ -22,6 +22,12 @@ static narsil_status compact(narsil_workspace *workspace, narsil_growing_segment
     segment_vacuum_publish(&scratch->vacuum, segment);
     return NARSIL_OK;
   }
+  status = segment_repack_prepare(&scratch->vacuum, segment);
+  if (status != NARSIL_OK) { return status; }
+  if (scratch->vacuum.repacking) {
+    segment_repack_publish(&scratch->vacuum, segment);
+    return NARSIL_OK;
+  }
   segment_token_plan tokens = {0};
   segment_postings_publish(&scratch->postings, &tokens, &request);
   return NARSIL_OK;

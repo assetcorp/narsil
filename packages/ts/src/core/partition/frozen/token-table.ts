@@ -1,5 +1,5 @@
 import type { NativeTermDictionary } from '../../../vector/native/types/terms'
-import { codePointOrder, encodeLookupKey, encodeStringBlob } from './string-blob'
+import { codePointOrder, compareBytes, encodeLookupKey, encodeStringBlob } from './string-blob'
 
 export interface FrozenTokenTable {
   readonly data: FrozenTokenTableData
@@ -26,16 +26,6 @@ export interface FrozenTokenTableData {
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
-
-function compareBytes(blob: Uint8Array, start: number, end: number, query: Uint8Array): number {
-  const length = end - start
-  const shared = length < query.length ? length : query.length
-  for (let i = 0; i < shared; i++) {
-    const diff = blob[start + i] - query[i]
-    if (diff !== 0) return diff
-  }
-  return length - query.length
-}
 
 function startsWithBytes(blob: Uint8Array, start: number, end: number, prefix: Uint8Array): boolean {
   if (end - start < prefix.length) return false

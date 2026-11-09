@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 enum { BITS_PER_WORD = 32 };
 
@@ -143,7 +144,7 @@ static int optional_regions(segment_regions *regions, const narsil_growing_segme
   return 1;
 }
 
-int segment_write_regions(segment_regions *regions, const narsil_growing_segment *segment) {
+static int collect_write_regions(segment_regions *regions, const narsil_growing_segment *segment) {
   if (segment == NULL || (uintptr_t)segment % _Alignof(narsil_growing_segment) != 0 ||
       segment->field_count > (uint32_t)UINT16_MAX + 1 || segment->columns.capacity != segment->terms.offset_count ||
       (segment->field_count > 0 && segment->ordinal_capacity > SIZE_MAX / segment->field_count)) {
@@ -162,6 +163,15 @@ int segment_write_regions(segment_regions *regions, const narsil_growing_segment
                             sizeof *segment->total_field_lengths)) {
     return 0;
   }
+  for (size_t field = 0; field < segment->field_count; field++) {
+    if (segment->partial_fields[field] > 1 || (segment->partial_fields[field] != 0 && segment->spellings == NULL)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int disjoint_regions(const segment_regions *regions) {
   for (size_t index = 0; index < regions->write_count; index++) {
     for (size_t other = 0; other < index; other++) {
       if (overlaps(regions->writes[index], regions->writes[other])) { return 0; }
@@ -170,10 +180,26 @@ int segment_write_regions(segment_regions *regions, const narsil_growing_segment
       if (overlaps(regions->writes[index], regions->reads[other])) { return 0; }
     }
   }
-  for (size_t field = 0; field < segment->field_count; field++) {
-    if (segment->partial_fields[field] > 1 || (segment->partial_fields[field] != 0 && segment->spellings == NULL)) {
-      return 0;
-    }
-  }
+  return 1;
+}
+
+static int same_regions(const segment_regions *left, const segment_regions *right) {
+  return left->write_count == right->write_count && left->read_count == right->read_count &&
+         memcmp(left->writes, right->writes, left->write_count * sizeof *left->writes) == 0 &&
+         memcmp(left->reads, right->reads, left->read_count * sizeof *left->reads) == 0;
+}
+
+int segment_write_regions(segment_regions *regions, const narsil_growing_segment *segment) {
+  return collect_write_regions(regions, segment) && disjoint_regions(regions);
+}
+
+int segment_write_regions_memo(segment_regions *regions, const narsil_growing_segment *segment,
+                               segment_region_memo *memo) {
+  if (!collect_write_regions(regions, segment)) { return 0; }
+  if (memo->valid && same_regions(regions, &memo->held)) { return 1; }
+  memo->valid = 0;
+  if (!disjoint_regions(regions)) { return 0; }
+  memo->held = *regions;
+  memo->valid = 1;
   return 1;
 }

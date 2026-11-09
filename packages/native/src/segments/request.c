@@ -41,9 +41,9 @@ int segment_valid_tokens(const segment_regions *regions, const narsil_tokens *to
 }
 
 narsil_status segment_request_regions(segment_regions *regions, const narsil_index_terms_request *request,
-                                      size_t *token_count) {
+                                      size_t *token_count, segment_region_memo *memo) {
   if (request == NULL || (uintptr_t)request % _Alignof(narsil_index_terms_request) != 0 ||
-      !segment_write_regions(regions, request->segment) ||
+      !segment_write_regions_memo(regions, request->segment, memo) ||
       !segment_region_input(regions, request, 1, sizeof *request) ||
       request->ordinal >= request->segment->ordinal_capacity || request->field_count > request->segment->field_count ||
       (uintptr_t)request->fields % _Alignof(narsil_field_tokens) != 0 ||

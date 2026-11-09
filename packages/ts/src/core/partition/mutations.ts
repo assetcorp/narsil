@@ -24,7 +24,7 @@ export function createPartitionMutations(
       schema: SchemaDefinition,
       language: LanguageModule,
       options?: PartitionInsertOptions,
-    ): void {
+    ): AnyDocument {
       if (state.docStore.has(docId)) {
         throw new NarsilError(
           ErrorCodes.DOC_ALREADY_EXISTS,
@@ -64,15 +64,14 @@ export function createPartitionMutations(
         throw error
       }
       const { fieldLengths, tokens, partialSpellings } = prepared
-      if (options?.skipClone) {
-        state.docStore.storeRef(docId, document, fieldLengths)
-      } else {
-        state.docStore.store(docId, document, fieldLengths)
-      }
+      const stored = options?.skipClone
+        ? state.docStore.storeRef(docId, document, fieldLengths)
+        : state.docStore.store(docId, document, fieldLengths)
       applyValues()
       state.stats.addDocument(fieldLengths, tokens)
       state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, 1)
       recordSortValues(state, internalId, document as Record<string, unknown>)
+      return stored
     },
 
     remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
@@ -107,7 +106,7 @@ export function createPartitionMutations(
       schema: SchemaDefinition,
       language: LanguageModule,
       options?: PartitionInsertOptions,
-    ): void {
+    ): AnyDocument {
       const stored = state.docStore.get(docId)
       if (!stored) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in partition ${partitionId}`, {
@@ -153,20 +152,21 @@ export function createPartitionMutations(
         const internalId = state.docStore.ensureInternalId(docId)
 
         indexDocument(state, internalId, document as Record<string, unknown>, fields, next)
-        state.docStore.store(docId, document, next.fieldLengths)
+        const written = state.docStore.store(docId, document, next.fieldLengths)
         applyValues()
         state.stats.addDocument(next.fieldLengths, next.tokens)
         state.partialWords.afterDocument(partialFieldsOf(schema), internalId, next.partialSpellings, 1)
         recordSortValues(state, internalId, document as Record<string, unknown>)
-      } else {
-        const ordinal = state.docStore.getInternalId(docId)
-        const applyValues = prepareStoredValues(state.docStore, undefined, ordinal, document)
-        updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, fields)
-        state.docStore.store(docId, document, stored.fieldLengths)
-        applyValues()
-        const internalId = state.docStore.getInternalId(docId)
-        if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)
+        return written
       }
+      const ordinal = state.docStore.getInternalId(docId)
+      const applyValues = prepareStoredValues(state.docStore, undefined, ordinal, document)
+      updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, fields)
+      const written = state.docStore.store(docId, document, stored.fieldLengths)
+      applyValues()
+      const internalId = state.docStore.getInternalId(docId)
+      if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)
+      return written
     },
   }
 }

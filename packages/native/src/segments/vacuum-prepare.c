@@ -13,10 +13,9 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
-enum { VACUUM_DEAD_TERMS = 1024, VACUUM_FREE_ROWS = 16384, VACUUM_FREE_POSITIONS = 16384, VACUUM_FREE_RATIO = 4 };
+enum { VACUUM_DEAD_TERMS = 1024 };
 
 static int sparse_strings(const narsil_surface_table *table) {
   if (table == NULL) { return 0; }
@@ -28,22 +27,10 @@ static int sparse_strings(const narsil_surface_table *table) {
 static int needed(const narsil_growing_segment *segment) {
   uint32_t count = segment->terms.header[TERM_COUNT];
   uint32_t live = segment->terms.header[TERM_LIVE_COUNT];
-  const uint32_t *allocation = segment->postings.allocator.allocation;
   if (count - live >= VACUUM_DEAD_TERMS && count - live > live) { return 1; }
   if (sparse_strings(segment->surfaces) ||
       (segment->spellings != NULL && sparse_strings(&segment->spellings->entries))) {
     return 1;
-  }
-  if (allocation[SEGMENT_POOL_FREE] >= VACUUM_FREE_ROWS &&
-      allocation[SEGMENT_POOL_FREE] > allocation[SEGMENT_POOL_END] / VACUUM_FREE_RATIO) {
-    return 1;
-  }
-  if (segment->positions != NULL) {
-    allocation = segment->positions->allocation;
-    if (allocation[SEGMENT_POOL_FREE] >= VACUUM_FREE_POSITIONS &&
-        allocation[SEGMENT_POOL_FREE] > allocation[SEGMENT_POOL_END] / VACUUM_FREE_RATIO) {
-      return 1;
-    }
   }
   uint32_t empty = 0;
   for (uint32_t at = 0; at < count; at++) {
@@ -58,8 +45,6 @@ static narsil_status reserve(segment_vacuum *plan, const narsil_growing_segment 
       segment_merge_reserve((void **)&plan->mapping, count, &plan->mapping_capacity, sizeof *plan->mapping);
   if (status != NARSIL_OK) { return status; }
   status = segment_merge_reserve((void **)&plan->terms, count, &plan->term_capacity, sizeof *plan->terms);
-  if (status != NARSIL_OK) { return status; }
-  status = segment_merge_reserve((void **)&plan->slices, count, &plan->slice_capacity, sizeof *plan->slices);
   if (status != NARSIL_OK) { return status; }
   status = segment_merge_reserve((void **)&plan->units, segment->terms.header[TERM_UNITS_USED], &plan->unit_capacity,
                                  sizeof *plan->units);
@@ -147,12 +132,6 @@ static narsil_status collect_term(segment_vacuum *plan, const narsil_growing_seg
   return NARSIL_OK;
 }
 
-static int slice_order(const void *first, const void *second) {
-  const segment_slice *left = first;
-  const segment_slice *right = second;
-  return left->start < right->start ? -1 : left->start > right->start;
-}
-
 static int term_counts_invalid(const narsil_term_columns *columns, uint32_t ordinal) {
   return columns->doc_frequency[ordinal] < columns->dead_documents[ordinal] ||
          columns->doc_frequency[ordinal] > columns->lengths[ordinal] ||
@@ -160,30 +139,48 @@ static int term_counts_invalid(const narsil_term_columns *columns, uint32_t ordi
          !isfinite(columns->surface_occurrences[ordinal]) || columns->surface_occurrences[ordinal] < 0;
 }
 
-static narsil_status validate_columns(segment_vacuum *plan, const narsil_growing_segment *segment) {
+int segment_vacuum_holds_no_slice(const narsil_growing_segment *segment, uint32_t ordinal) {
+  return segment->columns.slice_class[ordinal] == SEGMENT_NO_SLICE && segment->columns.lengths[ordinal] == 0;
+}
+
+static narsil_status mark_slice(segment_vacuum *plan, const narsil_growing_segment *segment, uint32_t ordinal) {
   const narsil_term_columns *columns = &segment->columns;
-  const narsil_posting_pool *pool = &segment->postings;
-  uint32_t end = pool->allocator.allocation[SEGMENT_POOL_END];
-  size_t slices = 0;
+  const narsil_slice_allocator *allocator = &segment->postings.allocator;
+  uint32_t end = allocator->allocation[SEGMENT_POOL_END];
+  uint8_t kind = columns->slice_class[ordinal];
+  uint32_t start = columns->slice_start[ordinal];
+  if (kind >= allocator->class_count || start > end) { return NARSIL_INVALID_ARGUMENT; }
+  uint32_t size = allocator->slice_capacities[kind];
+  if (size > end - start || columns->lengths[ordinal] > size) { return NARSIL_INVALID_ARGUMENT; }
+  if (size == 0) { return NARSIL_OK; }
+  if (plan->marks[start] != 0) { return NARSIL_INVALID_ARGUMENT; }
+  plan->marks[start] = (uint8_t)(kind + 1);
+  return NARSIL_OK;
+}
+
+narsil_status segment_vacuum_validate(segment_vacuum *plan, const narsil_growing_segment *segment) {
+  const narsil_term_columns *columns = &segment->columns;
+  const narsil_slice_allocator *allocator = &segment->postings.allocator;
+  uint32_t end = allocator->allocation[SEGMENT_POOL_END];
+  narsil_status status = segment_merge_reserve((void **)&plan->marks, end, &plan->mark_capacity, sizeof *plan->marks);
+  if (status != NARSIL_OK) { return status; }
+  if (end > 0) { memset(plan->marks, 0, end * sizeof *plan->marks); }
   size_t live = 0;
-  for (uint32_t at = 0; at < plan->source_count; at++) {
-    plan->mapping[at] = UINT32_MAX;
+  for (uint32_t at = 0; at < segment->terms.header[TERM_COUNT]; at++) {
     if ((columns->flags[at] & SEGMENT_TERM_LIVE) == 0) { continue; }
     live++;
     if (term_counts_invalid(columns, at)) { return NARSIL_INVALID_ARGUMENT; }
-    uint8_t kind = columns->slice_class[at];
-    if (kind == SEGMENT_NO_SLICE && columns->lengths[at] == 0) { continue; }
-    if (kind >= pool->allocator.class_count || columns->slice_start[at] > end) { return NARSIL_INVALID_ARGUMENT; }
-    uint32_t size = pool->allocator.slice_capacities[kind];
-    if (size > end - columns->slice_start[at] || columns->lengths[at] > size) { return NARSIL_INVALID_ARGUMENT; }
-    plan->slices[slices++] = (segment_slice){columns->slice_start[at], size, kind};
+    if (segment_vacuum_holds_no_slice(segment, at)) { continue; }
+    status = mark_slice(plan, segment, at);
+    if (status != NARSIL_OK) { return status; }
   }
   if (live != segment->terms.header[TERM_LIVE_COUNT]) { return NARSIL_INVALID_ARGUMENT; }
-  if (slices > 1) { qsort(plan->slices, slices, sizeof *plan->slices, slice_order); }
-  for (size_t at = 1; at < slices; at++) {
-    if (plan->slices[at].start - plan->slices[at - 1].start < plan->slices[at - 1].length) {
-      return NARSIL_INVALID_ARGUMENT;
-    }
+  uint64_t reach = 0;
+  for (uint32_t at = 0; at < end; at++) {
+    uint8_t marked = plan->marks[at];
+    if (marked == 0) { continue; }
+    if (at < reach) { return NARSIL_INVALID_ARGUMENT; }
+    reach = (uint64_t)at + allocator->slice_capacities[marked - 1];
   }
   return NARSIL_OK;
 }
@@ -198,8 +195,9 @@ narsil_status segment_vacuum_prepare(segment_vacuum *plan, const narsil_growing_
   plan->position_count = segment->positions == NULL ? 0 : 1;
   narsil_status status = reserve(plan, segment);
   if (status != NARSIL_OK) { return status; }
-  status = validate_columns(plan, segment);
+  status = segment_vacuum_validate(plan, segment);
   if (status != NARSIL_OK) { return status; }
+  for (uint32_t at = 0; at < plan->source_count; at++) { plan->mapping[at] = UINT32_MAX; }
   for (uint32_t at = 0; at < plan->source_count; at++) {
     if ((segment->columns.flags[at] & SEGMENT_TERM_LIVE) == 0 ||
         segment->columns.doc_frequency[at] == segment->columns.dead_documents[at]) {

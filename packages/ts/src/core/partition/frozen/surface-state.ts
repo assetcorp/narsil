@@ -1,39 +1,36 @@
 import type { NativeFrozenStrings } from '../../../vector/native/types/frozen-segments'
+import { findEntry, textAt } from '../../frozen-writes/strings'
+import { compareCodePoints } from '../../ordering'
 import type { SurfaceRegistry } from '../../surface-registry'
-import { REMOVED_SURFACE_ENTRY_BYTES } from './constants'
-import { encodeSurfaceTable } from './surface-table'
+import { encodeStringBlob } from './string-blob'
 
 export function createSurfaceRemovalState(registry: SurfaceRegistry) {
   const forms = registry.serialize()
-  const data = encodeSurfaceTable(forms)
-  const table: NativeFrozenStrings = { text: data.blob, offsets: data.offsets, counts: data.counts }
-  const removed = new Uint32Array(data.counts.length)
-  const entries = new Map(Object.keys(forms).map((spelling, ordinal) => [spelling, ordinal]))
+  const surfaceThenToken: string[] = []
+  const entryCounts: number[] = []
+  for (const surface of Object.keys(forms).sort(compareCodePoints)) {
+    const value = forms[surface]
+    if (!Array.isArray(value)) continue
+    surfaceThenToken.push(surface, value[1])
+    entryCounts.push(value[0])
+  }
+  const counts = Uint32Array.from(entryCounts)
+  const { blob, offsets } = encodeStringBlob(surfaceThenToken)
+  const table: NativeFrozenStrings = { text: blob, offsets, counts }
+  const removed = new Uint32Array(counts.length)
   return {
     table,
     removed,
     subtract(spelling: string, count: number): void {
-      const entry = entries.get(spelling)
-      if (entry !== undefined) removed[entry] = Math.min(table.counts[entry], removed[entry] + count)
+      const entry = findEntry(table, spelling, 2)
+      if (entry >= 0) removed[entry] = Math.min(table.counts[entry], removed[entry] + count)
     },
-    prepareSync(spellings: readonly string[]): () => void {
-      const previous = new Map<number, { spelling: string; count: number }>()
-      for (const spelling of spellings) {
-        const entry = entries.get(spelling)
-        if (entry !== undefined && !previous.has(entry)) previous.set(entry, { spelling, count: removed[entry] })
-      }
-      return () => {
-        for (const [entry, held] of previous) registry.subtract(held.spelling, removed[entry] - held.count)
-      }
+    synchronise(entry: number, removedCount: number): void {
+      const surface = textAt(table, entry * 2)
+      if (surface !== null) registry.subtract(surface, removedCount - removed[entry])
     },
     bytes(): number {
-      return (
-        table.text.byteLength +
-        table.offsets.byteLength +
-        table.counts.byteLength +
-        removed.byteLength +
-        entries.size * REMOVED_SURFACE_ENTRY_BYTES
-      )
+      return table.text.byteLength + table.offsets.byteLength + table.counts.byteLength + removed.byteLength
     },
   }
 }

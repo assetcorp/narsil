@@ -15,7 +15,7 @@
 void segment_vacuum_release(segment_vacuum *plan) {
   free(plan->mapping);
   free(plan->terms);
-  free(plan->slices);
+  free(plan->marks);
   free(plan->rows);
   free(plan->units);
   free(plan->positions);
@@ -27,7 +27,7 @@ void segment_vacuum_release(segment_vacuum *plan) {
 
 size_t segment_vacuum_bytes(const segment_vacuum *plan) {
   return (plan->mapping_capacity * sizeof *plan->mapping) + (plan->term_capacity * sizeof *plan->terms) +
-         (plan->slice_capacity * sizeof *plan->slices) + (plan->row_capacity * sizeof *plan->rows) +
+         (plan->mark_capacity * sizeof *plan->marks) + (plan->row_capacity * sizeof *plan->rows) +
          (plan->unit_capacity * sizeof *plan->units) + (plan->position_capacity * sizeof *plan->positions) +
          segment_string_vacuum_bytes(&plan->surfaces) + segment_string_vacuum_bytes(&plan->spellings) +
          segment_run_vacuum_bytes(&plan->runs);

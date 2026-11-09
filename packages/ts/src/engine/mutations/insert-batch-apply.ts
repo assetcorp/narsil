@@ -44,7 +44,7 @@ export function applyInsertDocument(
       progress.buffered = true
       return queued
     }
-    manager.insert(doc.docId, doc.partitionDoc, {
+    const stored = manager.insert(doc.docId, doc.partitionDoc, {
       skipClone: doc.extractedVectors.size > 0 ? true : options?.skipClone,
       onPreparedText:
         doc.extractedVectors.size > 0 || ctx.durability !== null
@@ -74,7 +74,7 @@ export function applyInsertDocument(
       throw vecErr
     }
     if (ctx.durability === null) progress.preparedText = undefined
-    else progress.appliedRef = manager.getRef(doc.docId)
+    else progress.appliedRef = stored
     ctx.orchestrator.publishToWorkers({
       type: 'insert',
       indexName,

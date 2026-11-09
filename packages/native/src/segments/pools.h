@@ -32,6 +32,7 @@ typedef struct {
   uint32_t *used;
   size_t capacity;
   size_t used_capacity;
+  size_t active_slots;
   size_t count;
 } segment_pool_plan;
 

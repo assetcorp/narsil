@@ -31,8 +31,8 @@ function publish(
   options: PartitionInsertOptions | undefined,
   updating: boolean,
   removed?: RemovedSpellings,
-): void {
-  writePartitionDocument(
+): AnyDocument {
+  return writePartitionDocument(
     source.partitionAt(partitionId),
     docId,
     document,
@@ -42,27 +42,29 @@ function publish(
     updating,
     removed,
     () => source.asCompositePartition(partitionId),
-  )
+  ).stored
 }
 
 export function createDocumentWrites(source: DocumentWriteSource): Pick<PartitionManager, 'insert' | 'update'> {
   return {
-    insert(docId, document, options): void {
+    insert(docId, document, options): AnyDocument {
       const partitionId = source.route(docId)
       source.pins.beforeWrite(docId)
-      publish(source, partitionId, docId, document, source.resolveOptions(options), false)
+      const stored = publish(source, partitionId, docId, document, source.resolveOptions(options), false)
       source.docPartitionMap.set(docId, partitionId)
       source.writeLogs.documentWritten(docId)
+      return stored
     },
 
-    update(docId, document, options, removed): void {
+    update(docId, document, options, removed): AnyDocument {
       const partitionId = source.locate(docId)
       if (partitionId === undefined)
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       source.pins.beforeWrite(docId)
-      publish(source, partitionId, docId, document, source.resolveOptions(options), true, removed)
+      const stored = publish(source, partitionId, docId, document, source.resolveOptions(options), true, removed)
       source.docPartitionMap.set(docId, partitionId)
       source.writeLogs.documentWritten(docId)
+      return stored
     },
   }
 }

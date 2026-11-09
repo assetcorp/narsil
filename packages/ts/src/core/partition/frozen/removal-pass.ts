@@ -28,7 +28,7 @@ export function createFrozenRemovalPass(
     const onDisk = surfaces.tableStaysOnDisk()
     if (!onDisk && !surfaces.holdsAny()) return spellings
     visitDocumentSurfaceSpellings(documents.documentAt(ordinal), analysis, spelling => {
-      if (onDisk || surfaces.holds(spelling)) spellings.push(spelling)
+      if (onDisk || surfaces.tokenOf(spelling) !== undefined) spellings.push(spelling)
     })
     return spellings
   }

@@ -13,10 +13,6 @@ function startsWith(table: SurfaceTable, ordinal: number, prefix: string): boole
 
 export function growingSurfaceReader(segment: GrowingSegment): SurfaceRegistryReader {
   return {
-    holds(surface: string): boolean {
-      return segment.surfaces?.strings.has(surface) ?? false
-    },
-
     candidatesForPrefix(prefix: string): SurfaceFormCandidate[] {
       const table = segment.surfaces
       if (table === null || prefix.length === 0) return []

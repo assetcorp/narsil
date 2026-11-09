@@ -41,7 +41,7 @@ export function createDocumentStore(): DocumentStore {
     live.add(internalId)
   }
 
-  function replaceStored(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
+  function replaceStored(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): AnyDocument {
     const internalId = assignInternalId(docId)
     const existing = storedById[internalId]
     if (existing !== undefined) storedContentBytes -= documentValueBytes(existing.fields)
@@ -49,6 +49,7 @@ export function createDocumentStore(): DocumentStore {
     const fields = documentWithOwnBuffers(document) as Record<string, unknown>
     storedContentBytes += documentValueBytes(fields)
     putStored(docId, internalId, { fields, fieldLengths })
+    return fields as AnyDocument
   }
 
   function writeFieldLengths(internalId: number, fieldLengths: Record<string, number>): void {
@@ -116,12 +117,12 @@ export function createDocumentStore(): DocumentStore {
   }
 
   return {
-    store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
-      replaceStored(docId, document, fieldLengths)
+    store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): AnyDocument {
+      return replaceStored(docId, document, fieldLengths)
     },
 
-    storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
-      replaceStored(docId, document, fieldLengths)
+    storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): AnyDocument {
+      return replaceStored(docId, document, fieldLengths)
     },
 
     get(docId: string): ReadonlyStoredDocument | undefined {
