@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 static int cursor_at(const narsil_frozen_strings *table, size_t offset, term_cursor *cursor) {
   uint32_t start = table->offsets[offset];
@@ -48,8 +49,15 @@ static int compare_text(term_cursor cursor, const uint16_t *text, size_t length,
   }
 }
 
-static int64_t find_entry(const narsil_frozen_strings *table, const uint32_t *tokens, uint32_t token,
-                          const uint16_t *text, size_t length) {
+typedef struct {
+  const uint32_t *tokens;
+  uint32_t token;
+  size_t stride;
+} entry_key;
+
+static int64_t find_entry(const narsil_frozen_strings *table, entry_key key, const uint16_t *text, size_t length) {
+  const uint32_t *tokens = key.tokens;
+  uint32_t token = key.token;
   size_t low = 0;
   size_t high = table->count;
   while (low < high) {
@@ -57,7 +65,7 @@ static int64_t find_entry(const narsil_frozen_strings *table, const uint32_t *to
     term_cursor cursor;
     int valid = 1;
     int order = 0;
-    if (!cursor_at(table, middle, &cursor)) { break; }
+    if (!cursor_at(table, middle * key.stride, &cursor)) { break; }
     order = compare_text(cursor, text, length, &valid);
     if (!valid) { break; }
     if (order == 0 && tokens != NULL && tokens[middle] != token) { order = tokens[middle] < token ? -1 : 1; }
@@ -72,7 +80,7 @@ static int64_t find_entry(const narsil_frozen_strings *table, const uint32_t *to
   for (size_t at = 0; at < table->count; at++) {
     term_cursor cursor;
     int valid = 1;
-    if ((tokens == NULL || tokens[at] == token) && cursor_at(table, at, &cursor) &&
+    if ((tokens == NULL || tokens[at] == token) && cursor_at(table, at * key.stride, &cursor) &&
         compare_text(cursor, text, length, &valid) == 0 && valid) {
       return (int64_t)at;
     }
@@ -96,14 +104,57 @@ static narsil_status collect_token(frozen_removal_plan *plan, const narsil_froze
     }
   }
   if (segment->spellings == NULL || segment->partial_fields[field->field] == 0) { return NARSIL_OK; }
-  int64_t term_at = find_entry(&segment->terms, NULL, 0, term, token->term_length);
+  int64_t term_at = find_entry(&segment->terms, (entry_key){NULL, 0, 1}, term, token->term_length);
   if (term_at < 0) { return NARSIL_OK; }
-  int64_t entry = find_entry(segment->spellings, segment->spelling_tokens, (uint32_t)term_at, spelling, length);
+  int64_t entry =
+      find_entry(segment->spellings, (entry_key){segment->spelling_tokens, (uint32_t)term_at, 1}, spelling, length);
   return entry < 0 ? NARSIL_OK : frozen_removal_add(plan, FROZEN_SPELLING, (uint32_t)entry, 1);
+}
+
+static int surfaces_ascend(const narsil_frozen_strings *table) {
+  for (size_t entry = 0; entry < table->count; entry++) {
+    uint32_t start = table->offsets[entry * 2];
+    uint32_t end = table->offsets[(entry * 2) + 1];
+    if (start > end || end > table->text_bytes) { return 0; }
+    if (entry == 0) { continue; }
+    uint32_t prior_start = table->offsets[(entry - 1) * 2];
+    size_t prior_length = table->offsets[((entry - 1) * 2) + 1] - prior_start;
+    size_t length = end - start;
+    size_t shorter = prior_length < length ? prior_length : length;
+    int order = shorter == 0 ? 0 : memcmp(table->text + prior_start, table->text + start, shorter);
+    if (order > 0 || (order == 0 && prior_length >= length)) { return 0; }
+  }
+  return 1;
+}
+
+static int table_ascends(frozen_removal_plan *plan, const narsil_frozen_strings *table) {
+  for (size_t slot = 0; slot < FROZEN_TABLE_ORDER_SLOTS; slot++) {
+    const frozen_table_order *held = plan->orders + slot;
+    if (held->offsets == table->offsets && held->text == table->text && held->text_bytes == table->text_bytes &&
+        held->count == table->count) {
+      return held->ascends;
+    }
+  }
+  frozen_table_order *slot = plan->orders + (plan->next_order % FROZEN_TABLE_ORDER_SLOTS);
+  plan->next_order = (plan->next_order + 1) % FROZEN_TABLE_ORDER_SLOTS;
+  *slot = (frozen_table_order){table->text, table->offsets, table->text_bytes, table->count, surfaces_ascend(table)};
+  return slot->ascends;
+}
+
+static narsil_status find_surfaces(frozen_removal_plan *plan, const narsil_frozen_strings *table) {
+  for (size_t at = 0; at < plan->surfaces.count; at++) {
+    const segment_string *held = plan->surfaces.entries + at;
+    int64_t entry = find_entry(table, (entry_key){NULL, 0, 2}, held->text, held->length);
+    if (entry < 0) { continue; }
+    narsil_status status = frozen_removal_add(plan, FROZEN_SURFACE, (uint32_t)entry, held->count);
+    if (status != NARSIL_OK) { return status; }
+  }
+  return NARSIL_OK;
 }
 
 static narsil_status collect_surfaces(frozen_removal_plan *plan, const narsil_frozen_strings *table) {
   if (table == NULL || plan->surfaces.count == 0) { return NARSIL_OK; }
+  if (table_ascends(plan, table)) { return find_surfaces(plan, table); }
   for (size_t entry = 0; entry < table->count; entry++) {
     term_cursor cursor;
     if (!cursor_at(table, entry * 2, &cursor)) { continue; }

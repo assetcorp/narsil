@@ -36,16 +36,14 @@ export interface FrozenSurfaceSlot {
   heldBytes(): number
   tableStaysOnDisk(): boolean
   holdsAny(): boolean
-  holds(spelling: string): boolean
+  tokenOf(surface: string): string | undefined
   subtractSpellings(ordinal: number, spellings: RemovedSpellings): void
   prepareRemoval(ordinal: number, spellings: RemovedSpellings): () => void
   coreRegions(): { table: NativeFrozenStrings; removed: Uint32Array }
-  prepareCoreRemoval(
-    ordinal: number,
-    spellings: RemovedSpellings,
-  ): {
+  prepareCoreRemoval(ordinal: number): {
     table: NativeFrozenStrings
     removed: Uint32Array
+    synchronise(entry: number, removedCount: number): void
     publish(): void
   }
   addKeptForms(target: SurfaceRegistry, mergedOrdinals: Int32Array, analysis: TextAnalysis | null): void
@@ -148,8 +146,8 @@ export function createFrozenSurfaceSlot(
       return loaded().size() > 0
     },
 
-    holds(spelling: string): boolean {
-      return loaded().holds(spelling)
+    tokenOf(surface: string): string | undefined {
+      return loaded().tokenOf(surface)
     },
 
     subtractSpellings(ordinal: number, spellings: RemovedSpellings): void {
@@ -163,17 +161,16 @@ export function createFrozenSurfaceSlot(
       return { table: removalState.table, removed: removalState.removed }
     },
 
-    prepareCoreRemoval(ordinal, spellings) {
+    prepareCoreRemoval(ordinal) {
       removalState ??= createSurfaceRemovalState(loaded())
       const marks = uncounted ?? new Uint8Array(documents.count)
-      const synchronise = removalState.prepareSync(spellings)
       return {
         table: removalState.table,
         removed: removalState.removed,
+        synchronise: removalState.synchronise,
         publish() {
           uncounted ??= marks
           uncounted[ordinal] = 1
-          synchronise()
         },
       }
     },

@@ -69,8 +69,10 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
       return queued
     }
     prepared.restoreDoc = ctx.durability ? manager.get(docId) : undefined
-    prepared.removedSpellings = manager.removedSpellingsOf(docId)
-    manager.remove(docId, prepared.removedSpellings, {
+    manager.remove(docId, undefined, {
+      onRemovedSpellings: spellings => {
+        prepared.removedSpellings = spellings
+      },
       onPreparedText:
         ctx.durability === null
           ? undefined

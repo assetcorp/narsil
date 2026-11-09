@@ -202,20 +202,17 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
         : undefined
     prepared.rollbackDoc = prepared.oldDocument
     prepared.rollbackRef = ctx.durability === null ? undefined : manager.getRef(docId)
-    prepared.removedSpellings = manager.removedSpellingsOf(docId)
-    manager.update(
-      docId,
-      partitionDoc,
-      {
-        onPreparedText:
-          extractedVectors.size > 0 || ctx.durability !== null
-            ? change => {
-                prepared.preparedText = change
-              }
-            : undefined,
+    const stored = manager.update(docId, partitionDoc, {
+      onRemovedSpellings: spellings => {
+        prepared.removedSpellings = spellings
       },
-      prepared.removedSpellings,
-    )
+      onPreparedText:
+        extractedVectors.size > 0 || ctx.durability !== null
+          ? change => {
+              prepared.preparedText = change
+            }
+          : undefined,
+    })
     try {
       updateDocumentVectors(docId, extractedVectors, manager.getVectorIndexes(), manager.partitionIdOf(docId))
     } catch (err) {
@@ -237,7 +234,7 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       throw err
     }
     if (ctx.durability === null) prepared.preparedText = undefined
-    else prepared.appliedRef = manager.getRef(docId)
+    else prepared.appliedRef = stored
     ctx.orchestrator.publishToWorkers({
       type: 'update',
       indexName,

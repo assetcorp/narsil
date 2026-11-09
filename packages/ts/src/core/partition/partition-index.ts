@@ -31,7 +31,7 @@ export interface PartitionIndex {
     schema: SchemaDefinition,
     language: LanguageModule,
     options?: PartitionInsertOptions,
-  ): void
+  ): AnyDocument
   remove(
     docId: string,
     schema: SchemaDefinition,
@@ -50,7 +50,7 @@ export interface PartitionIndex {
     language: LanguageModule,
     options?: PartitionInsertOptions,
     removedSpellings?: RemovedSpellings,
-  ): void
+  ): AnyDocument
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined

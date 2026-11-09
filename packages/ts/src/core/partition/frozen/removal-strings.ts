@@ -2,13 +2,14 @@ import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vec
 import type { NativeFieldTokens } from '../../../vector/native/types/segments'
 import { PreparedTokens, packedTokens } from '../../segment-writes/prepared-tokens'
 import type { FrozenPartialWordSlot } from '../partial-words/types'
-import { type PreparedText, preparedSurfaces } from '../prepared-text'
+import type { PreparedText } from '../prepared-text'
 import type { FrozenSurfaceSlot } from './surface-slot'
 
 export interface FrozenStringRemoval
   extends Pick<NativeFrozenSegment, 'surfaces' | 'spellings' | 'spellingTokens' | 'partialFields'>,
     Pick<NativeFrozenSegmentState, 'removedSurfaces' | 'removedSpellings'> {
   fields: NativeFieldTokens[]
+  synchroniseSurface(entry: number, removedCount: number): void
 }
 
 export function prepareFrozenStrings(
@@ -19,7 +20,6 @@ export function prepareFrozenStrings(
   partialWords: FrozenPartialWordSlot,
 ): { core: FrozenStringRemoval; publish(): void } {
   const fields: NativeFieldTokens[] = []
-  const spellings = new Set<string>()
   const partial = partialWords.removalState()
   for (let field = 0; field < fieldNames.length; field++) {
     const words = text.removalSpellings?.get(fieldNames[field])
@@ -28,18 +28,14 @@ export function prepareFrozenStrings(
       let position = 0
       const isPartial = partial?.table.fields.includes(fieldNames[field]) === true
       for (const [written, value] of words) {
-        const surfaceToken = surfaces.reader
-          .candidatesForPrefix(written)
-          .find(entry => entry.surface === written)?.token
         let spelling = written
         let token = isPartial ? partialWords.tokenForSpelling(written) : undefined
         if (token === undefined && isPartial && value.normalized !== null) {
           token = partialWords.tokenForSpelling(value.normalized)
           if (token !== undefined) spelling = value.normalized
         }
-        token ??= surfaceToken
+        token ??= surfaces.tokenOf(written)
         if (token === undefined) continue
-        if (surfaceToken !== undefined) spellings.add(written)
         for (let count = 0; count < value.count; count++)
           records.add(token, position++, spelling === token ? undefined : spelling)
       }
@@ -49,11 +45,8 @@ export function prepareFrozenStrings(
     const prepared = text.fields.get(fieldNames[field])
     if (prepared === undefined) continue
     fields.push({ field, ...packedTokens(prepared.records) })
-    for (const [spelling, entry] of preparedSurfaces(prepared)) {
-      if (spelling !== entry.token) spellings.add(spelling)
-    }
   }
-  const surface = surfaces.prepareCoreRemoval(ordinal, [...spellings])
+  const surface = surfaces.prepareCoreRemoval(ordinal)
   const partialFields = new Uint8Array(fieldNames.length)
   for (const path of partial?.table.fields ?? []) {
     const field = fieldNames.indexOf(path)
@@ -65,6 +58,7 @@ export function prepareFrozenStrings(
       partialFields,
       surfaces: surface.table,
       removedSurfaces: surface.removed,
+      synchroniseSurface: surface.synchronise,
       spellings:
         partial === null
           ? null

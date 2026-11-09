@@ -6,6 +6,7 @@
 #include "../segment_merge/internal.h"
 #include "frozen.h"
 #include "postings.h"
+#include "regions.h"
 #include "removal.h"
 #include "runs.h"
 #include "tokens.h"
@@ -22,6 +23,7 @@ typedef struct {
   field_merge_scratch fields;
   segment_vacuum vacuum;
   segment_removal_plan removal;
+  segment_region_memo regions;
 } segment_scratch;
 
 segment_scratch *workspace_segment_scratch(narsil_workspace *workspace);

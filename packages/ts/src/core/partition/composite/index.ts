@@ -219,7 +219,7 @@ export function createCompositePartition(
       live.clear()
     },
 
-    insert(docId, document, schema, language, options): void {
+    insert(docId, document, schema, language, options): AnyDocument {
       if (frozenOwner(docId) !== undefined) {
         throw new NarsilError(
           ErrorCodes.DOC_ALREADY_EXISTS,
@@ -227,23 +227,26 @@ export function createCompositePartition(
           { docId, partitionId },
         )
       }
-      live.insert(docId, document, schema, language, options)
+      const stored = live.insert(docId, document, schema, language, options)
       invalidateDocFrequencies()
+      return stored
     },
 
-    update(docId, document, schema, language, options, removedSpellings): void {
+    update(docId, document, schema, language, options, removedSpellings): AnyDocument {
       const owner = frozenOwner(docId)
       if (owner === undefined) {
-        live.update(docId, document, schema, language, options)
+        const stored = live.update(docId, document, schema, language, options)
         invalidateDocFrequencies()
-        return
+        return stored
       }
       const before = prepareFrozenText(owner, docId, schema, language, options)
       const spellings = removedSpellings ?? preparedRemovedSpellings(before) ?? owner.removedSpellingsOf(docId)
       const tombstone = owner.prepareTombstone(docId, spellings, before)
-      live.insert(docId, document, schema, language, withPreviousText(options, before))
+      options?.onRemovedSpellings?.(spellings)
+      const stored = live.insert(docId, document, schema, language, withPreviousText(options, before))
       invalidateDocFrequencies()
       tombstone?.()
+      return stored
     },
 
     remove(docId, schema, language, options, removedSpellings): void {
@@ -262,6 +265,7 @@ export function createCompositePartition(
       const before = prepareFrozenText(owner, docId, schema, language, options)
       const spellings = removedSpellings ?? preparedRemovedSpellings(before) ?? owner.removedSpellingsOf(docId)
       const tombstone = owner.prepareTombstone(docId, spellings, before)
+      options?.onRemovedSpellings?.(spellings)
       options?.onPreparedText?.({ before })
       invalidateDocFrequencies()
       tombstone?.()

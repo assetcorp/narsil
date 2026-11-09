@@ -111,15 +111,16 @@ static void forget_segment_view(napi_env env, struct segment_view *view) {
 }
 
 static int array_extent(napi_env env, napi_value value, void **data, size_t *length) {
-  bool typed = false;
-  *data = NULL;
-  *length = 0;
-  if (napi_is_typedarray(env, value, &typed) != napi_ok) { return 0; }
-  if (!typed) { return 1; }
   napi_typedarray_type type = napi_uint8_array;
   napi_value buffer = NULL;
   size_t offset = 0;
-  return napi_get_typedarray_info(env, value, &type, length, data, &buffer, &offset) == napi_ok;
+  *data = NULL;
+  *length = 0;
+  if (napi_get_typedarray_info(env, value, &type, length, data, &buffer, &offset) == napi_ok) { return 1; }
+  *data = NULL;
+  *length = 0;
+  bool typed = true;
+  return napi_is_typedarray(env, value, &typed) == napi_ok && !typed;
 }
 
 static int holds_array(napi_env env, const held_array *array) {

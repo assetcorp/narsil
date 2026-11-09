@@ -8,8 +8,18 @@
 
 enum { MIN_POOL_PLAN = 16, POOL_PLAN_GROWTH = 2 };
 
+static size_t slots_for(size_t capacity) {
+  size_t slots = POOL_PLAN_GROWTH;
+  while (slots <= capacity) { slots *= POOL_PLAN_GROWTH; }
+  return slots;
+}
+
 narsil_status segment_pool_reserve(segment_pool_plan *plan, size_t capacity) {
-  if (capacity <= plan->capacity) { return NARSIL_OK; }
+  plan->active_slots = 0;
+  if (capacity <= plan->capacity) {
+    plan->active_slots = slots_for(capacity);
+    return NARSIL_OK;
+  }
   if (capacity > UINT32_MAX || capacity > SIZE_MAX / sizeof(segment_slice)) { return NARSIL_OUT_OF_MEMORY; }
   size_t held = plan->capacity == 0 ? MIN_POOL_PLAN : plan->capacity;
   while (held < capacity) {
@@ -41,6 +51,7 @@ narsil_status segment_pool_reserve(segment_pool_plan *plan, size_t capacity) {
   plan->used = slots;
   plan->capacity = held;
   plan->used_capacity = used;
+  plan->active_slots = slots_for(capacity);
   return NARSIL_OK;
 }
 
@@ -60,13 +71,14 @@ narsil_status segment_pool_begin(segment_pool_plan *plan, const segment_pool *po
   plan->end = pool->allocation[SEGMENT_POOL_END];
   plan->free_entries = pool->allocation[SEGMENT_POOL_FREE];
   plan->count = 0;
-  if (plan->used_capacity > 0) { memset(plan->used, 0, plan->used_capacity * sizeof *plan->used); }
+  if (plan->active_slots > plan->used_capacity) { plan->active_slots = plan->used_capacity; }
+  if (plan->active_slots > 0) { memset(plan->used, 0, plan->active_slots * sizeof *plan->used); }
   return NARSIL_OK;
 }
 
 static int record_slice(segment_pool_plan *plan, segment_slice slice) {
-  if (plan->count == plan->capacity) { return 0; }
-  size_t mask = plan->used_capacity - 1;
+  if (plan->count == plan->capacity || plan->count + 1 >= plan->active_slots) { return 0; }
+  size_t mask = plan->active_slots - 1;
   size_t slot = slice.start & mask;
   while (plan->used[slot] != 0) {
     if (plan->slices[plan->used[slot] - 1].start == slice.start) { return 0; }

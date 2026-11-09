@@ -172,7 +172,13 @@ export function createFrozenLiveCounts(
               removedSurfaces: strings.removedSurfaces,
               removedSpellings: strings.removedSpellings,
             }
-      const publish = prepareFrozenPublication(preparedSegment, preparedState, ordinal, strings?.fields ?? [])
+      const publish = prepareFrozenPublication(
+        preparedSegment,
+        preparedState,
+        ordinal,
+        strings?.fields ?? [],
+        strings?.synchroniseSurface,
+      )
       return () => {
         lengths ??= nextLengths
         for (let field = 0; field < columns.fieldLengthNames.length; field++) {

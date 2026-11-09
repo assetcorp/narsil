@@ -29,8 +29,8 @@ export interface DocumentStoreReader {
 }
 
 export interface DocumentStore extends DocumentStoreReader {
-  store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
-  storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
+  store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): AnyDocument
+  storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): AnyDocument
   remove(docId: string): boolean
   clear(): void
   serialize(): Record<string, StoredDocument>

@@ -1,6 +1,7 @@
 import type { NativeSegmentCore } from '../../vector/native/types/segments'
 import { acquirePostingPlan, releasePostingPlan } from './postings'
 import { readBatch } from './regions'
+import { preparePostingRepack } from './repack'
 import { SegmentRefusal } from './status'
 import { acquireTokenPlan, releaseTokenPlan } from './tokens'
 import { prepareVacuum } from './vacuum'
@@ -12,7 +13,7 @@ export const beginBatch: NativeSegmentCore['beginBatch'] = input => {
     try {
       const postings = acquirePostingPlan(segment, 0, tokens, true)
       try {
-        const vacuum = prepareVacuum(segment)
+        const vacuum = prepareVacuum(segment) ?? preparePostingRepack(segment)
         if (vacuum === null) postings.publish()
         else vacuum.publish()
       } finally {

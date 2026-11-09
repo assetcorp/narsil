@@ -7,6 +7,8 @@ import type { RemovedSpellings } from '../frozen/surface-slot'
 import { type PreparedText, prepareDocumentText, preparedSurfaces } from '../prepared-text'
 import type { PartitionInsertOptions } from '../utils'
 
+const UNREAD_DOCUMENT_TEXT: PreparedText = { fieldLengths: {}, tokens: [], partialSpellings: null, fields: new Map() }
+
 export function prepareFrozenText(
   owner: FrozenSegment,
   docId: string,
@@ -17,7 +19,11 @@ export function prepareFrozenText(
   const stored = owner.docStore.get(docId)
   if (stored === undefined) return undefined
   const fields = schemaFieldsOf(schema)
-  const prepared = options?.preparedText?.before ?? prepareDocumentText(stored.fields, fields, language, options)
+  const prepared =
+    options?.preparedText?.before ??
+    (options?.customTokenizer === undefined && options?.onPreparedText === undefined
+      ? UNREAD_DOCUMENT_TEXT
+      : prepareDocumentText(stored.fields, fields, language, options))
   return prepareRemovalText(
     prepared,
     stored.fields,

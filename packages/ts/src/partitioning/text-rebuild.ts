@@ -70,7 +70,7 @@ async function buildPartition(
     for (let i = start; i < end; i++) {
       const document = manager.getRef(docIds[i])
       if (document !== undefined)
-        target = writePartitionDocument(target, docIds[i], document, manager.schema, language, options)
+        target = writePartitionDocument(target, docIds[i], document, manager.schema, language, options).partition
     }
     if (pass.spill !== null) {
       target.endBatch()
@@ -96,7 +96,14 @@ function applyWrittenDocuments(pass: RebuildPass, built: PartitionIndex[]): void
     const partitionId = manager.partitionIdOf(docId)
     const document = manager.getRef(docId)
     if (partitionId === undefined || document === undefined) continue
-    built[partitionId] = writePartitionDocument(built[partitionId], docId, document, manager.schema, language, options)
+    built[partitionId] = writePartitionDocument(
+      built[partitionId],
+      docId,
+      document,
+      manager.schema,
+      language,
+      options,
+    ).partition
   }
 }
 
