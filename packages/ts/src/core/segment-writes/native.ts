@@ -1,54 +1,64 @@
 import { loadNativeCore } from '#platform/native-core'
-import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
-import type { NativeGrowingSegment, NativeSegmentCore } from '../../vector/native/types/segments'
+import { type NativeOperation, nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
+import type {
+  NativeFieldTokenArgument,
+  NativeFieldTokens,
+  NativeGrowingSegment,
+  NativeSegmentCore,
+} from '../../vector/native/types/segments'
 import * as portable from './portable'
-import { type PreparedSegmentField, packedFields } from './prepared-tokens'
+import { type PreparedSegmentField, packedTokens } from './prepared-tokens'
 
-export const indexTerms: NativeSegmentCore['indexTerms'] = (...args) => {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.indexTerms(...args)
-    noteFallback('indexTerms')
-  }
-  return portable.indexTerms(...args)
+const fieldArguments: NativeFieldTokenArgument[] = []
+
+function core(operation: NativeOperation): NativeSegmentCore | null {
+  if (!nativeSearchCoreIsEnabled()) return null
+  const loaded = loadNativeCore()
+  if (loaded === null) noteFallback(operation)
+  return loaded
 }
 
 export function indexPreparedTerms(
   segment: NativeGrowingSegment,
+  generation: number,
   ordinal: number,
   fields: readonly PreparedSegmentField[],
 ): number {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.indexTerms(segment, ordinal, packedFields(fields))
-    noteFallback('indexTerms')
+  const native = core('indexTerms')
+  if (native === null) return portable.indexPreparedTerms(segment, generation, ordinal, fields)
+  try {
+    for (const { field, text } of fields) {
+      const packed = packedTokens(text)
+      fieldArguments.push(field, packed.tokens, packed.units)
+    }
+    return native.indexTerms(segment, generation, ordinal, ...fieldArguments)
+  } finally {
+    fieldArguments.length = 0
   }
-  return portable.indexPreparedTerms(segment, ordinal, fields)
 }
 
-export const removeDocument: NativeSegmentCore['removeDocument'] = (...args) => {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.removeDocument(...args)
-    noteFallback('removeDocument')
+export function removeDocument(
+  segment: NativeGrowingSegment,
+  generation: number,
+  ordinal: number,
+  fields: readonly NativeFieldTokens[],
+): number {
+  const native = core('removeDocument')
+  if (native === null) return portable.removeDocument(segment, generation, ordinal, fields)
+  try {
+    for (const { field, tokens, units } of fields) fieldArguments.push(field, tokens, units)
+    return native.removeDocument(segment, generation, ordinal, ...fieldArguments)
+  } finally {
+    fieldArguments.length = 0
   }
-  return portable.removeDocument(...args)
 }
 
-export const beginBatch: NativeSegmentCore['beginBatch'] = segment => {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.beginBatch(segment)
-    noteFallback('beginBatch')
-  }
-  return portable.beginBatch(segment)
+export function beginBatch(segment: NativeGrowingSegment, generation: number): number {
+  const native = core('beginBatch')
+  return native === null ? portable.beginBatch(segment, generation) : native.beginBatch(segment, generation)
 }
 
-export const endBatch: NativeSegmentCore['endBatch'] = segment => {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.endBatch(segment)
-    noteFallback('endBatch')
-  }
-  return portable.endBatch(segment)
+export function endBatch(segment: NativeGrowingSegment, generation: number): number {
+  const native = core('endBatch')
+  return native === null ? portable.endBatch(segment, generation) : native.endBatch(segment, generation)
 }

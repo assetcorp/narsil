@@ -1,4 +1,4 @@
-import type { NativeGrowingSegment, NativeSegmentCore, NativeSurfaceTable } from '../../vector/native/types/segments'
+import type { NativeFieldTokens, NativeGrowingSegment, NativeSurfaceTable } from '../../vector/native/types/segments'
 import { prepareSpellingRemoval } from '../partition/partial-words/registry'
 import { rowRemoved } from './postings'
 import { readRequest } from './regions'
@@ -41,7 +41,12 @@ function removeTokens(segment: NativeGrowingSegment, ordinal: number, tokens: To
   }
 }
 
-export const removeDocument: NativeSegmentCore['removeDocument'] = (input, ordinal, rawFields) => {
+export function removeDocument(
+  input: NativeGrowingSegment,
+  _generation: number,
+  ordinal: number,
+  rawFields: readonly NativeFieldTokens[],
+): number {
   try {
     const { segment, fields, text } = readRequest(input, ordinal, rawFields)
     if (rowRemoved(segment, ordinal)) return 0

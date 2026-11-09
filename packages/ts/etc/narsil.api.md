@@ -851,6 +851,11 @@ export interface NativeFieldMergeSource {
     regions: readonly NativeFieldMergeRegion[];
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeFieldTokenArgument" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeFieldTokenArgument = number | Uint32Array | Uint16Array;
+
 // Warning: (ae-internal-missing-underscore) The name "NativeFieldTokens" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -1358,10 +1363,10 @@ export interface NativeSearchResult {
 //
 // @internal
 export interface NativeSegmentCore {
-    beginBatch(segment: NativeGrowingSegment): number;
-    endBatch(segment: NativeGrowingSegment): number;
-    indexTerms(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number;
-    removeDocument(segment: NativeGrowingSegment, ordinal: number, fields: readonly NativeFieldTokens[]): number;
+    beginBatch(segment: NativeGrowingSegment, generation: number): number;
+    endBatch(segment: NativeGrowingSegment, generation: number): number;
+    indexTerms(segment: NativeGrowingSegment, generation: number, ordinal: number, ...fields: readonly NativeFieldTokenArgument[]): number;
+    removeDocument(segment: NativeGrowingSegment, generation: number, ordinal: number, ...fields: readonly NativeFieldTokenArgument[]): number;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeSegmentMergeCore" should be prefixed with an underscore because the declaration is marked as @internal
