@@ -237,13 +237,3 @@ export const lookupPrefix: NativeTermCore['lookupPrefix'] = (dictionary, text, l
 
 export const lookupTypo: NativeTermCore['lookupTypo'] = (dictionary, text, tolerance, prefixLength, output) =>
   lookup(dictionary, text, 2, 0, tolerance, prefixLength, output)
-
-export const documentFrequency: NativeTermCore['documentFrequency'] = (input, ordinal, output) => {
-  const dictionary = readDictionary(input)
-  const into = typedRegion(output, 'Uint32Array')
-  if (dictionary === null || into === null || !uint32(ordinal) || ordinal >= termCount(dictionary)) return -1
-  if (dictionaryRegions(dictionary).some(region => regionsOverlap(region, into))) return -1
-  if (into.length === 0) return -3
-  into[0] = liveFrequency(dictionary, ordinal)
-  return 0
-}

@@ -16,7 +16,8 @@ export function createFrozenInvertedReader(
   }
 
   function liveAt(token: string): number {
-    return lookups.find(counts.dictionary(), token) ?? -1
+    const at = table.find(token)
+    return at < 0 || counts.documentFrequency(at) === 0 ? -1 : at
   }
 
   return {
@@ -27,10 +28,11 @@ export function createFrozenInvertedReader(
     },
 
     lookupMany(tokens: readonly string[]): Array<PostingListView | undefined> {
-      const ordinals = lookups.findMany(counts.dictionary(), tokens)
-      const lists = new Array<PostingListView | undefined>(ordinals.length)
-      for (let at = 0; at < ordinals.length; at++)
-        if (ordinals[at] !== 0xffffffff) lists[at] = viewAtSorted(ordinals[at])
+      const lists = new Array<PostingListView | undefined>(tokens.length)
+      for (let term = 0; term < tokens.length; term++) {
+        const at = liveAt(tokens[term])
+        if (at >= 0) lists[term] = viewAtSorted(at)
+      }
       return lists
     },
 
@@ -41,7 +43,7 @@ export function createFrozenInvertedReader(
     },
 
     documentFrequency(token: string): number {
-      const at = liveAt(token)
+      const at = table.find(token)
       return at < 0 ? 0 : counts.documentFrequency(at)
     },
 
@@ -50,6 +52,10 @@ export function createFrozenInvertedReader(
       tolerance: number,
       prefixLength: number,
     ): Array<{ token: string; postingList: PostingListView }> {
+      if (tolerance === 0) {
+        const at = liveAt(token)
+        return at < 0 ? [] : [{ token, postingList: viewAtSorted(at) }]
+      }
       const results: Array<{ token: string; postingList: PostingListView }> = []
       for (const at of lookups.typo(counts.dictionary(), token, tolerance, prefixLength))
         results.push({ token: table.tokenAt(at), postingList: viewAtSorted(at) })

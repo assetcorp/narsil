@@ -1,16 +1,11 @@
-import {
-  documentFrequency,
-  findOwnedTerm,
-  lookupExact,
-  lookupExactBatch,
-  lookupPrefix,
-  lookupTypo,
-} from '#platform/term-lookups'
+import { findOwnedTerm, lookupExact, lookupExactBatch, lookupPrefix, lookupTypo } from '#platform/term-lookups'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeTermDictionary } from '../../vector/native/types/terms'
 import { TERM_REGION_GROWTH_FACTOR } from './constants'
+import { liveFrequency, termCount } from './read'
 
 const ABSENT_TERM = 0xffffffff
+const REFUSED_LOOKUP = -1
 
 function checked(status: number): number {
   if (status < 0)
@@ -64,8 +59,8 @@ export class TermLookup {
   }
 
   frequency(dictionary: NativeTermDictionary, ordinal: number): number {
-    checked(documentFrequency(dictionary, ordinal, this.single))
-    return this.single[0]
+    if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal >= termCount(dictionary)) checked(REFUSED_LOOKUP)
+    return liveFrequency(dictionary, ordinal)
   }
 
   prefix(dictionary: NativeTermDictionary, text: string, limit: number): Uint32Array {
@@ -78,8 +73,10 @@ export class TermLookup {
 
   typo(dictionary: NativeTermDictionary, text: string, tolerance: number, prefixLength: number): Uint32Array {
     if (tolerance === 0) {
-      const found = checked(lookupExact(dictionary, this.encode(text), this.single))
-      return this.single.subarray(0, found)
+      const found = this.find(dictionary, text)
+      if (found === undefined) return this.single.subarray(0, 0)
+      this.single[0] = found
+      return this.single
     }
     const count = dictionary.growing?.header[0] ?? dictionary.frequencies.length
     this.reserve(count)
