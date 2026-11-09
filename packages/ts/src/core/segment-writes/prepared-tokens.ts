@@ -147,6 +147,13 @@ export class PreparedTokens {
     if (count === 0) return
     if (!this.packed) this.switchToRecords()
     const words = count * TOKEN_WORDS
+    if (this.records.length === 0 && this.units === 0 && position === 0) {
+      this.records = tokens.slice(1, 1 + words)
+      this.pieces.push(units.slice(0, unitCount))
+      this.used = words
+      this.units = unitCount
+      return
+    }
     if (this.records.length === 0) this.records = new Uint32Array(words)
     else this.reserve(this.used + words)
     const records = this.records
