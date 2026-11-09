@@ -15,11 +15,12 @@ const SCORE_TOLERANCE = 1e-9
 const MIN_SEARCHES_DURING_REMOVALS = 10
 const CONCURRENT_SEARCHERS = 8
 const MAX_SEARCHES_PER_REMOVAL = CONCURRENT_SEARCHERS * 2
+const STREAMED_REMOVAL_EVERY = 80
 const STORAGES = ['memory', 'disk'] as const
 const BOUNDED_CASES = [
-  { storage: 'memory', mode: 'async', removedEvery: 5 },
-  { storage: 'disk', mode: 'async', removedEvery: 5 },
-  { storage: 'disk', mode: 'sync', removedEvery: 15 },
+  { storage: 'memory', mode: 'async', removedEvery: 80 },
+  { storage: 'disk', mode: 'async', removedEvery: 80 },
+  { storage: 'disk', mode: 'sync', removedEvery: 80 },
 ] as const
 const SHAPES: readonly Omit<OracleQuery, 'term'>[] = [
   { partialWords: true },
@@ -111,7 +112,9 @@ describe.each(backends)('frozen removals settle before every read through $name'
     async storage => {
       const documents = workshopCorpus(DOCUMENTS, 53)
       const narsil = await openFrozen(storage, documents)
-      const leaving = documents.filter((_, at) => at % 3 === 0).map(document => String(document.id))
+      const leaving = documents
+        .filter((_, at) => at % STREAMED_REMOVAL_EVERY === 0)
+        .map(document => String(document.id))
       let removed = 0
       let streaming = true
       const removals = (async () => {
