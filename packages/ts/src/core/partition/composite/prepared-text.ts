@@ -7,7 +7,7 @@ import type { RemovedSpellings } from '../frozen/surface-slot'
 import { type PreparedText, prepareDocumentText, preparedSurfaces } from '../prepared-text'
 import type { PartitionInsertOptions } from '../utils'
 
-const UNREAD_DOCUMENT_TEXT: PreparedText = { fieldLengths: {}, tokens: [], partialSpellings: null, fields: new Map() }
+const UNREAD_DOCUMENT_TEXT: PreparedText = { fieldLengths: {}, partialSpellings: null, fields: new Map() }
 
 export function prepareFrozenText(
   owner: FrozenSegment,

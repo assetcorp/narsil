@@ -54,7 +54,6 @@ export function preparedSurfaces(field: PreparedTextField): ReadonlyMap<string, 
 
 export interface PreparedText {
   readonly fieldLengths: Readonly<Record<string, number>>
-  readonly tokens: readonly string[]
   readonly partialSpellings: ReadonlySpellingCounts | null
   readonly fields: ReadonlyMap<string, PreparedTextField>
   readonly removalSpellings?: ReadonlyMap<string, ReadonlyMap<string, PreparedRemovalSpelling>>
@@ -70,6 +69,14 @@ export interface PreparedTextChange {
   readonly after?: PreparedText
 }
 
+function countPackedSpellings(spellings: SpellingCounts, tokens: Uint32Array, count: number, units: Uint16Array): void {
+  for (let at = 1; at < 1 + count * TOKEN_RECORD_WORDS; at += TOKEN_RECORD_WORDS) {
+    const term = storedText(units, tokens[at + 1], tokens[at + 2])
+    const surface = tokens[at + 3] === ABSENT_TEXT ? term : storedText(units, tokens[at + 3], tokens[at + 4])
+    countPartialSpelling(spellings, term, surface, 1)
+  }
+}
+
 function prepareField(
   value: string | readonly string[],
   language: LanguageModule,
@@ -82,24 +89,24 @@ function prepareField(
   let offset = 0
   let lastPosition = -1
   let length = 0
-  let packed = false
   const collect = (token: string, position: number, surface: string | undefined): void => {
-    if (packed) document.addPackedTerm(token)
-    else records.add(token, offset + position, surface)
+    records.add(token, offset + position, surface)
     length++
     lastPosition = position
     if (spellings !== null) countPartialSpelling(spellings, token, surface ?? token, 1)
   }
-  const append = (tokens: Uint32Array, units: Uint16Array): void => {
-    records.append(tokens, units, offset)
-    packed = true
+  const append = (tokens: Uint32Array, count: number, units: Uint16Array, unitCount: number): void => {
+    if (count === 0) return
+    records.append(tokens, count, units, unitCount, offset)
+    length += count
+    lastPosition = tokens[1 + (count - 1) * TOKEN_RECORD_WORDS]
+    if (spellings !== null) countPackedSpellings(spellings, tokens, count, units)
   }
   if (typeof value === 'string') {
     visitTokens(value, language, tokenizing, collect, append)
   } else {
     for (const item of value) {
       lastPosition = -1
-      packed = false
       visitTokens(item, language, tokenizing, collect, append)
       if (lastPosition >= 0) offset += lastPosition + 1 + ARRAY_POSITION_GAP
     }
@@ -140,5 +147,5 @@ export function prepareDocumentText(
   } finally {
     texts.release()
   }
-  return { fieldLengths, tokens: texts.terms, partialSpellings, fields }
+  return { fieldLengths, partialSpellings, fields }
 }

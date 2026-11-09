@@ -30,6 +30,9 @@ import { trimSegment } from './trim'
 
 const NEEDS_ROOM = 3
 const SEGMENT_FULL = 8
+const NONEMPTY_TERMS_UNCHANGED = 0
+const NONEMPTY_TERMS_FOLLOW_LIVE_TERMS = 1
+const NONEMPTY_TERMS_UNKNOWN = 2
 
 let regionGenerations = 0
 
@@ -57,10 +60,9 @@ export class GrowingSegment {
     }
   }
 
-  insert(ordinal: number, fields: readonly PreparedSegmentField[], tokens: readonly string[]): boolean {
+  insert(ordinal: number, fields: readonly PreparedSegmentField[]): boolean {
     this.preparePublication()
-    const terms = this.postings.terms
-    const added = terms.liveCount === terms.nonemptyCount ? undefined : this.termsAtFrequency(tokens, 0)
+    const counted = this.countsNonemptyTerms()
     let status = indexPreparedTerms(this.regions(), this.generation, ordinal, fields)
     if (status === NEEDS_ROOM) {
       const capacity = documentCapacity(packedFields(fields), this.fields.partial)
@@ -73,20 +75,21 @@ export class GrowingSegment {
       status = indexPreparedTerms(this.regions(), this.generation, ordinal, fields)
     }
     if (status === SEGMENT_FULL) return false
-    this.accept(status, added)
+    this.accept(status, counted)
     return true
   }
 
-  remove(ordinal: number, fields: readonly NativeFieldTokens[], tokens: readonly string[]): void {
+  remove(ordinal: number, fields: readonly NativeFieldTokens[]): void {
     this.preparePublication()
+    const counted = this.countsNonemptyTerms()
+    this.accept(removeDocument(this.regions(), this.generation, ordinal, fields), counted)
+  }
+
+  private countsNonemptyTerms(): number {
     const terms = this.postings.terms
-    const change =
-      terms.liveCount === terms.nonemptyCount
-        ? undefined
-        : this.postings.isRetired(ordinal)
-          ? 0
-          : -this.termsAtFrequency(tokens, 1)
-    this.accept(removeDocument(this.regions(), this.generation, ordinal, fields), change)
+    return !terms.nonemptyStale && terms.liveCount === terms.nonemptyCount
+      ? NONEMPTY_TERMS_FOLLOW_LIVE_TERMS
+      : NONEMPTY_TERMS_UNKNOWN
   }
 
   regions(): NativeGrowingSegment {
@@ -162,7 +165,7 @@ export class GrowingSegment {
 
   batch(ending: boolean): void {
     this.finishCopies()
-    this.accept((ending ? endBatch : beginBatch)(this.regions(), this.generation), 0)
+    this.accept((ending ? endBatch : beginBatch)(this.regions(), this.generation), NONEMPTY_TERMS_UNCHANGED)
   }
 
   private finishCopies(): void {
@@ -185,28 +188,23 @@ export class GrowingSegment {
       positions.freeValues >= POSITION_VACUUM_MIN_FREE_VALUES &&
       positions.freeValues > positions.end * POOL_VACUUM_FREE_FRACTION
     if (termVacuum || postingVacuum || positionVacuum || sparseStrings(this.surfaces) || sparseStrings(this.spellings))
-      this.accept(endBatch(this.regions(), this.generation), 0)
+      this.accept(endBatch(this.regions(), this.generation), NONEMPTY_TERMS_UNCHANGED)
   }
 
-  private termsAtFrequency(tokens: readonly string[], frequency: number): number {
-    const terms = this.postings.terms
-    let count = 0
-    for (const token of tokens) {
-      const ordinal = terms.ids.get(token)
-      const found = ordinal === undefined ? 0 : terms.frequencyAt(ordinal)
-      if (found === frequency) count++
-    }
-    return count
-  }
-
-  private accept(status: number, nonemptyChange: number | undefined): void {
+  private accept(status: number, nonemptyTerms: number): void {
     if (status !== 0)
       throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The keyword segment refused a document publication', {
         status,
       })
     const generation = this.postings.terms.generation
     const terms = this.postings.terms
-    terms.acceptPublication(nonemptyChange ?? terms.ids.header[1] - terms.liveCount)
+    terms.acceptPublication(
+      nonemptyTerms === NONEMPTY_TERMS_UNKNOWN
+        ? null
+        : nonemptyTerms === NONEMPTY_TERMS_FOLLOW_LIVE_TERMS
+          ? terms.ids.header[1] - terms.liveCount
+          : 0,
+    )
     if (this.postings.terms.generation !== generation) {
       this.postings.acceptCompaction()
       trimSegment(this)

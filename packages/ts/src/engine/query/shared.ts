@@ -5,7 +5,7 @@ import type { SearchClock } from '../../core/search-clock'
 import { signalOfSearch } from '../../core/search-stop'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validQueryFilter } from '../../filters/query'
-import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
+import { pruneStatsToTokens, queryStatTokens } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { StatePin } from '../../partitioning/manager/state-pins'
@@ -49,7 +49,7 @@ export interface QueryContext {
   turns?: ScanTurns
   indexName: string
   indexBm25?: BM25Params
-  broadcastStats?: (indexName: string) => GlobalStatistics | undefined
+  broadcastStats?: (indexName: string, tokens: ReadonlySet<string>) => GlobalStatistics | undefined
   partitionIds?: number[]
   rescoreWindow?: number
   cursorBinding: CursorBinding
@@ -146,27 +146,35 @@ export function scoringConfigFor(params: QueryParams, context: QueryContext): Fa
   if (scoringMode !== 'broadcast') {
     return { scoringMode, partitionIds: context.partitionIds }
   }
-  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName), partitionIds: context.partitionIds }
+  const broadcastStats = context.broadcastStats
+  if (broadcastStats === undefined) {
+    return { scoringMode, globalStats: undefined, partitionIds: context.partitionIds }
+  }
+  const tokens = statTokensOf(params, context)
+  const stats = broadcastStats(context.indexName, tokens)
+  return {
+    scoringMode,
+    globalStats: stats === undefined ? undefined : pruneStatsToTokens(stats, tokens),
+    partitionIds: context.partitionIds,
+  }
 }
 
-export function broadcastStatsForWorker(
-  params: QueryParams,
-  context: QueryContext,
-  scoring: FanOutConfig,
-): GlobalStatistics | undefined {
-  if (scoring.scoringMode !== 'broadcast' || scoring.globalStats === undefined) {
-    return undefined
-  }
+function statTokensOf(params: QueryParams, context: QueryContext): Set<string> {
   const term = params.term
-  if (term === undefined || term.trim().length === 0) {
-    return undefined
-  }
+  if (term === undefined || term.trim().length === 0) return new Set()
   const { manager } = context
   const analysis = { ...manager.analysis, synonyms: manager.synonyms }
-  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, analysis, {
+  return queryStatTokens(term, context.language, analysis, {
     partitions: partitionsFor(manager, context.partitionIds),
     expansion: { options: params, schema: context.config.schema },
   })
+}
+
+export function broadcastStatsForWorker(params: QueryParams, scoring: FanOutConfig): GlobalStatistics | undefined {
+  if (scoring.scoringMode !== 'broadcast') return undefined
+  const term = params.term
+  if (term === undefined || term.trim().length === 0) return undefined
+  return scoring.globalStats
 }
 
 export function bm25SettingFor(params: QueryParams, context: QueryContext): BM25Params | undefined {

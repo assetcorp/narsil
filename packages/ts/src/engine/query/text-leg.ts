@@ -17,7 +17,7 @@ export async function textLeg(textOnlyParams: QueryParams, context: SearchContex
     const viaWorker = await workerSearch(
       indexName,
       textOnlyParams,
-      broadcastStatsForWorker(textOnlyParams, context, scoring),
+      broadcastStatsForWorker(textOnlyParams, scoring),
       context.partitionIds,
       context.patternWork,
       bm25SettingFor(textOnlyParams, context),

@@ -58,6 +58,7 @@ export function createSegmentOperations(source: SegmentOperationSource): Segment
       if (segment.paged === null) requireNewSegmentDocuments(segment, docPartitionMap)
       if (pins.held > 0) noteSegmentDocuments(segment, pins)
       asCompositePartition(partitionId).attachFrozenSegment(segment)
+      writeLogs.contentChanged()
       if (segment.paged !== null) return
       recordSegmentDocLocations(docPartitionMap, partitionId, segment)
       writeLogs.segmentWritten(segment)
@@ -69,6 +70,7 @@ export function createSegmentOperations(source: SegmentOperationSource): Segment
 
     diskSegmentAccess(partitionId) {
       validatePartitionId(partitionId)
+      writeLogs.contentChanged()
       return {
         composite: asCompositePartition(partitionId),
         docPartitionMap,
@@ -83,6 +85,7 @@ export function createSegmentOperations(source: SegmentOperationSource): Segment
         replacement,
         removedSpellings,
       )
+      writeLogs.contentChanged()
       const replacements = 'segmentId' in replacement ? [replacement] : replacement
       for (const segment of replacements) recordSegmentDocLocations(docPartitionMap, partitionId, segment)
       return applied
@@ -90,11 +93,13 @@ export function createSegmentOperations(source: SegmentOperationSource): Segment
 
     freezeLiveTail(partitionId, freeze) {
       validatePartitionId(partitionId)
+      writeLogs.contentChanged()
       return asCompositePartition(partitionId).freezeLiveTail(freeze)
     },
 
     replaceLiveTail(partitionId, segment) {
       validatePartitionId(partitionId)
+      writeLogs.contentChanged()
       asCompositePartition(partitionId).replaceLiveTail(segment)
       recordSegmentDocLocations(docPartitionMap, partitionId, segment)
     },

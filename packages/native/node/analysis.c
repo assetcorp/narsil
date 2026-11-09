@@ -30,6 +30,8 @@ enum {
 };
 
 enum { ANALYSE_LANGUAGE, ANALYSE_FLAGS, ANALYSE_TEXT, ANALYSE_STOP_WORDS, ANALYSE_RECORDS, ANALYSE_ARGUMENT_COUNT };
+enum { ANALYSE_PACKED_UNITS = ANALYSE_RECORDS + 1, ANALYSE_PACKED_ARGUMENT_COUNT = ANALYSE_PACKED_UNITS + 1 };
+enum { PACKED_NEEDED_UNITS = 1, PACKED_RECORD_MIN_WORDS = PACKED_NEEDED_UNITS + 1 };
 enum { TRANSFORM_LANGUAGE, TRANSFORM_FLAGS, TRANSFORM_TEXT, TRANSFORM_ARGUMENT_COUNT };
 enum { LANGUAGE_INDEX, LANGUAGE_ARGUMENT_COUNT };
 enum { STOP_WORDS_LIST, STOP_WORDS_ARGUMENT_COUNT };
@@ -265,40 +267,38 @@ static napi_value analyse(napi_env env, napi_callback_info info) {
   return utf16_string(env, tokens.units, tokens.unit_count);
 }
 
-static napi_value packed_result(napi_env env, const narsil_tokens *tokens) {
-  uint32_t probe = 0;
+static napi_value packed_result(napi_env env, const narsil_tokens *tokens, uint32_t *records, size_t capacity,
+                                uint16_t *units, size_t unit_capacity) {
   uint32_t needed = 0;
-  narsil_status status = narsil_pack_tokens(tokens, &probe, 1, NULL, 0, &needed);
-  if (status != NARSIL_OK && status != NARSIL_NEEDS_ROOM) { return number_of(env, -(int32_t)status); }
-  uint64_t record_words = 1 + ((uint64_t)tokens->token_count * TOKEN_RECORD_WORDS);
-  if (record_words > SIZE_MAX / sizeof(uint32_t)) { return number_of(env, -(int32_t)NARSIL_OUT_OF_MEMORY); }
-  size_t words = (size_t)record_words;
-  size_t record_bytes = words * sizeof(uint32_t);
-  if (needed > (SIZE_MAX - record_bytes) / sizeof(uint16_t)) { return number_of(env, -(int32_t)NARSIL_OUT_OF_MEMORY); }
-  void *data = NULL;
-  napi_value buffer = NULL;
-  napi_value units = NULL;
-  if (napi_create_arraybuffer(env, record_bytes + ((size_t)needed * sizeof(uint16_t)), &data, &buffer) != napi_ok) {
-    return NULL;
+  narsil_status status = narsil_pack_tokens(tokens, records, capacity, units, unit_capacity, &needed);
+  napi_value result = NULL;
+  if (status == NARSIL_NEEDS_ROOM) {
+    records[PACKED_NEEDED_UNITS] = needed;
+    return napi_get_null(env, &result) == napi_ok ? result : NULL;
   }
-  uint32_t packed = 0;
-  status = narsil_pack_tokens(tokens, data, words, (uint16_t *)((uint32_t *)data + words), needed, &packed);
-  if (status != NARSIL_OK || packed != needed) {
-    return number_of(env, -(int32_t)(status == NARSIL_OK ? NARSIL_INVALID_ARGUMENT : status));
-  }
-  return napi_create_typedarray(env, napi_uint16_array, needed, buffer, record_bytes, &units) == napi_ok ? units : NULL;
+  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
+  return napi_create_uint32(env, needed, &result) == napi_ok ? result : NULL;
 }
 
 static napi_value analyse_packed(napi_env env, napi_callback_info info) {
-  napi_value argv[ANALYSE_RECORDS];
+  napi_value argv[ANALYSE_PACKED_ARGUMENT_COUNT];
   thread_state *state = thread_state_of(env);
-  if (state == NULL || !callback_arguments(env, info, ANALYSE_RECORDS, argv)) {
-    return throw_error(env, "analysePacked takes a language, flags, a text, and a stop word set or null");
+  if (state == NULL || !callback_arguments(env, info, ANALYSE_PACKED_ARGUMENT_COUNT, argv)) {
+    return throw_error(env,
+                       "analysePacked takes a language, flags, a text, a stop word set or null, a record array, and "
+                       "a unit array");
   }
   narsil_analysis_request request = {0, NULL, 0, NULL, 0};
+  void *records = NULL;
+  void *units = NULL;
+  size_t capacity = 0;
+  size_t unit_capacity = 0;
   if (napi_get_value_uint32(env, argv[ANALYSE_LANGUAGE], &request.language) != napi_ok ||
       napi_get_value_uint32(env, argv[ANALYSE_FLAGS], &request.flags) != napi_ok ||
       !read_stop_words(env, argv[ANALYSE_STOP_WORDS], &request.stop_words) ||
+      !typed_data(env, argv[ANALYSE_RECORDS], napi_uint32_array, &records, &capacity) ||
+      capacity < PACKED_RECORD_MIN_WORDS ||
+      !possibly_empty_typed_data(env, argv[ANALYSE_PACKED_UNITS], napi_uint16_array, &units, &unit_capacity) ||
       !read_text(env, state, argv[ANALYSE_TEXT], &request.length)) {
     return throw_error(env, "an argument to analysePacked has the wrong type, or the text is too long");
   }
@@ -308,7 +308,7 @@ static napi_value analyse_packed(napi_env env, napi_callback_info info) {
   narsil_tokens tokens;
   narsil_status status = narsil_analyse(analyser, &request, &tokens);
   if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
-  return packed_result(env, &tokens);
+  return packed_result(env, &tokens, records, capacity, units, unit_capacity);
 }
 
 static napi_value transform(napi_env env, napi_callback_info info) {

@@ -85,27 +85,9 @@ export function packedFields(fields: readonly PreparedSegmentField[]): NativeFie
 }
 
 const sharedTextIds = new TextIndex()
-const LAST_TERM_STAMP = 0xffffffff
-let termStamps = new Uint32Array(PREPARED_TOKEN_START_CAPACITY)
-let termStamp = 0
 
 export class DocumentTexts {
   readonly texts: string[] = []
-  readonly terms: string[] = []
-  private packedTerms: Set<string> | null = null
-
-  termIdOf(term: string): number {
-    const id = this.idOf(term)
-    if (this.firstTermUse(id)) this.addTerm(term)
-    return id
-  }
-
-  addPackedTerm(term: string): void {
-    this.packedTerms ??= new Set(this.terms)
-    if (this.packedTerms.has(term)) return
-    this.packedTerms.add(term)
-    this.terms.push(term)
-  }
 
   idOf(text: string): number {
     const texts = this.texts
@@ -118,26 +100,6 @@ export class DocumentTexts {
     return id
   }
 
-  private addTerm(term: string): void {
-    const packed = this.packedTerms
-    if (packed !== null) {
-      if (packed.has(term)) return
-      packed.add(term)
-    }
-    this.terms.push(term)
-  }
-
-  private firstTermUse(id: number): boolean {
-    if (id >= termStamps.length) {
-      const grown = new Uint32Array(Math.max(id + 1, termStamps.length * PREPARED_TOKEN_GROWTH_FACTOR))
-      grown.set(termStamps)
-      termStamps = grown
-    }
-    if (termStamps[id] === termStamp) return false
-    termStamps[id] = termStamp
-    return true
-  }
-
   release(): void {
     if (sharedTextIds.owner === this) sharedTextIds.clear()
   }
@@ -145,15 +107,6 @@ export class DocumentTexts {
   private claim(): void {
     sharedTextIds.clear(this)
     for (let id = 0; id < this.texts.length; id++) sharedTextIds.insert(this.texts, id)
-    if (termStamp === LAST_TERM_STAMP) {
-      termStamps.fill(0)
-      termStamp = 0
-    }
-    termStamp++
-    for (const term of this.terms) {
-      const id = sharedTextIds.find(this.texts, term)
-      if (id >= 0) this.firstTermUse(id)
-    }
   }
 }
 
@@ -176,7 +129,6 @@ export class PreparedTokens {
 
   add(token: string, position: number, surface: string | undefined): void {
     if (this.packed) {
-      this.document.addPackedTerm(token)
       this.addRecord(token, position, surface)
       return
     }
@@ -185,29 +137,34 @@ export class PreparedTokens {
     if (at === rows.length) rows = this.grownRows(rows)
     this.rows = rows
     const document = this.document
-    rows[at] = document.termIdOf(token)
+    rows[at] = document.idOf(token)
     rows[at + 1] = surface === undefined ? ABSENT_TEXT : document.idOf(surface)
     rows[at + 2] = position
     this.count++
   }
 
-  append(tokens: Uint32Array, units: Uint16Array, position: number): void {
-    if (tokens.length === 0) return
+  append(tokens: Uint32Array, count: number, units: Uint16Array, unitCount: number, position: number): void {
+    if (count === 0) return
     if (!this.packed) this.switchToRecords()
-    this.pieces.push(units)
-    if (this.used === 0 && position === 0 && this.units === 0) this.records = tokens
-    else {
-      this.reserve(this.used + tokens.length)
-      const records = this.records
-      records.set(tokens, this.used)
-      for (let at = this.used; at < this.used + tokens.length; at += TOKEN_WORDS) {
-        records[at] += position
-        records[at + 1] += this.units
-        if (records[at + 3] !== ABSENT_TEXT) records[at + 3] += this.units
-      }
+    const words = count * TOKEN_WORDS
+    if (this.records.length === 0) this.records = new Uint32Array(words)
+    else this.reserve(this.used + words)
+    const records = this.records
+    const shift = this.units
+    for (let from = 1, to = this.used; from <= words; from += TOKEN_WORDS, to += TOKEN_WORDS) {
+      const surface = tokens[from + 3]
+      records[to] = tokens[from] + position
+      records[to + 1] = tokens[from + 1] + shift
+      records[to + 2] = tokens[from + 2]
+      records[to + 3] = surface === ABSENT_TEXT ? ABSENT_TEXT : surface + shift
+      records[to + 4] = tokens[from + 4]
+      records[to + 5] = tokens[from + 5]
+      records[to + 6] = tokens[from + 6]
+      records[to + 7] = tokens[from + 7]
     }
-    this.used += tokens.length
-    this.units += units.length
+    this.pieces.push(units.slice(0, unitCount))
+    this.used += words
+    this.units += unitCount
   }
 
   finish(): PreparedFieldTokens {

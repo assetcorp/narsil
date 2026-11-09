@@ -5,7 +5,6 @@ import type { PartitionState } from './utils'
 
 const DOC_ENTRY_OVERHEAD_BYTES = 260
 const LENGTH_COLUMN_SLOT_BYTES = 6
-const DOC_FREQUENCY_ENTRY_BYTES = 44
 const SURFACE_ENTRY_OVERHEAD_BYTES = 140
 const FIELD_ENTRY_OVERHEAD_BYTES = 42
 
@@ -25,7 +24,6 @@ export function estimatePartitionBytes(state: PartitionState): number {
   bytes += docCount * DOC_ENTRY_OVERHEAD_BYTES
   bytes += textFieldCount * state.docStore.internalIdCapacity() * LENGTH_COLUMN_SLOT_BYTES
   bytes += state.invertedIdx.estimateBytes()
-  bytes += state.invertedIdx.size() * DOC_FREQUENCY_ENTRY_BYTES
   bytes += state.surfaceRegistry.size() * SURFACE_ENTRY_OVERHEAD_BYTES
 
   bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD_BYTES

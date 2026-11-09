@@ -29,7 +29,7 @@ export function indexDocument(
   prepared: PreparedText,
 ): void {
   const keyword = keywordFields(state, prepared, fields, internalId)
-  if (!keyword.segment.insert(internalId, keyword.fields, prepared.tokens)) throw new SegmentFull({ after: prepared })
+  if (!keyword.segment.insert(internalId, keyword.fields)) throw new SegmentFull({ after: prepared })
   for (const { path: fieldPath, base, pattern } of fields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue
@@ -67,7 +67,7 @@ export function removeFromIndexes(
   prepared: PreparedText,
 ): void {
   const keyword = keywordFields(state, prepared, schemaFields, internalId)
-  keyword.segment.remove(internalId, packedFields(keyword.fields), prepared.tokens)
+  keyword.segment.remove(internalId, packedFields(keyword.fields))
   for (const { path: fieldPath, base, pattern } of schemaFields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue

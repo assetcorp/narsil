@@ -67,7 +67,7 @@ function broadcastStatsFor(core: EngineCore, options: ScopedReadOptions | undefi
   if (invalidation === null) {
     return undefined
   }
-  return (name: string) => invalidation.broadcastStats(name)
+  return (name: string, tokens: ReadonlySet<string>) => invalidation.broadcastStats(name, tokens)
 }
 
 export async function runEngineQuery<T = AnyDocument>(

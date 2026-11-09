@@ -27,6 +27,15 @@ enum AnalyseArgument : size_t {
   ANALYSE_ARGUMENT_COUNT
 };
 
+enum PackedArgument : size_t {
+  PACKED_UNIT_BUFFER = ANALYSE_ARGUMENT_COUNT,
+  PACKED_UNIT_BYTE_OFFSET,
+  PACKED_UNIT_LENGTH,
+  PACKED_ARGUMENT_COUNT
+};
+
+enum PackedRecord : size_t { PACKED_NEEDED_UNITS = 1, PACKED_RECORD_MIN_WORDS };
+
 enum TransformArgument : size_t { TRANSFORM_LANGUAGE, TRANSFORM_FLAGS, TRANSFORM_TEXT, TRANSFORM_ARGUMENT_COUNT };
 
 enum TokenRecord : size_t {
@@ -114,6 +123,25 @@ uint32_t* recordsArgument(jsi::Runtime& runtime, const jsi::Value* arguments, si
   return reinterpret_cast<uint32_t*>(bytes);
 }
 
+uint16_t* unitsArgument(jsi::Runtime& runtime, const jsi::Value* arguments, size_t count, size_t* capacity) {
+  uint32_t byteOffset = wholeArgument(arguments, count, PACKED_UNIT_BYTE_OFFSET, "The unit byte offset");
+  uint32_t length = wholeArgument(arguments, count, PACKED_UNIT_LENGTH, "The unit length");
+  const jsi::Value& value = arguments[PACKED_UNIT_BUFFER];
+  if (!value.isObject()) throwInvalid("The units must be a Uint16Array");
+  jsi::Object object = value.getObject(runtime);
+  if (!object.isArrayBuffer(runtime)) throwInvalid("The units must be a Uint16Array");
+  jsi::ArrayBuffer buffer = object.getArrayBuffer(runtime);
+  size_t held = buffer.size(runtime);
+  if (byteOffset > held || static_cast<size_t>(length) > (held - byteOffset) / sizeof(uint16_t)) {
+    throwInvalid("The units reach past the end of their buffer");
+  }
+  *capacity = length;
+  if (length == 0) return nullptr;
+  uint8_t* bytes = buffer.data(runtime) + byteOffset;
+  if (reinterpret_cast<uintptr_t>(bytes) % alignof(uint16_t) != 0) throwInvalid("The units are misaligned");
+  return reinterpret_cast<uint16_t*>(bytes);
+}
+
 bool writeRecords(const narsil_tokens& tokens, uint32_t* records, size_t capacity) {
   records[0] = tokens.token_count;
   if (capacity - 1 < static_cast<size_t>(tokens.token_count) * TOKEN_RECORD_WORDS) return false;
@@ -168,7 +196,7 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("languageStopWords", 1, &HybridNarsilCoreImpl::languageStopWords);
     prototype.registerRawHybridMethod("createStopWordSet", 1, &HybridNarsilCoreImpl::createStopWordSet);
     prototype.registerRawHybridMethod("analyse", ANALYSE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::analyse);
-    prototype.registerRawHybridMethod("analysePacked", ANALYSE_RECORD_BUFFER, &HybridNarsilCoreImpl::analysePacked);
+    prototype.registerRawHybridMethod("analysePacked", PACKED_ARGUMENT_COUNT, &HybridNarsilCoreImpl::analysePacked);
     prototype.registerRawHybridMethod("transform", TRANSFORM_ARGUMENT_COUNT, &HybridNarsilCoreImpl::transform);
     prototype.registerRawHybridMethod("keywordScore", KEYWORD_SCORE_ARGUMENT_COUNT,
                                       &HybridNarsilCoreImpl::keywordScore);
@@ -325,34 +353,30 @@ jsi::Value HybridNarsilCoreImpl::analysePacked(jsi::Runtime& runtime, const jsi:
   narsil_analysis_request request = {0, nullptr, 0, nullptr, 0};
   request.language = languageArgument(arguments, count, ANALYSE_LANGUAGE);
   request.flags = wholeArgument(arguments, count, ANALYSE_FLAGS, "The analysis flags");
-  if (count < ANALYSE_RECORD_BUFFER) throwInvalid("analysePacked takes four arguments");
+  if (count < PACKED_ARGUMENT_COUNT) throwInvalid("analysePacked takes ten arguments");
   request.stop_words = stopWordsArgument(runtime, arguments[ANALYSE_STOP_WORDS]);
   RuntimeState& analysis = stateOf(runtime);
   readText(runtime, arguments[ANALYSE_TEXT], "The text", analysis.textUnits);
   narsil_analyser* active = analyserOf(analysis.analyser);
   if (active == nullptr) return statusValue(NARSIL_OUT_OF_MEMORY);
+  size_t capacity = 0;
+  uint32_t* records = recordsArgument(runtime, arguments, count, &capacity);
+  if (capacity < PACKED_RECORD_MIN_WORDS) throwInvalid("The packed records need room for the needed unit count");
+  size_t unitCapacity = 0;
+  uint16_t* units = unitsArgument(runtime, arguments, count, &unitCapacity);
   request.text = analysis.textUnits.empty() ? NO_UNITS : analysis.textUnits.data();
   request.length = static_cast<uint32_t>(analysis.textUnits.size());
   narsil_tokens tokens = {nullptr, 0, nullptr, 0};
   narsil_status status = narsil_analyse(active, &request, &tokens);
   if (status != NARSIL_OK) return statusValue(status);
-  uint32_t probe = 0;
   uint32_t needed = 0;
-  status = narsil_pack_tokens(&tokens, &probe, 1, nullptr, 0, &needed);
-  if (status != NARSIL_OK && status != NARSIL_NEEDS_ROOM) return statusValue(status);
-  uint64_t recordWords = 1 + static_cast<uint64_t>(tokens.token_count) * TOKEN_RECORD_WORDS;
-  if (recordWords > SIZE_MAX / sizeof(uint32_t)) return statusValue(NARSIL_OUT_OF_MEMORY);
-  size_t words = static_cast<size_t>(recordWords);
-  size_t recordBytes = words * sizeof(uint32_t);
-  if (needed > (SIZE_MAX - recordBytes) / sizeof(uint16_t)) return statusValue(NARSIL_OUT_OF_MEMORY);
-  size_t bytes = recordBytes + static_cast<size_t>(needed) * sizeof(uint16_t);
-  std::shared_ptr<ArrayBuffer> buffer = ArrayBuffer::allocate(bytes);
-  auto* records = reinterpret_cast<uint32_t*>(buffer->data());
-  uint32_t packed = 0;
-  status = narsil_pack_tokens(&tokens, records, words, reinterpret_cast<uint16_t*>(records + words), needed, &packed);
+  status = narsil_pack_tokens(&tokens, records, capacity, units, unitCapacity, &needed);
+  if (status == NARSIL_NEEDS_ROOM) {
+    records[PACKED_NEEDED_UNITS] = needed;
+    return jsi::Value::null();
+  }
   if (status != NARSIL_OK) return statusValue(status);
-  if (packed != needed) return statusValue(NARSIL_INVALID_ARGUMENT);
-  return JSIConverter<std::shared_ptr<ArrayBuffer>>::toJSI(runtime, buffer);
+  return jsi::Value(static_cast<double>(needed));
 }
 
 jsi::Value HybridNarsilCoreImpl::transform(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value* arguments,

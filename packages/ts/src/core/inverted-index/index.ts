@@ -9,6 +9,7 @@ import type {
 import { MAX_TERM_FREQUENCY } from '../constants'
 import { TermLookup } from '../term-table/lookup'
 import { TERM_ENTRY_ESTIMATED_BYTES, TOKEN_STRING_HEADER_BYTES } from './constants'
+import { TERM_LIVE } from './terms'
 
 export interface TermSuggestion {
   term: string
@@ -35,6 +36,7 @@ export interface InvertedIndexReader {
 
 export interface InvertedIndex extends InvertedIndexReader {
   readonly livePostings: LivePostings
+  addDocumentFrequencies(into: Record<string, number>): number
   insert(
     token: string,
     internalId: number,
@@ -165,8 +167,25 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       return liveTokens()
     },
 
+    addDocumentFrequencies(into: Record<string, number>): number {
+      const { count, flags, docFrequency, deadDocuments, tokens } = postings.terms
+      let added = 0
+      for (let ordinal = 0; ordinal < count; ordinal++) {
+        if ((flags[ordinal] & TERM_LIVE) === 0) continue
+        const documents = docFrequency[ordinal] - deadDocuments[ordinal]
+        if (documents <= 0) continue
+        const token = tokens[ordinal]
+        const held = into[token]
+        if (held === undefined) {
+          into[token] = documents
+          added++
+        } else into[token] = held + documents
+      }
+      return added
+    },
+
     size(): number {
-      return postings.terms.nonemptyCount
+      return postings.terms.nonemptyTerms()
     },
 
     clear(): void {

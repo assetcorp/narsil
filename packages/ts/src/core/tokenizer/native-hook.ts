@@ -1,7 +1,7 @@
 import type { LanguageModule } from '../../types/language'
 import type { TokenizeOptions, TokenVisitor } from './tokenize'
 
-export type PackedTokenVisitor = (tokens: Uint32Array, units: Uint16Array) => void
+export type PackedTokenVisitor = (records: Uint32Array, count: number, units: Uint16Array, unitCount: number) => void
 
 export interface NativeAnalysis {
   visitTokens(

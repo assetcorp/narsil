@@ -13,9 +13,6 @@ const ANALYSIS_METHODS = [
   'transform',
 ] as const
 
-const PACKED_COUNT_BYTES = Uint32Array.BYTES_PER_ELEMENT
-const PACKED_RECORD_WORDS = 8
-
 type AnalysisMethod = (typeof ANALYSIS_METHODS)[number]
 
 function rawMethodOf(core: NarsilCore, name: AnalysisMethod): (...parameters: unknown[]) => unknown {
@@ -63,16 +60,9 @@ function analysisResultOf(value: unknown, name: AnalysisMethod): string | number
   throw new Error(`The native search core returned an unexpected value from ${name}.`)
 }
 
-function packedUnitsOf(value: unknown): Uint16Array | number {
-  if (typeof value === 'number') return value
-  if (!(value instanceof ArrayBuffer) || value.byteLength < PACKED_COUNT_BYTES)
-    throw new Error('The native search core returned an unexpected value from analysePacked.')
-  const count = new Uint32Array(value, 0, 1)[0]
-  const recordBytes = (1 + count * PACKED_RECORD_WORDS) * PACKED_COUNT_BYTES
-  const unitBytes = value.byteLength - recordBytes
-  if (unitBytes < 0 || unitBytes % Uint16Array.BYTES_PER_ELEMENT !== 0)
-    throw new Error('The native search core returned an unexpected value from analysePacked.')
-  return new Uint16Array(value, recordBytes, unitBytes / Uint16Array.BYTES_PER_ELEMENT)
+function packedResultOf(value: unknown): number | null {
+  if (value === null || typeof value === 'number') return value
+  throw new Error('The native search core returned an unexpected value from analysePacked.')
 }
 
 export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
@@ -95,7 +85,21 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
         analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length),
         'analyse',
       ),
-    analysePacked: (language, flags, text, stopWords) => packedUnitsOf(analysePacked(language, flags, text, stopWords)),
+    analysePacked: (language, flags, text, stopWords, records, units) =>
+      packedResultOf(
+        analysePacked(
+          language,
+          flags,
+          text,
+          stopWords,
+          records.buffer,
+          records.byteOffset,
+          records.length,
+          units.buffer,
+          units.byteOffset,
+          units.length,
+        ),
+      ),
     transform(language, flags, token) {
       const result = transform(language, flags, token)
       if (typeof result === 'string' || typeof result === 'number') return result

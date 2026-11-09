@@ -23,7 +23,7 @@ import { createPublicationGate } from './publication-gate'
 import { createRemovalSettlement } from './removal-settlement'
 import { createSegmentOperations } from './segment-operations'
 import { createStatePins, type PinnedReads, type StatePin } from './state-pins'
-import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
+import { createStatsOperations } from './stats'
 import type { PartitionManager } from './types'
 import { createWriteLogRecorder, REANALYSIS_WRITE_LOG } from './write-log'
 
@@ -170,6 +170,7 @@ export function createPartitionManager(
           { indexName, partitionCount: partitions.length, rebuiltCount: rebuilt.length },
         )
       }
+      writeLogs.contentChanged()
       const earlier = partitions
       partitions = [...rebuilt]
       retirePartitions(pins, leftBehind(earlier, partitions), true)
@@ -369,17 +370,7 @@ export function createPartitionManager(
       rebuildPartitionDocLocations(docPartitionMap, partitionId, partitions[partitionId])
     },
 
-    getAggregateStats() {
-      return aggregateStatsOf(partitions)
-    },
-
-    estimateMemoryBytes(): number {
-      return estimateBytesOf(partitions, vecIndexes)
-    },
-
-    getPartitionStats() {
-      return partitionStatsOf(partitions)
-    },
+    ...createStatsOperations(() => partitions, vecIndexes, writeLogs),
 
     getVectorIndexes(): Map<string, VectorIndex> {
       return vecIndexes

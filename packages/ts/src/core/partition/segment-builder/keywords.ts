@@ -35,7 +35,7 @@ export class SegmentKeywords {
     this.segment.reserveFields(ordinal + 1, this.fields.length)
     for (const field of fields)
       this.segment.fields.partial[field.field] = Number(this.partial.has(this.fields[field.field]))
-    return this.segment.insert(ordinal, fields, prepared.tokens)
+    return this.segment.insert(ordinal, fields)
   }
 
   encode(): Pick<
