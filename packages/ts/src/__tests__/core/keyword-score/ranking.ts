@@ -15,7 +15,9 @@ export interface KeywordBackend {
 
 export const KEYWORD_BACKENDS: readonly KeywordBackend[] = [
   { name: 'the TypeScript scorer', native: false },
-  ...(existsSync(hostCore) ? [{ name: 'the C scorer', native: true }] : []),
+  ...(existsSync(hostCore) && process.env.NARSIL_SEARCH_BACKEND?.trim().toLowerCase() !== 'wasm'
+    ? [{ name: 'the C scorer', native: true }]
+    : []),
 ]
 
 export function scoreThrough(backend: KeywordBackend): void {
