@@ -3,6 +3,7 @@
 #include "../include/narsil_core.h"
 #include "../include/narsil_frozen_segments.h"
 #include "../include/narsil_segments.h"
+#include "paged.h"
 #include "segments.h"
 #include "values.h"
 
@@ -18,7 +19,9 @@ static const char *const POSTING_PROPERTIES[FROZEN_POSTING_HANDLES] = {
     "payloadSlots",  "postingOffsets", "postingDocuments", "postingFrequencies",
     "postingFields", "partialFields",  "spellingTokens"};
 static const char *const STATE_PROPERTIES[FROZEN_STATE_HANDLES] = {
-    "tombstones", "tombstoneCount", "removedDocuments", "removedOccurrences", "removedSurfaces", "removedSpellings"};
+    "tombstones",       "tombstoneCount", "removedDocuments", "removedOccurrences", "removedSurfaces",
+    "removedSpellings", "pendingHeader",  "pendingDocuments", "pendingTokens",      "pendingUnits"};
+static const char *const PAGED_PROPERTIES[] = {"offsets", "values", "cache", "fault"};
 static const char *const INDEX_PROPERTIES[FROZEN_INDEX_HANDLES] = {"starts", "rows", "termOfSlot"};
 
 static int properties(napi_env env, napi_value value, const char *const *keys, size_t count, napi_value *handles) {
@@ -44,12 +47,6 @@ int prepare_frozen_segment(napi_env env, napi_value source, napi_value state, fr
   napi_value spellings = NULL;
   napi_value index = NULL;
   napi_value count = NULL;
-  napi_valuetype removal_type = napi_undefined;
-  if (napi_get_named_property(env, source, "removalTerms", &handles->removal_terms) != napi_ok ||
-      napi_typeof(env, handles->removal_terms, &removal_type) != napi_ok) {
-    return 0;
-  }
-  handles->has_removal_terms = removal_type != napi_null && removal_type != napi_undefined;
   return napi_get_named_property(env, source, "terms", &terms) == napi_ok &&
          properties(env, terms, STRING_PROPERTIES, FROZEN_STRING_HANDLES, handles->terms) &&
          properties(env, source, POSTING_PROPERTIES, FROZEN_POSTING_HANDLES, handles->postings) &&
@@ -66,22 +63,60 @@ int prepare_frozen_segment(napi_env env, napi_value source, napi_value state, fr
          (!handles->has_index || properties(env, index, INDEX_PROPERTIES, FROZEN_INDEX_HANDLES, handles->index));
 }
 
-enum { SOURCE, STATE, ORDINAL, FIELDS, ENTRIES, VALUES, PREPARE_ARGUMENTS };
-enum { ARGUMENTS = 4 };
+int prepare_frozen_paged(napi_env env, napi_value value, frozen_paged_handles *handles) {
+  enum { OFFSETS, VALUES, CACHE, FAULT, PAGED_HANDLES };
+  napi_valuetype type = napi_undefined;
+  if (napi_typeof(env, value, &type) != napi_ok) { return 0; }
+  handles->present = type != napi_null && type != napi_undefined;
+  if (!handles->present) { return 1; }
+  napi_value values[PAGED_HANDLES];
+  if (type != napi_object || !properties(env, value, PAGED_PROPERTIES, PAGED_HANDLES, values)) { return 0; }
+  handles->fault = values[FAULT];
+  return prepare_page_handles(env, values[OFFSETS], &handles->offsets) &&
+         prepare_page_handles(env, values[VALUES], &handles->values) &&
+         prepare_page_cache_handles(env, values[CACHE], &handles->cache);
+}
+
+int read_frozen_paged(napi_env env, const frozen_paged_handles *handles, node_frozen_paged *paged,
+                      const narsil_frozen_paged_removals **removals) {
+  enum { FAULT_WORDS = 3 };
+  *removals = NULL;
+  if (!handles->present) { return 1; }
+  void *fault = NULL;
+  size_t fault_words = 0;
+  if (!read_page_handles(env, &handles->offsets, &paged->offsets) ||
+      !read_page_handles(env, &handles->values, &paged->values) ||
+      !read_page_cache_handles(env, &handles->cache, &paged->cache) ||
+      !typed_data(env, handles->fault, napi_biguint64_array, &fault, &fault_words) || fault_words != FAULT_WORDS) {
+    return 0;
+  }
+  paged->removals = (narsil_frozen_paged_removals){handles->cache.present ? &paged->cache : NULL, &paged->offsets,
+                                                   &paged->values, fault};
+  *removals = &paged->removals;
+  return 1;
+}
+
+enum { SOURCE, STATE, ORDINAL, FIELDS, PAGED, REMOVE_ARGUMENTS };
+enum { ENTRIES = PAGED, VALUES, PREPARED_PAGED, PREPARE_ARGUMENTS };
 enum { STACK_FIELDS = 8 };
 
 static narsil_status apply(napi_env env, thread_state *thread, const napi_value *argv, uint32_t count,
                            field_handles *handles, narsil_field_tokens *fields, int preparing, size_t *written) {
   frozen_handles source = {0};
   node_frozen_segment segment = {0};
+  frozen_paged_handles paged_handles = {0};
+  node_frozen_paged paged = {0};
+  const narsil_frozen_paged_removals *removals = NULL;
   uint32_t ordinal = 0;
   if (!prepare_frozen_segment(env, argv[SOURCE], argv[STATE], &source) ||
       !segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
-      !prepare_segment_fields(env, argv[FIELDS], handles, count) || !read_frozen_segment(env, &source, &segment) ||
-      !read_segment_fields(env, handles, fields, count)) {
+      !prepare_segment_fields(env, argv[FIELDS], handles, count) ||
+      !prepare_frozen_paged(env, argv[preparing ? PREPARED_PAGED : PAGED], &paged_handles) ||
+      !read_frozen_segment(env, &source, &segment) || !read_segment_fields(env, handles, fields, count) ||
+      !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
     return NARSIL_INVALID_ARGUMENT;
   }
-  narsil_remove_frozen_request request = {&segment.segment, &segment.state, ordinal, fields, count};
+  narsil_remove_frozen_request request = {&segment.segment, &segment.state, ordinal, fields, count, removals};
   if (preparing) {
     void *entries = NULL;
     void *values = NULL;
@@ -98,12 +133,32 @@ static narsil_status apply(napi_env env, thread_state *thread, const napi_value 
   return narsil_remove_frozen_document(thread->workspace, &request);
 }
 
+napi_value settle_frozen_state(napi_env env, napi_callback_info info) {
+  enum { SETTLE_SOURCE, SETTLE_STATE, SETTLE_PAGED, SETTLE_ARGUMENTS };
+  napi_value argv[SETTLE_ARGUMENTS];
+  thread_state *thread = thread_state_of(env);
+  frozen_handles source = {0};
+  node_frozen_segment segment = {0};
+  frozen_paged_handles paged_handles = {0};
+  node_frozen_paged paged = {0};
+  const narsil_frozen_paged_removals *removals = NULL;
+  if (thread == NULL || !callback_arguments(env, info, SETTLE_ARGUMENTS, argv) ||
+      !prepare_frozen_segment(env, argv[SETTLE_SOURCE], argv[SETTLE_STATE], &source) ||
+      !prepare_frozen_paged(env, argv[SETTLE_PAGED], &paged_handles) || !read_frozen_segment(env, &source, &segment) ||
+      !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
+    return status_of(env, NARSIL_INVALID_ARGUMENT);
+  }
+  narsil_status status = narsil_settle_frozen_state(thread->workspace, &segment.segment, &segment.state, removals);
+  report_workspace_memory(env, thread);
+  return status_of(env, status);
+}
+
 static napi_value mutate(napi_env env, napi_callback_info info, int preparing) {
   napi_value argv[PREPARE_ARGUMENTS];
   thread_state *thread = thread_state_of(env);
   uint32_t count = 0;
   bool array = false;
-  if (thread == NULL || !callback_arguments(env, info, preparing ? PREPARE_ARGUMENTS : ARGUMENTS, argv) ||
+  if (thread == NULL || !callback_arguments(env, info, preparing ? PREPARE_ARGUMENTS : REMOVE_ARGUMENTS, argv) ||
       napi_is_array(env, argv[FIELDS], &array) != napi_ok || !array ||
       napi_get_array_length(env, argv[FIELDS], &count) != napi_ok || count > (uint32_t)UINT16_MAX + 1) {
     return number_of(env, preparing ? -NARSIL_INVALID_ARGUMENT : NARSIL_INVALID_ARGUMENT);

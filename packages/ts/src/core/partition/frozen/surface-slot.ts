@@ -40,10 +40,12 @@ export interface FrozenSurfaceSlot {
   subtractSpellings(ordinal: number, spellings: RemovedSpellings): void
   prepareRemoval(ordinal: number, spellings: RemovedSpellings): () => void
   coreRegions(): { table: NativeFrozenStrings; removed: Uint32Array }
-  prepareCoreRemoval(ordinal: number): {
+  prepareCoreRemoval(
+    ordinal: number,
+    spellings: RemovedSpellings,
+  ): {
     table: NativeFrozenStrings
     removed: Uint32Array
-    synchronise(entry: number, removedCount: number): void
     publish(): void
   }
   addKeptForms(target: SurfaceRegistry, mergedOrdinals: Int32Array, analysis: TextAnalysis | null): void
@@ -161,16 +163,17 @@ export function createFrozenSurfaceSlot(
       return { table: removalState.table, removed: removalState.removed }
     },
 
-    prepareCoreRemoval(ordinal) {
-      removalState ??= createSurfaceRemovalState(loaded())
+    prepareCoreRemoval(ordinal, spellings) {
+      const target = loaded()
+      removalState ??= createSurfaceRemovalState(target)
       const marks = uncounted ?? new Uint8Array(documents.count)
       return {
         table: removalState.table,
         removed: removalState.removed,
-        synchronise: removalState.synchronise,
         publish() {
           uncounted ??= marks
           uncounted[ordinal] = 1
+          for (const spelling of spellings) target.subtract(spelling, 1)
         },
       }
     },

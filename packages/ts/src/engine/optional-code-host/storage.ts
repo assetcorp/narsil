@@ -3,7 +3,7 @@ import { readResidentMemory } from '#platform/process-limit'
 import { countWrite, waitOutsideCountedWrite } from '#platform/turn-budget'
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import { ARRAY_POSITION_GAP, DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
-import { prepareFrozenPublication } from '../../core/frozen-writes/publication'
+import { createFrozenRemovals, emptyPendingRegions } from '../../core/frozen-writes/publication'
 import { createPartitionIndex, partitionStateOf } from '../../core/partition'
 import { scanPostingBlocks } from '../../core/partition/block-bounds'
 import { createCompositePartition } from '../../core/partition/composite'
@@ -71,6 +71,8 @@ export function storageHostPart() {
     configurationPayloadOf,
     countWrite,
     createCompositePartition,
+    createFrozenRemovals,
+    emptyPendingRegions,
     createPartitionIndex,
     createPartitionManager,
     createPartitionRouter,
@@ -88,7 +90,6 @@ export function storageHostPart() {
     partialFieldsOf,
     partitionStateOf,
     prepareConfiguredSynonyms,
-    prepareFrozenPublication,
     prepareRemovalText,
     readResidentMemory,
     removedSurfaceSpellings,

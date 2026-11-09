@@ -1,5 +1,5 @@
 import type { NativeFrozenStrings } from '../../../vector/native/types/frozen-segments'
-import { findEntry, textAt } from '../../frozen-writes/strings'
+import { findEntry } from '../../frozen-writes/strings'
 import { compareCodePoints } from '../../ordering'
 import type { SurfaceRegistry } from '../../surface-registry'
 import { encodeStringBlob } from './string-blob'
@@ -24,10 +24,6 @@ export function createSurfaceRemovalState(registry: SurfaceRegistry) {
     subtract(spelling: string, count: number): void {
       const entry = findEntry(table, spelling, 2)
       if (entry >= 0) removed[entry] = Math.min(table.counts[entry], removed[entry] + count)
-    },
-    synchronise(entry: number, removedCount: number): void {
-      const surface = textAt(table, entry * 2)
-      if (surface !== null) registry.subtract(surface, removedCount - removed[entry])
     },
     bytes(): number {
       return table.text.byteLength + table.offsets.byteLength + table.counts.byteLength + removed.byteLength

@@ -2,6 +2,7 @@
 #define NARSIL_FROZEN_SEGMENTS_H
 
 #include "narsil_core.h"
+#include "narsil_paged.h"
 #include "narsil_segments.h"
 
 #include <stddef.h>
@@ -40,9 +41,15 @@ typedef struct {
   const uint8_t *partial_fields;
   uint32_t field_count;
   uint32_t document_count;
-  const uint32_t *removal_terms;
-  size_t removal_words;
 } narsil_frozen_segment;
+
+enum {
+  NARSIL_PENDING_HEADER_WORDS = 8,
+  NARSIL_PENDING_DOCUMENTS = 0,
+  NARSIL_PENDING_TOKENS = 1,
+  NARSIL_PENDING_UNITS = 2,
+  NARSIL_PENDING_TOKEN_WORDS = 5
+};
 
 typedef struct {
   uint32_t *tombstones;
@@ -51,7 +58,21 @@ typedef struct {
   double *removed_occurrences;
   uint32_t *removed_surfaces;
   uint32_t *removed_spellings;
+  uint32_t *pending_header;
+  uint32_t *pending_documents;
+  size_t pending_document_capacity;
+  uint32_t *pending_tokens;
+  size_t pending_token_capacity;
+  uint16_t *pending_units;
+  size_t pending_unit_capacity;
 } narsil_frozen_segment_state;
+
+typedef struct {
+  narsil_page_cache *cache;
+  const narsil_page_section *offsets;
+  const narsil_page_section *values;
+  narsil_page_fault *fault;
+} narsil_frozen_paged_removals;
 
 typedef struct {
   const narsil_frozen_segment *segment;
@@ -59,6 +80,7 @@ typedef struct {
   uint32_t ordinal;
   const narsil_field_tokens *fields;
   size_t field_count;
+  const narsil_frozen_paged_removals *paged;
 } narsil_remove_frozen_request;
 
 narsil_status narsil_remove_frozen_document(narsil_workspace *workspace, const narsil_remove_frozen_request *request);
@@ -72,6 +94,9 @@ typedef struct {
 
 narsil_status narsil_prepare_frozen_removal(narsil_workspace *workspace, const narsil_remove_frozen_request *request,
                                             const narsil_frozen_removal_output *output, size_t *count);
+
+narsil_status narsil_settle_frozen_state(narsil_workspace *workspace, const narsil_frozen_segment *segment,
+                                         narsil_frozen_segment_state *state, const narsil_frozen_paged_removals *paged);
 
 #ifdef __cplusplus
 }

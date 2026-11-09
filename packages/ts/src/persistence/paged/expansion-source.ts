@@ -1,3 +1,4 @@
+import { emptyPendingRegions } from '#platform/storage-host'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import type { FrozenTokenTable } from '../../core/partition/frozen/token-table'
 import type { FrozenTombstones } from '../../core/partition/frozen/tombstones'
@@ -44,6 +45,7 @@ export function createPagedExpansionSource(
     removedOccurrences,
     removedSurfaces: words,
     removedSpellings: words,
+    ...emptyPendingRegions(),
   }
 
   return {

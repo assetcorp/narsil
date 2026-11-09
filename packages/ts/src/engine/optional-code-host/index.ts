@@ -1,4 +1,5 @@
 import { coreHostPart } from './core'
+import { frozenWritesHostPart } from './frozen-writes'
 import { geoHostPart } from './geo'
 import { schemaHostPart } from './schema'
 import { searchHostPart } from './search'
@@ -13,6 +14,7 @@ import { writesHostPart } from './writes'
 function buildOptionalCodeHost() {
   return {
     ...coreHostPart(),
+    ...frozenWritesHostPart(),
     ...geoHostPart(),
     ...schemaHostPart(),
     ...searchHostPart(),

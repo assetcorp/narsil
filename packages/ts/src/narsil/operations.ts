@@ -225,16 +225,18 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       const entry = requireIndex(indexName)
       await withOpenIndexWrite(indexName, async () => {
         if (entry.pendingAnalysis === null) return core.analysisRebuild.rebuild(indexName)
-        return (await loadStorageCode()).resumeAnalysisChange(core, indexName)
+        const [{ resumeAnalysisChange }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
+        return resumeAnalysisChange(core, indexName)
       })
     },
 
     async changeAnalysis(indexName: string, change: AnalysisChange): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      const changed = withOpenIndex(indexName, async () =>
-        (await loadStorageCode()).changeIndexAnalysis(core, indexName, change),
-      )
+      const changed = withOpenIndex(indexName, async () => {
+        const [{ changeIndexAnalysis }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
+        return changeIndexAnalysis(core, indexName, change)
+      })
       await emitWriteEventAfter(core, indexName, changed)
     },
 
@@ -271,7 +273,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       rebalancesStarting.set(indexName, started)
       const rebalanced = withOpenIndex(indexName, () =>
         withRenewedSyncEpoch(core, indexName, async () => {
-          const { executeRebalance } = await loadStorageCode()
+          const [{ executeRebalance }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
           const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
           releaseWrites()
           await running

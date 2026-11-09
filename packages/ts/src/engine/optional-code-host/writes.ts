@@ -39,6 +39,7 @@ import {
   requireMatchingDocId,
 } from '../mutations/insert-admission'
 import { awaitWriteVisibility } from '../mutations/write-visibility'
+import { loadOptionalWrites } from '../optional-writes-code'
 import { oneAtATime, withOpenIndex } from '../serial-index-update'
 import { emitSyncChange } from '../sync-notify'
 import { lookupOfStoredSynonyms, prepareStoredSynonyms } from '../synonym-sets'
@@ -87,6 +88,7 @@ export function writesHostPart() {
     isSyncEpoch,
     loadEmbedCode,
     loadSchemaCodeFor,
+    loadOptionalWrites,
     loadStorageCode,
     lookupOfStoredSynonyms,
     newSyncEpoch,

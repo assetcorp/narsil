@@ -1,4 +1,4 @@
-import { loadStorageCode } from '#platform/restore-queue-host'
+import { loadOptionalWrites, loadStorageCode } from '#platform/restore-queue-host'
 import type { EngineCore, IndexRegistryEntry } from './core'
 
 function holdsChangeWork(entry: IndexRegistryEntry | undefined): boolean {
@@ -15,7 +15,7 @@ export async function resumeChangeOf(core: EngineCore, indexName: string): Promi
   if ((core.indexRegistry.get(indexName)?.pendingAnalysis ?? null) === null) return
   if (core.mutationCtx.capacityScope === 'partition') return
   if (core.executor.getManager(indexName) === undefined) return
-  const { resumeAnalysisChange } = await loadStorageCode()
+  const [{ resumeAnalysisChange }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
   void resumeAnalysisChange(core, indexName).catch(() => undefined)
 }
 

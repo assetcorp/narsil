@@ -61,6 +61,8 @@ export interface FrozenSegment extends PartitionReadState {
   tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
   tombstonedDocIds(): string[]
   removalBytes(): number
+  pendingRemovals(): boolean
+  settleRemovals(): void
 }
 
 export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'> {
@@ -178,6 +180,7 @@ export function assembleFrozenSegment(
     count: documentSource.count,
     documentAt: ordinal => documentSource.readAt(ordinal),
     isTombstoned: ordinal => tombstones.has(ordinal),
+    settleRemovals: counts.settleRemovals,
   })
   const textDocuments = {
     count: documentSource.count,
@@ -293,6 +296,9 @@ export function assembleFrozenSegment(
     removalBytes(): number {
       return counts.bytes() + tombstones.bytes()
     },
+
+    pendingRemovals: counts.pendingRemovals,
+    settleRemovals: counts.settleRemovals,
   }
 
   registerFrozenMergeSource(segment)

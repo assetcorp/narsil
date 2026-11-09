@@ -735,6 +735,7 @@ int main(int argc, char **argv) {
   paged_vector_checks(workspace);
   paged_posting_checks(workspace);
   segment_write_checks(workspace);
+  frozen_removal_checks(workspace);
   field_merge_checks(workspace);
   keyword_region_boundaries(workspace);
   write_checks(workspace);

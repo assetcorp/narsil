@@ -1,5 +1,10 @@
+import { bindFrozenKernelHost, type FrozenKernelHost } from '../core/frozen-writes/kernel-host.browser'
+import { growFrozenRemovalRegions } from '../core/frozen-writes/pending-writes'
+import { prepareFrozenRemoval, removeFrozenDocument, settleFrozenState } from '../core/frozen-writes/portable'
 import type * as SegmentCodecCode from '../core/segment-codec-leaf'
 import type { OptionalCodeHost } from './optional-code-host'
+
+type FrozenRemovalNames = FrozenKernelHost & Pick<OptionalCodeHost, 'bindFrozenRemovalKernel'>
 
 type EngineNames = Pick<
   OptionalCodeHost,
@@ -130,7 +135,14 @@ export let yieldTurn: EngineNames['yieldTurn']
 export let createSharedFrozenSegment: SegmentCodecNames['createSharedFrozenSegment']
 export let reconstructSchemaFromMetadata: SegmentCodecNames['reconstructSchemaFromMetadata']
 
-export function bindOptionalWritesHost(host: EngineNames, segmentCodec: SegmentCodecNames): void {
+export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, segmentCodec: SegmentCodecNames): void {
+  bindFrozenKernelHost(host)
+  host.bindFrozenRemovalKernel({
+    growFrozenRemovalRegions,
+    prepareFrozenRemoval,
+    removeFrozenDocument,
+    settleFrozenState,
+  })
   ;({
     BATCH_CHUNK_SIZE,
     ErrorCodes,

@@ -95,10 +95,24 @@ FrozenSegmentState {
   removedOccurrences: float64 per token
   removedSurfaces:    uint32 per entry of surfaceForms
   removedSpellings:   uint32 per entry of partialWords
+  pendingHeader:      uint32[8]            (word 0 the pending documents, word 1 the pending tokens, word 2 the pending units)
+  pendingDocuments:   uint32 per pending document
+  pendingTokens:      PendingToken per pending token
+  pendingUnits:       uint16               (the code units that pendingTokens points into)
+}
+
+PendingToken {
+  field:         uint32
+  termOffset:    uint32
+  termLength:    uint32
+  surfaceOffset: uint32                    (0xFFFFFFFF where the token holds no surface)
+  surfaceLength: uint32
 }
 ```
 
 `removedDocuments` holds, for each token, the documents that the copy removed from the segment and that hold the token, and `removedOccurrences` holds the sum of their term frequencies. `removedSurfaces` and `removedSpellings` hold the occurrences that those documents held of each surface form and of each written spelling. The core must subtract each of them from the count that it belongs to wherever it reads that count, and it must treat an entry whose count falls to 0 as absent.
+
+`pendingDocuments` lists, in the order that the copy removed them, the tombstoned ordinals whose removal the four `removed` arrays do not yet hold, and `pendingTokens` holds the surface and spelling tokens of those documents. A state is settled where all three pending counts are 0. Before it lets an operation read a count of a frozen or a paged segment, which includes a lookup, a search, `measureMerge`, and `writeMerge`, the implementation must settle the copy's state with `settleFrozenState`, so that every operation that reads a count finds the state settled. To settle a state, the core adds each pending document to `removedDocuments` and `removedOccurrences`, from the segment's postings or, for a paged segment, from its `removals` entry, then adds each pending token to `removedSurfaces` and `removedSpellings`, and sets the three pending counts to 0. A settled state must hold the counts that removing the same documents one at a time would leave, in any order. `settleFrozenState` settles a state without reading a count, and the implementation must call it before it serializes a state or passes a state to another thread. Because settling writes the copy's state, the implementation must call `settleFrozenState` as it calls a write under [One Writer per Copy](#one-writer-per-copy), and it must open a search of a copy only once that copy's pending document count is 0, so that a search never settles a state.
 
 ### Paged Segment
 
@@ -308,14 +322,15 @@ FieldTokens {
 
 indexTerms(segment, ordinal: uint32, fields: List<FieldTokens>) -> nothing or 'needsRoom' or 'segmentFull'
 removeDocument(segment, ordinal: uint32, tokens: List<Token>) -> nothing
-removeFrozenDocument(segment, state: FrozenSegmentState, ordinal: uint32, tokens: List<Token>) -> nothing
+removeFrozenDocument(segment, state: FrozenSegmentState, ordinal: uint32, tokens: List<Token>) -> nothing or 'needsRoom'
+settleFrozenState(segment, state: FrozenSegmentState) -> nothing
 beginBatch(segment) -> nothing
 endBatch(segment) -> nothing
 measureMerge(inputs: List<segment>, mapping: List<uint32>) -> RegionSizes or 'segmentFull'
 writeMerge(inputs: List<segment>, mapping: List<uint32>, target) -> nothing or 'segmentFull'
 ```
 
-`indexTerms` must add the postings, the positions, the field lengths, the surface forms, the written spellings, and the statistics of one document. `fields` must hold each indexed text field at most once, in ascending field order. An empty `fields` list must still add the document to `totalDocuments`. `removeDocument` must take that document out of every count that a search reads, and `removeFrozenDocument` must record the same removal in the copy's state. Both take the tokens that `analyse` returns for the document with `collectSurfaces` set, so that they can subtract the surfaces and the spellings. Between `beginBatch` and `endBatch`, the core may defer the compaction of the term table, the pools, and the run lists, and `endBatch` must leave every count, list, and lookup result that a series of single writes would leave.
+`indexTerms` must add the postings, the positions, the field lengths, the surface forms, the written spellings, and the statistics of one document. `fields` must hold each indexed text field at most once, in ascending field order. An empty `fields` list must still add the document to `totalDocuments`. `removeDocument` must take that document out of every count that a search reads. `removeFrozenDocument` must mark the document in `tombstones`, add 1 to `tombstoneCount`, append its ordinal to `pendingDocuments`, and append to `pendingTokens` each of its tokens whose surface differs from its term or whose field is a `partial` field, and it must leave the four `removed` arrays to the settling that [Frozen Segment](#frozen-segment) describes. Where the ordinal or the tokens would not fit the pending regions, the core must settle the state first and then append them, and it must return `needsRoom`, before it changes any region, where they would not fit even in empty pending regions. Both take the tokens that `analyse` returns for the document with `collectSurfaces` set, so that they can subtract the surfaces and the spellings. Between `beginBatch` and `endBatch`, the core may defer the compaction of the term table, the pools, and the run lists, and `endBatch` must leave every count, list, and lookup result that a series of single writes would leave.
 
 `measureMerge` must return the size of every region that the merged segment needs, so that the implementation can allocate them, and `writeMerge` must then fill them. `mapping` holds the target ordinal of each source ordinal, or `0xFFFFFFFF` for a dropped one. A merge must check every page of a paged input first, as [Checks on a paged segment](envelope.md#checks-on-a-paged-segment) requires.
 

@@ -167,6 +167,7 @@ export function createFrozenPartialWordSlot(
     },
     readerFor(analysis: PartialWordAnalysis): PartialWordReader | null {
       if (analysis.fields.length === 0) return null
+      documents.settleRemovals()
       if (table === null || reader === null || !sameFields(table.fields, analysis.fields)) return rebuild(analysis)
       subtractPendingRemovals(reader, analysis)
       return reader
@@ -194,6 +195,7 @@ export function createFrozenPartialWordSlot(
     },
 
     countKeptSpellings(counts: SpellingCounts, analysis: PartialWordAnalysis, mergedOrdinals: Int32Array): void {
+      documents.settleRemovals()
       if (reader !== null && table !== null && sameFields(table.fields, analysis.fields))
         subtractPendingRemovals(reader, analysis)
       if (

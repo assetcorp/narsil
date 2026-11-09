@@ -1,6 +1,7 @@
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
 import type { NativeFieldTokens } from '../../../vector/native/types/segments'
 import { PreparedTokens, packedTokens } from '../../segment-writes/prepared-tokens'
+import { storedText } from '../../stored-values/text'
 import type { FrozenPartialWordSlot } from '../partial-words/types'
 import type { PreparedText } from '../prepared-text'
 import type { FrozenSurfaceSlot } from './surface-slot'
@@ -9,7 +10,21 @@ export interface FrozenStringRemoval
   extends Pick<NativeFrozenSegment, 'surfaces' | 'spellings' | 'spellingTokens' | 'partialFields'>,
     Pick<NativeFrozenSegmentState, 'removedSurfaces' | 'removedSpellings'> {
   fields: NativeFieldTokens[]
-  synchroniseSurface(entry: number, removedCount: number): void
+}
+
+const NO_SURFACE = 0xffffffff
+const FIELD_TOKEN_WORDS = 8
+
+function changedSurfaces(fields: readonly NativeFieldTokens[]): string[] {
+  const spellings: string[] = []
+  for (const { tokens, units } of fields) {
+    for (let at = 0; at < tokens.length; at += FIELD_TOKEN_WORDS) {
+      if (tokens[at + 3] === NO_SURFACE || tokens[at + 4] === 0) continue
+      const surface = storedText(units, tokens[at + 3], tokens[at + 4])
+      if (surface !== storedText(units, tokens[at + 1], tokens[at + 2])) spellings.push(surface)
+    }
+  }
+  return spellings
 }
 
 export function prepareFrozenStrings(
@@ -46,7 +61,7 @@ export function prepareFrozenStrings(
     if (prepared === undefined) continue
     fields.push({ field, ...packedTokens(prepared.records) })
   }
-  const surface = surfaces.prepareCoreRemoval(ordinal)
+  const surface = surfaces.prepareCoreRemoval(ordinal, changedSurfaces(fields))
   const partialFields = new Uint8Array(fieldNames.length)
   for (const path of partial?.table.fields ?? []) {
     const field = fieldNames.indexOf(path)
@@ -58,7 +73,6 @@ export function prepareFrozenStrings(
       partialFields,
       surfaces: surface.table,
       removedSurfaces: surface.removed,
-      synchroniseSurface: surface.synchronise,
       spellings:
         partial === null
           ? null

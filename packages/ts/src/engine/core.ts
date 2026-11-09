@@ -109,7 +109,8 @@ export async function createEngineCore(
   if (config?.lifecycle !== undefined && durabilityTier === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
   }
-  const durabilityWiring = durabilityTier === null ? null : await loadStorageCode()
+  const durabilityWiring =
+    durabilityTier === null ? null : (await Promise.all([loadStorageCode(), loadOptionalWrites()]))[0]
   const filesystemDurability = durabilityTier?.kind === 'wal'
   const executor: Executor & DirectExecutorExtensions & IndexReplacement = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,

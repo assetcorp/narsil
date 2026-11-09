@@ -98,6 +98,7 @@ export interface FrozenPartialWordDocuments {
   readonly count: number
   documentAt(ordinal: number): AnyDocument
   isTombstoned(ordinal: number): boolean
+  settleRemovals(): void
 }
 
 export interface FrozenPartialWordSlot extends PartialWordSlot {

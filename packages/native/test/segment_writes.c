@@ -3,7 +3,6 @@
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
 #include "../include/narsil_expansion.h"
-#include "../include/narsil_frozen_segments.h"
 #include "../include/narsil_segment_merge.h"
 #include "../include/narsil_segments.h"
 #include "../include/narsil_suggestions.h"
@@ -390,143 +389,6 @@ static void removal_refusals(narsil_workspace *workspace, const narsil_field_tok
   free(data);
 }
 
-typedef struct frozen_state_fixture {
-  uint32_t bits;
-  uint32_t count;
-  uint32_t documents;
-  double occurrences;
-  uint32_t surfaces;
-  uint32_t spellings;
-} frozen_state_fixture;
-
-static int frozen_state_equal(const frozen_state_fixture *left, const frozen_state_fixture *right) {
-  return left->bits == right->bits && left->count == right->count && left->documents == right->documents &&
-         left->occurrences == right->occurrences && left->surfaces == right->surfaces &&
-         left->spellings == right->spellings;
-}
-
-static void frozen_removals(narsil_workspace *workspace, narsil_field_tokens *fields) {
-  const uint8_t text[] = "harbor";
-  const uint32_t offsets[] = {0, 6};
-  const uint32_t counts[] = {2};
-  const uint32_t slots[] = {0};
-  const uint32_t postings[] = {0, 3};
-  const uint32_t doc_ids[] = {0, 0, 1};
-  const uint16_t frequencies[] = {1, 1, 1};
-  const uint16_t posting_fields[] = {0, 1, 0};
-  const uint8_t surfaces[] = "harborsharbor";
-  const uint32_t surface_offsets[] = {0, 7, 13};
-  const uint32_t surface_counts[] = {3};
-  const uint8_t spellings[] = "harbors";
-  const uint32_t spelling_offsets[] = {0, 7};
-  const uint32_t spelling_counts[] = {2};
-  const uint8_t partial_fields[] = {1, 0};
-  const uint32_t starts[] = {0, 2, 3, 3};
-  const uint32_t rows[] = {0, 1, 2};
-  const narsil_frozen_strings surface_table = {surfaces, sizeof surfaces - 1, surface_offsets, surface_counts, 1};
-  const narsil_frozen_strings spelling_table = {spellings, sizeof spellings - 1, spelling_offsets, spelling_counts, 1};
-  const narsil_frozen_removal_index index = {starts, rows, slots};
-  narsil_frozen_segment segment = {.terms = {text, sizeof text - 1, offsets, counts, 1},
-                                   .payload_slots = slots,
-                                   .posting_offsets = postings,
-                                   .posting_documents = doc_ids,
-                                   .posting_frequencies = frequencies,
-                                   .posting_fields = posting_fields,
-                                   .posting_count = 3,
-                                   .surfaces = &surface_table,
-                                   .spellings = &spelling_table,
-                                   .spelling_tokens = slots,
-                                   .removal_index = &index,
-                                   .partial_fields = partial_fields,
-                                   .field_count = 2,
-                                   .document_count = 3};
-  frozen_state_fixture state = {0};
-  frozen_state_fixture before;
-  narsil_frozen_segment_state output = {&state.bits,        &state.count,    &state.documents,
-                                        &state.occurrences, &state.surfaces, &state.spellings};
-  narsil_remove_frozen_request request = {&segment, &output, 0, fields, FIELDS};
-  const uint32_t removal_terms[] = {0, 2};
-  segment.removal_terms = removal_terms;
-  segment.removal_words = sizeof removal_terms / sizeof *removal_terms;
-  enum { UPDATE_COUNT = 6 };
-  uint32_t update_entries[UPDATE_COUNT * 2] = {0};
-  double update_values[UPDATE_COUNT] = {0};
-  size_t updated = SIZE_MAX;
-  narsil_frozen_removal_output updates = {update_entries, update_values, UPDATE_COUNT, UPDATE_COUNT - 1};
-  check(narsil_prepare_frozen_removal(workspace, &request, &updates, &updated) == NARSIL_NEEDS_ROOM &&
-            updated == SIZE_MAX && state.count == 0 && update_values[0] == 0 && update_entries[0] == 0,
-        "frozen preparation refuses short values without changing a region");
-  updates.value_capacity = UPDATE_COUNT;
-  check(narsil_prepare_frozen_removal(workspace, &request, &updates, &updated) == NARSIL_OK &&
-            updated == UPDATE_COUNT && state.count == 0 && state.documents == 0 && state.occurrences == 0 &&
-            state.surfaces == 0 && state.spellings == 0 && state.bits == 0 && update_values[0] == 1 &&
-            update_values[1] == 2 && update_values[2] == 2 && update_values[3] == 1 && update_values[4] == 1 &&
-            update_values[UPDATE_COUNT - 1] == 1,
-        "frozen preparation returns replacement counts while leaving the published copy unchanged");
-  for (size_t at = 0; at < UPDATE_COUNT; at++) {
-    check(update_entries[at * 2] == at && update_entries[(at * 2) + 1] == 0,
-          "prepared frozen changes identify their region and element");
-  }
-  uint32_t held_entries[UPDATE_COUNT * 2];
-  double held_values[UPDATE_COUNT];
-  memcpy(held_entries, update_entries, sizeof held_entries);
-  memcpy(held_values, update_values, sizeof held_values);
-  updates.entries = output.removed_documents;
-  updates.entry_capacity = 0;
-  updates.values = output.removed_occurrences;
-  updates.value_capacity = 1;
-  updated = SIZE_MAX;
-  check(narsil_prepare_frozen_removal(workspace, &request, &updates, &updated) == NARSIL_INVALID_ARGUMENT &&
-            state.count == 0 && state.occurrences == 0 && updated == SIZE_MAX &&
-            memcmp(held_entries, update_entries, sizeof held_entries) == 0,
-        "prepared frozen output cannot overlap the live removal state");
-  for (size_t at = 0; at < UPDATE_COUNT; at++) {
-    check(held_values[at] == update_values[at], "refused preparation preserves each replacement value");
-  }
-  segment.removal_words = 1;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_INVALID_ARGUMENT && state.count == 0,
-        "frozen removal refuses a partial term pair before reading it");
-  segment.removal_terms = NULL;
-  segment.removal_words = 0;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_OK && state.bits == 1 && state.count == 1 &&
-            state.documents == 1 && state.occurrences == 2 && state.surfaces == 2 && state.spellings == 1,
-        "frozen removal applies term and spelling counts once across fields");
-  before = state;
-  output.removed_surfaces = output.removed_documents;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_INVALID_ARGUMENT &&
-            frozen_state_equal(&before, &state),
-        "frozen removal refuses overlapping state before writes");
-  output.removed_surfaces = &state.surfaces;
-  request.ordinal = segment.document_count;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_INVALID_ARGUMENT &&
-            frozen_state_equal(&before, &state),
-        "frozen removal refuses an ordinal outside its capacity");
-  request.ordinal = 1;
-  narsil_field_tokens bad_fields[] = {fields[1], fields[0]};
-  request.fields = bad_fields;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_INVALID_ARGUMENT &&
-            frozen_state_equal(&before, &state),
-        "frozen removal refuses unordered fields atomically");
-  check(counts[0] == 2 && surface_counts[0] == 3 && spelling_counts[0] == 2 && doc_ids[0] == 0 && doc_ids[2] == 1,
-        "frozen removal leaves shared source counts and postings unchanged");
-  uint32_t huge[] = {UINT32_MAX};
-  narsil_frozen_strings huge_surface = surface_table;
-  narsil_frozen_strings huge_spelling = spelling_table;
-  huge_surface.counts = huge;
-  huge_spelling.counts = huge;
-  segment.surfaces = &huge_surface;
-  segment.spellings = &huge_spelling;
-  memset(&state, 0, sizeof state);
-  state.surfaces = UINT32_MAX - 1;
-  state.spellings = UINT32_MAX - 1;
-  request.ordinal = 0;
-  request.fields = fields;
-  request.field_count = FIELDS;
-  check(narsil_remove_frozen_document(workspace, &request) == NARSIL_OK && state.surfaces == UINT32_MAX &&
-            state.spellings == UINT32_MAX,
-        "frozen removed counts saturate at the stored uint32 count without wrapping");
-}
-
 static void expand_growing(narsil_workspace *workspace, segment_fixture *data) {
   enum { PREFIX_LENGTH = 2 };
   uint16_t text[] = {'h', 'a'};
@@ -715,6 +577,5 @@ void segment_write_checks(narsil_workspace *workspace) {
   compact_dictionary(workspace);
   posting_refusals(workspace, fields);
   removal_refusals(workspace, fields);
-  frozen_removals(workspace, fields);
   segment_merge_checks(workspace);
 }

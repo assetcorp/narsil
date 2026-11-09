@@ -20,6 +20,7 @@ import { createDocumentWrites } from './document-writes'
 import { copyVectorsInto } from './nested-values'
 import { leftBehind, ownReadsOf, replaceVectorIndexes, retirePartitions, watchVectorWritesFor } from './pinned-reads'
 import { createPublicationGate } from './publication-gate'
+import { createRemovalSettlement } from './removal-settlement'
 import { createSegmentOperations } from './segment-operations'
 import { createStatePins, type PinnedReads, type StatePin } from './state-pins'
 import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
@@ -100,7 +101,7 @@ export function createPartitionManager(
   }
 
   const manager: PartitionManager = {
-    publication: createPublicationGate(),
+    publication: createPublicationGate(createRemovalSettlement(() => partitions)),
     get partitionCount() {
       return partitions.length
     },

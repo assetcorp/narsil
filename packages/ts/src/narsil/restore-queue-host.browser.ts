@@ -3,7 +3,7 @@ import type * as SuggestionStoreCode from '../query-suggestions/store-leaf'
 
 type EngineNames = Pick<
   OptionalCodeHost,
-  'ErrorCodes' | 'NarsilError' | 'emitEngineEvent' | 'loadStorageCode' | 'removeDocumentBatch'
+  'ErrorCodes' | 'NarsilError' | 'emitEngineEvent' | 'loadOptionalWrites' | 'loadStorageCode' | 'removeDocumentBatch'
 >
 type SuggestionStoreNames = Pick<
   typeof SuggestionStoreCode,
@@ -21,6 +21,7 @@ export let ErrorCodes: EngineNames['ErrorCodes']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let emitEngineEvent: EngineNames['emitEngineEvent']
+export let loadOptionalWrites: EngineNames['loadOptionalWrites']
 export let loadStorageCode: EngineNames['loadStorageCode']
 export let removeDocumentBatch: EngineNames['removeDocumentBatch']
 export let BUILD_WRITE_BATCH: SuggestionStoreNames['BUILD_WRITE_BATCH']
@@ -34,7 +35,7 @@ export let unionOfBans: SuggestionStoreNames['unionOfBans']
 export let withState: SuggestionStoreNames['withState']
 
 export function bindRestoreQueueHost(host: EngineNames, suggestionStore: SuggestionStoreNames): void {
-  ;({ ErrorCodes, NarsilError, emitEngineEvent, loadStorageCode, removeDocumentBatch } = host)
+  ;({ ErrorCodes, NarsilError, emitEngineEvent, loadOptionalWrites, loadStorageCode, removeDocumentBatch } = host)
   ;({
     BUILD_WRITE_BATCH,
     RestoredHistory,

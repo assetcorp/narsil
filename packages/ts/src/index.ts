@@ -160,6 +160,7 @@ export type {
 } from './vector/native/types/field-merge'
 export type { NativeFilterCore, NativeFilterRegion } from './vector/native/types/filters'
 export type {
+  NativeFrozenPagedRemovals,
   NativeFrozenRemovalIndex,
   NativeFrozenSegment,
   NativeFrozenSegmentCore,

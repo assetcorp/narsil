@@ -61,5 +61,6 @@ int prepare_segment_fields(napi_env env, napi_value list, field_handles *fields,
 int read_segment_fields(napi_env env, const field_handles *handles, narsil_field_tokens *fields, uint32_t count);
 napi_value remove_frozen_document(napi_env env, napi_callback_info info);
 napi_value prepare_frozen_removal(napi_env env, napi_callback_info info);
+napi_value settle_frozen_state(napi_env env, napi_callback_info info);
 
 #endif

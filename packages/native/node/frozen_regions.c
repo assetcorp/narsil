@@ -2,7 +2,6 @@
 
 #include "../include/narsil_frozen_segments.h"
 #include "segments.h"
-#include "values.h"
 
 #include <js_native_api_types.h>
 #include <stddef.h>
@@ -51,10 +50,11 @@ static int postings(napi_env env, const frozen_handles *handles, narsil_frozen_s
 }
 
 static int read_state(napi_env env, const frozen_handles *handles, node_frozen_segment *segment) {
-  enum { BITS, COUNT, DOCUMENTS, OCCURRENCES, SURFACES, SPELLINGS };
+  enum { BITS, COUNT, DOCUMENTS, OCCURRENCES, SURFACES, SPELLINGS, HEADER, PENDING, TOKENS, UNITS };
   enum { WORD_BITS = 32 };
-  const napi_typedarray_type types[FROZEN_STATE_HANDLES] = {napi_uint32_array,  napi_uint32_array, napi_uint32_array,
-                                                            napi_float64_array, napi_uint32_array, napi_uint32_array};
+  const napi_typedarray_type types[FROZEN_STATE_HANDLES] = {
+      napi_uint32_array, napi_uint32_array, napi_uint32_array, napi_float64_array, napi_uint32_array,
+      napi_uint32_array, napi_uint32_array, napi_uint32_array, napi_uint32_array,  napi_uint16_array};
   void *data[FROZEN_STATE_HANDLES] = {0};
   size_t lengths[FROZEN_STATE_HANDLES] = {0};
   size_t capacity = handles->document_count;
@@ -62,11 +62,25 @@ static int read_state(napi_env env, const frozen_handles *handles, node_frozen_s
   if (!read_segment_arrays(env, handles->state, types, FROZEN_STATE_HANDLES, data, lengths) || lengths[BITS] != words ||
       lengths[COUNT] != 1 || lengths[DOCUMENTS] != segment->segment.terms.count ||
       lengths[OCCURRENCES] != lengths[DOCUMENTS] || lengths[SURFACES] != segment->surfaces.count ||
-      lengths[SPELLINGS] != segment->spellings.count) {
+      lengths[SPELLINGS] != segment->spellings.count || lengths[HEADER] != NARSIL_PENDING_HEADER_WORDS ||
+      lengths[TOKENS] % NARSIL_PENDING_TOKEN_WORDS != 0) {
     return 0;
   }
-  segment->state = (narsil_frozen_segment_state){data[BITS],        data[COUNT],    data[DOCUMENTS],
-                                                 data[OCCURRENCES], data[SURFACES], data[SPELLINGS]};
+  segment->state = (narsil_frozen_segment_state){
+      .tombstones = data[BITS],
+      .tombstone_count = data[COUNT],
+      .removed_documents = data[DOCUMENTS],
+      .removed_occurrences = data[OCCURRENCES],
+      .removed_surfaces = data[SURFACES],
+      .removed_spellings = data[SPELLINGS],
+      .pending_header = data[HEADER],
+      .pending_documents = data[PENDING],
+      .pending_document_capacity = lengths[PENDING],
+      .pending_tokens = data[TOKENS],
+      .pending_token_capacity = lengths[TOKENS] / NARSIL_PENDING_TOKEN_WORDS,
+      .pending_units = data[UNITS],
+      .pending_unit_capacity = lengths[UNITS],
+  };
   return 1;
 }
 
@@ -88,14 +102,6 @@ static int read_index(napi_env env, const frozen_handles *handles, node_frozen_s
 }
 
 int read_frozen_segment(napi_env env, const frozen_handles *handles, node_frozen_segment *segment) {
-  if (handles->has_removal_terms) {
-    void *data = NULL;
-    if (!possibly_empty_typed_data(env, handles->removal_terms, napi_uint32_array, &data,
-                                   &segment->segment.removal_words)) {
-      return 0;
-    }
-    segment->segment.removal_terms = data;
-  }
   if (!strings(env, handles->terms, 1, &segment->segment.terms) ||
       (handles->has_surfaces && !strings(env, handles->surfaces, 2, &segment->surfaces)) ||
       (handles->has_spellings && !strings(env, handles->spellings, 1, &segment->spellings))) {

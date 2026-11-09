@@ -261,6 +261,7 @@ int define_segments(napi_env env, napi_value exports) {
       {"removeDocument", NULL, remove_document, NULL, NULL, NULL, napi_default_method, NULL},
       {"removeFrozenDocument", NULL, remove_frozen_document, NULL, NULL, NULL, napi_default_method, NULL},
       {"prepareFrozenRemoval", NULL, prepare_frozen_removal, NULL, NULL, NULL, napi_default_method, NULL},
+      {"settleFrozenState", NULL, settle_frozen_state, NULL, NULL, NULL, napi_default_method, NULL},
       {"beginBatch", NULL, begin_batch, NULL, NULL, NULL, napi_default_method, NULL},
       {"endBatch", NULL, end_batch, NULL, NULL, NULL, napi_default_method, NULL},
   };
