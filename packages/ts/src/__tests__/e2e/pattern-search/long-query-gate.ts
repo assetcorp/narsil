@@ -2,11 +2,12 @@ import { BroadcastChannel } from 'node:worker_threads'
 
 const GATE_CHANNEL = 'narsil-hostile-long-query-gate'
 const REPLY_TIMEOUT_MS = 30_000
-const HELD_AT_MOST_MS = 20_000
 
 interface GateMessage {
   workerId?: unknown
-  closed?: unknown
+  armed?: unknown
+  held?: unknown
+  released?: unknown
   busyMs?: unknown
   moved?: unknown
   probed?: unknown
@@ -19,10 +20,14 @@ export interface LongQueryReport {
   movedSinceClosed: number
 }
 
+export interface HeldMove {
+  readonly held: Promise<void>
+}
+
 export interface LongQueryGate {
   readonly bootstrapModule: string
-  close(): Promise<void>
-  open(): void
+  holdNextMove(): Promise<HeldMove>
+  release(): Promise<void>
   report(): Promise<LongQueryReport>
   moved(): Promise<void>
   stop(): void
@@ -35,27 +40,50 @@ const workerId = workerData?.workerId
 const channel = new BroadcastChannel(${JSON.stringify(GATE_CHANNEL)})
 let since = performance.eventLoopUtilization()
 let moved = 0
-const counted = new WeakSet()
+let armed = false
+let holding = null
+const portListeners = new WeakMap()
 const on = MessagePort.prototype.on
 MessagePort.prototype.on = function (type, listener) {
-  if (type === 'message' && !counted.has(this)) {
-    counted.add(this)
-    this.addEventListener('message', event => {
-      if (event.data?.type === 'request' && typeof event.data.requestId === 'number') {
+  if (type === 'message') {
+    let listeners = portListeners.get(this)
+    if (listeners === undefined) {
+      listeners = []
+      portListeners.set(this, listeners)
+      const port = this
+      const held = listeners
+      this.addEventListener('message', event => {
+        if (event.data?.type !== 'request' || typeof event.data.requestId !== 'number') return
         moved += 1
         channel.postMessage({ started: workerId })
-      }
-    })
+        if (!armed) return
+        armed = false
+        event.stopImmediatePropagation()
+        holding = { port, data: event.data, listeners: held }
+        channel.postMessage({ held: workerId })
+      })
+    }
+    listeners.push(listener)
   }
   return on.call(this, type, listener)
 }
+function release() {
+  armed = false
+  since = performance.eventLoopUtilization()
+  const released = holding
+  holding = null
+  if (released !== null) for (const listener of released.listeners) listener.call(released.port, released.data)
+}
 channel.onmessage = message => {
   const data = message.data
-  if (data?.close === workerId) {
+  if (data?.hold === workerId) {
     moved = 0
-    channel.postMessage({ closed: workerId })
-    Atomics.wait(new Int32Array(data.gate), 0, 0, ${HELD_AT_MOST_MS})
+    armed = true
     since = performance.eventLoopUtilization()
+    channel.postMessage({ armed: workerId })
+  } else if (data?.release === workerId) {
+    release()
+    channel.postMessage({ released: workerId })
   } else if (data?.mark === true && data.except !== workerId) {
     since = performance.eventLoopUtilization()
   } else if (typeof data?.probe === 'number') {
@@ -71,7 +99,6 @@ export function createLongQueryGate(): LongQueryGate {
   const channel = new BroadcastChannel(GATE_CHANNEL)
   const workers = new Set<number>()
   const listeners = new Set<(data: GateMessage) => void>()
-  let gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
   let probes = 0
 
   channel.onmessage = (message: unknown) => {
@@ -110,17 +137,21 @@ export function createLongQueryGate(): LongQueryGate {
     async moved() {
       await awaitReplies(data => typeof data.started === 'number', 1)
     },
-    async close() {
+    async holdNextMove() {
       const target = longQueryWorker()
-      gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
-      const closed = awaitReplies(data => data.closed === target, 1)
-      channel.postMessage({ close: target, gate: gate.buffer })
-      await closed
+      const armed = awaitReplies(data => data.armed === target, 1)
+      const held = awaitReplies(data => data.held === target, 1).then(() => undefined)
+      void held.catch(() => undefined)
+      channel.postMessage({ hold: target })
+      await armed
+      return { held }
     },
-    open() {
-      channel.postMessage({ mark: true, except: longQueryWorker() })
-      Atomics.store(gate, 0, 1)
-      Atomics.notify(gate, 0)
+    async release() {
+      const target = longQueryWorker()
+      const released = awaitReplies(data => data.released === target, 1)
+      channel.postMessage({ mark: true, except: target })
+      channel.postMessage({ release: target })
+      await released
     },
     async report() {
       const target = longQueryWorker()
