@@ -60,8 +60,9 @@ export function distanceFromQueryOf(
   return jsDistance(query, vector, queryMagnitude, source.magnitudeAt(ordinal), metric)
 }
 
-function inMemory(reads: HotBlockReads, ordinal: number): boolean {
-  return ordinal >= 0 && ordinal < reads.limit && reads.diskFile[ordinal] === IN_MEMORY
+function inMemoryTest({ limit, diskFile }: HotBlockReads): (ordinal: number) => boolean {
+  const inMemoryFile = IN_MEMORY
+  return ordinal => ordinal >= 0 && ordinal < limit && diskFile[ordinal] === inMemoryFile
 }
 
 export function queryDistanceOf(
@@ -74,13 +75,16 @@ export function queryDistanceOf(
   const simd = reads?.block.simd ?? null
   if (reads === null || simd === null || !reads.block.hasScratch) return generic
   const { block, present, magnitudes, slotsOffset, slotStride, dimension } = reads
+  const inMemory = inMemoryTest(reads)
+  const distance = arenaFloat32Distance
+  const queryStaged = QUERY_STAGED
   const scratchOffset = block.scratchByteOffset
   const queryMagnitude = prepared.magnitude
   return ordinal => {
-    if (!inMemory(reads, ordinal) || block.stagedOrdinal !== QUERY_STAGED) return generic(ordinal)
+    if (!inMemory(ordinal) || block.stagedOrdinal !== queryStaged) return generic(ordinal)
     if (present[ordinal] !== 1) return Number.POSITIVE_INFINITY
     const slotOffset = slotsOffset + ordinal * slotStride
-    return arenaFloat32Distance(simd, scratchOffset, slotOffset, dimension, metric, queryMagnitude, magnitudes[ordinal])
+    return distance(simd, scratchOffset, slotOffset, dimension, metric, queryMagnitude, magnitudes[ordinal])
   }
 }
 
@@ -90,12 +94,14 @@ export function pairDistanceOf(source: HotBlockSource, metric: VectorMetric): (o
   const simd = reads?.block.simd ?? null
   if (reads === null || simd === null) return generic
   const { present, magnitudes, slotsOffset, slotStride, dimension } = reads
+  const inMemory = inMemoryTest(reads)
+  const distance = arenaFloat32Distance
   return (ordA, ordB) => {
-    if (!inMemory(reads, ordA) || !inMemory(reads, ordB) || present[ordA] !== 1) return generic(ordA, ordB)
+    if (!inMemory(ordA) || !inMemory(ordB) || present[ordA] !== 1) return generic(ordA, ordB)
     if (present[ordB] !== 1) return Number.POSITIVE_INFINITY
     const offsetA = slotsOffset + ordA * slotStride
     const offsetB = slotsOffset + ordB * slotStride
-    return arenaFloat32Distance(simd, offsetA, offsetB, dimension, metric, magnitudes[ordA], magnitudes[ordB])
+    return distance(simd, offsetA, offsetB, dimension, metric, magnitudes[ordA], magnitudes[ordB])
   }
 }
 
