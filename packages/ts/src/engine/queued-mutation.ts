@@ -58,8 +58,11 @@ export function bufferPreparedMutation(
           : (previous?.partitionDoc ?? prepareDocumentVectors(previousDocument, vectorFieldPaths).partitionDoc),
       text: { before, after },
       vectors,
-      removedSpellings: before === undefined ? [] : (previous?.afterSpellings ?? removedSurfaceSpellings(before)),
-      afterSpellings: after === undefined ? [] : removedSurfaceSpellings(after),
+      removedSpellings:
+        before === undefined
+          ? removedSurfaceSpellings(undefined)
+          : (previous?.afterSpellings ?? removedSurfaceSpellings(before)),
+      afterSpellings: removedSurfaceSpellings(after),
     }),
     awaitsDurability,
   )

@@ -60,7 +60,7 @@ export interface PreparedText {
 }
 
 export interface PreparedRemovalSpelling {
-  readonly count: number
+  count: number
   readonly normalized: string | null
 }
 

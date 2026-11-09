@@ -1,4 +1,4 @@
-interface RegionTypes {
+export interface RegionTypes {
   Uint8Array: Uint8Array
   Uint16Array: Uint16Array
   Uint32Array: Uint32Array

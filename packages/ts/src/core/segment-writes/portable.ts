@@ -8,8 +8,8 @@ import { publishSurfaces } from './strings'
 import { preparedSources, type TokenSource } from './token-sources'
 import { acquireTokenPlan, releaseTokenPlan, type TokenPlan } from './tokens'
 
+export { removeDocument } from '#platform/segment-removal'
 export { beginBatch, endBatch } from './batch'
-export { removeDocument } from './remove'
 
 function publishStrings(plan: TokenPlan, segment: NativeGrowingSegment): void {
   if (plan.surfaces !== null && segment.surfaces !== null) {

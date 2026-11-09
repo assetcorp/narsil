@@ -1,15 +1,62 @@
+import {
+  acquireTokenPlan,
+  checkText,
+  prepareSpellingRemoval,
+  readSegmentRegions,
+  releaseTokenPlan,
+  removeString,
+  requireSegment,
+  rowRemoved,
+  SegmentRefusal,
+  tokenSources,
+  tokenTextOf,
+} from '#platform/segment-removal-host'
 import type { NativeFieldTokens, NativeGrowingSegment, NativeSurfaceTable } from '../../vector/native/types/segments'
-import { prepareSpellingRemoval } from '../partition/partial-words/registry'
-import { rowRemoved } from './postings'
-import { readRequest } from './regions'
 import { RemovalPlan } from './removal'
-import { requireSegment, SegmentRefusal } from './status'
-import { removeString, type StringPlan } from './strings'
-import { tokenSources } from './token-sources'
-import { acquireTokenPlan, releaseTokenPlan, type TokenPlan } from './tokens'
+import type { StringPlan } from './strings'
+import type { TokenPlan } from './tokens'
+
+const FIELD_TOKEN_WORDS = 8
+const TOKEN_TEXT_WORDS = 4
+const NO_SURFACE = 0xffffffff
 
 function nonnegative(value: number): number {
   return value > 0 ? value : 0
+}
+
+function copyField(value: NativeFieldTokens): NativeFieldTokens {
+  requireSegment(typeof value === 'object' && value !== null)
+  return { ...value }
+}
+
+function readRequest(input: NativeGrowingSegment, ordinal: number, rawFields: readonly NativeFieldTokens[]) {
+  const { segment, regions } = readSegmentRegions(input)
+  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
+  const fields = rawFields.map(copyField)
+  requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
+  requireSegment(fields.length <= segment.partialFields.length)
+  const text: Array<ReadonlyArray<string | undefined> | undefined> = []
+  let previous = -1
+  for (const field of fields) {
+    requireSegment(
+      Number.isInteger(field.field) && field.field > previous && field.field < segment.partialFields.length,
+    )
+    const known = tokenTextOf(field.tokens)
+    field.tokens = regions.read(field.tokens, 'Uint32Array', undefined, false)
+    text.push(known?.length === field.tokens.length / TOKEN_TEXT_WORDS ? known : undefined)
+    field.units = regions.read(field.units, 'Uint16Array', undefined, false)
+    requireSegment(field.units.length <= 0xffffffff)
+    requireSegment(
+      field.tokens.length % FIELD_TOKEN_WORDS === 0 && field.tokens.length / FIELD_TOKEN_WORDS <= 0xffffffff,
+    )
+    for (let at = 0; at < field.tokens.length; at += FIELD_TOKEN_WORDS) {
+      checkText(field.units, field.tokens[at + 1], field.tokens[at + 2])
+      if (field.tokens[at + 3] !== NO_SURFACE) checkText(field.units, field.tokens[at + 3], field.tokens[at + 4])
+    }
+    previous = field.field
+  }
+  regions.check()
+  return { segment, fields, text }
 }
 
 function removeSurfaces(plan: StringPlan, table: NativeSurfaceTable, segment: NativeGrowingSegment): void {

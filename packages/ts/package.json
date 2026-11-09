@@ -65,6 +65,16 @@
       "browser": "./src/core/segment-writes/portable.ts",
       "default": "./src/core/segment-writes/native.ts"
     },
+    "#platform/segment-removal": {
+      "react-native": "./src/core/segment-writes/remove.ts",
+      "browser": "./src/core/segment-writes/bound-removal.ts",
+      "default": "./src/core/segment-writes/remove.ts"
+    },
+    "#platform/segment-removal-host": {
+      "react-native": "./src/core/segment-writes/removal-host.ts",
+      "browser": "./src/core/segment-writes/removal-host.browser.ts",
+      "default": "./src/core/segment-writes/removal-host.ts"
+    },
     "#platform/term-lookups": {
       "react-native": "./src/core/term-table/native.ts",
       "browser": "./src/core/term-table/portable.ts",

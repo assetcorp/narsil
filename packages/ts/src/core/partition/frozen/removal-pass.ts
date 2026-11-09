@@ -1,8 +1,14 @@
 import type { AnyDocument } from '../../../types/schema'
 import { type PartialWordAnalysis, visitDocumentSurfaceSpellings } from '../partial-words/spellings'
+import {
+  addRemovedSpelling,
+  beginRemovedSpellings,
+  finishRemovedSpellings,
+  NO_REMOVED_SPELLINGS,
+} from './removed-spellings'
 import type { FrozenSurfaceSlot, RemovedSpellings, TextAnalysis } from './surface-slot'
 
-export const NO_REMOVED_SPELLINGS: RemovedSpellings = []
+export { NO_REMOVED_SPELLINGS } from './removed-spellings'
 
 export interface FrozenRemovalDocuments {
   readonly textFields: readonly string[]
@@ -24,13 +30,13 @@ export function createFrozenRemovalPass(
   let pending: number[] = []
 
   function heldSpellingsOf(ordinal: number, analysis: PartialWordAnalysis): RemovedSpellings {
-    const spellings: string[] = []
     const onDisk = surfaces.tableStaysOnDisk()
-    if (!onDisk && !surfaces.holdsAny()) return spellings
+    if (!onDisk && !surfaces.holdsAny()) return NO_REMOVED_SPELLINGS
+    beginRemovedSpellings()
     visitDocumentSurfaceSpellings(documents.documentAt(ordinal), analysis, spelling => {
-      if (onDisk || surfaces.tokenOf(spelling) !== undefined) spellings.push(spelling)
+      if (onDisk || surfaces.tokenOf(spelling) !== undefined) addRemovedSpelling(spelling, 1)
     })
-    return spellings
+    return finishRemovedSpellings()
   }
 
   return {

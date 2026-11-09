@@ -1,9 +1,11 @@
+import { prepareFrozenStrings } from '#platform/frozen-writes'
 import { createLoadedGeoIndex } from '../../../geo/geo-code'
 import type { GeoIndexReader } from '../../../geo/geo-index'
 import type { FieldNameTable, SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import { registerExpansionSource } from '../../expansion/sources'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
+import type { FrozenRemovalAnalysis } from '../../frozen-writes/removal-strings'
 import { generateId } from '../../id-generator'
 import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
@@ -12,7 +14,6 @@ import type { PartitionStatsView } from '../../statistics'
 import { installStoredFields } from '../../stored-values/columns'
 import { buildPartialWordTableFrom, createFrozenPartialWords } from '../partial-words/registry'
 import type { FrozenPartialWordSlot, PartialWordTableData } from '../partial-words/types'
-import type { PreparedText } from '../prepared-text'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
@@ -26,7 +27,6 @@ import { createFrozenLiveCounts, type FrozenLiveCounts } from './live-counts'
 import type { PagedSegmentSnapshot } from './paged-snapshot'
 import { createFrozenPostingViews, type FrozenPostingViews } from './posting-views'
 import { createFrozenRemovalPass, type FrozenRemovalPass } from './removal-pass'
-import { prepareFrozenStrings } from './removal-strings'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
 import {
   createFrozenSurfaceSlot,
@@ -37,10 +37,16 @@ import {
 import { buildFrozenTokenTable, type FrozenTokenTable } from './token-table'
 import { createFrozenTombstones, type FrozenTombstones } from './tombstones'
 
+export type { FrozenRemovalAnalysis } from '../../frozen-writes/removal-strings'
 export type { PagedSegmentSnapshot } from './paged-snapshot'
 export type { SharedSegmentSnapshot } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
 export { buildFrozenTokenTable } from './token-table'
+
+export interface FrozenTombstone {
+  readonly spellings: RemovedSpellings | undefined
+  publish(): boolean
+}
 
 export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
@@ -57,7 +63,11 @@ export interface FrozenSegment extends PartitionReadState {
   hasDocument(docId: string): boolean
   isTombstoned(ordinal: number): boolean
   removedSpellingsOf(docId: string): RemovedSpellings | undefined
-  prepareTombstone(docId: string, removedSpellings?: RemovedSpellings, text?: PreparedText): (() => boolean) | undefined
+  prepareTombstone(
+    docId: string,
+    removedSpellings?: RemovedSpellings,
+    analysis?: FrozenRemovalAnalysis,
+  ): FrozenTombstone | undefined
   tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
   tombstonedDocIds(): string[]
   removalBytes(): number
@@ -274,29 +284,42 @@ export function assembleFrozenSegment(
     prepareTombstone(
       docId: string,
       removedSpellings?: RemovedSpellings,
-      text?: PreparedText,
-    ): (() => boolean) | undefined {
+      analysis?: FrozenRemovalAnalysis,
+    ): FrozenTombstone | undefined {
       const ordinal = docStore.getInternalId(docId)
       if (ordinal === undefined || tombstones.has(ordinal)) return undefined
       const publishTombstone = tombstones.prepare(ordinal)
       const strings =
-        text === undefined ? null : prepareFrozenStrings(source.fieldNames, ordinal, text, surfaces, partialWords)
+        analysis === undefined
+          ? null
+          : prepareFrozenStrings(
+              source.fieldNames,
+              source.fieldLengthNames,
+              ordinal,
+              documentSource.readAt(ordinal),
+              analysis,
+              surfaces,
+              partialWords,
+            )
       const subtractCounts = counts.prepareRemoval(ordinal, strings?.core)
       const subtractSpellings = strings?.publish ?? removals.prepareRemoval(ordinal, removedSpellings)
-      const subtractPartial = strings === null ? partialWords.prepareRemoval(ordinal, text?.partialSpellings) : null
-      return () => {
-        if (!publishTombstone()) return false
-        subtractCounts()
-        subtractPartial?.()
-        subtractSpellings()
-        docStore.releaseSortedDocIds()
-        segment.sortColumns?.forget(ordinal)
-        return true
+      const subtractPartial = strings === null ? partialWords.prepareRemoval(ordinal) : null
+      return {
+        spellings: strings?.spellings ?? removedSpellings,
+        publish: () => {
+          if (!publishTombstone()) return false
+          subtractCounts()
+          subtractPartial?.()
+          subtractSpellings()
+          docStore.releaseSortedDocIds()
+          segment.sortColumns?.forget(ordinal)
+          return true
+        },
       }
     },
 
     tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean {
-      return segment.prepareTombstone(docId, removedSpellings)?.() ?? false
+      return segment.prepareTombstone(docId, removedSpellings)?.publish() ?? false
     },
 
     tombstonedDocIds(): string[] {

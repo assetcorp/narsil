@@ -1,9 +1,14 @@
+import {
+  POSTING_LIST_COMPACTION_THRESHOLD,
+  releaseSlice,
+  removeString,
+  requireSegment,
+  rowRemoved,
+  trimClass,
+  trimSlice,
+} from '#platform/segment-removal-host'
 import type { NativeGrowingSegment } from '../../vector/native/types/segments'
-import { POSTING_LIST_COMPACTION_THRESHOLD } from '../constants'
-import { releaseSlice, trimClass, trimSlice } from './pools'
-import { rowRemoved } from './postings'
-import { requireSegment } from './status'
-import { removeString, type StringPlan } from './strings'
+import type { StringPlan } from './strings'
 
 interface RemovalChange {
   ordinal: number
