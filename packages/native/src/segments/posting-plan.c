@@ -126,7 +126,10 @@ static narsil_status prepare_terms(segment_posting_plan *plan, segment_token_pla
   const narsil_growing_segment *segment = request->segment;
   if (plan->purging) {
     for (uint32_t ordinal = 0; ordinal < segment->terms.header[TERM_COUNT]; ordinal++) {
-      if ((segment->columns.flags[ordinal] & SEGMENT_TERM_LIVE) == 0 || segment->columns.dead_documents[ordinal] == 0) {
+      uint32_t dead = segment->columns.dead_documents[ordinal];
+      if ((segment->columns.flags[ordinal] & SEGMENT_TERM_LIVE) == 0 || dead == 0) { continue; }
+      if (!plan->clear_retired && dead < segment->columns.doc_frequency[ordinal] &&
+          (double)dead / segment->columns.lengths[ordinal] <= SEGMENT_COMPACTION_FRACTION) {
         continue;
       }
       segment_posting_change *change = plan->changes + plan->count++;

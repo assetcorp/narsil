@@ -212,14 +212,18 @@ static void removal_counts(narsil_workspace *workspace, const narsil_field_token
             data->spelling_counts[0] == 2 && data->total_lengths[0] == 1 && data->total_lengths[1] == 1 &&
             data->field_lengths[0] == 0 && data->field_lengths[ORDINALS] == 0,
         "removal subtracts the selected document from every live keyword count");
-  check(narsil_end_batch(workspace, &data->segment) == NARSIL_OK && data->lengths[0] == FIELDS &&
-            data->frequencies[0] == 1 && data->dead[0] == 0 && data->documents == 1 && data->retired[0] == 1 &&
+  check(narsil_end_batch(workspace, &data->segment) == NARSIL_OK && data->lengths[0] == 2 * FIELDS &&
+            data->frequencies[0] == 2 && data->dead[0] == 1 && data->documents == 1 && data->retired[0] == 1 &&
             data->surface_counts[0] == FIELDS && data->spelling_counts[0] == FIELDS,
-        "a batch boundary compacts removed rows while preserving retirement and live spelling counts");
-  for (size_t at = data->starts[0]; at < data->starts[0] + FIELDS; at++) {
-    check(data->docs[at] == 1 && data->counts[at] == 1 && data->positions[data->positions_at[at]] == 1,
-          "batch compaction retains the surviving document's posting and position pairs");
+        "a batch boundary keeps a list whose dead share stays within the compaction fraction and its retirement");
+  size_t surviving_rows = 0;
+  for (size_t at = data->starts[0]; at < data->starts[0] + (2 * FIELDS); at++) {
+    if (data->docs[at] != 1) { continue; }
+    surviving_rows++;
+    check(data->counts[at] == 1 && data->positions[data->positions_at[at]] == 1,
+          "a batch boundary retains the surviving document's posting and position pairs");
   }
+  check(surviving_rows == FIELDS, "a batch boundary retains every row of the surviving document");
   void *before = malloc(sizeof *data);
   check(before != NULL, "the malformed removal comparison has memory");
   if (before != NULL) {

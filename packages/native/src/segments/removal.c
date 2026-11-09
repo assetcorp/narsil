@@ -12,8 +12,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-static const double COMPACTION_FRACTION = 0.3;
-
 static size_t first_row(const narsil_index_terms_request *request, uint32_t token) {
   const narsil_growing_segment *segment = request->segment;
   size_t low = segment->columns.slice_start[token];
@@ -85,7 +83,7 @@ static narsil_status find_document(const narsil_index_terms_request *request, se
   if (!change->found) { return NARSIL_OK; }
   uint32_t live = columns->doc_frequency[token] - columns->dead_documents[token];
   if (live == 0) { return NARSIL_INVALID_ARGUMENT; }
-  change->compact = live == 1 || (double)(columns->dead_documents[token] + 1) / length > COMPACTION_FRACTION;
+  change->compact = live == 1 || (double)(columns->dead_documents[token] + 1) / length > SEGMENT_COMPACTION_FRACTION;
   return NARSIL_OK;
 }
 

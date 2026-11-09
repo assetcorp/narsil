@@ -11,6 +11,7 @@
 
 enum { SEGMENT_TERM_LIVE = 1, SEGMENT_TERM_ORDERED = 2, SEGMENT_TERM_POSITIONS = 4 };
 enum { SEGMENT_WORD_BITS = 32 };
+#define SEGMENT_COMPACTION_FRACTION 0.3
 
 typedef struct {
   uint32_t ordinal;

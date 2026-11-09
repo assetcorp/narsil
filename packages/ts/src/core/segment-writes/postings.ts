@@ -1,4 +1,5 @@
 import type { NativeGrowingSegment } from '../../vector/native/types/segments'
+import { POSTING_LIST_COMPACTION_THRESHOLD } from '../constants'
 import { WRITE_PLAN_START_CAPACITY } from './constants'
 import { PoolPlan, releaseRange } from './pools'
 import { requireRoom, requireSegment } from './status'
@@ -10,7 +11,10 @@ const NEW_TERM_FLAGS = 3
 const MAX_ROW_FREQUENCY = 65535
 const MAX_POSTING_COUNT = 0xffffffff
 
-export function rowRemoved(segment: NativeGrowingSegment, ordinal: number): boolean {
+export function rowRemoved(
+  segment: Pick<NativeGrowingSegment, 'ordinalCapacity' | 'retired'>,
+  ordinal: number,
+): boolean {
   return ordinal >= segment.ordinalCapacity || (segment.retired[ordinal >>> 5] & (1 << (ordinal & 31))) !== 0
 }
 
@@ -71,8 +75,12 @@ export class PostingPlan {
     const terms = tokens.terms
     if (this.purging) {
       this.purged.claim(this, segment.terms.header[0])
+      const { flags, deadDocuments, docFrequency, lengths } = segment.columns
       for (let token = 0; token < segment.terms.header[0]; token++) {
-        if ((segment.columns.flags[token] & 1) === 0 || segment.columns.deadDocuments[token] === 0) continue
+        const dead = deadDocuments[token]
+        if ((flags[token] & 1) === 0 || dead === 0) continue
+        if (compact && dead < docFrequency[token] && dead / lengths[token] <= POSTING_LIST_COMPACTION_THRESHOLD)
+          continue
         this.purged.set(token, this.prepareChange(token, false))
       }
       for (let at = 0; at < terms.size; at++) {
