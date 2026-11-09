@@ -19,3 +19,4 @@ export {
 export { buildSegmentPayloads } from './partition/segment-builder'
 export { deserializePartition, serializePartition } from './partition/serialization'
 export { mergedPartialSpellings, mergeSourceSpellings, mergeSourceSurfaces } from './segment-merges/host'
+export { mergePostings } from './segment-merges/postings'

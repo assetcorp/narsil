@@ -5,8 +5,6 @@ import { prepareMerge } from './plan'
 import { publishMerge } from './publish'
 import { captureInputs, captureMergeObject, MergeRegions, uint32 } from './regions'
 
-export { mergePostings } from './postings'
-
 function dimensions(documentCount: number, fieldCount: number): void {
   uint32(documentCount)
   uint32(fieldCount)

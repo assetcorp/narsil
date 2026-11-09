@@ -9,6 +9,7 @@ type SegmentMergeNames = Pick<
   | 'freezeSegmentShared'
   | 'holdsADiscardedField'
   | 'mergeFieldIndexes'
+  | 'mergePostings'
   | 'mergeSegmentContents'
   | 'mergeSourceSpellings'
   | 'mergeSourceSurfaces'
@@ -26,6 +27,7 @@ export let fieldIndexRemapOf: SegmentMergeNames['fieldIndexRemapOf']
 export let freezeSegmentShared: SegmentMergeNames['freezeSegmentShared']
 export let holdsADiscardedField: SegmentMergeNames['holdsADiscardedField']
 export let mergeFieldIndexes: SegmentMergeNames['mergeFieldIndexes']
+export let mergePostings: SegmentMergeNames['mergePostings']
 export let mergeSegmentContents: SegmentMergeNames['mergeSegmentContents']
 export let mergeSourceSpellings: SegmentMergeNames['mergeSourceSpellings']
 export let mergeSourceSurfaces: SegmentMergeNames['mergeSourceSurfaces']
@@ -44,6 +46,7 @@ export function bindSegmentMergeNames(segmentMerge: SegmentMergeNames): void {
     freezeSegmentShared,
     holdsADiscardedField,
     mergeFieldIndexes,
+    mergePostings,
     mergeSegmentContents,
     mergeSourceSpellings,
     mergeSourceSurfaces,

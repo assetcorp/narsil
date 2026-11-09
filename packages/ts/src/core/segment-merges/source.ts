@@ -6,18 +6,6 @@ import { mergeTextBytes } from './text'
 
 const encoder = new TextEncoder()
 
-export interface MergePosting {
-  input: NativeKeywordMergeInput
-  row: number
-  target: number
-  source: number
-  positionStart: number
-  positionCount: number
-  positions: Uint32Array | null
-  frequency: number
-  field: number
-}
-
 export function sourceTermCount(input: NativeKeywordMergeInput): number {
   return input.growing?.terms.header[0] ?? input.terms.counts.length
 }
@@ -118,15 +106,4 @@ export function readPosting(input: NativeKeywordMergeInput, token: number, row: 
     read.positions = segment.positions.values
   }
   return true
-}
-
-export function sourcePosting(
-  input: NativeKeywordMergeInput,
-  source: number,
-  token: number,
-  row: number,
-): MergePosting | null {
-  const read = createPostingRead()
-  if (!readPosting(input, token, row, read)) return null
-  return { input, row, source, ...read }
 }

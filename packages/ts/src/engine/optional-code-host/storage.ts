@@ -1,6 +1,5 @@
 import { nodeThreadId } from '#platform/node-worker'
 import { readResidentMemory } from '#platform/process-limit'
-import { mergePostings } from '#platform/segment-merges'
 import { countWrite, waitOutsideCountedWrite } from '#platform/turn-budget'
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import { ARRAY_POSITION_GAP, DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
@@ -82,7 +81,6 @@ export function storageHostPart() {
     isStorageMode,
     mergeDocFrequencies,
     mergePartitionStats,
-    mergePostings,
     messagePackUpperBoundBytes,
     nodeThreadId,
     oversizedConfigurationPayloadOf,
