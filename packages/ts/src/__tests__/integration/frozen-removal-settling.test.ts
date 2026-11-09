@@ -16,6 +16,11 @@ const MIN_SEARCHES_DURING_REMOVALS = 10
 const CONCURRENT_SEARCHERS = 8
 const MAX_SEARCHES_PER_REMOVAL = CONCURRENT_SEARCHERS * 2
 const STORAGES = ['memory', 'disk'] as const
+const BOUNDED_CASES = [
+  { storage: 'memory', mode: 'async', removedEvery: 5 },
+  { storage: 'disk', mode: 'async', removedEvery: 5 },
+  { storage: 'disk', mode: 'sync', removedEvery: 15 },
+] as const
 const SHAPES: readonly Omit<OracleQuery, 'term'>[] = [
   { partialWords: true },
   { partialWords: true, prefix: true },
@@ -204,12 +209,12 @@ describe.each(backends)('frozen removals settle before every read through $name'
     180_000,
   )
 
-  it.skipIf(!available).each(STORAGES)(
-    'every removal from a %s segment finishes after a bounded number of searches while searches keep arriving',
-    async storage => {
+  it.skipIf(!available).each(BOUNDED_CASES)(
+    'every removal from a $storage segment with $mode flushes finishes while searches keep arriving',
+    async ({ storage, mode, removedEvery }) => {
       const documents = workshopCorpus(DOCUMENTS, 61)
-      const narsil = await openFrozen(storage, documents, 'async')
-      const leaving = documents.filter((_, at) => at % 5 === 0).map(document => String(document.id))
+      const narsil = await openFrozen(storage, documents, mode)
+      const leaving = documents.filter((_, at) => at % removedEvery === 0).map(document => String(document.id))
       await narsil.remove(INDEX, leaving[0])
       let removal = -1
       let open = false
@@ -239,7 +244,7 @@ describe.each(backends)('frozen removals settle before every read through $name'
         await Promise.all(searchers)
       }
       expect(overtaking).toHaveLength(leaving.length - 1)
-      expect(Math.max(...overtaking)).toBeLessThanOrEqual(MAX_SEARCHES_PER_REMOVAL)
+      if (mode === 'async') expect(Math.max(...overtaking)).toBeLessThanOrEqual(MAX_SEARCHES_PER_REMOVAL)
       expect(overtaking.filter(count => count > 0).length).toBeGreaterThanOrEqual(MIN_SEARCHES_DURING_REMOVALS)
       const gone = new Set(leaving)
       await expectEveryQuery(

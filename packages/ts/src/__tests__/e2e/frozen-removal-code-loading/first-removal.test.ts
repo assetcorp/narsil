@@ -76,12 +76,6 @@ let work: string | null = null
 let durable: string | null = null
 let held: AnyDocument[] = []
 
-async function bytesOf(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of stream) chunks.push(chunk)
-  return Buffer.concat(chunks)
-}
-
 interface RestoreOutcome {
   withoutWriteCode?: 'restored' | 'refused'
   indexesWithoutWriteCode?: string[]
@@ -150,7 +144,7 @@ async function writeSnapshotWithTombstoneSegment(directory: string): Promise<Uin
     for (const document of updated) await writer.update(INDEX, String(document.id), document)
     expect((await writer.insertBatch(INDEX, added)).failed).toEqual([])
     await writer.checkpoint(INDEX)
-    return await bytesOf(await writer.snapshot(INDEX))
+    return new Uint8Array(await new Response(await writer.snapshot(INDEX)).arrayBuffer())
   } finally {
     await writer.shutdown()
   }
