@@ -7,10 +7,12 @@ type EngineNames = Pick<
   | 'ErrorCodes'
   | 'GrowingSegment'
   | 'LivePostings'
+  | 'MergeRegions'
   | 'NarsilError'
   | 'SegmentRefusal'
   | 'bitsetIterator'
   | 'buildPartialWordTableFrom'
+  | 'captureInputs'
   | 'createBooleanIndex'
   | 'createEnumIndex'
   | 'createFieldMerge'
@@ -40,11 +42,16 @@ type EngineNames = Pick<
   | 'prepareDocumentText'
   | 'rebuildSizeIndexes'
   | 'recordValueSize'
+  | 'regionLength'
+  | 'regionsOverlap'
   | 'requirePatternSearch'
+  | 'requireRoom'
+  | 'requireSegment'
   | 'sameFields'
   | 'schemaFieldsOf'
   | 'storedPlan'
   | 'storedText'
+  | 'typedRegion'
   | 'uint32'
   | 'validateDocument'
   | 'validateDocumentStrict'
@@ -62,12 +69,15 @@ export let GrowingSegment: EngineNames['GrowingSegment']
 export type GrowingSegment = InstanceType<EngineNames['GrowingSegment']>
 export let LivePostings: EngineNames['LivePostings']
 export type LivePostings = InstanceType<EngineNames['LivePostings']>
+export let MergeRegions: EngineNames['MergeRegions']
+export type MergeRegions = InstanceType<EngineNames['MergeRegions']>
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let SegmentRefusal: EngineNames['SegmentRefusal']
 export type SegmentRefusal = InstanceType<EngineNames['SegmentRefusal']>
 export let bitsetIterator: EngineNames['bitsetIterator']
 export let buildPartialWordTableFrom: EngineNames['buildPartialWordTableFrom']
+export let captureInputs: EngineNames['captureInputs']
 export let createBooleanIndex: EngineNames['createBooleanIndex']
 export let createEnumIndex: EngineNames['createEnumIndex']
 export let createFieldMerge: EngineNames['createFieldMerge']
@@ -97,11 +107,16 @@ export let patternIndexOf: EngineNames['patternIndexOf']
 export let prepareDocumentText: EngineNames['prepareDocumentText']
 export let rebuildSizeIndexes: EngineNames['rebuildSizeIndexes']
 export let recordValueSize: EngineNames['recordValueSize']
+export let regionLength: EngineNames['regionLength']
+export let regionsOverlap: EngineNames['regionsOverlap']
 export let requirePatternSearch: EngineNames['requirePatternSearch']
+export let requireRoom: EngineNames['requireRoom']
+export let requireSegment: EngineNames['requireSegment']
 export let sameFields: EngineNames['sameFields']
 export let schemaFieldsOf: EngineNames['schemaFieldsOf']
 export let storedPlan: EngineNames['storedPlan']
 export let storedText: EngineNames['storedText']
+export let typedRegion: EngineNames['typedRegion']
 export let uint32: EngineNames['uint32']
 export let validateDocument: EngineNames['validateDocument']
 export let validateDocumentStrict: EngineNames['validateDocumentStrict']
@@ -117,10 +132,12 @@ export function bindSegmentMergeHost(host: EngineNames, msgpack: MsgpackNames, s
     ErrorCodes,
     GrowingSegment,
     LivePostings,
+    MergeRegions,
     NarsilError,
     SegmentRefusal,
     bitsetIterator,
     buildPartialWordTableFrom,
+    captureInputs,
     createBooleanIndex,
     createEnumIndex,
     createFieldMerge,
@@ -150,11 +167,16 @@ export function bindSegmentMergeHost(host: EngineNames, msgpack: MsgpackNames, s
     prepareDocumentText,
     rebuildSizeIndexes,
     recordValueSize,
+    regionLength,
+    regionsOverlap,
     requirePatternSearch,
+    requireRoom,
+    requireSegment,
     sameFields,
     schemaFieldsOf,
     storedPlan,
     storedText,
+    typedRegion,
     uint32,
     validateDocument,
     validateDocumentStrict,

@@ -27,7 +27,7 @@ import { regionsOverlap } from '../../core/regions'
 import { buildStoredValues } from '../../core/stored-values/build'
 import { storedValuesOf } from '../../core/stored-values/columns'
 import { readStoredFields, validStoredValue } from '../../core/stored-values/read'
-import { typedRegion } from '../../core/stored-values/regions'
+import { regionLength, typedRegion } from '../../core/stored-values/regions'
 import { checkedSize } from '../../core/stored-values/storage'
 import { storedText } from '../../core/stored-values/text'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -56,6 +56,7 @@ export function coreHostPart() {
     lowerBound,
     NarsilError,
     readStoredFields,
+    regionLength,
     regionsOverlap,
     resolveProjection,
     SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD,

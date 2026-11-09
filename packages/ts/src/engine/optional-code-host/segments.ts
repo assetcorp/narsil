@@ -27,6 +27,7 @@ import { patternIndexOf } from '../../core/pattern-index/host'
 import { requirePatternSearch } from '../../core/pattern-index/registry'
 import { cloneProjected, projectIncludedPaths, readProjectedPath } from '../../core/projection'
 import { mergeKeywordSources, mergeTextAt } from '../../core/segment-merges/output'
+import { captureInputs, MergeRegions } from '../../core/segment-merges/regions'
 import { GrowingSegment } from '../../core/segment-writes/growing'
 import { createSurfaceRegistry } from '../../core/surface-registry'
 import { createLoadedGeoIndex } from '../../geo/geo-code'
@@ -34,6 +35,7 @@ import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { isWordIndexedBase } from '../../schema/validator/field-type'
 import { PROTOTYPE_POLLUTION_KEYS } from '../../schema/validator/shared'
 import {
+  BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER,
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
   DOCUMENT_REPLY_ENVELOPE_DEPTH,
   MAX_DOCUMENT_ENCODING_DEPTH,
@@ -41,15 +43,18 @@ import {
 
 export function segmentsHostPart() {
   return {
+    BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER,
     DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
     DOCUMENT_REPLY_ENVELOPE_DEPTH,
     GrowingSegment,
     LivePostings,
     MAX_DOCUMENT_ENCODING_DEPTH,
+    MergeRegions,
     PROTOTYPE_POLLUTION_KEYS,
     assembleFrozenSegment,
     bitsetIterator,
     buildPartialWordTableFrom,
+    captureInputs,
     cloneProjected,
     createBooleanIndex,
     createEnumIndex,

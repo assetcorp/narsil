@@ -60,7 +60,6 @@ type EngineNames = Pick<
   | 'mergeDocFrequencies'
   | 'mergeKeywordSources'
   | 'mergePartitionStats'
-  | 'mergePostings'
   | 'messagePackUpperBoundBytes'
   | 'newSyncEpoch'
   | 'nodeThreadId'
@@ -175,7 +174,6 @@ export let loadSchemaCodeFor: EngineNames['loadSchemaCodeFor']
 export let mergeDocFrequencies: EngineNames['mergeDocFrequencies']
 export let mergeKeywordSources: EngineNames['mergeKeywordSources']
 export let mergePartitionStats: EngineNames['mergePartitionStats']
-export let mergePostings: EngineNames['mergePostings']
 export let messagePackUpperBoundBytes: EngineNames['messagePackUpperBoundBytes']
 export let newSyncEpoch: EngineNames['newSyncEpoch']
 export let nodeThreadId: EngineNames['nodeThreadId']
@@ -288,7 +286,6 @@ export function bindEngineNames(host: EngineNames): void {
     mergeDocFrequencies,
     mergeKeywordSources,
     mergePartitionStats,
-    mergePostings,
     messagePackUpperBoundBytes,
     newSyncEpoch,
     nodeThreadId,
