@@ -29,10 +29,15 @@ class Regions {
   readonly reads: ArrayBufferView[] = []
   readonly writes: ArrayBufferView[] = []
   private readonly writesByBuffer = new Map<ArrayBufferLike, ArrayBufferView[]>()
+  private readonly readsByBuffer = new Map<ArrayBufferLike, ArrayBufferView[]>()
   private checkedWrites = 0
   private checkedReads = 0
 
   constructor(private readonly base: Regions | null = null) {}
+
+  private readsOn(buffer: ArrayBufferLike): readonly ArrayBufferView[] {
+    return this.readsByBuffer.get(buffer) ?? NO_VIEWS
+  }
 
   array<K extends RegionKind>(value: unknown, kind: K, length?: number, write = false) {
     const array = typedRegion(value, kind)
@@ -54,15 +59,18 @@ class Regions {
       const sharing = this.writesByBuffer.get(write.buffer)
       if (sharing === undefined) this.writesByBuffer.set(write.buffer, [write])
       else sharing.push(write)
-      for (let read = 0; read < this.checkedReads; read++) requireSegment(!regionsOverlap(write, this.reads[read]))
+      for (const read of this.readsOn(write.buffer)) requireSegment(!regionsOverlap(write, read))
       if (base === null) continue
       for (const held of base.writesOn(write.buffer)) requireSegment(!regionsOverlap(write, held))
-      for (const read of base.reads) requireSegment(!regionsOverlap(write, read))
+      for (const read of base.readsOn(write.buffer)) requireSegment(!regionsOverlap(write, read))
     }
     for (; this.checkedReads < this.reads.length; this.checkedReads++) {
       const read = this.reads[this.checkedReads]
       for (const held of this.writesOn(read.buffer)) requireSegment(!regionsOverlap(held, read))
       if (base !== null) for (const held of base.writesOn(read.buffer)) requireSegment(!regionsOverlap(held, read))
+      const sharing = this.readsByBuffer.get(read.buffer)
+      if (sharing === undefined) this.readsByBuffer.set(read.buffer, [read])
+      else sharing.push(read)
     }
   }
 

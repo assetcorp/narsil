@@ -4,6 +4,7 @@
 #include "../../include/narsil_frozen_segments.h"
 #include "../../include/narsil_paged.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -35,33 +36,92 @@ static narsil_status add_term(frozen_removal_plan *plan, size_t first, uint32_t 
   return frozen_removal_add(plan, FROZEN_TERM, term, 1, amount);
 }
 
-static narsil_status remove_indexed(frozen_removal_plan *plan, const narsil_frozen_segment *segment, uint32_t ordinal) {
+typedef struct {
+  uint32_t ordinal;
+  uint32_t previous;
+  int held;
+} indexed_walk;
+
+static int indexed_term(const narsil_frozen_segment *segment, indexed_walk *walk, uint32_t row, uint32_t *term) {
   const narsil_frozen_removal_index *index = segment->removal_index;
-  uint32_t start = index->starts[ordinal];
-  uint32_t end = index->starts[(size_t)ordinal + 1];
-  if (start > end || end > segment->posting_count) { return NARSIL_OK; }
+  if (row >= segment->posting_count || (walk->held && row <= walk->previous)) { return 0; }
+  walk->previous = row;
+  walk->held = 1;
+  if (segment->posting_documents[row] != walk->ordinal || segment->posting_fields[row] >= segment->field_count) {
+    return 0;
+  }
+  size_t slot = slot_of_row(segment, row);
+  if (slot >= segment->terms.count || segment->posting_offsets[slot] > row ||
+      segment->posting_offsets[slot + 1] > segment->posting_count) {
+    return 0;
+  }
+  *term = index->term_of_slot[slot];
+  return *term < segment->terms.count && segment->payload_slots[*term] == slot;
+}
+
+static int indexed_rows(const narsil_frozen_segment *segment, uint32_t ordinal, uint32_t *start, uint32_t *end) {
+  const narsil_frozen_removal_index *index = segment->removal_index;
+  *start = index->starts[ordinal];
+  *end = index->starts[(size_t)ordinal + 1];
+  return *start <= *end && *end <= segment->posting_count;
+}
+
+static narsil_status remove_indexed(frozen_removal_plan *plan, const narsil_frozen_segment *segment, uint32_t ordinal) {
+  uint32_t start = 0;
+  uint32_t end = 0;
+  if (!indexed_rows(segment, ordinal, &start, &end)) { return NARSIL_OK; }
   size_t first = plan->count;
-  uint32_t previous = 0;
-  int held = 0;
+  indexed_walk walk = {ordinal, 0, 0};
   for (size_t at = start; at < end; at++) {
-    uint32_t row = index->rows[at];
-    if (row >= segment->posting_count || (held && row <= previous)) { continue; }
-    previous = row;
-    held = 1;
-    if (segment->posting_documents[row] != ordinal || segment->posting_fields[row] >= segment->field_count) {
-      continue;
-    }
-    size_t slot = slot_of_row(segment, row);
-    if (slot >= segment->terms.count || segment->posting_offsets[slot] > row ||
-        segment->posting_offsets[slot + 1] > segment->posting_count) {
-      continue;
-    }
-    uint32_t term = index->term_of_slot[slot];
-    if (term >= segment->terms.count || segment->payload_slots[term] != slot) { continue; }
+    uint32_t row = segment->removal_index->rows[at];
+    uint32_t term = 0;
+    if (!indexed_term(segment, &walk, row, &term)) { continue; }
     narsil_status status = add_term(plan, first, term, segment->posting_frequencies[row]);
     if (status != NARSIL_OK) { return status; }
   }
   return NARSIL_OK;
+}
+
+int frozen_indexed_occurrences_valid(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state) {
+  uint32_t pending = state->pending_header[NARSIL_PENDING_DOCUMENTS];
+  for (uint32_t document = 0; document < pending; document++) {
+    uint32_t ordinal = state->pending_documents[document];
+    uint32_t start = 0;
+    uint32_t end = 0;
+    if (!indexed_rows(segment, ordinal, &start, &end)) { continue; }
+    indexed_walk walk = {ordinal, 0, 0};
+    for (size_t at = start; at < end; at++) {
+      uint32_t term = 0;
+      if (!indexed_term(segment, &walk, segment->removal_index->rows[at], &term)) { continue; }
+      double occurrences = state->removed_occurrences[term];
+      if (!isfinite(occurrences) || occurrences < 0) { return 0; }
+    }
+  }
+  return 1;
+}
+
+void frozen_subtract_indexed(const narsil_frozen_segment *segment, narsil_frozen_segment_state *state) {
+  uint32_t pending = state->pending_header[NARSIL_PENDING_DOCUMENTS];
+  for (uint32_t document = 0; document < pending; document++) {
+    uint32_t ordinal = state->pending_documents[document];
+    uint32_t start = 0;
+    uint32_t end = 0;
+    if (!indexed_rows(segment, ordinal, &start, &end)) { continue; }
+    indexed_walk walk = {ordinal, 0, 0};
+    uint32_t counted = UINT32_MAX;
+    for (size_t at = start; at < end; at++) {
+      uint32_t row = segment->removal_index->rows[at];
+      uint32_t term = 0;
+      if (!indexed_term(segment, &walk, row, &term)) { continue; }
+      if (term != counted) {
+        uint32_t removed = state->removed_documents[term];
+        uint32_t stored = segment->terms.counts[term];
+        state->removed_documents[term] = removed < stored ? removed + 1 : stored;
+      }
+      counted = term;
+      state->removed_occurrences[term] += segment->posting_frequencies[row];
+    }
+  }
 }
 
 static narsil_status remove_paged(narsil_workspace *workspace, frozen_removal_plan *plan,
@@ -153,6 +213,14 @@ static void clear_marks(frozen_removal_plan *plan, const narsil_frozen_segment_s
     uint32_t ordinal = state->pending_documents[at];
     plan->marks[marks.stamped ? ordinal : ordinal / FROZEN_WORD_BITS] = 0;
   }
+}
+
+narsil_status frozen_check_pending(frozen_removal_plan *plan, const narsil_frozen_segment *segment,
+                                   const narsil_frozen_segment_state *state) {
+  size_t marked = 0;
+  narsil_status status = mark_pending(plan, segment, state, 0, &marked);
+  clear_marks(plan, state, (frozen_marks){0, marked});
+  return status;
 }
 
 narsil_status frozen_settle_counts(narsil_workspace *workspace, frozen_removal_plan *plan,

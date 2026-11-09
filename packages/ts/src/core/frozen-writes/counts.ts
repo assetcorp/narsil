@@ -50,7 +50,7 @@ function slotOfRow(offsets: Uint32Array, row: number): number {
   let low = 0
   let high = offsets.length - 1
   while (low < high) {
-    const middle = low + Math.floor((high - low) / 2)
+    const middle = low + ((high - low) >>> 1)
     if (offsets[middle + 1] <= row) low = middle + 1
     else high = middle
   }
@@ -95,6 +95,90 @@ function addIndexedDocument(changes: TermChanges, segment: NativeFrozenSegment, 
   }
 }
 
+const UNCHECKED_INDEX = -2
+const MALFORMED_INDEX = -3
+const indexFieldLimits = new WeakMap<NativeFrozenSegment, number>()
+
+function rowsAreOrdered(segment: NativeFrozenSegment, index: NonNullable<NativeFrozenSegment['removalIndex']>): number {
+  const { postingDocuments, postingOffsets, postingFields, payloadSlots, terms } = segment
+  const { starts, rows, termOfSlot } = index
+  const slots = terms.counts.length
+  const postings = postingDocuments.length
+  if (postingOffsets[slots] > postings) return MALFORMED_INDEX
+  for (let slot = 0; slot < slots; slot++) {
+    const term = termOfSlot[slot]
+    if (postingOffsets[slot] > postingOffsets[slot + 1] || term >= slots || payloadSlots[term] !== slot)
+      return MALFORMED_INDEX
+  }
+  let widestField = -1
+  for (let ordinal = 0; ordinal < segment.documentCount; ordinal++) {
+    const end = starts[ordinal + 1]
+    if (starts[ordinal] > end || end > postings) return MALFORMED_INDEX
+    let previous = -1
+    for (let at = starts[ordinal]; at < end; at++) {
+      const row = rows[at]
+      if (row <= previous || row < postingOffsets[0] || row >= postingOffsets[slots]) return MALFORMED_INDEX
+      if (postingDocuments[row] !== ordinal) return MALFORMED_INDEX
+      if (postingFields[row] > widestField) widestField = postingFields[row]
+      previous = row
+    }
+  }
+  return widestField
+}
+
+const checkedOccurrences = new WeakMap<Float64Array, boolean>()
+
+function occurrencesAreCounts(occurrences: Float64Array): boolean {
+  const held = checkedOccurrences.get(occurrences)
+  if (held !== undefined) return held
+  let counts = true
+  for (let term = 0; term < occurrences.length && counts; term++)
+    counts = Number.isFinite(occurrences[term]) && occurrences[term] >= 0
+  checkedOccurrences.set(occurrences, counts)
+  return counts
+}
+
+export function trustedIndexOf(
+  segment: NativeFrozenSegment,
+  state: NativeFrozenSegmentState,
+): NativeFrozenSegment['removalIndex'] {
+  const index = segment.removalIndex
+  if (index === null || !occurrencesAreCounts(state.removedOccurrences)) return null
+  let widestField = indexFieldLimits.get(segment) ?? UNCHECKED_INDEX
+  if (widestField === UNCHECKED_INDEX) {
+    widestField = rowsAreOrdered(segment, index)
+    indexFieldLimits.set(segment, widestField)
+  }
+  return widestField !== MALFORMED_INDEX && widestField < segment.partialFields.length ? index : null
+}
+
+export function subtractTrusted(
+  segment: NativeFrozenSegment,
+  state: NativeFrozenSegmentState,
+  index: NonNullable<NativeFrozenSegment['removalIndex']>,
+): void {
+  const { postingOffsets, postingFrequencies } = segment
+  const stored = segment.terms.counts
+  const { starts, rows, termOfSlot } = index
+  const { removedDocuments, removedOccurrences, pendingDocuments } = state
+  const pending = state.pendingHeader[PENDING_DOCUMENTS]
+  for (let document = 0; document < pending; document++) {
+    const ordinal = pendingDocuments[document]
+    let previousSlot = -1
+    let term = 0
+    for (let at = starts[ordinal]; at < starts[ordinal + 1]; at++) {
+      const row = rows[at]
+      const slot = slotOfRow(postingOffsets, row)
+      if (slot !== previousSlot) {
+        previousSlot = slot
+        term = termOfSlot[slot]
+        removedDocuments[term] = Math.min(stored[term], removedDocuments[term] + 1)
+      }
+      removedOccurrences[term] += postingFrequencies[row]
+    }
+  }
+}
+
 function addPagedDocument(
   changes: TermChanges,
   segment: NativeFrozenSegment,
@@ -135,11 +219,10 @@ function scanPostings(changes: TermChanges, segment: NativeFrozenSegment, marks:
   }
 }
 
-export function settleTermCounts(
+export function requirePendingDocuments(
   changes: TermChanges,
   segment: NativeFrozenSegment,
   state: NativeFrozenSegmentState,
-  paged: FrozenPagedRemovals | null,
 ): void {
   const pending = state.pendingHeader[PENDING_DOCUMENTS]
   if (changes.seen.length !== segment.documentCount) changes.seen = new Float64Array(segment.documentCount)
@@ -154,6 +237,15 @@ export function settleTermCounts(
     )
     seen[ordinal] = stamp
   }
+}
+
+export function settleTermCounts(
+  changes: TermChanges,
+  segment: NativeFrozenSegment,
+  state: NativeFrozenSegmentState,
+  paged: FrozenPagedRemovals | null,
+): void {
+  const pending = state.pendingHeader[PENDING_DOCUMENTS]
   if (paged === null && segment.removalIndex === null) {
     const marks = new Uint8Array(segment.documentCount)
     for (let at = 0; at < pending; at++) marks[state.pendingDocuments[at]] = 1

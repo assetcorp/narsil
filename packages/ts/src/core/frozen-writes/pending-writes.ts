@@ -60,10 +60,6 @@ export function appendPending(
   state.pendingDocuments[header[PENDING_DOCUMENTS]] = ordinal
   let written = header[PENDING_TOKENS]
   let units = header[PENDING_UNITS]
-  const copy = (source: Uint16Array, start: number, length: number) => {
-    state.pendingUnits.set(source.subarray(start, start + length), units)
-    units += length
-  }
   for (const field of fields) {
     for (let at = 0; at < field.tokens.length; at += FIELD_TOKEN_WORDS) {
       const word = written++ * PENDING_TOKEN_WORDS
@@ -71,10 +67,16 @@ export function appendPending(
       state.pendingTokens[word] = field.field
       state.pendingTokens[word + 1] = units
       state.pendingTokens[word + 2] = field.tokens[at + 2]
-      copy(field.units, field.tokens[at + 1], field.tokens[at + 2])
+      units = copyUnits(state.pendingUnits, units, field.units, field.tokens[at + 1], field.tokens[at + 2])
       state.pendingTokens[word + 3] = surface === NO_SURFACE ? NO_SURFACE : units
       state.pendingTokens[word + 4] = surface === NO_SURFACE ? 0 : field.tokens[at + 4]
-      if (surface !== NO_SURFACE) copy(field.units, surface, field.tokens[at + 4])
+      if (surface !== NO_SURFACE)
+        units = copyUnits(state.pendingUnits, units, field.units, surface, field.tokens[at + 4])
     }
   }
+}
+
+function copyUnits(target: Uint16Array, into: number, source: Uint16Array, start: number, length: number): number {
+  for (let at = 0; at < length; at++) target[into + at] = source[start + at]
+  return into + length
 }
