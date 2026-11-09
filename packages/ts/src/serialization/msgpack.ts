@@ -1,4 +1,5 @@
 import { ExtensionCodec, Decoder as MessagePackDecoder } from '@msgpack/msgpack'
+import { BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER } from './constants'
 import { headerAt } from './msgpack-header'
 
 const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true })
@@ -15,22 +16,32 @@ function mayHoldByteOrderMark(bytes: Uint8Array): boolean {
   return false
 }
 
-function stringRegions(
+interface StringScan {
+  end: number
+  affected: boolean
+  headers: number
+}
+
+function scanStrings(
   bytes: Uint8Array,
   start: number,
-): { strings: Map<number, number>; end: number; affected: boolean } {
+  strings: Map<number, number> | null,
+  headerLimit: number,
+): StringScan | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const strings = new Map<number, number>()
   let at = start
   let pending = 1
   let affected = false
+  let headers = 0
   while (pending > 0) {
+    if (headers >= headerLimit) return null
+    headers += 1
     const header = headerAt(view, at)
     if (header === null) throw new RangeError('Invalid MessagePack value header')
     const tag = bytes[at]
     at += header.headerBytes
     if ((tag >= 0xa0 && tag <= 0xbf) || tag === 0xd9 || tag === 0xda || tag === 0xdb) {
-      strings.set(bytes.byteOffset + at, header.bodyBytes)
+      strings?.set(bytes.byteOffset + at, header.bodyBytes)
       if (header.bodyBytes >= 3 && bytes[at] === 0xef && bytes[at + 1] === 0xbb && bytes[at + 2] === 0xbf)
         affected = true
     }
@@ -38,7 +49,34 @@ function stringRegions(
     pending += header.children - 1
     if (at > bytes.length || pending > bytes.length - at) throw new RangeError('Incomplete MessagePack value')
   }
-  return { strings, end: at, affected }
+  return { end: at, affected, headers }
+}
+
+function stringRegions(
+  bytes: Uint8Array,
+  start: number,
+): { strings: Map<number, number>; end: number; affected: boolean } {
+  const strings = new Map<number, number>()
+  const scan = scanStrings(bytes, start, strings, Number.POSITIVE_INFINITY)
+  if (scan === null) throw new RangeError('Invalid MessagePack value header')
+  return { strings, end: scan.end, affected: scan.affected }
+}
+
+function holdsOnlyPlainStrings(bytes: Uint8Array, holdsOneValue: boolean): boolean {
+  let remaining = Math.ceil(bytes.length / BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER)
+  let at = 0
+  try {
+    while (at < bytes.length) {
+      const scan = scanStrings(bytes, at, null, remaining)
+      if (scan === null || scan.affected) return false
+      if (holdsOneValue) return scan.end === bytes.length
+      remaining -= scan.headers
+      at = scan.end
+    }
+    return !holdsOneValue
+  } catch {
+    return false
+  }
 }
 
 function restoreStrings(
@@ -90,7 +128,7 @@ export class Decoder {
   private readonly ordinary = new MessagePackDecoder()
 
   decode(bytes: Uint8Array): unknown {
-    if (!mayHoldByteOrderMark(bytes)) return this.ordinary.decode(bytes)
+    if (holdsOnlyPlainStrings(bytes, true) || !mayHoldByteOrderMark(bytes)) return this.ordinary.decode(bytes)
     const { strings, end, affected } = stringRegions(bytes, 0)
     if (end !== bytes.length) throw new RangeError('Extra bytes after a MessagePack value')
     if (!affected) return this.ordinary.decode(bytes)
@@ -99,7 +137,7 @@ export class Decoder {
   }
 
   *decodeMulti(bytes: Uint8Array): Generator<unknown, void, unknown> {
-    if (!mayHoldByteOrderMark(bytes)) {
+    if (holdsOnlyPlainStrings(bytes, false) || !mayHoldByteOrderMark(bytes)) {
       yield* this.ordinary.decodeMulti(bytes)
       return
     }
