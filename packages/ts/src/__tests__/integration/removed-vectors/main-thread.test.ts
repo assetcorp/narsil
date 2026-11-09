@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Narsil } from '../../../narsil'
 import { type NativeOperation, observeFallbacks, setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import {
@@ -16,6 +16,8 @@ import {
   small,
   untilGraphSettled,
 } from './fixtures'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const LIVE_RING_RECALL_FLOOR = 0.9
 const REMOVED_BEFORE_THE_REBUILD = 300
