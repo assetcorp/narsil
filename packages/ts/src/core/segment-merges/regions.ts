@@ -14,6 +14,16 @@ interface MergeArrays {
 
 type RegionKind = keyof MergeArrays
 
+type TokenRegionName =
+  | 'postingDocuments'
+  | 'postingFrequencies'
+  | 'postingFields'
+  | 'positionOffsets'
+  | 'positionValues'
+
+export type SegmentRegions = Omit<NativeKeywordMergeInput, TokenRegionName>
+export type TokenRegions = Pick<NativeKeywordMergeInput, TokenRegionName>
+
 export function captureMergeObject<T extends object>(value: T): T {
   requireSegment(typeof value === 'object' && value !== null)
   return { ...value }
@@ -51,10 +61,18 @@ export class MergeRegions {
   }
 
   check(): void {
-    for (let at = 0; at < this.writes.length; at++) {
-      const output = this.writes[at]
-      for (let before = 0; before < at; before++) requireSegment(!regionsOverlap(output, this.writes[before]))
-      for (const input of this.reads) requireSegment(!regionsOverlap(output, input))
+    const { writes, reads } = this
+    const buffers = writes.map(output => output.buffer)
+    for (let at = 1; at < writes.length; at++) {
+      for (let before = 0; before < at; before++) {
+        if (buffers[at] === buffers[before]) requireSegment(!regionsOverlap(writes[at], writes[before]))
+      }
+    }
+    for (const input of reads) {
+      const buffer = input.buffer
+      for (let at = 0; at < writes.length; at++) {
+        if (buffers[at] === buffer) requireSegment(!regionsOverlap(writes[at], input))
+      }
     }
   }
 
@@ -108,6 +126,50 @@ export class MergeRegions {
       surfaces: input.surfaces === null ? null : this.strings(input.surfaces, 2),
       spellings: input.spellings === null ? null : this.strings(input.spellings, 2),
       ...positions,
+    }
+  }
+
+  segmentSource(input: NativeKeywordMergeInput): SegmentRegions {
+    uint32(input.documentCount)
+    requireSegment(input.growing == null)
+    const terms = this.strings(input.terms, 1)
+    const fieldMapping = this.read(input.fieldMapping, 'Uint16Array', input.fieldLengths.length)
+    requireSegment(fieldMapping.length <= 65536)
+    const fieldLengths = input.fieldLengths.map(value =>
+      value === null ? null : this.read(value, 'Uint32Array', input.documentCount),
+    )
+    return {
+      growing: null,
+      terms,
+      fieldMapping,
+      fieldLengths,
+      payloadSlots: this.read(input.payloadSlots, 'Uint32Array', terms.counts.length),
+      postingOffsets: this.read(input.postingOffsets, 'Uint32Array', terms.counts.length + 1),
+      mapping: this.read(input.mapping, 'Uint32Array', input.documentCount),
+      documentCount: input.documentCount,
+      surfaces: input.surfaces === null ? null : this.strings(input.surfaces, 2),
+      spellings: input.spellings === null ? null : this.strings(input.spellings, 2),
+    }
+  }
+
+  tokenSource(input: NativeKeywordMergeInput): TokenRegions {
+    const postingDocuments = this.read(input.postingDocuments, 'Uint32Array')
+    requireSegment(postingDocuments.length <= 0xffffffff)
+    const positions = this.positions(input, false, postingDocuments.length + 1)
+    return {
+      postingDocuments,
+      postingFrequencies: this.read(input.postingFrequencies, 'Uint16Array', postingDocuments.length),
+      postingFields: this.read(input.postingFields, 'Uint16Array', postingDocuments.length),
+      ...positions,
+    }
+  }
+
+  checkReadsAgainst(writes: readonly ArrayBufferView[]): void {
+    for (const input of this.reads) {
+      const buffer = input.buffer
+      for (const output of writes) {
+        if (output.buffer === buffer) requireSegment(!regionsOverlap(output, input))
+      }
     }
   }
 

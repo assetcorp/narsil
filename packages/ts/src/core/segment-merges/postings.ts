@@ -1,6 +1,7 @@
 import type { NativeKeywordMergeInput, NativeSegmentMergeCore } from '../../vector/native/types/segment-merge'
 import { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/status'
-import { captureInputs, MergeRegions, uint32 } from './regions'
+import { preparePostings, preparePostingsInContext } from './posting-context'
+import { captureInputs, uint32 } from './regions'
 import { type MergePosting, sourcePosting } from './source'
 
 function compareRows(left: MergePosting, right: MergePosting): number {
@@ -58,15 +59,10 @@ export const mergePostings: NativeSegmentMergeCore['mergePostings'] = (
     uint32(documentCount)
     uint32(fieldCount)
     requireSegment(fieldCount <= 65536)
-    const regions = new MergeRegions()
-    const inputs = captured.map(input => regions.source(input))
-    const documents = regions.read(target.documents, 'Uint32Array', undefined, true)
-    const frequencies = regions.read(target.frequencies, 'Uint16Array', documents.length, true)
-    const fields = regions.read(target.fields, 'Uint16Array', documents.length, true)
-    const offsets = regions.read(target.positionOffsets, 'Uint32Array', undefined, true)
-    const positions = regions.read(target.positions, 'Uint32Array', undefined, true)
-    const totals = regions.read(target.totals, 'Float64Array', undefined, true)
-    regions.check()
+    const { inputs, outputs } = captured.every(input => input.growing == null)
+      ? preparePostingsInContext(rawOutput, target, rawInputs, captured)
+      : preparePostings(target, captured)
+    const { documents, frequencies, fields, offsets, positions, totals } = outputs
     const rows = collect(inputs, documentCount, fieldCount)
     let positionCount = 0
     let documentTotal = 0

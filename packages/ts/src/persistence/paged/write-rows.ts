@@ -1,6 +1,6 @@
 import { ErrorCodes, mergePostings, NarsilError } from '#platform/storage-host'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
-import type { NativeKeywordMergeInput } from '../../vector/native/types/segment-merge'
+import type { NativeKeywordMergeInput, NativePostingMergeOutput } from '../../vector/native/types/segment-merge'
 import { POSTING_WRITE_POSITIONS, POSTING_WRITE_ROWS } from './constants'
 
 function sourceRows(input: SegmentRemap, sortedIndex: number) {
@@ -41,6 +41,7 @@ export class TokenRows {
   private readonly sources = new Map<SegmentRemap, NativeKeywordMergeInput>()
   private rowCapacity = 0
   private positionCapacity = 0
+  private output = this.outputColumns()
 
   constructor(
     private readonly documentCount: number,
@@ -78,25 +79,33 @@ export class TokenRows {
     }
   }
 
-  finish(): void {
-    if (this.rowCapacity > this.docIds.length) {
-      const capacity = Math.max(this.rowCapacity, this.docIds.length * 2)
-      this.docIds = new Uint32Array(capacity)
-      this.frequencies = new Uint16Array(capacity)
-      this.fields = new Uint16Array(capacity)
-      this.positionStarts = new Uint32Array(capacity + 1)
-    }
-    if (this.positionCapacity > this.positions.length) {
-      this.positions = new Uint32Array(Math.max(this.positionCapacity, this.positions.length * 2))
-    }
-    const count = mergePostings(this.inputs, this.documentCount, this.fieldCount, {
+  private outputColumns(): NativePostingMergeOutput {
+    return {
       documents: this.docIds,
       frequencies: this.frequencies,
       fields: this.fields,
       positionOffsets: this.positionStarts,
       positions: this.positions,
       totals: this.totals,
-    })
+    }
+  }
+
+  finish(): void {
+    let grown = false
+    if (this.rowCapacity > this.docIds.length) {
+      const capacity = Math.max(this.rowCapacity, this.docIds.length * 2)
+      this.docIds = new Uint32Array(capacity)
+      this.frequencies = new Uint16Array(capacity)
+      this.fields = new Uint16Array(capacity)
+      this.positionStarts = new Uint32Array(capacity + 1)
+      grown = true
+    }
+    if (this.positionCapacity > this.positions.length) {
+      this.positions = new Uint32Array(Math.max(this.positionCapacity, this.positions.length * 2))
+      grown = true
+    }
+    if (grown) this.output = this.outputColumns()
+    const count = mergePostings(this.inputs, this.documentCount, this.fieldCount, this.output)
     if (count < 0) {
       throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The paged posting list refused a merge', {
         status: -count,
