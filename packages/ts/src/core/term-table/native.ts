@@ -47,12 +47,3 @@ export const lookupTypo: NativeTermCore['lookupTypo'] = (...args) => {
   }
   return portable.lookupTypo(...args)
 }
-
-export const documentFrequency: NativeTermCore['documentFrequency'] = (...args) => {
-  if (nativeSearchCoreIsEnabled()) {
-    const core = loadNativeCore()
-    if (core !== null) return core.documentFrequency(...args)
-    noteFallback('documentFrequency')
-  }
-  return portable.documentFrequency(...args)
-}

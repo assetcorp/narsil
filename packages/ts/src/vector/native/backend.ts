@@ -33,7 +33,6 @@ export type NativeOperation =
   | 'lookupExactBatch'
   | 'lookupPrefix'
   | 'lookupTypo'
-  | 'documentFrequency'
   | 'expandSynonyms'
   | 'expandPrefix'
   | 'expandPartialWords'
