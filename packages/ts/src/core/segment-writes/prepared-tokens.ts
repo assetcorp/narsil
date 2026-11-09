@@ -1,7 +1,6 @@
 import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { PREPARED_TOKEN_GROWTH_FACTOR, PREPARED_TOKEN_START_CAPACITY } from './constants'
 import { TextIndex } from './text-index'
-import { recordTokenText } from './token-text'
 
 const TOKEN_WORDS = 8
 const ABSENT_TEXT = 0xffffffff
@@ -45,7 +44,6 @@ function packTokens(prepared: PreparedFieldTokens): PackedTokens {
     for (let at = 0; at < text.length; at++) units[start + at] = text.charCodeAt(at)
   }
   const tokens = new Uint32Array(prepared.count * TOKEN_WORDS)
-  const strings: Array<string | undefined> = []
   for (let record = 0; record < prepared.count; record++) {
     const at = record * TOKEN_WORDS
     const row = record * PREPARED_ROW_WORDS
@@ -57,9 +55,7 @@ function packTokens(prepared: PreparedFieldTokens): PackedTokens {
     tokens[at + 3] = surface === ABSENT_TEXT ? ABSENT_TEXT : offsets[surface]
     tokens[at + 4] = surface === ABSENT_TEXT ? 0 : texts[surface].length
     tokens[at + 7] = ABSENT_TEXT
-    strings.push(texts[term], surface === ABSENT_TEXT ? undefined : texts[surface])
   }
-  recordTokenText(tokens, strings)
   return { tokens, units }
 }
 

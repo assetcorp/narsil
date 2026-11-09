@@ -1,10 +1,11 @@
-import type { NativeFieldTokens, NativeGrowingSegment } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment } from '../../vector/native/types/segments'
+import type { PreparedSegmentField } from './prepared-tokens'
 
 export type RemoveSegmentDocument = (
   input: NativeGrowingSegment,
   generation: number,
   ordinal: number,
-  rawFields: readonly NativeFieldTokens[],
+  fields: readonly PreparedSegmentField[],
 ) => number
 
 let bound: RemoveSegmentDocument | null = null

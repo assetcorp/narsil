@@ -2,7 +2,7 @@ import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { holdsUnpairedSurrogate } from '../ordering/code-points'
 import { storedText } from '../stored-values/text'
 import { PREPARED_ROW_WORDS, type PreparedSegmentField, packedTokens } from './prepared-tokens'
-import { checkText } from './regions'
+import { checkText, type SegmentReach } from './regions'
 import { requireSegment } from './status'
 
 const RECORD_WORDS = 8
@@ -23,12 +23,6 @@ export interface TokenSource {
   surfaceKey(record: number): number
 }
 
-function sameText(text: string, units: Uint16Array, start: number, length: number): boolean {
-  if (text.length !== length) return false
-  for (let at = 0; at < length; at++) if (text.charCodeAt(at) !== units[start + at]) return false
-  return true
-}
-
 export class RecordSource implements TokenSource {
   readonly field: number
   readonly records: number
@@ -37,10 +31,7 @@ export class RecordSource implements TokenSource {
   readonly textKeys = false
   private readonly decoded = new Map<number, string>()
 
-  constructor(
-    private readonly source: NativeFieldTokens,
-    private readonly known: ReadonlyArray<string | undefined> | undefined,
-  ) {
+  constructor(private readonly source: NativeFieldTokens) {
     this.field = source.field
     this.records = source.tokens.length / RECORD_WORDS
     this.keys = source.units.length + 1
@@ -72,8 +63,6 @@ export class RecordSource implements TokenSource {
     const tokens = this.source.tokens
     const start = tokens[at + word]
     const length = tokens[at + word + 1]
-    const known = this.known?.[(at >>> 2) + (word >>> 1)]
-    if (known !== undefined && sameText(known, this.source.units, start, length)) return known
     const held = this.decoded.get(start)
     if (held !== undefined && held.length === length) return held
     const text = storedText(this.source.units, start, length)
@@ -125,11 +114,14 @@ export class PreparedSource implements TokenSource {
   }
 }
 
-export function tokenSources(
-  fields: readonly NativeFieldTokens[],
-  known: ReadonlyArray<ReadonlyArray<string | undefined> | undefined>,
-): TokenSource[] {
-  return fields.map((field, index) => new RecordSource(field, known[index]))
+export function preparedRemovalReach(fields: readonly PreparedSegmentField[]): SegmentReach {
+  let surfaces = false
+  for (const { text } of fields) {
+    const end = text.count * PREPARED_ROW_WORDS
+    for (let row = 0; row < end && !surfaces; row += PREPARED_ROW_WORDS)
+      surfaces = text.rows[row + 1] !== ABSENT_TEXT && text.rows[row + 1] !== text.rows[row]
+  }
+  return { surfaces, spellings: partialFields => fields.some(({ field }) => partialFields[field] !== 0) }
 }
 
 export function preparedSources(fields: readonly PreparedSegmentField[]): TokenSource[] {
@@ -149,6 +141,6 @@ export function preparedSources(fields: readonly PreparedSegmentField[]): TokenS
       if (tokens[at + SURFACE_WORD] !== ABSENT_TEXT)
         checkText(units, tokens[at + SURFACE_WORD], tokens[at + SURFACE_WORD + 1])
     }
-    return new RecordSource({ field: field.field, ...packed }, undefined)
+    return new RecordSource({ field: field.field, ...packed })
   })
 }

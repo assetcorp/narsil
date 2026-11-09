@@ -1,7 +1,7 @@
 import type { LivePostings } from '#platform/live-postings'
 import { beginBatch, endBatch, indexPreparedTerms, removeDocument } from '#platform/segment-writes'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { NativeFieldTokens, NativeGrowingSegment } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment } from '../../vector/native/types/segments'
 import {
   POOL_VACUUM_FREE_FRACTION,
   POOL_VACUUM_MIN_FREE_ENTRIES,
@@ -79,7 +79,7 @@ export class GrowingSegment {
     return true
   }
 
-  remove(ordinal: number, fields: readonly NativeFieldTokens[]): void {
+  remove(ordinal: number, fields: readonly PreparedSegmentField[]): void {
     this.preparePublication()
     const counted = this.countsNonemptyTerms()
     this.accept(removeDocument(this.regions(), this.generation, ordinal, fields), counted)
