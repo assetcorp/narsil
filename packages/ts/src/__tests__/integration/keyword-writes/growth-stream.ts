@@ -16,6 +16,11 @@ const WORDS_CHECKED = 40
 const RESULT_LIMIT = 10_000
 const TEST_TIMEOUT_MS = 240_000
 const SCHEMA = { title: 'string:partial', body: 'string' } as const
+const WIDE_SCHEMA = { title: 'string', body: 'string' } as const
+const WIDE_ROUNDS = 12
+const WIDE_FRESH_WORDS = 160
+const WIDE_TITLE_WORDS = 40
+const WIDE_WORDS_IN_BOTH_FIELDS = 20
 
 interface Written {
   id: string
@@ -42,6 +47,14 @@ function documentFrom(random: () => number, id: string, shared: readonly string[
   }
   const title = fresh.slice(0, 4).join(' ')
   const body = [...fresh.slice(4), ...common].join(' ')
+  return { id, title, body, words: new Set([...fresh, ...common]) }
+}
+
+function wideDocumentFrom(random: () => number, id: string, shared: readonly string[]): Written {
+  const fresh = Array.from({ length: WIDE_FRESH_WORDS }, () => wordFrom(random, 7 + Math.floor(random() * 6)))
+  const common = Array.from({ length: SHARED_WORDS_PER_DOCUMENT }, () => shared[Math.floor(random() * shared.length)])
+  const title = fresh.slice(0, WIDE_TITLE_WORDS).join(' ')
+  const body = [...fresh.slice(WIDE_TITLE_WORDS - WIDE_WORDS_IN_BOTH_FIELDS), ...common, ...common].join(' ')
   return { id, title, body, words: new Set([...fresh, ...common]) }
 }
 
@@ -157,6 +170,29 @@ export function describeGrowthMidStream(backend: SearchBackend): void {
               await expectOracle(narsil, index, oracle, sampledWords(random, oracle, shared))
             }
           }
+        }
+      },
+      TEST_TIMEOUT_MS,
+    )
+
+    it(
+      'finds every word of documents that each bring a hundred and sixty new words, some in both fields',
+      async () => {
+        const random = seededRandom(20261109)
+        const shared = Array.from({ length: SHARED_WORDS }, (_, at) => `${wordFrom(random, 5)}${CONSONANTS[at % 19]}`)
+        const narsil = await createNarsil({ workers: { enabled: false } })
+        engines.push(narsil)
+        const oracle: Oracle = new Map()
+        await narsil.createIndex('wide', { schema: WIDE_SCHEMA, language: 'english' })
+        let written = 0
+        for (let round = 0; round < WIDE_ROUNDS; round++) {
+          const size = BATCH_SIZES[round % BATCH_SIZES.length]
+          const documents = Array.from({ length: size }, () => wideDocumentFrom(random, `wide-${written++}`, shared))
+          await write(narsil, 'wide', oracle, documents)
+          await rewrite(narsil, 'wide', oracle, random, shared, round)
+          const latest = documents[documents.length - 1]
+          const inBothFields = latest.title.split(' ').slice(WIDE_TITLE_WORDS - WIDE_WORDS_IN_BOTH_FIELDS)
+          await expectOracle(narsil, 'wide', oracle, [...inBothFields, ...sampledWords(random, oracle, shared)])
         }
       },
       TEST_TIMEOUT_MS,
