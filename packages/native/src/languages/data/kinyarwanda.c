@@ -34,7 +34,7 @@ static const uint32_t keep_ranges[6] = {
 
 const narsil_language narsil_language_kinyarwanda = {
   .name = "kinyarwanda",
-  .revision = "ebabaaed01a662fe",
+  .revision = "7d794e98de3fab1e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 87,

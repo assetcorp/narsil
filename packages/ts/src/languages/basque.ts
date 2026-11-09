@@ -120,7 +120,7 @@ const stopWords = new Set([
  */
 export const basque: LanguageModule = {
   name: 'basque',
-  revision: '6be36c18aa84c02e',
+  revision: '76e6e8e71b7430cf',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ñ]+/gi },

@@ -816,7 +816,7 @@ function normalize(token: string): string {
  */
 export const macedonian: LanguageModule = {
   name: 'macedonian',
-  revision: '9f4a211584f268ff',
+  revision: 'a599daec87750812',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

@@ -73,7 +73,7 @@ static const uint32_t keep_ranges[700] = {
 
 const narsil_language narsil_language_yoruba = {
   .name = "yoruba",
-  .revision = "4fed44c6f1d76022",
+  .revision = "b03320c630f0283a",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 88,

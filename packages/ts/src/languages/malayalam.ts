@@ -132,7 +132,7 @@ function normalize(token: string): string {
  */
 export const malayalam: LanguageModule = {
   name: 'malayalam',
-  revision: '216b52c0e07ec4c0',
+  revision: '9ac4da867668ed38',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

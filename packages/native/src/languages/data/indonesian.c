@@ -276,7 +276,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_indonesian = {
   .name = "indonesian",
-  .revision = "0328cd9ed6ce57d1",
+  .revision = "d0422db4396008e2",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 736,

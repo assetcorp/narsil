@@ -64,7 +64,7 @@ const stopWords = new Set([
  */
 export const tongan: LanguageModule = {
   name: 'tongan',
-  revision: '366cf10bf01f6328',
+  revision: '032f8a6ca8928f68',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9']+/giu },

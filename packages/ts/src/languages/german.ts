@@ -260,7 +260,7 @@ function normalize(token: string): string {
  */
 export const german: LanguageModule = {
   name: 'german',
-  revision: '697456e344302ad5',
+  revision: 'e19265657c2ac118',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

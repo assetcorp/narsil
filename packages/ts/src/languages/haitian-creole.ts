@@ -114,7 +114,7 @@ const stopWords = new Set([
  */
 export const haitianCreole: LanguageModule = {
   name: 'haitian-creole',
-  revision: '8b66a2ff380c85d8',
+  revision: 'b79a72a0d507f3d9',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9èò]+/gi },

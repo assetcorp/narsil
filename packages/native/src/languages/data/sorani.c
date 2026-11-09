@@ -35,7 +35,7 @@ static const uint32_t keep_ranges[14] = {
 
 const narsil_language narsil_language_sorani = {
   .name = "sorani",
-  .revision = "bc6198eb46ccb40a",
+  .revision = "09230514eb51963e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 64,

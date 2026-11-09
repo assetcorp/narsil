@@ -71,7 +71,7 @@ const stopWords = new Set([
  */
 export const samoan: LanguageModule = {
   name: 'samoan',
-  revision: '53053920238fb69b',
+  revision: '1f291c3f0c6a8c91',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9']+/giu },

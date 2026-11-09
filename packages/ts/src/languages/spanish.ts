@@ -224,7 +224,7 @@ const stopWords = new Set([
  */
 export const spanish: LanguageModule = {
   name: 'spanish',
-  revision: '3a0bef3f0fbcb1ce',
+  revision: 'a768b4e882e0fe85',
   stemmer: stem,
   stopWords,
   tokenizer: {

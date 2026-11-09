@@ -78,7 +78,7 @@ static const uint32_t keep_ranges[38] = {
 
 const narsil_language narsil_language_hungarian = {
   .name = "hungarian",
-  .revision = "fa8252d390fb536e",
+  .revision = "a1f907db453fc104",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 245,

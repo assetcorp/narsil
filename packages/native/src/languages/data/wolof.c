@@ -31,7 +31,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_wolof = {
   .name = "wolof",
-  .revision = "1184903d94ac73a9",
+  .revision = "d4122053843b4469",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 67,

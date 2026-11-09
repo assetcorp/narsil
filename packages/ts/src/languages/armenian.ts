@@ -67,7 +67,7 @@ const stopWords = new Set([
  */
 export const armenian: LanguageModule = {
   name: 'armenian',
-  revision: '634d29f49f5b3cd6',
+  revision: '959b56eee58eee24',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0531-\u0556\u0561-\u0587a-z0-9]+/gi },

@@ -6,7 +6,7 @@ from pathlib import Path
 PACKAGES_ROOT = Path(__file__).resolve().parents[3]
 ENGLISH_MODULE = PACKAGES_ROOT / "ts" / "src" / "languages" / "english.ts"
 ENGLISH_STEMMER_MODULE = PACKAGES_ROOT / "ts" / "src" / "languages" / "snowball" / "english.ts"
-PINNED_ENGLISH_REVISION = "1d656f1b1c5b26fb"
+PINNED_ENGLISH_REVISION = "4026533016c7f4b1"
 ENGLISH_SPLIT_PATTERN = r"[^\p{L}\p{M}\p{N}_']+"
 STEMMER_DISTRIBUTION = "snowballstemmer"
 MAX_MODULE_BYTES = 1_048_576

@@ -102,7 +102,7 @@ const stopWords = new Set([
  */
 export const kannada: LanguageModule = {
   name: 'kannada',
-  revision: 'c30dfe1d81daa999',
+  revision: '4ddaff0089f809f6',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0c80-\u0cffa-z0-9]+/gi },

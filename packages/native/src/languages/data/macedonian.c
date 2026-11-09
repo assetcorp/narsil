@@ -266,7 +266,7 @@ static const uint32_t keep_ranges[30] = {
 
 const narsil_language narsil_language_macedonian = {
   .name = "macedonian",
-  .revision = "9f4a211584f268ff",
+  .revision = "a599daec87750812",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 788,

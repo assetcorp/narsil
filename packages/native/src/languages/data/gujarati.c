@@ -70,7 +70,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_gujarati = {
   .name = "gujarati",
-  .revision = "b63bb984870e29fb",
+  .revision = "3696d2726a76163d",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 222,

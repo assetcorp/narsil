@@ -23,7 +23,7 @@ static const uint32_t keep_ranges[24] = {
 
 const narsil_language narsil_language_kurmanji = {
   .name = "kurmanji",
-  .revision = "0a3b2b568824d7c6",
+  .revision = "c8f0967982325ffa",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 38,

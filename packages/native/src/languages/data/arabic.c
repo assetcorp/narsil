@@ -126,7 +126,7 @@ static const uint32_t keep_ranges[12] = {
 
 const narsil_language narsil_language_arabic = {
   .name = "arabic",
-  .revision = "d0a5c9d4e227cee2",
+  .revision = "fbfef9df1a0961bb",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 460,

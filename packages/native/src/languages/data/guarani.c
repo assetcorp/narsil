@@ -90,7 +90,7 @@ static const uint32_t keep_ranges[734] = {
 
 const narsil_language narsil_language_guarani = {
   .name = "guarani",
-  .revision = "2ba37a00a9dd2b5d",
+  .revision = "83ea1f6310c8f07e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 121,

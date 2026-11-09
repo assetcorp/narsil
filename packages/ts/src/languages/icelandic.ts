@@ -169,7 +169,7 @@ const stopWords = new Set([
  */
 export const icelandic: LanguageModule = {
   name: 'icelandic',
-  revision: 'eabdd64f38e93cf8',
+  revision: '29a7a100e13f1575',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áæéíðóöúþý]+/gi },
