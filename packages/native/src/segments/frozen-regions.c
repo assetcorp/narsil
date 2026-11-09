@@ -26,9 +26,31 @@ static int strings(const segment_regions *regions, const narsil_frozen_strings *
          input(regions, table->counts, table->count, sizeof *table->counts);
 }
 
-static int state_regions(segment_regions *regions, const narsil_remove_frozen_request *request) {
-  const narsil_frozen_segment *segment = request->segment;
-  narsil_frozen_segment_state *state = request->state;
+static int frozen_pending_regions(segment_regions *regions, const narsil_frozen_segment_state *state) {
+  if (state->pending_header == NULL || (uintptr_t)state->pending_header % _Alignof(uint32_t) != 0 ||
+      (uintptr_t)state->pending_documents % _Alignof(uint32_t) != 0 ||
+      (uintptr_t)state->pending_tokens % _Alignof(uint32_t) != 0 ||
+      (uintptr_t)state->pending_units % _Alignof(uint16_t) != 0 || state->pending_document_capacity > UINT32_MAX ||
+      state->pending_token_capacity > UINT32_MAX ||
+      state->pending_token_capacity > SIZE_MAX / NARSIL_PENDING_TOKEN_WORDS ||
+      state->pending_unit_capacity > UINT32_MAX ||
+      !segment_region_write(regions, state->pending_header, NARSIL_PENDING_HEADER_WORDS,
+                            sizeof *state->pending_header) ||
+      !segment_region_write(regions, state->pending_documents, state->pending_document_capacity,
+                            sizeof *state->pending_documents) ||
+      !segment_region_write(regions, state->pending_tokens, state->pending_token_capacity * NARSIL_PENDING_TOKEN_WORDS,
+                            sizeof *state->pending_tokens) ||
+      !segment_region_write(regions, state->pending_units, state->pending_unit_capacity,
+                            sizeof *state->pending_units)) {
+    return 0;
+  }
+  return state->pending_header[NARSIL_PENDING_DOCUMENTS] <= state->pending_document_capacity &&
+         state->pending_header[NARSIL_PENDING_TOKENS] <= state->pending_token_capacity &&
+         state->pending_header[NARSIL_PENDING_UNITS] <= state->pending_unit_capacity;
+}
+
+static int state_regions(segment_regions *regions, const narsil_frozen_segment *segment,
+                         const narsil_frozen_segment_state *state) {
   size_t words = segment->document_count == 0 ? 1 : (((size_t)segment->document_count - 1) / FROZEN_WORD_BITS) + 1;
   if (!segment_region_write(regions, state->tombstones, words, sizeof *state->tombstones) ||
       !segment_region_write(regions, state->tombstone_count, 1, sizeof *state->tombstone_count) ||
@@ -40,7 +62,8 @@ static int state_regions(segment_regions *regions, const narsil_remove_frozen_re
                             sizeof *state->removed_surfaces) ||
       !segment_region_write(regions, state->removed_spellings,
                             segment->spellings == NULL ? 0 : segment->spellings->count,
-                            sizeof *state->removed_spellings)) {
+                            sizeof *state->removed_spellings) ||
+      !frozen_pending_regions(regions, state)) {
     return 0;
   }
   for (size_t at = 0; at < regions->write_count; at++) {
@@ -60,8 +83,6 @@ static int source_regions(const segment_regions *regions, const narsil_frozen_se
       !input(regions, segment->posting_frequencies, segment->posting_count, sizeof *segment->posting_frequencies) ||
       !input(regions, segment->posting_fields, segment->posting_count, sizeof *segment->posting_fields) ||
       !input(regions, segment->partial_fields, segment->field_count, sizeof *segment->partial_fields) ||
-      segment->removal_words % 2 != 0 ||
-      !input(regions, segment->removal_terms, segment->removal_words, sizeof *segment->removal_terms) ||
       (segment->surfaces != NULL && !strings(regions, segment->surfaces, 2)) ||
       (segment->spellings != NULL &&
        (!strings(regions, segment->spellings, 1) ||
@@ -80,30 +101,30 @@ static int source_regions(const segment_regions *regions, const narsil_frozen_se
   for (size_t field = 0; field < segment->field_count; field++) {
     if (segment->partial_fields[field] > 1) { return 0; }
   }
-  for (size_t at = 0; at < segment->removal_words; at += 2) {
-    if (segment->removal_terms[at] >= segment->terms.count ||
-        (at > 0 && segment->removal_terms[at] <= segment->removal_terms[at - 2])) {
-      return 0;
-    }
-  }
   return 1;
+}
+
+static int aligned_source(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state) {
+  return segment != NULL && (uintptr_t)segment % _Alignof(narsil_frozen_segment) == 0 && state != NULL &&
+         (uintptr_t)state % _Alignof(narsil_frozen_segment_state) == 0 &&
+         segment->field_count <= (uint32_t)UINT16_MAX + 1 &&
+         (segment->surfaces == NULL || (uintptr_t)segment->surfaces % _Alignof(narsil_frozen_strings) == 0) &&
+         (segment->spellings == NULL || (uintptr_t)segment->spellings % _Alignof(narsil_frozen_strings) == 0);
+}
+
+static int settled(const narsil_frozen_segment_state *state) {
+  return state->pending_header[NARSIL_PENDING_DOCUMENTS] == 0 && state->pending_header[NARSIL_PENDING_TOKENS] == 0 &&
+         state->pending_header[NARSIL_PENDING_UNITS] == 0;
 }
 
 int frozen_read_regions(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state,
                         const segment_regions *outputs) {
-  if (segment == NULL || (uintptr_t)segment % _Alignof(narsil_frozen_segment) != 0 || state == NULL ||
-      (uintptr_t)state % _Alignof(narsil_frozen_segment_state) != 0 ||
-      segment->field_count > (uint32_t)UINT16_MAX + 1 ||
-      (segment->surfaces != NULL && (uintptr_t)segment->surfaces % _Alignof(narsil_frozen_strings) != 0) ||
-      (segment->spellings != NULL && (uintptr_t)segment->spellings % _Alignof(narsil_frozen_strings) != 0)) {
-    return 0;
-  }
-  narsil_frozen_segment_state held_state = *state;
-  narsil_remove_frozen_request request = {.segment = segment, .state = &held_state};
+  if (!aligned_source(segment, state)) { return 0; }
   segment_regions held = {0};
-  if (!state_regions(&held, &request) || !source_regions(&held, segment) || !source_regions(outputs, segment) ||
+  if (!state_regions(&held, segment, state) || !source_regions(&held, segment) || !source_regions(outputs, segment) ||
       !segment_region_input(outputs, state, 1, sizeof *state) ||
-      !segment_region_input(&held, state, 1, sizeof *state) || *state->tombstone_count > segment->document_count) {
+      !segment_region_input(&held, state, 1, sizeof *state) || *state->tombstone_count > segment->document_count ||
+      !settled(state)) {
     return 0;
   }
   for (size_t at = 0; at < held.write_count; at++) {
@@ -114,22 +135,34 @@ int frozen_read_regions(const narsil_frozen_segment *segment, const narsil_froze
   return 1;
 }
 
+narsil_status frozen_settle_regions(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state) {
+  if (!aligned_source(segment, state)) { return NARSIL_INVALID_ARGUMENT; }
+  segment_regions regions = {0};
+  if (!state_regions(&regions, segment, state) || !source_regions(&regions, segment) ||
+      !segment_region_input(&regions, state, 1, sizeof *state) || *state->tombstone_count > segment->document_count) {
+    return NARSIL_INVALID_ARGUMENT;
+  }
+  return NARSIL_OK;
+}
+
+static int paged_input(const segment_regions *regions, const narsil_frozen_paged_removals *paged) {
+  return paged == NULL || ((uintptr_t)paged % _Alignof(narsil_frozen_paged_removals) == 0 &&
+                           segment_region_input(regions, paged, 1, sizeof *paged) && paged->offsets != NULL &&
+                           paged->values != NULL && paged->fault != NULL);
+}
+
 narsil_status frozen_removal_regions(const narsil_remove_frozen_request *request) {
-  if (request == NULL || (uintptr_t)request % _Alignof(narsil_remove_frozen_request) != 0 || request->segment == NULL ||
-      (uintptr_t)request->segment % _Alignof(narsil_frozen_segment) != 0 || request->state == NULL ||
-      (uintptr_t)request->state % _Alignof(narsil_frozen_segment_state) != 0) {
+  if (request == NULL || (uintptr_t)request % _Alignof(narsil_remove_frozen_request) != 0 ||
+      !aligned_source(request->segment, request->state)) {
     return NARSIL_INVALID_ARGUMENT;
   }
   const narsil_frozen_segment *segment = request->segment;
-  if (segment->field_count > (uint32_t)UINT16_MAX + 1 || request->field_count > segment->field_count ||
-      request->ordinal >= segment->document_count ||
-      (segment->surfaces != NULL && (uintptr_t)segment->surfaces % _Alignof(narsil_frozen_strings) != 0) ||
-      (segment->spellings != NULL && (uintptr_t)segment->spellings % _Alignof(narsil_frozen_strings) != 0)) {
+  if (request->field_count > segment->field_count || request->ordinal >= segment->document_count) {
     return NARSIL_INVALID_ARGUMENT;
   }
   segment_regions regions = {0};
-  if (!state_regions(&regions, request) || !source_regions(&regions, segment) ||
-      !segment_region_input(&regions, request, 1, sizeof *request) ||
+  if (!state_regions(&regions, segment, request->state) || !source_regions(&regions, segment) ||
+      !paged_input(&regions, request->paged) || !segment_region_input(&regions, request, 1, sizeof *request) ||
       !segment_region_input(&regions, request->state, 1, sizeof *request->state) ||
       (uintptr_t)request->fields % _Alignof(narsil_field_tokens) != 0 ||
       !segment_region_input(&regions, request->fields, request->field_count, sizeof *request->fields) ||
@@ -153,7 +186,7 @@ narsil_status frozen_removal_output_regions(const narsil_remove_frozen_request *
     return NARSIL_INVALID_ARGUMENT;
   }
   segment_regions regions = {0};
-  if (!state_regions(&regions, request) ||
+  if (!state_regions(&regions, request->segment, request->state) ||
       !segment_region_write(&regions, output->entries, output->entry_capacity * 2, sizeof *output->entries) ||
       !segment_region_write(&regions, output->values, output->value_capacity, sizeof *output->values) ||
       !segment_region_write(&regions, count, 1, sizeof *count)) {

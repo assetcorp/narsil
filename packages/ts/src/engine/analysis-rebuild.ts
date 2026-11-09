@@ -4,6 +4,7 @@ import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
 import { emitEngineEvent } from './events'
+import { loadOptionalWrites } from './optional-writes-code'
 
 export interface AnalysisRebuildDeps {
   getManager(indexName: string): PartitionManager | undefined
@@ -110,7 +111,7 @@ export function createAnalysisRebuildCoordinator(
     const wasPromoted = deps.desyncIndex(indexName)
     let spill: RewriteSpill | null = null
     try {
-      const { rebuildTextIndexes } = await loadSegmentCodec()
+      const [{ rebuildTextIndexes }] = await Promise.all([loadSegmentCodec(), loadOptionalWrites()])
       const rebuilt = await rebuildTextIndexes(manager, {
         rewriteStorage: () => deps.rewriteStorage?.(),
         onRewriteSpill(kept) {

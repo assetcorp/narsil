@@ -1,4 +1,5 @@
-import { prepareFrozenPublication, TermLookup } from '#platform/storage-host'
+import { createFrozenRemovals, TermLookup } from '#platform/storage-host'
+import type { FrozenPagedRemovals } from '../../core/frozen-writes/types'
 import type { FrozenLiveCounts } from '../../core/partition/frozen/live-counts'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import type { FrozenStringRemoval } from '../../core/partition/frozen/removal-strings'
@@ -6,6 +7,7 @@ import type { FrozenTokenTable } from '../../core/partition/frozen/token-table'
 import type { FrozenTombstones } from '../../core/partition/frozen/tombstones'
 import type { NativeTermDictionary } from '../../vector/native/types/terms'
 import { createPagedExpansionSource } from './expansion-source'
+import { failNativePage } from './native-file'
 import { createRemovalReader } from './removals'
 import type { PagedFile, SectionReader } from './section-file'
 
@@ -22,7 +24,20 @@ export function createPagedLiveCounts(
   const removedOccurrences = new Float64Array(table.size)
   const dictionary = table.dictionary(removedDocuments)
   const lookups = new TermLookup()
-  const prepareTerms = createRemovalReader(file, removalOffsets, removals, table.size)
+  const fault = new BigUint64Array(3)
+  const paged: FrozenPagedRemovals = {
+    native() {
+      const offsets = removalOffsets.native
+      const values = removals.native
+      if (offsets === null || values === null || file.native === null) return null
+      return { offsets, values, cache: file.cache.pageCache(), fault }
+    },
+    read: createRemovalReader(file, removalOffsets, removals, table.size),
+    fail(status) {
+      const section = fault[1] === removalOffsets.native?.offset ? 'removalOffsets' : 'removals'
+      return failNativePage(status, file.path, section, fault[2])
+    },
+  }
   let lengths: Record<string, number> | null = null
   const expansion = createPagedExpansionSource(
     file,
@@ -33,14 +48,22 @@ export function createPagedLiveCounts(
     removedOccurrences,
     totals,
   )
+  const pending = createFrozenRemovals(expansion.frozen, expansion.state, paged)
 
   function documentFrequency(sortedIndex: number): number {
+    pending.settle()
     return lookups.frequency(dictionary, sortedIndex)
   }
 
   return {
-    expansionSource: expansion.read,
+    expansionSource() {
+      pending.settle()
+      return expansion.read()
+    },
+    pendingRemovals: pending.pending,
+    settleRemovals: pending.settle,
     dictionary(): NativeTermDictionary {
+      pending.settle()
       return dictionary
     },
     totalDocuments(): number {
@@ -54,10 +77,12 @@ export function createPagedLiveCounts(
     documentFrequency,
 
     removedOccurrences(sortedIndex: number): number {
+      pending.settle()
       return removedOccurrences[sortedIndex]
     },
 
     docFrequencies(): Readonly<Record<string, number>> {
+      pending.settle()
       const frequencies: Record<string, number> = Object.create(null)
       for (let at = 0; at < table.size; at++) {
         const documents = documentFrequency(at)
@@ -67,23 +92,7 @@ export function createPagedLiveCounts(
     },
 
     prepareRemoval(ordinal: number, strings?: FrozenStringRemoval): () => void {
-      const removalTerms = prepareTerms(ordinal)
-      const segment = { ...expansion.frozen, ...strings, removalTerms }
-      const state =
-        strings === undefined
-          ? expansion.state
-          : {
-              ...expansion.state,
-              removedSurfaces: strings.removedSurfaces,
-              removedSpellings: strings.removedSpellings,
-            }
-      const subtractTerms = prepareFrozenPublication(
-        segment,
-        state,
-        ordinal,
-        strings?.fields ?? [],
-        strings?.synchroniseSurface,
-      )
+      const subtractTerms = pending.prepare(ordinal, strings?.fields ?? [], strings)
       const nextLengths = lengths ?? { ...snapshot.totalFieldLengths }
       return () => {
         lengths ??= nextLengths
@@ -95,7 +104,7 @@ export function createPagedLiveCounts(
     },
 
     bytes(): number {
-      return removedDocuments.byteLength + removedOccurrences.byteLength + expansion.bytes()
+      return removedDocuments.byteLength + removedOccurrences.byteLength + expansion.bytes() + pending.bytes()
     },
   }
 }

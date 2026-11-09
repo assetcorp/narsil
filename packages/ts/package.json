@@ -52,8 +52,13 @@
     },
     "#platform/frozen-writes": {
       "react-native": "./src/core/frozen-writes/native.ts",
-      "browser": "./src/core/frozen-writes/portable.ts",
+      "browser": "./src/core/frozen-writes/bound-kernel.ts",
       "default": "./src/core/frozen-writes/native.ts"
+    },
+    "#platform/frozen-kernel-host": {
+      "react-native": "./src/core/frozen-writes/kernel-host.ts",
+      "browser": "./src/core/frozen-writes/kernel-host.browser.ts",
+      "default": "./src/core/frozen-writes/kernel-host.ts"
     },
     "#platform/segment-writes": {
       "react-native": "./src/core/segment-writes/native.ts",

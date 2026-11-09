@@ -1,4 +1,4 @@
-import { attachedRuntimeOf, loadStorageCode } from '#platform/restore-queue-host'
+import { attachedRuntimeOf, loadOptionalWrites, loadStorageCode } from '#platform/restore-queue-host'
 import { abandonChangeOf } from '../engine/analysis-change-entry'
 import type { EngineCore, IndexRegistryEntry } from '../engine/core'
 import type { RestoreDeps } from '../engine/snapshot'
@@ -74,6 +74,6 @@ export async function runRestore(
   data: ByteSource,
   engine: Narsil,
 ): Promise<void> {
-  const { restoreFromSnapshot } = await loadStorageCode()
+  const [{ restoreFromSnapshot }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
   await restoreFromSnapshot(indexName, data, restoreDepsOf(core, host, engine, indexName))
 }

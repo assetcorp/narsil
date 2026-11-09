@@ -1,101 +1,128 @@
-import type { NativeFrozenSegmentCore } from '../../vector/native/types/frozen-segments'
-import { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/status'
-import { removedTermCounts } from './counts'
-import { readFrozenRequest } from './regions'
-import { removedStringCounts } from './strings'
+import {
+  PENDING_DOCUMENTS,
+  PENDING_TOKENS,
+  PENDING_UNITS,
+  pendingSettled,
+  readFrozenRequest,
+  readFrozenSettle,
+  requireRoom,
+  requireSegment,
+  SegmentRefusal,
+} from '#platform/frozen-kernel-host'
+import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
+import { type FrozenChanges, settleTermCounts } from './counts'
+import type { PendingSize } from './pending'
+import { appendPending, pendingFits, pendingNeeds } from './pending-writes'
+import { settleStringCounts } from './string-counts'
+import type { FrozenPagedRemovals, PrepareFrozenRemoval, RemoveFrozenDocument, SettleFrozenState } from './types'
 
-type Request = ReturnType<typeof readFrozenRequest>
+const PREPARED_REPLACEMENTS = 5
 
-function collect(request: Request, ordinal: number) {
-  const { segment, state, fields } = request
-  if ((state.tombstones[ordinal >>> 5] & (1 << (ordinal & 31))) !== 0) return null
-  requireSegment(state.tombstoneCount[0] < segment.documentCount)
-  const terms = removedTermCounts(segment, ordinal)
-  const { surfaces, spellings } = removedStringCounts(segment, fields)
-  for (const term of terms.keys())
-    requireSegment(Number.isFinite(state.removedOccurrences[term]) && state.removedOccurrences[term] >= 0)
-  return { terms, surfaces, spellings }
+function clamped(removed: number, stored: number, amount: number): number {
+  return Math.min(stored, removed + amount)
 }
 
-function visitUpdates(
-  request: Request,
-  changes: NonNullable<ReturnType<typeof collect>>,
-  ordinal: number,
-  visit: (kind: number, entry: number, value: number) => void,
-): void {
-  const { segment, state } = request
-  for (const [term, count] of changes.terms) {
-    visit(0, term, state.removedDocuments[term] + Number(state.removedDocuments[term] < segment.terms.counts[term]))
-    visit(1, term, state.removedOccurrences[term] + count)
+function settle(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, paged: FrozenPagedRemovals | null) {
+  if (pendingSettled(state)) return
+  const changes: FrozenChanges = { terms: new Map(), surfaces: new Map(), spellings: new Map() }
+  settleTermCounts(changes, segment, state, paged)
+  settleStringCounts(changes, segment, state)
+  for (const term of changes.terms.keys())
+    requireSegment(Number.isFinite(state.removedOccurrences[term]) && state.removedOccurrences[term] >= 0)
+  for (const [term, change] of changes.terms) {
+    state.removedDocuments[term] = clamped(state.removedDocuments[term], segment.terms.counts[term], change.documents)
+    state.removedOccurrences[term] += change.amount
   }
   if (segment.surfaces !== null)
-    for (const [entry, count] of changes.surfaces)
-      visit(2, entry, Math.min(segment.surfaces.counts[entry], state.removedSurfaces[entry] + count))
+    for (const [entry, amount] of changes.surfaces)
+      state.removedSurfaces[entry] = clamped(state.removedSurfaces[entry], segment.surfaces.counts[entry], amount)
   if (segment.spellings !== null)
-    for (const [entry, count] of changes.spellings)
-      visit(3, entry, Math.min(segment.spellings.counts[entry], state.removedSpellings[entry] + count))
-  visit(4, ordinal >>> 5, (state.tombstones[ordinal >>> 5] | (1 << (ordinal & 31))) >>> 0)
-  visit(5, 0, state.tombstoneCount[0] + 1)
+    for (const [entry, amount] of changes.spellings)
+      state.removedSpellings[entry] = clamped(state.removedSpellings[entry], segment.spellings.counts[entry], amount)
+  state.pendingHeader[PENDING_DOCUMENTS] = 0
+  state.pendingHeader[PENDING_TOKENS] = 0
+  state.pendingHeader[PENDING_UNITS] = 0
 }
 
-export const removeFrozenDocument: NativeFrozenSegmentCore['removeFrozenDocument'] = (
+function tombstoned(state: NativeFrozenSegmentState, ordinal: number): boolean {
+  return (state.tombstones[ordinal >>> 5] & (1 << (ordinal & 31))) !== 0
+}
+
+function makeRoom(request: ReturnType<typeof readFrozenRequest>, paged: FrozenPagedRemovals | null): PendingSize {
+  const { segment, state, fields } = request
+  const needed = pendingNeeds(segment.partialFields, fields)
+  requireRoom(pendingFits(state, needed, true))
+  if (!pendingFits(state, needed, false)) settle(segment, state, paged)
+  return needed
+}
+
+function refusal(error: unknown): number {
+  if (error instanceof SegmentRefusal) return error.status
+  throw error
+}
+
+export const removeFrozenDocument: RemoveFrozenDocument = (input, output, ordinal, tokens, paged) => {
+  try {
+    const request = readFrozenRequest(input, output, ordinal, tokens)
+    const { segment, state, fields } = request
+    if (tombstoned(state, ordinal)) return 0
+    requireSegment(state.tombstoneCount[0] < segment.documentCount)
+    const needed = makeRoom(request, paged)
+    appendPending(state, segment.partialFields, ordinal, fields)
+    state.pendingHeader[PENDING_DOCUMENTS] += needed.documents
+    state.pendingHeader[PENDING_TOKENS] += needed.tokens
+    state.pendingHeader[PENDING_UNITS] += needed.units
+    state.tombstones[ordinal >>> 5] |= 1 << (ordinal & 31)
+    state.tombstoneCount[0]++
+    return 0
+  } catch (error) {
+    return refusal(error)
+  }
+}
+
+export const prepareFrozenRemoval: PrepareFrozenRemoval = (
   input,
   output,
   ordinal,
   tokens,
+  rawEntries,
+  rawValues,
+  paged,
 ) => {
   try {
     const request = readFrozenRequest(input, output, ordinal, tokens)
-    const changes = collect(request, ordinal)
-    if (changes === null) return 0
-    const state = request.state
-    const regions = [
-      state.removedDocuments,
-      state.removedOccurrences,
-      state.removedSurfaces,
-      state.removedSpellings,
-      state.tombstones,
-      state.tombstoneCount,
+    const { entries, values } = request.readOutput(rawEntries, rawValues)
+    const { segment, state, fields } = request
+    if (tombstoned(state, ordinal)) return 0
+    requireSegment(state.tombstoneCount[0] < segment.documentCount)
+    requireRoom(entries.length / 2 >= PREPARED_REPLACEMENTS && values.length >= PREPARED_REPLACEMENTS)
+    const needed = makeRoom(request, paged)
+    appendPending(state, segment.partialFields, ordinal, fields)
+    const header = state.pendingHeader
+    const replacements = [
+      [4, ordinal >>> 5, (state.tombstones[ordinal >>> 5] | (1 << (ordinal & 31))) >>> 0],
+      [5, 0, state.tombstoneCount[0] + 1],
+      [6, PENDING_DOCUMENTS, header[PENDING_DOCUMENTS] + needed.documents],
+      [6, PENDING_TOKENS, header[PENDING_TOKENS] + needed.tokens],
+      [6, PENDING_UNITS, header[PENDING_UNITS] + needed.units],
     ]
-    visitUpdates(request, changes, ordinal, (kind, entry, value) => {
-      regions[kind][entry] = value
-    })
-    return 0
+    for (let at = 0; at < replacements.length; at++) {
+      entries[at * 2] = replacements[at][0]
+      entries[at * 2 + 1] = replacements[at][1]
+      values[at] = replacements[at][2]
+    }
+    return PREPARED_REPLACEMENTS
   } catch (error) {
-    if (error instanceof SegmentRefusal) return error.status
-    throw error
+    return -refusal(error)
   }
 }
 
-export const prepareFrozenRemoval: NativeFrozenSegmentCore['prepareFrozenRemoval'] = (
-  input,
-  state,
-  ordinal,
-  tokens,
-  rawEntries,
-  rawValues,
-) => {
+export const settleFrozenState: SettleFrozenState = (input, output, paged) => {
   try {
-    const request = readFrozenRequest(input, state, ordinal, tokens)
-    const { entries, values } = request.readOutput(rawEntries, rawValues)
-    const changes = collect(request, ordinal)
-    if (changes === null) return 0
-    const needed = changes.terms.size * 2 + changes.surfaces.size + changes.spellings.size + 2
-    requireRoom(needed <= entries.length / 2 && needed <= values.length)
-    let at = 0
-    const ordered = {
-      terms: new Map([...changes.terms].sort(([left], [right]) => left - right)),
-      surfaces: changes.surfaces,
-      spellings: new Map([...changes.spellings].sort(([left], [right]) => left - right)),
-    }
-    visitUpdates(request, ordered, ordinal, (kind, entry, value) => {
-      entries[at * 2] = kind
-      entries[at * 2 + 1] = entry
-      values[at++] = value
-    })
-    return needed
+    const { segment, state } = readFrozenSettle(input, output)
+    settle(segment, state, paged)
+    return 0
   } catch (error) {
-    if (error instanceof SegmentRefusal) return -error.status
-    throw error
+    return refusal(error)
   }
 }

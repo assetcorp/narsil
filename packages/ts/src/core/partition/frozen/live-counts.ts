@@ -2,7 +2,7 @@ import { readResidentMemory } from '#platform/process-limit'
 import type { NativeExpansionSegment } from '../../../vector/native/types/expansion'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
 import type { NativeTermDictionary } from '../../../vector/native/types/terms'
-import { prepareFrozenPublication } from '../../frozen-writes/publication'
+import { createFrozenRemovals, emptyPendingRegions } from '../../frozen-writes/publication'
 import { TermLookup } from '../../term-table/lookup'
 import { FROZEN_REMOVAL_INDEX_MAX_PROCESS_FRACTION } from '../constants'
 import type { SegmentColumns } from './columns'
@@ -30,6 +30,8 @@ export interface FrozenLiveCounts {
   removedOccurrences(sortedIndex: number): number
   docFrequencies(): Readonly<Record<string, number>>
   prepareRemoval(ordinal: number, strings?: FrozenStringRemoval): () => void
+  pendingRemovals(): boolean
+  settleRemovals(): void
   bytes(): number
   dictionary(): NativeTermDictionary
   expansionSource?(): NativeExpansionSegment
@@ -121,15 +123,24 @@ export function createFrozenLiveCounts(
     removedOccurrences: occurrences,
     removedSurfaces: empty,
     removedSpellings: empty,
+    ...emptyPendingRegions(),
   }
+  const removals = createFrozenRemovals(segment, removalState, null)
 
   function documentFrequency(sortedIndex: number): number {
+    removals.settle()
     return lookups.frequency(dictionary, sortedIndex)
   }
 
   return {
-    expansionSource: () => ({ growing: null, frozen: segment, state: removalState }),
+    expansionSource: () => {
+      removals.settle()
+      return { growing: null, frozen: segment, state: removalState }
+    },
+    pendingRemovals: removals.pending,
+    settleRemovals: removals.settle,
     dictionary(): NativeTermDictionary {
+      removals.settle()
       return dictionary
     },
     totalDocuments(): number {
@@ -143,11 +154,13 @@ export function createFrozenLiveCounts(
     documentFrequency,
 
     removedOccurrences(sortedIndex: number): number {
+      removals.settle()
       return occurrences[sortedIndex]
     },
 
     docFrequencies(): Readonly<Record<string, number>> {
       if (tombstones.size === 0) return storedFrequencies()
+      removals.settle()
       if (frequencies !== null && frequenciesRevision === tombstones.revision) return frequencies
       const live: Record<string, number> = Object.create(null)
       for (let at = 0; at < table.size; at++) {
@@ -163,22 +176,7 @@ export function createFrozenLiveCounts(
       const nextLengths = lengths ?? { ...columns.totalFieldLengths }
       index ??= tryBuildRemovalIndex(columns, table)
       segment.removalIndex = index
-      const preparedSegment = strings === undefined ? segment : { ...segment, ...strings }
-      const preparedState =
-        strings === undefined
-          ? removalState
-          : {
-              ...removalState,
-              removedSurfaces: strings.removedSurfaces,
-              removedSpellings: strings.removedSpellings,
-            }
-      const publish = prepareFrozenPublication(
-        preparedSegment,
-        preparedState,
-        ordinal,
-        strings?.fields ?? [],
-        strings?.synchroniseSurface,
-      )
+      const publish = removals.prepare(ordinal, strings?.fields ?? [], strings)
       return () => {
         lengths ??= nextLengths
         for (let field = 0; field < columns.fieldLengthNames.length; field++) {
@@ -189,7 +187,8 @@ export function createFrozenLiveCounts(
     },
 
     bytes(): number {
-      const retained = documents.byteLength + occurrences.byteLength + segment.partialFields.byteLength
+      const retained =
+        documents.byteLength + occurrences.byteLength + segment.partialFields.byteLength + removals.bytes()
       return index === null
         ? retained
         : retained + index.starts.byteLength + index.rows.byteLength + index.termOfSlot.byteLength

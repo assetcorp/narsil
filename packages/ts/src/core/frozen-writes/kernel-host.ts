@@ -1,0 +1,6 @@
+export { compareBytes } from '../partition/frozen/string-blob'
+export { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/status'
+export { storedText } from '../stored-values/text'
+export { PENDING_DOCUMENTS, PENDING_TOKEN_WORDS, PENDING_TOKENS, PENDING_UNITS, pendingSettled } from './pending'
+export { readFrozenRequest, readFrozenSettle } from './regions'
+export { findEntry, textAt } from './strings'

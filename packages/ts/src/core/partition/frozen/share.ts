@@ -15,6 +15,7 @@ export function shareFrozenSegment(
   segment: FrozenSegment,
   analysis: PartialWordAnalysis | null,
 ): SharedFrozenSegment | null {
+  segment.settleRemovals()
   if (segment.paged !== null) {
     return { snapshot: segment.paged.snapshot, tombstonedDocIds: segment.tombstonedDocIds() }
   }

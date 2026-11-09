@@ -4,6 +4,7 @@
 
 #ifndef _WIN32
 
+#include "../include/narsil_frozen_segments.h"
 #include "../include/narsil_paged.h"
 
 #include <stddef.h>
@@ -147,6 +148,47 @@ static void id_checks(narsil_workspace *workspace, const narsil_paged_file *file
         "the ID bytes cannot overwrite their length");
 }
 
+static void paged_settle_checks(narsil_workspace *workspace, const narsil_page_section *offsets,
+                                narsil_page_section *values) {
+  enum { TOKENS = 3, FIRST_FREQUENCY = 3, SECOND_FREQUENCY = 5 };
+  const uint8_t text[] = "abc";
+  const uint32_t term_offsets[] = {0, 1, 2, 3};
+  const uint32_t term_counts[] = {1, 1, 1};
+  const uint32_t slots[] = {0, 1, 2};
+  const uint32_t posting_offsets[] = {0, 0, 0, 0};
+  narsil_frozen_segment segment = {.terms = {text, sizeof text - 1, term_offsets, term_counts, TOKENS},
+                                   .payload_slots = slots,
+                                   .posting_offsets = posting_offsets,
+                                   .document_count = 1};
+  uint32_t bits = 1;
+  uint32_t count = 1;
+  uint32_t documents[TOKENS] = {0};
+  double occurrences[TOKENS] = {0};
+  uint32_t header[NARSIL_PENDING_HEADER_WORDS] = {1};
+  uint32_t pending[1] = {0};
+  narsil_frozen_segment_state state = {.tombstones = &bits,
+                                       .tombstone_count = &count,
+                                       .removed_documents = documents,
+                                       .removed_occurrences = occurrences,
+                                       .pending_header = header,
+                                       .pending_documents = pending,
+                                       .pending_document_capacity = 1};
+  narsil_page_fault fault = {0};
+  narsil_frozen_paged_removals paged = {NULL, offsets, values, &fault};
+  check(narsil_settle_frozen_state(workspace, &segment, &state, &paged) == NARSIL_OK && documents[0] == 1 &&
+            documents[1] == 0 && documents[2] == 1 && occurrences[0] == (double)FIRST_FREQUENCY &&
+            occurrences[1] == 0 && occurrences[2] == (double)SECOND_FREQUENCY && header[NARSIL_PENDING_DOCUMENTS] == 0,
+        "settling a paged segment reads each pending document's removal entry");
+  memset(documents, 0, sizeof documents);
+  memset(occurrences, 0, sizeof occurrences);
+  header[NARSIL_PENDING_DOCUMENTS] = 1;
+  values->length -= sizeof(uint32_t);
+  check(narsil_settle_frozen_state(workspace, &segment, &state, &paged) == NARSIL_PAGE_INVALID && documents[0] == 0 &&
+            documents[2] == 0 && occurrences[0] == 0 && header[NARSIL_PENDING_DOCUMENTS] == 1,
+        "a malformed paged removal entry leaves the pending state unsettled");
+  values->length += sizeof(uint32_t);
+}
+
 static void removal_checks(narsil_workspace *workspace, const narsil_paged_file *file) {
   enum { OFFSET_WORDS = 2, VALUE_WORDS = 4, TOKENS = 3 };
   narsil_page_section offsets = {file,
@@ -187,6 +229,7 @@ static void removal_checks(narsil_workspace *workspace, const narsil_paged_file 
   check(narsil_read_paged_removals(workspace, NULL, list, output, &fault) == NARSIL_INVALID_ARGUMENT &&
             memcmp(output_values, unchanged, sizeof unchanged) == 0,
         "a removal count cannot overwrite its entry output");
+  paged_settle_checks(workspace, &offsets, &values);
 }
 
 static void position_checks(narsil_workspace *workspace, const narsil_paged_file *file) {

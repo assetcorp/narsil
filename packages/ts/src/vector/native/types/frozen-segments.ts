@@ -1,3 +1,4 @@
+import type { NativePageCache, NativePageSection } from './paged'
 import type { NativeFieldTokens } from './segments'
 
 /** The UTF-8 strings and stored counts of an immutable keyword table. @internal */
@@ -46,8 +47,6 @@ export interface NativeFrozenSegment {
   partialFields: Uint8Array
   /** The number of document ordinals in this segment. */
   documentCount: number
-  /** The selected document's sorted term and frequency pairs, when its postings remain on disk. */
-  removalTerms?: Uint32Array | null
 }
 
 /** The removal regions that one copy holds separately from a shared frozen segment. @internal */
@@ -64,6 +63,26 @@ export interface NativeFrozenSegmentState {
   removedSurfaces: Uint32Array
   /** The removed occurrences of each spelling entry. */
   removedSpellings: Uint32Array
+  /** Eight words, holding the pending document count, the pending token count, and the pending unit count. */
+  pendingHeader: Uint32Array
+  /** The tombstoned ordinals whose counts the removed regions do not hold yet, in removal order. */
+  pendingDocuments: Uint32Array
+  /** Five words for each pending token: its field, term offset, term length, surface offset, and surface length. */
+  pendingTokens: Uint32Array
+  /** The UTF-16 code units that the pending tokens point into. */
+  pendingUnits: Uint16Array
+}
+
+/** The paged sections that hold the removal entries of a segment whose postings remain on disk. @internal */
+export interface NativeFrozenPagedRemovals {
+  /** The section that holds the first word of each document's removal entry. */
+  offsets: NativePageSection
+  /** The section that holds each removal entry's sorted term and frequency pairs. */
+  values: NativePageSection
+  /** The page cache of the calling thread, or null to read every page from the file. */
+  cache: NativePageCache | null
+  /** Receives the file identity, section offset, and page number of a page that the core cannot read. */
+  fault: BigUint64Array
 }
 
 /** The operations that remove documents from immutable keyword segments. @internal */
@@ -71,13 +90,14 @@ export interface NativeFrozenSegmentCore {
   /**
    * Prepares a frozen removal for publication after the host finishes the document's other changes.
    * @param segment - The immutable keyword regions and optional reverse posting index.
-   * @param state - The current removal regions, which this call preserves.
+   * @param state - The current removal regions. The call writes the pending document and tokens past the pending
+   * counts, and it settles the pending regions first when they are full.
    * @param ordinal - The document ordinal, below the segment's document count.
    * @param fields - The document's analysed tokens, grouped by ascending field ordinal.
    * @param entries - Receives pairs of region kind and element index for each changed value.
-   * Region kinds are 0 for removed documents, 1 for removed occurrences, 2 for removed surfaces,
-   * 3 for removed spellings, 4 for tombstone words, and 5 for the tombstone count.
+   * Region kinds are 4 for tombstone words, 5 for the tombstone count, and 6 for pending header words.
    * @param values - Receives the replacement values in the same order as the entry pairs.
+   * @param paged - The paged removal sections, or null for a segment that holds its postings in memory.
    * @returns The number of changes, or a negative core status that leaves every region unchanged.
    * The host must keep the publication write gate until it copies every prepared value into its region.
    */
@@ -88,13 +108,15 @@ export interface NativeFrozenSegmentCore {
     fields: readonly NativeFieldTokens[],
     entries: Uint32Array,
     values: Float64Array,
+    paged: NativeFrozenPagedRemovals | null,
   ): number
   /**
-   * Records one document's removal while preserving the shared segment regions.
+   * Records one document's removal in the pending regions while preserving the shared segment regions.
    * @param segment - The immutable keyword regions and optional reverse posting index.
    * @param state - The writable removal regions of this copy.
    * @param ordinal - The document ordinal, below the segment's document count.
    * @param fields - The document's analysed tokens, grouped by ascending field ordinal.
+   * @param paged - The paged removal sections, or null for a segment that holds its postings in memory.
    * @returns Zero on success, including an ordinal already removed, or a positive core status on refusal.
    * Every refusal leaves the source and removal regions unchanged.
    */
@@ -103,5 +125,18 @@ export interface NativeFrozenSegmentCore {
     state: NativeFrozenSegmentState,
     ordinal: number,
     fields: readonly NativeFieldTokens[],
+    paged: NativeFrozenPagedRemovals | null,
+  ): number
+  /**
+   * Adds every pending removal to the removed regions and empties the pending regions.
+   * @param segment - The immutable keyword regions and optional reverse posting index.
+   * @param state - The writable removal regions of this copy.
+   * @param paged - The paged removal sections, or null for a segment that holds its postings in memory.
+   * @returns Zero on success, or a positive core status that leaves every region unchanged.
+   */
+  settleFrozenState(
+    segment: NativeFrozenSegment,
+    state: NativeFrozenSegmentState,
+    paged: NativeFrozenPagedRemovals | null,
   ): number
 }

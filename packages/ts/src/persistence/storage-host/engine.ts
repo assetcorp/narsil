@@ -34,6 +34,7 @@ type EngineNames = Pick<
   | 'configurationPayloadOf'
   | 'countWrite'
   | 'createCompositePartition'
+  | 'createFrozenRemovals'
   | 'createFrozenSegment'
   | 'createPartitionIndex'
   | 'createPartitionManager'
@@ -43,6 +44,7 @@ type EngineNames = Pick<
   | 'detectRuntime'
   | 'emitEngineEvent'
   | 'emitSyncChange'
+  | 'emptyPendingRegions'
   | 'extractVectorFieldsFromSchema'
   | 'flattenSchema'
   | 'fnv1a'
@@ -70,7 +72,6 @@ type EngineNames = Pick<
   | 'prepareConfiguredSynonyms'
   | 'prepareDocumentText'
   | 'prepareDocumentVectors'
-  | 'prepareFrozenPublication'
   | 'prepareRemovalText'
   | 'prepareStoredSynonyms'
   | 'raiseEarlierReleaseGraphSetting'
@@ -148,6 +149,7 @@ export let compareScores: EngineNames['compareScores']
 export let configurationPayloadOf: EngineNames['configurationPayloadOf']
 export let countWrite: EngineNames['countWrite']
 export let createCompositePartition: EngineNames['createCompositePartition']
+export let createFrozenRemovals: EngineNames['createFrozenRemovals']
 export let createFrozenSegment: EngineNames['createFrozenSegment']
 export let createPartitionIndex: EngineNames['createPartitionIndex']
 export let createPartitionManager: EngineNames['createPartitionManager']
@@ -157,6 +159,7 @@ export let decodeSurfaceTable: EngineNames['decodeSurfaceTable']
 export let detectRuntime: EngineNames['detectRuntime']
 export let emitEngineEvent: EngineNames['emitEngineEvent']
 export let emitSyncChange: EngineNames['emitSyncChange']
+export let emptyPendingRegions: EngineNames['emptyPendingRegions']
 export let extractVectorFieldsFromSchema: EngineNames['extractVectorFieldsFromSchema']
 export let flattenSchema: EngineNames['flattenSchema']
 export let fnv1a: EngineNames['fnv1a']
@@ -184,7 +187,6 @@ export let partitionStateOf: EngineNames['partitionStateOf']
 export let prepareConfiguredSynonyms: EngineNames['prepareConfiguredSynonyms']
 export let prepareDocumentText: EngineNames['prepareDocumentText']
 export let prepareDocumentVectors: EngineNames['prepareDocumentVectors']
-export let prepareFrozenPublication: EngineNames['prepareFrozenPublication']
 export let prepareRemovalText: EngineNames['prepareRemovalText']
 export let prepareStoredSynonyms: EngineNames['prepareStoredSynonyms']
 export let raiseEarlierReleaseGraphSetting: EngineNames['raiseEarlierReleaseGraphSetting']
@@ -260,6 +262,7 @@ export function bindEngineNames(host: EngineNames): void {
     configurationPayloadOf,
     countWrite,
     createCompositePartition,
+    createFrozenRemovals,
     createFrozenSegment,
     createPartitionIndex,
     createPartitionManager,
@@ -269,6 +272,7 @@ export function bindEngineNames(host: EngineNames): void {
     detectRuntime,
     emitEngineEvent,
     emitSyncChange,
+    emptyPendingRegions,
     extractVectorFieldsFromSchema,
     flattenSchema,
     fnv1a,
@@ -296,7 +300,6 @@ export function bindEngineNames(host: EngineNames): void {
     prepareConfiguredSynonyms,
     prepareDocumentText,
     prepareDocumentVectors,
-    prepareFrozenPublication,
     prepareRemovalText,
     prepareStoredSynonyms,
     raiseEarlierReleaseGraphSetting,

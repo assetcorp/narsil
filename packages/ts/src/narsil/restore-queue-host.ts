@@ -3,6 +3,7 @@ import type * as SuggestionStoreCode from '../query-suggestions/store-leaf'
 
 export { removeDocumentBatch } from '#platform/memory-guarded-writes'
 export { emitEngineEvent } from '../engine/events'
+export { loadOptionalWrites } from '../engine/optional-writes-code'
 export { ErrorCodes, NarsilError } from '../errors'
 export { loadStorageCode } from '../persistence/storage-code'
 export { attachedRuntimeOf } from '../query-suggestions/attached'

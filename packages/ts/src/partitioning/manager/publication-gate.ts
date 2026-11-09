@@ -3,13 +3,18 @@ export interface PublicationGate {
   write<T>(write: () => T | Promise<T>): Promise<T>
 }
 
+export interface PublicationSettlement {
+  pending(): boolean
+  settle(): void
+}
+
 interface Waiting {
   readonly writer: boolean
   readonly start: () => void
   next?: Waiting
 }
 
-export function createPublicationGate(): PublicationGate {
+export function createPublicationGate(settlement?: PublicationSettlement): PublicationGate {
   let readers = 0
   let writing = false
   let first: Waiting | undefined
@@ -17,7 +22,9 @@ export function createPublicationGate(): PublicationGate {
   let pumping = false
 
   function available(writer: boolean): boolean {
-    return !writing && (!writer || readers === 0)
+    if (writing) return false
+    if (writer) return readers === 0
+    return readers === 0 || settlement === undefined || !settlement.pending()
   }
 
   function pump(): void {
@@ -38,6 +45,7 @@ export function createPublicationGate(): PublicationGate {
   }
 
   async function start<T>(writer: boolean, work: (release: () => void) => T | Promise<T>): Promise<T> {
+    if (!writer && readers === 0) settlement?.settle()
     if (writer) writing = true
     else readers++
     let held = true

@@ -7,6 +7,14 @@ import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { regionsOverlap } from '../regions'
 import { requireSegment } from '../segment-writes/status'
 import { typedRegion } from '../stored-values/regions'
+import {
+  PENDING_DOCUMENTS,
+  PENDING_HEADER_WORDS,
+  PENDING_TOKEN_WORDS,
+  PENDING_TOKENS,
+  PENDING_UNITS,
+  pendingSettled,
+} from './pending'
 
 type RegionKind = Parameters<typeof typedRegion>[1]
 
@@ -104,7 +112,6 @@ function readFrozen(
     postingFrequencies: regions.array(raw.postingFrequencies, 'Uint16Array', postingDocuments.length),
     postingFields: regions.array(raw.postingFields, 'Uint16Array', postingDocuments.length),
     spellingTokens: regions.array(raw.spellingTokens, 'Uint32Array', spellings?.counts.length ?? 0),
-    removalTerms: raw.removalTerms == null ? null : regions.array(raw.removalTerms, 'Uint32Array'),
     removalIndex:
       raw.removalIndex === null
         ? null
@@ -114,14 +121,6 @@ function readFrozen(
             termOfSlot: regions.array(raw.removalIndex.termOfSlot, 'Uint32Array', terms.counts.length),
           },
   }
-  if (segment.removalTerms != null) {
-    requireSegment(segment.removalTerms.length % 2 === 0)
-    for (let at = 0; at < segment.removalTerms.length; at += 2)
-      requireSegment(
-        segment.removalTerms[at] < terms.counts.length &&
-          (at === 0 || segment.removalTerms[at] > segment.removalTerms[at - 2]),
-      )
-  }
   const state: NativeFrozenSegmentState = {
     tombstones: regions.array(writable.tombstones, 'Uint32Array', Math.max(1, Math.ceil(documentCount / 32)), true),
     tombstoneCount: regions.array(writable.tombstoneCount, 'Uint32Array', 1, true),
@@ -129,7 +128,18 @@ function readFrozen(
     removedOccurrences: regions.array(writable.removedOccurrences, 'Float64Array', terms.counts.length, true),
     removedSurfaces: regions.array(writable.removedSurfaces, 'Uint32Array', surfaces?.counts.length ?? 0, true),
     removedSpellings: regions.array(writable.removedSpellings, 'Uint32Array', spellings?.counts.length ?? 0, true),
+    pendingHeader: regions.array(writable.pendingHeader, 'Uint32Array', PENDING_HEADER_WORDS, true),
+    pendingDocuments: regions.array(writable.pendingDocuments, 'Uint32Array', undefined, true),
+    pendingTokens: regions.array(writable.pendingTokens, 'Uint32Array', undefined, true),
+    pendingUnits: regions.array(writable.pendingUnits, 'Uint16Array', undefined, true),
   }
+  const header = state.pendingHeader
+  requireSegment(
+    state.pendingTokens.length % PENDING_TOKEN_WORDS === 0 &&
+      header[PENDING_DOCUMENTS] <= state.pendingDocuments.length &&
+      header[PENDING_TOKENS] <= state.pendingTokens.length / PENDING_TOKEN_WORDS &&
+      header[PENDING_UNITS] <= state.pendingUnits.length,
+  )
   let previous = -1
   for (const field of fields) {
     requireSegment(Number.isInteger(field.field) && field.field > previous && field.field < partialFields.length)
@@ -171,6 +181,12 @@ export function readFrozenRequest(
   return readFrozen(input, output, ordinal, fields)
 }
 
-export function readFrozenSource(input: NativeFrozenSegment, state: NativeFrozenSegmentState) {
+export function readFrozenSettle(input: NativeFrozenSegment, state: NativeFrozenSegmentState) {
   return readFrozen(input, state, null, [])
+}
+
+export function readFrozenSource(input: NativeFrozenSegment, state: NativeFrozenSegmentState) {
+  const source = readFrozen(input, state, null, [])
+  requireSegment(pendingSettled(source.state))
+  return source
 }

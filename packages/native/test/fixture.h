@@ -74,6 +74,7 @@ void sort_select_checks(narsil_workspace *workspace);
 void filter_checks(narsil_workspace *workspace);
 void pattern_checks(narsil_workspace *workspace);
 void segment_write_checks(narsil_workspace *workspace);
+void frozen_removal_checks(narsil_workspace *workspace);
 void segment_merge_checks(narsil_workspace *workspace);
 void field_merge_checks(narsil_workspace *workspace);
 void synonym_checks(void);
