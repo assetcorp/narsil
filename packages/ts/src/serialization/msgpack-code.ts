@@ -1,6 +1,7 @@
 import { getNestedValue } from '../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../errors'
 import {
+  BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER,
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
   DOCUMENT_REPLY_ENVELOPE_DEPTH,
   MAX_DOCUMENT_ENCODING_DEPTH,
@@ -17,6 +18,7 @@ export function loadMessagePack(): Promise<MessagePackCode> {
   loading ??= import('./msgpack-leaf').then(
     code => {
       code.bindMsgpackHost({
+        BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER,
         DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
         DOCUMENT_REPLY_ENVELOPE_DEPTH,
         ErrorCodes,
