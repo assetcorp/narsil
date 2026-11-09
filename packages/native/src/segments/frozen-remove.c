@@ -17,7 +17,6 @@ frozen_pending_size frozen_pending_needed(const narsil_remove_frozen_request *re
     const narsil_field_tokens *field = request->fields + at;
     for (size_t index = 0; index < field->tokens.token_count; index++) {
       const narsil_token *token = field->tokens.tokens + index;
-      if (!frozen_token_pending(request->segment, field, token)) { continue; }
       tokens++;
       units += token->term_length;
       if (token->surface_offset != NARSIL_NO_SURFACE) { units += token->surface_length; }
@@ -50,7 +49,6 @@ void frozen_pending_append(const narsil_remove_frozen_request *request) {
     const narsil_field_tokens *field = request->fields + at;
     for (size_t index = 0; index < field->tokens.token_count; index++) {
       const narsil_token *token = field->tokens.tokens + index;
-      if (!frozen_token_pending(request->segment, field, token)) { continue; }
       uint32_t *words = state->pending_tokens + ((size_t)written++ * NARSIL_PENDING_TOKEN_WORDS);
       words[0] = field->field;
       words[1] = units;

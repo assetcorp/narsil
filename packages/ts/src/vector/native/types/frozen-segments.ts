@@ -93,7 +93,8 @@ export interface NativeFrozenSegmentCore {
    * @param state - The current removal regions. The call writes the pending document and tokens past the pending
    * counts, and it settles the pending regions first when they are full.
    * @param ordinal - The document ordinal, below the segment's document count.
-   * @param fields - The document's analysed tokens, grouped by ascending field ordinal.
+   * @param fields - The document's analysed tokens whose surface differs from their term or whose field is a partial
+   * field, grouped by ascending field ordinal. The core appends every token that it receives to the pending regions.
    * @param entries - Receives pairs of region kind and element index for each changed value.
    * Region kinds are 4 for tombstone words, 5 for the tombstone count, and 6 for pending header words.
    * @param values - Receives the replacement values in the same order as the entry pairs.
@@ -115,7 +116,8 @@ export interface NativeFrozenSegmentCore {
    * @param segment - The immutable keyword regions and optional reverse posting index.
    * @param state - The writable removal regions of this copy.
    * @param ordinal - The document ordinal, below the segment's document count.
-   * @param fields - The document's analysed tokens, grouped by ascending field ordinal.
+   * @param fields - The document's analysed tokens whose surface differs from their term or whose field is a partial
+   * field, grouped by ascending field ordinal. The core appends every token that it receives to the pending regions.
    * @param paged - The paged removal sections, or null for a segment that holds its postings in memory.
    * @returns Zero on success, including an ordinal already removed, or a positive core status on refusal.
    * Every refusal leaves the source and removal regions unchanged.

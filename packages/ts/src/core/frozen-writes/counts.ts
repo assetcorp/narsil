@@ -2,15 +2,48 @@ import { PENDING_DOCUMENTS, requireSegment } from '#platform/frozen-kernel-host'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
 import type { FrozenPagedRemovals } from './types'
 
-export interface TermChange {
-  documents: number
-  amount: number
+export interface TermChanges {
+  readonly documents: Float64Array
+  readonly amounts: Float64Array
+  readonly marks: Float64Array
+  readonly touched: number[]
+  mark: number
+  seen: Float64Array
+  seenMark: number
 }
 
 export interface FrozenChanges {
-  terms: Map<number, TermChange>
+  terms: TermChanges
   surfaces: Map<number, number>
   spellings: Map<number, number>
+}
+
+const termChangesByCounts = new WeakMap<Uint32Array, TermChanges>()
+
+export function termChangesOf(segment: NativeFrozenSegment): TermChanges {
+  const counts = segment.terms.counts
+  const held = termChangesByCounts.get(counts)
+  if (held !== undefined) return held
+  const terms = counts.length
+  const created: TermChanges = {
+    documents: new Float64Array(terms),
+    amounts: new Float64Array(terms),
+    marks: new Float64Array(terms),
+    touched: [],
+    mark: 0,
+    seen: new Float64Array(segment.documentCount),
+    seenMark: 0,
+  }
+  termChangesByCounts.set(counts, created)
+  return created
+}
+
+export function clearTermChanges(changes: TermChanges): void {
+  for (const term of changes.touched) {
+    changes.documents[term] = 0
+    changes.amounts[term] = 0
+  }
+  changes.touched.length = 0
 }
 
 function slotOfRow(offsets: Uint32Array, row: number): number {
@@ -24,27 +57,29 @@ function slotOfRow(offsets: Uint32Array, row: number): number {
   return low
 }
 
-function addTerm(changes: FrozenChanges, term: number, documents: number, amount: number): void {
-  const held = changes.terms.get(term)
-  if (held === undefined) changes.terms.set(term, { documents, amount })
-  else {
-    held.documents += documents
-    held.amount += amount
+function addTerm(changes: TermChanges, term: number, documents: number, amount: number): void {
+  if (changes.documents[term] === 0) changes.touched.push(term)
+  changes.documents[term] += documents
+  changes.amounts[term] += amount
+}
+
+function addOccurrences(changes: TermChanges, term: number, amount: number): void {
+  if (changes.marks[term] === changes.mark) {
+    changes.amounts[term] += amount
+    return
   }
+  changes.marks[term] = changes.mark
+  addTerm(changes, term, 1, amount)
 }
 
-function addDocument(changes: FrozenChanges, counts: ReadonlyMap<number, number>): void {
-  for (const [term, amount] of counts) addTerm(changes, term, 1, amount)
-}
-
-function indexedCounts(segment: NativeFrozenSegment, ordinal: number): Map<number, number> {
-  const counts = new Map<number, number>()
+function addIndexedDocument(changes: TermChanges, segment: NativeFrozenSegment, ordinal: number): void {
   const { removalIndex, postingDocuments, postingFrequencies, postingFields, postingOffsets, payloadSlots, terms } =
     segment
-  if (removalIndex === null) return counts
+  if (removalIndex === null) return
   const start = removalIndex.starts[ordinal]
   const end = removalIndex.starts[ordinal + 1]
-  if (start > end || end > postingDocuments.length) return counts
+  if (start > end || end > postingDocuments.length) return
+  changes.mark++
   let previous = -1
   for (let at = start; at < end; at++) {
     const row = removalIndex.rows[at]
@@ -56,22 +91,25 @@ function indexedCounts(segment: NativeFrozenSegment, ordinal: number): Map<numbe
       continue
     const term = removalIndex.termOfSlot[slot]
     if (term >= terms.counts.length || payloadSlots[term] !== slot) continue
-    counts.set(term, (counts.get(term) ?? 0) + postingFrequencies[row])
+    addOccurrences(changes, term, postingFrequencies[row])
   }
-  return counts
 }
 
-function pagedCounts(segment: NativeFrozenSegment, paged: FrozenPagedRemovals, ordinal: number) {
+function addPagedDocument(
+  changes: TermChanges,
+  segment: NativeFrozenSegment,
+  paged: FrozenPagedRemovals,
+  ordinal: number,
+) {
   const pairs = paged.read(ordinal)
-  const counts = new Map<number, number>()
+  changes.mark++
   for (let at = 0; at + 1 < pairs.length; at += 2) {
     requireSegment(pairs[at] < segment.terms.counts.length)
-    counts.set(pairs[at], (counts.get(pairs[at]) ?? 0) + pairs[at + 1])
+    addOccurrences(changes, pairs[at], pairs[at + 1])
   }
-  return counts
 }
 
-function scanPostings(changes: FrozenChanges, segment: NativeFrozenSegment, marks: Uint8Array): void {
+function scanPostings(changes: TermChanges, segment: NativeFrozenSegment, marks: Uint8Array): void {
   const { postingDocuments, postingFrequencies, postingFields, postingOffsets, payloadSlots, terms } = segment
   const stamps = new Uint32Array(marks.length)
   for (let term = 0; term < terms.counts.length; term++) {
@@ -98,30 +136,33 @@ function scanPostings(changes: FrozenChanges, segment: NativeFrozenSegment, mark
 }
 
 export function settleTermCounts(
-  changes: FrozenChanges,
+  changes: TermChanges,
   segment: NativeFrozenSegment,
   state: NativeFrozenSegmentState,
   paged: FrozenPagedRemovals | null,
 ): void {
   const pending = state.pendingHeader[PENDING_DOCUMENTS]
-  const seen = new Set<number>()
+  if (changes.seen.length !== segment.documentCount) changes.seen = new Float64Array(segment.documentCount)
+  const { seen } = changes
+  const stamp = ++changes.seenMark
   for (let at = 0; at < pending; at++) {
     const ordinal = state.pendingDocuments[at]
     requireSegment(
       ordinal < segment.documentCount &&
         (state.tombstones[ordinal >>> 5] & (1 << (ordinal & 31))) !== 0 &&
-        !seen.has(ordinal),
+        seen[ordinal] !== stamp,
     )
-    seen.add(ordinal)
+    seen[ordinal] = stamp
   }
   if (paged === null && segment.removalIndex === null) {
     const marks = new Uint8Array(segment.documentCount)
-    for (const ordinal of seen) marks[ordinal] = 1
+    for (let at = 0; at < pending; at++) marks[state.pendingDocuments[at]] = 1
     scanPostings(changes, segment, marks)
     return
   }
   for (let at = 0; at < pending; at++) {
     const ordinal = state.pendingDocuments[at]
-    addDocument(changes, paged === null ? indexedCounts(segment, ordinal) : pagedCounts(segment, paged, ordinal))
+    if (paged === null) addIndexedDocument(changes, segment, ordinal)
+    else addPagedDocument(changes, segment, paged, ordinal)
   }
 }

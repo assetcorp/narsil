@@ -8,26 +8,11 @@ import type { GrowFrozenRemovalRegions } from './types'
 export const NO_SURFACE = 0xffffffff
 const FIELD_TOKEN_WORDS = 8
 
-function sameUnits(units: Uint16Array, left: number, leftLength: number, right: number, rightLength: number) {
-  if (leftLength !== rightLength) return false
-  for (let unit = 0; unit < leftLength; unit++) if (units[left + unit] !== units[right + unit]) return false
-  return true
-}
-
-function tokenIsPending(partialFields: Uint8Array, field: NativeFieldTokens, at: number): boolean {
-  if (partialFields[field.field] !== 0) return true
-  const { tokens, units } = field
-  const surface = tokens[at + 3]
-  const length = tokens[at + 4]
-  return surface !== NO_SURFACE && length > 0 && !sameUnits(units, tokens[at + 1], tokens[at + 2], surface, length)
-}
-
-export function pendingNeeds(partialFields: Uint8Array, fields: readonly NativeFieldTokens[]): PendingSize {
+export function pendingNeeds(fields: readonly NativeFieldTokens[]): PendingSize {
   let tokens = 0
   let units = 0
   for (const field of fields) {
     for (let at = 0; at < field.tokens.length; at += FIELD_TOKEN_WORDS) {
-      if (!tokenIsPending(partialFields, field, at)) continue
       tokens++
       units += field.tokens[at + 2]
       if (field.tokens[at + 3] !== NO_SURFACE) units += field.tokens[at + 4]
@@ -53,8 +38,8 @@ function grown<T extends Uint32Array | Uint16Array>(held: T, length: number, cre
   return next
 }
 
-export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (segment, state, fields) => {
-  const { tokens, units } = pendingNeeds(segment.partialFields, fields)
+export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (_segment, state, fields) => {
+  const { tokens, units } = pendingNeeds(fields)
   state.pendingDocuments = grown(state.pendingDocuments, PENDING_REMOVAL_DOCUMENTS, Uint32Array)
   if (tokens * PENDING_TOKEN_WORDS > state.pendingTokens.length)
     state.pendingTokens = grown(
@@ -68,7 +53,6 @@ export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (segment, stat
 
 export function appendPending(
   state: NativeFrozenSegmentState,
-  partialFields: Uint8Array,
   ordinal: number,
   fields: readonly NativeFieldTokens[],
 ): void {
@@ -82,7 +66,6 @@ export function appendPending(
   }
   for (const field of fields) {
     for (let at = 0; at < field.tokens.length; at += FIELD_TOKEN_WORDS) {
-      if (!tokenIsPending(partialFields, field, at)) continue
       const word = written++ * PENDING_TOKEN_WORDS
       const surface = field.tokens[at + 3]
       state.pendingTokens[word] = field.field
