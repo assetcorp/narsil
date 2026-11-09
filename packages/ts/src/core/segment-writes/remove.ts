@@ -1,62 +1,38 @@
 import {
   acquireTokenPlan,
-  checkText,
+  preparedRemovalReach,
+  preparedSources,
   prepareSpellingRemoval,
+  readRetirementRegions,
   readSegmentRegions,
   releaseTokenPlan,
   removeString,
   requireSegment,
   rowRemoved,
   SegmentRefusal,
-  tokenSources,
-  tokenTextOf,
 } from '#platform/segment-removal-host'
-import type { NativeFieldTokens, NativeGrowingSegment, NativeSurfaceTable } from '../../vector/native/types/segments'
+import type { NativeGrowingSegment, NativeSurfaceTable } from '../../vector/native/types/segments'
+import type { PreparedSegmentField } from './prepared-tokens'
+import type { SegmentRetirement } from './regions'
 import { RemovalPlan } from './removal'
 import type { StringPlan } from './strings'
 import type { TokenPlan } from './tokens'
-
-const FIELD_TOKEN_WORDS = 8
-const TOKEN_TEXT_WORDS = 4
-const NO_SURFACE = 0xffffffff
 
 function nonnegative(value: number): number {
   return value > 0 ? value : 0
 }
 
-function copyField(value: NativeFieldTokens): NativeFieldTokens {
-  requireSegment(typeof value === 'object' && value !== null)
-  return { ...value }
-}
-
-function readRequest(input: NativeGrowingSegment, ordinal: number, rawFields: readonly NativeFieldTokens[]) {
-  const { segment, regions } = readSegmentRegions(input)
-  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
-  const fields = rawFields.map(copyField)
+function readRequest(input: NativeGrowingSegment, ordinal: number, fields: readonly PreparedSegmentField[]) {
+  const { segment, regions } = readSegmentRegions(input, preparedRemovalReach(fields))
   requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
   requireSegment(fields.length <= segment.partialFields.length)
-  const text: Array<ReadonlyArray<string | undefined> | undefined> = []
   let previous = -1
-  for (const field of fields) {
-    requireSegment(
-      Number.isInteger(field.field) && field.field > previous && field.field < segment.partialFields.length,
-    )
-    const known = tokenTextOf(field.tokens)
-    field.tokens = regions.read(field.tokens, 'Uint32Array', undefined, false)
-    text.push(known?.length === field.tokens.length / TOKEN_TEXT_WORDS ? known : undefined)
-    field.units = regions.read(field.units, 'Uint16Array', undefined, false)
-    requireSegment(field.units.length <= 0xffffffff)
-    requireSegment(
-      field.tokens.length % FIELD_TOKEN_WORDS === 0 && field.tokens.length / FIELD_TOKEN_WORDS <= 0xffffffff,
-    )
-    for (let at = 0; at < field.tokens.length; at += FIELD_TOKEN_WORDS) {
-      checkText(field.units, field.tokens[at + 1], field.tokens[at + 2])
-      if (field.tokens[at + 3] !== NO_SURFACE) checkText(field.units, field.tokens[at + 3], field.tokens[at + 4])
-    }
-    previous = field.field
+  for (const { field } of fields) {
+    requireSegment(Number.isInteger(field) && field > previous && field < segment.partialFields.length)
+    previous = field
   }
   regions.check()
-  return { segment, fields, text }
+  return { segment, sources: preparedSources(fields) }
 }
 
 function removeSurfaces(plan: StringPlan, table: NativeSurfaceTable, segment: NativeGrowingSegment): void {
@@ -88,33 +64,53 @@ function removeTokens(segment: NativeGrowingSegment, ordinal: number, tokens: To
   }
 }
 
+function retirable(segment: SegmentRetirement, ordinal: number): boolean {
+  if (rowRemoved(segment, ordinal)) return false
+  requireSegment(segment.totalDocuments[0] > 0 && segment.totalDocuments[0] <= segment.ordinalCapacity)
+  for (let field = 0; field < segment.totalFieldLengths.length; field++) {
+    const total = segment.totalFieldLengths[field]
+    requireSegment(Number.isFinite(total) && total >= segment.fieldLengths[field * segment.ordinalCapacity + ordinal])
+  }
+  return true
+}
+
+function retire(segment: SegmentRetirement, ordinal: number): void {
+  for (let field = 0; field < segment.partialFields.length; field++) {
+    const at = field * segment.ordinalCapacity + ordinal
+    segment.totalFieldLengths[field] = nonnegative(segment.totalFieldLengths[field] - segment.fieldLengths[at])
+    segment.fieldLengths[at] = 0
+  }
+  segment.retired[ordinal >>> 5] |= 1 << (ordinal & 31)
+  segment.totalDocuments[0]--
+}
+
+function removeTextlessDocument(input: NativeGrowingSegment, ordinal: number): void {
+  const segment = readRetirementRegions(input)
+  requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
+  if (retirable(segment, ordinal)) retire(segment, ordinal)
+}
+
 export function removeDocument(
   input: NativeGrowingSegment,
   _generation: number,
   ordinal: number,
-  rawFields: readonly NativeFieldTokens[],
+  fields: readonly PreparedSegmentField[],
 ): number {
   try {
-    const { segment, fields, text } = readRequest(input, ordinal, rawFields)
-    if (rowRemoved(segment, ordinal)) return 0
-    requireSegment(segment.totalDocuments[0] > 0 && segment.totalDocuments[0] <= segment.ordinalCapacity)
-    for (let field = 0; field < segment.totalFieldLengths.length; field++) {
-      const total = segment.totalFieldLengths[field]
-      requireSegment(Number.isFinite(total) && total >= segment.fieldLengths[field * segment.ordinalCapacity + ordinal])
+    requireSegment(Array.isArray(fields) && fields.length <= 65536)
+    if (fields.every(({ text }) => text.count === 0)) {
+      removeTextlessDocument(input, ordinal)
+      return 0
     }
-    const tokens = acquireTokenPlan(segment, tokenSources(fields, text), true)
+    const { segment, sources } = readRequest(input, ordinal, fields)
+    if (!retirable(segment, ordinal)) return 0
+    const tokens = acquireTokenPlan(segment, sources, true)
     try {
       removeTokens(segment, ordinal, tokens)
     } finally {
       releaseTokenPlan(tokens)
     }
-    for (let field = 0; field < segment.partialFields.length; field++) {
-      const at = field * segment.ordinalCapacity + ordinal
-      segment.totalFieldLengths[field] = nonnegative(segment.totalFieldLengths[field] - segment.fieldLengths[at])
-      segment.fieldLengths[at] = 0
-    }
-    segment.retired[ordinal >>> 5] |= 1 << (ordinal & 31)
-    segment.totalDocuments[0]--
+    retire(segment, ordinal)
     return 0
   } catch (error) {
     if (error instanceof SegmentRefusal) return error.status

@@ -5,11 +5,17 @@ import type {
   NativeSurfaceTable,
 } from '../../vector/native/types/segments'
 import type { NativeTermTable } from '../../vector/native/types/terms'
-import { regionsOverlap } from '../regions'
 import { typedRegion } from '../stored-values/regions'
 import { requireSegment } from './status'
 
 type RegionKind = Parameters<typeof typedRegion>[1]
+
+export interface SegmentReach {
+  readonly surfaces: boolean
+  spellings(partialFields: Uint8Array): boolean
+}
+
+const WHOLE_SEGMENT: SegmentReach = { surfaces: true, spellings: () => true }
 
 function copy<T extends object>(input: T): T {
   requireSegment(typeof input === 'object' && input !== null)
@@ -39,31 +45,42 @@ export function captureSegment(input: NativeGrowingSegment): NativeGrowingSegmen
 class Regions {
   readonly writes: ArrayBufferView[] = []
   readonly reads: ArrayBufferView[] = []
+  private readonly buffers: ArrayBufferLike[] = []
+  private readonly starts: number[] = []
+  private readonly ends: number[] = []
+  private readonly writable: boolean[] = []
 
   read<K extends RegionKind>(input: unknown, kind: K, length?: number, writable = true) {
     const value = typedRegion(input, kind)
     requireSegment(value !== null && (length === undefined || value.length === length))
     if (writable) this.writes.push(value)
     else this.reads.push(value)
+    const byteLength = value.byteLength
+    if (byteLength > 0) {
+      const start = value.byteOffset
+      this.buffers.push(value.buffer)
+      this.starts.push(start)
+      this.ends.push(start + byteLength)
+      this.writable.push(writable)
+    }
     return value
   }
 
   check(): void {
-    const buffers = new Map<ArrayBufferLike, number>()
-    for (let at = 0; at < this.writes.length; at++) {
-      const region = this.writes[at]
-      if (region.byteLength === 0) continue
-      const held = buffers.get(region.buffer)
-      if (held === undefined) buffers.set(region.buffer, at)
-      else
-        for (let previous = held; previous < at; previous++)
-          requireSegment(!regionsOverlap(region, this.writes[previous]))
-    }
-    for (const region of this.reads) {
-      const held = buffers.get(region.buffer)
-      if (held === undefined) continue
-      for (let output = held; output < this.writes.length; output++)
-        requireSegment(!regionsOverlap(region, this.writes[output]))
+    const { buffers, starts, ends, writable } = this
+    for (let at = 1; at < buffers.length; at++) {
+      const buffer = buffers[at]
+      const start = starts[at]
+      const end = ends[at]
+      const writes = writable[at]
+      for (let previous = 0; previous < at; previous++)
+        if (
+          buffers[previous] === buffer &&
+          (writes || writable[previous]) &&
+          start < ends[previous] &&
+          starts[previous] < end
+        )
+          requireSegment(false)
     }
   }
 }
@@ -133,7 +150,11 @@ function runs(input: NativeRunTable, regions: Regions): NativeRunTable {
   }
 }
 
-function readSegment(input: NativeGrowingSegment, regions: Regions): NativeGrowingSegment {
+function readSegment(
+  input: NativeGrowingSegment,
+  regions: Regions,
+  reach: SegmentReach = WHOLE_SEGMENT,
+): NativeGrowingSegment {
   requireSegment(
     Number.isInteger(input.ordinalCapacity) && input.ordinalCapacity >= 0 && input.ordinalCapacity <= 0xffffffff,
   )
@@ -170,8 +191,12 @@ function readSegment(input: NativeGrowingSegment, regions: Regions): NativeGrowi
         }
   requireSegment(positions === null || postings.positionStarts !== null)
   requireSegment(positions === null || positions.values.length <= 0xffffffff)
-  const surfaces = input.surfaces === null ? null : surface(input.surfaces, regions)
-  const spellingStrings = input.spellings === null ? null : surface(input.spellings, regions)
+  const partialFields = regions.read(input.partialFields, 'Uint8Array', undefined, false)
+  requireSegment(partialFields.length <= 65536)
+  for (const flag of partialFields) requireSegment(flag <= 1 && (flag === 0 || input.spellings !== null))
+  const surfaces = input.surfaces === null || !reach.surfaces ? null : surface(input.surfaces, regions)
+  const spellingStrings =
+    input.spellings === null || !reach.spellings(partialFields) ? null : surface(input.spellings, regions)
   const spellings =
     input.spellings === null || spellingStrings === null
       ? null
@@ -180,9 +205,6 @@ function readSegment(input: NativeGrowingSegment, regions: Regions): NativeGrowi
           codePoints: regions.read(input.spellings.codePoints, 'Uint32Array', spellingStrings.token.length),
           runs: runs(input.spellings.runs, regions),
         }
-  const partialFields = regions.read(input.partialFields, 'Uint8Array', undefined, false)
-  requireSegment(partialFields.length <= 65536)
-  for (const flag of partialFields) requireSegment(flag <= 1 && (flag === 0 || spellings !== null))
   const ordinalCapacity = input.ordinalCapacity
   return {
     terms,
@@ -211,10 +233,34 @@ export function checkText(units: Uint16Array, start: number, length: number): vo
   }
 }
 
-export function readSegmentRegions(input: NativeGrowingSegment) {
+export type SegmentRetirement = Pick<
+  NativeGrowingSegment,
+  'ordinalCapacity' | 'partialFields' | 'retired' | 'fieldLengths' | 'totalDocuments' | 'totalFieldLengths'
+>
+
+export function readRetirementRegions(input: NativeGrowingSegment): SegmentRetirement {
+  requireSegment(typeof input === 'object' && input !== null)
+  const ordinalCapacity = input.ordinalCapacity
+  requireSegment(Number.isInteger(ordinalCapacity) && ordinalCapacity >= 0 && ordinalCapacity <= 0xffffffff)
+  const regions = new Regions()
+  const partialFields = regions.read(input.partialFields, 'Uint8Array', undefined, false)
+  requireSegment(partialFields.length <= 65536)
+  const segment = {
+    ordinalCapacity,
+    partialFields,
+    retired: regions.read(input.retired, 'Uint32Array', Math.max(1, Math.ceil(ordinalCapacity / 32))),
+    fieldLengths: regions.read(input.fieldLengths, 'Uint32Array', ordinalCapacity * partialFields.length),
+    totalDocuments: regions.read(input.totalDocuments, 'Uint32Array', 1),
+    totalFieldLengths: regions.read(input.totalFieldLengths, 'Float64Array', partialFields.length),
+  }
+  regions.check()
+  return segment
+}
+
+export function readSegmentRegions(input: NativeGrowingSegment, reach: SegmentReach = WHOLE_SEGMENT) {
   const captured = captureSegment(input)
   const regions = new Regions()
-  const segment = readSegment(captured, regions)
+  const segment = readSegment(captured, regions, reach)
   return { segment, regions }
 }
 

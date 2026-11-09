@@ -21,13 +21,13 @@ interface RemovalChange {
   ordered: boolean
 }
 
-function firstRow(segment: NativeGrowingSegment, token: number, document: number): number {
-  let low = segment.columns.sliceStart[token]
-  if ((segment.columns.flags[token] & 2) === 0) return low
-  let high = low + segment.columns.lengths[token]
+function firstRow(docIds: Uint32Array, start: number, length: number, ordered: boolean, document: number): number {
+  let low = start
+  if (!ordered) return low
+  let high = low + length
   while (low < high) {
-    const middle = low + Math.floor((high - low) / 2)
-    if (segment.postings.docIds[middle] < document) low = middle + 1
+    const middle = low + ((high - low) >>> 1)
+    if (docIds[middle] < document) low = middle + 1
     else high = middle
   }
   return low
@@ -91,11 +91,15 @@ export class RemovalPlan {
         length <= postings.sliceCapacities[kind],
     )
     const ordered = (columns.flags[token] & 2) !== 0
-    for (let at = firstRow(segment, token, this.document); at < start + length; at++) {
-      const doc = postings.docIds[at]
-      if (ordered && doc > this.document) break
-      requireSegment(doc < segment.ordinalCapacity && postings.fieldIndices[at] < segment.partialFields.length)
-      if (doc === this.document) {
+    const { docIds, fieldIndices } = postings
+    const document = this.document
+    const ordinalCapacity = segment.ordinalCapacity
+    const fieldCount = segment.partialFields.length
+    for (let at = firstRow(docIds, start, length, ordered, document); at < start + length; at++) {
+      const doc = docIds[at]
+      if (ordered && doc > document) break
+      requireSegment(doc < ordinalCapacity && fieldIndices[at] < fieldCount)
+      if (doc === document) {
         change.found = true
         change.removedFrequency += postings.frequencies[at]
       }

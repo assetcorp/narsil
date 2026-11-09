@@ -2,7 +2,6 @@ import { loadNativeCore } from '#platform/native-core'
 import { type NativeOperation, nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
 import type {
   NativeFieldTokenArgument,
-  NativeFieldTokens,
   NativeGrowingSegment,
   NativeSegmentCore,
 } from '../../vector/native/types/segments'
@@ -41,12 +40,15 @@ export function removeDocument(
   segment: NativeGrowingSegment,
   generation: number,
   ordinal: number,
-  fields: readonly NativeFieldTokens[],
+  fields: readonly PreparedSegmentField[],
 ): number {
   const native = core('removeDocument')
   if (native === null) return portable.removeDocument(segment, generation, ordinal, fields)
   try {
-    for (const { field, tokens, units } of fields) fieldArguments.push(field, tokens, units)
+    for (const { field, text } of fields) {
+      const packed = packedTokens(text)
+      fieldArguments.push(field, packed.tokens, packed.units)
+    }
     return native.removeDocument(segment, generation, ordinal, ...fieldArguments)
   } finally {
     fieldArguments.length = 0
