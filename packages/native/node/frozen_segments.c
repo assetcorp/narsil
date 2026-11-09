@@ -63,6 +63,45 @@ int prepare_frozen_segment(napi_env env, napi_value source, napi_value state, fr
          (!handles->has_index || properties(env, index, INDEX_PROPERTIES, FROZEN_INDEX_HANDLES, handles->index));
 }
 
+enum {
+  REGION_DOCUMENT_COUNT = 0,
+  REGION_TERMS = REGION_DOCUMENT_COUNT + 1,
+  REGION_SURFACES = REGION_TERMS + FROZEN_STRING_HANDLES,
+  REGION_SPELLINGS = REGION_SURFACES + FROZEN_STRING_HANDLES,
+  REGION_POSTINGS = REGION_SPELLINGS + FROZEN_STRING_HANDLES,
+  REGION_INDEX = REGION_POSTINGS + FROZEN_POSTING_HANDLES,
+  REGION_STATE = REGION_INDEX + FROZEN_INDEX_HANDLES,
+  FROZEN_REGION_ARGUMENTS = REGION_STATE + FROZEN_STATE_HANDLES
+};
+
+static void copy_handles(const napi_value *values, size_t count, napi_value *handles) {
+  for (size_t at = 0; at < count; at++) { handles[at] = values[at]; }
+}
+
+static int optional_group(napi_env env, const napi_value *values, size_t count, napi_value *handles, int *present) {
+  size_t absent = 0;
+  for (size_t at = 0; at < count; at++) {
+    napi_valuetype type = napi_undefined;
+    if (napi_typeof(env, values[at], &type) != napi_ok) { return 0; }
+    absent += type == napi_null ? 1 : 0;
+    handles[at] = values[at];
+  }
+  *present = absent == 0;
+  return absent == 0 || absent == count;
+}
+
+static int prepare_frozen_arguments(napi_env env, const napi_value *argv, frozen_handles *handles) {
+  copy_handles(argv + REGION_TERMS, FROZEN_STRING_HANDLES, handles->terms);
+  copy_handles(argv + REGION_POSTINGS, FROZEN_POSTING_HANDLES, handles->postings);
+  copy_handles(argv + REGION_STATE, FROZEN_STATE_HANDLES, handles->state);
+  return segment_uint_argument(env, argv[REGION_DOCUMENT_COUNT], &handles->document_count) &&
+         optional_group(env, argv + REGION_SURFACES, FROZEN_STRING_HANDLES, handles->surfaces,
+                        &handles->has_surfaces) &&
+         optional_group(env, argv + REGION_SPELLINGS, FROZEN_STRING_HANDLES, handles->spellings,
+                        &handles->has_spellings) &&
+         optional_group(env, argv + REGION_INDEX, FROZEN_INDEX_HANDLES, handles->index, &handles->has_index);
+}
+
 int prepare_frozen_paged(napi_env env, napi_value value, frozen_paged_handles *handles) {
   enum { OFFSETS, VALUES, CACHE, FAULT, PAGED_HANDLES };
   napi_valuetype type = napi_undefined;
@@ -96,7 +135,7 @@ int read_frozen_paged(napi_env env, const frozen_paged_handles *handles, node_fr
   return 1;
 }
 
-enum { SOURCE, STATE, ORDINAL, FIELDS, PAGED, REMOVE_ARGUMENTS };
+enum { ORDINAL = FROZEN_REGION_ARGUMENTS, FIELDS, PAGED, REMOVE_ARGUMENTS };
 enum { ENTRIES = PAGED, VALUES, PREPARED_PAGED, PREPARE_ARGUMENTS };
 enum { STACK_FIELDS = 8 };
 
@@ -108,8 +147,7 @@ static narsil_status apply(napi_env env, thread_state *thread, const napi_value 
   node_frozen_paged paged = {0};
   const narsil_frozen_paged_removals *removals = NULL;
   uint32_t ordinal = 0;
-  if (!prepare_frozen_segment(env, argv[SOURCE], argv[STATE], &source) ||
-      !segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
+  if (!prepare_frozen_arguments(env, argv, &source) || !segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
       !prepare_segment_fields(env, argv[FIELDS], handles, count) ||
       !prepare_frozen_paged(env, argv[preparing ? PREPARED_PAGED : PAGED], &paged_handles) ||
       !read_frozen_segment(env, &source, &segment) || !read_segment_fields(env, handles, fields, count) ||
@@ -134,7 +172,7 @@ static narsil_status apply(napi_env env, thread_state *thread, const napi_value 
 }
 
 napi_value settle_frozen_state(napi_env env, napi_callback_info info) {
-  enum { SETTLE_SOURCE, SETTLE_STATE, SETTLE_PAGED, SETTLE_ARGUMENTS };
+  enum { SETTLE_PAGED = FROZEN_REGION_ARGUMENTS, SETTLE_ARGUMENTS };
   napi_value argv[SETTLE_ARGUMENTS];
   thread_state *thread = thread_state_of(env);
   frozen_handles source = {0};
@@ -143,9 +181,8 @@ napi_value settle_frozen_state(napi_env env, napi_callback_info info) {
   node_frozen_paged paged = {0};
   const narsil_frozen_paged_removals *removals = NULL;
   if (thread == NULL || !callback_arguments(env, info, SETTLE_ARGUMENTS, argv) ||
-      !prepare_frozen_segment(env, argv[SETTLE_SOURCE], argv[SETTLE_STATE], &source) ||
-      !prepare_frozen_paged(env, argv[SETTLE_PAGED], &paged_handles) || !read_frozen_segment(env, &source, &segment) ||
-      !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
+      !prepare_frozen_arguments(env, argv, &source) || !prepare_frozen_paged(env, argv[SETTLE_PAGED], &paged_handles) ||
+      !read_frozen_segment(env, &source, &segment) || !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
     return status_of(env, NARSIL_INVALID_ARGUMENT);
   }
   narsil_status status = narsil_settle_frozen_state(thread->workspace, &segment.segment, &segment.state, removals);

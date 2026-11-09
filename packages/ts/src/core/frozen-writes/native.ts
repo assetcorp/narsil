@@ -10,20 +10,16 @@ export { growFrozenRemovalRegions } from './pending-writes'
 const PAGE_CORRUPT = 9
 const PAGE_INVALID = 11
 
-interface NativeCall {
-  core: NativeCore
-  paged: NativeFrozenPagedRemovals | null
-}
-
-function nativeCall(paged: FrozenPagedRemovals | null): NativeCall | null {
+function nativeCore(): NativeCore | null {
   if (!nativeSearchCoreIsEnabled()) return null
   const core = loadNativeCore()
-  if (core === null) {
-    noteFallback('removeFrozenDocument')
-    return null
-  }
-  const sections = paged === null ? null : paged.native()
-  return paged !== null && sections === null ? null : { core, paged: sections }
+  if (core === null) noteFallback('removeFrozenDocument')
+  return core
+}
+
+function sectionsOf(paged: FrozenPagedRemovals | null): NativeFrozenPagedRemovals | null | undefined {
+  if (paged === null) return null
+  return paged.native() ?? undefined
 }
 
 function pageStatus(status: number, paged: FrozenPagedRemovals | null): number {
@@ -33,19 +29,134 @@ function pageStatus(status: number, paged: FrozenPagedRemovals | null): number {
 }
 
 export const removeFrozenDocument: RemoveFrozenDocument = (segment, state, ordinal, fields, paged) => {
-  const call = nativeCall(paged)
-  if (call === null) return portable.removeFrozenDocument(segment, state, ordinal, fields, paged)
-  return pageStatus(call.core.removeFrozenDocument(segment, state, ordinal, fields, call.paged), paged)
+  const core = nativeCore()
+  const sections = core === null ? undefined : sectionsOf(paged)
+  if (core === null || sections === undefined) {
+    return portable.removeFrozenDocument(segment, state, ordinal, fields, paged)
+  }
+  const { terms, surfaces, spellings, removalIndex } = segment
+  const status = core.removeFrozenDocument(
+    segment.documentCount,
+    terms.text,
+    terms.offsets,
+    terms.counts,
+    surfaces?.text ?? null,
+    surfaces?.offsets ?? null,
+    surfaces?.counts ?? null,
+    spellings?.text ?? null,
+    spellings?.offsets ?? null,
+    spellings?.counts ?? null,
+    segment.payloadSlots,
+    segment.postingOffsets,
+    segment.postingDocuments,
+    segment.postingFrequencies,
+    segment.postingFields,
+    segment.partialFields,
+    segment.spellingTokens,
+    removalIndex?.starts ?? null,
+    removalIndex?.rows ?? null,
+    removalIndex?.termOfSlot ?? null,
+    state.tombstones,
+    state.tombstoneCount,
+    state.removedDocuments,
+    state.removedOccurrences,
+    state.removedSurfaces,
+    state.removedSpellings,
+    state.pendingHeader,
+    state.pendingDocuments,
+    state.pendingTokens,
+    state.pendingUnits,
+    ordinal,
+    fields,
+    sections,
+  )
+  return pageStatus(status, paged)
 }
 
 export const prepareFrozenRemoval: PrepareFrozenRemoval = (segment, state, ordinal, fields, entries, values, paged) => {
-  const call = nativeCall(paged)
-  if (call === null) return portable.prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, paged)
-  return pageStatus(call.core.prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, call.paged), paged)
+  const core = nativeCore()
+  const sections = core === null ? undefined : sectionsOf(paged)
+  if (core === null || sections === undefined) {
+    return portable.prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, paged)
+  }
+  const { terms, surfaces, spellings, removalIndex } = segment
+  const status = core.prepareFrozenRemoval(
+    segment.documentCount,
+    terms.text,
+    terms.offsets,
+    terms.counts,
+    surfaces?.text ?? null,
+    surfaces?.offsets ?? null,
+    surfaces?.counts ?? null,
+    spellings?.text ?? null,
+    spellings?.offsets ?? null,
+    spellings?.counts ?? null,
+    segment.payloadSlots,
+    segment.postingOffsets,
+    segment.postingDocuments,
+    segment.postingFrequencies,
+    segment.postingFields,
+    segment.partialFields,
+    segment.spellingTokens,
+    removalIndex?.starts ?? null,
+    removalIndex?.rows ?? null,
+    removalIndex?.termOfSlot ?? null,
+    state.tombstones,
+    state.tombstoneCount,
+    state.removedDocuments,
+    state.removedOccurrences,
+    state.removedSurfaces,
+    state.removedSpellings,
+    state.pendingHeader,
+    state.pendingDocuments,
+    state.pendingTokens,
+    state.pendingUnits,
+    ordinal,
+    fields,
+    entries,
+    values,
+    sections,
+  )
+  return pageStatus(status, paged)
 }
 
 export const settleFrozenState: SettleFrozenState = (segment, state, paged) => {
-  const call = nativeCall(paged)
-  if (call === null) return portable.settleFrozenState(segment, state, paged)
-  return pageStatus(call.core.settleFrozenState(segment, state, call.paged), paged)
+  const core = nativeCore()
+  const sections = core === null ? undefined : sectionsOf(paged)
+  if (core === null || sections === undefined) return portable.settleFrozenState(segment, state, paged)
+  const { terms, surfaces, spellings, removalIndex } = segment
+  const status = core.settleFrozenState(
+    segment.documentCount,
+    terms.text,
+    terms.offsets,
+    terms.counts,
+    surfaces?.text ?? null,
+    surfaces?.offsets ?? null,
+    surfaces?.counts ?? null,
+    spellings?.text ?? null,
+    spellings?.offsets ?? null,
+    spellings?.counts ?? null,
+    segment.payloadSlots,
+    segment.postingOffsets,
+    segment.postingDocuments,
+    segment.postingFrequencies,
+    segment.postingFields,
+    segment.partialFields,
+    segment.spellingTokens,
+    removalIndex?.starts ?? null,
+    removalIndex?.rows ?? null,
+    removalIndex?.termOfSlot ?? null,
+    state.tombstones,
+    state.tombstoneCount,
+    state.removedDocuments,
+    state.removedOccurrences,
+    state.removedSurfaces,
+    state.removedSpellings,
+    state.pendingHeader,
+    state.pendingDocuments,
+    state.pendingTokens,
+    state.pendingUnits,
+    sections,
+  )
+  return pageStatus(status, paged)
 }

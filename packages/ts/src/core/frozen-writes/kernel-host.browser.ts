@@ -8,7 +8,6 @@ export type FrozenKernelHost = Pick<
   | 'PENDING_UNITS'
   | 'SegmentRefusal'
   | 'compareBytes'
-  | 'findEntry'
   | 'pendingSettled'
   | 'readFrozenRequest'
   | 'readFrozenSettle'
@@ -24,7 +23,6 @@ export let PENDING_TOKENS: FrozenKernelHost['PENDING_TOKENS']
 export let PENDING_UNITS: FrozenKernelHost['PENDING_UNITS']
 export let SegmentRefusal: FrozenKernelHost['SegmentRefusal']
 export let compareBytes: FrozenKernelHost['compareBytes']
-export let findEntry: FrozenKernelHost['findEntry']
 export let pendingSettled: FrozenKernelHost['pendingSettled']
 export let readFrozenRequest: FrozenKernelHost['readFrozenRequest']
 export let readFrozenSettle: FrozenKernelHost['readFrozenSettle']
@@ -41,7 +39,6 @@ export function bindFrozenKernelHost(host: FrozenKernelHost): void {
     PENDING_UNITS,
     SegmentRefusal,
     compareBytes,
-    findEntry,
     pendingSettled,
     readFrozenRequest,
     readFrozenSettle,

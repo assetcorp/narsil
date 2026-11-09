@@ -161,6 +161,7 @@ export type {
 export type { NativeFilterCore, NativeFilterRegion } from './vector/native/types/filters'
 export type {
   NativeFrozenPagedRemovals,
+  NativeFrozenRegionArguments,
   NativeFrozenRemovalIndex,
   NativeFrozenSegment,
   NativeFrozenSegmentCore,

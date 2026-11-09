@@ -882,6 +882,42 @@ export interface NativeFrozenPagedRemovals {
     values: NativePageSection;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeFrozenRegionArguments" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeFrozenRegionArguments = [
+documentCount: number,
+termText: Uint8Array,
+termOffsets: Uint32Array,
+termCounts: Uint32Array,
+surfaceText: Uint8Array | null,
+surfaceOffsets: Uint32Array | null,
+surfaceCounts: Uint32Array | null,
+spellingText: Uint8Array | null,
+spellingOffsets: Uint32Array | null,
+spellingCounts: Uint32Array | null,
+payloadSlots: Uint32Array,
+postingOffsets: Uint32Array,
+postingDocuments: Uint32Array,
+postingFrequencies: Uint16Array,
+postingFields: Uint16Array,
+partialFields: Uint8Array,
+spellingTokens: Uint32Array,
+removalStarts: Uint32Array | null,
+removalRows: Uint32Array | null,
+removalTermOfSlot: Uint32Array | null,
+tombstones: Uint32Array,
+tombstoneCount: Uint32Array,
+removedDocuments: Uint32Array,
+removedOccurrences: Float64Array,
+removedSurfaces: Uint32Array,
+removedSpellings: Uint32Array,
+pendingHeader: Uint32Array,
+pendingDocuments: Uint32Array,
+pendingTokens: Uint32Array,
+pendingUnits: Uint16Array
+];
+
 // Warning: (ae-internal-missing-underscore) The name "NativeFrozenRemovalIndex" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -922,9 +958,21 @@ export interface NativeFrozenSegment {
 //
 // @internal
 export interface NativeFrozenSegmentCore {
-    prepareFrozenRemoval(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, ordinal: number, fields: readonly NativeFieldTokens[], entries: Uint32Array, values: Float64Array, paged: NativeFrozenPagedRemovals | null): number;
-    removeFrozenDocument(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, ordinal: number, fields: readonly NativeFieldTokens[], paged: NativeFrozenPagedRemovals | null): number;
-    settleFrozenState(segment: NativeFrozenSegment, state: NativeFrozenSegmentState, paged: NativeFrozenPagedRemovals | null): number;
+    prepareFrozenRemoval(...parameters: [
+    ...NativeFrozenRegionArguments,
+    ordinal: number,
+    fields: readonly NativeFieldTokens[],
+    entries: Uint32Array,
+    values: Float64Array,
+    paged: NativeFrozenPagedRemovals | null
+    ]): number;
+    removeFrozenDocument(...parameters: [
+    ...NativeFrozenRegionArguments,
+    ordinal: number,
+    fields: readonly NativeFieldTokens[],
+    paged: NativeFrozenPagedRemovals | null
+    ]): number;
+    settleFrozenState(...parameters: [...NativeFrozenRegionArguments, paged: NativeFrozenPagedRemovals | null]): number;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeFrozenSegmentState" should be prefixed with an underscore because the declaration is marked as @internal

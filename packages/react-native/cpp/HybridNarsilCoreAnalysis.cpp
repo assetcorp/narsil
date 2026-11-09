@@ -222,6 +222,7 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("removeDocument", INDEX_TERMS_ARGUMENT_COUNT, &HybridNarsilCoreImpl::removeDocument);
     prototype.registerRawHybridMethod("removeFrozenDocument", REMOVE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::removeFrozenDocument);
     prototype.registerRawHybridMethod("prepareFrozenRemoval", PREPARE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::prepareFrozenRemoval);
+    prototype.registerRawHybridMethod("settleFrozenState", SETTLE_FROZEN_ARGUMENT_COUNT, &HybridNarsilCoreImpl::settleFrozenState);
     prototype.registerRawHybridMethod("beginBatch", 1, &HybridNarsilCoreImpl::beginBatch);
     prototype.registerRawHybridMethod("measureMerge", 4, &HybridNarsilCoreImpl::measureMerge);
     prototype.registerRawHybridMethod("writeMerge", 4, &HybridNarsilCoreImpl::writeMerge);

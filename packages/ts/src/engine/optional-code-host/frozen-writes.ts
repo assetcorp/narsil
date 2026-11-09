@@ -7,7 +7,7 @@ import {
   pendingSettled,
 } from '../../core/frozen-writes/pending'
 import { readFrozenRequest, readFrozenSettle } from '../../core/frozen-writes/regions'
-import { findEntry, textAt } from '../../core/frozen-writes/strings'
+import { textAt } from '../../core/frozen-writes/strings'
 import { compareBytes } from '../../core/partition/frozen/string-blob'
 
 export function frozenWritesHostPart() {
@@ -18,7 +18,6 @@ export function frozenWritesHostPart() {
     PENDING_UNITS,
     bindFrozenRemovalKernel,
     compareBytes,
-    findEntry,
     pendingSettled,
     readFrozenRequest,
     readFrozenSettle,

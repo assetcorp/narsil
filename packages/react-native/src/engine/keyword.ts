@@ -62,6 +62,7 @@ export function adaptKeyword(
   | 'removeDocument'
   | 'removeFrozenDocument'
   | 'prepareFrozenRemoval'
+  | 'settleFrozenState'
   | 'beginBatch'
   | 'endBatch'
   | 'measureMerge'
@@ -108,6 +109,7 @@ export function adaptKeyword(
     removeDocument: methodOf(core, 'removeDocument'),
     removeFrozenDocument: methodOf(core, 'removeFrozenDocument'),
     prepareFrozenRemoval: methodOf(core, 'prepareFrozenRemoval'),
+    settleFrozenState: methodOf(core, 'settleFrozenState'),
     beginBatch: methodOf(core, 'beginBatch'),
     endBatch: methodOf(core, 'endBatch'),
     measureMerge: methodOf(core, 'measureMerge'),

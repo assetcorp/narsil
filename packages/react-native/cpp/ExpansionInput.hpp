@@ -32,7 +32,7 @@ public:
       return {&_growingSource, nullptr, nullptr, nullptr, 0};
     }
     _frozenSource = _frozen.read(runtime);
-    _state = _frozen.readState(runtime, _frozenSource.terms.count);
+    _state = _frozen.readState(runtime, _frozenSource);
     Elements<double> occurrences{nullptr, 0};
     if (_hasOccurrences) {
       occurrences = _occurrences.read<double>(runtime, 0, "term totals");

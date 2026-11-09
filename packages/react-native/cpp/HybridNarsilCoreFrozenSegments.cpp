@@ -19,19 +19,22 @@ jsi::Value HybridNarsilCoreImpl::prepareFrozenRemoval(jsi::Runtime& runtime, con
 
 jsi::Value HybridNarsilCoreImpl::frozenDocument(jsi::Runtime& runtime, const jsi::Value* arguments,
                                               size_t count, bool preparing) try {
+  enum : size_t { ORDINAL = FROZEN_REGION_ARGUMENTS, FIELDS, ENTRIES, VALUES };
   auto refusal = [preparing](narsil_status status) {
     return jsi::Value((preparing ? -1 : 1) * static_cast<double>(status));
   };
   if (count != (preparing ? PREPARE_FROZEN_ARGUMENT_COUNT : REMOVE_FROZEN_ARGUMENT_COUNT)) return refusal(NARSIL_INVALID_ARGUMENT);
-  uint32_t ordinal = segmentUnsigned(arguments[2]);
-  if (!arguments[3].isObject() || !arguments[3].getObject(runtime).isArray(runtime)) {
+  uint32_t ordinal = segmentUnsigned(arguments[ORDINAL]);
+  if (!arguments[FIELDS].isObject() || !arguments[FIELDS].getObject(runtime).isArray(runtime)) {
     return refusal(NARSIL_INVALID_ARGUMENT);
   }
-  auto input = arguments[3].getObject(runtime).getArray(runtime);
+  auto input = arguments[FIELDS].getObject(runtime).getArray(runtime);
   size_t fieldCount = input.size(runtime);
   if (fieldCount > static_cast<size_t>(UINT16_MAX) + 1) return refusal(NARSIL_INVALID_ARGUMENT);
   FrozenSegmentRegions regions;
-  regions.prepare(runtime, arguments[0], arguments[1]);
+  regions.prepare(runtime, arguments);
+  FrozenPagedRegions paged;
+  paged.prepare(runtime, arguments[count - 1]);
   TypedElements fieldViews(fieldCount * 2);
   std::vector<narsil_field_tokens> fields(fieldCount);
   for (size_t index = 0; index < fieldCount; index++) {
@@ -46,8 +49,8 @@ jsi::Value HybridNarsilCoreImpl::frozenDocument(jsi::Runtime& runtime, const jsi
   }
   TypedElements outputs(2);
   if (preparing) {
-    outputs.prepare(runtime, 0, arguments[4]);
-    outputs.prepare(runtime, 1, arguments[5]);
+    outputs.prepare(runtime, 0, arguments[ENTRIES]);
+    outputs.prepare(runtime, 1, arguments[VALUES]);
   }
   RuntimeState& state = stateOf(runtime);
   if (state.keywordWorkspace == nullptr) {
@@ -56,7 +59,8 @@ jsi::Value HybridNarsilCoreImpl::frozenDocument(jsi::Runtime& runtime, const jsi
     state.keywordWorkspace.reset(created);
   }
   auto segment = regions.read(runtime);
-  auto output = regions.readState(runtime, segment.terms.count);
+  auto output = regions.readState(runtime, segment);
+  auto removals = paged.read(runtime);
   constexpr size_t TOKEN_WORDS = sizeof(narsil_token) / sizeof(uint32_t);
   for (size_t index = 0; index < fieldCount; index++) {
     auto tokens = fieldViews.read<const uint32_t>(runtime, index * 2, "The field tokens");
@@ -65,7 +69,7 @@ jsi::Value HybridNarsilCoreImpl::frozenDocument(jsi::Runtime& runtime, const jsi
     fields[index].tokens = {reinterpret_cast<const narsil_token*>(tokens.data),
                            static_cast<uint32_t>(tokens.length / TOKEN_WORDS), units.data, units.length};
   }
-  narsil_remove_frozen_request request{&segment, &output, ordinal, fields.data(), fieldCount};
+  narsil_remove_frozen_request request{&segment, &output, ordinal, fields.data(), fieldCount, removals};
   if (preparing) {
     auto entries = outputs.read<uint32_t>(runtime, 0, "The removal entries");
     auto values = outputs.read<double>(runtime, 1, "The removal values");
@@ -82,6 +86,32 @@ jsi::Value HybridNarsilCoreImpl::frozenDocument(jsi::Runtime& runtime, const jsi
   return jsi::Value((preparing ? -1 : 1) * static_cast<double>(NARSIL_INVALID_ARGUMENT));
 } catch (const std::bad_alloc&) {
   return jsi::Value((preparing ? -1 : 1) * static_cast<double>(NARSIL_OUT_OF_MEMORY));
+}
+
+jsi::Value HybridNarsilCoreImpl::settleFrozenState(jsi::Runtime& runtime, const jsi::Value&,
+                                                 const jsi::Value* arguments, size_t count) try {
+  if (count != SETTLE_FROZEN_ARGUMENT_COUNT) return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  FrozenSegmentRegions regions;
+  regions.prepare(runtime, arguments);
+  FrozenPagedRegions paged;
+  paged.prepare(runtime, arguments[FROZEN_REGION_ARGUMENTS]);
+  RuntimeState& state = stateOf(runtime);
+  if (state.keywordWorkspace == nullptr) {
+    narsil_workspace* created = nullptr;
+    if (narsil_workspace_create(&created) != NARSIL_OK) return jsi::Value(static_cast<double>(NARSIL_OUT_OF_MEMORY));
+    state.keywordWorkspace.reset(created);
+  }
+  auto segment = regions.read(runtime);
+  auto output = regions.readState(runtime, segment);
+  auto removals = paged.read(runtime);
+  return jsi::Value(
+      static_cast<double>(narsil_settle_frozen_state(state.keywordWorkspace.get(), &segment, &output, removals)));
+} catch (const std::invalid_argument&) {
+  return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+} catch (const std::length_error&) {
+  return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+} catch (const std::bad_alloc&) {
+  return jsi::Value(static_cast<double>(NARSIL_OUT_OF_MEMORY));
 }
 
 }
