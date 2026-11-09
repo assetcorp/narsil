@@ -125,7 +125,7 @@ export function prepareDocumentText(
   language: LanguageModule,
   options: PartitionInsertOptions | undefined,
 ): PreparedText {
-  const fieldLengths: Record<string, number> = Object.create(null)
+  const fieldLengths: Record<string, number> = {}
   const partialSpellings: SpellingCounts | null = holdsPartialField(schemaFields) ? new Map() : null
   const fields = new Map<string, PreparedTextField>()
   const texts = new DocumentTexts()
