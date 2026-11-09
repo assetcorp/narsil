@@ -52,8 +52,9 @@ inline constexpr size_t SUGGEST_TERMS_ARGUMENT_COUNT = 8;
 inline constexpr size_t HIGHLIGHT_ARGUMENT_COUNT = 9;
 inline constexpr size_t MATCH_PHRASES_ARGUMENT_COUNT = 9;
 inline constexpr size_t INDEX_TERMS_ARGUMENT_COUNT = 3;
-inline constexpr size_t REMOVE_FROZEN_ARGUMENT_COUNT = 4;
-inline constexpr size_t PREPARE_FROZEN_ARGUMENT_COUNT = 6;
+inline constexpr size_t REMOVE_FROZEN_ARGUMENT_COUNT = 33;
+inline constexpr size_t PREPARE_FROZEN_ARGUMENT_COUNT = 35;
+inline constexpr size_t SETTLE_FROZEN_ARGUMENT_COUNT = 31;
 
 struct WorkspaceRelease {
   void operator()(narsil_workspace* workspace) const { narsil_workspace_destroy(workspace); }
@@ -151,6 +152,7 @@ public:
   jsi::Value removeDocument(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value removeFrozenDocument(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value prepareFrozenRemoval(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value settleFrozenState(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value beginBatch(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value endBatch(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value measureMerge(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);

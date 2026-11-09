@@ -3,4 +3,4 @@ export { requireRoom, requireSegment, SegmentRefusal } from '../segment-writes/s
 export { storedText } from '../stored-values/text'
 export { PENDING_DOCUMENTS, PENDING_TOKEN_WORDS, PENDING_TOKENS, PENDING_UNITS, pendingSettled } from './pending'
 export { readFrozenRequest, readFrozenSettle } from './regions'
-export { findEntry, textAt } from './strings'
+export { textAt } from './strings'
