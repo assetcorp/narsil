@@ -3,8 +3,6 @@ import {
   PENDING_TOKENS,
   PENDING_UNITS,
   pendingSettled,
-  readFrozenRequest,
-  readFrozenSettle,
   requireRoom,
   requireSegment,
   SegmentRefusal,
@@ -22,6 +20,7 @@ import {
 } from './counts'
 import type { PendingSize } from './pending'
 import { appendPending, pendingFits, pendingNeeds } from './pending-writes'
+import { readFrozenRequest, readFrozenSettle } from './removal-request'
 import { settleStringCounts } from './string-counts'
 import type { FrozenPagedRemovals, PrepareFrozenRemoval, RemoveFrozenDocument, SettleFrozenState } from './types'
 

@@ -3,7 +3,6 @@ import type {
   NativeFrozenSegmentState,
   NativeFrozenStrings,
 } from '../../vector/native/types/frozen-segments'
-import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { regionsOverlap } from '../regions'
 import { requireSegment } from '../segment-writes/status'
 import { regionLength, typedRegion } from '../stored-values/regions'
@@ -87,17 +86,6 @@ function strings(value: NativeFrozenStrings, stride: number, regions: Regions): 
     text,
     offsets: regions.array(value.offsets, 'Uint32Array', counts.length * stride + 1),
     counts,
-  }
-}
-
-function checkText(units: Uint16Array, start: number, length: number): void {
-  requireSegment(length <= 0x40000000 && start <= units.length && length <= units.length - start)
-  const end = start + length
-  for (let at = start; at < end; at++) {
-    const unit = units[at]
-    if (unit < 0xd800 || unit >= 0xe000) continue
-    requireSegment(unit < 0xdc00 && ++at < end)
-    requireSegment(units[at] >= 0xdc00 && units[at] < 0xe000)
   }
 }
 
@@ -228,22 +216,13 @@ function readHeld(input: NativeFrozenSegment, output: NativeFrozenSegmentState, 
   return held
 }
 
-function readFrozen(
-  input: NativeFrozenSegment,
-  output: NativeFrozenSegmentState,
-  ordinal: number | null,
-  rawFields: readonly NativeFieldTokens[],
-) {
+export function readFrozenParts(input: NativeFrozenSegment, output: NativeFrozenSegmentState) {
   const captured = captureFrozen(input, output)
-  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
-  const fields = rawFields.map(copy)
   const held = readHeld(input, output, captured)
   const { segment, state } = held
-  const documentCount = segment.documentCount
-  requireSegment(ordinal === null || (Number.isInteger(ordinal) && ordinal >= 0 && ordinal < documentCount))
   const regions = new Regions(held.regions)
   const partialFields = regions.array(captured.raw.partialFields, 'Uint8Array')
-  requireSegment(partialFields.length <= 65536 && fields.length <= partialFields.length)
+  requireSegment(partialFields.length <= 65536)
   for (const flag of partialFields) requireSegment(flag <= 1)
   segment.partialFields = partialFields
   const header = state.pendingHeader
@@ -252,55 +231,21 @@ function readFrozen(
       header[PENDING_TOKENS] <= state.pendingTokens.length / PENDING_TOKEN_WORDS &&
       header[PENDING_UNITS] <= state.pendingUnits.length,
   )
-  let previous = -1
-  for (const field of fields) {
-    requireSegment(Number.isInteger(field.field) && field.field > previous && field.field < partialFields.length)
-    field.tokens = regions.array(field.tokens, 'Uint32Array')
-    field.units = regions.array(field.units, 'Uint16Array')
-    requireSegment(
-      field.tokens.length % 8 === 0 && field.tokens.length / 8 <= 0xffffffff && field.units.length <= 0xffffffff,
-    )
-    for (let at = 0; at < field.tokens.length; at += 8) {
-      checkText(field.units, field.tokens[at + 1], field.tokens[at + 2])
-      if (field.tokens[at + 3] !== 0xffffffff) checkText(field.units, field.tokens[at + 3], field.tokens[at + 4])
-    }
-    previous = field.field
-  }
   regions.check()
-  requireSegment(state.tombstoneCount[0] <= documentCount)
+  requireSegment(state.tombstoneCount[0] <= segment.documentCount)
+  return { segment, state, regions }
+}
+
+export type FrozenParts = ReturnType<typeof readFrozenParts>
+
+export function readFrozenSource(input: NativeFrozenSegment, output: NativeFrozenSegmentState) {
+  const { segment, state, regions } = readFrozenParts(input, output)
+  requireSegment(pendingSettled(state))
   return {
     segment,
     state,
-    fields,
     get arrays() {
       return regions.views()
     },
-    readOutput(rawEntries: Uint32Array, rawValues: Float64Array) {
-      const entries = regions.array(rawEntries, 'Uint32Array', undefined, true)
-      const values = regions.array(rawValues, 'Float64Array', undefined, true)
-      requireSegment(entries.length % 2 === 0)
-      regions.check()
-      return { entries, values }
-    },
   }
-}
-
-export function readFrozenRequest(
-  input: NativeFrozenSegment,
-  output: NativeFrozenSegmentState,
-  ordinal: number,
-  fields: readonly NativeFieldTokens[],
-) {
-  requireSegment(Number.isInteger(ordinal) && ordinal >= 0)
-  return readFrozen(input, output, ordinal, fields)
-}
-
-export function readFrozenSettle(input: NativeFrozenSegment, state: NativeFrozenSegmentState) {
-  return readFrozen(input, state, null, [])
-}
-
-export function readFrozenSource(input: NativeFrozenSegment, state: NativeFrozenSegmentState) {
-  const source = readFrozen(input, state, null, [])
-  requireSegment(pendingSettled(source.state))
-  return source
 }

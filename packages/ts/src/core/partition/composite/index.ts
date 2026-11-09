@@ -40,7 +40,8 @@ import {
   computeOrdinalLayout,
   type OrdinalLayout,
 } from './filters'
-import { preparedRemovedSpellings, prepareFrozenText, withPreviousText } from './prepared-text'
+import { prepareOwnerRemoval } from './frozen-removal'
+import { withPreviousText } from './prepared-text'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortValues, prepareCompositeSortColumns } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
@@ -239,13 +240,10 @@ export function createCompositePartition(
         invalidateDocFrequencies()
         return stored
       }
-      const before = prepareFrozenText(owner, docId, schema, language, options)
-      const spellings = removedSpellings ?? preparedRemovedSpellings(before) ?? owner.removedSpellingsOf(docId)
-      const tombstone = owner.prepareTombstone(docId, spellings, before)
-      options?.onRemovedSpellings?.(spellings)
-      const stored = live.insert(docId, document, schema, language, withPreviousText(options, before))
+      const removal = prepareOwnerRemoval(owner, docId, schema, language, options, removedSpellings)
+      const stored = live.insert(docId, document, schema, language, withPreviousText(options, removal.before))
       invalidateDocFrequencies()
-      tombstone?.()
+      removal.tombstone?.publish()
       return stored
     },
 
@@ -262,13 +260,9 @@ export function createCompositePartition(
           partitionId,
         })
       }
-      const before = prepareFrozenText(owner, docId, schema, language, options)
-      const spellings = removedSpellings ?? preparedRemovedSpellings(before) ?? owner.removedSpellingsOf(docId)
-      const tombstone = owner.prepareTombstone(docId, spellings, before)
-      options?.onRemovedSpellings?.(spellings)
-      options?.onPreparedText?.({ before })
+      const removal = prepareOwnerRemoval(owner, docId, schema, language, options, removedSpellings)
       invalidateDocFrequencies()
-      tombstone?.()
+      removal.tombstone?.publish()
     },
 
     removedSpellingsOf(docId: string): RemovedSpellings | undefined {

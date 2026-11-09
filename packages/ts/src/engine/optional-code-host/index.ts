@@ -3,6 +3,7 @@ import { frozenWritesHostPart } from './frozen-writes'
 import { geoHostPart } from './geo'
 import { schemaHostPart } from './schema'
 import { searchHostPart } from './search'
+import { segmentRemovalHostPart } from './segment-removal'
 import { segmentsHostPart } from './segments'
 import { smallLeavesHostPart } from './small-leaves'
 import { storageHostPart } from './storage'
@@ -19,6 +20,7 @@ function buildOptionalCodeHost() {
     ...schemaHostPart(),
     ...searchHostPart(),
     ...textHostPart(),
+    ...segmentRemovalHostPart(),
     ...segmentsHostPart(),
     ...smallLeavesHostPart(),
     ...storageHostPart(),

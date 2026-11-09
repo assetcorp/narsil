@@ -2,7 +2,7 @@ import { growFrozenRemovalRegions, prepareFrozenRemoval, settleFrozenState } fro
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
 import type { NativeFieldTokens } from '../../vector/native/types/segments'
-import { PENDING_HEADER_WORDS, PENDING_UNITS, pendingSettled } from './pending'
+import { PENDING_DOCUMENTS, PENDING_HEADER_WORDS, PENDING_TOKENS, PENDING_UNITS, pendingSettled } from './pending'
 import type { FrozenPagedRemovals } from './types'
 
 export type { FrozenPagedRemovals } from './types'
@@ -55,6 +55,7 @@ export function createFrozenRemovals(
   }
 
   function prepareCount(ordinal: number, fields: readonly NativeFieldTokens[]): number {
+    growFrozenRemovalRegions(segment, state, fields)
     const count = prepareFrozenRemoval(segment, state, ordinal, fields, entries, values, paged)
     if (count !== NEEDS_ROOM) return count
     growFrozenRemovalRegions(segment, state, fields)
@@ -77,10 +78,17 @@ export function createFrozenRemovals(
       const kinds = entries.slice(0, count * 2)
       const replacements = values.slice(0, count)
       const header = state.pendingHeader
-      const held = header.slice(0, PENDING_UNITS + 1).join()
+      const heldDocuments = header[PENDING_DOCUMENTS]
+      const heldTokens = header[PENDING_TOKENS]
+      const heldUnits = header[PENDING_UNITS]
       const targets = [state.tombstones, state.tombstoneCount, header]
       return () => {
-        if (header.slice(0, PENDING_UNITS + 1).join() !== held) corrupted(0)
+        if (
+          header[PENDING_DOCUMENTS] !== heldDocuments ||
+          header[PENDING_TOKENS] !== heldTokens ||
+          header[PENDING_UNITS] !== heldUnits
+        )
+          corrupted(0)
         for (let at = 0; at < count; at++)
           targets[kinds[at * 2] - FIRST_PREPARED_KIND][kinds[at * 2 + 1]] = replacements[at]
       }

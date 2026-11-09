@@ -14,11 +14,12 @@ import {
   visitDocumentSurfaceSpellings,
 } from '../partial-words/spellings'
 import { REMOVED_SURFACE_ENTRY_BYTES } from './constants'
+import type { RemovedSpellings } from './removed-spellings'
 import { createSurfaceRemovalState } from './surface-state'
 
-export type TextAnalysis = Omit<PartialWordAnalysis, 'fields'>
+export type { RemovedSpellings } from './removed-spellings'
 
-export type RemovedSpellings = readonly string[]
+export type TextAnalysis = Omit<PartialWordAnalysis, 'fields'>
 
 export interface SurfaceTableReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
@@ -109,18 +110,21 @@ export function createFrozenSurfaceSlot(
 
   function prepareRemoval(ordinal: number, spellings: RemovedSpellings): () => void {
     const marks = uncounted ?? new Uint8Array(documents.count)
-    const target = spellings.length > 0 && table === undefined ? loaded() : null
+    const target = spellings.spellings.length > 0 && table === undefined ? loaded() : null
     return () => {
       uncounted ??= marks
       uncounted[ordinal] = 1
-      for (const spelling of spellings) {
+      const { counts } = spellings
+      for (let entry = 0; entry < counts.length; entry++) {
+        const spelling = spellings.spellings[entry]
+        const count = counts[entry]
         if (target !== null) {
-          removalState?.subtract(spelling, 1)
-          target.subtract(spelling, 1)
+          removalState?.subtract(spelling, count)
+          target.subtract(spelling, count)
         } else {
           const previous = waitingRemovals.get(spelling)
           if (previous === undefined) waitingBytes += REMOVED_SURFACE_ENTRY_BYTES + documentValueBytes(spelling)
-          waitingRemovals.set(spelling, (previous ?? 0) + 1)
+          waitingRemovals.set(spelling, (previous ?? 0) + count)
         }
       }
     }
@@ -173,7 +177,8 @@ export function createFrozenSurfaceSlot(
         publish() {
           uncounted ??= marks
           uncounted[ordinal] = 1
-          for (const spelling of spellings) target.subtract(spelling, 1)
+          const { counts } = spellings
+          for (let entry = 0; entry < counts.length; entry++) target.subtract(spellings.spellings[entry], counts[entry])
         },
       }
     },

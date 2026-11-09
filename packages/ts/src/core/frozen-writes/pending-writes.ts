@@ -1,12 +1,18 @@
 import { PENDING_DOCUMENTS, PENDING_TOKEN_WORDS, PENDING_TOKENS, PENDING_UNITS } from '#platform/frozen-kernel-host'
 import type { NativeFrozenSegmentState } from '../../vector/native/types/frozen-segments'
 import type { NativeFieldTokens } from '../../vector/native/types/segments'
-import { PENDING_REMOVAL_DOCUMENTS, PENDING_REMOVAL_TOKENS, PENDING_REMOVAL_UNITS } from './constants'
+import {
+  PENDING_REMOVAL_DOCUMENTS,
+  PENDING_REMOVAL_GROWTH_FACTOR,
+  PENDING_REMOVAL_GROWTH_LIMIT_BYTES,
+  PENDING_REMOVAL_TOKENS,
+  PENDING_REMOVAL_UNITS,
+} from './constants'
 import type { PendingSize } from './pending'
 import type { GrowFrozenRemovalRegions } from './types'
 
 export const NO_SURFACE = 0xffffffff
-const FIELD_TOKEN_WORDS = 8
+export const FIELD_TOKEN_WORDS = 8
 
 export function pendingNeeds(fields: readonly NativeFieldTokens[]): PendingSize {
   let tokens = 0
@@ -31,6 +37,10 @@ export function pendingFits(state: NativeFrozenSegmentState, needed: PendingSize
   )
 }
 
+function grownLength(held: number, required: number, smallest: number): number {
+  return held >= required ? held : Math.max(smallest, required * PENDING_REMOVAL_GROWTH_FACTOR)
+}
+
 function grown<T extends Uint32Array | Uint16Array>(held: T, length: number, create: new (length: number) => T): T {
   if (held.length >= length) return held
   const next = new create(length)
@@ -38,17 +48,39 @@ function grown<T extends Uint32Array | Uint16Array>(held: T, length: number, cre
   return next
 }
 
+function growTo(state: NativeFrozenSegmentState, documents: number, tokens: number, units: number): boolean {
+  const documentLength = grownLength(state.pendingDocuments.length, documents, PENDING_REMOVAL_DOCUMENTS)
+  const tokenLength = grownLength(
+    state.pendingTokens.length,
+    tokens * PENDING_TOKEN_WORDS,
+    PENDING_REMOVAL_TOKENS * PENDING_TOKEN_WORDS,
+  )
+  const unitLength = grownLength(state.pendingUnits.length, units, PENDING_REMOVAL_UNITS)
+  const bytes =
+    documentLength * Uint32Array.BYTES_PER_ELEMENT +
+    tokenLength * Uint32Array.BYTES_PER_ELEMENT +
+    unitLength * Uint16Array.BYTES_PER_ELEMENT
+  if (bytes > PENDING_REMOVAL_GROWTH_LIMIT_BYTES) return false
+  state.pendingDocuments = grown(state.pendingDocuments, documentLength, Uint32Array)
+  state.pendingTokens = grown(state.pendingTokens, tokenLength, Uint32Array)
+  state.pendingUnits = grown(state.pendingUnits, unitLength, Uint16Array)
+  return true
+}
+
 export const growFrozenRemovalRegions: GrowFrozenRemovalRegions = (_segment, state, fields) => {
-  const { tokens, units } = pendingNeeds(fields)
-  state.pendingDocuments = grown(state.pendingDocuments, PENDING_REMOVAL_DOCUMENTS, Uint32Array)
-  if (tokens * PENDING_TOKEN_WORDS > state.pendingTokens.length)
-    state.pendingTokens = grown(
-      state.pendingTokens,
-      Math.max(PENDING_REMOVAL_TOKENS, tokens) * PENDING_TOKEN_WORDS,
-      Uint32Array,
-    )
-  if (units > state.pendingUnits.length)
-    state.pendingUnits = grown(state.pendingUnits, Math.max(PENDING_REMOVAL_UNITS, units), Uint16Array)
+  const needed = pendingNeeds(fields)
+  if (pendingFits(state, needed, false)) return
+  const header = state.pendingHeader
+  const heldGrows = growTo(
+    state,
+    header[PENDING_DOCUMENTS] + needed.documents,
+    header[PENDING_TOKENS] + needed.tokens,
+    header[PENDING_UNITS] + needed.units,
+  )
+  if (heldGrows || pendingFits(state, needed, true)) return
+  state.pendingDocuments = grown(state.pendingDocuments, needed.documents, Uint32Array)
+  state.pendingTokens = grown(state.pendingTokens, needed.tokens * PENDING_TOKEN_WORDS, Uint32Array)
+  state.pendingUnits = grown(state.pendingUnits, needed.units, Uint16Array)
 }
 
 export function appendPending(

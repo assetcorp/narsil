@@ -1,10 +1,15 @@
 import { bindFrozenKernelHost, type FrozenKernelHost } from '../core/frozen-writes/kernel-host.browser'
 import { growFrozenRemovalRegions } from '../core/frozen-writes/pending-writes'
 import { prepareFrozenRemoval, removeFrozenDocument, settleFrozenState } from '../core/frozen-writes/portable'
+import { prepareFrozenStrings } from '../core/frozen-writes/removal-strings'
 import type * as SegmentCodecCode from '../core/segment-codec-leaf'
+import { bindSegmentRemovalHost, type SegmentRemovalHost } from '../core/segment-writes/removal-host.browser'
+import { removeDocument } from '../core/segment-writes/remove'
 import type { OptionalCodeHost } from './optional-code-host'
 
-type FrozenRemovalNames = FrozenKernelHost & Pick<OptionalCodeHost, 'bindFrozenRemovalKernel'>
+type FrozenRemovalNames = FrozenKernelHost &
+  SegmentRemovalHost &
+  Pick<OptionalCodeHost, 'bindFrozenRemovalKernel' | 'bindSegmentRemoval'>
 
 type EngineNames = Pick<
   OptionalCodeHost,
@@ -140,9 +145,12 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
   host.bindFrozenRemovalKernel({
     growFrozenRemovalRegions,
     prepareFrozenRemoval,
+    prepareFrozenStrings,
     removeFrozenDocument,
     settleFrozenState,
   })
+  bindSegmentRemovalHost(host)
+  host.bindSegmentRemoval(removeDocument)
   ;({
     BATCH_CHUNK_SIZE,
     ErrorCodes,

@@ -6,9 +6,13 @@ import {
   PENDING_UNITS,
   pendingSettled,
 } from '../../core/frozen-writes/pending'
-import { readFrozenRequest, readFrozenSettle } from '../../core/frozen-writes/regions'
+import { readFrozenParts } from '../../core/frozen-writes/regions'
 import { textAt } from '../../core/frozen-writes/strings'
 import { compareBytes } from '../../core/partition/frozen/string-blob'
+import { visitDocumentSurfaceSpellings } from '../../core/partition/partial-words/spellings'
+import { packedTokens } from '../../core/segment-writes/prepared-tokens'
+import { transformToken } from '../../core/tokenizer/cache'
+import { resolveStopWords } from '../../core/tokenizer/tokenize'
 
 export function frozenWritesHostPart() {
   return {
@@ -18,9 +22,12 @@ export function frozenWritesHostPart() {
     PENDING_UNITS,
     bindFrozenRemovalKernel,
     compareBytes,
+    packedTokens,
     pendingSettled,
-    readFrozenRequest,
-    readFrozenSettle,
+    readFrozenParts,
+    resolveStopWords,
     textAt,
+    transformToken,
+    visitDocumentSurfaceSpellings,
   }
 }

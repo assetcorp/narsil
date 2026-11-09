@@ -125,6 +125,7 @@ export async function insertDocument(
       throw err
     }
   } else {
+    if (extractedVectors.size > 0) await loadOptionalWrites()
     await applyInsert()
   }
 

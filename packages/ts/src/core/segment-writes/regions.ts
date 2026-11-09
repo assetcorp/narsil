@@ -1,5 +1,4 @@
 import type {
-  NativeFieldTokens,
   NativeGrowingSegment,
   NativeRunTable,
   NativeSliceAllocator,
@@ -9,7 +8,6 @@ import type { NativeTermTable } from '../../vector/native/types/terms'
 import { regionsOverlap } from '../regions'
 import { typedRegion } from '../stored-values/regions'
 import { requireSegment } from './status'
-import { tokenTextOf } from './token-text'
 
 type RegionKind = Parameters<typeof typedRegion>[1]
 
@@ -213,40 +211,15 @@ export function checkText(units: Uint16Array, start: number, length: number): vo
   }
 }
 
-export function readRequest(input: NativeGrowingSegment, ordinal: number, rawFields: readonly NativeFieldTokens[]) {
+export function readSegmentRegions(input: NativeGrowingSegment) {
   const captured = captureSegment(input)
-  requireSegment(Array.isArray(rawFields) && rawFields.length <= 65536)
-  const fields = rawFields.map(copy)
   const regions = new Regions()
   const segment = readSegment(captured, regions)
-  requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
-  requireSegment(fields.length <= segment.partialFields.length)
-  const text: Array<ReadonlyArray<string | undefined> | undefined> = []
-  let previous = -1
-  for (const field of fields) {
-    requireSegment(
-      Number.isInteger(field.field) && field.field > previous && field.field < segment.partialFields.length,
-    )
-    const known = tokenTextOf(field.tokens)
-    field.tokens = regions.read(field.tokens, 'Uint32Array', undefined, false)
-    text.push(known?.length === field.tokens.length / 4 ? known : undefined)
-    field.units = regions.read(field.units, 'Uint16Array', undefined, false)
-    requireSegment(field.units.length <= 0xffffffff)
-    requireSegment(field.tokens.length % 8 === 0 && field.tokens.length / 8 <= 0xffffffff)
-    for (let at = 0; at < field.tokens.length; at += 8) {
-      checkText(field.units, field.tokens[at + 1], field.tokens[at + 2])
-      if (field.tokens[at + 3] !== 0xffffffff) checkText(field.units, field.tokens[at + 3], field.tokens[at + 4])
-    }
-    previous = field.field
-  }
-  regions.check()
-  return { segment, fields, text }
+  return { segment, regions }
 }
 
 export function readBatch(input: NativeGrowingSegment): NativeGrowingSegment {
-  const captured = captureSegment(input)
-  const regions = new Regions()
-  const segment = readSegment(captured, regions)
+  const { segment, regions } = readSegmentRegions(input)
   regions.check()
   return segment
 }

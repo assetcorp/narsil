@@ -3,10 +3,10 @@ import type { NativeExpansionSegment } from '../../../vector/native/types/expans
 import type { NativeFrozenSegment, NativeFrozenSegmentState } from '../../../vector/native/types/frozen-segments'
 import type { NativeTermDictionary } from '../../../vector/native/types/terms'
 import { createFrozenRemovals, emptyPendingRegions } from '../../frozen-writes/publication'
+import type { FrozenStringRemoval } from '../../frozen-writes/removal-strings'
 import { TermLookup } from '../../term-table/lookup'
 import { FROZEN_REMOVAL_INDEX_MAX_PROCESS_FRACTION } from '../constants'
 import type { SegmentColumns } from './columns'
-import type { FrozenStringRemoval } from './removal-strings'
 import type { FrozenTokenTable } from './token-table'
 import type { FrozenTombstones } from './tombstones'
 

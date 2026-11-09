@@ -7,6 +7,12 @@ import { resolveStopWords } from '../../tokenizer/tokenize'
 import { visitDocumentSurfaceSpellings } from '../partial-words/spellings'
 import type { PreparedRemovalSpelling, PreparedText } from '../prepared-text'
 import type { PartitionInsertOptions } from '../utils'
+import {
+  addDistinctRemovedSpellings,
+  beginRemovedSpellings,
+  finishRemovedSpellings,
+  type RemovedSpellings,
+} from './removed-spellings'
 
 export function prepareRemovalText(
   prepared: PreparedText,
@@ -27,13 +33,13 @@ export function prepareRemovalText(
     removalSpellings.set(field, words)
     const add = (spelling: string): void => {
       const held = words.get(spelling)
+      if (held !== undefined) {
+        held.count++
+        return
+      }
       const normalized =
-        held !== undefined
-          ? held.normalized
-          : normalize && !stopWords?.has(spelling)
-            ? transformToken(spelling, language, false, false)
-            : null
-      words.set(spelling, { count: (held?.count ?? 0) + 1, normalized })
+        normalize && !stopWords?.has(spelling) ? transformToken(spelling, language, false, false) : null
+      words.set(spelling, { count: 1, normalized })
     }
     if (options?.customTokenizer === undefined) {
       visitDocumentSurfaceSpellings(document, { fields: [field], language, options }, add)
@@ -54,9 +60,8 @@ export function prepareRemovalText(
   return { ...prepared, removalSpellings }
 }
 
-export function removedSurfaceSpellings(text: PreparedText): string[] {
-  const spellings: string[] = []
-  for (const field of text.removalSpellings?.values() ?? [])
-    for (const [spelling, value] of field) for (let count = 0; count < value.count; count++) spellings.push(spelling)
-  return spellings
+export function removedSurfaceSpellings(text: PreparedText | undefined): RemovedSpellings {
+  beginRemovedSpellings()
+  for (const field of text?.removalSpellings?.values() ?? []) addDistinctRemovedSpellings(field)
+  return finishRemovedSpellings()
 }

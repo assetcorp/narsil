@@ -6,6 +6,7 @@ import * as portable from './portable'
 import type { FrozenPagedRemovals, PrepareFrozenRemoval, RemoveFrozenDocument, SettleFrozenState } from './types'
 
 export { growFrozenRemovalRegions } from './pending-writes'
+export { prepareFrozenStrings } from './removal-strings'
 
 const PAGE_CORRUPT = 9
 const PAGE_INVALID = 11
