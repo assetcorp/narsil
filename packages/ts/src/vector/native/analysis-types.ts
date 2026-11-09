@@ -65,23 +65,29 @@ export interface NativeAnalysisCore {
     records: Uint32Array,
   ): string | number | null
   /**
-   * Splits a text into tokens and packs them for a keyword write, in one new buffer that holds exactly them.
+   * Splits a text into tokens and packs them for a keyword write into the caller's buffers, so a caller can reuse
+   * the same two buffers for every text.
    *
    * @param language - The index of the language module to analyse with.
    * @param flags - The analysis steps to take, as bits from the core's header.
    * @param text - The text.
    * @param stopWords - The stop words to remove, or `null` for the module's own list.
-   * @returns The term and surface text of every token, or a negative status code from the core's header. The
-   * buffer under the returned array starts with the token count and then eight words for each token, laid out as
-   * {@link NativeAnalysisCore.analyse} lays them out, with offsets into the returned array, zero original-spelling
-   * words, and a cache slot of 0xffffffff. The returned array starts right after the last record.
+   * @param records - At least two entries, filled with the token count and then eight words for each token, laid
+   * out as {@link NativeAnalysisCore.analyse} lays them out, with offsets into `units`, zero original-spelling
+   * words, and a cache slot of 0xffffffff.
+   * @param units - The array that receives the term and surface text of every token.
+   * @returns The number of units written, `null` where either array holds too few entries (the first entry of
+   * `records` then holds the token count and the second the number of units needed), or a negative status code
+   * from the core's header.
    */
   analysePacked(
     language: number,
     flags: number,
     text: string,
     stopWords: NativeStopWordSetHandle | null,
-  ): Uint16Array | number
+    records: Uint32Array,
+    units: Uint16Array,
+  ): number | null
   /**
    * Normalises and stems one token without splitting it.
    *

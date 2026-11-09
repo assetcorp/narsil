@@ -95,7 +95,7 @@ async function workerOrLocalFanOut(
   const viaWorker = await workerSearch(
     context.indexName,
     params,
-    broadcastStatsForWorker(params, context, scoring),
+    broadcastStatsForWorker(params, scoring),
     context.partitionIds,
     context.patternWork,
     bm25SettingFor(params, context),

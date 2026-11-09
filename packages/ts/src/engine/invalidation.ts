@@ -24,7 +24,7 @@ export interface InvalidationIntegrationDeps {
 export interface InvalidationIntegration {
   readonly instanceId: string
   publishPartitions(indexName: string, partitions: number[]): Promise<void>
-  broadcastStats(indexName: string): GlobalStatistics | undefined
+  broadcastStats(indexName: string, tokens: ReadonlySet<string>): GlobalStatistics | undefined
   start(): Promise<void>
   shutdown(): Promise<void>
 }
@@ -126,7 +126,7 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       if (manager === undefined) {
         continue
       }
-      const aggregate = manager.getAggregateStats()
+      const aggregate = manager.statisticsMessage()
       try {
         await adapter.publish({
           type: 'statistics',
@@ -164,12 +164,12 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       }
     },
 
-    broadcastStats(indexName: string): GlobalStatistics | undefined {
+    broadcastStats(indexName: string, tokens: ReadonlySet<string>): GlobalStatistics | undefined {
       const manager = getManager(indexName)
       if (manager === undefined) {
         return undefined
       }
-      const own = manager.getAggregateStats()
+      const own = manager.getAggregateStats(tokens)
       const entries = foreignStats.get(indexName)
       if (entries === undefined || entries.size === 0) {
         return mergePartitionStats([own])
@@ -177,9 +177,14 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       pruneStaleForeignStats(entries)
       const combined = [own]
       for (const [, entry] of entries) {
+        const docFrequencies: Record<string, number> = Object.create(null)
+        for (const token of tokens) {
+          if (Object.hasOwn(entry.stats.docFrequencies, token))
+            docFrequencies[token] = entry.stats.docFrequencies[token]
+        }
         combined.push({
           totalDocuments: entry.stats.totalDocs,
-          docFrequencies: entry.stats.docFrequencies,
+          docFrequencies,
           totalFieldLengths: entry.stats.totalFieldLengths,
         })
       }

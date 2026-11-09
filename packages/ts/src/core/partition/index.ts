@@ -67,7 +67,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
   const state: PartitionState = {
     invertedIdx: createInvertedIndex(fieldNameTable),
     docStore,
-    stats: createPartitionStats(),
+    stats: createPartitionStats(into => state.invertedIdx.addDocumentFrequencies(into)),
     surfaceRegistry: createSurfaceRegistry(),
     numericIndexes: new Map(),
     booleanIndexes: new Map(),

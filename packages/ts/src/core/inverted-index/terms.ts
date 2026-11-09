@@ -30,6 +30,7 @@ export class TermColumns {
   count = 0
   liveCount = 0
   nonemptyCount = 0
+  nonemptyStale = false
   generation = 0
   tokenCodeUnits = 0
 
@@ -76,7 +77,19 @@ export class TermColumns {
     prepared.apply()
   }
 
-  acceptPublication(nonemptyChange = 0): void {
+  nonemptyTerms(): number {
+    if (this.nonemptyStale) {
+      let nonempty = 0
+      for (let ordinal = 0; ordinal < this.count; ordinal++) {
+        if (this.isLive(ordinal) && this.frequencyAt(ordinal) > 0) nonempty++
+      }
+      this.nonemptyCount = nonempty
+      this.nonemptyStale = false
+    }
+    return this.nonemptyCount
+  }
+
+  acceptPublication(nonemptyChange: number | null): void {
     const count = this.ids.header[0]
     if (this.generation !== this.ids.header[3]) {
       const tokens = new Array<string>(count)
@@ -92,6 +105,7 @@ export class TermColumns {
       this.count = count
       this.liveCount = this.ids.header[1]
       this.nonemptyCount = nonempty
+      this.nonemptyStale = false
       this.tokenCodeUnits = units
       this.generation = this.ids.header[3]
       this.ids.acceptCompaction()
@@ -104,7 +118,8 @@ export class TermColumns {
     }
     this.count = count
     this.liveCount = this.ids.header[1]
-    this.nonemptyCount += nonemptyChange
+    if (nonemptyChange === null) this.nonemptyStale = true
+    else this.nonemptyCount += nonemptyChange
   }
 
   isLive(ordinal: number): boolean {
@@ -121,6 +136,7 @@ export class TermColumns {
     this.count = 0
     this.liveCount = 0
     this.nonemptyCount = 0
+    this.nonemptyStale = false
     this.tokenCodeUnits = 0
     this.generation++
     this.ids.setGeneration(this.generation)

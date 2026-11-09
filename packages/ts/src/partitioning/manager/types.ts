@@ -114,11 +114,12 @@ export interface PartitionManager {
   ): Map<string, RemovedSpellings>
   freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(partitionId: number, segment: FrozenSegment): void
-  getAggregateStats(): {
+  getAggregateStats(tokens?: ReadonlySet<string>): {
     totalDocuments: number
     docFrequencies: Record<string, number>
     totalFieldLengths: Record<string, number>
   }
+  statisticsMessage(): ReturnType<PartitionManager['getAggregateStats']>
   estimateMemoryBytes(): number
   getPartitionStats(): PartitionStatsResult[]
   getVectorIndexes(): Map<string, VectorIndex>

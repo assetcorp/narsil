@@ -3,8 +3,11 @@ import type { LanguageModule } from '../../types/language'
 import type { NativeStopWordSetHandle } from '../../vector/native/analysis-types'
 import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
 import type { NativeCore } from '../../vector/native/types'
-import { storedText } from '../stored-values/text'
-import { NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS, NATIVE_ANALYSIS_HELD_TERMS } from './constants'
+import {
+  NATIVE_ANALYSIS_FIRST_PACKED_UNITS,
+  NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS,
+  NATIVE_ANALYSIS_HELD_TERMS,
+} from './constants'
 import type { NativeAnalysis, PackedTokenVisitor } from './native-hook'
 import type { TokenizeOptions, TokenVisitor } from './tokenize'
 
@@ -28,7 +31,7 @@ interface HeldStopWords {
 }
 
 interface Analysed {
-  arena: string | Uint16Array
+  arena: string
   records: Uint32Array
 }
 
@@ -38,6 +41,9 @@ let languagesOfCore = new WeakMap<LanguageModule, CoreLanguage | null>()
 let heldStopWords = new WeakMap<object, HeldStopWords>()
 let sharedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
 let recordsInUse = false
+let packedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
+let packedUnits = new Uint16Array(NATIVE_ANALYSIS_FIRST_PACKED_UNITS)
+let packedInUse = false
 let termsBySlot: Array<string | undefined> | null = null
 
 function activeCore(): NativeCore | null {
@@ -122,24 +128,45 @@ function stopWordsFor(
   return heldSetFor(core, override, words)
 }
 
-function analysePacked(
+function visitPacked(
   core: NativeCore,
   index: number,
   flags: number,
   text: string,
   stopWords: NativeStopWordSetHandle | null,
-): Analysed | null {
-  const units = core.analysePacked(index, flags, text, stopWords)
-  if (typeof units === 'number' || units.byteOffset % Uint32Array.BYTES_PER_ELEMENT !== 0) {
-    noteFallback('analyse')
-    return null
+  packed: PackedTokenVisitor,
+): boolean {
+  const shared = !packedInUse
+  let records = shared ? packedRecords : new Uint32Array(packedRecords.length)
+  let units = shared ? packedUnits : new Uint16Array(packedUnits.length)
+  let written = core.analysePacked(index, flags, text, stopWords, records, units)
+  if (written === null) {
+    const neededUnits = records[1]
+    records = new Uint32Array(Math.max(records.length, 1 + records[0] * TOKEN_RECORD_WORDS))
+    units = new Uint16Array(Math.max(units.length, neededUnits))
+    if (shared) {
+      packedRecords = records
+      packedUnits = units
+    }
+    written = core.analysePacked(index, flags, text, stopWords, records, units)
   }
-  const records = new Uint32Array(units.buffer, 0, units.byteOffset / Uint32Array.BYTES_PER_ELEMENT)
-  if (records.length === 0 || 1 + records[0] * TOKEN_RECORD_WORDS !== records.length) {
+  const count = records[0]
+  if (
+    typeof written !== 'number' ||
+    written < 0 ||
+    written > units.length ||
+    count > (records.length - 1) / TOKEN_RECORD_WORDS
+  ) {
     noteFallback('analyse')
-    return null
+    return false
   }
-  return { arena: units, records }
+  if (shared) packedInUse = true
+  try {
+    packed(records, count, units, written)
+  } finally {
+    if (shared) packedInUse = false
+  }
+  return true
 }
 
 function analyseWith(
@@ -181,27 +208,20 @@ function termOf(arena: string, start: number, length: number, slot: number): str
   return term
 }
 
-function visitRecords(analysed: Analysed, visit: TokenVisitor, packed?: PackedTokenVisitor): void {
+function visitRecords(analysed: Analysed, visit: TokenVisitor): void {
   const { arena, records } = analysed
   const count = records[0]
   const ownsShared = records === sharedRecords
   if (ownsShared) recordsInUse = true
   try {
-    if (typeof arena !== 'string') packed?.(records.subarray(1, 1 + count * TOKEN_RECORD_WORDS), arena)
     for (let token = 0, at = 1; token < count; token++, at += TOKEN_RECORD_WORDS) {
       const surfaceStart = records[at + 3]
       const originalStart = records[at + 5]
       visit(
-        typeof arena === 'string'
-          ? termOf(arena, records[at + 1], records[at + 2], records[at + 7])
-          : storedText(arena, records[at + 1], records[at + 2]),
+        termOf(arena, records[at + 1], records[at + 2], records[at + 7]),
         records[at],
-        surfaceStart === NO_SURFACE
-          ? undefined
-          : typeof arena === 'string'
-            ? arena.substring(surfaceStart, surfaceStart + records[at + 4])
-            : storedText(arena, surfaceStart, records[at + 4]),
-        typeof arena === 'string' ? arena.substring(originalStart, originalStart + records[at + 6]) : '',
+        surfaceStart === NO_SURFACE ? undefined : arena.substring(surfaceStart, surfaceStart + records[at + 4]),
+        arena.substring(originalStart, originalStart + records[at + 6]),
       )
     }
   } finally {
@@ -227,12 +247,10 @@ function visitTokens(
     (options?.removeDiacritics === true ? REMOVE_DIACRITICS_FLAG : 0) |
     (options?.collectSurfaces === true ? COLLECT_SURFACES_FLAG : 0)
   const stopWords = removeStopWords ? stopWordsFor(core, coreLanguage, language, options?.stopWordOverride) : null
-  const analysed =
-    packed === undefined
-      ? analyseWith(core, coreLanguage.index, flags, text, stopWords)
-      : analysePacked(core, coreLanguage.index, flags, text, stopWords)
+  if (packed !== undefined) return visitPacked(core, coreLanguage.index, flags, text, stopWords, packed)
+  const analysed = analyseWith(core, coreLanguage.index, flags, text, stopWords)
   if (analysed === null) return false
-  visitRecords(analysed, visit, packed)
+  visitRecords(analysed, visit)
   return true
 }
 

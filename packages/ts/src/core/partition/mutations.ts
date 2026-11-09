@@ -63,12 +63,12 @@ export function createPartitionMutations(
         }
         throw error
       }
-      const { fieldLengths, tokens, partialSpellings } = prepared
+      const { fieldLengths, partialSpellings } = prepared
       const stored = options?.skipClone
         ? state.docStore.storeRef(docId, document, fieldLengths)
         : state.docStore.store(docId, document, fieldLengths)
       applyValues()
-      state.stats.addDocument(fieldLengths, tokens)
+      state.stats.addDocument(fieldLengths)
       state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, 1)
       recordSortValues(state, internalId, document as Record<string, unknown>)
       return stored
@@ -92,10 +92,10 @@ export function createPartitionMutations(
         throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'A stored document has no internal ID')
       const applyValues = prepareStoredValues(state.docStore, internalId, undefined)
       removeFromIndexes(state, internalId, stored.fields, fields, prepared)
-      const { fieldLengths, tokens, partialSpellings } = prepared
+      const { fieldLengths, partialSpellings } = prepared
       state.docStore.remove(docId)
       applyValues()
-      state.stats.removeDocument(fieldLengths, tokens)
+      state.stats.removeDocument(fieldLengths)
       state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, -1)
       forgetSortValues(state, internalId)
     },
@@ -145,7 +145,7 @@ export function createPartitionMutations(
           document,
         )
         removeFromIndexes(state, previousInternalId, stored.fields, fields, previous)
-        state.stats.removeDocument(previous.fieldLengths, previous.tokens)
+        state.stats.removeDocument(previous.fieldLengths)
         state.partialWords.afterDocument(partialFieldsOf(schema), previousInternalId, previous.partialSpellings, -1)
         state.docStore.remove(docId)
         forgetSortValues(state, previousInternalId)
@@ -154,7 +154,7 @@ export function createPartitionMutations(
         indexDocument(state, internalId, document as Record<string, unknown>, fields, next)
         const written = state.docStore.store(docId, document, next.fieldLengths)
         applyValues()
-        state.stats.addDocument(next.fieldLengths, next.tokens)
+        state.stats.addDocument(next.fieldLengths)
         state.partialWords.afterDocument(partialFieldsOf(schema), internalId, next.partialSpellings, 1)
         recordSortValues(state, internalId, document as Record<string, unknown>)
         return written

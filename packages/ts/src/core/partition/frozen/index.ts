@@ -132,6 +132,18 @@ function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
     get docFrequencies(): Readonly<Record<string, number>> {
       return counts.docFrequencies()
     },
+    addDocumentFrequencies(into: Record<string, number>): number {
+      const frequencies = counts.docFrequencies()
+      let added = 0
+      for (const term in frequencies) {
+        const held = into[term]
+        if (held === undefined) {
+          into[term] = frequencies[term]
+          added++
+        } else into[term] = held + frequencies[term]
+      }
+      return added
+    },
   }
 }
 

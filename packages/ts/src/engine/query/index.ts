@@ -146,7 +146,7 @@ export async function executePreflight(
       ? await workerSearch(
           indexName,
           params,
-          broadcastStatsForWorker(params, context, scoring),
+          broadcastStatsForWorker(params, scoring),
           context.partitionIds,
           context.patternWork,
           bm25SettingFor(params, context),

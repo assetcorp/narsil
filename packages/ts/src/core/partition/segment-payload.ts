@@ -372,9 +372,6 @@ export function mergeSegmentPayload(
   for (const [fieldName, length] of Object.entries(payload.totalFieldLengths)) {
     target.stats.totalFieldLengths[fieldName] = (target.stats.totalFieldLengths[fieldName] ?? 0) + length
   }
-  for (const [token, frequency] of Object.entries(payload.docFrequencies)) {
-    target.stats.docFrequencies[token] = (target.stats.docFrequencies[token] ?? 0) + frequency
-  }
   target.stats.recalculateAverages()
 
   if (payload.surfaceForms !== null) {
