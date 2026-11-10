@@ -6,6 +6,26 @@ import (
 	"context"
 )
 
+// GetSync sends GET /indexes/{name}/sync: Report the device sync setting of an index, whether a device
+// has downloaded it, and its epoch.
+//
+// Parameters:
+//   - name: The name of the index.
+//
+// Answers:
+//   - HTTP 200: The server answered the request.
+func (o *Operations) GetSync(ctx context.Context, name string, options ...CallOption) (*SyncStatus, error) {
+	request := exchange{
+		method: "GET",
+		path:   "/indexes/" + escapePathSegment(name) + "/sync",
+	}
+	answer, err := o.transport.exchange(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	return decodePointer[SyncStatus](answer)
+}
+
 // UpdateSync sends PUT /indexes/{name}/sync: Replace the device sync setting of an index.
 //
 // Parameters:

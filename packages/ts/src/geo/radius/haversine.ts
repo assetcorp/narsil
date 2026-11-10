@@ -1,6 +1,6 @@
 import { atan2 } from '../../math/inverse'
 import { cos, sin } from '../../math/trig'
-import { DEG_TO_RAD, EARTH_RADIUS_METERS } from '../constants'
+import { DEG_TO_RAD, EARTH_RADIUS_METERS } from '../geo-host-bindings'
 
 export interface HaversineOrigin {
   lat: number

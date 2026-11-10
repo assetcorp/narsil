@@ -3,7 +3,11 @@ import { QUERY_HISTORY_FOLDER, RESTORE_STAGING_INFIX } from '../../../query-sugg
 import { type HistoryFiles, historyFilesOf, removeHistoryFolder } from '../../../query-suggestions/history-files'
 import { querySuggestionsOf } from '../../../query-suggestions/operations'
 import { bindQuerySuggestions } from '../../../query-suggestions/providers'
-import { keyBytesOf, QuerySuggestionsRuntime } from '../../../query-suggestions/runtime'
+import {
+  createQuerySuggestionsRuntime,
+  keyBytesOf,
+  type QuerySuggestionsRuntime,
+} from '../../../query-suggestions/runtime'
 import type { Narsil } from '../../../types/engine'
 import type { IndexConfig } from '../../../types/schema'
 import type { ClusterQueryHistory } from '../../backups/query-history'
@@ -191,7 +195,7 @@ export function createClusterQuerySuggestions(deps: ClusterQuerySuggestionsDeps)
         isController: deps.isController,
         emit: (name, payload) => deps.engine.emitEvent(name, payload),
       })
-      const started = new QuerySuggestionsRuntime(host, key)
+      const started = await createQuerySuggestionsRuntime(host, key)
       runtime = started
       await started.start()
       leaseTimer = setInterval(() => {

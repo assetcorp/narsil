@@ -1,6 +1,4 @@
-import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../errors'
-import { flattenSchema } from '../schema/validator'
+import { ErrorCodes, encode, flattenSchema, NarsilError } from '#platform/suggestion-store-host'
 import type { QuerySuggestionsSetting, QuerySuggestionsSource } from '../types/query-suggestions'
 import type { SchemaDefinition } from '../types/schema'
 import * as limits from './constants'

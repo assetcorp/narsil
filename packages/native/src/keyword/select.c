@@ -1,5 +1,6 @@
 #include "select.h"
 
+#include "../score_order.h"
 #include "pass.h"
 #include "scratch.h"
 
@@ -14,7 +15,8 @@ typedef struct {
 } best_heap;
 
 static int ranks_below(const best_heap *heap, uint64_t lhs, uint64_t rhs) {
-  if (heap->scores[lhs] != heap->scores[rhs]) { return heap->scores[lhs] < heap->scores[rhs]; }
+  int order = score_order(heap->scores[lhs], heap->scores[rhs]);
+  if (order != 0) { return order > 0; }
   return heap->ordinals[lhs] > heap->ordinals[rhs];
 }
 
@@ -52,49 +54,63 @@ static void sort_best_first(int32_t *ordinals, double *scores, uint32_t count) {
   }
 }
 
-static uint32_t offer_score(double *selection, uint32_t size, uint32_t limit, double score) {
-  if (size == limit && !(score > selection[0])) { return size; }
-  uint32_t node = 0;
-  uint32_t grown = size;
-  if (size < limit) {
-    node = grown++;
-    while (node > 0) {
-      uint32_t parent = (node - 1) / 2;
-      if (!(selection[parent] > score)) { break; }
-      selection[node] = selection[parent];
-      node = parent;
-    }
-  } else {
-    for (;;) {
-      uint64_t left = (2 * (uint64_t)node) + 1;
-      if (left >= size) { break; }
-      uint64_t right = left + 1;
-      uint64_t child = right < size && selection[right] < selection[left] ? right : left;
-      if (!(selection[child] < score)) { break; }
-      selection[node] = selection[child];
-      node = (uint32_t)child;
-    }
+typedef struct {
+  double *scores;
+  uint32_t size;
+  uint32_t limit;
+} lowest_heap;
+
+static void rise_score(lowest_heap *heap, double score) {
+  double *scores = heap->scores;
+  uint32_t node = heap->size++;
+  while (node > 0) {
+    uint32_t parent = (node - 1) / 2;
+    if (!score_ranks_before(scores[parent], score)) { break; }
+    scores[node] = scores[parent];
+    node = parent;
   }
-  selection[node] = score;
-  return grown;
+  scores[node] = score;
+}
+
+static void sink_score(const lowest_heap *heap, double score) {
+  double *scores = heap->scores;
+  uint32_t size = heap->size;
+  uint32_t node = 0;
+  for (;;) {
+    uint64_t left = (2 * (uint64_t)node) + 1;
+    if (left >= size) { break; }
+    uint64_t right = left + 1;
+    uint64_t child = right < size && score_ranks_before(scores[left], scores[right]) ? right : left;
+    if (!score_ranks_before(score, scores[child])) { break; }
+    scores[node] = scores[child];
+    node = (uint32_t)child;
+  }
+  scores[node] = score;
+}
+
+static inline void offer_score(lowest_heap *heap, double score) {
+  if (heap->size < heap->limit) {
+    rise_score(heap, score);
+    return;
+  }
+  if (heap->size > 0 && !score_ranks_before(score, heap->scores[0])) { return; }
+  sink_score(heap, score);
 }
 
 static double limit_best_score(const keyword_pass *pass, uint32_t kept) {
-  double *selection = pass->scratch->selection;
+  lowest_heap heap = {pass->scratch->selection, 0, pass->limit};
   const double *scores = pass->output->scores;
-  uint32_t size = 0;
-  for (uint32_t index = 0; index < kept; index++) { size = offer_score(selection, size, pass->limit, scores[index]); }
-  return selection[0];
+  for (uint32_t index = 0; index < kept; index++) { offer_score(&heap, scores[index]); }
+  return heap.scores[0];
 }
 
 double keyword_touched_best_score(const keyword_pass *pass) {
   const keyword_scratch *scratch = pass->scratch;
-  double *selection = scratch->selection;
-  uint32_t size = 0;
+  lowest_heap heap = {scratch->selection, 0, pass->limit};
   for (uint32_t index = 0; index < scratch->touched_count; index++) {
-    size = offer_score(selection, size, pass->limit, scratch->scores[scratch->touched[index]]);
+    offer_score(&heap, scratch->scores[scratch->touched[index]]);
   }
-  return selection[0];
+  return heap.scores[0];
 }
 
 void keyword_clear_matched(const keyword_pass *pass) {
@@ -113,7 +129,7 @@ uint32_t keyword_keep_best(const keyword_pass *pass, uint32_t candidates) {
     if (pass->limit > 0) {
       double lowest = limit_best_score(pass, candidates);
       for (uint32_t index = 0; index < candidates; index++) {
-        if (!(scores[index] >= lowest)) { continue; }
+        if (score_ranks_before(lowest, scores[index])) { continue; }
         ordinals[count] = ordinals[index];
         scores[count] = scores[index];
         count++;

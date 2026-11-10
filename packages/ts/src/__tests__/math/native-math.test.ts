@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { loadGeoCode } from '../../geo/geo-code'
 import { asin, atan, atan2 } from '../../math/inverse'
 import { log } from '../../math/log'
 import { cos, sin, tan } from '../../math/trig'
@@ -186,6 +187,10 @@ function hexOf(value: number): string {
   words.setFloat64(0, value)
   return words.getBigUint64(0).toString(16).toUpperCase().padStart(16, '0')
 }
+
+beforeAll(async () => {
+  await loadGeoCode()
+})
 
 describe('the TypeScript maths port gives the results that the specification publishes', () => {
   for (const vector of SPEC_VECTORS) {

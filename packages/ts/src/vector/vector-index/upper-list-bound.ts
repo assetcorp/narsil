@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 
 const UPPER_LISTS_PER_NODE_FACTOR = 4
 const UPPER_LISTS_ALLOWANCE = 64

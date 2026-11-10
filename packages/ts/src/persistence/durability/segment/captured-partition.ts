@@ -1,9 +1,15 @@
-import { isCompositePartition } from '../../../core/partition/composite'
-import { survivorDocumentsOf } from '../../../core/partition/composite/compaction'
-import { createFrozenSegment, createSharedFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import {
+  createFrozenSegment,
+  createSharedFrozenSegment,
+  freezeSegmentShared,
+  isCompositePartition,
+  partitionStateOf,
+  survivorDocumentsOf,
+} from '#platform/storage-host'
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
-import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../../core/partition/frozen/shared-snapshot'
-import { type PartitionIndex, partitionStateOf } from '../../../core/partition/index'
+import type { SharedSegmentSnapshot } from '../../../core/partition/frozen/shared-snapshot'
+import type { PartitionIndex } from '../../../core/partition/index'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
 

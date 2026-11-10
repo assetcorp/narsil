@@ -22,8 +22,7 @@ static inline float lanes_sum_in_pairs(lanes values) {
 }
 #elif defined(NARSIL_SSE2)
 #include <emmintrin.h>
-#if (defined(__GNUC__) || defined(__clang__)) && !defined(NARSIL_SSE2_ONLY)
-#define NARSIL_AVX2_DOT 1
+#ifdef NARSIL_AVX2
 #include <cpuid.h>
 #include <immintrin.h>
 #include <stdatomic.h>
@@ -85,7 +84,7 @@ static inline float finish_dot(const float *lhs, const float *rhs, uint32_t dime
   return sum;
 }
 
-#ifdef NARSIL_AVX2_DOT
+#ifdef NARSIL_AVX2
 #define CPUID_FEATURES_LEAF 1U
 #define CPUID_EXTENDED_FEATURES_LEAF 7U
 #define XCR0_SSE_AND_AVX_STATE 6U
@@ -117,7 +116,7 @@ static int processor_runs_avx2(void) {
   return (ebx & bit_AVX2) != 0;
 }
 
-static int uses_avx2(void) {
+int uses_hardware_avx2(void) {
   int state = atomic_load_explicit(&avx2_state, memory_order_relaxed);
   if (state == AVX2_UNKNOWN) {
     state = processor_runs_avx2() ? AVX2_PRESENT : AVX2_ABSENT;
@@ -161,8 +160,8 @@ static float dot_in_narrow_lanes(const float *lhs, const float *rhs, uint32_t di
 }
 
 float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension) {
-#ifdef NARSIL_AVX2_DOT
-  if (uses_avx2()) { return dot_in_wide_lanes(lhs, rhs, dimension); }
+#ifdef NARSIL_AVX2
+  if (uses_hardware_avx2()) { return dot_in_wide_lanes(lhs, rhs, dimension); }
 #endif
   return dot_in_narrow_lanes(lhs, rhs, dimension);
 }

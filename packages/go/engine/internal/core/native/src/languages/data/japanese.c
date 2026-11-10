@@ -32,7 +32,7 @@ static const uint32_t keep_ranges[56] = {
 
 const narsil_language narsil_language_japanese = {
   .name = "japanese",
-  .revision = "1",
+  .revision = "6284c6756a13cd91",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 90,

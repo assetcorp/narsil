@@ -1,17 +1,20 @@
-import { isCompositePartition } from '../../core/partition/composite'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  arrayPositionsAreStale,
+  ErrorCodes,
+  emitSyncChange,
+  isCompositePartition,
+  NarsilError,
+  newSyncEpoch,
+  oneSyncChangeAtATime,
+} from '#platform/storage-host'
 import type { PartitionCheckpoint } from '../../persistence/durability/partition-checkpoint'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../persistence/durability/seq-owner'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { newSyncEpoch } from '../../sync/epoch'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DetachedIndex } from '../../workers/direct-executor'
-import { arrayPositionsAreStale } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import { indexMetadataOf } from '../durability-metadata'
-import { oneSyncChangeAtATime } from '../sync/serial'
-import { emitSyncChange } from '../sync-notify'
 import { type PreparedIndex, type RestoreDeps, type RestoredHistorySink, restoredRegistryEntry } from './restore-setup'
 
 export interface RestoredIndex {
@@ -157,7 +160,8 @@ async function replaceExisting(
       await withinLimit(indexName, release, holdVectorCopies(vectorIndexes, release), deps)
       for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
       await commitToStorage(indexName, restored, previous?.partitionCount ?? 0, deps)
-      activate(indexName, restored, entry, deps)
+      if (previous === undefined) activate(indexName, restored, entry, deps)
+      else await previous.publication.write(() => activate(indexName, restored, entry, deps))
       await deps.querySuggestions?.afterActivate(entry)
     })
   } finally {

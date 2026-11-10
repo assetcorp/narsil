@@ -1,7 +1,6 @@
-import { bitsetSet, createBitSet } from '../../bitset'
-import { type ComparableSortValue, compareComparableValues, truncateSortString } from '../../ordering'
+import { textRange } from '#platform/sort-value'
+import { createBitSet, ErrorCodes, NarsilError, truncateSortString } from '../../../engine/optional-reads-host-bindings'
 import type { SortColumn } from './index'
-import { rankOfValue } from './order'
 
 export interface TextRangeBounds {
   lower: string | null
@@ -10,53 +9,31 @@ export interface TextRangeBounds {
   upperInclusive: boolean
 }
 
-function withinBounds(value: ComparableSortValue, bounds: TextRangeBounds): boolean {
-  if (value === null) return false
-  if (bounds.lower !== null) {
-    const comparison = compareComparableValues(value, bounds.lower, 'asc')
-    if (comparison < 0 || (comparison === 0 && !bounds.lowerInclusive)) return false
-  }
-  if (bounds.upper !== null) {
-    const comparison = compareComparableValues(value, bounds.upper, 'asc')
-    if (comparison > 0 || (comparison === 0 && !bounds.upperInclusive)) return false
-  }
-  return true
+function unitsOf(bound: string | null): Uint16Array | null {
+  if (bound === null) return null
+  const text = truncateSortString(bound)
+  const units = new Uint16Array(text.length)
+  for (let index = 0; index < text.length; index++) units[index] = text.charCodeAt(index)
+  return units
 }
 
 export function selectTextRange(
   column: SortColumn,
-  requested: TextRangeBounds,
+  bounds: TextRangeBounds,
   capacity: number,
-  isLive: (internalId: number) => boolean,
+  live: Uint32Array,
 ): Uint32Array {
-  const bounds: TextRangeBounds = {
-    ...requested,
-    lower: requested.lower === null ? null : truncateSortString(requested.lower),
-    upper: requested.upper === null ? null : truncateSortString(requested.upper),
-  }
-  const order = column.order
-  const ordered = order.ordered
-  const result = createBitSet(capacity)
-
-  let start = 0
-  if (bounds.lower !== null) {
-    const lowerRank = rankOfValue(order, bounds.lower)
-    start = column.seek(bounds.lowerInclusive ? lowerRank : lowerRank + 1, 'asc')
-  }
-  let end = ordered.length
-  if (bounds.upper !== null) {
-    const upperRank = rankOfValue(order, bounds.upper)
-    end = column.seek(bounds.upperInclusive ? upperRank + 1 : upperRank, 'asc')
-  }
-
-  for (let position = start; position < end; position++) {
-    const internalId = ordered[position]
-    if (!column.isDirty(internalId) && isLive(internalId)) bitsetSet(result, internalId)
-  }
-
-  for (const internalId of column.dirtyStream().present) {
-    if (withinBounds(column.valueOf(internalId), bounds)) bitsetSet(result, internalId)
-  }
-
-  return result
+  const output = createBitSet(capacity)
+  const status = textRange(
+    column.regions(),
+    unitsOf(bounds.lower),
+    bounds.lowerInclusive,
+    unitsOf(bounds.upper),
+    bounds.upperInclusive,
+    live,
+    output,
+  )
+  if (status !== 0)
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The text range could not be selected', { status: -status })
+  return output
 }

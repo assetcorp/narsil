@@ -52,6 +52,7 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
   const runs = new Map<string, RunList>()
   const documents = new Set<number>()
   let documentsCache: Uint32Array | null = null
+  let regionsCache: PatternIndexArrays | null = null
   let listBytes = 0
   const folded: number[] = []
 
@@ -138,8 +139,17 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
   }
 
   return {
+    regions(): PatternIndexArrays {
+      if (regionsCache === null) {
+        const source = runSource()
+        regionsCache = buildArrays('', sortedDocuments(), source, sortedRunOrder(source.codePoints, source.count), null)
+      }
+      return regionsCache
+    },
+
     add(ordinal: number, value: unknown): void {
       if (!holdsTextValue(value)) return
+      regionsCache = null
       documents.add(ordinal)
       documentsCache = null
       for (const key of runKeysOf(value)) append(listFor(key), ordinal)
@@ -147,6 +157,7 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
 
     remove(ordinal: number, value: unknown): void {
       if (!holdsTextValue(value)) return
+      regionsCache = null
       if (documents.delete(ordinal)) documentsCache = null
       for (const key of runKeysOf(value)) {
         const list = runs.get(key)
@@ -155,6 +166,7 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
     },
 
     addArrays(arrays: PatternIndexArrays, mapOrdinal: (ordinal: number) => number): void {
+      regionsCache = null
       for (const ordinal of arrays.docIds) {
         const mapped = mapOrdinal(ordinal)
         if (mapped < 0) continue
@@ -179,6 +191,7 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
       documents.clear()
       documentsCache = null
       listBytes = 0
+      regionsCache = null
     },
 
     documents: sortedDocuments,
@@ -197,7 +210,13 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
         listBytes +
         runs.size * RUN_ENTRY_OVERHEAD_BYTES +
         documents.size * DOCUMENT_ENTRY_BYTES +
-        (documentsCache?.byteLength ?? 0)
+        (documentsCache?.byteLength ?? 0) +
+        (regionsCache === null
+          ? 0
+          : regionsCache.docIds.byteLength +
+            regionsCache.runs.byteLength +
+            regionsCache.offsets.byteLength +
+            regionsCache.postings.byteLength)
       )
     },
   }

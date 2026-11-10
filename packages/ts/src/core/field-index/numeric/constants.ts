@@ -1,0 +1,2 @@
+export const NUMERIC_INITIAL_CAPACITY = 16
+export const REMOVAL_ENTRY_BYTES = 24

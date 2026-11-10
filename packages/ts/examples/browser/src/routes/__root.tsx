@@ -1,4 +1,5 @@
 import {
+  EngineActionsContext,
   IndexWorkspaceContext,
   type SearchRunners,
   SearchRunnersContext,
@@ -9,6 +10,7 @@ import { Footer } from '@delali/narsil-example-shared/components/layout/Footer'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useCallback, useMemo } from 'react'
 import Header from '#/components/Header'
+import { WORKER_ENGINE_ACTIONS } from '#/lib/engine-actions'
 import { narsilWorker } from '#/worker/bridge'
 import { useWorkerIndexes } from '#/worker/hooks'
 import appCss from '../styles.css?url'
@@ -17,11 +19,14 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
 
-const AVAILABLE_TABS = ['datasets', 'search', 'relevance', 'benchmark', 'inspector', 'documents']
+const AVAILABLE_TABS = ['datasets', 'search', 'relevance', 'benchmark', 'inspector', 'documents', 'map', 'sync']
+
+const NO_QUERY_EXTRAS = { groupTotalField: null }
 
 const SEARCH_RUNNERS: SearchRunners = {
-  query: (indexName, params, signal) => narsilWorker.call('query', [indexName, params], signal),
+  query: (indexName, params, signal) => narsilWorker.call('query', [indexName, params, NO_QUERY_EXTRAS], signal),
   suggest: (indexName, params, signal) => narsilWorker.call('suggest', [indexName, params], signal),
+  list: (indexName, params, signal) => narsilWorker.call('listDocuments', [indexName, params], signal),
 }
 
 export const Route = createRootRoute({
@@ -78,15 +83,17 @@ function RootLayout() {
   return (
     <IndexWorkspaceContext value={workspace}>
       <SearchRunnersContext value={SEARCH_RUNNERS}>
-        <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch} availableTabs={AVAILABLE_TABS}>
-          <div className="flex min-h-dvh flex-col">
-            <Header />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <Footer />
-          </div>
-        </CommandPaletteProvider>
+        <EngineActionsContext value={WORKER_ENGINE_ACTIONS}>
+          <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch} availableTabs={AVAILABLE_TABS}>
+            <div className="flex min-h-dvh flex-col">
+              <Header />
+              <main className="flex-1">
+                <Outlet />
+              </main>
+              <Footer />
+            </div>
+          </CommandPaletteProvider>
+        </EngineActionsContext>
       </SearchRunnersContext>
     </IndexWorkspaceContext>
   )

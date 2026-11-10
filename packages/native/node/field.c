@@ -29,6 +29,8 @@ typedef struct {
   size_t present;
   size_t vector_file;
   size_t vector_offset;
+  size_t born_at;
+  size_t retired_at;
 } store_lengths;
 
 typedef struct {
@@ -199,7 +201,14 @@ static int read_store_tables(napi_env env, napi_value memory, narsil_store *stor
   store->vector_file = data;
   if (!typed_property(env, memory, "vectorOffset", napi_uint32_array, &data, &lengths->vector_offset)) { return 0; }
   store->vector_offset = data;
-  return 1;
+  if (!typed_property(env, memory, "bornAt", napi_bigint64_array, &data, &lengths->born_at)) { return 0; }
+  store->born_at = data;
+  if (!typed_property(env, memory, "retiredAt", napi_bigint64_array, &data, &lengths->retired_at)) { return 0; }
+  store->retired_at = data;
+  if (!typed_property(env, memory, "pins", napi_bigint64_array, &data, &length)) { return 0; }
+  store->pins = data;
+  store->pin_slots = clamped_count(length);
+  return store->pin_slots > 0;
 }
 
 static int map_one_file(napi_env env, napi_value path, narsil_vector_file *file) {
@@ -251,7 +260,8 @@ static int store_regions_hold_the_vectors(const narsil_store *store, const store
   uint64_t ordinals = (uint64_t)slots;
   return covers(lengths->code_present, ordinals) && covers(lengths->magnitudes, ordinals) &&
          covers(lengths->present, ordinals) && covers(lengths->vector_file, ordinals) &&
-         covers(lengths->vector_offset, ordinals);
+         covers(lengths->vector_offset, ordinals) && covers(lengths->born_at, ordinals) &&
+         covers(lengths->retired_at, ordinals);
 }
 
 void detach_store(attached_store *attached) {
@@ -278,7 +288,7 @@ attached_store *read_store(napi_env env, napi_value memory) {
   attached_store *attached = calloc(1, sizeof *attached);
   if (attached == NULL) { return NULL; }
   narsil_store *store = &attached->store;
-  store_lengths held = {0, 0, 0, 0, 0};
+  store_lengths held = {0, 0, 0, 0, 0, 0, 0};
   uint32_t stride_bytes = 0;
   if (!uint32_property(env, memory, "dimension", &store->dimension) ||
       !uint32_property(env, memory, "bits", &store->bits) ||

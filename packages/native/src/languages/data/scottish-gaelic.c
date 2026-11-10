@@ -99,7 +99,7 @@ static const uint32_t keep_ranges[30] = {
 
 const narsil_language narsil_language_scottish_gaelic = {
   .name = "scottish-gaelic",
-  .revision = "1",
+  .revision = "7cd7a66ae07b9083",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 358,

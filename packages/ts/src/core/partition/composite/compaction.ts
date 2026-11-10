@@ -55,25 +55,25 @@ export function freezeLiveTailInto(
 }
 
 export function swapFrozenSegmentList(
-  frozen: FrozenSegment[],
+  frozen: readonly FrozenSegment[],
   dropSegmentIds: readonly string[],
-  replacement: FrozenSegment,
+  replacements: readonly FrozenSegment[],
   removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
-): Map<string, RemovedSpellings> {
+): { segments: FrozenSegment[]; applied: Map<string, RemovedSpellings> } {
   const dropSet = new Set(dropSegmentIds)
   const dropped = frozen.filter(segment => dropSet.has(segment.segmentId))
+  const segments = frozen.filter(segment => !dropSet.has(segment.segmentId)).concat(replacements)
   const applied = new Map<string, RemovedSpellings>()
   for (const segment of dropped) {
     for (const docId of segment.tombstonedDocIds()) {
-      if (!replacement.hasDocument(docId)) continue
       if (dropped.some(other => other.hasDocument(docId))) continue
-      const spellings = removedSpellings?.get(docId) ?? replacement.removedSpellingsOf(docId)
-      if (spellings !== undefined) applied.set(docId, spellings)
-      replacement.tombstoneDocument(docId, spellings)
+      for (const replacement of replacements) {
+        if (!replacement.hasDocument(docId)) continue
+        const spellings = removedSpellings?.get(docId) ?? replacement.removedSpellingsOf(docId)
+        if (spellings !== undefined) applied.set(docId, spellings)
+        replacement.tombstoneDocument(docId, spellings)
+      }
     }
   }
-  const kept = frozen.filter(segment => !dropSet.has(segment.segmentId))
-  frozen.length = 0
-  frozen.push(...kept, replacement)
-  return applied
+  return { segments, applied }
 }

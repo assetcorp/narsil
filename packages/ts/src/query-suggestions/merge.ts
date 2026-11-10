@@ -1,5 +1,4 @@
-import { SCRAMBLED_ID_BYTES } from './constants'
-import { openCountsFile } from './counts-file'
+import { openCountsFile, SCRAMBLED_ID_BYTES } from '#platform/suggestions-host'
 
 export interface MergeSettings {
   minPeople: number

@@ -20,7 +20,6 @@ export function createPartitionRegistry(directory: DurableDirectory, segmentMaxB
     if (state === undefined) {
       state = {
         partitions: new Map(),
-        coverageFrozen: false,
         mutationsSinceCheckpoint: 0,
         documentBytesSinceCheckpoint: 0,
         checkpointInFlight: null,
@@ -38,7 +37,6 @@ export function createPartitionRegistry(directory: DurableDirectory, segmentMaxB
       seqOwner: createSeqOwner(position.seqNo, position.primaryTerm),
       appendChain: Promise.resolve(),
       appliedSeqNo: position.seqNo,
-      coverageLimit: null,
       failed: null,
     }
   }
@@ -54,7 +52,6 @@ export function createPartitionRegistry(directory: DurableDirectory, segmentMaxB
       let partition = state.partitions.get(partitionId)
       if (partition === undefined) {
         partition = freshPartition(indexName, partitionId, { seqNo: startSeqNo, primaryTerm })
-        if (state.coverageFrozen) partition.coverageLimit = startSeqNo
         state.partitions.set(partitionId, partition)
       }
       return partition

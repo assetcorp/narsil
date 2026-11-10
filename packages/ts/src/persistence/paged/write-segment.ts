@@ -1,23 +1,26 @@
-import type { FrozenSegment } from '../../core/partition/frozen'
 import {
+  buildPartialWordTableFrom,
+  crc32,
+  crc32Final,
+  crc32Init,
+  crc32Update,
+  ErrorCodes,
+  engineVersionParts,
   fieldIndexRemapOf,
-  mergeFieldLengths,
-  mergePartialWords,
-  mergeSurfaceForms,
-  type SegmentSelection,
+  HEADER_SIZE,
+  mergeFieldIndexes,
+  NarsilError,
+  requireWithinFileLimit,
   selectionKeeps,
-} from '../../core/partition/frozen/merge'
-import { mergeFieldIndexes } from '../../core/partition/frozen/merge-fields'
+  wrapFrozenTokenTable,
+  writeHeader,
+} from '#platform/storage-host'
+import type { FrozenSegment } from '../../core/partition/frozen'
+import type { SegmentSelection } from '../../core/partition/frozen/merge'
 import type { SegmentRemap } from '../../core/partition/frozen/merge-postings'
 import type { TextAnalysis } from '../../core/partition/frozen/surface-slot'
-import { encodeSurfaceTable } from '../../core/partition/frozen/surface-table'
-import { wrapFrozenTokenTable } from '../../core/partition/frozen/token-table'
-import { buildPartialWordTableFrom } from '../../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32, crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
-import { engineVersionParts, requireWithinFileLimit } from '../../serialization/envelope-file'
-import { HEADER_SIZE, writeHeader } from '../../serialization/header'
+import { mergePagedLengths, mergePagedStrings } from '../../core/segment-merges/metadata'
 import {
   writeBooleanColumns,
   writeEnumColumns,
@@ -32,6 +35,7 @@ import { littleEndianBytes } from '../../serialization/keyword-segment/little-en
 import { MessagePackChunks } from '../../serialization/keyword-segment/msgpack-chunks'
 import type { SegmentWriteRecords } from '../../serialization/keyword-segment/types'
 import type { DurableDirectory } from '../durability/durable-filesystem'
+import { checkPagedSelections } from './check-contents'
 import { FILE_ASSEMBLY_CHUNK_BYTES } from './constants'
 import {
   encodePagedSegmentHead,
@@ -41,7 +45,7 @@ import {
   SEGMENT_PAGE_BYTES,
   type SectionName,
 } from './format'
-import { openRemovalWriter } from './removal-sort'
+import { openRemovalWriter, type RemovalWriter } from './removal-sort'
 import { type FinishedSection, openSectionSink, type SectionSink } from './sink'
 import { writeDocumentRows, writeIdOrder } from './write-documents'
 import { writeMergedLists } from './write-lists'
@@ -140,9 +144,10 @@ function keepsRecordsOf(request: PagedSegmentWriteRequest, inputs: readonly Segm
 
 export async function writePagedSegment(request: PagedSegmentWriteRequest): Promise<WrittenPagedSegment> {
   const { directory, key } = request
+  await checkPagedSelections(request.selections)
   const fieldNames: string[] = []
   const { inputs, documentCount } = buildInputs(request.selections, fieldNames)
-  const lengths = mergeFieldLengths(inputs, documentCount)
+  const lengths = mergePagedLengths(inputs, documentCount)
   const keepsRecords = keepsRecordsOf(request, inputs)
   const sinks: SectionSink[] = []
   const finished = new Map<SectionName, FinishedSection>()
@@ -157,25 +162,25 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
     return opened
   }
 
-  const postings = await sink('postings')
-  const tokenTotals = await sink('tokenTotals')
-  const tracksPositions = inputs.some(
-    input => input.segment.paged?.snapshot.tracksPositions ?? input.segment.arrays.positionOffsets !== null,
-  )
-  const positionOffsets = tracksPositions ? await sink('positionOffsets') : null
-  const positions = tracksPositions ? await sink('positions') : null
-  const documents = await sink('documents')
-  const ids = await sink('ids')
-  const idOffsets = await sink('idOffsets')
-  const idOrder = await sink('idOrder')
-  const removalOffsets = await sink('removalOffsets')
-  const removalValues = await sink('removals')
-  const seqNos = keepsRecords ? await sink('seqNos') : null
-  const primaryTerms = keepsRecords ? await sink('primaryTerms') : null
-  const removals = await openRemovalWriter(directory, key, documentCount, postingUpperBound(inputs))
-
+  let removals: RemovalWriter | null = null
   const temporaryAssembly = `${key}.part-assembled`
   try {
+    const postings = await sink('postings')
+    const tokenTotals = await sink('tokenTotals')
+    const tracksPositions = inputs.some(
+      input => input.segment.paged?.snapshot.tracksPositions ?? input.segment.arrays.positionOffsets !== null,
+    )
+    const positionOffsets = tracksPositions ? await sink('positionOffsets') : null
+    const positions = tracksPositions ? await sink('positions') : null
+    const documents = await sink('documents')
+    const ids = await sink('ids')
+    const idOffsets = await sink('idOffsets')
+    const idOrder = await sink('idOrder')
+    const removalOffsets = await sink('removalOffsets')
+    const removalValues = await sink('removals')
+    const seqNos = keepsRecords ? await sink('seqNos') : null
+    const primaryTerms = keepsRecords ? await sink('primaryTerms') : null
+    removals = await openRemovalWriter(directory, key, documentCount, postingUpperBound(inputs))
     const lengthByName = new Map<string, Uint32Array>()
     for (let at = 0; at < lengths.fieldLengthNames.length; at++) {
       lengthByName.set(lengths.fieldLengthNames[at], lengths.fieldLengthColumns[at])
@@ -183,6 +188,7 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
     const columnsByField = fieldNames.map(name => lengthByName.get(name) ?? null)
     const columns = await writeMergedLists(
       inputs,
+      documentCount,
       columnsByField,
       { postings, tokenTotals, positionOffsets, positions },
       removals,
@@ -199,8 +205,13 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
     )
     const idSample = await writeIdOrder(inputs, idOrder)
 
-    const surfaces = mergeSurfaceForms(inputs, request.textAnalysis)
-    const surfaceTable = surfaces === null ? null : encodeSurfaceTable(surfaces)
+    const { surfaceTable, partialSpellings } = mergePagedStrings(
+      inputs,
+      documentCount,
+      columns.tokenTable,
+      request.partialWordAnalysis,
+      request.textAnalysis,
+    )
     if (surfaceTable !== null && surfaceTable.counts.length > 0) {
       const surfaceChunks = new MessagePackChunks()
       writeSurfaceForms(surfaceChunks, { surfaceTable })
@@ -208,14 +219,11 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
       await surfaceForms.write(onlyBytes(surfaceChunks))
     }
 
-    const tokenCount = columns.tokenTable.documentFrequencies.length
-    const partial = mergePartialWords(inputs, tokenCount, request.partialWordAnalysis)
     const partialTable =
-      partial.reused ??
-      (partial.spellings === null
+      partialSpellings === null
         ? null
-        : buildPartialWordTableFrom(partial.spellings, wrapFrozenTokenTable(columns.tokenTable)))
-    const fields = mergeFieldIndexes(inputs)
+        : buildPartialWordTableFrom(partialSpellings, wrapFrozenTokenTable(columns.tokenTable))
+    const fields = mergeFieldIndexes(inputs, documentCount)
 
     const resident = (name: SectionName, write: (out: MessagePackChunks) => void): void => {
       const out = new MessagePackChunks()
@@ -339,7 +347,7 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
       tombstoneCount: request.tombstones.length,
     }
   } catch (error) {
-    await removals.abandon()
+    await removals?.abandon()
     throw error
   } finally {
     for (const opened of sinks) await opened.abandon().catch(() => undefined)

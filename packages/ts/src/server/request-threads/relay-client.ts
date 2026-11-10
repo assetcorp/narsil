@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorQueryConfig } from '../../types/search'
 import { ServerErrorCodes } from '../errors'
 import type { Authorization, RouteContext } from '../request'
+import { responseStopOf } from '../request-signal'
 import { type ResponseSink, sendError, sendRelayed, statusLine } from '../response'
 import type { FeedAdmittedReply } from '../sync/feed-messages'
 import type { RequestContext } from '../types'
@@ -11,9 +12,9 @@ import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from 
 export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
   request(route: RelayedRoute, ctx: RouteContext, onUnavailable?: () => void): Promise<void>
-  embed(indexName: string, vector: VectorQueryConfig): Promise<number[]>
-  rerank(adapter: string, query: string, documents: string[]): Promise<number[]>
-  awaitWrites(indexName: string): Promise<void>
+  embed(indexName: string, vector: VectorQueryConfig, signal?: AbortSignal): Promise<number[]>
+  rerank(adapter: string, query: string, documents: string[], signal?: AbortSignal): Promise<number[]>
+  awaitWrites(indexName: string, signal?: AbortSignal): Promise<void>
   admitFeed(indexName: string, expiresAt: number | null): Promise<FeedAdmittedReply>
   touch(indexName: string): void
   announceDeparture(): void
@@ -148,8 +149,9 @@ interface RelayedBody {
   moved: ArrayBuffer[]
 }
 
-function relayedBody(rawBody: Buffer | null): RelayedBody {
+function relayedBody(rawBody: Buffer | null, mayRetry: boolean): RelayedBody {
   if (rawBody === null) return { bytes: null, moved: [] }
+  if (mayRetry) return { bytes: rawBody, moved: [] }
   const memory = rawBody.buffer
   const ownsItsMemory =
     memory instanceof ArrayBuffer && rawBody.byteOffset === 0 && rawBody.byteLength === memory.byteLength
@@ -190,15 +192,39 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
   })
   port.on('close', failAll)
 
-  function send(build: (requestId: number) => unknown, moved: ArrayBuffer[] = []): Promise<RelayReply> {
+  function send(
+    build: (requestId: number) => unknown,
+    moved: ArrayBuffer[] = [],
+    signal?: AbortSignal,
+  ): Promise<RelayReply> {
     if (closed) return Promise.reject(portClosedError())
+    if (signal?.aborted) return Promise.reject(signal.reason)
     nextRequestId += 1
     const requestId = nextRequestId
     return new Promise<RelayReply>((resolve, reject) => {
-      pending.set(requestId, { resolve, reject })
+      const onAbort = (): void => {
+        if (!pending.delete(requestId)) return
+        try {
+          if (!closed) port.postMessage({ type: 'stream-cancel', requestId })
+        } catch {}
+        reject(signal?.reason)
+      }
+      const detach = (): void => signal?.removeEventListener('abort', onAbort)
+      pending.set(requestId, {
+        resolve: reply => {
+          detach()
+          resolve(reply)
+        },
+        reject: error => {
+          detach()
+          reject(error)
+        },
+      })
+      signal?.addEventListener('abort', onAbort, { once: true })
       try {
         port.postMessage(build(requestId), moved)
       } catch (err) {
+        detach()
         pending.delete(requestId)
         reject(err instanceof Error ? err : new Error(String(err)))
       }
@@ -219,11 +245,15 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       return { allowed: true, expiresAt: reply.expiresAt }
     },
     async request(route, ctx, onUnavailable) {
+      if (ctx.abort.aborted) return
+      const stop = route === 'search' || route === 'preflight' ? responseStopOf(ctx.abort) : undefined
       let reply: RelayReply | null
-      const body = relayedBody(ctx.rawBody)
+      let sentRequestId = 0
+      const body = relayedBody(ctx.rawBody, onUnavailable !== undefined)
       try {
         reply = await new Promise<RelayReply | null>((resolve, reject) => {
           void send(requestId => {
+            sentRequestId = requestId
             writers.set(requestId, {
               ctx,
               started: false,
@@ -235,8 +265,14 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
                 resolve(null)
               },
             })
-            ctx.abort.onAbort(() => port.postMessage({ type: 'stream-cancel', requestId }))
+            ctx.abort.onAbort(() => {
+              writers.delete(requestId)
+              pending.delete(requestId)
+              resolve(null)
+              if (!closed) port.postMessage({ type: 'stream-cancel', requestId })
+            })
             return {
+              stop: stop?.buffer,
               type: 'request',
               requestId,
               route,
@@ -254,31 +290,34 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
         })
       } catch {
         if (ctx.abort.aborted) return
-        if (onUnavailable === undefined) sendUnavailable(ctx.res)
+        if (writers.get(sentRequestId)?.started === true) ctx.res.cork(() => ctx.res.close())
+        else if (onUnavailable === undefined) sendUnavailable(ctx.res)
         else onUnavailable()
         return
+      } finally {
+        writers.delete(sentRequestId)
       }
       if (reply === null || reply.type !== 'response' || ctx.abort.aborted) return
       sendRelayed(ctx.res, ctx.abort, reply.status, reply.headers, reply.body)
     },
-    async embed(indexName, vector) {
-      const reply = await send(requestId => ({ type: 'embed', requestId, indexName, vector }))
+    async embed(indexName, vector, signal) {
+      const reply = await send(requestId => ({ type: 'embed', requestId, indexName, vector }), [], signal)
       if (reply.type === 'embedded' && reply.value !== null) return reply.value
       throw relayedErrorOf(
         reply.type === 'embedded' ? reply.error : null,
         new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'The main thread returned no vector'),
       )
     },
-    async rerank(adapter, query, documents) {
-      const reply = await send(requestId => ({ type: 'rerank', requestId, adapter, query, documents }))
+    async rerank(adapter, query, documents, signal) {
+      const reply = await send(requestId => ({ type: 'rerank', requestId, adapter, query, documents }), [], signal)
       if (reply.type === 'reranked' && reply.scores !== null) return reply.scores
       throw relayedErrorOf(
         reply.type === 'reranked' ? reply.error : null,
         new NarsilError(ErrorCodes.RERANK_FAILED, 'The main thread returned no scores'),
       )
     },
-    async awaitWrites(indexName) {
-      await send(requestId => ({ type: 'await-writes', requestId, indexName }))
+    async awaitWrites(indexName, signal) {
+      await send(requestId => ({ type: 'await-writes', requestId, indexName }), [], signal)
     },
     async admitFeed(indexName, expiresAt) {
       const reply = await send(requestId => ({ type: 'feed-admit', requestId, indexName, expiresAt }))

@@ -5,6 +5,7 @@ import type { SearchClock } from '../core/search-clock'
 import type { FilterExpression } from '../types/filters'
 import type { BM25Params } from '../types/schema'
 import type { QueryParams } from '../types/search'
+import { CURSOR_BINDING_BUFFER_BYTES } from './constants'
 
 const ABSENT_TAG = 0
 const NULL_TAG = 1
@@ -19,6 +20,7 @@ const LENGTH_BYTES = 4
 const LAST_ASCII_UNIT = 0x7f
 
 const encoder = new TextEncoder()
+let availableBindingBytes: Uint8Array | undefined
 
 interface BindingStream {
   bytes: Uint8Array
@@ -198,12 +200,18 @@ const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
 function bindingOf(values: unknown[], clock?: SearchClock): string {
-  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0, hash: FNV_OFFSET_BASIS, clock }
-  for (const value of values) {
-    writeValue(stream, value)
+  const bytes = availableBindingBytes ?? new Uint8Array(CURSOR_BINDING_BUFFER_BYTES)
+  availableBindingBytes = undefined
+  const stream: BindingStream = { bytes, length: 0, hash: FNV_OFFSET_BASIS, clock }
+  try {
+    for (const value of values) {
+      writeValue(stream, value)
+    }
+    flush(stream)
+    return (stream.hash >>> 0).toString(16).padStart(8, '0')
+  } finally {
+    availableBindingBytes = bytes
   }
-  flush(stream)
-  return (stream.hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /**

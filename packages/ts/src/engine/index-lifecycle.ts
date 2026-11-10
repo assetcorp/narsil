@@ -1,8 +1,10 @@
 import { ARRAY_POSITION_GAP } from '../core/constants'
 import { requirePartialWordSearchFor } from '../core/partition/partial-words/registry'
 import { requirePatternSearchFor } from '../core/pattern-index/registry'
+import { isEmptySynonymSet } from '../core/synonyms/registry'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { loadRestoreQueue } from '../narsil/restore-queue-code'
 import {
   validateEmbeddingConfig,
   validateRegisteredAdapter,
@@ -16,13 +18,14 @@ import {
   validateVectorStorage,
 } from '../schema/validator'
 import { validateBM25Params } from '../search/bm25-params'
+import { loadMessagePack } from '../serialization/msgpack-code'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { StoredQuerySuggestions } from '../types/internal'
 import type { IndexConfig } from '../types/schema'
 import { loadSchemaCodeFor } from '../workers/schema-code'
 import type { EngineCore, IndexRegistryEntry } from './core'
-import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
+import { configurationWithinSizeLimit } from './snapshot/index-configuration'
 import { emitSyncChange } from './sync-notify'
 import { prepareConfiguredSynonyms, withoutSynonyms } from './synonym-sets'
 import {
@@ -70,7 +73,7 @@ export async function createEngineIndex(
   creation: IndexCreationOptions = {},
 ): Promise<void> {
   const { indexUuid, adapterBinding = 'required', appliesCreationLimits = false } = creation
-  const loadingSchemaCode = loadSchemaCodeFor(requestedConfig.schema)
+  const loadingSchemaCode = loadSchemaCodeFor(requestedConfig.schema, requestedConfig.tokenizer)
   if (loadingSchemaCode !== null) await loadingSchemaCode
   core.guardShutdown()
   validateIndexName(name)
@@ -148,7 +151,9 @@ export async function createEngineIndex(
     validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)
   }
   const language = getLanguage(indexConfig.language ?? 'english')
-  if (appliesCreationLimits) requireConfigurationWithinSizeLimit(indexConfig, language)
+  const sizing = appliesCreationLimits ? configurationWithinSizeLimit(indexConfig, language) : null
+  if (sizing !== null) await sizing
+  if (!isEmptySynonymSet(configured.synonyms)) await loadMessagePack()
   const synonyms = prepareConfiguredSynonyms(configured, language, appliesCreationLimits)
   await core.querySuggestionHooks?.beforeCreate(name)
   core.executor.createIndex(name, indexConfig, language, false, synonyms?.lookup ?? null)
@@ -183,7 +188,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   const entry = core.requireIndex(name)
   const changeRecorded = (): boolean => entry.pendingAnalysis !== null || entry.durableAnalysis !== null
   const abandonChange = async (): Promise<void> => {
-    await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
+    await (await loadRestoreQueue()).abandonChangeOf(core, name)
   }
   if (changeRecorded()) await abandonChange()
   await core.indexState.drop(name, async () => {

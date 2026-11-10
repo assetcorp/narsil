@@ -1,7 +1,5 @@
-import { decodeIndexConfiguration } from '../../engine/snapshot/index-configuration-decode'
 import { ClientErrorCodes, NarsilError } from '../../errors'
-import { createByteReader } from '../../persistence/archive/byte-reader'
-import { readSnapshotArchive } from '../../persistence/archive/read'
+import { loadStorageCode } from '../../persistence/storage-code'
 import type { ByteSource } from '../../types/byte-source'
 import { isSyncEpoch } from '../epoch'
 
@@ -29,6 +27,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 export async function readArchiveFacts(source: ByteSource): Promise<ArchiveFacts> {
+  const { createByteReader, decodeIndexConfiguration, readSnapshotArchive } = await loadStorageCode()
   const reader = createByteReader(source)
   const read: { config: Record<string, unknown> | null; seqNos: number[] | null } = { config: null, seqNos: null }
   try {

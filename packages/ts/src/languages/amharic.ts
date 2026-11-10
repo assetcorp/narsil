@@ -249,7 +249,7 @@ const stopWords = new Set([
  */
 export const amharic: LanguageModule = {
   name: 'amharic',
-  revision: '1',
+  revision: 'dadba9a4cfa14ae5',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u1200-\u135f\u1369-\u137ca-z0-9]+/gi },

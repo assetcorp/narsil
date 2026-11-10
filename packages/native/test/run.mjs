@@ -20,6 +20,7 @@ const sanitisers = process.platform === 'linux' ? 'address,undefined' : 'undefin
 
 const variants = [
   { name: 'platform-kernels', flags: [] },
+  ...(process.arch === 'x64' ? [{ name: 'sse2-kernels', flags: ['-DNARSIL_SSE2_ONLY'] }] : []),
   { name: 'portable-kernels', flags: ['-DNARSIL_PORTABLE_KERNELS'] },
 ]
 

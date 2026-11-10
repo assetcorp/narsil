@@ -1,7 +1,6 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { AnalysedPhrase } from '../types/internal'
 import type { QueryParams } from '../types/search'
-import { MAX_PHRASE_WORDS, MAX_QUERY_PHRASES } from './constants'
+import { ErrorCodes, MAX_PHRASE_WORDS, MAX_QUERY_PHRASES, NarsilError } from './phrase-host-bindings'
 
 export type AnalyseText = (text: string) => ReadonlyArray<{ token: string; position: number }>
 

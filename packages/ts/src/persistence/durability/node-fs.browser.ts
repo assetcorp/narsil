@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../storage-host/index.browser'
 
 export type FsModule = typeof import('node:fs/promises')
 export type PathModule = typeof import('node:path')

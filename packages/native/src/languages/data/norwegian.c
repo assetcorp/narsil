@@ -54,7 +54,7 @@ static const uint32_t keep_ranges[30] = {
 
 const narsil_language narsil_language_norwegian = {
   .name = "norwegian",
-  .revision = "8e862aa3bcec10dd",
+  .revision = "e69b5b2d259dde98",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 172,

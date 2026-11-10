@@ -1,0 +1,2 @@
+export const POSTING_MERGE_START_ROWS = 1_024
+export const POSTING_MERGE_GROWTH_FACTOR = 2

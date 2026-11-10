@@ -6,35 +6,17 @@ export interface PartitionState {
   seqOwner: SeqOwner
   appendChain: Promise<void>
   appliedSeqNo: number
-  coverageLimit: number | null
   failed: Error | null
 }
 
 export interface IndexState {
   partitions: Map<number, PartitionState>
-  coverageFrozen: boolean
   mutationsSinceCheckpoint: number
   /** The documents of the records that `mutationsSinceCheckpoint` counts hold about this many bytes. */
   documentBytesSinceCheckpoint: number
   checkpointInFlight: Promise<void> | null
   unloading: boolean
   stalledWrites: Array<() => void>
-}
-
-export function coverableSeqNo(partition: PartitionState): number {
-  return partition.coverageLimit === null
-    ? partition.appliedSeqNo
-    : Math.min(partition.appliedSeqNo, partition.coverageLimit)
-}
-
-export function freezeCoverage(indexState: IndexState): void {
-  indexState.coverageFrozen = true
-  for (const partition of indexState.partitions.values()) partition.coverageLimit = partition.appliedSeqNo
-}
-
-export function thawCoverage(indexState: IndexState): void {
-  indexState.coverageFrozen = false
-  for (const partition of indexState.partitions.values()) partition.coverageLimit = null
 }
 
 export function closePartitionWriter(partition: PartitionState): Promise<void> {

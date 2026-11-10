@@ -1,10 +1,15 @@
-import { gunzip, gzip } from '#platform/gzip'
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  crc32,
+  ErrorCodes,
+  engineVersionParts,
+  HEADER_SIZE,
+  loadGzip,
+  NarsilError,
+  readHeader,
+  writeHeader,
+} from '#platform/storage-host'
 import type { IndexMetadata } from '../types/internal'
-import { crc32 } from './crc32'
-import { engineVersionParts } from './envelope-file'
 import type { NrslFlags, NrslHeader } from './header'
-import { HEADER_SIZE, readHeader, writeHeader } from './header'
 import { deserializeMetadata, serializeMetadata } from './payload-v1'
 
 const CURRENT_ENVELOPE_VERSION = 1
@@ -32,6 +37,7 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
 
   let finalPayload = payloadBytes
   if (flags.compressionEnabled) {
+    const { gzip } = await loadGzip()
     finalPayload = await gzip(payloadBytes)
   }
 
@@ -109,6 +115,7 @@ async function unpackEnvelope(
   }
 
   if (header.flags.compressionEnabled) {
+    const { gunzip } = await loadGzip()
     payloadBytes = await gunzip(payloadBytes)
   }
 

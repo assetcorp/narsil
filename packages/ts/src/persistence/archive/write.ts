@@ -1,4 +1,5 @@
-import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
+import type { FileRef, SegmentManifest } from '../durability/segment/manifest'
+import { manifestFileRefs } from '../durability/segment/manifest'
 import { ARCHIVE_FILE_CHUNK_BYTES } from './constants'
 import { ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY } from './read'
 import { tarEnd, tarEntryHeaders, tarPadding } from './tar'

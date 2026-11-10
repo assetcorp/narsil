@@ -64,7 +64,7 @@ export async function readPartitionManifest(
   try {
     const raw = await openManifestPayload(bytes)
     sourceIndexName = sourceIndexNameOf(listedKeysOf(raw))
-    decoded = decodeManifestPayload(raw, sourceIndexName)
+    decoded = decodeManifestPayload(raw, sourceIndexName, partition.partitionId)
   } catch (error) {
     throw damaged(
       backupName,

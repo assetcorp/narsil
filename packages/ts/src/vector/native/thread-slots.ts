@@ -1,12 +1,17 @@
 import { loadNativeCore } from '#platform/native-core'
-import { NATIVE_THREAD_SEARCH_SLOTS, VECTOR_SCRATCH_SLOTS } from '../constants'
+import { NATIVE_THREAD_SEARCH_SLOTS, VECTOR_SCRATCH_SLOTS } from '#platform/vector-core-host'
 import { nativeSearchCoreIsEnabled } from './backend'
 import type { NativeCore } from './types'
 
 export type ThreadedNativeCore = NativeCore & Required<Pick<NativeCore, 'searchAsync' | 'scoreAsync'>>
 
-const freeSlots: number[] = Array.from({ length: NATIVE_THREAD_SEARCH_SLOTS }, (_, i) => VECTOR_SCRATCH_SLOTS - 1 - i)
+let freeSlotList: number[] | null = null
 const waitingForSlot: Array<(slot: number) => void> = []
+
+function freeSlots(): number[] {
+  freeSlotList ??= Array.from({ length: NATIVE_THREAD_SEARCH_SLOTS }, (_, i) => VECTOR_SCRATCH_SLOTS - 1 - i)
+  return freeSlotList
+}
 
 function hasNativeThreads(core: NativeCore): core is ThreadedNativeCore {
   return core.searchAsync !== undefined && core.scoreAsync !== undefined
@@ -19,13 +24,13 @@ export function threadedNativeCore(): ThreadedNativeCore | null {
 }
 
 function claimSlot(): Promise<number> {
-  const slot = freeSlots.pop()
+  const slot = freeSlots().pop()
   if (slot !== undefined) return Promise.resolve(slot)
   return new Promise(resolve => waitingForSlot.push(resolve))
 }
 
 export function claimNativeThreadSlotNow(): number | null {
-  return freeSlots.pop() ?? null
+  return freeSlots().pop() ?? null
 }
 
 export function returnSlot(slot: number): void {
@@ -34,11 +39,11 @@ export function returnSlot(slot: number): void {
     next(slot)
     return
   }
-  freeSlots.push(slot)
+  freeSlots().push(slot)
 }
 
 export async function withNativeThreadSlot<T>(work: (slot: number) => Promise<T>): Promise<T> {
-  const slot = await claimSlot()
+  const slot = claimNativeThreadSlotNow() ?? (await claimSlot())
   try {
     return await work(slot)
   } finally {

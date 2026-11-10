@@ -1,6 +1,5 @@
 import { type FsModule, getFs, getPath, type PathModule } from '#platform/durable-fs'
-import { compareCodePoints } from '../../core/ordering'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/storage-host'
 import { type DirectoryLock, lockDirectory } from './directory-lock'
 import { listRecursive } from './list-recursive'
 

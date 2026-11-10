@@ -1,8 +1,14 @@
-import type { AnyDocument, IndexInfo, Narsil, SchemaDefinition } from '@delali/narsil'
+import type { AnyDocument, EmbeddingFieldConfig, IndexInfo, Narsil, SchemaDefinition } from '@delali/narsil'
 import type { DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
-import { COMMITTED_SIZE_THRESHOLD, scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
-import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
+import { COMMITTED_SIZE_THRESHOLD, places, scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { placesSchema, scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import { languageName } from './languages'
+import {
+  PLACES_EMBEDDING_ADAPTER_NAME,
+  PLACES_EMBEDDING_DIMENSIONS,
+  PLACES_VECTOR_FIELD,
+  VECTOR_FILE_HEADER_BYTES,
+} from './local-models'
 
 const INSERT_BATCH_SIZE = 500
 const PROGRESS_BYTE_STEP = 256 * 1024
@@ -13,7 +19,36 @@ interface IndexPlan {
   indexName: string
   languageCode: string
   schema: SchemaDefinition
+  embedding?: EmbeddingFieldConfig
   documents: () => Promise<AnyDocument[]>
+}
+
+const FLOAT32_BYTES = 4
+
+async function readPlacesWithVectors(report: ProgressReporter): Promise<AnyDocument[]> {
+  const [documents, response] = await Promise.all([
+    readCorpus('places', places.file, null, places.sizeBytes, 'places', report),
+    fetch(`/data/processed/places/${places.vectorFile}`),
+  ])
+  if (!response.ok) {
+    throw new Error(`${places.vectorFile} could not be read (status ${response.status}).`)
+  }
+  const buffer = await response.arrayBuffer()
+  if (buffer.byteLength < VECTOR_FILE_HEADER_BYTES) throw new Error(`${places.vectorFile} holds no header.`)
+  const header = new DataView(buffer, 0, VECTOR_FILE_HEADER_BYTES)
+  const count = header.getUint32(0, true)
+  const dimensions = header.getUint32(4, true)
+  const expectedBytes = VECTOR_FILE_HEADER_BYTES + count * dimensions * FLOAT32_BYTES
+  if (count !== documents.length || dimensions !== PLACES_EMBEDDING_DIMENSIONS || buffer.byteLength !== expectedBytes) {
+    throw new Error(
+      `${places.vectorFile} holds ${count} vectors of ${dimensions} numbers, while the dataset holds ${documents.length} places of ${PLACES_EMBEDDING_DIMENSIONS}.`,
+    )
+  }
+  const bytesPerVector = dimensions * FLOAT32_BYTES
+  return documents.map((document, position) => ({
+    ...document,
+    [PLACES_VECTOR_FIELD]: new Float32Array(buffer, VECTOR_FILE_HEADER_BYTES + position * bytesPerVector, dimensions),
+  }))
 }
 
 async function readCorpus(
@@ -98,6 +133,19 @@ function planFor(request: LoadDatasetRequest, report: ProgressReporter): IndexPl
           documents: () => readCorpus('scifact', scifact.docsFile, null, scifact.docsSizeBytes, 'scifact', report),
         },
       ]
+    case 'places':
+      return [
+        {
+          indexName: places.indexName,
+          languageCode: 'en',
+          schema: {
+            ...placesSchema,
+            [PLACES_VECTOR_FIELD]: `vector[${PLACES_EMBEDDING_DIMENSIONS}]`,
+          } as SchemaDefinition,
+          embedding: { adapter: PLACES_EMBEDDING_ADAPTER_NAME, fields: { [PLACES_VECTOR_FIELD]: 'summary' } },
+          documents: () => readPlacesWithVectors(report),
+        },
+      ]
     case 'custom':
       return [
         {
@@ -123,6 +171,7 @@ async function fill(
   await engine.createIndex(plan.indexName, {
     schema: plan.schema,
     language: languageName(plan.languageCode),
+    ...(plan.embedding === undefined ? {} : { embedding: plan.embedding }),
   })
 
   for (let start = 0; start < total; start += INSERT_BATCH_SIZE) {

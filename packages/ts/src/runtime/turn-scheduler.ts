@@ -2,7 +2,7 @@ import {
   UI_THREAD_BACKGROUND_SLICE_DURING_WRITES_MS,
   UI_THREAD_HOP_BEFORE_TURN_WITHIN_MS,
   UI_THREAD_TURN_BUDGET_MS,
-} from './constants'
+} from '#platform/vector-host'
 import { createWriteGate } from './write-gate'
 
 export type ScheduleHop = (run: () => void) => void
@@ -15,7 +15,7 @@ export interface TurnScheduler {
   countWrite<T>(write: () => Promise<T>): Promise<T>
   holdWrites<T>(read: () => Promise<T>): Promise<T>
   holdWritesAndBackgroundWork<T>(read: () => Promise<T>): Promise<T>
-  changeIndexOutsideExternalWaits<T>(change: () => Promise<T>): Promise<T>
+  changeIndexOutsideExternalWaits<T>(change: () => T | Promise<T>): Promise<T>
   waitOutsideCountedWrite<T>(wait: () => Promise<T>): Promise<T>
 }
 
@@ -40,6 +40,7 @@ export function createTurnScheduler(scheduleHop: ScheduleHop): TurnScheduler {
   let hopFollowsYield = false
   let lastTurnWorkAt = Number.NEGATIVE_INFINITY
   const indexChangesDrained: Array<() => void> = []
+  const writesDrained: Array<() => void> = []
   const writeGate = createWriteGate()
   const indexChangeGate = createWriteGate()
 
@@ -158,26 +159,45 @@ export function createTurnScheduler(scheduleHop: ScheduleHop): TurnScheduler {
     })
   }
 
+  function leaveCountedWrite(): void {
+    writesInFlight -= 1
+    if (writesInFlight === 0) for (const drained of writesDrained.splice(0)) drained()
+  }
+
+  function holdOnceWritesDrain<T>(read: () => Promise<T>): Promise<T> {
+    if (writesInFlight === 0) return writeGate.hold(read)
+    return new Promise((resolve, reject) => {
+      writesDrained.push(() => {
+        writeGate.hold(read).then(resolve, reject)
+      })
+    })
+  }
+
   async function countEnteredWrite<T>(write: () => Promise<T>): Promise<T> {
     writesInFlight += 1
     try {
       return await write()
     } finally {
-      writesInFlight -= 1
+      leaveCountedWrite()
     }
   }
 
   async function waitOutsideCountedWrite<T>(wait: () => Promise<T>): Promise<T> {
     if (writesInFlight === 0) return wait()
-    writesInFlight -= 1
+    leaveCountedWrite()
     try {
       return await wait()
     } finally {
-      writesInFlight += 1
+      await writeGate.enter(resumeCountedWrite)
     }
   }
 
-  async function countIndexChange<T>(change: () => Promise<T>): Promise<T> {
+  function resumeCountedWrite(): Promise<void> {
+    writesInFlight += 1
+    return Promise.resolve()
+  }
+
+  async function countIndexChange<T>(change: () => T | Promise<T>): Promise<T> {
     indexChangesInFlight += 1
     try {
       return await change()
@@ -187,7 +207,7 @@ export function createTurnScheduler(scheduleHop: ScheduleHop): TurnScheduler {
     }
   }
 
-  function changeIndexOutsideExternalWaits<T>(change: () => Promise<T>): Promise<T> {
+  function changeIndexOutsideExternalWaits<T>(change: () => T | Promise<T>): Promise<T> {
     return indexChangeGate.enter(() => countIndexChange(change))
   }
 
@@ -210,7 +230,7 @@ export function createTurnScheduler(scheduleHop: ScheduleHop): TurnScheduler {
   }
 
   function holdWritesAndBackgroundWork<T>(read: () => Promise<T>): Promise<T> {
-    return writeGate.hold(() => indexChangeGate.hold(() => readOnceIndexChangesDrain(read)))
+    return holdOnceWritesDrain(() => indexChangeGate.hold(() => readOnceIndexChangesDrain(read)))
   }
 
   return {

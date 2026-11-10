@@ -5,7 +5,12 @@ import { clearBootstrapSyncIndex, createEntry, entryKey } from './state'
 import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState } from './types'
 
 export { DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS } from '../constants'
-export { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './state'
+export {
+  clearBootstrapSyncIndex,
+  clearBootstrapSyncOfIndex,
+  createBootstrapSyncState,
+  hasCompletedBootstrapSync,
+} from './state'
 export type { BootstrapSyncDeps, BootstrapSyncState } from './types'
 
 export async function runBootstrapSync(

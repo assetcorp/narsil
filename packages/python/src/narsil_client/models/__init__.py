@@ -8,6 +8,7 @@ from pydantic import Field
 from typing_extensions import TypeAliasType
 
 from narsil_client._model import OPEN_ENUM, ApiModel
+from narsil_client._score import ScoredHitModel
 
 
 class AllocationConstraints(ApiModel):
@@ -935,44 +936,6 @@ class HighlightMatch(ApiModel):
     """
 
 
-class ScoreComponents(ApiModel):
-    """The numbers BM25 combined into one hit's score, which is what you read when a ranking
-    surprises you.
-    """
-
-    term_frequencies: dict[str, int | float] = Field(alias="termFrequencies")
-    """Each query term appears in one field of this document this many times, under a key of
-    `field:term`. A term that appears in two fields therefore has two entries here, while the
-    keys of ScoreComponents.idf hold the bare term.
-    """
-    field_lengths: dict[str, int | float] = Field(alias="fieldLengths")
-    """Each field the query searched holds this many tokens, keyed by field."""
-    idf: dict[str, int | float]
-    """Each query term carries this inverse document frequency, which is what makes a rare term
-    count for more.
-    """
-
-
-class Hit(ApiModel):
-    """One matching document, with the score that ranked it."""
-
-    id: str
-    """The document is stored under this id."""
-    score: int | float | None = None
-    """This score ranked the hit. Scores compare within one result set, never across searches. A
-    sorted query ranks by sort values instead and carries no score unless it sets
-    `includeScores`.
-    """
-    document: AnyDocument
-    """This is the stored document."""
-    score_components: ScoreComponents | None = Field(default=None, alias="scoreComponents")
-    """These are the parts the score was built from, which arrive when the query asked for them."""
-    highlights: dict[str, HighlightMatch] | None = None
-    """These highlighted snippets are keyed by field, and arrive when the query asked for
-    highlighting.
-    """
-
-
 class PartitionConfig(ApiModel):
     """How many partitions an index opens with, and how many documents it accepts. An index opens
     with `maxPartitions` partitions and keeps that count until Narsil.rebalance changes it,
@@ -1141,15 +1104,52 @@ class HttpCreateIndexBody(ApiModel):
     """This carries the schema and settings, in the subset JSON can express."""
 
 
+class ScoreComponents(ApiModel):
+    """The numbers BM25 combined into one hit's score, which is what you read when a ranking
+    surprises you.
+    """
+
+    term_frequencies: dict[str, int | float] = Field(alias="termFrequencies")
+    """Each query term appears in one field of this document this many times, under a key of
+    `field:term`. A term that appears in two fields therefore has two entries here, while the
+    keys of ScoreComponents.idf hold the bare term.
+    """
+    field_lengths: dict[str, int | float] = Field(alias="fieldLengths")
+    """Each field the query searched holds this many tokens, keyed by field."""
+    idf: dict[str, int | float]
+    """Each query term carries this inverse document frequency, which is what makes a rare term
+    count for more.
+    """
+
+
+class Hit(ScoredHitModel):
+    """A search hit whose score uses the HTTP representation of HttpScore."""
+
+    document: AnyDocument
+    """This is the stored document."""
+    id: str
+    """The document is stored under this id."""
+    score_components: ScoreComponents | None = Field(default=None, alias="scoreComponents")
+    """These are the parts the score was built from, which arrive when the query asked for them."""
+    highlights: dict[str, HighlightMatch] | None = None
+    """These highlighted snippets are keyed by field, and arrive when the query asked for
+    highlighting.
+    """
+    score: int | float | None = None
+    """The client decodes this value to a numeric score, or leaves it absent when the search
+    returns no score.
+    """
+
+
 class HttpGroupResult(ApiModel):
     """One group of hits as the server sends it, which is GroupResult with no reducer output,
     because the server refuses a query with a reducer.
     """
 
-    hits: list[Hit]
-    """These hits fall in the group, cut to the query's `maxPerGroup`."""
     values: dict[str, Any]
     """Each grouping field holds this value for the group, keyed by field."""
+    hits: list[Hit]
+    """These hits retain the scores of the group's ranking."""
 
 
 class HttpQueryParamsPinnedItem(ApiModel):
@@ -1502,10 +1502,6 @@ class HttpQueryResult(ApiModel):
 
     facets: dict[str, FacetResult] | None = None
     """These facet counts are keyed by the field each facet was asked for."""
-    hits: list[Hit]
-    """These documents match, cut to the query's `limit`, best score first or in the query's sort
-    order.
-    """
     count: int | float
     """This many documents match in total, before the engine applies `limit` and `offset`. For a
     keyword search the engine counts every match. For a vector search it counts every vector
@@ -1533,6 +1529,8 @@ class HttpQueryResult(ApiModel):
     """
     coverage: QueryCoverage
     """The search read this much of the index, which is how you spot a degraded answer."""
+    hits: list[Hit]
+    """These hits follow the search's ranking, with scores encoded for HTTP."""
     groups: list[HttpGroupResult] | None = None
     """These groups arrive when the query asked for grouping."""
 
@@ -1681,6 +1679,11 @@ class IndexStats(ApiModel):
     """The index analyses text with this language module."""
     schema_: SchemaDefinition = Field(alias="schema")
     """The index was created with this field layout."""
+    held_search_states: int | float | None = Field(default=None, alias="heldSearchStates")
+    """This many searches on this instance's main copy hold a state of the index open right now.
+    Each search holds one state from its start until it answers, fails, or is cancelled, so the
+    figure falls back to 0 once every search has finished. A cluster reports no figure.
+    """
 
 
 class InsertBody(ApiModel):
@@ -2211,6 +2214,29 @@ class SyncSetting(ApiModel):
     """
 
 
+class SyncStatus(ApiModel):
+    """The device sync state of one index, which SyncOperations.getSync returns."""
+
+    active: bool
+    """This is true once a device has asked for the published snapshot, from when the server keeps
+    history.
+    """
+    epoch: str | None
+    """This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."""
+    enabled: bool
+    """This turns sync on or off. Turning it on gives the index a new epoch, so every synced device
+    loads a new copy.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the server deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the server deletes the oldest log segment from history.
+    It defaults to the length of the published snapshot.
+    """
+
+
 class SynonymSetBody(ApiModel):
     """The body of `GET /indexes/{name}/synonyms`, and the body that `POST
     /indexes/{name}/synonyms` takes.
@@ -2531,6 +2557,7 @@ __all__ = [
     "SuggestResult",
     "SuggestResultTermsItem",
     "SyncSetting",
+    "SyncStatus",
     "SynonymRule",
     "SynonymSetBody",
     "TaskListPage",

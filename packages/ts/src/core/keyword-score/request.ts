@@ -167,6 +167,15 @@ export class KeywordRequestBuilder {
     this.addList(list, documentFrequency, 0)
   }
 
+  readsPool(docIds: Uint32Array, frequencies: Uint16Array, fields: Uint16Array): boolean {
+    const pool = this.pool
+    return docIds === pool.docIds && frequencies === pool.frequencies && fields === pool.fields
+  }
+
+  termRange(start: number, length: number, ordered: boolean, documentFrequency: number): void {
+    this.pushList(ordered ? LIST_ORDERED : 0, start, length, documentFrequency, 0)
+  }
+
   memberList(list: PostingListView, factor: number, partialFactor: number): void {
     this.addList(list, factor, partialFactor)
   }

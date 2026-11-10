@@ -1,0 +1,2 @@
+export const REMOVED_SURFACE_ENTRY_BYTES = 48
+export const TOMBSTONE_ARRIVAL_BYTES = 8

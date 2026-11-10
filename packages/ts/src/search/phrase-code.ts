@@ -1,4 +1,5 @@
 import { tokenize } from '../core/tokenizer'
+import { optionalCodeHost } from '../engine/optional-code-host'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { LanguageModule } from '../types/language'
 import type { CustomTokenizer, StopWordOverride } from '../types/schema'
@@ -27,6 +28,7 @@ function loadPhraseCode(): Promise<PhraseCode> {
   if (loading === null) {
     loading = import('./phrase-module').then(
       code => {
+        code.bindPhraseHost(optionalCodeHost())
         loaded = code
         return code
       },

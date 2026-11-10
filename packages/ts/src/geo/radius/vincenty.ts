@@ -1,6 +1,6 @@
 import { atan, atan2 } from '../../math/inverse'
 import { cos, sin, tan } from '../../math/trig'
-import { DEG_TO_RAD } from '../constants'
+import { DEG_TO_RAD } from '../geo-host-bindings'
 import { VINCENTY_CONVERGENCE_THRESHOLD, VINCENTY_MAX_ITERATIONS } from './constants'
 import { haversineDistance } from './haversine'
 

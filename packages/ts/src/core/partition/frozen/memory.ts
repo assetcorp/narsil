@@ -1,7 +1,17 @@
+import { storedValueBytes } from '../../stored-values/columns'
 import type { FrozenSegment } from './index'
 
 export function frozenSegmentBytes(segment: FrozenSegment): number {
-  if (segment.paged !== null) return segment.paged.heldBytes(segment)
+  let cached =
+    storedValueBytes(segment.docStore) +
+    segment.docStore.liveOrdinalBytes() +
+    (segment.sortColumns?.estimateBytes() ?? 0)
+  for (const index of segment.booleanIndexes.values()) cached += index.regionBytes()
+  for (const index of segment.enumIndexes.values()) cached += index.regionBytes()
+  for (const index of segment.geoIndexes.values()) cached += index.regionBytes()
+  for (const index of segment.numericIndexes.values()) cached += index.cachedBytes()
+  for (const index of segment.sizeIndexes.values()) cached += index.cachedBytes()
+  if (segment.paged !== null) return segment.paged.heldBytes(segment) + cached
   const arrays = segment.arrays
   let bytes = arrays.tokenTable.bytes + arrays.idTable.bytes
   bytes += arrays.postingOffsets.byteLength
@@ -21,5 +31,12 @@ export function frozenSegmentBytes(segment: FrozenSegment): number {
     bytes += entry.docIds.byteLength + entry.latitudes.byteLength + entry.longitudes.byteLength
   }
   for (const reader of segment.patternIndexes.values()) bytes += reader.bytes()
-  return bytes + segment.partialWords.bytes() + segment.removalBytes() + (segment.vectorOrdinalMaps?.bytes ?? 0)
+  return (
+    bytes +
+    cached +
+    segment.partialWords.bytes() +
+    segment.removalBytes() +
+    segment.surfaces.heldBytes() +
+    (segment.vectorOrdinalMaps?.bytes ?? 0)
+  )
 }

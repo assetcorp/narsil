@@ -72,7 +72,7 @@ const stopWords = new Set([
  */
 export const lao: LanguageModule = {
   name: 'lao',
-  revision: '1',
+  revision: 'b0741c0490fc12dc',
   stemmer: null,
   stopWords,
   tokenizer: {

@@ -131,6 +131,14 @@ HybridNarsilAttachedStoreImpl::HybridNarsilAttachedStoreImpl(const StoreMemory& 
   Region present = heldRegion(memory.present, 1, _held, "The presence flags");
   Region vectorFile = heldRegion(memory.vectorFile, sizeof(int32_t), _held, "The vector file table");
   Region vectorOffset = heldRegion(memory.vectorOffset, sizeof(uint32_t), _held, "The vector offsets");
+  Region bornAt = heldRegion(memory.bornAt, sizeof(int64_t), _held, "The born sequences");
+  Region retiredAt = heldRegion(memory.retiredAt, sizeof(int64_t), _held, "The retired sequences");
+  Region pins = heldRegion(memory.pins, sizeof(int64_t), _held, "The pins");
+  if (pins.elements == 0 || pins.elements > UINT32_MAX) throwInvalid("The pins hold no thread slot");
+  store.born_at = reinterpret_cast<const int64_t*>(bornAt.bytes);
+  store.retired_at = reinterpret_cast<const int64_t*>(retiredAt.bytes);
+  store.pins = reinterpret_cast<const int64_t*>(pins.bytes);
+  store.pin_slots = static_cast<uint32_t>(pins.elements);
   store.code_present = codePresent.bytes;
   store.centroid = reinterpret_cast<float*>(centroid.bytes);
   store.magnitudes = reinterpret_cast<const double*>(magnitudes.bytes);
@@ -141,7 +149,8 @@ HybridNarsilAttachedStoreImpl::HybridNarsilAttachedStoreImpl(const StoreMemory& 
   if (storedSlots < 0) throwInvalid("The store header is inconsistent");
   uint64_t slots = static_cast<uint64_t>(storedSlots);
   if (!covers(codePresent.elements, slots) || !covers(magnitudes.elements, slots) || !covers(present.elements, slots) ||
-      !covers(vectorFile.elements, slots) || !covers(vectorOffset.elements, slots)) {
+      !covers(vectorFile.elements, slots) || !covers(vectorOffset.elements, slots) || !covers(bornAt.elements, slots) ||
+      !covers(retiredAt.elements, slots)) {
     throwInvalid("The store regions are smaller than the vectors they hold");
   }
   readBlocks(memory.codeBlocks, slots, store.records_per_block, narsil_record_bytes(store.dimension, store.bits), 1,

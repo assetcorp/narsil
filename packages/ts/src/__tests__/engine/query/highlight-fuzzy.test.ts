@@ -42,4 +42,24 @@ describe('highlighting the words that a typo-tolerant query matches', () => {
 
     expect(result.hits[0]?.highlights?.name?.snippet).toBe('Ferreira <mark>Urban</mark> commuter')
   })
+
+  it('marks the original Unicode words and keeps a surrogate pair whole at the snippet edge', async () => {
+    await narsil.createIndex('unicode', { schema: { name: 'string' }, language: 'english' })
+    const words = ['Cafe\u0301', 'ＲＵＮＮＩＮＧ', 'İSTANBUL', 'generosity']
+    const text = `😀 ${words.join(' ')}`
+    await narsil.insert('unicode', { name: text }, 'words')
+    const result = await narsil.query('unicode', {
+      term: 'café running istanbul generosity',
+      highlight: { fields: ['name'] },
+    })
+    expect(result.hits[0]?.highlights?.name).toEqual({
+      snippet: `😀 ${words.map(word => `<mark>${word}</mark>`).join(' ')}`,
+      positions: words.map(word => ({ start: text.indexOf(word), end: text.indexOf(word) + word.length })),
+    })
+    const clipped = await narsil.query('unicode', {
+      term: 'running',
+      highlight: { fields: ['name'], maxSnippetLength: 1 },
+    })
+    expect(clipped.hits[0]?.highlights?.name).toEqual({ snippet: '😀...', positions: [] })
+  })
 })

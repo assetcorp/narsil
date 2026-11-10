@@ -112,7 +112,7 @@ const stopWords = new Set([
  */
 export const belarusian: LanguageModule = {
   name: 'belarusian',
-  revision: '0c1d3db2f7d0be62',
+  revision: '4f94dc40c8f2c980',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0400-\u04FF0-9']+/gi },

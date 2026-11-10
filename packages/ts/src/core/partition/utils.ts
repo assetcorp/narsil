@@ -9,7 +9,9 @@ import type { InvertedIndex } from '../inverted-index'
 import type { PatternIndexWriter } from '../pattern-index/types'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
+import type { RemovedSpellings } from './frozen/surface-slot'
 import type { GrowingPartialWordSlot } from './partial-words/types'
+import type { PreparedTextChange } from './prepared-text'
 import type { PartitionReadState } from './read-state'
 
 export type { PartitionReadState } from './read-state'
@@ -38,6 +40,9 @@ export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: stri
 }
 
 export interface PartitionInsertOptions {
+  preparedText?: PreparedTextChange
+  onPreparedText?: (change: PreparedTextChange) => void
+  onRemovedSpellings?: (spellings: RemovedSpellings | undefined) => void
   validate?: boolean
   strict?: boolean
   patternValueLimit?: number
@@ -48,6 +53,8 @@ export interface PartitionInsertOptions {
 }
 
 export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  if (obj === null || typeof obj !== 'object') return undefined
+  if (!path.includes('.')) return Object.hasOwn(obj, path) ? obj[path] : undefined
   const parts = path.split('.')
   let current: unknown = obj
   for (let i = 0; i < parts.length; i++) {

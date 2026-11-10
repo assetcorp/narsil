@@ -8,9 +8,11 @@ import type {
 } from '../core/pattern-index/types'
 import { type RunQuery, spreadRuns } from './expression'
 import { searchExpressions } from './expression-cache'
+import { readPatternArrays } from './frozen-index'
 import { LiteralMatcher } from './literal-matcher'
 import { shortlist } from './shortlist'
-import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue } from './text'
+import { someStoredText } from './stored-text'
+import { appendTextCodePoints } from './text'
 import { matchWithinTolerance, typoTestFor } from './typo'
 import { WorkTally } from './work-tally'
 
@@ -70,16 +72,25 @@ function expressionTest(request: PatternMatchRequest, operator: ExpressionOperat
 
 function matchesText(
   matcher: ValueMatcher,
-  text: string,
+  units: Uint16Array,
+  start: number,
+  length: number,
   caseFold: boolean,
   host: PatternHost,
   folded: number[],
   tally: WorkTally,
 ): boolean {
   if (!matcher.begin()) return matcher.matched()
-  for (let at = 0; at < text.length; at++) {
-    const codePoint = text.codePointAt(at) ?? 0
-    if (codePoint > BASIC_PLANE_LAST) at++
+  const end = start + length
+  for (let at = start; at < end; at++) {
+    let codePoint = units[at]
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff && at + 1 < end) {
+      const low = units[at + 1]
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + low - 0xdc00
+        at++
+      }
+    }
     if (!caseFold) {
       if (!matcher.feed(codePoint, tally)) return matcher.matched()
       continue
@@ -102,6 +113,7 @@ function answeredByTypoTest(request: PatternMatchRequest, tally: WorkTally): boo
 }
 
 export function matchPattern(request: PatternMatchRequest): void {
+  request = { ...request, index: readPatternArrays(request.index.regions()) }
   const { operator, caseFold, index, matches, host } = request
   request.meter.clock?.check()
   const tally = new WorkTally(request.meter)
@@ -116,18 +128,15 @@ export function matchPattern(request: PatternMatchRequest): void {
   const candidates = shortlisted ?? index.documents()
   const folded: number[] = []
   let matcher: ValueMatcher | null = null
-  let matched = false
-  const testValue = (value: string): void => {
-    if (!matched && matcher !== null) matched = matchesText(matcher, value, caseFold, host, folded, tally)
+  const testValue = (units: Uint16Array, start: number, length: number): boolean => {
+    return matcher !== null && matchesText(matcher, units, start, length, caseFold, host, folded, tally)
   }
 
   for (const ordinal of candidates) {
     if (ordinal >>> 5 >= matches.length || bitsetHas(matches, ordinal)) continue
     if (scanning) tally.add(1)
     matcher ??= test.matcher()
-    matched = false
-    forEachTextValue(request.valueOf(ordinal), testValue)
-    if (matched) bitsetSet(matches, ordinal)
+    if (someStoredText(request.values, ordinal, testValue)) bitsetSet(matches, ordinal)
   }
   tally.flush()
 }

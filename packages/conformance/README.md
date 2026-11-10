@@ -74,7 +74,7 @@ node packages/conformance/dist/cli.mjs fetch
 
 The command stores the dataset in `packages/conformance/.dataset`. Index the documents with the settings under `index` in `searches/queries.json`, then run each query. Text results must hold the listed IDs in the listed order, and the reference's scores match the listed scores to a relative difference of 10<sup>-9</sup>. Vector results must reach each recall floor under `vector.floors` against the 100 nearest neighbours that a brute-force cosine scan found for each query, and their order is free.
 
-The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `ebae3448ae674b59`, and it stops with exit code 2 when the revision moves:
+The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `4026533016c7f4b1`, and it stops with exit code 2 when the revision moves:
 
 | Setting | Where the oracle takes it |
 | --- | --- |

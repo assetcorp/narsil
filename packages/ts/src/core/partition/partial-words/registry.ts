@@ -1,4 +1,5 @@
 import { platformPartialWordSearch } from '#platform/partial-word-search'
+import { requireLoadedOptionalReads } from '../../../engine/optional-reads-code'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartialWordHighlight } from '../../../highlighting/highlighter'
 import { partialFieldsOf } from '../../../schema/validator/schema'
@@ -6,6 +7,8 @@ import type { ExpandedTermGroup } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { PartialWordSearch } from '../../../types/partial-words'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
+import type { NativeRunTable } from '../../../vector/native/types/segments'
+import type { StringPlan } from '../../segment-writes/strings'
 import type { FrozenTokenTable } from '../frozen/token-table'
 import type { PartitionReadState } from '../read-state'
 import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from './spellings'
@@ -23,8 +26,14 @@ import type {
 } from './types'
 
 let registered: PartialWordSearchModule | null = null
+let boundModule: PartialWordSearchModule | null = null
 
 const MODULE_FUNCTIONS = [
+  'bindExpansionCode',
+  'createSpellingTable',
+  'prepareSpellingRuns',
+  'prepareSpellingRemoval',
+  'prepareSpellingVacuum',
   'createGrowingSlot',
   'createFrozenSlot',
   'buildTable',
@@ -83,6 +92,22 @@ function partialWordModule(): PartialWordSearchModule {
   )
 }
 
+export function createSpellingTable() {
+  return partialWordModule().createSpellingTable()
+}
+
+export function prepareSpellingRuns(table: NativeRunTable, plan: StringPlan): () => void {
+  return partialWordModule().prepareSpellingRuns(table, plan)
+}
+
+export function prepareSpellingRemoval(table: NativeRunTable, plan: StringPlan): () => void {
+  return partialWordModule().prepareSpellingRemoval(table, plan)
+}
+
+export function prepareSpellingVacuum(table: NativeRunTable, mapping: Uint32Array): () => void {
+  return partialWordModule().prepareSpellingVacuum(table, mapping)
+}
+
 export function requirePartialWordSearchFor(schema: SchemaDefinition): void {
   const fields = partialFieldsOf(schema)
   if (fields.length === 0 || availablePartialWordSearch() !== null) return
@@ -94,6 +119,8 @@ export function requirePartialWordSearchFor(schema: SchemaDefinition): void {
 }
 
 const EMPTY_GROWING_SLOT: GrowingPartialWordSlot = {
+  adopt: () => undefined,
+  detach: () => undefined,
   readerFor: () => null,
   spellings: () => null,
   bytes: () => 0,
@@ -104,10 +131,12 @@ const EMPTY_GROWING_SLOT: GrowingPartialWordSlot = {
 }
 
 const EMPTY_FROZEN_SLOT: FrozenPartialWordSlot = {
+  removalState: () => null,
+  tokenForSpelling: () => undefined,
   readerFor: () => null,
   spellings: () => null,
   bytes: () => 0,
-  afterRemoval: () => undefined,
+  prepareRemoval: () => () => undefined,
   tableOfEveryDocument: () => null,
   countKeptSpellings: () => undefined,
 }
@@ -137,7 +166,12 @@ export function expandPartialWords(
   requests: readonly PartialWordRequest[],
 ): AddedWord[][] {
   const module = availablePartialWordSearch()
-  return module === null ? requests.map(() => []) : module.expand(subs, analysis, requests)
+  if (module === null) return requests.map(() => [])
+  if (boundModule !== module) {
+    module.bindExpansionCode(requireLoadedOptionalReads())
+    boundModule = module
+  }
+  return module.expand(subs, analysis, requests)
 }
 
 export function countPartialSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void {
