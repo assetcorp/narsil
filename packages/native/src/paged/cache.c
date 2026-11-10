@@ -2,11 +2,11 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_paged.h"
+#include "../allocation.h"
 #include "file.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #define PAGE_HASH_MULTIPLIER UINT64_C(0x9e3779b97f4a7c15)
@@ -39,7 +39,7 @@ static size_t slot_of(const narsil_page_cache *cache, uint64_t file, uint64_t of
 static narsil_status prepare_page(narsil_workspace *workspace, size_t length, uint8_t **bytes) {
   paged_scratch *scratch = workspace_paged_scratch(workspace);
   if (length > scratch->capacity) {
-    void *grown = realloc(scratch->page, length);
+    void *grown = core_reallocate(scratch->page, length);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->page = grown;
     scratch->capacity = length;

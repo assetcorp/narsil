@@ -6,7 +6,10 @@ This package holds the C source of Narsil's native search core, which searches a
 
 - `pnpm --filter @delali/narsil-native-build build` compiles the core for this machine with `cc`.
 - `node build.mjs <target>` compiles the core for `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-arm64-musl`, `linux-x64`, `linux-x64-musl`, `win32-arm64`, or `win32-x64`. You need Zig 0.16.0 on your path for the Linux and Windows targets.
-- `pnpm --filter @delali/narsil-native-build test` tests the core in C under the sanitisers.
+- `pnpm --filter @delali/narsil-native-build test` tests the core in C under the sanitisers. It also refuses every allocation that each tested operation makes, one at a time, and it fails when the core misses an error, leaks, or keeps an allocation site that no test refuses.
+- `pnpm --filter @delali/narsil-native-build fuzz` fuzzes each target under `fuzz/` for 60 seconds with libFuzzer, AddressSanitizer, and UndefinedBehaviorSanitizer. Pass `--seconds <n>` to change the time, and name targets to fuzz only those. You need clang with its libFuzzer runtime, and you can set `NARSIL_FUZZ_CC` to name a specific clang such as `clang-18`.
+- `node fuzz/run.mjs --replay` replays every input under `fuzz/corpus/` without libFuzzer. Each input there once made a target fail, so add every new failing input to its target's directory alongside the fix.
+- `pnpm --filter @delali/narsil-native-build test:binding` builds the binding under AddressSanitizer and UndefinedBehaviorSanitizer on Linux, runs the TypeScript tests that load the core against it, and fails on any memory error or any leak that the core or the binding allocated. Build the TypeScript package first, so that the tests that copy an index onto worker threads run as well.
 - `pnpm nx run narsil-ts:test` includes the tests under `src/__tests__/vector/native`, which compare the results, the graph, and the codes of the core with those of the WebAssembly search.
 - `pnpm --filter @delali/narsil-native-build lint` checks the C code with clang-tidy and clang-format. `lint.mjs` installs the pinned tools into `.lint-tools` on its first use, so you need `python3` on your path.
 - `pnpm --filter @delali/narsil-native-build format` formats the C code with clang-format.

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 export const packageDirectory = dirname(fileURLToPath(import.meta.url))
 export const buildDirectory = join(packageDirectory, 'build')
+export const sanitisedBindingDirectory = join(buildDirectory, 'sanitised')
 export const TEST_LINK_FLAGS = ['-pthread']
 
 export const LANGUAGE_FLAGS = ['-std=c11', '-ffp-contract=off', '-D_POSIX_C_SOURCE=200809L']
@@ -15,6 +16,8 @@ export const POSITION_INDEPENDENT_FLAGS = ['-fPIC']
 export const NODE_API_FLAGS = ['-DNAPI_VERSION=8']
 export const WINDOWS_NODE_API_FLAGS = ['-DNAPI_EXTERN=']
 export const TEST_FLAGS = ['-O1', '-g']
+export const MEMORY_SANITISERS = 'address,undefined'
+export const SANITISER_FLAGS = ['-fno-sanitize-recover=undefined', '-fno-omit-frame-pointer']
 
 const WARNING_FLAGS = [
   '-Wall',
@@ -37,7 +40,17 @@ const WARNING_FLAGS = [
 
 const GCC_ONLY_WARNING_FLAGS = ['-Wcast-align=strict', '-Wtrampolines', '-Wbidi-chars=any']
 
-const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test']
+const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test', 'fuzz']
+export const FUZZ_SUPPORT_FILES = [
+  'input.c',
+  'file.c',
+  'stored_values.c',
+  'segment.c',
+  'terms.c',
+  'frozen_segment.c',
+  'frozen_spellings.c',
+  'replay.c',
+]
 const GENERATED_DIRECTORIES = [
   join('src', 'languages', 'data'),
   join('src', 'languages', 'snowball'),
@@ -70,6 +83,14 @@ export function testSources() {
 
 export function addonSources() {
   return cFilesIn('node', ['.c'])
+}
+
+export function fuzzSources() {
+  return cFilesIn('fuzz', ['.c'])
+}
+
+export function fuzzTargets() {
+  return fuzzSources().filter(file => !FUZZ_SUPPORT_FILES.some(name => file.endsWith(join('fuzz', name))))
 }
 
 export function formattedFiles() {
@@ -119,7 +140,7 @@ export function writeCompileDatabase() {
   const commands = [...coreSources(), ...addonSources()].map(file =>
     compileCommand(file, [...CORE_FLAGS, ...POSITION_INDEPENDENT_FLAGS, ...shared]),
   )
-  for (const file of testSources()) {
+  for (const file of [...testSources(), ...fuzzSources()]) {
     commands.push(compileCommand(file, [...TEST_FLAGS, ...shared]))
   }
   mkdirSync(buildDirectory, { recursive: true })

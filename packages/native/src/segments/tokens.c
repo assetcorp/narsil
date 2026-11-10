@@ -3,6 +3,7 @@
 #include "../../include/narsil_analysis.h"
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_segments.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "strings.h"
 
@@ -25,7 +26,7 @@ static narsil_status reserve_tokens(segment_token_plan *plan, size_t capacity) {
     held *= TOKEN_PLAN_GROWTH;
   }
   if (held > SIZE_MAX / (TOKEN_REGIONS * sizeof(segment_token_ref))) { held = capacity; }
-  segment_token_ref *tokens = realloc(plan->tokens, held * TOKEN_REGIONS * sizeof *tokens);
+  segment_token_ref *tokens = core_reallocate(plan->tokens, held * TOKEN_REGIONS * sizeof *tokens);
   if (tokens == NULL) { return NARSIL_OUT_OF_MEMORY; }
   plan->tokens = tokens;
   plan->capacity = held;

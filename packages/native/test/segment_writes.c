@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_analysis.h"
@@ -549,6 +550,215 @@ static void merge_growing(narsil_workspace *workspace, segment_fixture *data) {
             memcmp(text, "harbor", TERM_LENGTH) == 0 && position_offsets[FIELDS] == FIELDS - 1,
         "a growing merge skips an out-of-region position while retaining its posting");
   data->positions_at[start] = position_start;
+}
+
+enum {
+  REFUSED_TOKENS_PER_FIELD = 6,
+  REFUSED_UNITS_PER_FIELD = 128,
+  REFUSED_DOCUMENTS = 24,
+  REFUSED_REMOVED_DOCUMENT = 5,
+  REFUSED_WORD_STEP = 5,
+  REFUSED_SURFACE_LETTERS = 26,
+  SUGGESTION_ROOM = 1024,
+  COMPACTED_DOCUMENTS = 1300,
+  COMPACTED_KEPT = 100
+};
+
+static const char *const REFUSED_VOCABULARY[] = {"harbour",   "harbours", "lighthouse", "beacon",   "tideway",
+                                                 "anchorage", "shipyard", "lantern",    "quayside", "breakwater",
+                                                 "mooring",   "estuary",  "harbourage"};
+
+typedef struct {
+  uint16_t units[FIELDS][REFUSED_UNITS_PER_FIELD];
+  narsil_token tokens[FIELDS][REFUSED_TOKENS_PER_FIELD];
+  narsil_field_tokens fields[FIELDS];
+} refused_document;
+
+static void write_refused_document(refused_document *document, uint32_t ordinal) {
+  size_t vocabulary = sizeof REFUSED_VOCABULARY / sizeof REFUSED_VOCABULARY[0];
+  for (uint32_t field = 0; field < FIELDS; field++) {
+    uint32_t used = 0;
+    for (uint32_t at = 0; at < REFUSED_TOKENS_PER_FIELD; at++) {
+      const char *word =
+          REFUSED_VOCABULARY[((ordinal * REFUSED_WORD_STEP) + (field * REFUSED_TOKENS_PER_FIELD) + at) % vocabulary];
+      uint32_t length = (uint32_t)strlen(word);
+      for (uint32_t unit = 0; unit < length; unit++) { document->units[field][used + unit] = (uint16_t)word[unit]; }
+      document->units[field][used + length] = (uint16_t)('a' + (ordinal % REFUSED_SURFACE_LETTERS));
+      document->tokens[field][at] =
+          (narsil_token){at, used, length, used, length + 1, used, length + 1, NARSIL_NO_TERM_SLOT};
+      used += length + 1;
+    }
+    document->fields[field] = (narsil_field_tokens){
+        (uint16_t)field, {document->tokens[field], REFUSED_TOKENS_PER_FIELD, document->units[field], used}};
+  }
+}
+
+static narsil_status index_refused_document(narsil_workspace *workspace, segment_fixture *data, uint32_t ordinal) {
+  refused_document document;
+  write_refused_document(&document, ordinal);
+  narsil_index_terms_request request = {&data->segment, ordinal, document.fields, FIELDS};
+  return narsil_index_terms(workspace, &request);
+}
+
+static segment_fixture *indexed_segment(uint32_t documents) {
+  segment_fixture *data = create_segment();
+  narsil_workspace *workspace = NULL;
+  if (data == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
+    free(data);
+    return NULL;
+  }
+  narsil_status status = NARSIL_OK;
+  for (uint32_t ordinal = 0; ordinal < documents && status == NARSIL_OK; ordinal++) {
+    status = index_refused_document(workspace, data, ordinal);
+  }
+  narsil_workspace_destroy(workspace);
+  if (status != NARSIL_OK) {
+    free(data);
+    return NULL;
+  }
+  return data;
+}
+
+static void *prepare_segment_for_a_document(void) { return indexed_segment(REFUSED_DOCUMENTS - 1); }
+
+static void *prepare_full_segment(void) { return indexed_segment(REFUSED_DOCUMENTS); }
+
+static void *prepare_segment_to_compact(void) {
+  segment_fixture *data = create_segment();
+  narsil_workspace *workspace = NULL;
+  if (data == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
+    free(data);
+    return NULL;
+  }
+  enum { TEXT_LENGTH = 9, TOKEN_LENGTH = 8, RADIX = 10, DIGITS = 4, POSITION = 2 };
+  uint16_t text[TEXT_LENGTH] = {'t', 'e', 'r', 'm', '0', '0', '0', '0', 's'};
+  narsil_token token = {POSITION, 0, TOKEN_LENGTH, 0, TEXT_LENGTH, 0, 0, NARSIL_NO_TERM_SLOT};
+  narsil_field_tokens field = {0, {&token, 1, text, TEXT_LENGTH}};
+  narsil_index_terms_request request = {&data->segment, 0, &field, 1};
+  narsil_status status = NARSIL_OK;
+  for (uint32_t pass = 0; pass < 2 && status == NARSIL_OK; pass++) {
+    uint32_t count = pass == 0 ? COMPACTED_DOCUMENTS : COMPACTED_DOCUMENTS - COMPACTED_KEPT;
+    for (uint32_t ordinal = 0; ordinal < count && status == NARSIL_OK; ordinal++) {
+      uint32_t digits = ordinal;
+      for (size_t at = 0; at < DIGITS; at++) {
+        text[TOKEN_LENGTH - at - 1] = (uint16_t)('0' + (digits % RADIX));
+        digits /= RADIX;
+      }
+      request.ordinal = ordinal;
+      status = pass == 0 ? narsil_index_terms(workspace, &request) : narsil_remove_document(workspace, &request);
+    }
+  }
+  narsil_workspace_destroy(workspace);
+  if (status != NARSIL_OK) {
+    free(data);
+    return NULL;
+  }
+  return data;
+}
+
+static narsil_status index_last_document(narsil_workspace *workspace, void *opaque) {
+  return index_refused_document(workspace, opaque, REFUSED_DOCUMENTS - 1);
+}
+
+static narsil_status remove_one_document(narsil_workspace *workspace, void *opaque) {
+  segment_fixture *data = opaque;
+  refused_document document;
+  write_refused_document(&document, REFUSED_REMOVED_DOCUMENT);
+  narsil_index_terms_request request = {&data->segment, REFUSED_REMOVED_DOCUMENT, document.fields, FIELDS};
+  narsil_status status = narsil_remove_document(workspace, &request);
+  return status == NARSIL_OK ? narsil_end_batch(workspace, &data->segment) : status;
+}
+
+static narsil_status compact_segment(narsil_workspace *workspace, void *opaque) {
+  segment_fixture *data = opaque;
+  return narsil_end_batch(workspace, &data->segment);
+}
+
+static uint64_t digest_segment(const void *opaque) {
+  return digest_bytes(DIGEST_START, opaque, offsetof(segment_fixture, surface_table));
+}
+
+typedef struct {
+  segment_fixture *data;
+  uint32_t segments[REFUSED_DOCUMENTS];
+  uint32_t tokens[REFUSED_DOCUMENTS];
+  double factors[REFUSED_DOCUMENTS];
+  uint32_t starts[2];
+  uint32_t terms[SUGGESTION_ROOM];
+  uint32_t term_starts[SUGGESTION_ROOM];
+  uint32_t spellings[SUGGESTION_ROOM];
+  double occurrences[SUGGESTION_ROOM];
+  uint32_t count;
+} expansion_inputs;
+
+static void *prepare_expansion(void) {
+  expansion_inputs *inputs = calloc(1, sizeof *inputs);
+  if (inputs == NULL) { return NULL; }
+  inputs->data = indexed_segment(REFUSED_DOCUMENTS);
+  if (inputs->data == NULL) {
+    free(inputs);
+    return NULL;
+  }
+  return inputs;
+}
+
+static void release_expansion(void *opaque) {
+  expansion_inputs *inputs = opaque;
+  free(inputs->data);
+  free(inputs);
+}
+
+static uint64_t digest_expansion(const void *opaque) {
+  const expansion_inputs *inputs = opaque;
+  return digest_bytes(DIGEST_START, &inputs->segments, sizeof *inputs - offsetof(expansion_inputs, segments));
+}
+
+static narsil_expansion_output expansion_output(expansion_inputs *inputs) {
+  return (narsil_expansion_output){inputs->segments,  REFUSED_DOCUMENTS, inputs->tokens,
+                                   REFUSED_DOCUMENTS, inputs->factors,   REFUSED_DOCUMENTS};
+}
+
+static narsil_status expand_refused_prefix(narsil_workspace *workspace, void *opaque) {
+  expansion_inputs *inputs = opaque;
+  static const uint16_t text[] = {'h', 'a', 'r'};
+  narsil_expansion_segment source = {.growing = &inputs->data->segment};
+  narsil_prefix_request request = {&source, 1, text, 3, text, 3, text, 3};
+  narsil_expansion_output output = expansion_output(inputs);
+  return narsil_expand_prefix(workspace, &request, &output, &inputs->count);
+}
+
+static narsil_status suggest_refused_terms(narsil_workspace *workspace, void *opaque) {
+  expansion_inputs *inputs = opaque;
+  static const uint16_t text[] = {'h', 'a', 'r', 'b'};
+  narsil_expansion_segment source = {.growing = &inputs->data->segment};
+  narsil_suggestion_request request = {&source, 1, text, 4, text, 4, REFUSED_DOCUMENTS};
+  narsil_suggestion_output output = {inputs->terms,     SUGGESTION_ROOM, inputs->term_starts, SUGGESTION_ROOM,
+                                     inputs->spellings, SUGGESTION_ROOM, inputs->occurrences, SUGGESTION_ROOM};
+  return narsil_suggest_terms(workspace, &request, &output, &inputs->count);
+}
+
+static narsil_status expand_refused_partial_words(narsil_workspace *workspace, void *opaque) {
+  expansion_inputs *inputs = opaque;
+  static const uint16_t text[] = {'a', 'r', 'b', 'o'};
+  narsil_expansion_segment source = {.growing = &inputs->data->segment};
+  narsil_frozen_runs runs = {0};
+  narsil_partial_word word = {text, 4, text, 4, 0, 0};
+  narsil_partial_request request = {&source, &runs, 1, &word, 1};
+  narsil_partial_output output = {expansion_output(inputs), inputs->starts, 2};
+  return narsil_expand_partial_words(workspace, &request, &output, &inputs->count);
+}
+
+void segment_allocation_failures(void) {
+  const failing_call calls[] = {
+      {"an indexed document", prepare_segment_for_a_document, index_last_document, digest_segment, free},
+      {"a removed document and its batch end", prepare_full_segment, remove_one_document, digest_segment, free},
+      {"a dictionary compaction", prepare_segment_to_compact, compact_segment, digest_segment, free},
+      {"a prefix expansion", prepare_expansion, expand_refused_prefix, digest_expansion, release_expansion},
+      {"term suggestions", prepare_expansion, suggest_refused_terms, digest_expansion, release_expansion},
+      {"a partial word expansion", prepare_expansion, expand_refused_partial_words, digest_expansion,
+       release_expansion},
+  };
+  for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
 }
 
 void segment_write_checks(narsil_workspace *workspace) {

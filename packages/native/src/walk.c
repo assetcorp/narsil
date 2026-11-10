@@ -233,7 +233,7 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
     status = workspace_reserve_entry_points(workspace, 1);
     if (status == NARSIL_OK) {
       use_single_entry(workspace, entry);
-      status = descend_layers(&context, load_word(graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 1, nearest);
+      status = descend_layers(&context, entry_top_layer(&context, entry), 1, nearest);
     }
     layer_search base = {request->candidate_count, 0, 1, request->accepted, request->pin};
     if (status == NARSIL_OK) { status = search_layer(&context, base, nearest); }

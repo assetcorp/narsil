@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include "../include/narsil_core.h"
+#include "allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -182,32 +183,57 @@ static narsil_status begin_connect(walk_context *context, narsil_workspace *work
   return read_graph_extent(context);
 }
 
+typedef struct {
+  int32_t *nearest_of;
+  int32_t *anchored_by;
+  layer_walk walk;
+  nearby_nodes nearby;
+} connect_buffers;
+
+static int reserve_connect_buffers(connect_buffers *buffers, const walk_context *context,
+                                   const narsil_connect_request *request) {
+  size_t held = context->slots == 0 ? 1 : context->slots;
+  size_t nearby_count = request->nearby_count;
+  buffers->nearest_of = core_allocate_zeroed(held, sizeof *buffers->nearest_of);
+  buffers->anchored_by = core_allocate_zeroed(held, sizeof *buffers->anchored_by);
+  buffers->walk.reached = core_allocate_zeroed(held, sizeof *buffers->walk.reached);
+  buffers->walk.first_reached_through = core_allocate_zeroed(held, sizeof *buffers->walk.first_reached_through);
+  buffers->walk.queue = core_allocate_zeroed(held, sizeof *buffers->walk.queue);
+  buffers->nearby.list = core_allocate_zeroed(nearby_count + 1, sizeof *buffers->nearby.list);
+  buffers->nearby.holds = core_allocate_zeroed(held, sizeof *buffers->nearby.holds);
+  return buffers->nearest_of != NULL && buffers->anchored_by != NULL && buffers->walk.reached != NULL &&
+         buffers->walk.first_reached_through != NULL && buffers->walk.queue != NULL && buffers->nearby.list != NULL &&
+         buffers->nearby.holds != NULL;
+}
+
+static void release_connect_buffers(connect_buffers *buffers) {
+  free(buffers->nearest_of);
+  free(buffers->anchored_by);
+  free(buffers->walk.reached);
+  free(buffers->walk.first_reached_through);
+  free(buffers->walk.queue);
+  free(buffers->nearby.list);
+  free(buffers->nearby.holds);
+}
+
 narsil_status narsil_connect_unreached(narsil_workspace *workspace, const narsil_graph *graph,
                                        const narsil_store *store, const narsil_connect_request *request) {
   walk_context context;
   narsil_status status = begin_connect(&context, workspace, graph, store, request);
   if (status != NARSIL_OK) { return status; }
-  status = link_from_nearest(&context);
-  if (status != NARSIL_OK) { return status; }
-  int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
-  if (node_top_layer(&context, entry) < 0) { return NARSIL_OK; }
-  size_t slots = context.slots;
-  layer_walk walk = {calloc(slots, sizeof *walk.reached), calloc(slots, sizeof *walk.first_reached_through),
-                     calloc(slots, sizeof *walk.queue), 0, 0};
-  nearby_nodes nearby = {calloc((size_t)request->nearby_count + 1, sizeof *nearby.list), 0, calloc(slots, 1)};
-  if (walk.reached != NULL && walk.first_reached_through != NULL && walk.queue != NULL && nearby.list != NULL &&
-      nearby.holds != NULL) {
-    base_link arrival = {NO_NODE, entry};
-    walk_from(&context, &walk, arrival);
-    gather_nearby(&context, request, &nearby);
-    connect_every_unreached(&context, &walk, &nearby);
-  } else {
-    status = NARSIL_OUT_OF_MEMORY;
+  connect_buffers buffers = {NULL, NULL, {NULL, NULL, NULL, 0, 0}, {NULL, 0, NULL}};
+  if (!reserve_connect_buffers(&buffers, &context, request)) {
+    release_connect_buffers(&buffers);
+    return NARSIL_OUT_OF_MEMORY;
   }
-  free(walk.reached);
-  free(walk.first_reached_through);
-  free(walk.queue);
-  free(nearby.list);
-  free(nearby.holds);
-  return status;
+  link_from_nearest(&context, buffers.nearest_of, buffers.anchored_by);
+  int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
+  if (node_top_layer(&context, entry) >= 0) {
+    base_link arrival = {NO_NODE, entry};
+    walk_from(&context, &buffers.walk, arrival);
+    gather_nearby(&context, request, &buffers.nearby);
+    connect_every_unreached(&context, &buffers.walk, &buffers.nearby);
+  }
+  release_connect_buffers(&buffers);
+  return NARSIL_OK;
 }
