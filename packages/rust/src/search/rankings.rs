@@ -72,16 +72,35 @@ pub(crate) fn merge_rankings<T: RankedEntry>(
     let entries: Vec<T> = lists.into_iter().flatten().collect();
     let scores: Vec<f64> = entries.iter().map(RankedEntry::ranking_score).collect();
     let ranks = id_ranks(&entries);
+    let places = merged_places(&offsets, Some(&scores), &ranks, wanted)?;
+    let mut held: Vec<Option<T>> = entries.into_iter().map(Some).collect();
+    let mut merged = Vec::with_capacity(places.len());
+    for at in places {
+        if let Some(entry) = held.get_mut(at).and_then(Option::take) {
+            merged.push(entry);
+        }
+    }
+    Ok(merged)
+}
+
+fn merged_places(
+    offsets: &[u32],
+    scores: Option<&[f64]>,
+    ranks: &[u32],
+    wanted: usize,
+) -> Result<Vec<usize>> {
+    let limit = u32::try_from(wanted).map_err(|_| exceeds_layout())?;
     let mut sources = vec![0u32; wanted];
     let mut indices = vec![0u32; wanted];
+    let held_scores = scores.unwrap_or(&[]);
     let request = ffi::narsil_merge_request {
         offsets: offsets.as_ptr(),
         offset_count: offsets.len(),
-        scores: scores.as_ptr(),
-        score_count: scores.len(),
+        scores: held_scores.as_ptr(),
+        score_count: held_scores.len(),
         ranks: ranks.as_ptr(),
         rank_count: ranks.len(),
-        limit: wanted as u32,
+        limit,
     };
     let mut output = ffi::narsil_merge_output {
         lists: sources.as_mut_ptr(),
@@ -91,7 +110,12 @@ pub(crate) fn merge_rankings<T: RankedEntry>(
         count: 0,
     };
     let status = with_workspace(|workspace| {
-        Ok(unsafe { ffi::narsil_merge_rankings(workspace, &request, &mut output) })
+        Ok(unsafe {
+            match scores {
+                Some(_) => ffi::narsil_merge_rankings(workspace, &request, &mut output),
+                None => ffi::narsil_merge_sorted(workspace, &request, &mut output),
+            }
+        })
     })?;
     if status != ffi::NARSIL_OK {
         return Err(NarsilError::new(
@@ -101,14 +125,25 @@ pub(crate) fn merge_rankings<T: RankedEntry>(
             ),
         ));
     }
-    let found = output.count as usize;
-    let mut held: Vec<Option<T>> = entries.into_iter().map(Some).collect();
-    let mut merged = Vec::with_capacity(found);
-    for (&source, &index) in sources.iter().zip(&indices).take(found) {
-        let at = offsets[source as usize] as usize + index as usize;
-        if let Some(entry) = held.get_mut(at).and_then(Option::take) {
-            merged.push(entry);
-        }
+    Ok(sources
+        .iter()
+        .zip(&indices)
+        .take(output.count as usize)
+        .map(|(&source, &index)| offsets[source as usize] as usize + index as usize)
+        .collect())
+}
+
+pub(crate) fn merge_sorted(bounds: &[usize], ranks: &[u32], limit: usize) -> Result<Vec<usize>> {
+    let count = ranks.len();
+    if u32::try_from(count).is_err() || bounds.last().copied() != Some(count) {
+        return Err(exceeds_layout());
     }
-    Ok(merged)
+    let mut listed: Vec<usize> = (0..count).collect();
+    for list in bounds.windows(2) {
+        listed[list[0]..list[1]].sort_unstable_by_key(|&at| ranks[at]);
+    }
+    let offsets: Vec<u32> = bounds.iter().map(|&bound| bound as u32).collect();
+    let listed_ranks: Vec<u32> = listed.iter().map(|&at| ranks[at]).collect();
+    let places = merged_places(&offsets, None, &listed_ranks, limit.min(count))?;
+    Ok(places.into_iter().map(|place| listed[place]).collect())
 }

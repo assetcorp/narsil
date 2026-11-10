@@ -8,6 +8,7 @@ use super::sort_candidates::{SortAnchor, select_segment};
 use super::sort_keys::SortPlan;
 use crate::error::Result;
 use crate::ordering::{KeyBatch, OwnedSortValue};
+use crate::search::rankings::merge_sorted;
 
 pub(crate) struct SortedPage {
     pub(crate) hits: Vec<(String, Location)>,
@@ -86,21 +87,27 @@ pub(crate) fn sorted_query_page(
     };
     let wanted = run.offset.saturating_add(run.limit).saturating_add(1);
     let mut selected = Vec::new();
+    let mut segment_bounds = vec![0usize];
     for segment in &segments {
         selected.extend(select_segment(segment, plan, anchor.as_ref(), wanted)?);
+        segment_bounds.push(selected.len());
     }
     let mut batch = KeyBatch::new(plan.width());
     for candidate in &selected {
         batch.push_key(&candidate.key)?;
     }
     let ranked = batch.ranked()?;
-    let mut order: Vec<usize> = (0..selected.len()).collect();
-    order.sort_unstable_by(|&left, &right| {
+    let mut by_key_then_id: Vec<usize> = (0..selected.len()).collect();
+    by_key_then_id.sort_unstable_by(|&left, &right| {
         ranked
             .compare(left, right, &plan.directions)
             .then_with(|| selected[left].id.cmp(&selected[right].id))
     });
-    order.truncate(wanted);
+    let mut ranks = vec![0u32; selected.len()];
+    for (rank, &at) in by_key_then_id.iter().enumerate() {
+        ranks[at] = rank as u32;
+    }
+    let order = merge_sorted(&segment_bounds, &ranks, wanted)?;
     let has_more = order.len() > run.offset.saturating_add(run.limit);
     let page: Vec<usize> = order.into_iter().skip(run.offset).take(run.limit).collect();
     let cursor = match (has_more, page.last()) {
