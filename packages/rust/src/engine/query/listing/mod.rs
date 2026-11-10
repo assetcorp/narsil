@@ -105,7 +105,7 @@ fn listed_page(index: &IndexState, params: &ListParams, work_cap: i64) -> Result
     };
     let mut documents = Vec::with_capacity(ids.len());
     for id in ids {
-        if let Some(document) = listed_document(index, &partitions, &id, &projection)? {
+        if let Some(document) = listed_document(index, &id, &projection)? {
             documents.push(ListedDocument { id, document });
         }
     }

@@ -54,8 +54,7 @@ pub(crate) fn list_indexes(engine: &EngineInner) -> Vec<IndexInfo> {
 }
 
 pub(crate) fn get(index: &IndexState, doc_id: &str) -> Result<Option<Map>> {
-    let partitions = index.partitions();
-    index.full_document(&partitions, doc_id)
+    index.full_document(doc_id)
 }
 
 pub(crate) fn get_multiple(
