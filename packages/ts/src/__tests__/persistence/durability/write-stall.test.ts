@@ -20,6 +20,7 @@ function indexStateWith(backlogBytes: number, checkpointInFlight: Promise<void> 
     checkpointInFlight,
     unloading: false,
     stalledWrites: [],
+    coverageFrozen: false,
   }
 }
 

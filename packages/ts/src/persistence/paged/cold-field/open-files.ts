@@ -3,7 +3,9 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { crc32 } from '../../../serialization/crc32'
 import { HEADER_SIZE, readHeader } from '../../../serialization/header'
 import type { VectorMetric } from '../../../vector/brute-force'
+import { MAX_M, MIN_M } from '../../../vector/hnsw/constants'
 import type { OsqBits } from '../../../vector/osq'
+import { requireBoundedUpperLists } from '../../../vector/vector-index/upper-list-bound'
 import type { FileRef, VectorFileRef } from '../../durability/segment/manifest'
 import { decodeSections, type FileSection, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from '../format'
 import { readCacheOfThisThread } from '../read-cache'
@@ -272,6 +274,9 @@ export function openParts(input: ColdVectorFieldInput): { parts: ColdGraphPart[]
       }
       const { entryPoint, maxLayer, m } = layout
       if (typeof maxLayer !== 'number' || typeof m !== 'number') loadFailed(`The head of "${ref.key}" holds no layers`)
+      if (!Number.isInteger(m) || m < MIN_M || m > MAX_M) {
+        loadFailed(`The head of "${ref.key}" gives m ${m}, while m must be a whole number from ${MIN_M} to ${MAX_M}`)
+      }
       if (entryPoint !== null && typeof entryPoint !== 'number') loadFailed(`The head of "${ref.key}" holds no entry`)
       if (graph === null) graph = { entryPoint, maxLayer, m }
       const levels = readWholeSectionChecked(path, layout.levels, false)
@@ -282,6 +287,13 @@ export function openParts(input: ColdVectorFieldInput): { parts: ColdGraphPart[]
         nodeOffsets: layout.nodeOffsets,
         neighbours: createSectionReader(file, layout.neighbours),
       })
+    }
+    if (graph !== null) {
+      requireBoundedUpperLists(
+        parts.map(part => part.levels),
+        graph.m,
+        `The vector graph parts of field "${input.fieldPath}"`,
+      )
     }
   } catch (error) {
     closeHeldFiles(parts)

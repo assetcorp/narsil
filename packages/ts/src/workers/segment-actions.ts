@@ -68,9 +68,7 @@ async function attachSegments(
 }
 
 export function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
-  while (manager.partitionCount <= partitionId) {
-    manager.addPartition()
-  }
+  manager.growToSavedPartitionCount(partitionId + 1)
 }
 
 function requireComposite(entry: SegmentIndexEntry, indexName: string, partitionId: number, verb: string) {

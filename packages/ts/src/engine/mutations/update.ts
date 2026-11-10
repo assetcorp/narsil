@@ -1,5 +1,6 @@
 import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
+import { getNestedValue } from '../../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
@@ -21,10 +22,6 @@ import { awaitWriteVisibility } from './write-visibility'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 
-function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
-  return extractVectorFromDoc(document, fieldPath)
-}
-
 function prepareUpdatePartitionDoc(
   document: Record<string, unknown>,
   extractedVectors: Map<string, Float32Array | null>,
@@ -34,8 +31,8 @@ function prepareUpdatePartitionDoc(
   }
 
   const partitionDoc = structuredClone(document)
-  for (const fieldPath of extractedVectors.keys()) {
-    deleteNestedValue(partitionDoc, fieldPath)
+  for (const [fieldPath, vector] of extractedVectors) {
+    if (vector !== null || getNestedValue(partitionDoc, fieldPath) == null) deleteNestedValue(partitionDoc, fieldPath)
   }
 
   return { partitionDoc }
@@ -136,7 +133,7 @@ async function prepareUpdate(
   if (vecIndexes.size > 0) {
     const dimensionCheckVectors = new Map<string, Float32Array>()
     for (const fieldPath of entry.vectorFieldPaths) {
-      const newVec = extractVectorFromDocForUpdate(document as Record<string, unknown>, fieldPath)
+      const newVec = extractVectorFromDoc(document as Record<string, unknown>, fieldPath)
       extractedVectors.set(fieldPath, newVec)
       if (newVec) {
         dimensionCheckVectors.set(fieldPath, newVec)

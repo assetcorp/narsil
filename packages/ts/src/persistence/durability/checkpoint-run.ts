@@ -18,7 +18,7 @@ import {
 import { checkpointWorkerIsUsable } from './checkpoint-worker-dispatch'
 import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
-import type { IndexState } from './manager-state'
+import { coverableSeqNo, type IndexState } from './manager-state'
 import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
@@ -185,6 +185,15 @@ async function adoptWrittenSegments(
   return adoption.droppedKeys
 }
 
+function priorWithinCount(prior: SegmentManifest | null, partitionCount: number): SegmentManifest | null {
+  if (prior === null) return null
+  return {
+    ...prior,
+    checkpoint: prior.checkpoint.filter(entry => entry.partitionId < partitionCount),
+    partitions: prior.partitions.filter(partition => partition.partitionId < partitionCount),
+  }
+}
+
 async function finishBoundedCheckpoint(
   input: DurableCheckpointInput,
   manager: PartitionManager,
@@ -208,7 +217,7 @@ async function finishBoundedCheckpoint(
       targets,
       compactionThreshold: input.compactionThreshold,
       canOffload: input.canOffload,
-      prior: priorManifest,
+      prior: priorWithinCount(priorManifest, capture.partitionCount),
       wholePartitions: capture.wholePartitions.contents,
       capturedPartitions: capture.wholePartitions.captured,
       keepsWriteRecords: writeRecords !== null,
@@ -268,7 +277,7 @@ function recordsBeyond(indexState: IndexState, targets: PartitionCheckpoint[]): 
   let records = 0
   for (const [partitionId, partition] of indexState.partitions) {
     if (partition.failed !== null) continue
-    records += Math.max(0, partition.appliedSeqNo - snapshotCheckpointFor(targets, partitionId))
+    records += Math.max(0, coverableSeqNo(partition) - snapshotCheckpointFor(targets, partitionId))
   }
   return records
 }

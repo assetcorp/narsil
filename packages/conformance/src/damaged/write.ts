@@ -24,22 +24,22 @@ async function placed(relative: string, bytes: Uint8Array | string): Promise<str
   return relative
 }
 
-async function expectedDocumentsOf(indexName: string, written: Map<string, string>): Promise<string> {
-  const known = written.get(indexName)
+async function expectedDocumentsOf(indexName: string, base: string, written: Map<string, string>): Promise<string> {
+  const known = written.get(base)
   if (known !== undefined) return known
   const outcome = await openCase({
     name: indexName,
     rule: 'base',
     open: 'checkpoint',
     index: indexName,
-    base: checkpointPath(indexName),
+    base,
     files: {},
     expect: { documents: '' },
   })
-  if (!('documents' in outcome))
-    throw new Error(`the ${indexName} checkpoint fails to open: ${JSON.stringify(outcome)}`)
-  const path = await placed(`${DAMAGED}/expected/${indexName}.json`, jsonText(outcome.documents))
-  written.set(indexName, path)
+  if (!('documents' in outcome)) throw new Error(`the ${base} checkpoint fails to open: ${JSON.stringify(outcome)}`)
+  const label = base === checkpointPath(indexName) ? indexName : base.replaceAll('/', '-')
+  const path = await placed(`${DAMAGED}/expected/${label}.json`, jsonText(outcome.documents))
+  written.set(base, path)
   return path
 }
 
@@ -51,17 +51,20 @@ async function caseOf(build: CaseBuild, expected: Map<string, string>): Promise<
     }
     const files: Record<string, string> = {}
     for (const [relative, bytes] of build.files) files[relative] = await placed(`${directory}/${relative}`, bytes)
+    const base = build.base ?? checkpointPath(build.index)
     return {
       name: build.name,
       rule: build.rule,
       open: 'checkpoint',
       index: build.index,
-      base: checkpointPath(build.index),
+      base,
       files,
       ...(build.remove === undefined ? {} : { remove: build.remove }),
       ...(build.search === undefined ? {} : { search: build.search }),
       expect:
-        build.code === null ? { documents: await expectedDocumentsOf(build.index, expected) } : { code: build.code },
+        build.code === null
+          ? { documents: await expectedDocumentsOf(build.index, base, expected) }
+          : { code: build.code },
     }
   }
   if (build.open === 'backup') {
@@ -77,7 +80,7 @@ async function caseOf(build: CaseBuild, expected: Map<string, string>): Promise<
   }
   const expect =
     build.code === null
-      ? { documents: await expectedDocumentsOf(build.index, expected) }
+      ? { documents: await expectedDocumentsOf(build.index, checkpointPath(build.index), expected) }
       : build.line === undefined
         ? { code: build.code }
         : { code: build.code, ...build.line }

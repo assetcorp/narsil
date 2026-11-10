@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { requireSavedPartitionCount } from '../partitioning/saved-partitions'
 import { validateEmbeddingConfig } from '../schema/embedding-validator'
 import { validateSchema, validateTextStorage, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
@@ -67,6 +68,20 @@ function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
   })
 }
 
+function savedPartitionCountOf(metadata: IndexMetadata): number {
+  const count: unknown = metadata.partitionCount
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) {
+    const held = typeof count === 'number' ? String(count) : `a ${typeof count} as its count of`
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `Recovery of index "${metadata.indexName}" failed: its metadata holds ${held} partitions, and an index holds a whole number above zero`,
+      { indexName: metadata.indexName, partitionCount: typeof count === 'number' ? count : typeof count },
+    )
+  }
+  requireSavedPartitionCount(count, 'metadata', metadata.indexName)
+  return count
+}
+
 export async function createIndexFromMetadata(
   deps: MetadataIndexDeps,
   metadata: IndexMetadata,
@@ -87,6 +102,7 @@ export async function createIndexFromMetadata(
         existing.language,
         false,
         lookupOfStoredSynonyms(existing.synonyms, existing.config, existing.language),
+        savedPartitionCountOf(metadata),
       )
     }
     return
@@ -100,6 +116,7 @@ export async function createIndexFromMetadata(
   } catch (err) {
     throw recoveryFailure(metadata, err)
   }
+  const partitionCount = savedPartitionCountOf(metadata)
   const embedding = resolveEmbeddingAdapter(deps, metadata, indexConfig.schema)
   const prepared = prepareStoredSynonyms(
     metadata.synonyms,
@@ -113,7 +130,14 @@ export async function createIndexFromMetadata(
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
     validateTextStorage(indexConfig.textStorage, deps.filesystemDurability)
     if (loadData) {
-      deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
+      deps.executor.createIndex(
+        metadata.indexName,
+        indexConfig,
+        language,
+        false,
+        prepared?.lookup ?? null,
+        partitionCount,
+      )
     }
   } catch (err) {
     throw recoveryFailure(metadata, err)
@@ -127,7 +151,7 @@ export async function createIndexFromMetadata(
     indexUuid: metadata.indexUuid ?? null,
     heldPartitions: metadata.heldPartitions ?? null,
     documentCount: metadata.documentCount ?? 0,
-    partitionCount: metadata.partitionCount,
+    partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
     arrayPositionGap: metadata.arrayPositionGap ?? null,
     synonyms,

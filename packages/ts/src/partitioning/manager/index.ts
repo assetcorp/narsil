@@ -183,6 +183,13 @@ export function createPartitionManager(
       return partition
     },
 
+    growToSavedPartitionCount(partitionCount: number): void {
+      if (partitions.length >= partitionCount) return
+      writeLogs.partitionsReplaced()
+      while (partitions.length < partitionCount)
+        partitions.push(createPartitionIndex(partitions.length, trackPositions))
+    },
+
     removePartition(partitionId: number): void {
       validatePartitionId(partitionId)
       writeLogs.partitionsReplaced()

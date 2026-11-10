@@ -2,6 +2,7 @@ import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { PreparedSynonyms } from '../../core/synonyms/types'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
+import { requireSavedPartitionCount } from '../../partitioning/saved-partitions'
 import { storedStateOf } from '../../query-suggestions/stored-state'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import {
@@ -152,20 +153,20 @@ function restoredSynonyms(
 export async function prepareDetachedIndex(
   indexName: string,
   prepared: PreparedIndex,
-  partitionCount: number,
+  partitionCount: number | null,
   deps: RestoreDeps,
 ): Promise<DetachedIndex> {
+  if (partitionCount !== null) requireSavedPartitionCount(partitionCount, 'snapshot', indexName)
   const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema)
   if (loadingSchemaCode !== null) await loadingSchemaCode
-  const detached = createDetachedIndex(
+  return createDetachedIndex(
     indexName,
     prepared.config,
     prepared.language,
     prepared.synonyms?.lookup ?? null,
     deps.executor,
+    partitionCount ?? undefined,
   )
-  while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
-  return detached
 }
 
 export function restoredRegistryEntry(

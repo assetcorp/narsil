@@ -2,6 +2,7 @@ import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
 import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
+import { vectorDimensionOf } from '../schema/validator/shared'
 import type {
   IndexEmbeddingMetadata,
   IndexMetadata,
@@ -50,17 +51,14 @@ export interface MetadataConfig {
   querySuggestions?: StoredQuerySuggestions
 }
 
-const VECTOR_TYPE = /^vector\[(\d+)\]$/
-
 function vectorFieldsOf(
   schema: Record<string, string>,
   promotion: VectorIndexConfig | undefined,
 ): IndexMetadata['vectorFields'] | null {
   const fields: NonNullable<IndexMetadata['vectorFields']> = {}
   for (const [fieldPath, type] of Object.entries(schema)) {
-    const match = VECTOR_TYPE.exec(type)
-    if (match === null) continue
-    const dimension = Number(match[1])
+    const dimension = vectorDimensionOf(type)
+    if (dimension === null) continue
     fields[fieldPath] = {
       dimension,
       metric: promotion?.hnswConfig?.metric ?? DEFAULT_VECTOR_METRIC,

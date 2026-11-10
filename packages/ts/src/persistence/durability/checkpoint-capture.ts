@@ -4,7 +4,7 @@ import {
   WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
   WHOLE_PARTITION_MIN_CHANGED_SHARE,
 } from './constants'
-import type { IndexState, PartitionState } from './manager-state'
+import { coverableSeqNo, type IndexState, type PartitionState } from './manager-state'
 import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
@@ -28,6 +28,7 @@ export interface CheckpointedPartitions {
 
 export interface CheckpointCapture {
   targets: PartitionCheckpoint[]
+  partitionCount: number
   documentCount: number
   vectorPlans: Map<string, VectorCheckpointPlan>
   wholePartitions: WholePartitions
@@ -176,12 +177,13 @@ export async function captureCheckpoint(
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
     onCaptured?.()
     const documentCount = manager.countDocuments()
+    const partitionCount = manager.partitionCount
     const targets: PartitionCheckpoint[] = []
     let recordsLeftInLog = 0
-    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
+    for (let partitionId = 0; partitionId < partitionCount; partitionId += 1) {
       const partition = indexState.partitions.get(partitionId)
       if (partition !== undefined && partition.failed !== null) continue
-      const appliedSeqNo = partition?.appliedSeqNo ?? 0
+      const appliedSeqNo = partition === undefined ? 0 : coverableSeqNo(partition)
       const lastSeqNo =
         priorCheckpointThatLimitsTheRecords === undefined
           ? appliedSeqNo
@@ -207,7 +209,7 @@ export async function captureCheckpoint(
       }
       const memoryMatchesTheTargets = recordsLeftInLog === 0
       const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
-      return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
+      return { targets, partitionCount, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
     } catch (error) {
       for (const plan of vectorPlans.values()) plan.release()
       throw error

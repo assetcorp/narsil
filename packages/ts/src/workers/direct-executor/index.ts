@@ -24,7 +24,7 @@ import {
   insertIntoHeldGraph,
   loadHeldVectorCopy,
 } from '../vector-copies'
-import { indexEntryOf } from './entry'
+import { entryPartitionCount, indexEntryOf } from './entry'
 import type {
   DetachedIndex,
   DirectExecutorExtensions,
@@ -88,8 +88,9 @@ export function createDirectExecutor(
     language: LanguageModule,
     analysisStale = false,
     synonyms: SynonymLookup | null = null,
+    partitionCount?: number,
   ): void {
-    addIndex(indexName, config, language, analysisStale, null).synonyms = synonyms
+    addIndex(indexName, config, language, analysisStale, null, partitionCount).synonyms = synonyms
   }
 
   function lookupOf(
@@ -106,6 +107,7 @@ export function createDirectExecutor(
     language: LanguageModule,
     analysisStale: boolean,
     awaitedCopyLoad: string | null,
+    savedPartitionCount: number | undefined,
   ): PartitionManager {
     if (indexes.has(indexName)) {
       throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${indexName}" already exists`, {
@@ -113,7 +115,15 @@ export function createDirectExecutor(
       })
     }
 
-    const entry = buildEntry(indexName, config, language, analysisStale, awaitedCopyLoad, vectorWorkerCopies)
+    const entry = buildEntry(
+      indexName,
+      config,
+      language,
+      analysisStale,
+      awaitedCopyLoad,
+      vectorWorkerCopies,
+      savedPartitionCount,
+    )
     indexes.set(indexName, entry)
     return entry.manager
   }
@@ -125,9 +135,10 @@ export function createDirectExecutor(
     analysisStale: boolean,
     awaitedCopyLoad: string | null,
     copies: VectorWorkerCopyPolicy,
+    savedPartitionCount: number | undefined,
   ): IndexEntry {
     const router = createPartitionRouter()
-    const partitionCount = config.partitions?.maxPartitions ?? 1
+    const partitionCount = entryPartitionCount(indexName, config, savedPartitionCount)
     const vectorIndexes = vectorIndexesFor(indexName, config, copies)
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
@@ -207,6 +218,7 @@ export function createDirectExecutor(
           language,
           action.analysisStale ?? false,
           action.copyLoad ?? null,
+          action.partitionCount,
         )
         try {
           manager.synonyms = lookupOf(action.config, language, action.synonyms)
@@ -378,8 +390,8 @@ export function createDirectExecutor(
     dropIndex,
     listIndexes,
     vectorWorkerCopies,
-    createDetachedEntry: (indexName, config, language, copies) =>
-      buildEntry(indexName, config, language, false, null, copies),
+    createDetachedEntry: (indexName, config, language, copies, partitionCount) =>
+      buildEntry(indexName, config, language, false, null, copies, partitionCount),
     installDetachedIndex,
     discardDetachedIndex: detached => disposeEntry(detached.entry),
   }

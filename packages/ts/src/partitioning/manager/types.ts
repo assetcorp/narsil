@@ -50,6 +50,7 @@ export interface PartitionManager {
   adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void
   adoptAnalysis(change: AdoptedAnalysis): void
   addPartition(): PartitionIndex
+  growToSavedPartitionCount(partitionCount: number): void
   removePartition(partitionId: number): void
   trimPartitions(count: number): void
 

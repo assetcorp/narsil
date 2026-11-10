@@ -5,15 +5,11 @@ import type { VectorIndex } from '../vector/vector-index'
 export function extractVectorFromDoc(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   const value = getNestedValue(document, fieldPath)
   if (value === undefined || value === null) return null
-  if (value instanceof Float32Array) return value
-  if (!Array.isArray(value)) return null
-  const arr = new Float32Array(value.length)
-  for (let i = 0; i < value.length; i++) {
-    const n = value[i]
-    if (typeof n !== 'number' || !Number.isFinite(n)) return null
-    arr[i] = n
+  if (!(value instanceof Float32Array) && !Array.isArray(value)) return null
+  for (const n of value) {
+    if (typeof n !== 'number' || !Number.isFinite(Math.fround(n))) return null
   }
-  return arr
+  return value instanceof Float32Array ? value : new Float32Array(value)
 }
 
 export function deleteNestedValue(obj: Record<string, unknown>, path: string): void {
