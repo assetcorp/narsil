@@ -6,6 +6,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/form"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -19,6 +20,7 @@ type SectionSource struct {
 
 type HeadFields struct {
 	Schema        map[string]string
+	SchemaOrder   []string
 	Tombstones    []string
 	DocumentCount uint32
 	FieldNames    []string
@@ -79,7 +81,7 @@ func encodeHead(fields HeadFields, sections []Section) ([]byte, error) {
 	}
 	return codec.Marshal(codec.OrderedMap{
 		{Key: "v", Value: float64(HeadVersion)},
-		{Key: "schema", Value: fields.Schema},
+		{Key: "schema", Value: form.SchemaEntries(fields.Schema, fields.SchemaOrder)},
 		{Key: "tombstones", Value: fields.Tombstones},
 		{Key: "documentCount", Value: float64(fields.DocumentCount)},
 		{Key: "fieldNames", Value: fields.FieldNames},

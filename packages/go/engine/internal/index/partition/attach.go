@@ -6,11 +6,15 @@ import (
 
 const attachFrozen = keepColumns + 1
 
-func (p *Partition) attachSegment(write *Write, attached *frozenSegment) (err error) {
+func (p *Partition) attachSegment(write *Write, attached *frozenSegment, ids []string) (err error) {
 	pl := p.planner(write)
 	defer pl.commit(&err)
-	for _, id := range attached.ids {
-		if pl.side.locate(id).found {
+	for _, id := range ids {
+		at, err := pl.side.locate(id)
+		if err != nil {
+			return err
+		}
+		if at.found {
 			return corruptedPartition("an attached segment holds a document that the partition already holds", 0)
 		}
 	}
@@ -21,16 +25,14 @@ func (p *Partition) Attach(write *Write, frozen *segments.Frozen, ids []string, 
 	if frozen == nil || uint32(len(ids)) != frozen.DocumentCount() || len(documents) != len(ids) {
 		return corruptedPartition("an attached segment needs one ID and one stored document per ordinal", 0)
 	}
-	return p.attachSegment(write, newFrozenSegment(frozen, ids, documents))
+	return p.attachSegment(write, newFrozenSegment(frozen, ids, documents), ids)
 }
 
-func (p *Partition) AttachPaged(write *Write, paged *segments.Paged, ids []string) error {
-	if paged == nil || uint32(len(ids)) != paged.DocumentCount() || len(ids) == 0 {
-		return corruptedPartition("an attached paged segment needs one ID per ordinal and one document at least", 0)
+func (p *Partition) AttachPaged(write *Write, paged *segments.Paged) error {
+	if paged == nil || paged.DocumentCount() == 0 {
+		return corruptedPartition("an attached paged segment needs one document at least", 0)
 	}
-	attached := newFrozenSegment(&paged.Frozen, ids, nil)
-	attached.paged, attached.source = paged, paged
-	return p.attachSegment(write, attached)
+	return p.attachSegment(write, newPagedFrozenSegment(paged), nil)
 }
 
 func (s *side) attach(segment *frozenSegment) error {

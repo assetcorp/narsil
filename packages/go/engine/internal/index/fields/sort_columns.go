@@ -210,10 +210,6 @@ func (s *SortColumns) Settle(capacity uint32) error {
 	return nil
 }
 
-func (s *SortColumns) Live() []uint32 {
-	return s.live.all()
-}
-
 func (s *SortColumns) Columns() []*SortColumn {
 	columns := make([]*SortColumn, len(s.keys))
 	for at, key := range s.keys {

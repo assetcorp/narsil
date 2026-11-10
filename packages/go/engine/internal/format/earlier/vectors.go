@@ -1,7 +1,6 @@
 package earlier
 
 import (
-	"encoding/binary"
 	"math"
 	"strconv"
 
@@ -31,23 +30,6 @@ type VectorIndexPart struct {
 	Graphs    []any
 	Codes     model.Optional[VectorIndexCodes]
 	Vectors   []byte
-}
-
-func (part VectorIndexPart) Vector(position int) []float64 {
-	if position < 0 || position >= len(part.DocIDs) {
-		return nil
-	}
-	dimension := int(part.Dimension)
-	base := position * dimension * float32Bytes
-	if base+dimension*float32Bytes > len(part.Vectors) {
-		return nil
-	}
-	values := make([]float64, dimension)
-	for component := range values {
-		bits := binary.LittleEndian.Uint32(part.Vectors[base+component*float32Bytes:])
-		values[component] = float64(math.Float32frombits(bits))
-	}
-	return values
 }
 
 func invalidVectorPayload(message string, details map[string]any) error {

@@ -1,7 +1,6 @@
 package envelope
 
 import (
-	"io"
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
@@ -62,26 +61,4 @@ func ChecksummedHeader(formatVersion uint8, payloadLength int64, checksum uint32
 		Flags:         FlagChecksum,
 		Checksum:      checksum,
 	}, nil
-}
-
-func WriteChunks(writer io.Writer, formatVersion uint8, chunks [][]byte, what string) (int64, error) {
-	var payloadLength int64
-	state := codec.CRC32Init()
-	for _, chunk := range chunks {
-		payloadLength += int64(len(chunk))
-		state = codec.CRC32Update(state, chunk)
-	}
-	header, err := ChecksummedHeader(formatVersion, payloadLength, codec.CRC32Final(state), what)
-	if err != nil {
-		return 0, err
-	}
-	if _, err := writer.Write(AppendHeader(nil, header)); err != nil {
-		return 0, narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The "+what+" fails to write", err, nil)
-	}
-	for _, chunk := range chunks {
-		if _, err := writer.Write(chunk); err != nil {
-			return 0, narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The "+what+" fails to write", err, nil)
-		}
-	}
-	return int64(HeaderBytes) + payloadLength, nil
 }

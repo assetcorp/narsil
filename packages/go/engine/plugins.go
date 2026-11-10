@@ -126,6 +126,14 @@ func (runner *pluginRunner) index(ctx context.Context, name hookName, index *mod
 	})
 }
 
+func (runner *pluginRunner) hasBeforeSearchHooks() bool {
+	return runner.has(func(plugin model.Plugin) bool { return plugin.BeforeSearch != nil })
+}
+
+func (runner *pluginRunner) hasAfterSearchHooks() bool {
+	return runner.has(func(plugin model.Plugin) bool { return plugin.AfterSearch != nil })
+}
+
 func (runner *pluginRunner) hasUpdateHooks() bool {
 	return runner.has(func(plugin model.Plugin) bool { return plugin.BeforeUpdate != nil || plugin.AfterUpdate != nil })
 }

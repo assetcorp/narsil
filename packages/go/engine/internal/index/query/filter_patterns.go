@@ -74,11 +74,15 @@ func (b *filterBuilder) matchPattern(path string, operator core.PatternOperator,
 			test.CountPreparation = true
 		}
 	}
-	err := b.run.workspace.PatternMatch(index, values.Values(), test, b.run.meter, into)
-	if spent := b.run.meter.Spent(); spent > b.run.meter.Cap() {
-		return patternWorkCapExceeded(b.run.meter.Cap())
+	meter, err := b.run.work.Meter()
+	if err != nil {
+		return err
 	}
-	if b.run.meter.Stopped() {
+	err = b.run.workspace.PatternMatch(index, values.Values(), test, meter, into)
+	if spent := meter.Spent(); spent > meter.Cap() {
+		return patternWorkCapExceeded(meter.Cap())
+	}
+	if meter.Stopped() {
 		return ErrStopped
 	}
 	if err != nil {

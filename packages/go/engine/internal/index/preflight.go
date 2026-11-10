@@ -30,11 +30,11 @@ func (ix *Index) PreflightWith(ctx context.Context, request model.QueryParams, o
 		params:      request,
 		limit:       cursor.ClampLimit(request.Limit),
 		offset:      cursor.ClampOffset(request.Offset),
-		binding:     cursor.LazyQueryBinding(request),
 		bm25:        mergeBM25Levels(&request.BM25, ix.BM25()),
 		vectorOnly:  modes.vectorOnly,
 		hybrid:      modes.hybrid,
 		phraseReady: options.PhraseReady,
+		binding:     cursor.NewQueryBinding(request),
 	}
 	pass, err := ix.settings.Analyzer.Prepare()
 	if err != nil {

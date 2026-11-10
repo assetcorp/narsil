@@ -20,10 +20,7 @@ func (ix *Index) QueryReranked(ctx context.Context, request model.QueryParams, m
 		return model.QueryResult{}, err
 	}
 	defer unpin()
-	binding := options.Binding
-	if binding == nil {
-		binding = cursor.LazyQueryBinding(request)
-	}
+	binding := cursor.NewQueryBinding(options.CursorParams.Or(request))
 	hybridDepth := model.Optional[int]{}
 	if rerankFusesRankings(&request) {
 		depth, set, err := fixedHybridDepth(request.Hybrid)
@@ -129,7 +126,7 @@ func (ix *Index) QueryReranked(ctx context.Context, request model.QueryParams, m
 		Groups: first.Groups, Coverage: first.Coverage}
 	if next != nil {
 		result.Cursor = cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.anchor, Score: next.score, Depth: next.depth,
-			Binding: binding()})
+			Binding: binding.Text()})
 	}
 	result.Elapsed = time.Since(started)
 	return result, nil

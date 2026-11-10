@@ -45,7 +45,7 @@ func lastOrganicHit(page []resultHit, pinnedIDs map[string]struct{}) (resultHit,
 	return resultHit{}, false
 }
 
-func applyPagination(hits []resultHit, limit, offset int, binding func() string, searchAfter string, sort *paginationSort, pinnedIDs map[string]struct{}, omitsDepth bool) (pageOfHits, error) {
+func applyPagination(hits []resultHit, limit, offset int, binding *cursor.QueryBinding, searchAfter string, sort *paginationSort, pinnedIDs map[string]struct{}, omitsDepth bool) (pageOfHits, error) {
 	var decoded cursor.PageCursor
 	seeking := searchAfter != ""
 	if seeking {
@@ -57,7 +57,7 @@ func applyPagination(hits []resultHit, limit, offset int, binding func() string,
 		if sort != nil {
 			signature = model.Some(sort.signature)
 		}
-		if err := cursor.RequireMatchingCursor(parsed, searchAfter, signature, true, binding()); err != nil {
+		if err := cursor.RequireMatchingCursor(parsed, searchAfter, signature, true, binding.Text()); err != nil {
 			return pageOfHits{}, err
 		}
 		decoded = parsed
@@ -84,7 +84,7 @@ func applyPagination(hits []resultHit, limit, offset int, binding func() string,
 	if !hasMore || !found {
 		return pageOfHits{hits: page}, nil
 	}
-	next := cursor.PageCursor{Anchor: last.ID, Depth: afterOffset + len(page), Binding: binding()}
+	next := cursor.PageCursor{Anchor: last.ID, Depth: afterOffset + len(page), Binding: binding.Text()}
 	if omitsDepth {
 		next.Depth = 0
 	}

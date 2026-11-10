@@ -120,21 +120,18 @@ func (durable *Durable) writeLoggedPartition(ctx context.Context, store checkpoi
 	if err != nil {
 		return entry, err
 	}
+	defer detached.Release()
 	if err := insertDocuments(detached, changes.live); err != nil {
 		return entry, err
 	}
-	built, err := partitionSegmentFiles(ctx, detached, 0,
-		segmentWriteRequest{schema: flatSchema(durable.handle), tombstones: tombstones})
-	if err != nil {
-		return entry, err
-	}
 	pagedText := durable.textStoredOnDisk()
-	if pagedText && len(built) > 0 {
-		marked, err := pagedTombstonesFor(ctx, store, entry.Segments, built, tombstones)
-		if err != nil {
+	if pagedText {
+		if tombstones, err = pagedTombstonesFor(ctx, store, entry.Segments, sortedKeys(changes.live),
+			tombstones); err != nil {
 			return entry, err
 		}
-		built[0].Tombstones = marked
 	}
-	return entry, checkpoint.AppendSegments(ctx, store, durable.handle.Name, &entry, built, pagedText)
+	return entry, writePartitionSegments(ctx, store, durable.handle.Name, detached, &entry,
+		segmentWriteRequest{schema: flatSchema(durable.handle), schemaOrder: schemaOrderOf(durable.handle),
+			tombstones: tombstones}, pagedText)
 }

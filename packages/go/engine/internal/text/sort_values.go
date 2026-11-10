@@ -1,12 +1,5 @@
 package text
 
-import (
-	"math"
-	"slices"
-	"strconv"
-	"strings"
-)
-
 type SortDirection string
 
 const (
@@ -89,46 +82,6 @@ func TruncateSortString(value string) string {
 	return TruncateCodePoints(value, SortValueMaxCodePoints)
 }
 
-func ToComparableSortValue(value any) SortValue {
-	switch typed := value.(type) {
-	case string:
-		return StringSortValue(TruncateSortString(typed))
-	case float64:
-		if math.IsNaN(typed) || math.IsInf(typed, 0) {
-			return MissingSortValue()
-		}
-		return NumberSortValue(typed)
-	case bool:
-		return BooleanSortValue(typed)
-	}
-	return MissingSortValue()
-}
-
-func numericReduction(values []any, mode SortMode) SortValue {
-	numbers := make([]float64, 0, len(values))
-	for _, element := range values {
-		if number, isNumber := element.(float64); isNumber && !math.IsNaN(number) && !math.IsInf(number, 0) {
-			numbers = append(numbers, number)
-		}
-	}
-	if len(numbers) == 0 {
-		return MissingSortValue()
-	}
-	if mode == SortModeAvg {
-		mean := 0.0
-		for index, number := range numbers {
-			mean += (number - mean) / float64(index+1)
-		}
-		return NumberSortValue(mean)
-	}
-	slices.SortStableFunc(numbers, compareFloats)
-	middle := len(numbers) >> 1
-	if len(numbers)%2 == 1 {
-		return NumberSortValue(numbers[middle])
-	}
-	return NumberSortValue(numbers[middle-1]/2 + numbers[middle]/2)
-}
-
 func compareFloats(left, right float64) int {
 	if left < right {
 		return -1
@@ -137,86 +90,6 @@ func compareFloats(left, right float64) int {
 		return 1
 	}
 	return 0
-}
-
-func ToReducedSortValue(value any, mode SortMode) SortValue {
-	list, isList := value.([]any)
-	if !isList {
-		return ToComparableSortValue(value)
-	}
-	if mode == SortModeAvg || mode == SortModeMedian {
-		return numericReduction(list, mode)
-	}
-	chosen := MissingSortValue()
-	for _, element := range list {
-		comparable := ToComparableSortValue(element)
-		if comparable.IsMissing() {
-			continue
-		}
-		if chosen.IsMissing() {
-			chosen = comparable
-			continue
-		}
-		comparison := comparePresentValues(comparable, chosen)
-		if (mode == SortModeMin && comparison < 0) || (mode != SortModeMin && comparison > 0) {
-			chosen = comparable
-		}
-	}
-	return chosen
-}
-
-func canonicalArrayIndex(segment string, length int) (int, bool) {
-	if segment == "" || (len(segment) > 1 && segment[0] == '0') {
-		return 0, false
-	}
-	for index := 0; index < len(segment); index++ {
-		if segment[index] < '0' || segment[index] > '9' {
-			return 0, false
-		}
-	}
-	position, err := strconv.Atoi(segment)
-	if err != nil || position >= length {
-		return 0, false
-	}
-	return position, true
-}
-
-type ObjectProperty func(container any, key string) (value any, found bool, isObject bool)
-
-func ownProperty(container any, segment string, object ObjectProperty) (any, bool) {
-	if value, found, isObject := object(container, segment); isObject {
-		return value, found
-	}
-	switch typed := container.(type) {
-	case []any:
-		if segment == "length" {
-			return float64(len(typed)), true
-		}
-		if position, found := canonicalArrayIndex(segment, len(typed)); found {
-			return typed[position], true
-		}
-	case []byte:
-		if position, found := canonicalArrayIndex(segment, len(typed)); found {
-			return float64(typed[position]), true
-		}
-	case []float32:
-		if position, found := canonicalArrayIndex(segment, len(typed)); found {
-			return float64(typed[position]), true
-		}
-	}
-	return nil, false
-}
-
-func ReadSortField(document any, path string, object ObjectProperty) (any, bool) {
-	current := document
-	for segment := range strings.SplitSeq(path, ".") {
-		value, found := ownProperty(current, segment, object)
-		if !found {
-			return nil, false
-		}
-		current = value
-	}
-	return current, true
 }
 
 func typeRank(value SortValue) int {
@@ -274,27 +147,6 @@ func sortValueAt(values []SortValue, index int) SortValue {
 func CompareComparableKeys(left, right []SortValue, directions []SortDirection) int {
 	for index, direction := range directions {
 		if comparison := CompareComparableValues(sortValueAt(left, index), sortValueAt(right, index), direction); comparison != 0 {
-			return comparison
-		}
-	}
-	return 0
-}
-
-func rawValueAt(values []any, index int) any {
-	if index < len(values) {
-		return values[index]
-	}
-	return nil
-}
-
-func CompareSortValues(left, right []any, directions []SortDirection) int {
-	for index, direction := range directions {
-		comparison := CompareComparableValues(
-			ToComparableSortValue(rawValueAt(left, index)),
-			ToComparableSortValue(rawValueAt(right, index)),
-			direction,
-		)
-		if comparison != 0 {
 			return comparison
 		}
 	}

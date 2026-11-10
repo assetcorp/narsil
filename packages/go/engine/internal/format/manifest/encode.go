@@ -109,13 +109,9 @@ func (partition PartitionEntry) tree(mode treeMode) codec.OrderedMap {
 }
 
 func (manifest Manifest) tree(mode treeMode) codec.OrderedMap {
-	schemaValues := make(map[string]any, len(manifest.Schema))
-	for path, typeName := range manifest.Schema {
-		schemaValues[path] = typeName
-	}
 	values := codec.OrderedMap{
 		entry("version", float64(Version)),
-		entry("schema", schemaValues),
+		entry("schema", form.SchemaEntries(manifest.Schema, manifest.SchemaOrder)),
 		entry("language", manifest.Language),
 	}
 	if manifest.AnalysisGeneration != 0 {

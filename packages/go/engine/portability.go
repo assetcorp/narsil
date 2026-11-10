@@ -77,7 +77,7 @@ func (n *Narsil) ExportDocuments(ctx context.Context, indexName string, destinat
 func (n *Narsil) prepareImportTarget(ctx context.Context, indexName string, configuration indexconfig.Configuration) error {
 	stored := storedFromConfiguration(configuration)
 	if !n.known(indexName) {
-		err := n.CreateIndex(ctx, indexName, stored.config)
+		err := n.createIndex(ctx, indexName, stored.config, stored.schemaOrder)
 		if narsilerr.CodeOf(err) != narsilerr.CodeIndexAlreadyExists {
 			return err
 		}
@@ -136,6 +136,7 @@ func (n *Narsil) ImportDocumentExport(ctx context.Context, indexName string, sou
 	if err != nil {
 		return model.DocumentImportResult{}, err
 	}
+	configuration.SchemaOrder = header.SchemaOrder
 	if err := n.prepareImportTarget(ctx, indexName, configuration); err != nil {
 		return model.DocumentImportResult{}, err
 	}

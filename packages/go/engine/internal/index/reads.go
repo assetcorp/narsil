@@ -4,7 +4,6 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -19,10 +18,6 @@ type Reading struct {
 
 func (r *Reading) Release() {
 	r.read.Release()
-}
-
-func (r *Reading) Lease() *vector.Lease {
-	return r.read.Lease()
 }
 
 type pinnedReadKey struct{}
@@ -110,11 +105,11 @@ func (ix *Index) GetProjected(ctx context.Context, id string, requested model.Do
 		return nil, false, err
 	}
 	shown := projection.Resolve(requested)
+	if err := shown.Failure(stored.Document); err != nil {
+		return nil, false, err
+	}
 	if shown.Kind() == model.ProjectWholeDocument {
 		return stored.Document, true, nil
-	}
-	if err := codec.DocumentFailure(stored.Document); err != nil {
-		return nil, false, err
 	}
 	return shown.Clone(stored.Document), true, nil
 }
@@ -125,7 +120,7 @@ func (ix *Index) Has(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	defer release()
-	return snapshot.Has(id), nil
+	return snapshot.Has(id)
 }
 
 func (ix *Index) Count() int {

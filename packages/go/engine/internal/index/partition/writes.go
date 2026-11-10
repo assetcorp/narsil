@@ -76,6 +76,7 @@ func (pl *planner) run(op operation) error {
 func (pl *planner) applyLogged(op operation) error {
 	err := pl.side.apply(pl.write.Workspace, pl.partition, &op)
 	op.failed = err != nil
+	pl.partition.noteChange(&op)
 	pl.operations = append(pl.operations, op)
 	return err
 }
@@ -148,7 +149,12 @@ func (p *Partition) Insert(write *Write, documents []Prepared) (failures []error
 	claimed := make(map[string]struct{}, len(documents))
 	for at := range documents {
 		id := documents[at].ID
-		if _, repeated := claimed[id]; repeated || pl.side.locate(id).found {
+		existing, err := pl.side.locate(id)
+		if err != nil {
+			failures[at] = err
+			continue
+		}
+		if _, repeated := claimed[id]; repeated || existing.found {
 			failures[at] = alreadyExists(id, p.settings.ID)
 			continue
 		}
@@ -170,7 +176,10 @@ func (p *Partition) Clear(write *Write) (err error) {
 }
 
 func (pl *planner) previous(id string) (location, *codec.Document, preparedText, error) {
-	at := pl.side.locate(id)
+	at, err := pl.side.locate(id)
+	if err != nil {
+		return location{}, nil, preparedText{}, err
+	}
 	if !at.found {
 		return location{}, nil, preparedText{}, notFound(id)
 	}

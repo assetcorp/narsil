@@ -1,10 +1,8 @@
 package segment
 
 const (
-	estimatedBytesPerToken    = 10
-	estimatedBytesPerDocument = 64
-	targetBlockEntries        = 128
-	absentFieldLengthBound    = 0
+	targetBlockEntries     = 128
+	absentFieldLengthBound = 0
 
 	sectionWriteBufferBytes       = 1_048_576
 	removalBucketWriteBufferBytes = 262_144

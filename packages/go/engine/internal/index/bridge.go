@@ -23,7 +23,7 @@ func (ix *Index) validateFilter(expression *model.FilterExpression) error {
 	return query.ValidateFilter(expression, ix.settings.Schema, pattern.CheckOperands)
 }
 
-func newFilterRun(expression *model.FilterExpression, work *core.WorkMeter) (*filterRun, error) {
+func newFilterRun(expression *model.FilterExpression, work *query.Work) (*filterRun, error) {
 	if expression == nil {
 		return nil, nil
 	}
@@ -65,16 +65,23 @@ func eachOrdinal(words []uint32, visit func(ordinal uint32)) {
 	}
 }
 
-func matchingIDs(snapshot partition.Snapshot, matched [][]uint32) []string {
+func matchingIDs(snapshot partition.Snapshot, matched [][]uint32) ([]string, error) {
 	var ids []string
+	var failure error
 	for segment, words := range matched {
 		eachOrdinal(words, func(ordinal uint32) {
-			if id, live := snapshot.IDAt(segment, ordinal); live {
+			if failure != nil {
+				return
+			}
+			id, live, err := snapshot.IDAt(segment, ordinal)
+			if err != nil {
+				failure = err
+			} else if live {
 				ids = append(ids, id)
 			}
 		})
 	}
-	return ids
+	return ids, failure
 }
 
 func indexedFacetBase(base schema.BaseFieldType) bool {

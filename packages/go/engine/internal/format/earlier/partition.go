@@ -20,10 +20,17 @@ type Segment struct {
 	Tombstones []string
 }
 
+type Document struct {
+	ID     string
+	Fields *codec.Document
+}
+
 type PartitionDocuments struct {
 	Schema    map[string]string
-	Documents map[string]map[string]any
+	Documents []Document
 }
+
+var payloadDecoding = codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed}
 
 func loadFailed(message string) error {
 	return narsilerr.New(narsilerr.CodePersistenceLoadFailed, message, nil)
@@ -79,45 +86,130 @@ func isVectorType(typeName string) bool {
 	return true
 }
 
-func removeFieldAtPath(fields map[string]any, fieldPath string) {
+func removeFieldAtPath(fields *codec.Document, fieldPath string) {
 	segments := strings.Split(fieldPath, ".")
 	current := fields
 	for _, segment := range segments[:len(segments)-1] {
-		next, isMap := current[segment].(map[string]any)
-		if !isMap {
+		held, _ := codec.HeldValue(current, segment)
+		next, isDocument := held.(*codec.Document)
+		if !isDocument || next == nil {
 			return
 		}
 		current = next
 	}
-	delete(current, segments[len(segments)-1])
+	current.Delete(segments[len(segments)-1])
 }
 
-func readPayloadKeys(payload []byte) (map[string]any, error) {
-	decoder := codec.NewDecoder(payload, codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed})
-	count, err := decoder.ReadMapHeader()
-	if err != nil {
+func skippedValue(decoder *codec.Decoder, data []byte) ([]byte, error) {
+	start := decoder.Position()
+	if err := decoder.Skip(); err != nil {
 		return nil, err
 	}
-	kept := make(map[string]any, 2)
+	return data[start:decoder.Position()], nil
+}
+
+type payloadKeys struct {
+	schema    any
+	documents []byte
+}
+
+func readPayloadKeys(payload []byte) (payloadKeys, error) {
+	decoder := codec.NewDecoder(payload, payloadDecoding)
+	count, err := decoder.ReadMapHeader()
+	if err != nil {
+		return payloadKeys{}, err
+	}
+	var kept payloadKeys
+	for range count {
+		key, err := decoder.ReadString()
+		if err != nil {
+			return payloadKeys{}, err
+		}
+		switch key {
+		case "schema":
+			kept.schema, err = decoder.ReadValue()
+		case "documents":
+			kept.documents, err = skippedValue(decoder, payload)
+		default:
+			err = decoder.Skip()
+		}
+		if err != nil {
+			return payloadKeys{}, err
+		}
+	}
+	if decoder.More() {
+		return payloadKeys{}, decoder.Errorf("The partition payload holds %d bytes after its map", decoder.Remaining())
+	}
+	return kept, nil
+}
+
+func fieldsOfRecord(decoder *codec.Decoder, data []byte, docID string) (*codec.Document, error) {
+	missing := loadFailed("The partition payload holds document \"" + docID + "\" without a map of fields")
+	count, err := decoder.ReadMapHeader()
+	if err != nil {
+		return nil, missing
+	}
+	var fields []byte
 	for range count {
 		key, err := decoder.ReadString()
 		if err != nil {
 			return nil, err
 		}
-		if key != "schema" && key != "documents" {
+		if key != "fields" {
 			if err := decoder.Skip(); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		if kept[key], err = decoder.ReadValue(); err != nil {
+		if fields, err = skippedValue(decoder, data); err != nil {
 			return nil, err
 		}
 	}
-	if decoder.More() {
-		return nil, decoder.Errorf("The partition payload holds %d bytes after its map", decoder.Remaining())
+	if fields == nil {
+		return nil, missing
 	}
-	return kept, nil
+	if _, err := codec.NewDecoder(fields, payloadDecoding).ReadMapHeader(); err != nil {
+		return nil, missing
+	}
+	return codec.DecodeStoredDocument(fields, payloadDecoding)
+}
+
+func readDocuments(data []byte, vectorPaths []string) ([]Document, error) {
+	decoder := codec.NewDecoder(data, payloadDecoding)
+	if data == nil || decoder.TryReadNil() {
+		return []Document{}, nil
+	}
+	count, err := decoder.ReadMapHeader()
+	if err != nil {
+		return nil, loadFailed("The partition payload holds documents that are not a map")
+	}
+	entries := make(codec.OrderedMap, 0, count)
+	positions := make(map[string]int, count)
+	for range count {
+		docID, err := decoder.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		fields, err := fieldsOfRecord(decoder, data, docID)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range vectorPaths {
+			removeFieldAtPath(fields, path)
+		}
+		if position, seen := positions[docID]; seen {
+			entries[position].Value = fields
+			continue
+		}
+		positions[docID] = len(entries)
+		entries = append(entries, codec.MapEntry{Key: docID, Value: fields})
+	}
+	documents := make([]Document, len(entries))
+	for at, entry := range codec.InJavaScriptPropertyOrder(entries) {
+		fields, _ := entry.Value.(*codec.Document)
+		documents[at] = Document{ID: entry.Key, Fields: fields}
+	}
+	return documents, nil
 }
 
 func DecodePartitionDocuments(payload []byte) (PartitionDocuments, error) {
@@ -125,7 +217,7 @@ func DecodePartitionDocuments(payload []byte) (PartitionDocuments, error) {
 	if err != nil {
 		return PartitionDocuments{}, err
 	}
-	rawSchema, _ := kept["schema"].(map[string]any)
+	rawSchema, _ := kept.schema.(map[string]any)
 	if err := schema.RequireValidFieldTypes(rawSchema); err != nil {
 		return PartitionDocuments{}, err
 	}
@@ -138,21 +230,6 @@ func DecodePartitionDocuments(payload []byte) (PartitionDocuments, error) {
 			vectorPaths = append(vectorPaths, path)
 		}
 	}
-	rawDocuments, _ := kept["documents"].(map[string]any)
-	if kept["documents"] != nil && rawDocuments == nil {
-		return PartitionDocuments{}, loadFailed("The partition payload holds documents that are not a map")
-	}
-	decoded.Documents = make(map[string]map[string]any, len(rawDocuments))
-	for docID, stored := range rawDocuments {
-		record, _ := stored.(map[string]any)
-		fields, isMap := record["fields"].(map[string]any)
-		if !isMap {
-			return PartitionDocuments{}, loadFailed("The partition payload holds document \"" + docID + "\" without a map of fields")
-		}
-		for _, path := range vectorPaths {
-			removeFieldAtPath(fields, path)
-		}
-		decoded.Documents[docID] = fields
-	}
-	return decoded, nil
+	decoded.Documents, err = readDocuments(kept.documents, vectorPaths)
+	return decoded, err
 }

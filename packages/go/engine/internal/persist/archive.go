@@ -71,24 +71,23 @@ func ArchiveFromMemory(ctx context.Context, handle *Handle) (*Archive, error) {
 		}
 	}
 	held := capture{seqNos: make([]uint64, handle.Index.PartitionCount())}
-	every := make([]bool, len(held.seqNos))
-	for at := range every {
-		every[at] = true
+	held.whole = make([]bool, len(held.seqNos))
+	for at := range held.whole {
+		held.whole[at] = true
 	}
-	partitions, err := buildPartitions(ctx, handle, held.seqNos, every)
-	if err != nil {
+	store := checkpoint.AdapterStore{Adapter: storage.NewMemory()}
+	if err := held.buildPartitions(ctx, handle, store, false); err != nil {
 		return nil, err
 	}
-	held.partitions = partitions
+	var err error
 	if held.vectors, err = planVectors(ctx, handle, nil, true); err != nil {
 		return nil, err
 	}
-	defer held.release()
+	defer func() { held.release() }()
 	meta, err := handle.metadata(uint64(handle.Index.Count()))
 	if err != nil {
 		return nil, err
 	}
-	store := checkpoint.AdapterStore{Adapter: storage.NewMemory()}
 	written, err := checkpoint.WriteFiles(ctx, store, checkpointInput(handle, meta, nil, held))
 	if err != nil {
 		return nil, err

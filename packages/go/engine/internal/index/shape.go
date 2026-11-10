@@ -112,16 +112,10 @@ func (ix *Index) projectedHits(hits []resultHit, prepared *preparedQuery, docume
 }
 
 func (l *documentLookup) shown(id string, shown projection.Projection, handsOver bool) *model.Document {
-	switch shown.Kind() {
-	case model.ProjectNoFields:
-		return model.NewDocument()
-	case model.ProjectSelectedFields:
-		if stored := l.decoded(id); stored != nil {
-			return shown.Clone(stored)
-		}
+	if shown.Kind() == model.ProjectNoFields {
 		return model.NewDocument()
 	}
-	stored := l.stored(id)
+	stored := l.shownAs(id, shown)
 	if stored == nil {
 		return model.NewDocument()
 	}

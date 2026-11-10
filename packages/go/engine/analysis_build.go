@@ -46,7 +46,7 @@ func sortedIDsOf(ctx context.Context, source *index.Index, partitionID int) ([]s
 		return nil, err
 	}
 	defer reading.Release()
-	return reading.Snapshots[partitionID].SortedIDs(), nil
+	return reading.Snapshots[partitionID].SortedIDs()
 }
 
 func engineShutDown() error {

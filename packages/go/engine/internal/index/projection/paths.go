@@ -27,6 +27,14 @@ func ReadPath(document *model.Document, path []string) PathRead {
 	return PathRead{Found: true, Value: current}
 }
 
+func FieldFailure(document *model.Document, fieldPath string) error {
+	segments := strings.Split(fieldPath, ".")
+	if slices.ContainsFunc(segments, isPrototypePollutionKey) {
+		return nil
+	}
+	return codec.StoredPathFailure(document, segments, true)
+}
+
 func isPrototypePollutionKey(segment string) bool {
 	switch segment {
 	case "__proto__", "constructor", "prototype":

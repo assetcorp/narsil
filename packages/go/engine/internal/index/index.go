@@ -30,16 +30,18 @@ type Settings struct {
 	Vectors         VectorFields
 	Slots           *vector.Slots
 	PatternLimit    uint32
+	TextOnDisk      bool
 }
 
 type Index struct {
-	settings   Settings
-	slots      *vector.Slots
-	sides      *partition.Sides
-	kept       *partition.KeptColumns
-	partitions []*partition.Partition
-	synonyms   atomic.Pointer[synonyms.Lookup]
-	bm25       atomic.Pointer[model.BM25Params]
+	settings    Settings
+	slots       *vector.Slots
+	sides       *partition.Sides
+	kept        *partition.KeptColumns
+	partitions  []*partition.Partition
+	synonyms    atomic.Pointer[synonyms.Lookup]
+	bm25        atomic.Pointer[model.BM25Params]
+	compactions compactionScheduler
 }
 
 type StoredDocument struct {
@@ -61,10 +63,6 @@ func (ix *Index) BM25() *model.BM25Params {
 
 func (ix *Index) SetBM25(params *model.BM25Params) {
 	ix.bm25.Store(params)
-}
-
-func (ix *Index) Slots() *vector.Slots {
-	return ix.slots
 }
 
 func fieldLimits(patternLimit uint32) fields.Limits {
@@ -137,6 +135,7 @@ func New(settings Settings) (*Index, error) {
 }
 
 func (ix *Index) Release() {
+	ix.StopCompactions()
 	for _, held := range ix.partitions {
 		held.Release()
 	}

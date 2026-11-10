@@ -13,10 +13,11 @@ import (
 )
 
 type partitionLog struct {
-	mutex   sync.Mutex
-	writer  *writeahead.Writer
-	applied uint64
-	failed  error
+	mutex         sync.Mutex
+	writer        *writeahead.Writer
+	applied       uint64
+	failed        error
+	clearsCovered uint64
 }
 
 type Durable struct {

@@ -52,14 +52,6 @@ func (n *Numeric) checkInsert(ordinal uint32, count uint64) error {
 	return nil
 }
 
-func (n *Numeric) Insert(ordinal uint32, value float64) error {
-	if err := n.checkInsert(ordinal, 1); err != nil {
-		return err
-	}
-	n.insert(ordinal, value)
-	return nil
-}
-
 func (n *Numeric) insert(ordinal uint32, value float64) {
 	n.present.invalidate()
 	n.pendingValues = append(n.pendingValues, value)
@@ -222,17 +214,8 @@ func (n *Numeric) Present() []uint32 {
 	return n.present.view()
 }
 
-func (n *Numeric) Count() uint64 {
-	return n.held()
-}
-
 func (n *Numeric) RegionBytes() uint64 {
 	return n.values.bytes() + n.ordinals.bytes() + n.present.bytes()
-}
-
-func (n *Numeric) HostBytes() uint64 {
-	return uint64(cap(n.pendingValues))*8 + uint64(cap(n.pendingOrdinals))*4 +
-		uint64(cap(n.removedOrdinals))*4 + uint64(cap(n.removedValues))*8 + uint64(cap(n.removedLimits))*8
 }
 
 func (n *Numeric) Release() {

@@ -32,11 +32,6 @@ func AsMap(value any) (map[string]any, bool) {
 	return record, ok
 }
 
-func AsString(value any) (string, bool) {
-	text, ok := value.(string)
-	return text, ok
-}
-
 func AsStrings(value any) ([]string, bool) {
 	list, ok := value.([]any)
 	if !ok {

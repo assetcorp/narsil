@@ -1,6 +1,7 @@
 package partition
 
 import (
+	"slices"
 	"sync/atomic"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
@@ -13,8 +14,7 @@ type documentSource interface {
 type frozenSegment struct {
 	frozen    *segments.Frozen
 	paged     *segments.Paged
-	ids       []string
-	ordinals  map[string]uint32
+	ids       idTable
 	documents [][]byte
 	source    documentSource
 	columns   atomic.Pointer[frozenColumns]
@@ -28,11 +28,11 @@ func (f *frozenSegment) release() {
 }
 
 func newFrozenSegment(frozen *segments.Frozen, ids []string, documents [][]byte) *frozenSegment {
-	ordinals := make(map[string]uint32, len(ids))
-	for ordinal, id := range ids {
-		ordinals[id] = uint32(ordinal)
-	}
-	return &frozenSegment{frozen: frozen, ids: ids, ordinals: ordinals, documents: documents}
+	return &frozenSegment{frozen: frozen, ids: newResidentIDs(ids), documents: documents}
+}
+
+func newPagedFrozenSegment(paged *segments.Paged) *frozenSegment {
+	return &frozenSegment{frozen: &paged.Frozen, paged: paged, ids: pagedIDs{paged: paged}, source: paged}
 }
 
 func (f *frozenSegment) keyword() *segments.Keyword {
@@ -40,25 +40,25 @@ func (f *frozenSegment) keyword() *segments.Keyword {
 }
 
 func (f *frozenSegment) documentCount() uint32 {
-	return uint32(len(f.ids))
+	return f.ids.count()
 }
 
-func (f *frozenSegment) ordinalOf(id string) (uint32, bool) {
-	ordinal, found := f.ordinals[id]
-	return ordinal, found
+func (f *frozenSegment) ordinalOf(id string) (uint32, bool, error) {
+	return f.ids.ordinalOf(id)
 }
 
-func (f *frozenSegment) idAt(ordinal uint32) (string, bool) {
-	if uint64(ordinal) >= uint64(len(f.ids)) {
-		return "", false
+func (f *frozenSegment) idAt(ordinal uint32) (string, bool, error) {
+	if ordinal >= f.ids.count() {
+		return "", false, nil
 	}
-	return f.ids[ordinal], true
+	id, err := f.ids.idAt(ordinal)
+	return id, err == nil, err
 }
 
 func (f *frozenSegment) documentAt(ordinal uint32) (storedDocument, bool, error) {
-	id, held := f.idAt(ordinal)
-	if !held {
-		return storedDocument{}, false, nil
+	id, held, err := f.idAt(ordinal)
+	if err != nil || !held {
+		return storedDocument{}, false, err
 	}
 	if f.documents != nil {
 		return storedDocument{id: id, encoded: f.documents[ordinal]}, true, nil
@@ -70,7 +70,7 @@ func (f *frozenSegment) documentAt(ordinal uint32) (storedDocument, bool, error)
 	if err != nil {
 		return storedDocument{}, false, err
 	}
-	return storedDocument{id: id, encoded: encoded}, true, nil
+	return storedDocument{id: id, encoded: slices.Clone(encoded)}, true, nil
 }
 
 func (f *frozenSegment) newState() *segments.State {

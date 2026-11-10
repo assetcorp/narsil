@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"math/bits"
 	"slices"
-	"unicode/utf8"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	narsiltext "github.com/assetcorp/narsil/packages/go/engine/internal/text"
@@ -73,29 +72,6 @@ func forEachTextValue(value any, visit func(text string)) {
 	}
 }
 
-func (p *Pattern) check(path string, value any) error {
-	var failure error
-	at := 0
-	forEachTextValue(value, func(text string) {
-		index := -1
-		if _, isList := value.([]any); isList {
-			index = at
-		}
-		at++
-		if failure != nil {
-			return
-		}
-		if failure = checkText(path, text, index); failure != nil {
-			return
-		}
-		if len(text) > int(p.limits.PatternValueLimit) && utf8.RuneCountInString(text) > int(p.limits.PatternValueLimit) {
-			failure = invalidValue(path, "is longer than the pattern value limit of this index",
-				map[string]any{"limit": float64(p.limits.PatternValueLimit)})
-		}
-	})
-	return failure
-}
-
 func (p *Pattern) collectKeys(value any) {
 	clear(p.keys)
 	forEachTextValue(value, func(text string) {
@@ -104,24 +80,6 @@ func (p *Pattern) collectKeys(value any) {
 			p.keys[runKey{p.folded[at], p.folded[at+1], p.folded[at+2]}] = struct{}{}
 		}
 	})
-}
-
-func (p *Pattern) Add(ordinal uint32, value any) error {
-	if err := p.limits.checkOrdinal(ordinal); err != nil {
-		return err
-	}
-	if err := p.check("pattern", value); err != nil {
-		return err
-	}
-	if !holdsTextValue(value) {
-		return nil
-	}
-	p.collectKeys(value)
-	if needed := p.postingTotal + uint64(len(p.keys)); needed > uint64(p.limits.MaxEntries) {
-		return capacityExceeded("pattern postings", needed, uint64(p.limits.MaxEntries))
-	}
-	p.add(ordinal)
-	return nil
 }
 
 func (p *Pattern) add(ordinal uint32) {
@@ -150,18 +108,6 @@ func (p *Pattern) add(ordinal uint32) {
 		list.ids = append(list.ids, ordinal)
 		p.postingTotal++
 	}
-}
-
-func (p *Pattern) Remove(ordinal uint32, value any) error {
-	if err := p.check("pattern", value); err != nil {
-		return err
-	}
-	if !holdsTextValue(value) {
-		return nil
-	}
-	p.collectKeys(value)
-	p.remove(ordinal)
-	return nil
 }
 
 func (p *Pattern) remove(ordinal uint32) {
@@ -304,20 +250,8 @@ func (p *Pattern) Index() *core.PatternIndex {
 	}
 }
 
-func (p *Pattern) Documents() uint64 {
-	return p.documentSize
-}
-
 func (p *Pattern) RegionBytes() uint64 {
 	return p.docIDs.bytes() + p.runCodes.bytes() + p.offsets.bytes() + p.postings.bytes()
-}
-
-func (p *Pattern) HostBytes() uint64 {
-	bytes := uint64(cap(p.documents)) * documentWordBytes
-	for _, list := range p.runs {
-		bytes += uint64(cap(list.ids))*4 + uint64(len(list.removed))*hashEntryBytes + runEntryOverheadBytes
-	}
-	return bytes
 }
 
 func (p *Pattern) Release() {

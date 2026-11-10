@@ -53,10 +53,6 @@ func ValueSizeOf(value any) float64 {
 	return 1
 }
 
-func (s *Set) Fields() []schema.Field {
-	return append([]schema.Field(nil), s.fields...)
-}
-
 func (s *Set) Numeric(path string) *Numeric { return s.numeric[path] }
 func (s *Set) Boolean(path string) *Boolean { return s.booleans[path] }
 func (s *Set) Enum(path string) *Enum       { return s.enums[path] }
@@ -74,32 +70,6 @@ func (s *Set) fieldOf(path string) (schema.Field, bool) {
 		}
 	}
 	return schema.Field{}, false
-}
-
-func (s *Set) FieldIndex(path string) core.FieldIndex {
-	field, declared := s.fieldOf(path)
-	if !declared {
-		return nil
-	}
-	switch field.Base {
-	case schema.BaseNumber, schema.BaseNumberList:
-		if index := s.numeric[path]; index != nil {
-			return index.Index()
-		}
-	case schema.BaseBoolean, schema.BaseBooleanList:
-		if index := s.booleans[path]; index != nil {
-			return index.Index()
-		}
-	case schema.BaseEnum, schema.BaseEnumList:
-		if index := s.enums[path]; index != nil {
-			return index.Index()
-		}
-	case schema.BaseGeopoint:
-		if index := s.geos[path]; index != nil {
-			return index.Index()
-		}
-	}
-	return nil
 }
 
 func (s *Set) Present(path string) []uint32 {

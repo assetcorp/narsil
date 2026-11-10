@@ -90,8 +90,9 @@ func (t *documentTable) at(side int, ordinal uint32) (storedDocument, bool) {
 	return storedDocument{id: entry.id, encoded: encoded}, true
 }
 
-var storedDecoding = codec.DecodeOptions{ErrorCode: narsilerr.CodePartitionCorrupted}
+var storedDecoding = codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed}
 
 func decodeStored(document storedDocument) (*codec.Document, error) {
-	return codec.DecodeStoredDocument(document.encoded, storedDecoding)
+	values := codec.NewStoredDocument(document.encoded, storedDecoding)
+	return values, codec.StoredDocumentFailure(values)
 }

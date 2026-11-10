@@ -251,6 +251,7 @@ func (n *Narsil) entryFromStored(name string, stored storedIndex) (*indexEntry, 
 	if err != nil {
 		return nil, err
 	}
+	parsed = parsed.InFieldOrder(stored.schemaOrder)
 	embedder, embeddingName, err := n.resolveEmbedding(config, parsed, false)
 	if err != nil {
 		return nil, err

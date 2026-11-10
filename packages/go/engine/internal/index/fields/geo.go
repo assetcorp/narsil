@@ -73,13 +73,6 @@ func LocationCode(lat, lon float64) uint64 {
 	return code
 }
 
-func (g *Geo) Insert(ordinal uint32, lat, lon float64) error {
-	if err := g.limits.checkOrdinal(ordinal); err != nil {
-		return err
-	}
-	return g.insert(ordinal, lat, lon)
-}
-
 func (g *Geo) insert(ordinal uint32, lat, lon float64) error {
 	g.present.invalidate()
 	if existing, held := g.byDocument[ordinal]; held {
@@ -232,17 +225,8 @@ func (g *Geo) Present() []uint32 {
 	return g.present.view()
 }
 
-func (g *Geo) Count() uint64 {
-	return uint64(len(g.byDocument))
-}
-
 func (g *Geo) RegionBytes() uint64 {
 	return g.codes.bytes() + g.lat.bytes() + g.lon.bytes() + g.ordinals.bytes() + g.present.bytes()
-}
-
-func (g *Geo) HostBytes() uint64 {
-	return uint64(cap(g.pending))*geoRowBytes + uint64(cap(g.removedRows))*8 +
-		uint64(len(g.byDocument)+len(g.pendingRemoved))*hashEntryBytes
 }
 
 func (g *Geo) Release() {

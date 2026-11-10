@@ -8,14 +8,6 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func schemaValue(flat map[string]string) map[string]any {
-	record := make(map[string]any, len(flat))
-	for path, fieldType := range flat {
-		record[path] = fieldType
-	}
-	return record
-}
-
 func vectorFieldsValue(fields map[string]VectorField) map[string]any {
 	record := make(map[string]any, len(fields))
 	for path, field := range fields {
@@ -61,7 +53,7 @@ func synonymsValue(rules []is.SynonymRule) any {
 func (meta Metadata) Value() codec.OrderedMap {
 	entries := codec.OrderedMap{
 		{Key: "index_name", Value: meta.IndexName},
-		{Key: "schema", Value: schemaValue(meta.Schema)},
+		{Key: "schema", Value: form.SchemaEntries(meta.Schema, meta.SchemaOrder)},
 		{Key: "language", Value: meta.Language},
 		{Key: "partition_count", Value: float64(meta.PartitionCount)},
 		{Key: "bm25_params", Value: meta.BM25.Value()},
@@ -133,6 +125,7 @@ func Read(data []byte) (Metadata, envelope.Header, error) {
 		return Metadata{}, envelope.Header{}, err
 	}
 	meta, err := Decode(raw, narsilerr.CodePersistenceLoadFailed)
+	meta.SchemaOrder = form.SchemaKeyOrder(opened.Payload)
 	return meta, opened.Header, err
 }
 

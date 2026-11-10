@@ -15,6 +15,7 @@ const (
 
 type Segment struct {
 	Schema              map[string]string
+	SchemaOrder         []string
 	Tombstones          []string
 	DocumentCount       uint32
 	IDs                 []byte

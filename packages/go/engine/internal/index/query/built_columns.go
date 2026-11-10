@@ -30,40 +30,38 @@ func releasedColumns() error {
 	return narsilerr.New(narsilerr.CodePartitionCorrupted, "A search asked for a column of a partition state that a write already replaced", nil)
 }
 
-func (b *BuiltColumns) Stored(path string, build func() (*fields.Stored, error)) (*fields.Stored, error) {
-	held := b.held
+func builtColumn[K comparable, C any](held *heldColumns, columns func(*heldColumns) map[K]*C, key K, build func() (*C, error)) (*C, error) {
 	held.mu.Lock()
 	defer held.mu.Unlock()
 	if held.released {
 		return nil, releasedColumns()
 	}
-	if stored := held.stored[path]; stored != nil {
-		return stored, nil
-	}
-	stored, err := build()
-	if err != nil {
-		return nil, err
-	}
-	held.stored[path] = stored
-	return stored, nil
-}
-
-func (b *BuiltColumns) Sort(key SortColumnKey, build func() (*fields.SortColumn, error)) (*fields.SortColumn, error) {
-	held := b.held
-	held.mu.Lock()
-	defer held.mu.Unlock()
-	if held.released {
-		return nil, releasedColumns()
-	}
-	if column := held.sorts[key]; column != nil {
+	built := columns(held)
+	if column := built[key]; column != nil {
 		return column, nil
 	}
 	column, err := build()
 	if err != nil {
 		return nil, err
 	}
-	held.sorts[key] = column
+	built[key] = column
 	return column, nil
+}
+
+func storedColumns(held *heldColumns) map[string]*fields.Stored {
+	return held.stored
+}
+
+func sortColumns(held *heldColumns) map[SortColumnKey]*fields.SortColumn {
+	return held.sorts
+}
+
+func (b *BuiltColumns) Stored(path string, build func() (*fields.Stored, error)) (*fields.Stored, error) {
+	return builtColumn(b.held, storedColumns, path, build)
+}
+
+func (b *BuiltColumns) Sort(key SortColumnKey, build func() (*fields.SortColumn, error)) (*fields.SortColumn, error) {
+	return builtColumn(b.held, sortColumns, key, build)
 }
 
 func (b *BuiltColumns) Release() {

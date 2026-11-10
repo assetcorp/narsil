@@ -204,10 +204,6 @@ func (c *SortColumn) Mode() core.SortMode {
 	return c.mode
 }
 
-func (c *SortColumn) DirtyCount() int {
-	return len(c.dirty)
-}
-
 func (c *SortColumn) RegionBytes() uint64 {
 	return c.store.bytes() + c.dictKinds.bytes() + c.dictNumbers.bytes() + c.dictTextStart.bytes() +
 		c.dictTextLength.bytes() + c.dictUnits.bytes() + c.ranks.bytes() + c.ordered.bytes() + c.dirtyBits.bytes()

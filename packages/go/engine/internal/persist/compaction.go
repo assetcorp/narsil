@@ -100,12 +100,13 @@ func (held *windowTombstones) addReplaced(opened checkpoint.StoredSegment, paged
 }
 
 type windowMerge struct {
-	store      checkpoint.Store
-	detached   *index.Index
-	pages      *core.PageCache
-	schema     map[string]string
-	pagedText  bool
-	tombstoned *windowTombstones
+	store       checkpoint.Store
+	detached    *index.Index
+	pages       *core.PageCache
+	schema      map[string]string
+	schemaOrder []string
+	pagedText   bool
+	tombstoned  *windowTombstones
 }
 
 func (merge windowMerge) attach(ctx context.Context, ref manifest.FileRef) error {
@@ -157,8 +158,8 @@ func mergeWindowOf(ctx context.Context, store checkpoint.Store, handle *Handle, 
 	defer detached.Release()
 	replaced := entry.Segments[window.start : window.start+window.length]
 	tombstoned := &windowTombstones{seen: map[string]struct{}{}}
-	merge := windowMerge{store: store, detached: detached, schema: flatSchema(handle), pagedText: pagedText,
-		tombstoned: tombstoned}
+	merge := windowMerge{store: store, detached: detached, schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle),
+		pagedText: pagedText, tombstoned: tombstoned}
 	if pagedText {
 		if merge.pages, err = segments.NewMergePageCache(); err != nil {
 			return err
@@ -173,14 +174,11 @@ func mergeWindowOf(ctx context.Context, store checkpoint.Store, handle *Handle, 
 	if err != nil {
 		return err
 	}
-	built, err := partitionSegmentFiles(ctx, detached, 0,
-		segmentWriteRequest{schema: merge.schema, tombstones: retained, mergesIntoOneFile: true})
-	if err != nil {
-		return err
-	}
 	merged := manifest.PartitionEntry{PartitionID: entry.PartitionID, NextSegmentID: entry.NextSegmentID,
 		Segments: []manifest.SegmentRef{}}
-	if err := checkpoint.AppendSegments(ctx, store, handle.Name, &merged, built, pagedText); err != nil {
+	if err := writePartitionSegments(ctx, store, handle.Name, detached, &merged,
+		segmentWriteRequest{schema: merge.schema, schemaOrder: merge.schemaOrder, tombstones: retained,
+			mergesIntoOneFile: true}, pagedText); err != nil {
 		return err
 	}
 	listed := make([]manifest.SegmentRef, 0, len(entry.Segments)-window.length+len(merged.Segments))

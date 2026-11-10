@@ -27,21 +27,8 @@ func NewSides(slots *vector.Slots) *Sides {
 	return &Sides{slots: slots}
 }
 
-func (s *Sides) Slots() *vector.Slots {
-	return s.slots
-}
-
 func (s *Sides) Add(partition *Partition) {
 	s.partitions = append(s.partitions, partition)
-}
-
-func (s *Sides) Remove(partition *Partition) {
-	for at, held := range s.partitions {
-		if held == partition {
-			s.partitions = append(s.partitions[:at:at], s.partitions[at+1:]...)
-			return
-		}
-	}
 }
 
 type Write struct {

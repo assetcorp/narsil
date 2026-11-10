@@ -37,10 +37,6 @@ type ParsedFieldType struct {
 	Dimension int
 }
 
-func (p ParsedFieldType) IsList() bool {
-	return strings.HasSuffix(string(p.Base), "[]")
-}
-
 func (p ParsedFieldType) IsWordIndexed() bool {
 	return p.Base == BaseString || p.Base == BaseStringList
 }

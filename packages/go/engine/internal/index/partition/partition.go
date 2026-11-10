@@ -5,13 +5,8 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
-
-func (p *Partition) View(read *Read) *query.View {
-	return p.sides[read.side].view
-}
 
 type Settings struct {
 	ID              int
@@ -33,6 +28,8 @@ type Partition struct {
 	pending     []operation
 	pendingSide int
 	merging     sync.Mutex
+	changes     *ChangeLog
+	clears      uint64
 }
 
 func New(settings Settings) (*Partition, error) {
@@ -53,16 +50,20 @@ func New(settings Settings) (*Partition, error) {
 	return p, nil
 }
 
-func (p *Partition) ID() int {
-	return p.settings.ID
-}
-
 func (p *Partition) Release() {
+	released := map[*frozenSegment]struct{}{}
 	for at, held := range p.sides {
-		if held != nil {
-			held.release()
-			p.sides[at] = nil
+		if held == nil {
+			continue
 		}
+		for _, frozen := range held.frozen {
+			if _, done := released[frozen.segment]; !done {
+				released[frozen.segment] = struct{}{}
+				frozen.segment.release()
+			}
+		}
+		held.release()
+		p.sides[at] = nil
 	}
 }
 

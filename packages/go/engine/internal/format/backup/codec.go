@@ -144,14 +144,6 @@ func (manifest Manifest) Value() codec.OrderedMap {
 	return entries
 }
 
-func Write(manifest Manifest) ([]byte, error) {
-	payload, err := codec.Marshal(manifest.Value(), codec.EncodeOptions{ErrorCode: narsilerr.CodePersistenceSaveFailed})
-	if err != nil {
-		return nil, err
-	}
-	return envelope.Pack(payload, envelope.PackOptions{FormatVersion: FormatVersion, What: "backup manifest", Checksum: true})
-}
-
 func Read(data []byte, backupName string) (Manifest, envelope.Header, error) {
 	opened, err := envelope.OpenChecksummed(data, envelope.Kind{
 		FormatVersion: FormatVersion, What: "manifest of backup '" + backupName + "'", AllowsGzip: false,

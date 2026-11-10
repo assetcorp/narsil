@@ -35,6 +35,7 @@ type indexEntry struct {
 	partitionCount int
 	patternLimit   int
 	embeddingName  string
+	phraseReady    func() error
 
 	embedMu  sync.RWMutex
 	embedder model.EmbeddingAdapter
@@ -86,6 +87,12 @@ func (entry *indexEntry) retire() {
 }
 
 func (entry *indexEntry) dispose() {
+	if current := entry.swap.current.Load(); current != nil {
+		current.StopCompactions()
+	}
+	if entry.handle != nil && entry.handle.Index != nil {
+		entry.handle.Index.StopCompactions()
+	}
 	for _, path := range entry.vectorPaths {
 		if field, found := entry.handle.Vectors[path]; found {
 			field.Dispose()

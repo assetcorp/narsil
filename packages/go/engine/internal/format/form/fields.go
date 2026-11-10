@@ -105,14 +105,6 @@ func (fields *Fields) Number(key string) float64 {
 	return number
 }
 
-func (fields *Fields) Finite(key string) float64 {
-	number := fields.Number(key)
-	if math.IsNaN(number) || math.IsInf(number, 0) {
-		fields.Fail(fields.at(key), "is not a finite number")
-	}
-	return number
-}
-
 func (fields *Fields) Uint(key string, maximum uint64) uint64 {
 	return fields.UintAt(fields.values[key], fields.at(key), maximum)
 }
@@ -124,14 +116,6 @@ func (fields *Fields) UintAt(value any, path string, maximum uint64) uint64 {
 		return 0
 	}
 	return uint64(number)
-}
-
-func (fields *Fields) Bytes(key string) []byte {
-	bytes, ok := fields.values[key].([]byte)
-	if !ok {
-		fields.Fail(fields.at(key), "is not bytes")
-	}
-	return bytes
 }
 
 func (fields *Fields) List(key string) []any {

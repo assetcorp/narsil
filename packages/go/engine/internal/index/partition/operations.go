@@ -36,6 +36,7 @@ type operation struct {
 	freeze     *freezeResult
 	merge      *mergeResult
 	dropped    []*frozenSegment
+	adopted    []*frozenSegment
 	columns    []ColumnRequest
 	failed     bool
 }
@@ -124,6 +125,8 @@ func (s *side) apply(w *core.Workspace, p *Partition, op *operation) error {
 		return s.keepColumns(op.columns)
 	case attachFrozen:
 		return s.attach(op.freeze.segment)
+	case adoptFrozen:
+		return s.adopt(p, op)
 	}
 	return nil
 }

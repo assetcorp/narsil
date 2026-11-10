@@ -38,7 +38,9 @@ func (entry *indexEntry) storedDocument(ctx context.Context, id string) (*model.
 // with its vectors, and nil and false when no document holds that ID. The
 // document holds its own copy of the stored bytes, so it stays readable
 // after later writes, a vacuum, a compaction, and Close, and a change to it
-// reaches the index only through Update.
+// reaches the index only through Update. It returns
+// CodePersistenceLoadFailed when the stored bytes of the document do not
+// decode.
 func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (*Document, bool, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {

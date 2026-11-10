@@ -209,7 +209,7 @@ func (ix *Index) fixedDepthHybrid(prepared *preparedQuery, pass *analysis.Pass, 
 		if next == nil {
 			return pageOfHits{hits: page}
 		}
-		encoded := cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.anchor, Score: next.score, Depth: next.depth, Binding: prepared.binding()})
+		encoded := cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.anchor, Score: next.score, Depth: next.depth, Binding: prepared.binding.Text()})
 		return pageOfHits{hits: page, cursor: encoded}
 	}
 	return found, nil

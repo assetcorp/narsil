@@ -80,11 +80,10 @@ func addSegmentSchema(agreed map[string]string, found map[string]string) error {
 }
 
 func replaceEarlierDocuments(ctx context.Context, handle *Handle, tombstones []string,
-	documents map[string]map[string]any) error {
-	ids := sortedKeys(documents)
-	inserted := make([]index.DocumentWrite, len(ids))
-	for at, id := range ids {
-		inserted[at] = index.DocumentWrite{ID: id, Fields: documents[id]}
+	documents []earlier.Document) error {
+	inserted := make([]index.DocumentWrite, len(documents))
+	for at, document := range documents {
+		inserted[at] = index.DocumentWrite{ID: document.ID, Document: document.Fields}
 	}
 	return replaceDocuments(ctx, handle.Index, tombstones, inserted, firstFailure)
 }

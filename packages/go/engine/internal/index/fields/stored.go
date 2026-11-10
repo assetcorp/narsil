@@ -267,10 +267,6 @@ func (s *Stored) Units() []uint16 {
 	return s.units.prefix(s.usedUnits)
 }
 
-func (s *Stored) Path() string {
-	return s.path
-}
-
 func (s *Stored) RegionBytes() uint64 {
 	return s.shapes.bytes() + s.starts.bytes() + s.kinds.bytes() + s.numbers.bytes() + s.textStart.bytes() +
 		s.textLength.bytes() + s.units.bytes() + s.encoded.bytes()

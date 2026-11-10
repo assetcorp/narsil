@@ -1,5 +1,7 @@
 package index
 
+import "time"
+
 const (
 	maxQueryPhrases             = 32
 	maxPhraseWords              = 32
@@ -25,8 +27,8 @@ const (
 const (
 	compactionSegmentTrigger = 8
 	segmentsPerMerge         = 8
-	liveTailFreezeFloor      = 64
 	maxCompactionRounds      = 64
+	idleMergeDelay           = time.Second
 )
 
 const (

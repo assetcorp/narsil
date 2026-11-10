@@ -46,6 +46,37 @@ func (decoder *Decoder) skipOne() (int, error) {
 	return 0, decoder.Errorf("Unrecognized type byte: 0x%02x", tag)
 }
 
+func (decoder *Decoder) heldFault(depth int) error {
+	tag, err := decoder.peekTag()
+	if err != nil {
+		return err
+	}
+	valueType := typeOfTag(tag)
+	if valueType == TypeExtension {
+		_, err := decoder.readValue(depth, exactDecoding)
+		return err
+	}
+	if (valueType == TypeMap || valueType == TypeArray) && depth > decoder.maxDepth {
+		return decoder.Errorf("the value nests deeper than %d levels", decoder.maxDepth)
+	}
+	children, err := decoder.skipOne()
+	if err != nil {
+		return err
+	}
+	for child := range children {
+		if valueType == TypeMap && child%2 == 0 {
+			if _, err := decoder.readMapKey(); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := decoder.heldFault(depth + 1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (decoder *Decoder) Skip() error {
 	pending := 1
 	for pending > 0 {

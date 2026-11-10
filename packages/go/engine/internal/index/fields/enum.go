@@ -47,21 +47,6 @@ func NewEnum(limits Limits) (*Enum, error) {
 	}, nil
 }
 
-func (e *Enum) checkInsert(ordinal uint32, value string) error {
-	if err := e.limits.checkOrdinal(ordinal); err != nil {
-		return err
-	}
-	if needed := e.postingCount + 1; needed > uint64(e.limits.MaxEntries) {
-		return capacityExceeded("enum postings", needed, uint64(e.limits.MaxEntries))
-	}
-	if _, known := e.values[value]; !known {
-		if needed := e.unitCount + uint64(narsiltext.UTF16Length(value)); needed > uint64(e.limits.MaxTextUnits) {
-			return capacityExceeded("enum units", needed, uint64(e.limits.MaxTextUnits))
-		}
-	}
-	return nil
-}
-
 func (e *Enum) checkElements(ordinal uint32, elements []any) error {
 	if err := e.limits.checkOrdinal(ordinal); err != nil {
 		return err
@@ -79,17 +64,6 @@ func (e *Enum) checkElements(ordinal uint32, elements []any) error {
 	if units > uint64(e.limits.MaxTextUnits) {
 		return capacityExceeded("enum units", units, uint64(e.limits.MaxTextUnits))
 	}
-	return nil
-}
-
-func (e *Enum) Insert(ordinal uint32, value string) error {
-	if err := checkText("enum", value, -1); err != nil {
-		return err
-	}
-	if err := e.checkInsert(ordinal, value); err != nil {
-		return err
-	}
-	e.insert(ordinal, value)
 	return nil
 }
 
@@ -217,34 +191,13 @@ func (e *Enum) Index() *core.EnumIndex {
 	}
 }
 
-func (e *Enum) Values() []string {
-	sorted := e.sortedValues()
-	texts := make([]string, len(sorted))
-	for at, held := range sorted {
-		texts[at] = held.text
-	}
-	return texts
-}
-
 func (e *Enum) Present() []uint32 {
 	return e.present.view()
-}
-
-func (e *Enum) Count() uint64 {
-	return e.postingCount
 }
 
 func (e *Enum) RegionBytes() uint64 {
 	return e.units.bytes() + e.offsets.bytes() + e.postingOffsets.bytes() + e.postings.bytes() +
 		e.suffixOrder.bytes() + e.present.bytes()
-}
-
-func (e *Enum) HostBytes() uint64 {
-	bytes := uint64(0)
-	for _, held := range e.values {
-		bytes += uint64(len(held.text)) + uint64(cap(held.units))*2 + held.ordinals.bytes() + hashEntryBytes
-	}
-	return bytes
 }
 
 func (e *Enum) Release() {

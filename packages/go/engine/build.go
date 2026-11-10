@@ -100,6 +100,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		embeddingName:  request.embeddingName,
 		embedder:       request.embedder,
 	}
+	entry.phraseReady = func() error { return n.requirePhraseReady(entry) }
 	entry.sync.adopt(request.sync)
 	slots, err := vector.NewSlots()
 	if err != nil {
@@ -125,6 +126,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		Vectors:         source,
 		Slots:           slots,
 		PatternLimit:    uint32(entry.patternLimit),
+		TextOnDisk:      config.TextStorage == model.TextStorageDisk,
 	}
 	if bm25IsSet(config.BM25) {
 		params := config.BM25

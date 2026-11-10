@@ -10,7 +10,6 @@ import (
 	"errors"
 	"runtime"
 	"slices"
-	"sync"
 	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
@@ -54,9 +53,9 @@ type analyserResources struct {
 	text     *C.uint16_t
 }
 
-var analyserPool = sync.Pool{New: newAnalyser}
+var idleAnalysers idleList[*Analyser]
 
-func newAnalyser() any {
+func newAnalyser() *Analyser {
 	var created *C.narsil_analyser
 	if C.narsil_analyser_create(&created) != C.NARSIL_OK {
 		return nil
@@ -73,7 +72,10 @@ func releaseAnalyserResources(resources *analyserResources) {
 }
 
 func AcquireAnalyser() (*Analyser, error) {
-	analyser, _ := analyserPool.Get().(*Analyser)
+	if analyser, held := idleAnalysers.take(); held {
+		return analyser, nil
+	}
+	analyser := newAnalyser()
 	if analyser == nil {
 		return nil, &StatusError{Operation: "analyserCreate", Status: StatusOutOfMemory}
 	}
@@ -81,7 +83,10 @@ func AcquireAnalyser() (*Analyser, error) {
 }
 
 func (a *Analyser) Release() {
-	analyserPool.Put(a)
+	if a.capacity > MaxIdleAnalyserUnits {
+		return
+	}
+	idleAnalysers.keep(a)
 }
 
 func (a *Analyser) loadText(text string) (C.uint32_t, error) {
@@ -167,21 +172,6 @@ func (a *Analyser) Analyse(language uint32, flags AnalyseFlags, text string, sto
 		visit(token)
 	}
 	return nil
-}
-
-func (a *Analyser) Transform(language uint32, flags AnalyseFlags, raw string) (string, error) {
-	request, err := a.request(language, flags, raw, nil)
-	if err != nil {
-		return "", err
-	}
-	var term C.narsil_term
-	status := C.narsil_transform(a.resources.analyser, &request, &term)
-	if status != C.NARSIL_OK {
-		return "", statusError("transform", status)
-	}
-	transformed := unitsToString(unsafe.Slice((*uint16)(unsafe.Pointer(term.units)), int(term.length)))
-	runtime.KeepAlive(a)
-	return transformed, nil
 }
 
 func (a *Analyser) termOf(arena []uint16, offset, length, slot uint32) string {

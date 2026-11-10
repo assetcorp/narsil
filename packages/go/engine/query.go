@@ -6,7 +6,6 @@ import (
 	"math"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -117,14 +116,31 @@ func (n *Narsil) prepareSearch(ctx context.Context, entry *indexEntry, params mo
 	if err := index.RequireUsableVectorSettings(&params); err != nil {
 		return params, index.QueryOptions{}, err
 	}
-	search := &model.SearchContext{IndexName: entry.name, Params: &params}
-	if err := n.plugins.search(ctx, hookBeforeSearch, search); err != nil {
+	params, err := n.beforeSearch(ctx, entry.name, params)
+	if err != nil {
 		return params, index.QueryOptions{}, err
 	}
-	options := index.QueryOptions{Binding: cursor.LazyQueryBinding(params),
-		PhraseReady: func() error { return n.requirePhraseReady(entry) }}
+	options := index.QueryOptions{CursorParams: model.Some(params), PhraseReady: entry.phraseReady}
 	resolved, err := entry.embedQueryText(ctx, index.WithRerankQueryText(params))
 	return resolved, options, err
+}
+
+func (n *Narsil) beforeSearch(ctx context.Context, indexName string, params model.QueryParams) (model.QueryParams, error) {
+	if !n.plugins.hasBeforeSearchHooks() {
+		return params, nil
+	}
+	hooked := params
+	err := n.plugins.search(ctx, hookBeforeSearch, &model.SearchContext{IndexName: indexName, Params: &hooked})
+	return hooked, err
+}
+
+func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model.QueryParams, result model.QueryResult) {
+	if !n.plugins.hasAfterSearchHooks() {
+		return
+	}
+	observed := result
+	observed.Hits = append([]model.Hit(nil), result.Hits...)
+	_ = n.plugins.search(ctx, hookAfterSearch, &model.SearchContext{IndexName: indexName, Params: &params, Results: &observed})
 }
 
 // Query searches the index called indexName and returns one page of ranked
@@ -151,9 +167,7 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 		return model.QueryResult{}, err
 	}
 	result.AnalysisStale = stale
-	observed := result
-	observed.Hits = append([]model.Hit(nil), result.Hits...)
-	_ = n.plugins.search(ctx, hookAfterSearch, &model.SearchContext{IndexName: indexName, Params: &resolved, Results: &observed})
+	n.afterSearch(ctx, indexName, resolved, result)
 	return result, nil
 }
 

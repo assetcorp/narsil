@@ -133,17 +133,21 @@ type location struct {
 	found   bool
 }
 
-func (s *side) locate(id string) location {
+func (s *side) locate(id string) (location, error) {
 	if ordinal, held := s.ids[id]; held {
-		return location{frozen: -1, ordinal: ordinal, found: true}
+		return location{frozen: -1, ordinal: ordinal, found: true}, nil
 	}
 	for at := len(s.frozen) - 1; at >= 0; at-- {
 		held := s.frozen[at]
-		if ordinal, found := held.segment.ordinalOf(id); found && !held.state.Tombstoned(ordinal) {
-			return location{frozen: at, ordinal: ordinal, found: true}
+		ordinal, found, err := held.segment.ordinalOf(id)
+		if err != nil {
+			return location{}, err
+		}
+		if found && !held.state.Tombstoned(ordinal) {
+			return location{frozen: at, ordinal: ordinal, found: true}, nil
 		}
 	}
-	return location{}
+	return location{}, nil
 }
 
 func (s *side) document(at location) (storedDocument, bool, error) {

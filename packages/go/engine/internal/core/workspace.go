@@ -7,7 +7,6 @@ import "C"
 
 import (
 	"runtime"
-	"sync"
 	"unsafe"
 )
 
@@ -19,9 +18,9 @@ type workspaceResources struct {
 	workspace *C.narsil_workspace
 }
 
-var workspacePool = sync.Pool{New: newWorkspace}
+var idleWorkspaces idleList[*Workspace]
 
-func newWorkspace() any {
+func newWorkspace() *Workspace {
 	var created *C.narsil_workspace
 	if C.narsil_workspace_create(&created) != C.NARSIL_OK {
 		return nil
@@ -37,7 +36,10 @@ func releaseWorkspaceResources(resources *workspaceResources) {
 }
 
 func AcquireWorkspace() (*Workspace, error) {
-	workspace, _ := workspacePool.Get().(*Workspace)
+	if workspace, held := idleWorkspaces.take(); held {
+		return workspace, nil
+	}
+	workspace := newWorkspace()
 	if workspace == nil {
 		return nil, &StatusError{Operation: "workspaceCreate", Status: StatusOutOfMemory}
 	}
@@ -45,7 +47,10 @@ func AcquireWorkspace() (*Workspace, error) {
 }
 
 func (w *Workspace) Release() {
-	workspacePool.Put(w)
+	if w.Bytes() > MaxIdleWorkspaceBytes {
+		return
+	}
+	idleWorkspaces.keep(w)
 }
 
 func (w *Workspace) Bytes() uint64 {

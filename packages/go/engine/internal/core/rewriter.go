@@ -161,10 +161,6 @@ func (r *TokenRewriter) lowercase(units []uint16, compose bool) ([]uint16, error
 	return result, nil
 }
 
-func (r *TokenRewriter) LowercaseNFC(units []uint16) ([]uint16, error) {
-	return r.lowercase(units, true)
-}
-
 func (r *TokenRewriter) Lowercase(units []uint16) ([]uint16, error) {
 	return r.lowercase(units, false)
 }

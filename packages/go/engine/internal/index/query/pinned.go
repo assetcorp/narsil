@@ -6,7 +6,6 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
 
 const pinPositionHalfBits = 32
@@ -14,21 +13,6 @@ const pinPositionHalfBits = 32
 type Pin struct {
 	ID       string
 	Position int
-}
-
-type PageEntry struct {
-	ID       string
-	Score    float64
-	HasScore bool
-	SortKey  []any
-}
-
-type PageAnchor struct {
-	ID         string
-	SortKey    []any
-	HasSortKey bool
-	Score      float64
-	HasScore   bool
 }
 
 func DedupePinned(pins []Pin) []Pin {
@@ -135,50 +119,4 @@ func PinnedOrder(ids []string, pins []Pin, depth model.Optional[int]) ([]int32, 
 		}
 	}
 	return order, ranked, nil
-}
-
-func PageStart(entries []PageEntry, anchor PageAnchor, directions []text.SortDirection) (int, error) {
-	if uint64(len(entries)) > math.MaxUint32 {
-		return 0, narsilerr.New(narsilerr.CodeConfigInvalid, "The result page cannot be selected", nil)
-	}
-	words := bitsetWords(uint32(len(entries)))
-	sorted := directions != nil && anchor.HasSortKey
-	request := &core.PageRequest{
-		Count: uint32(len(entries)), Sorted: sorted, AfterAnchor: make([]uint32, words),
-		HasAnchorScore: anchor.HasScore, AnchorScore: anchor.Score,
-	}
-	if !sorted {
-		request.HasScores, request.Scores = true, make([]float64, len(entries))
-	}
-	for position, entry := range entries {
-		comparison := 0
-		if sorted {
-			comparison = text.CompareSortValues(entry.SortKey, anchor.SortKey, directions)
-		}
-		if comparison == 0 {
-			comparison = text.CompareCodePoints(entry.ID, anchor.ID)
-		}
-		if comparison > 0 {
-			setBit(request.AfterAnchor, uint32(position))
-		}
-		if sorted {
-			continue
-		}
-		if !entry.HasScore {
-			if !request.HasScorePresent {
-				request.HasScorePresent, request.ScorePresent = true, make([]uint32, words)
-				for word := range request.ScorePresent {
-					request.ScorePresent[word] = math.MaxUint32
-				}
-			}
-			request.ScorePresent[position>>5] &^= 1 << (position & 31)
-		} else {
-			request.Scores[position] = entry.Score
-		}
-	}
-	start, err := core.PageStart(request)
-	if err != nil {
-		return 0, narsilerr.Wrap(narsilerr.CodeConfigInvalid, "The result page cannot be selected", err, nil)
-	}
-	return int(start), nil
 }

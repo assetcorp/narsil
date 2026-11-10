@@ -18,18 +18,27 @@ type documentEntry struct {
 	raw   []byte
 }
 
+type heldPath struct {
+	path  string
+	value any
+}
+
 type documentState struct {
 	handle    Document
 	decoding  sync.Once
 	stored    []byte
+	borrowed  bool
 	shared    string
 	errorCode string
 	depth     int
 	failure   error
+	fault     error
 	entries   []documentEntry
 	positions map[string]int
 	parent    *documentState
+	later     []heldPath
 	changed   bool
+	opened    bool
 }
 
 func newDocumentState() *documentState {
@@ -207,5 +216,12 @@ func DocumentFailure(document *Document) error {
 	if state == nil {
 		return nil
 	}
-	return state.failure
+	return state.firstFailure()
+}
+
+func (s *documentState) firstFailure() error {
+	if s.fault != nil {
+		return s.fault
+	}
+	return s.failure
 }

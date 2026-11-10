@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -18,9 +18,8 @@ type preparedQuery struct {
 	offset        int
 	sortSignature model.Optional[string]
 	bm25          *model.BM25Params
-	work          *core.WorkMeter
-	closeWork     func()
-	binding       func() string
+	work          *query.Work
+	binding       *cursor.QueryBinding
 	projection    projection.Projection
 	filters       *filterRun
 	reads         *queryReads
@@ -43,9 +42,9 @@ func (q *preparedQuery) close() {
 		q.reads.release()
 		q.reads = nil
 	}
-	if q.closeWork != nil {
-		q.closeWork()
-		q.work, q.closeWork = nil, nil
+	if q.work != nil {
+		q.work.Close()
+		q.work = nil
 	}
 }
 
@@ -78,11 +77,12 @@ func groupFieldsOf(params *model.QueryParams) []string {
 	return params.Group.Fields
 }
 
-func (ix *Index) prepareQuery(request model.QueryParams) (*preparedQuery, error) {
+func (ix *Index) prepareQuery(request model.QueryParams, options QueryOptions) (*preparedQuery, error) {
 	prepared := &preparedQuery{
-		limit:   cursor.ClampLimit(request.Limit),
-		offset:  cursor.ClampOffset(request.Offset),
-		binding: cursor.LazyQueryBinding(request),
+		limit:       cursor.ClampLimit(request.Limit),
+		offset:      cursor.ClampOffset(request.Offset),
+		phraseReady: options.PhraseReady,
+		binding:     cursor.NewQueryBinding(options.CursorParams.Or(request)),
 	}
 	if err := cursor.RequireWithinResultWindow(prepared.limit, prepared.offset); err != nil {
 		return nil, err
@@ -119,11 +119,10 @@ func (ix *Index) prepareQuery(request model.QueryParams) (*preparedQuery, error)
 
 func (ix *Index) openQuery(ctx context.Context, prepared *preparedQuery) error {
 	prepared.ctx = ctx
-	work, closeWork, err := openWorkMeter(ctx, ix.settings.SearchWorkCap)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	prepared.work, prepared.closeWork = work, closeWork
+	prepared.work = query.NewWork(ctx, ix.settings.SearchWorkCap)
 	if err := ix.openReads(prepared, groupFieldsOf(&prepared.params)); err != nil {
 		prepared.close()
 		return err
@@ -168,12 +167,8 @@ func (ix *Index) requireUsablePhrases(term analysedTerm, phraseReady func() erro
 }
 
 type QueryOptions struct {
-	Binding     func() string
-	PhraseReady func() error
-}
-
-func (ix *Index) Query(request model.QueryParams) (model.QueryResult, error) {
-	return ix.QueryWith(context.Background(), request, QueryOptions{})
+	CursorParams model.Optional[model.QueryParams]
+	PhraseReady  func() error
 }
 
 func (ix *Index) QueryContext(ctx context.Context, request model.QueryParams) (model.QueryResult, error) {
@@ -185,13 +180,9 @@ func (ix *Index) QueryWith(ctx context.Context, request model.QueryParams, optio
 	if err := ctx.Err(); err != nil {
 		return model.QueryResult{}, err
 	}
-	prepared, err := ix.prepareQuery(request)
+	prepared, err := ix.prepareQuery(request, options)
 	if err != nil {
 		return model.QueryResult{}, err
-	}
-	prepared.phraseReady = options.PhraseReady
-	if options.Binding != nil {
-		prepared.binding = options.Binding
 	}
 	pass, err := ix.settings.Analyzer.Prepare()
 	if err != nil {

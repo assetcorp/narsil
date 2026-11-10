@@ -1,5 +1,7 @@
 package codec
 
+import "slices"
+
 func DocumentFromMap(record map[string]any) *Document {
 	if record == nil {
 		return nil
@@ -46,6 +48,20 @@ func adoptedValue(value any) any {
 			return nil
 		}
 	}
+	return copiedList(value)
+}
+
+func copiedList(value any) any {
+	switch typed := value.(type) {
+	case []float32:
+		return slices.Clone(typed)
+	case []float64:
+		return slices.Clone(typed)
+	case []string:
+		return slices.Clone(typed)
+	case []byte:
+		return slices.Clone(typed)
+	}
 	return value
 }
 
@@ -57,12 +73,10 @@ func releasedValue(value any) any {
 			released[at] = releasedValue(element)
 		}
 		return released
-	case []byte:
-		return append([]byte{}, typed...)
 	case Extension:
 		return Extension{Type: typed.Type, Data: append([]byte{}, typed.Data...)}
 	}
-	return value
+	return copiedList(value)
 }
 
 func plainValue(value any) any {
@@ -103,12 +117,6 @@ func SnapshotValue(value any) any {
 			copied[at] = SnapshotValue(element)
 		}
 		return copied
-	case []float32:
-		return append([]float32{}, typed...)
-	case []float64:
-		return append([]float64{}, typed...)
-	case []string:
-		return append([]string{}, typed...)
 	}
 	return releasedValue(value)
 }
@@ -124,6 +132,7 @@ func SnapshotDocument(document *Document) *Document {
 	}
 	if source.stored != nil && !source.changed {
 		state.stored, state.shared, state.errorCode, state.depth = source.stored, source.shared, source.errorCode, source.depth
+		state.borrowed = source.borrowed
 		return &state.handle
 	}
 	source.decoding.Do(source.decode)
