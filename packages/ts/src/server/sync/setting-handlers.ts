@@ -5,6 +5,14 @@ import type { RouteContext } from '../request'
 import type { OkResponse } from '../types'
 
 export function createSyncSettingHandlers(engine: Narsil) {
+  async function getSync(ctx: RouteContext): Promise<void> {
+    try {
+      respondJson(ctx, await engine.getSync(ctx.params[0]))
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
   async function updateSync(ctx: RouteContext): Promise<void> {
     const body = parseJson<SyncSetting>(ctx)
     if (body === undefined) return
@@ -16,5 +24,5 @@ export function createSyncSettingHandlers(engine: Narsil) {
     }
   }
 
-  return { updateSync }
+  return { getSync, updateSync }
 }

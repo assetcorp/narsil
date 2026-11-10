@@ -1,11 +1,11 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints } from '#platform/storage-host'
 import type { ExternalIdTable } from '../../core/partition/frozen/external-ids'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
 import { loadFailed } from './format'
 import type { SectionReader } from './section-file'
 
 const VALUE_BYTES = 4
-const decoder = new TextDecoder('utf-8', { fatal: true })
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 function uint32At(reader: SectionReader, index: number): number {
   const bytes = reader.bytesAt(index * VALUE_BYTES, VALUE_BYTES)
@@ -26,7 +26,7 @@ export function createPagedIdTable(
   function idAt(ordinal: number): string {
     const from = uint32At(idOffsets, ordinal)
     const to = uint32At(idOffsets, ordinal + 1)
-    if (to < from || to > ids.length)
+    if (to < from || to > ids.length || (ordinal === 0 && from !== 0) || (ordinal + 1 === count && to !== ids.length))
       loadFailed(`The ID of document ${ordinal} of "${key}" leaves its list`, { ordinal })
     try {
       return decoder.decode(ids.bytesAt(from, to - from))

@@ -1,14 +1,13 @@
 import type { SynonymRule } from '../../types/synonyms'
 import { compareCodePoints } from '../ordering'
-import { encodeLookupKey, encodeStringBlob } from '../partition/frozen/string-blob'
+import { encodeStringBlob } from '../partition/frozen/string-blob'
 import { tokenize } from '../tokenizer'
-import { SYNONYM_EXPANSION_CACHE_ENTRIES, SYNONYMS_ADDED_PER_QUERY } from './constants'
 import { expandQuerySynonyms } from './expand'
+import { synonymSelection } from './selection'
 import type { RaiseSynonymProblem, SynonymAnalysis, SynonymLookup } from './types'
 
 const NO_SOURCE = -1
 const NO_SYNONYMS: readonly string[] = Object.freeze([])
-const decoder = new TextDecoder()
 
 interface Interned {
   ids: Map<string, number>
@@ -52,6 +51,7 @@ function packedLookup(
   ruleStart: Uint32Array,
   ruleTokenIds: readonly number[],
   ruleSource: Int32Array,
+  encodedRules: Uint8Array,
 ): SynonymLookup {
   const order = tokens.map((_, id) => id).sort((a, b) => compareCodePoints(tokens[a], tokens[b]))
   const rank = new Uint32Array(tokens.length)
@@ -74,7 +74,15 @@ function packedLookup(
     else for (let i = ruleStart[rule]; i < ruleStart[rule + 1]; i++) tokenRules[fill[ruleTokens[i]]++] = rule
   }
 
-  const cache = new Map<string, readonly string[]>()
+  const select = synonymSelection({
+    tokens: blob,
+    offsets,
+    ruleStart,
+    ruleSource: sources,
+    ruleTokens,
+    tokenStart: tokenRuleStart,
+    tokenRules,
+  })
   const bytes =
     blob.byteLength +
     offsets.byteLength +
@@ -84,66 +92,13 @@ function packedLookup(
     tokenRuleStart.byteLength +
     tokenRules.byteLength
 
-  function rankOf(token: string): number {
-    const key = encodeLookupKey(token)
-    let low = 0
-    let high = offsets.length - 2
-    while (low <= high) {
-      const middle = (low + high) >>> 1
-      const start = offsets[middle]
-      const end = offsets[middle + 1]
-      let order = 0
-      const shorter = Math.min(end - start, key.length)
-      for (let i = 0; i < shorter && order === 0; i++) order = blob[start + i] - key[i]
-      if (order === 0) order = end - start - key.length
-      if (order === 0) return middle
-      if (order < 0) low = middle + 1
-      else high = middle - 1
-    }
-    return -1
-  }
-
-  function collect(token: number): readonly string[] {
-    const found: number[] = []
-    for (let i = tokenRuleStart[token]; i < tokenRuleStart[token + 1]; i++) {
-      const rule = tokenRules[i]
-      for (let j = ruleStart[rule]; j < ruleStart[rule + 1]; j++) {
-        if (ruleTokens[j] !== token) found.push(ruleTokens[j])
-      }
-    }
-    if (found.length === 0) return NO_SYNONYMS
-    found.sort((a, b) => a - b)
-    const synonyms: string[] = []
-    let previous = -1
-    for (const id of found) {
-      if (synonyms.length === SYNONYMS_ADDED_PER_QUERY) break
-      if (id === previous) continue
-      previous = id
-      synonyms.push(decoder.decode(blob.subarray(offsets[id], offsets[id + 1])))
-    }
-    return Object.freeze(synonyms)
-  }
-
   const lookup: SynonymLookup = {
+    encodedRules,
     tokenCount: tokens.length,
     bytes,
-    expand: queryTokens => expandQuerySynonyms(lookup, queryTokens),
+    expand: queryTokens => expandQuerySynonyms(select(queryTokens)),
     synonymsOf(token: string): readonly string[] {
-      const cached = cache.get(token)
-      if (cached !== undefined) {
-        cache.delete(token)
-        cache.set(token, cached)
-        return cached
-      }
-      const rankOfToken = rankOf(token)
-      if (rankOfToken < 0) return NO_SYNONYMS
-      const synonyms = collect(rankOfToken)
-      if (cache.size >= SYNONYM_EXPANSION_CACHE_ENTRIES) {
-        const oldest = cache.keys().next()
-        if (oldest.done !== true) cache.delete(oldest.value)
-      }
-      cache.set(token, synonyms)
-      return synonyms
+      return select([token]).get(token) ?? NO_SYNONYMS
     },
   }
   return lookup
@@ -153,6 +108,7 @@ export function buildSynonymLookup(
   rules: readonly SynonymRule[],
   analysis: SynonymAnalysis,
   raise: RaiseSynonymProblem | null,
+  encodedRules: Uint8Array,
 ): SynonymLookup | null {
   const analysed = new Map<string, string | number>()
   const interned: Interned = { ids: new Map(), tokens: [] }
@@ -193,5 +149,5 @@ export function buildSynonymLookup(
   }
 
   if (ruleTokenIds.length === 0) return null
-  return packedLookup(interned.tokens, ruleStart, ruleTokenIds, ruleSource)
+  return packedLookup(interned.tokens, ruleStart, ruleTokenIds, ruleSource, encodedRules)
 }

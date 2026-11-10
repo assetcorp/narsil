@@ -149,7 +149,7 @@ export class StrictReader {
   private readonly bytes: Uint8Array
   private readonly view: DataView
   private position: number
-  private readonly decoder = new TextDecoder('utf-8', { fatal: true })
+  private readonly decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
   constructor(bytes: Uint8Array, start: number) {
     this.bytes = bytes

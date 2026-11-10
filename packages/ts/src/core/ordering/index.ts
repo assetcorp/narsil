@@ -1,11 +1,6 @@
 export { compareCodePoints, exceedsCodePoints, holdsUnpairedSurrogate } from './code-points'
-export { appendFoldedCodePoints, compareCaseFolded, compareSortStrings, foldedCodePointCount } from './fold-compare'
-export { FOLD_ENTRY_COUNT, FOLD_UNICODE_VERSION, multiFoldTable, singleFoldTable } from './fold-table'
 export {
   type ComparableSortValue,
-  compareComparableKeys,
-  compareComparableValues,
-  compareSortValues,
   defaultSortMode,
   isSortMode,
   readSortField,
@@ -14,6 +9,5 @@ export {
   type SortMode,
   sortModeOf,
   toComparableSortValue,
-  toReducedSortValue,
   truncateSortString,
 } from './sort-values'

@@ -65,7 +65,7 @@ static const uint32_t keep_ranges[22] = {
 
 const narsil_language narsil_language_hausa = {
   .name = "hausa",
-  .revision = "1",
+  .revision = "3a1d5338bfc9905f",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 228,

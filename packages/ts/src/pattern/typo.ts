@@ -7,7 +7,9 @@ import type {
   PatternMatchRequest,
   PatternWorkMeter,
 } from '../core/pattern-index/types'
-import { BASIC_PLANE_LAST, forEachTextValue } from './text'
+import { storedText } from '../core/stored-values/text'
+import { someStoredText } from './stored-text'
+import { BASIC_PLANE_LAST } from './text'
 import { claimsTypoPreparation } from './typo-claims'
 import {
   distinctTypoRuns,
@@ -131,9 +133,8 @@ function rarestLists(index: PatternIndexReader, test: TypoTest, tally: WorkTally
 export function matchWithinTolerance(request: PatternMatchRequest, test: TypoTest, tally: WorkTally): void {
   const { index, matches } = request
   const checked = new Uint32Array(matches.length)
-  let matched = false
-  const testValue = (value: string): void => {
-    if (!matched) matched = test.comparison.within(value, tally)
+  const testValue = (units: Uint16Array, start: number, length: number): boolean => {
+    return test.comparison.within(storedText(units, start, length), tally)
   }
 
   for (const list of rarestLists(index, test, tally)) {
@@ -142,9 +143,7 @@ export function matchWithinTolerance(request: PatternMatchRequest, test: TypoTes
       if (ordinal >>> 5 >= matches.length || bitsetHas(checked, ordinal)) continue
       bitsetSet(checked, ordinal)
       if (bitsetHas(matches, ordinal)) continue
-      matched = false
-      forEachTextValue(request.valueOf(ordinal), testValue)
-      if (matched) bitsetSet(matches, ordinal)
+      if (someStoredText(request.values, ordinal, testValue)) bitsetSet(matches, ordinal)
     }
   }
 }

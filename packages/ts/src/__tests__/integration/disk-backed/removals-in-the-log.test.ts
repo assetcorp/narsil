@@ -8,12 +8,12 @@ import type { IndexConfig } from '../../../types/schema'
 import { seededRandom } from './oracle'
 
 const INDEX = 'articles'
-const STEMMED_WORDS = ['running', 'jumping', 'walked', 'talking'] as const
+const WORDS = ['running', 'jumping', 'copper', 'talking'] as const
 const WORD_REMOVED_ENTIRELY = 'running'
 const DOCUMENTS = 400
 
 const CONFIG: IndexConfig = {
-  schema: { body: 'string' },
+  schema: { body: 'string:partial' },
   language: 'english',
   textStorage: 'disk',
   surfaceForms: true,
@@ -29,10 +29,14 @@ describe('a removal that an index with its text on disk replays from its log', (
 
   async function expectAnswers(oracle: ReadonlyMap<string, string>): Promise<void> {
     expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
-    for (const word of STEMMED_WORDS) {
+    for (const word of WORDS) {
       const holders = [...oracle].filter(([, body]) => body.split(' ').includes(word)).map(([id]) => id)
       const page = await engine.query(INDEX, { term: word, limit: DOCUMENTS })
       expect(page.hits.map(hit => hit.id).sort()).toEqual(holders.sort())
+      const completion = await engine.query(INDEX, { term: word.slice(0, -1), prefix: true, limit: DOCUMENTS })
+      expect(completion.hits.map(hit => hit.id).sort()).toEqual(holders.sort())
+      const partial = await engine.query(INDEX, { term: word.slice(1, -1), partialWords: true, limit: DOCUMENTS })
+      expect(partial.hits.map(hit => hit.id).sort()).toEqual(holders.sort())
       const suggested = await engine.suggest(INDEX, { prefix: word.slice(0, -1) })
       expect(suggested.terms.map(term => term.term).includes(word), word).toBe(holders.length > 0)
     }
@@ -52,7 +56,7 @@ describe('a removal that an index with its text on disk replays from its log', (
   it('suggests and finds only what the remaining documents hold, through restarts and a merge', async () => {
     const random = seededRandom(9502)
     const oracle = new Map<string, string>()
-    const word = (): string => STEMMED_WORDS[Math.floor(random() * STEMMED_WORDS.length)]
+    const word = (): string => WORDS[Math.floor(random() * WORDS.length)]
     for (let at = 0; at < DOCUMENTS; at++) {
       const body = `${word()} ${word()}`
       await engine.insert(INDEX, { body }, `article-${at}`)

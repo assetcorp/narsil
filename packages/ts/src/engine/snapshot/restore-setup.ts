@@ -1,16 +1,22 @@
-import { resolveIndexAnalysis } from '../../analysis/registry'
-import type { PreparedSynonyms } from '../../core/synonyms/types'
-import { getLanguage } from '../../languages/registry'
-import type { PartitionManager } from '../../partitioning/manager'
-import { requireSavedPartitionCount } from '../../partitioning/saved-partitions'
-import { storedStateOf } from '../../query-suggestions/stored-state'
-import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import {
+  getLanguage,
+  loadSchemaCodeFor,
+  prepareStoredSynonyms,
+  requireSurfaceFormsForPartialFields,
+  resolveIndexAnalysis,
+  storedArrayPositionGap,
+  storedStateOf,
+  validateEmbeddingConfig,
+  validatePatternValueLimit,
+  validateRequiredFieldsInSchema,
   validateSchema,
   validateTextStorage,
   validateVectorPromotion,
   validateVectorStorage,
-} from '../../schema/validator'
+} from '#platform/storage-host'
+import type { PreparedSynonyms } from '../../core/synonyms/types'
+import type { PartitionManager } from '../../partitioning/manager'
+import { requireSavedPartitionCount } from '../../partitioning/saved-partitions'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { StoredQuerySuggestions } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -18,15 +24,11 @@ import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { createDetachedIndex } from '../../workers/detached-index'
 import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import { loadSchemaCodeFor } from '../../workers/schema-code'
 import type { StaleIndex } from '../analysis-rebuild'
-import { storedArrayPositionGap } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import type { WorkerOrchestrator } from '../orchestration/types'
-import { prepareStoredSynonyms } from '../synonym-sets'
-import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
   rejectSnapshot,
@@ -157,7 +159,7 @@ export async function prepareDetachedIndex(
   deps: RestoreDeps,
 ): Promise<DetachedIndex> {
   if (partitionCount !== null) requireSavedPartitionCount(partitionCount, 'snapshot', indexName)
-  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema)
+  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema, prepared.config.tokenizer)
   if (loadingSchemaCode !== null) await loadingSchemaCode
   return createDetachedIndex(
     indexName,

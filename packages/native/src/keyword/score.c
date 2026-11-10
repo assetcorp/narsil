@@ -6,6 +6,7 @@
 #include "select.h"
 
 #include "../math/fdlibm.h"
+#include "../score_order.h"
 
 #include "../../include/narsil_keyword.h"
 
@@ -119,7 +120,7 @@ static void score_members(const list_scan *scan, const row_run *rows) {
     scratch->group_stamps[ordinal] = scratch->group_generation;
     scratch->group_best[ordinal] = sum;
     scratch->group_touched[scratch->group_touched_count++] = ordinal;
-  } else if (sum > scratch->group_best[ordinal]) {
+  } else if (score_order(sum, scratch->group_best[ordinal]) < 0) {
     scratch->group_best[ordinal] = sum;
   }
 }

@@ -9,6 +9,7 @@ const ANALYSIS_METHODS = [
   'languageStopWords',
   'createStopWordSet',
   'analyse',
+  'analysePacked',
   'transform',
 ] as const
 
@@ -59,6 +60,11 @@ function analysisResultOf(value: unknown, name: AnalysisMethod): string | number
   throw new Error(`The native search core returned an unexpected value from ${name}.`)
 }
 
+function packedResultOf(value: unknown): number | null {
+  if (value === null || typeof value === 'number') return value
+  throw new Error('The native search core returned an unexpected value from analysePacked.')
+}
+
 export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
   const languageCount = rawMethodOf(core, 'languageCount')
   const languageName = rawMethodOf(core, 'languageName')
@@ -66,6 +72,7 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
   const languageStopWords = rawMethodOf(core, 'languageStopWords')
   const createStopWordSet = rawMethodOf(core, 'createStopWordSet')
   const analyse = rawMethodOf(core, 'analyse')
+  const analysePacked = rawMethodOf(core, 'analysePacked')
   const transform = rawMethodOf(core, 'transform')
   return {
     languageCount: () => numberOf(languageCount(), 'languageCount'),
@@ -77,6 +84,21 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
       analysisResultOf(
         analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length),
         'analyse',
+      ),
+    analysePacked: (language, flags, text, stopWords, records, units) =>
+      packedResultOf(
+        analysePacked(
+          language,
+          flags,
+          text,
+          stopWords,
+          records.buffer,
+          records.byteOffset,
+          records.length,
+          units.buffer,
+          units.byteOffset,
+          units.length,
+        ),
       ),
     transform(language, flags, token) {
       const result = transform(language, flags, token)

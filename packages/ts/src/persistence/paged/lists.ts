@@ -7,8 +7,10 @@ import type { FrozenTombstones } from '../../core/partition/frozen/tombstones'
 import type { PostingListView } from '../../types/internal'
 import { LIST_VIEWS_HELD_PER_SEGMENT } from './constants'
 import { BLOCK_SUMMARY_BYTES, loadFailed, POSITION_WIDTH_BYTES, POSTING_WIDTH_BYTES } from './format'
+import { requireNativePage } from './native-file'
 import { CACHED_LIST, CACHED_POSITIONS } from './read-cache'
 import type { PagedFile, SectionReader } from './section-file'
+import { readPagedTotals } from './totals'
 
 const LITTLE_ENDIAN_PLATFORM = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 
@@ -66,6 +68,8 @@ export function createListReader(
   const positions = sectionReader('positions')
   const totals = sectionReader('tokenTotals')
   const { cache, fileNumber } = file
+  const fault = new BigUint64Array(3)
+  const total = new Float64Array(1)
 
   function listAt(token: number): PagedPostingList {
     const held = cache.get<PagedPostingList>(fileNumber, CACHED_LIST, token)
@@ -75,7 +79,22 @@ export function createListReader(
     const count = postingOffsets[token + 1] - start
     const buffer = new ArrayBuffer(count * POSTING_WIDTH_BYTES)
     const bytes = new Uint8Array(buffer)
-    postings.read(start * POSTING_WIDTH_BYTES, bytes)
+    const descriptor = postings.native
+    if (descriptor !== null && file.native !== null) {
+      const status = file.native.core.readPagedPostings(
+        descriptor,
+        cache.pageCache(),
+        start,
+        count,
+        snapshot.documentCount,
+        snapshot.fieldNames.length,
+        bytes,
+        fault,
+      )
+      requireNativePage(status, file.path, 'postings', fault[2])
+    } else {
+      postings.read(start * POSTING_WIDTH_BYTES, bytes)
+    }
     if (!LITTLE_ENDIAN_PLATFORM) {
       swappedInPlace(bytes.subarray(0, count * 4), 4)
       swappedInPlace(bytes.subarray(count * 4), 2)
@@ -85,7 +104,7 @@ export function createListReader(
       termFrequencies: new Uint16Array(buffer, count * 4, count),
       fieldNameIndices: new Uint16Array(buffer, count * 6, count),
     }
-    requireListRules(list, snapshot, token)
+    if (descriptor === null || file.native === null) requireListRules(list, snapshot, token)
     cache.put(fileNumber, CACHED_LIST, token, list, buffer.byteLength)
     return list
   }
@@ -102,25 +121,60 @@ export function createListReader(
     const absolute = new Uint32Array(offsetBytes.buffer)
     const first = absolute[0]
     const end = absolute[count]
+    if (
+      end < first ||
+      end * POSITION_WIDTH_BYTES > positions.length ||
+      (start === 0 && first !== 0) ||
+      ((start + count + 1) * POSITION_WIDTH_BYTES === positionOffsets.length &&
+        end * POSITION_WIDTH_BYTES !== positions.length)
+    )
+      loadFailed(`The positions of token ${token} of "${snapshot.key}" leave their section`, { token })
     const offsets = new Uint32Array(count + 1)
-    for (let row = 0; row <= count; row++) {
-      if (absolute[row] < first || absolute[row] > end || (row > 0 && absolute[row] < absolute[row - 1])) {
-        loadFailed(`The position offsets of token ${token} of "${snapshot.key}" leave their list`, { token, row })
-      }
-      offsets[row] = absolute[row] - first
-    }
     const valueBytes = new Uint8Array((end - first) * POSITION_WIDTH_BYTES)
-    positions.read(first * POSITION_WIDTH_BYTES, valueBytes)
-    fromLittleEndian(valueBytes, POSITION_WIDTH_BYTES)
     const loaded: PagedPositions = { offsets, values: new Uint32Array(valueBytes.buffer) }
+    const offsetSection = positionOffsets.native
+    const valueSection = positions.native
+    if (offsetSection !== null && valueSection !== null && file.native !== null) {
+      const status = file.native.core.readPagedPositions(
+        offsetSection,
+        valueSection,
+        cache.pageCache(),
+        start,
+        count,
+        offsets,
+        loaded.values,
+        fault,
+      )
+      requireNativePage(
+        status,
+        file.path,
+        fault[1] === offsetSection.offset ? 'positionOffsets' : 'positions',
+        fault[2],
+      )
+    } else {
+      for (let row = 0; row <= count; row++) {
+        if (absolute[row] < first || absolute[row] > end || (row > 0 && absolute[row] < absolute[row - 1])) {
+          loadFailed(`The position offsets of token ${token} of "${snapshot.key}" leave their list`, { token, row })
+        }
+        offsets[row] = absolute[row] - first
+      }
+      positions.read(first * POSITION_WIDTH_BYTES, valueBytes)
+      fromLittleEndian(valueBytes, POSITION_WIDTH_BYTES)
+      for (let row = 0; row < count; row++) {
+        for (let at = offsets[row] + 1; at < offsets[row + 1]; at++) {
+          if (loaded.values[at] < loaded.values[at - 1])
+            loadFailed(`The positions of token ${token} of "${snapshot.key}" descend`, { token, row })
+        }
+      }
+    }
     cache.put(fileNumber, CACHED_POSITIONS, token, loaded, offsetBytes.byteLength + valueBytes.byteLength)
     return loaded
   }
 
   function totalAt(token: number): number {
     if (totals === null) return loadFailed(`The segment "${snapshot.key}" holds no token totals`)
-    const bytes = totals.bytesAt(token * 8, 8)
-    return new DataView(bytes.buffer, bytes.byteOffset, 8).getFloat64(0, true)
+    readPagedTotals(file, totals, token, total, fault)
+    return total[0]
   }
 
   function listedIndexOf(token: number): number {

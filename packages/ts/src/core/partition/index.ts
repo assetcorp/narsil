@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { partialFieldsOf, schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
+import { computeFacets } from '../../search/facets'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -8,7 +8,6 @@ import type {
   ScoredDocument,
   SerializablePartition,
 } from '../../types/internal'
-import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
@@ -17,20 +16,15 @@ import { createInvertedIndex } from '../inverted-index'
 import type { PatternWorkMeter } from '../pattern-index/types'
 import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats } from '../statistics'
+import { discardStoredValues } from '../stored-values/columns'
 import { createSurfaceRegistry } from '../surface-registry'
-import { withCheckedDocumentTokens } from './custom-tokens'
-import { computeFacets, type FacetMatchSet } from './facets'
-import { updateFieldIndexOnly } from './field-updates'
-import {
-  applyPartitionFilters,
-  applyPartitionFiltersBitset,
-  type PartitionFilterMatches,
-  partitionFilterMatches,
-} from './filters'
-import { indexDocument, removeFromIndexes } from './indexing'
+import type { FacetMatchSet } from './facets'
+import type { PartitionFilterMatches } from './filters'
+import { applyPartitionFilters, applyPartitionFiltersBitset, partitionFilterMatches } from './filters'
+import { discardKeywordSegment, keywordBatch } from './keyword-writes'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
-import { mergeSegmentState } from './merge'
+import { createPartitionMutations } from './mutations'
 import { createGrowingPartialWords, expandPartialWords } from './partial-words/registry'
 import type { PartialWordAnalysis } from './partial-words/spellings'
 import type { AddedWord, PartialWordRequest } from './partial-words/types'
@@ -38,10 +32,10 @@ import type { PartitionIndex } from './partition-index'
 import type { PartitionReadState } from './read-state'
 import { searchFulltext } from './search'
 import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
-import { deserializePartition, serializePartition } from './serialization'
-import { forgetSortValues, recordSortValues, refreshSortColumns, sortedReadsOf } from './sorting'
-import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
-import { getNestedValue, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
+import { refreshSortColumns, sortedReadsOf } from './sorting'
+import { expandTermPrefix, suggestDisplayTerms } from './suggestion-code'
+import type { PartitionSuggestion } from './suggestions'
+import { getNestedValue, type PartitionInsertOptions, type PartitionState } from './utils'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
@@ -73,7 +67,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
   const state: PartitionState = {
     invertedIdx: createInvertedIndex(fieldNameTable),
     docStore,
-    stats: createPartitionStats(),
+    stats: createPartitionStats(into => state.invertedIdx.addDocumentFrequencies(into)),
     surfaceRegistry: createSurfaceRegistry(),
     numericIndexes: new Map(),
     booleanIndexes: new Map(),
@@ -92,9 +86,12 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
   }
 
   function clearAll(): void {
+    state.surfaceRegistry.clear()
+    state.partialWords.clear()
+    discardKeywordSegment(state)
+    discardStoredValues(state.docStore)
     state.invertedIdx.clear()
     state.docStore.clear()
-    state.surfaceRegistry.clear()
     for (const idx of state.numericIndexes.values()) idx.clear()
     for (const idx of state.booleanIndexes.values()) idx.clear()
     for (const idx of state.enumIndexes.values()) idx.clear()
@@ -105,7 +102,6 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.geoIndexes.clear()
     state.patternIndexes.clear()
     state.sizeIndexes.clear()
-    state.partialWords.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
@@ -122,86 +118,16 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return state.stats
     },
 
-    insert(
-      docId: string,
-      document: AnyDocument,
-      schema: SchemaDefinition,
-      language: LanguageModule,
-      options?: PartitionInsertOptions,
-    ): void {
-      if (state.docStore.has(docId)) {
-        throw new NarsilError(
-          ErrorCodes.DOC_ALREADY_EXISTS,
-          `Document "${docId}" already exists in partition ${partitionId}`,
-          { docId, partitionId },
-        )
-      }
-
-      if (options?.validate !== false) {
-        validateDocument(document, schema, options?.patternValueLimit)
-        if (options?.strict) {
-          validateDocumentStrict(document as Record<string, unknown>, schema)
-        }
-      }
-
-      const fields = schemaFieldsOf(schema)
-      const indexing = withCheckedDocumentTokens(document as Record<string, unknown>, fields, options)
-      const internalId = state.docStore.ensureInternalId(docId)
-      const { fieldLengths, tokensByField, partialSpellings } = indexDocument(
-        state,
-        docId,
-        document as Record<string, unknown>,
-        fields,
-        language,
-        indexing,
-      )
-      if (options?.skipClone) {
-        state.docStore.storeRef(docId, document, fieldLengths)
-      } else {
-        state.docStore.store(docId, document, fieldLengths)
-      }
-      state.stats.addDocument(fieldLengths, tokensByField)
-      state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, 1)
-      recordSortValues(state, internalId, document as Record<string, unknown>)
-    },
-
-    remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
-      const stored = state.docStore.get(docId)
-      if (!stored) {
-        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in partition ${partitionId}`, {
-          docId,
-          partitionId,
-        })
-      }
-
-      const { fieldLengths, tokensByField, partialSpellings } = removeFromIndexes(
-        state,
-        docId,
-        stored,
-        schemaFieldsOf(schema),
-        language,
-        options,
-      )
-      const internalId = state.docStore.getInternalId(docId)
-      state.docStore.remove(docId)
-      state.stats.removeDocument(fieldLengths, tokensByField)
-      if (internalId !== undefined) {
-        state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, -1)
-      }
-      forgetSortValues(state, internalId)
-    },
+    ...createPartitionMutations(state, partitionId),
 
     beginBatch(): void {
-      state.invertedIdx.beginBatch()
+      keywordBatch(state, false)
     },
 
     endBatch(): void {
+      keywordBatch(state, true)
       state.invertedIdx.endBatch()
       refreshSortColumns(state)
-    },
-
-    mergeSegment(segment: PartitionIndex): void {
-      mergeSegmentState(state, readSegmentState(segment))
     },
 
     encodeSegment(): SegmentPayload {
@@ -210,56 +136,6 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
       mergeSegmentPayload(state, payload, documents)
-    },
-
-    update(
-      docId: string,
-      document: AnyDocument,
-      schema: SchemaDefinition,
-      language: LanguageModule,
-      options?: PartitionInsertOptions,
-    ): void {
-      const stored = state.docStore.get(docId)
-      if (!stored) {
-        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in partition ${partitionId}`, {
-          docId,
-          partitionId,
-        })
-      }
-
-      if (options?.validate !== false) {
-        validateDocument(document, schema, options?.patternValueLimit)
-        if (options?.strict) {
-          validateDocumentStrict(document as Record<string, unknown>, schema)
-        }
-      }
-
-      const fields = schemaFieldsOf(schema)
-      const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, fields)
-
-      if (needsTextReindex) {
-        const indexing = withCheckedDocumentTokens(document as Record<string, unknown>, fields, options)
-        const previous = removeFromIndexes(state, docId, stored, fields, language, options)
-        state.stats.removeDocument(previous.fieldLengths, previous.tokensByField)
-        const previousInternalId = state.docStore.getInternalId(docId)
-        if (previousInternalId !== undefined) {
-          state.partialWords.afterDocument(partialFieldsOf(schema), previousInternalId, previous.partialSpellings, -1)
-        }
-        state.docStore.remove(docId)
-        forgetSortValues(state, previousInternalId)
-        const internalId = state.docStore.ensureInternalId(docId)
-
-        const next = indexDocument(state, docId, document as Record<string, unknown>, fields, language, indexing)
-        state.docStore.store(docId, document, next.fieldLengths)
-        state.stats.addDocument(next.fieldLengths, next.tokensByField)
-        state.partialWords.afterDocument(partialFieldsOf(schema), internalId, next.partialSpellings, 1)
-        recordSortValues(state, internalId, document as Record<string, unknown>)
-      } else {
-        updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, fields)
-        state.docStore.store(docId, document, stored.fieldLengths)
-        const internalId = state.docStore.getInternalId(docId)
-        if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)
-      }
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
@@ -346,7 +222,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return suggestDisplayTerms(state, surfacePrefix, stemmedPrefix, limit)
     },
 
-    expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
+    expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number) {
       return expandTermPrefix([state], surfacePrefix, stemmedToken, maxExpansions)
     },
 
@@ -363,11 +239,16 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       totalPartitions: number,
       language: string,
       schema: SchemaDefinition,
+      serializePartition: typeof import('./serialization').serializePartition,
     ): SerializablePartition {
       return serializePartition(state, partitionId, indexName, totalPartitions, language, schema)
     },
 
-    deserialize(data: SerializablePartition, schema: SchemaDefinition): void {
+    deserialize(
+      data: SerializablePartition,
+      schema: SchemaDefinition,
+      deserializePartition: typeof import('./serialization').deserializePartition,
+    ): void {
       deserializePartition(state, data, clearAll, schema)
     },
   }

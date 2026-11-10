@@ -1,4 +1,6 @@
-import { toError } from '../../engine/orchestration/eligibility'
+import { toError } from '#platform/storage-host'
+import { holdScheduledCheckpoint } from '../../partitioning/checkpoint-hold'
+import { requireCheckpointLayout } from '../../partitioning/manager/checkpoint-prefix'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { checkpointInTurn, createIndexLoads, switchInTurn } from './checkpoint-turn'
@@ -10,10 +12,11 @@ import {
   DEFAULT_COMPACTION_THRESHOLD,
   DEFAULT_SEGMENT_MAX_BYTES,
 } from './constants'
+import { hasDeferredPublication } from './deferred-mutations'
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { createHeldCheckpoints } from './held-checkpoints'
-import { closePartitionWriter, freezeCoverage, type IndexState, thawCoverage } from './manager-state'
+import { closePartitionWriter, type IndexState } from './manager-state'
 import { createIndexStorageAccess } from './manager-storage'
 import { createMetadataWriteQueue } from './metadata-write-queue'
 import {
@@ -27,7 +30,7 @@ import { buildMutationEntry } from './mutation-entry'
 import { createPartitionFailureRouting } from './partition-failure'
 import { createPartitionRegistry } from './partition-registry'
 import { queryHistoryAccess } from './query-history'
-import { recoverPersistedIndex } from './recover-index'
+import { recoverWithLayoutCheckpoint } from './recover-index'
 import { listPersistedIndexes, removeLeftoverRewriteFiles } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
 import type {
@@ -140,28 +143,28 @@ export function createDurabilityManager(
     fromMemory = false,
     afterInFlight = fromMemory,
     pinsRetiredVectors = false,
+    requested = false,
   ): Promise<void> {
     const indexState = indexes.get(indexName)
     if (indexState === undefined || indexState.unloading || heldCheckpoints.holds(indexName, indexState)) return
-    return checkpointInTurn(indexState, {
-      joinsInFlight: !afterInFlight && !pinsRetiredVectors,
-      mayStart: () => !indexState.unloading && !shuttingDown,
-      perform: () => performCheckpoint(indexName, indexState, fromMemory, pinsRetiredVectors),
-      afterSettling: () => releaseStalledWrites(indexState),
-    })
+    return holdScheduledCheckpoint(
+      checkpointInTurn(indexState, {
+        joinsInFlight: !afterInFlight && !pinsRetiredVectors,
+        mayStart: () => !indexState.unloading && !shuttingDown,
+        perform: () => performCheckpoint(indexName, indexState, fromMemory),
+        afterSettling: () => releaseStalledWrites(indexState),
+      }),
+      requested,
+    )
   }
 
   async function requestedCheckpoint(indexName: string, fromMemory = false, pinsVectors = false): Promise<void> {
     heldCheckpoints.refuse(indexName, indexes.get(indexName))
-    return checkpointIndex(indexName, fromMemory, fromMemory, pinsVectors)
+    await requireCheckpointLayout(hooks.getManager(indexName))
+    return checkpointIndex(indexName, fromMemory, fromMemory, pinsVectors, true)
   }
 
-  async function performCheckpoint(
-    indexName: string,
-    indexState: IndexState,
-    fromMemory = false,
-    pinsRetiredVectors = false,
-  ): Promise<void> {
+  async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
     await directoryWatch.verify()
     if (fatalError !== null) throw fatalError
     await runDurableCheckpoint({
@@ -172,7 +175,6 @@ export function createDurabilityManager(
       compactionThreshold,
       canOffload: canOffloadCheckpoint,
       fromMemory,
-      pinsRetiredVectors,
       mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
@@ -204,12 +206,13 @@ export function createDurabilityManager(
       partitionBatchDeps,
     )
 
-    const recordedByIndex = new Map<string, { records: number; documentBytes: number }>()
+    const recordedByIndex = new Map<string, { records: number; documentBytes: number; deferred: boolean }>()
     for (let i = 0; i < records.length; i++) {
       if (!outcomes[i].ok) continue
-      const recorded = recordedByIndex.get(records[i].indexName) ?? { records: 0, documentBytes: 0 }
+      const recorded = recordedByIndex.get(records[i].indexName) ?? { records: 0, documentBytes: 0, deferred: false }
       recorded.records += 1
       recorded.documentBytes += records[i].document?.byteLength ?? 0
+      recorded.deferred ||= hasDeferredPublication(records[i])
       recordedByIndex.set(records[i].indexName, recorded)
     }
     for (const [indexName, recorded] of recordedByIndex) {
@@ -221,7 +224,7 @@ export function createDurabilityManager(
           markFatal(toError(err))
         })
       }
-      await stallWhileCheckpointsFallBehind(indexState)
+      if (!recorded.deferred) await stallWhileCheckpointsFallBehind(indexState)
     }
     if (recordedByIndex.size === 0) return outcomes
     if (mode === 'sync') await directoryWatch.verify()
@@ -259,18 +262,11 @@ export function createDurabilityManager(
     syncStorage,
   }
 
-  function persistMetadata(indexName: string): Promise<void> {
-    return queueMetadataWrite(indexName, async () => {
-      const metadata = hooks.buildMetadata(indexName)
-      if (metadata === undefined) return
-      const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
-      await directory.atomicWrite(`${indexName}/meta`, bytes)
-      getOrCreateIndexState(indexName)
-    })
-  }
-
   function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
-    return loads.track(indexName, recoverPersistedIndex(recoveryDeps, indexName, metadataOnly), startsGraphRepairs)
+    const recovered = recoverWithLayoutCheckpoint(recoveryDeps, indexName, metadataOnly, () =>
+      performCheckpoint(indexName, getOrCreateIndexState(indexName), true),
+    )
+    return loads.track(indexName, recovered, startsGraphRepairs)
   }
 
   return {
@@ -330,7 +326,17 @@ export function createDurabilityManager(
 
     recordMutations,
 
-    persistMetadata,
+    persistMetadata(indexName: string): Promise<void> {
+      return queueMetadataWrite(indexName, async () => {
+        const metadata = hooks.buildMetadata(indexName)
+        if (metadata === undefined) {
+          return
+        }
+        const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
+        await directory.atomicWrite(`${indexName}/meta`, bytes)
+        getOrCreateIndexState(indexName)
+      })
+    },
 
     checkpoint(indexName: string): Promise<void> {
       return requestedCheckpoint(indexName)
@@ -340,24 +346,15 @@ export function createDurabilityManager(
       return requestedCheckpoint(indexName, true)
     },
 
-    async checkpointAfterSwitch(indexName: string, swap: () => boolean, writesMetadataFirst = false): Promise<boolean> {
+    async checkpointAfterSwitch(indexName: string, swap: () => boolean | Promise<boolean>): Promise<boolean> {
       const indexState = getOrCreateIndexState(indexName)
       heldCheckpoints.refuse(indexName, indexState)
       return switchInTurn(indexState, {
         mayStart: () => !indexState.unloading && !shuttingDown,
         swap,
-        checkpoint: async () => {
-          if (writesMetadataFirst) await persistMetadata(indexName)
-          await performCheckpoint(indexName, indexState, true)
-        },
+        checkpoint: () => performCheckpoint(indexName, indexState, true),
         afterSettling: () => releaseStalledWrites(indexState),
       })
-    },
-
-    holdCheckpointCoverage(indexName: string, held: boolean): void {
-      const indexState = getOrCreateIndexState(indexName)
-      if (held) freezeCoverage(indexState)
-      else thawCoverage(indexState)
     },
 
     async checkpointAfterInFlight(indexName: string): Promise<void> {
@@ -367,7 +364,7 @@ export function createDurabilityManager(
 
     async checkpointAll(): Promise<void> {
       for (const indexName of [...indexes.keys()]) {
-        await checkpointIndex(indexName)
+        await requestedCheckpoint(indexName)
       }
     },
 

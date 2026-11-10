@@ -1,7 +1,10 @@
-import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { requireValidFieldTypes } from '../../../schema/validator/schema'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-codec'
+import {
+  decode,
+  ErrorCodes,
+  NarsilError,
+  openChecksummedEnvelope,
+  requireValidFieldTypes,
+} from '#platform/storage-host'
 import type { PartitionCheckpoint, TermStart } from '../partition-checkpoint'
 import { segmentKey } from './layout'
 import {
@@ -48,11 +51,19 @@ export function listedKeysOf(raw: Record<string, unknown>): string[] {
   return keys
 }
 
-export async function decodeSegmentManifest(data: Uint8Array, indexName: string): Promise<DecodedManifest> {
-  return decodeManifestPayload(await openManifestPayload(data), indexName)
+export async function decodeSegmentManifest(
+  data: Uint8Array,
+  indexName: string,
+  partitionId: number | null = null,
+): Promise<DecodedManifest> {
+  return decodeManifestPayload(await openManifestPayload(data), indexName, partitionId)
 }
 
-export function decodeManifestPayload(raw: Record<string, unknown>, indexName: string): DecodedManifest {
+export function decodeManifestPayload(
+  raw: Record<string, unknown>,
+  indexName: string,
+  partitionId: number | null = null,
+): DecodedManifest {
   if (raw.version === EARLIER_SEGMENT_MANIFEST_VERSION) return { kind: 'earlier', payload: raw }
   if (raw.version !== SEGMENT_MANIFEST_VERSION) {
     throw new NarsilError(
@@ -68,6 +79,20 @@ export function decodeManifestPayload(raw: Record<string, unknown>, indexName: s
   if (raw.analysisGeneration !== undefined && !isSequenceNumber(raw.analysisGeneration)) {
     invalidManifest('has an invalid analysis generation')
   }
+  const checkpoint = normalizeCheckpoint(raw.checkpoint)
+  const partitions = normalizePartitions(raw.partitions, indexName)
+  if (
+    checkpoint.length === 0 ||
+    (partitionId === null
+      ? checkpoint.some((entry, index) => entry.partitionId !== index)
+      : checkpoint.length !== 1 || checkpoint[0].partitionId !== partitionId) ||
+    partitions.length !== checkpoint.length ||
+    partitions.some(entry =>
+      partitionId === null ? entry.partitionId >= checkpoint.length : entry.partitionId !== partitionId,
+    )
+  ) {
+    invalidManifest('has an incomplete partition layout')
+  }
   return {
     kind: 'current',
     manifest: {
@@ -75,8 +100,8 @@ export function decodeManifestPayload(raw: Record<string, unknown>, indexName: s
       schema: schema as Record<string, string>,
       language: raw.language,
       ...(raw.analysisGeneration ? { analysisGeneration: raw.analysisGeneration } : {}),
-      checkpoint: normalizeCheckpoint(raw.checkpoint),
-      partitions: normalizePartitions(raw.partitions, indexName),
+      checkpoint,
+      partitions,
       vectors: normalizeVectorFields(raw.vectors, indexName),
     },
   }

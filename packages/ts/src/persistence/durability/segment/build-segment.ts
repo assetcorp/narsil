@@ -1,15 +1,19 @@
-import { decode } from '@msgpack/msgpack'
-import { createFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import {
+  buildSegmentPayloads,
+  createFrozenSegment,
+  createPartitionManager,
+  createPartitionRouter,
+  decode,
+  decodeMapWithoutFields,
+  prepareDocumentVectors,
+  resolvePartitionInsertOptions,
+  restoreVectorFields,
+} from '#platform/storage-host'
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
-import { buildSegmentPayload, type SegmentDocument } from '../../../core/partition/segment-builder'
-import { restoreVectorFields } from '../../../distribution/replication/replica'
+import type { SegmentDocument } from '../../../core/partition/segment-builder'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { prepareDocumentVectors } from '../../../engine/vector-coordinator'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import { createPartitionManager } from '../../../partitioning/manager'
-import { createPartitionRouter } from '../../../partitioning/router'
 import type { SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
-import { decodeMapWithoutFields } from '../../../serialization/msgpack-without-fields'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 
@@ -94,18 +98,22 @@ export async function buildSegmentFromEntries(input: BuildSegmentInput): Promise
   for (const [docId, document] of live) documents.push({ docId, document })
 
   const manager = createPartitionManager(input.indexName, input.config, input.language, createPartitionRouter(), 1)
-  const payload = buildSegmentPayload(
+  const outputs = buildSegmentPayloads(
     documents,
     input.config.schema,
     input.language,
     resolvePartitionInsertOptions(input.config, manager.analysis),
     input.config.trackPositions ?? true,
   )
-  const segment = createFrozenSegment(
-    payload,
-    documents.map(entry => entry.document),
-  )
-  const built: BuiltSegment = { selections: [{ segment }], tombstones, docCount: live.size }
-  if (input.keepsWriteRecords) built.writeRecords = new Map([[segment, writeRecordsOf(documents, written)]])
+  const built: BuiltSegment = { selections: [], tombstones, docCount: live.size }
+  if (input.keepsWriteRecords) built.writeRecords = new Map()
+  for (const { payload, documents: members } of outputs) {
+    const segment = createFrozenSegment(
+      payload,
+      members.map(entry => entry.document),
+    )
+    built.selections.push({ segment })
+    built.writeRecords?.set(segment, writeRecordsOf(members, written))
+  }
   return built
 }

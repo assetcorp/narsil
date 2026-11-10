@@ -28,13 +28,27 @@ function windowsConfigurations(windowsHeaderDirectory) {
   }))
 }
 
-function configurations(windowsHeaderDirectory) {
+function macosConfigurations(darwinHeaderDirectory) {
+  const headers = ['-nostdlibinc', `-idirafter${darwinHeaderDirectory}`]
+  return [
+    ...Object.entries(APPLE_ARCHITECTURES).map(([arch, appleName]) => ({
+      name: `macOS ${arch} kernels`,
+      extraArguments: [`--target=${appleName}-apple-macos`, ...headers],
+    })),
+    {
+      name: 'macOS portable kernels',
+      extraArguments: [`--target=${APPLE_ARCHITECTURES.arm64}-apple-macos`, '-DNARSIL_PORTABLE_KERNELS', ...headers],
+    },
+  ]
+}
+
+function configurations(windowsHeaderDirectory, darwinHeaderDirectory) {
   const lintedEverywhere = [
     { name: `${process.arch} kernels`, extraArguments: [] },
     { name: 'portable kernels', extraArguments: ['-DNARSIL_PORTABLE_KERNELS'] },
     ...windowsConfigurations(windowsHeaderDirectory),
   ]
-  if (process.platform !== 'darwin') return lintedEverywhere
+  if (process.platform !== 'darwin') return [...lintedEverywhere, ...macosConfigurations(darwinHeaderDirectory)]
   const otherArchitectures = Object.entries(APPLE_ARCHITECTURES).filter(([arch]) => arch !== process.arch)
   return [
     ...lintedEverywhere,
@@ -74,10 +88,10 @@ async function runAll(jobs) {
   return results
 }
 
-const { clangTidy, clangFormat, windowsHeaderDirectory } = lintTools()
+const { clangTidy, clangFormat, windowsHeaderDirectory, darwinHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
-const lintedConfigurations = configurations(windowsHeaderDirectory)
+const lintedConfigurations = configurations(windowsHeaderDirectory, darwinHeaderDirectory)
 const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
 const jobs = lintedConfigurations.flatMap(configuration =>
   sources.map(source => ({

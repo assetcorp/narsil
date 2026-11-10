@@ -1,4 +1,4 @@
-import { VERSION } from '../index'
+import { VERSION } from '#platform/suggestion-store-host'
 import { checksumOfChunks } from './chunk-checksum'
 import {
   type PackedEnvelope,

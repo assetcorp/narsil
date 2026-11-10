@@ -43,9 +43,8 @@ static code_summary summary_of_record(const walk_context *context, const uint8_t
 }
 
 static double distance_from_products(const walk_context *context, uint32_t products, code_summary document,
-                                     code_summary query) {
+                                     code_summary query, double query_step) {
   double document_step = (document.upper - document.lower) / (double)((1U << document.bits) - 1);
-  double query_step = (query.upper - query.lower) / (double)((1U << query.bits) - 1);
   double centred = (document.lower * query.lower * context->store->dimension) +
                    (query.lower * document_step * document.sum) + (document.lower * query_step * query.sum) +
                    (document_step * query_step * (double)products);
@@ -63,14 +62,16 @@ static double distance_from_products(const walk_context *context, uint32_t produ
 double estimate_distance(const walk_context *context, const uint8_t *record) {
   const prepared_code *code = &context->code;
   code_summary query = {code->range.lower, code->range.upper, code->correction, code->sum, code->bits};
-  return distance_from_products(context, level_products(context, record), summary_of_record(context, record), query);
+  return distance_from_products(context, level_products(context, record), summary_of_record(context, record), query,
+                                code->step);
 }
 
 double estimate_pair_distance(const walk_context *context, const uint8_t *first, const uint8_t *second) {
   packed_code document = {first, context->code_bytes, context->store->bits};
   uint32_t products = kernel_pair_products(document, second, context->store->dimension);
-  return distance_from_products(context, products, summary_of_record(context, first),
-                                summary_of_record(context, second));
+  code_summary query = summary_of_record(context, second);
+  double query_step = (query.upper - query.lower) / (double)((1U << query.bits) - 1);
+  return distance_from_products(context, products, summary_of_record(context, first), query, query_step);
 }
 
 double walk_distance(const walk_context *context, int32_t ordinal) {
@@ -97,7 +98,8 @@ narsil_status narsil_score(narsil_workspace *workspace, const narsil_store *stor
   context.metric = (narsil_metric)request->metric;
   float_query measured = {request->query, (double)kernel_magnitude(request->query, store->dimension)};
   for (uint32_t i = 0; i < request->count; i++) {
-    distances[i] = float_distance(&context, measured, request->ordinals[i]);
+    int32_t ordinal = request->ordinals[i];
+    distances[i] = store_admits(ordinal, store, request->pin) ? float_distance(&context, measured, ordinal) : HUGE_VAL;
   }
   return NARSIL_OK;
 }

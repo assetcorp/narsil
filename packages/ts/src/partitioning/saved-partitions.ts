@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { MAX_PARTITIONS } from './constants'
+import { ErrorCodes, MAX_PARTITIONS, NarsilError } from '#platform/storage-host'
 
 export function requireSavedPartitionCount(partitionCount: number, source: string, indexName: string): void {
   if (partitionCount <= MAX_PARTITIONS) return

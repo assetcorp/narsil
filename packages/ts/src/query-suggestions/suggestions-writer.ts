@@ -1,6 +1,11 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  BUILD_LIST_PAGE,
+  BUILD_WRITE_BATCH,
+  ErrorCodes,
+  NarsilError,
+  SUGGESTIONS_INDEX_INFIX,
+} from '#platform/suggestions-host'
 import type { AnyDocument } from '../types/schema'
-import { BUILD_LIST_PAGE, BUILD_WRITE_BATCH, SUGGESTIONS_INDEX_INFIX } from './constants'
 import type { SuggestionsHost } from './host'
 
 export const ORIGIN_POPULAR = 'popular'

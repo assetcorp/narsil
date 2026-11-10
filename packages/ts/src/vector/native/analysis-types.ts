@@ -51,9 +51,9 @@ export interface NativeAnalysisCore {
    * @param flags - The analysis steps to take, as bits from the core's header.
    * @param text - The text.
    * @param stopWords - The stop words to remove, or `null` for the module's own list.
-   * @param records - The array that receives the token count in its first entry and then seven entries for
+   * @param records - The array that receives the token count in its first entry and then eight entries for
    * each token: its position, the offset and length of its term, the offset and length of its surface form
-   * (an offset of 0xffffffff where it has none), and the offset and length of its original spelling.
+   * (an offset of 0xffffffff where it has none), the offset and length of its original spelling, and its cache slot.
    * @returns The text that every offset points into, `null` where `records` holds too few entries for every
    * token (its first entry then holds the token count), or a negative status code from the core's header.
    */
@@ -64,6 +64,30 @@ export interface NativeAnalysisCore {
     stopWords: NativeStopWordSetHandle | null,
     records: Uint32Array,
   ): string | number | null
+  /**
+   * Splits a text into tokens and packs them for a keyword write into the caller's buffers, so a caller can reuse
+   * the same two buffers for every text.
+   *
+   * @param language - The index of the language module to analyse with.
+   * @param flags - The analysis steps to take, as bits from the core's header.
+   * @param text - The text.
+   * @param stopWords - The stop words to remove, or `null` for the module's own list.
+   * @param records - At least two entries, filled with the token count and then eight words for each token, laid
+   * out as {@link NativeAnalysisCore.analyse} lays them out, with offsets into `units`, zero original-spelling
+   * words, and a cache slot of 0xffffffff.
+   * @param units - The array that receives the term and surface text of every token.
+   * @returns The number of units written, `null` where either array holds too few entries (the first entry of
+   * `records` then holds the token count and the second the number of units needed), or a negative status code
+   * from the core's header.
+   */
+  analysePacked(
+    language: number,
+    flags: number,
+    text: string,
+    stopWords: NativeStopWordSetHandle | null,
+    records: Uint32Array,
+    units: Uint16Array,
+  ): number | null
   /**
    * Normalises and stems one token without splitting it.
    *

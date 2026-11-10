@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { isSyncEpoch } from '../../sync/epoch'
+import { ErrorCodes, isSyncEpoch, NarsilError } from '#platform/storage-host'
 import type { IndexMetadata, StoredSyncSetting } from '../../types/internal'
 
 export interface RawSyncMetadata {

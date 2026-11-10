@@ -1,11 +1,18 @@
+import {
+  GRAPH_RETIRED,
+  insertNode,
+  nodeCountOf,
+  openGraphState,
+  openSharedQuantizer,
+  STORE_ORDINAL_LAYOUT_GENERATION,
+  searchOrdinals,
+  tombstoneCountOf,
+  withTransientAdmission,
+} from '#platform/vector-host'
 import type { VectorMetric } from '../brute-force'
-import { GRAPH_RETIRED } from '../hnsw/handles'
-import { insertNode } from '../hnsw/mutation'
-import { type GraphSearchOptions, type OrdinalHit, searchOrdinals } from '../hnsw/search'
-import { type HNSWGraphState, nodeCountOf, tombstoneCountOf } from '../hnsw/shared'
-import { openGraphState } from '../hnsw/state'
-import { openSharedQuantizer, type SharedQuantizerView } from '../osq/view'
-import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
+import type { GraphSearchOptions, OrdinalHit } from '../hnsw/search'
+import type { HNSWGraphState } from '../hnsw/shared'
+import type { SharedQuantizerView } from '../osq/view'
 import { openSharedVectorStore, type SharedVectorStoreView } from '../vector-store/view'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from './types'
 
@@ -133,8 +140,14 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
     },
 
     searchOrdinals(query, k, metric, minSimilarity, options) {
-      if (graph === null) return []
-      return searchOrdinals(graph, docIdOf, query, k, metric, minSimilarity, options)
+      const current = graph
+      if (current === null) return []
+      if (options.admission !== undefined) {
+        return searchOrdinals(current, docIdOf, query, k, metric, minSimilarity, options)
+      }
+      return withTransientAdmission(store, admission =>
+        searchOrdinals(current, docIdOf, query, k, metric, minSimilarity, { ...options, admission }),
+      )
     },
   }
 }

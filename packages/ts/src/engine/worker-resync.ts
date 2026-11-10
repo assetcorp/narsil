@@ -1,17 +1,19 @@
-import { isCompositePartition } from '../core/partition/composite'
+import { ErrorCodes, isCompositePartition, NarsilError } from '#platform/worker-copies-host'
 import { type SharedFrozenSegment, shareFrozenSegment } from '../core/partition/frozen/share'
 import type { PartitionIndex } from '../core/partition/partition-index'
 import type { SegmentPayload } from '../core/partition/segment-payload'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
-import type { Executor } from '../workers/executor'
+import type { CopyPublication } from '../workers/copy-publication'
+import { holdCopyPublication } from '../workers/copy-publication'
+import { type Executor, executeRetained } from '../workers/executor'
 import type { WorkerPool } from '../workers/pool'
 
 export interface CopySource {
   config: IndexConfig
   synonyms: Uint8Array | null
+  onPublication?: (publication: CopyPublication) => void
 }
 
 let copyLoadSequence = 0
@@ -23,6 +25,7 @@ interface CapturedLiveTail {
 
 interface CapturedPartition {
   partitionId: number
+  empty: SerializablePartition
   live: CapturedLiveTail | null
   frozen: SharedFrozenSegment[]
 }
@@ -68,7 +71,12 @@ function captureComposite(manager: PartitionManager, partitionId: number): Captu
     if (shared === null) return null
     frozen.push(shared)
   }
-  return { partitionId, live: captureLiveTail(partition.live), frozen }
+  return {
+    partitionId,
+    empty: emptySerializablePartition(manager, partitionId),
+    live: captureLiveTail(partition.live),
+    frozen,
+  }
 }
 
 function capturePartitions(manager: PartitionManager): CapturedPartition[] {
@@ -77,12 +85,41 @@ function capturePartitions(manager: PartitionManager): CapturedPartition[] {
     captured.push(
       captureComposite(manager, partitionId) ?? {
         partitionId,
+        empty: emptySerializablePartition(manager, partitionId),
         live: captureLiveTail(manager.getPartition(partitionId)),
         frozen: [],
       },
     )
   }
   return captured
+}
+
+async function captureCopy(manager: PartitionManager) {
+  for (;;) {
+    const vectors = [...manager.getVectorIndexes()]
+    await Promise.all(vectors.map(([, vector]) => vector.prepareCopyPublication()))
+    const captured = await manager.publication.write(() => {
+      const current = manager.getVectorIndexes()
+      if (current.size !== vectors.length || vectors.some(([name, vector]) => current.get(name) !== vector)) return null
+      if (vectors.some(([, vector]) => vector.maintenanceStatus().loadingFromFiles)) return null
+      const partitions = capturePartitions(manager)
+      const { embedding, ...settings } = manager.config
+      const config: IndexConfig = structuredClone({
+        ...settings,
+        ...(embedding === undefined
+          ? {}
+          : {
+              embedding: {
+                fields: embedding.fields,
+                ...(typeof embedding.adapter === 'string' ? { adapter: embedding.adapter } : {}),
+              },
+            }),
+      })
+      const synonyms = manager.synonyms?.encodedRules.slice() ?? null
+      return { captured: partitions, config, synonyms, held: holdCopyPublication(manager, false) }
+    })
+    if (captured !== null) return captured
+  }
 }
 
 async function sendPartition(
@@ -97,7 +134,7 @@ async function sendPartition(
         type: 'deserialize',
         indexName,
         partitionId: captured.partitionId,
-        data: emptySerializablePartition(manager, captured.partitionId),
+        data: captured.empty,
         requestId: `resync-${indexName}-${captured.partitionId}`,
       }),
     ),
@@ -191,29 +228,52 @@ export async function loadIndexOntoWorkers(
 ): Promise<string> {
   copyLoadSequence += 1
   const copyLoad = `${indexName}#${copyLoadSequence}`
-  const captured = capturePartitions(manager)
-  await Promise.allSettled(
-    executors.map(workerExecutor =>
-      workerExecutor.execute({ type: 'dropIndex', indexName, requestId: `resync-drop-${indexName}` }),
-    ),
-  )
-  onDropped?.()
-  await Promise.all(
-    executors.map(workerExecutor =>
-      workerExecutor.execute({
-        type: 'createIndex',
-        indexName,
-        config: source.config,
-        requestId: `resync-create-${indexName}`,
-        analysisStale,
-        copyLoad,
-        partitionCount: captured.length,
-        ...(source.synonyms !== null ? { synonyms: source.synonyms } : {}),
-      }),
-    ),
-  )
-  for (const partition of captured) {
-    await sendPartition(manager, executors, partition)
+  const { captured, held, config, synonyms } = await captureCopy(manager)
+  try {
+    source.onPublication?.(held.publication)
+    await Promise.allSettled(
+      executors.map(workerExecutor =>
+        workerExecutor.execute({ type: 'dropIndex', indexName, requestId: `resync-drop-${indexName}` }),
+      ),
+    )
+    onDropped?.()
+    const created = await Promise.allSettled(
+      executors.map(workerExecutor =>
+        executeRetained(
+          workerExecutor,
+          {
+            type: 'createIndex',
+            indexName,
+            config,
+            requestId: `resync-create-${indexName}`,
+            analysisStale,
+            copyLoad,
+            publication: held.publication,
+            partitionCount: captured.length,
+            ...(synonyms !== null ? { synonyms } : {}),
+          },
+          held.retain(),
+        ),
+      ),
+    )
+    const failure = created.find(result => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
+    for (const partition of captured) {
+      await sendPartition(manager, executors, partition)
+    }
+    return copyLoad
+  } catch (error) {
+    await Promise.allSettled(
+      executors.map(executor =>
+        executor.execute({
+          type: 'dropIndex',
+          indexName,
+          requestId: `failed-load-${copyLoad}`,
+        }),
+      ),
+    )
+    throw error
+  } finally {
+    held.release()
   }
-  return copyLoad
 }

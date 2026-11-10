@@ -61,6 +61,14 @@ function openDurable(directory: string): Promise<Narsil> {
   return createNarsil({ workers: { enabled: false }, durability: { directory } }).then(track)
 }
 
+function openFromMetadataAlone(directory: string): Promise<Narsil> {
+  return createNarsil({
+    workers: { enabled: false },
+    durability: { directory },
+    lifecycle: { idleTimeoutMs: 60_000 },
+  }).then(track)
+}
+
 function withPartitionLimit(raw: Record<string, unknown>, maxPartitions: number): Record<string, unknown> {
   return {
     ...raw,
@@ -71,6 +79,17 @@ function withPartitionLimit(raw: Record<string, unknown>, maxPartitions: number)
 function withEmptyPartitionNumbered(raw: Record<string, unknown>, partitionId: number): Record<string, unknown> {
   const listed = raw.partitions as Array<Record<string, unknown>>
   return { ...raw, partitions: [...listed, { partitionId, nextSegmentId: 0, segments: [] }] }
+}
+
+function withEmptyPartitionsUpTo(raw: Record<string, unknown>, partitionCount: number): Record<string, unknown> {
+  const checkpoint = raw.checkpoint as Array<Record<string, unknown>>
+  const partitions = raw.partitions as Array<Record<string, unknown>>
+  const first = checkpoint[0]
+  for (let partitionId = checkpoint.length; partitionId < partitionCount; partitionId += 1) {
+    checkpoint.push({ ...first, partitionId })
+    partitions.push({ partitionId, nextSegmentId: 0, segments: [] })
+  }
+  return { ...raw, checkpoint, partitions }
 }
 
 async function archiveOf(maxPartitions: number, partitionCount: number) {
@@ -118,30 +137,50 @@ describe('a saved index that numbers a partition 65,536 or higher', () => {
   it.each([
     PARTITION_ID_LIMIT + 1,
     LARGEST_UINT32,
-  ])('refuses metadata that counts %d partitions', async partitionCount => {
+  ])('refuses metadata that counts %d partitions where the metadata alone gives the layout', async partitionCount => {
     const directory = await savedIndex(2, 2)
     await rewriteSaved(directory, 'meta', raw => ({ ...raw, partition_count: partitionCount }))
 
-    await expect(openDurable(directory)).rejects.toMatchObject({
+    await expect(openFromMetadataAlone(directory)).rejects.toMatchObject({
       code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
       details: { indexName: INDEX, partitionId: partitionCount - 1 },
     })
   })
 
   it.each([
+    PARTITION_ID_LIMIT + 1,
+    LARGEST_UINT32,
+  ])('opens the layout of the segment manifest over metadata that counts %d partitions', async partitionCount => {
+    const directory = await savedIndex(2, 2)
+    await rewriteSaved(directory, 'meta', raw => ({ ...raw, partition_count: partitionCount }))
+
+    await expectLayout(await openDurable(directory), INDEX, titlesUpTo(DOCUMENTS), 2)
+  })
+
+  it.each([
     PARTITION_ID_LIMIT,
     LARGEST_UINT32,
-  ])('refuses a segment manifest that numbers a partition %d', async partitionId => {
+  ])('refuses a segment manifest that numbers a partition %d after a gap', async partitionId => {
     const directory = await savedIndex(2, 2)
     await rewriteSaved(directory, 'manifest', raw => withEmptyPartitionNumbered(raw, partitionId))
 
+    await expect(openDurable(directory)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_LOAD_FAILED })
+  })
+
+  it('refuses a segment manifest that lists every partition from 0 to 65,536', async () => {
+    const directory = await savedIndex(2, 2)
+    await rewriteSaved(directory, 'manifest', raw => withEmptyPartitionsUpTo(raw, PARTITION_ID_LIMIT + 1))
+
     await expect(openDurable(directory)).rejects.toMatchObject({
       code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      details: { indexName: INDEX, partitionId },
+      details: { indexName: INDEX, partitionId: PARTITION_ID_LIMIT },
     })
   })
 
-  it.each([PARTITION_ID_LIMIT, LARGEST_UINT32])('refuses an archive that numbers a partition %d', async partitionId => {
+  it.each([
+    PARTITION_ID_LIMIT,
+    LARGEST_UINT32,
+  ])('refuses an archive that numbers a partition %d after a gap', async partitionId => {
     const { engine, entries } = await archiveOf(2, 2)
     const archive = writeTar(
       withEntry(
@@ -151,9 +190,23 @@ describe('a saved index that numbers a partition 65,536 or higher', () => {
       ),
     )
 
+    await expect(engine.restore('copy', archive)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_LOAD_FAILED })
+    expect(engine.listIndexes().map(index => index.name)).toEqual([INDEX])
+  })
+
+  it('refuses an archive that lists every partition from 0 to 65,536', async () => {
+    const { engine, entries } = await archiveOf(2, 2)
+    const archive = writeTar(
+      withEntry(
+        entries,
+        'manifest',
+        resealed(entries[1].data, raw => withEmptyPartitionsUpTo(raw, PARTITION_ID_LIMIT + 1)),
+      ),
+    )
+
     await expect(engine.restore('copy', archive)).rejects.toMatchObject({
       code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      details: { indexName: 'copy', partitionId },
+      details: { indexName: 'copy', partitionId: PARTITION_ID_LIMIT },
     })
     expect(engine.listIndexes().map(index => index.name)).toEqual([INDEX])
   })

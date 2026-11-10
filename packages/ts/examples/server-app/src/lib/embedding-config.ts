@@ -1,5 +1,6 @@
 import process from 'node:process'
 import type { DatasetId } from '@delali/narsil-example-shared/manifest'
+import { LOCAL_EMBEDDING_ADAPTER_NAME } from './model-names.ts'
 
 export interface EmbeddingProviderConfig {
   apiKey: string
@@ -11,10 +12,25 @@ export interface EmbeddingProviderConfig {
 /* The .ts extension keeps this file loadable by plain Node with type
  * stripping, which the demo Narsil server's child process runs under. */
 export { EMBEDDING_FIELD } from './ask/types.ts'
-export const EMBEDDING_ADAPTER_NAME = 'openai'
+export const OPENAI_EMBEDDING_ADAPTER_NAME = 'openai'
 export const DEFAULT_EMBEDDING_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
 export const DEFAULT_EMBEDDING_DIMENSIONS = 1536
+
+export { LOCAL_EMBEDDING_ADAPTER_NAME, RERANK_ADAPTER_NAME } from './model-names.ts'
+
+export const LOCAL_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2'
+export const LOCAL_EMBEDDING_DIMENSIONS = 384
+export const LOCAL_EMBEDDING_DTYPE = 'q8'
+
+export const RERANK_MODEL = 'Xenova/ms-marco-MiniLM-L-6-v2'
+export const RERANK_DTYPE = 'q8'
+
+export interface EmbeddingChoice {
+  adapterName: string
+  model: string
+  dimensions: number
+}
 
 /**
  * Wikipedia articles run up to ~190k characters, far past the ~8k-token
@@ -28,6 +44,7 @@ const EMBEDDING_SOURCE_FIELDS: Partial<Record<DatasetId, string[]>> = {
   tmdb: ['title', 'overview', 'tagline'],
   wikipedia: ['title', WIKIPEDIA_LEAD_FIELD],
   scifact: ['title', 'text'],
+  places: ['summary'],
 }
 
 export function embeddingSourceFields(datasetId: DatasetId): string[] | null {
@@ -55,12 +72,11 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
 }
 
 /**
- * Resolves the embedding provider from the environment. Returns null when no
- * API key is configured, which keeps every dataset load keyword-only exactly
- * as it was before embeddings existed. Read per call so the demo server and
- * the load pipeline always agree on the current environment.
+ * Resolves the OpenAI-compatible embedding provider from the environment.
+ * Returns null when no API key is configured. Read per call so the demo server
+ * and the load pipeline always agree on the current environment.
  */
-export function readEmbeddingConfig(): EmbeddingProviderConfig | null {
+export function readOpenAIEmbeddingConfig(): EmbeddingProviderConfig | null {
   const apiKey = firstNonEmpty(process.env.ASK_EMBEDDING_API_KEY, process.env.OPENAI_API_KEY)
   if (apiKey === undefined) return null
 
@@ -83,4 +99,16 @@ export function readEmbeddingConfig(): EmbeddingProviderConfig | null {
   }
 
   return { apiKey, baseUrl, model, dimensions }
+}
+
+export function chooseEmbedding(): EmbeddingChoice {
+  const openai = readOpenAIEmbeddingConfig()
+  if (openai !== null) {
+    return { adapterName: OPENAI_EMBEDDING_ADAPTER_NAME, model: openai.model, dimensions: openai.dimensions }
+  }
+  return {
+    adapterName: LOCAL_EMBEDDING_ADAPTER_NAME,
+    model: LOCAL_EMBEDDING_MODEL,
+    dimensions: LOCAL_EMBEDDING_DIMENSIONS,
+  }
 }

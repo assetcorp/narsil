@@ -1,8 +1,13 @@
-import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
-import { yieldToEventLoop } from '../engine/orchestration/turn'
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  createPartitionIndex,
+  ErrorCodes,
+  NarsilError,
+  REBALANCE_CHUNK_SIZE,
+  writePartitionDocument,
+  yieldToEventLoop,
+} from '#platform/storage-host'
+import type { PartitionIndex, PartitionInsertOptions } from '../core/partition'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
-import { REBALANCE_CHUNK_SIZE } from './constants'
 import type { PartitionManager } from './manager'
 import type { PartitionRouter } from './router'
 
@@ -19,15 +24,8 @@ export interface Rebalancer {
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
     spill?: RewriteSpill | null,
-    swapPartitions?: SwapPartitions,
   ): Promise<void>
   isRebalancing(): boolean
-}
-
-export type SwapPartitions = (manager: PartitionManager, partitions: PartitionIndex[]) => Promise<void>
-
-async function setPartitionsAtOnce(manager: PartitionManager, partitions: PartitionIndex[]): Promise<void> {
-  manager.setPartitions(partitions)
 }
 
 export function createRebalancer(): Rebalancer {
@@ -40,7 +38,6 @@ export function createRebalancer(): Rebalancer {
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
     spill: RewriteSpill | null = null,
-    swapPartitions: SwapPartitions = setPartitionsAtOnce,
   ): Promise<void> {
     if (activeManagers.has(manager)) {
       throw new NarsilError(
@@ -107,7 +104,14 @@ export function createRebalancer(): Rebalancer {
           const targetPartition = newPartitions[targetPartitionId]
 
           if (!targetPartition.has(docId)) {
-            targetPartition.insert(docId, document, manager.schema, manager.language, insertOptions)
+            newPartitions[targetPartitionId] = writePartitionDocument(
+              targetPartition,
+              docId,
+              document,
+              manager.schema,
+              manager.language,
+              insertOptions,
+            ).partition
             documentsProcessed++
           }
 
@@ -140,7 +144,7 @@ export function createRebalancer(): Rebalancer {
         documentsTotal,
       })
 
-      await swapPartitions(manager, newPartitions)
+      await manager.publication.write(() => manager.setPartitions(newPartitions))
 
       onProgress?.({
         phase: 'complete',

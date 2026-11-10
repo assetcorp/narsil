@@ -1,5 +1,17 @@
+#include "expansion/internal.h"
+#include "facets/scratch.h"
+#include "filters/internal.h"
+#include "group_merge/scratch.h"
+#include "groups/scratch.h"
+#include "highlight/scratch.h"
 #include "internal.h"
 #include "keyword/scratch.h"
+#include "paged/cache.h"
+#include "paged_vectors/scratch.h"
+#include "pattern/internal.h"
+#include "phrases/scratch.h"
+#include "segments/scratch.h"
+#include "terms/scratch.h"
 
 #include "../include/narsil_core.h"
 
@@ -16,6 +28,18 @@
 int32_t narsil_core_abi_version(void) { return NARSIL_CORE_ABI_VERSION; }
 
 keyword_scratch *workspace_keyword_scratch(narsil_workspace *workspace) { return &workspace->keyword; }
+group_merge_scratch *workspace_group_merge_scratch(narsil_workspace *workspace) { return &workspace->group_merge; }
+group_scratch *workspace_group_scratch(narsil_workspace *workspace) { return &workspace->groups; }
+facet_scratch *workspace_facet_scratch(narsil_workspace *workspace) { return &workspace->facets; }
+filter_scratch *workspace_filter_scratch(narsil_workspace *workspace) { return &workspace->filters; }
+pattern_scratch *workspace_pattern_scratch(narsil_workspace *workspace) { return &workspace->pattern; }
+term_scratch *workspace_term_scratch(narsil_workspace *workspace) { return &workspace->terms; }
+segment_scratch *workspace_segment_scratch(narsil_workspace *workspace) { return &workspace->segments; }
+phrase_scratch *workspace_phrase_scratch(narsil_workspace *workspace) { return &workspace->phrases; }
+expansion_scratch *workspace_expansion_scratch(narsil_workspace *workspace) { return &workspace->expansion; }
+highlight_scratch *workspace_highlight_scratch(narsil_workspace *workspace) { return &workspace->highlight; }
+paged_scratch *workspace_paged_scratch(narsil_workspace *workspace) { return &workspace->paged; }
+paged_vector_scratch *workspace_paged_vector_scratch(narsil_workspace *workspace) { return &workspace->paged_vectors; }
 
 uint32_t grown_capacity(uint32_t first, uint32_t needed) {
   uint32_t capacity = first;
@@ -73,6 +97,23 @@ void narsil_workspace_destroy(narsil_workspace *workspace) {
   free(workspace->visited);
   free(workspace->entry_points);
   keyword_scratch_release(&workspace->keyword);
+  free(workspace->group_merge.allocation);
+  free(workspace->groups.allocation);
+  free(workspace->sort.allocation);
+  free(workspace->sort_order.allocation);
+  free(workspace->facets.allocation);
+  free(workspace->filters.words);
+  free(workspace->filters.geo.edges);
+  pattern_scratch_release(&workspace->pattern);
+  term_scratch_release(&workspace->terms);
+  segment_scratch_release(&workspace->segments);
+  phrase_scratch_release(&workspace->phrases);
+  expansion_scratch_release(&workspace->expansion);
+  highlight_release(&workspace->highlight);
+  free(workspace->paged.page);
+  free(workspace->paged.values);
+  free(workspace->paged.offsets);
+  paged_vector_release(&workspace->paged_vectors);
   free(workspace);
 }
 
@@ -114,7 +155,15 @@ size_t narsil_workspace_bytes(const narsil_workspace *workspace) {
   return sizeof *workspace + ((size_t)workspace->frontier.capacity * heap_entry) +
          ((size_t)workspace->found.capacity * heap_entry) + ((size_t)workspace->visited_capacity * sizeof(uint32_t)) +
          ((size_t)workspace->entry_point_capacity * sizeof(int32_t)) + workspace->dimension_scratch_bytes +
-         link_bytes(workspace) + keyword_scratch_bytes(&workspace->keyword);
+         link_bytes(workspace) + keyword_scratch_bytes(&workspace->keyword) + workspace->group_merge.bytes +
+         workspace->groups.bytes + workspace->sort.bytes + workspace->sort_order.bytes + workspace->facets.bytes +
+         (workspace->filters.capacity * sizeof *workspace->filters.words) +
+         (workspace->filters.geo.capacity * sizeof *workspace->filters.geo.edges) +
+         pattern_scratch_bytes(&workspace->pattern) + term_scratch_bytes(&workspace->terms) +
+         segment_scratch_bytes(&workspace->segments) + phrase_scratch_bytes(&workspace->phrases) +
+         expansion_scratch_bytes(&workspace->expansion) + highlight_bytes(&workspace->highlight) +
+         workspace->paged.capacity + workspace->paged.value_capacity + workspace->paged.offset_capacity +
+         paged_vector_bytes(&workspace->paged_vectors);
 }
 
 narsil_status workspace_reserve_dimension(narsil_workspace *workspace, uint32_t dimension) {

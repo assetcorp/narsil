@@ -1,7 +1,6 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, MAX_M, MIN_M, NarsilError } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import type { NumberedGraphParts, NumberedHnswGraph } from '../hnsw'
-import { MAX_M, MIN_M } from '../hnsw/constants'
 import { codesOf, VECTOR_INDEX_PART_VECTORS, type VectorIndexCodes } from './payload'
 import { requireBoundedUpperLists } from './upper-list-bound'
 

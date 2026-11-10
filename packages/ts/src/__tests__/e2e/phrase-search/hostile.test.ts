@@ -144,7 +144,7 @@ describe('a tokeniser that returns its positions out of order', () => {
     const writer = await createNarsil(config)
     await writer.createIndex(INDEX, { schema: { title: 'string' }, tokenizer: 'phrase-backwards' })
     await writer.insertBatch(INDEX, [
-      { id: 'in-order', title: 'cold olive oil here' },
+      { id: 'in-order', title: 'cold olive oil olive oil here' },
       { id: 'reversed', title: 'oil olive cold' },
     ])
     expect((await writer.query(INDEX, { term: '"olive oil"' })).hits.map(hit => hit.id)).toEqual(['in-order'])
@@ -198,6 +198,34 @@ describe('a release 0.3 index whose numeric ids put its posting lists out of doc
 })
 
 describe('the work that a phrase may spend', () => {
+  it('accepts the exact positional budget and releases a search that exceeds it', async () => {
+    const positionalWork = 13
+    for (const cap of [positionalWork - 1, positionalWork]) {
+      const engine = await createNarsil({ workers: NO_WORKERS, patternWorkCap: cap })
+      engines.push(engine)
+      await engine.createIndex(INDEX, {
+        schema: { title: 'string' },
+        language: LANGUAGE_NAME,
+        partitions: { maxPartitions: 1 },
+      })
+      await engine.insert(INDEX, { title: 'olive oil olive oil' }, 'repeated')
+      await engine.insert(INDEX, { title: 'oil olive' }, 'reversed')
+      await engine.insert(INDEX, { title: 'olive pomace' }, 'different')
+      const params = { term: '"olive oil" "oil"' }
+      if (cap < positionalWork) {
+        await expect(engine.query(INDEX, params)).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
+        await expect(engine.preflight(INDEX, params)).rejects.toMatchObject({
+          code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+        })
+      } else {
+        expect((await engine.query(INDEX, params)).hits.map(hit => hit.id)).toEqual(['repeated'])
+        expect((await engine.preflight(INDEX, params)).count).toBe(1)
+      }
+      await engine.update(INDEX, 'different', { title: 'olive pomace oil' })
+      expect((await engine.query(INDEX, { term: 'pomace' })).hits.map(hit => hit.id)).toEqual(['different'])
+    }
+  })
+
   it('stops with SEARCH_WORK_CAP_EXCEEDED and counts across partitions', async () => {
     const engine = await createNarsil({ workers: NO_WORKERS, patternWorkCap: 500 })
     engines.push(engine)

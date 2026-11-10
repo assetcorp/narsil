@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError, ServerErrorCodes } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
+import { decode } from '../../serialization/msgpack'
 import type { QueryCoverage } from '../../types/results'
 import type {
   GlobalStatistics,

@@ -359,6 +359,7 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
   for (let position = order.length - 1; position >= 0; position--) {
     remainingBound[position] = remainingBound[position + 1] + upperBounds[order[position]]
   }
+  if (!Number.isFinite(remainingBound[0])) return null
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
   const selection = new Float64Array(wanted)

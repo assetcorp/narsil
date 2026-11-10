@@ -34,11 +34,24 @@ fsPromises.rename = async (from, to) => {
 }
 syncBuiltinESMExports()
 
+const BACKPRESSURE_RETRY_MS = 5
+
+async function underBackpressure(write) {
+  for (;;) {
+    try {
+      return await write()
+    } catch (error) {
+      if (error?.code !== 'PARTITION_REBALANCING_BACKPRESSURE') throw error
+      await new Promise(resolve => setTimeout(resolve, BACKPRESSURE_RETRY_MS))
+    }
+  }
+}
+
 async function replaceDocuments(engine, writer) {
   for (let at = writer; at < documents; at += writers) {
-    await engine.remove(INDEX, `d${at}`)
+    await underBackpressure(() => engine.remove(INDEX, `d${at}`))
     process.stdout.write(`ACK remove d${at}\n`)
-    await engine.insert(INDEX, { title: `beta n${at}` }, `n${at}`)
+    await underBackpressure(() => engine.insert(INDEX, { title: `beta n${at}` }, `n${at}`))
     process.stdout.write(`ACK insert n${at}\n`)
   }
 }

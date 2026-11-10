@@ -1,4 +1,5 @@
 import type { Hit } from '../types/results'
+import { pinnedOrder } from './pinned-order'
 
 /**
  * Drops every repeated docId from a pinned list, keeping each document's
@@ -37,29 +38,25 @@ export function placePinned<T>(
   pinned: Array<{ docId: string; position: number }>,
   resolveDoc: (docId: string) => Hit<T> | undefined,
 ): { hits: Array<Hit<T>>; placedFromOutside: number } {
-  const result = hits.slice()
-
-  const deduped = dedupePinnedEntries(pinned)
-  const pinnedDocIds = new Set(deduped.map(entry => entry.docId))
-  const listedPins = new Set<string>()
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (pinnedDocIds.has(result[i].id)) {
-      listedPins.add(result[i].id)
-      result.splice(i, 1)
-    }
+  const entries: Array<{ docId: string; position: number }> = []
+  const documents: Array<Hit<T>> = []
+  for (const entry of dedupePinnedEntries(pinned)) {
+    const document = resolveDoc(entry.docId)
+    if (document === undefined) continue
+    entries.push(entry)
+    documents.push(document)
   }
-
-  const sorted = deduped.sort((a, b) => a.position - b.position)
+  const { order, ranked } = pinnedOrder(
+    hits.map(hit => hit.id),
+    entries,
+    null,
+  )
+  const result = new Array<Hit<T>>(order.length)
   let placedFromOutside = 0
-
-  for (const entry of sorted) {
-    const doc = resolveDoc(entry.docId)
-    if (!doc) continue
-    if (!listedPins.has(entry.docId)) placedFromOutside++
-
-    const pos = Math.max(0, Math.min(entry.position, result.length))
-    result.splice(pos, 0, doc)
+  for (let at = 0; at < order.length; at++) {
+    const source = order[at]
+    result[at] = source < 0 ? documents[-1 - source] : hits[source]
+    if (source < 0 && ranked[-1 - source] < 0) placedFromOutside++
   }
-
   return { hits: result, placedFromOutside }
 }

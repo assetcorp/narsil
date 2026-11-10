@@ -1,9 +1,11 @@
-import { decode } from '@msgpack/msgpack'
-import { yieldToEventLoop } from '../../engine/orchestration/turn'
-import { HEADER_SIZE } from '../../serialization/header'
-import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
+import {
+  bytesToVectors,
+  decode,
+  HEADER_SIZE,
+  VECTOR_FILE_PAYLOAD_VERSION,
+  yieldToEventLoop,
+} from '#platform/storage-host'
 import type { VectorCheckpointRestore } from '../../vector/vector-index/checkpoint-restore'
-import { bytesToVectors } from '../../vector/vector-index/payload'
 import { type ColdFileInput, codesOfFile } from './cold-field'
 import { COLD_LOAD_WAIT_WITHOUT_SEARCH_MS } from './constants'
 import { decodeSections, type FileSection, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'

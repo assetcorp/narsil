@@ -1,5 +1,6 @@
 import { getFs } from '#platform/durable-fs'
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
+import type { ErrorCode } from '../../errors'
 import type { DurableDirectory } from './durable-filesystem'
 import { type RestoreStorage, recoverRestoreJournals } from './restore-journal'
 

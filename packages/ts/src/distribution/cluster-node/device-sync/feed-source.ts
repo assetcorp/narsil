@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { BoundsFreshness, FeedChange, FeedSource, PartitionBounds } from '../../../sync/feed/source'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import { isRecord } from '../../payload-guards'

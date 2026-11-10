@@ -14,6 +14,7 @@ export interface SchemaField {
   path: string
   type: SchemaFieldType
   sortable: boolean
+  pattern: boolean
 }
 
 export interface SchemaLeaf {
@@ -33,6 +34,9 @@ export type FilterOperatorId =
   | 'nin'
   | 'startsWith'
   | 'endsWith'
+  | 'contains'
+  | 'wildcard'
+  | 'regex'
   | 'containsAll'
   | 'matchesAny'
   | 'exists'
@@ -46,7 +50,11 @@ export interface FilterRule {
   operator: FilterOperatorId
   value: string
   upperValue: string
+  negate: boolean
+  caseFold: boolean
 }
+
+export type FilterJoin = 'and' | 'or'
 
 export type OperatorArity = 'none' | 'one' | 'two' | 'list'
 
@@ -74,11 +82,13 @@ function baseTypeOf(type: string): string {
   return separator === -1 ? type : type.slice(0, separator)
 }
 
-function hasSortableOption(type: string): boolean {
-  return type.split(TYPE_OPTION_SEPARATOR).slice(1).includes('sortable')
+function hasTypeOption(type: string, option: string): boolean {
+  return type.split(TYPE_OPTION_SEPARATOR).slice(1).includes(option)
 }
 
 const TEXT_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'startsWith', 'endsWith', 'in', 'nin']
+const PATTERN_OPERATORS: FilterOperatorId[] = [...TEXT_OPERATORS, 'contains', 'wildcard', 'regex']
+const CASE_FOLD_OPERATORS = new Set<FilterOperatorId>(PATTERN_OPERATORS)
 const NUMBER_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between']
 const BOOLEAN_OPERATORS: FilterOperatorId[] = ['eq', 'ne']
 const ARRAY_OPERATORS: FilterOperatorId[] = ['matchesAny', 'containsAll']
@@ -97,6 +107,9 @@ export const OPERATOR_LABELS: Record<FilterOperatorId, string> = {
   nin: 'is none of',
   startsWith: 'starts with',
   endsWith: 'ends with',
+  contains: 'contains',
+  wildcard: 'matches wildcard',
+  regex: 'matches regex',
   containsAll: 'holds all of',
   matchesAny: 'holds any of',
   exists: 'has a value',
@@ -117,6 +130,9 @@ const ARITY_BY_OPERATOR: Record<FilterOperatorId, OperatorArity> = {
   nin: 'list',
   startsWith: 'one',
   endsWith: 'one',
+  contains: 'one',
+  wildcard: 'one',
+  regex: 'one',
   containsAll: 'list',
   matchesAny: 'list',
   exists: 'none',
@@ -133,12 +149,21 @@ export function isArrayField(type: SchemaFieldType): boolean {
   return type.endsWith('[]')
 }
 
-export function operatorsFor(type: SchemaFieldType): FilterOperatorId[] {
+export function operatorsFor(field: SchemaField): FilterOperatorId[] {
+  const { type } = field
+  if (type === 'string[]' && !field.pattern) return [...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
   if (isArrayField(type)) return [...ARRAY_OPERATORS, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
   if (type === 'number') return [...NUMBER_OPERATORS, ...PRESENCE_OPERATORS]
   if (type === 'boolean') return [...BOOLEAN_OPERATORS, ...PRESENCE_OPERATORS]
-  if (TEXT_FIELD_TYPES.has(type)) return [...TEXT_OPERATORS, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
+  if (TEXT_FIELD_TYPES.has(type)) {
+    const tests = field.pattern ? PATTERN_OPERATORS : []
+    return [...tests, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
+  }
   return [...TEXT_OPERATORS, ...PRESENCE_OPERATORS]
+}
+
+export function acceptsCaseFold(field: SchemaField | undefined, operator: FilterOperatorId): boolean {
+  return field?.pattern === true && !isArrayField(field.type) && CASE_FOLD_OPERATORS.has(operator)
 }
 
 export function flattenSchemaLeaves(schema: Record<string, unknown>, prefix = ''): SchemaLeaf[] {
@@ -165,8 +190,9 @@ export function filterableFields(leaves: readonly SchemaLeaf[]): SchemaField[] {
   for (const leaf of leaves) {
     const base = baseTypeOf(leaf.type)
     if (!FIELD_TYPES.has(base)) continue
-    const sortable = TEXT_FIELD_TYPES.has(base) ? hasSortableOption(leaf.type) : true
-    fields.push({ path: leaf.path, type: base as SchemaFieldType, sortable })
+    const sortable = TEXT_FIELD_TYPES.has(base) ? hasTypeOption(leaf.type, 'sortable') : true
+    const pattern = base === 'verbatim' || base === 'verbatim[]' || hasTypeOption(leaf.type, 'pattern')
+    fields.push({ path: leaf.path, type: base as SchemaFieldType, sortable, pattern })
   }
   return fields
 }
@@ -237,32 +263,44 @@ function buildComparison(rule: FilterRule, type: SchemaFieldType): Record<string
   return { [rule.operator]: value }
 }
 
+function fieldTest(rule: FilterRule, field: SchemaField): Record<string, unknown> | null {
+  const comparison = buildComparison(rule, field.type)
+  if (comparison === null) return null
+  if (rule.caseFold && acceptsCaseFold(field, rule.operator)) comparison.caseFold = true
+  const clause = { fields: { [rule.field]: comparison } }
+  return rule.negate ? { not: clause } : clause
+}
+
 export function isRuleComplete(rule: FilterRule, fields: SchemaField[]): boolean {
   const field = fields.find(entry => entry.path === rule.field)
   if (!field) return false
   return buildComparison(rule, field.type) !== null
 }
 
-export function buildFilterExpression(rules: FilterRule[], fields: SchemaField[]): Record<string, unknown> | undefined {
+export function buildFilterExpression(
+  rules: FilterRule[],
+  fields: SchemaField[],
+  join: FilterJoin,
+): Record<string, unknown> | undefined {
   const clauses: Array<Record<string, unknown>> = []
 
   for (const rule of rules) {
     const field = fields.find(entry => entry.path === rule.field)
     if (!field) continue
-    const comparison = buildComparison(rule, field.type)
-    if (comparison === null) continue
-    clauses.push({ fields: { [rule.field]: comparison } })
+    const clause = fieldTest(rule, field)
+    if (clause !== null) clauses.push(clause)
   }
 
   if (clauses.length === 0) return undefined
   if (clauses.length === 1) return clauses[0]
-  return { and: clauses }
+  return { [join]: clauses }
 }
 
 export function describeRule(rule: FilterRule): string {
   const arity = operatorArity(rule.operator)
   const label = OPERATOR_LABELS[rule.operator]
-  if (arity === 'none') return `${rule.field} ${label}`
-  if (arity === 'two') return `${rule.field} ${label} ${rule.value} and ${rule.upperValue}`
-  return `${rule.field} ${label} ${rule.value}`
+  const subject = rule.negate ? `not ${rule.field}` : rule.field
+  if (arity === 'none') return `${subject} ${label}`
+  if (arity === 'two') return `${subject} ${label} ${rule.value} and ${rule.upperValue}`
+  return `${subject} ${label} ${rule.value}`
 }

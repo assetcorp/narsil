@@ -1,23 +1,30 @@
-import { compareCodePoints } from '../core/ordering'
-import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
-import { clampRowCount } from '../search/pagination'
 import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
-import { DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from './constants'
+import {
+  clampRowCount,
+  compareCodePoints,
+  DEFAULT_SUGGEST_LIMIT,
+  loadSuggestions,
+  MAX_SUGGEST_LIMIT,
+  MAX_SUGGEST_SCATTER_LIMIT,
+  tokenize,
+} from './optional-reads-host-bindings'
 
 interface MergedSuggestion {
   documentFrequency: number
   surfaceOccurrences: Map<string, number>
 }
 
-export function executeSuggest(
+export async function executeSuggest(
   manager: PartitionManager,
   language: LanguageModule,
   params: SuggestParams,
   partitionIds?: number[],
-): SuggestResult {
+): Promise<SuggestResult> {
+  const loading = loadSuggestions()
+  if (loading !== null) await loading
   const t0 = performance.now()
   const ceiling = partitionIds === undefined ? MAX_SUGGEST_LIMIT : MAX_SUGGEST_SCATTER_LIMIT
   const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), ceiling))

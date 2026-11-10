@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 
 export const TAR_BLOCK_BYTES = 512
 const NAME_OFFSET = 0

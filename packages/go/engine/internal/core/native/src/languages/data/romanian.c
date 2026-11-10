@@ -73,7 +73,7 @@ static const uint32_t keep_ranges[22] = {
 
 const narsil_language narsil_language_romanian = {
   .name = "romanian",
-  .revision = "daf797aac5310bd4",
+  .revision = "43c3e27c002a61eb",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 247,

@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type { BM25Params } from '../../types/schema'
 import { readIndexMetadataSnapshot } from '../cluster/index-metadata'
 import { decodeIndexSettings, isRecord } from '../cluster/index-settings'

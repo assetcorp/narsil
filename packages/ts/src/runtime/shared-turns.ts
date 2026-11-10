@@ -1,3 +1,5 @@
+import type { TurnScheduler } from './turn-scheduler'
+
 export {
   backgroundTurnIsSpent,
   holdWrites,
@@ -5,3 +7,5 @@ export {
   turnsAreBudgeted,
   yieldBackgroundTurn,
 } from './turn-budget'
+
+export function adoptBackgroundScheduler(_scheduler: TurnScheduler): void {}

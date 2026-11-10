@@ -1,10 +1,11 @@
 import {
   FULL_TURN_DEGREES,
+  LOCATION_CELLS_PER_AXIS,
   LOCATION_CODE_BITS_PER_AXIS,
   MAX_COVERING_CELLS,
   MAX_LATITUDE_DEGREES,
   MAX_LONGITUDE_DEGREES,
-} from './constants'
+} from './geo-host-bindings'
 
 export interface LocationBox {
   south: number
@@ -18,12 +19,10 @@ export interface CodeRange {
   to: number
 }
 
-const AXIS_CELLS = 2 ** LOCATION_CODE_BITS_PER_AXIS
-
 function axisCell(value: number, lowest: number, span: number): number {
-  const cell = Math.floor(((value - lowest) / span) * AXIS_CELLS)
+  const cell = Math.floor(((value - lowest) / span) * LOCATION_CELLS_PER_AXIS)
   if (!(cell > 0)) return 0
-  return cell >= AXIS_CELLS ? AXIS_CELLS - 1 : cell
+  return cell >= LOCATION_CELLS_PER_AXIS ? LOCATION_CELLS_PER_AXIS - 1 : cell
 }
 
 function latitudeCell(lat: number): number {

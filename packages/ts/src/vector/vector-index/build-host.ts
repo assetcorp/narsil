@@ -1,12 +1,21 @@
-import { backgroundTurnIsSpent, turnsAreBudgeted, yieldBackgroundTurn } from '#platform/shared-turns'
-import { GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER, GRAPH_BUILD_DISPATCH_CHUNK } from '../constants'
+import {
+  BUILD_CHUNK_SIZE,
+  backgroundTurnIsSpent,
+  GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER,
+  GRAPH_BUILD_DISPATCH_CHUNK,
+  liveSize,
+  sharedMemoryAvailable,
+  threadsHoldCurrentLayout,
+  turnsAreBudgeted,
+  WORKER_COPY_MIN_VECTORS,
+  yieldBackgroundTurn,
+  yieldBuildTurn,
+} from '#platform/vector-host'
 import type { HNSWIndex } from '../hnsw'
-import { sharedMemoryAvailable } from '../shared-buffers/growable'
 import type { GraphInsertOutcome } from '../shared-field/types'
-import { BUILD_CHUNK_SIZE, WORKER_COPY_MIN_VECTORS } from './constants'
 import { connectGraph } from './graph-pass'
 import { moveOutOfBuffer } from './search-writes'
-import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldBuildTurn } from './shared'
+import type { VectorIndexState } from './shared'
 import { noteWrite, shareGraph } from './worker-copies'
 
 export type OrdinalDispatcher = (ordinals: Int32Array) => Promise<GraphInsertOutcome | null>

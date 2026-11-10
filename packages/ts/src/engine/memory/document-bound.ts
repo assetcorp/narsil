@@ -1,5 +1,6 @@
+import { customTokensOf } from '../../analysis/custom-token-code'
 import { getNestedValue } from '../../core/partition/utils'
-import { customTokensOf, visitTokens } from '../../core/tokenizer/tokenize'
+import { visitTokens } from '../../core/tokenizer/tokenize'
 import { schemaFieldsOf } from '../../schema/validator/schema'
 import { MAX_DOCUMENT_ENCODING_DEPTH } from '../../serialization/constants'
 import type { LanguageModule } from '../../types/language'

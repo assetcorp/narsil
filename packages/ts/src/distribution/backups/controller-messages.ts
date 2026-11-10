@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type { ControllerMessageHandler } from '../cluster/controller/types'
 import { encodeRebalanceRefusal } from '../cluster/rebalance/reply'
 import type { ClusterNodeConfig } from '../cluster-node/types'

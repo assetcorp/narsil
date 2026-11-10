@@ -1,4 +1,4 @@
-import { raiseEarlierReleaseGraphSetting } from '../schema/validator'
+import { raiseEarlierReleaseGraphSetting } from '#platform/segment-codec-host'
 import type { IndexMetadata } from '../types/internal'
 import type { FieldType, IndexConfig, SchemaDefinition } from '../types/schema'
 

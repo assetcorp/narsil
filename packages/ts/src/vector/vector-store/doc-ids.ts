@@ -1,5 +1,5 @@
-import { growBufferTo } from '../shared-buffers/growable'
-import { type SharedVectorStoreHandles, STORE_DOC_ID_BYTES } from './handles'
+import { growBufferTo, STORE_DOC_ID_BYTES } from '#platform/vector-host'
+import type { SharedVectorStoreHandles } from './handles'
 
 const encoder = new TextEncoder()
 

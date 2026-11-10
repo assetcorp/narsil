@@ -28,7 +28,7 @@ static const uint32_t keep_ranges[74] = {
 
 const narsil_language narsil_language_bambara = {
   .name = "bambara",
-  .revision = "1",
+  .revision = "fe78acf255dc1f20",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 48,

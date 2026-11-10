@@ -106,7 +106,13 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   function relayFrom(thread: ServingThread): void {
     const { port } = thread
     const streams = new Map<number, CapturingResponse>()
-    port.on('close', () => thread.feeds?.closeAll())
+    const calls = new Map<number, AbortController>()
+    port.on('close', () => {
+      thread.feeds?.closeAll()
+      for (const stream of streams.values()) stream.cancel()
+      for (const call of calls.values()) call.abort()
+      calls.clear()
+    })
     port.on('message', (message: unknown) => {
       if (isThreadFeedNote(message)) {
         thread.feeds?.handle(message)
@@ -127,8 +133,12 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       }
       if (message.type === 'stream-cancel') {
         streams.get(message.requestId)?.cancel()
+        calls.get(message.requestId)?.abort()
+        calls.delete(message.requestId)
         return
       }
+      const call = message.type === 'embed' || message.type === 'rerank' ? new AbortController() : undefined
+      if (call !== undefined) calls.set(message.requestId, call)
       const reply =
         message.type === 'request'
           ? answerRequest(handlers[message.route], message, port, streams)
@@ -137,13 +147,19 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             : message.type === 'feed-admit'
               ? answerFeedAdmit(thread.feeds, message)
               : message.type === 'embed'
-                ? answerEmbed(core, message)
+                ? answerEmbed(core, message, call?.signal)
                 : message.type === 'await-writes'
                   ? answerAwaitWrites(core, message)
-                  : answerRerank(core, message)
-      void reply.then(answer => {
-        if (answer !== null) port.postMessage(answer)
-      })
+                  : answerRerank(core, message, call?.signal)
+      void reply.then(
+        answer => {
+          calls.delete(message.requestId)
+          if (answer !== null) port.postMessage(answer)
+        },
+        () => {
+          calls.delete(message.requestId)
+        },
+      )
     })
   }
 

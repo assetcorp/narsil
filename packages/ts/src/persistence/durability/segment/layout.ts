@@ -1,5 +1,4 @@
-import { fnv1a } from '../../../core/hash'
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, fnv1a, NarsilError } from '#platform/storage-host'
 
 export const SEGMENT_ID_WIDTH = 16
 

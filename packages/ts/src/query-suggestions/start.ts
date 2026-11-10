@@ -1,10 +1,9 @@
+import { attachedRuntimeOf, attachRuntime, installSuggestionHooks } from '#platform/suggestions-host'
 import type { EngineCore } from '../engine/core'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
-import { attachedRuntimeOf, attachRuntime } from './attached'
-import { installSuggestionHooks } from './engine-hooks'
 import { createLocalHost } from './local-host'
-import { keyBytesOf, QuerySuggestionsRuntime } from './runtime'
+import { createQuerySuggestionsRuntime, keyBytesOf, type QuerySuggestionsRuntime } from './runtime'
 
 const starting = new WeakMap<EngineCore, Promise<QuerySuggestionsRuntime>>()
 
@@ -15,7 +14,7 @@ async function startRuntime(
 ): Promise<QuerySuggestionsRuntime> {
   const keySetting = config?.querySuggestions?.key
   const key = keySetting === undefined ? null : keyBytesOf(keySetting)
-  const runtime = new QuerySuggestionsRuntime(createLocalHost(core, engine, config), key)
+  const runtime = await createQuerySuggestionsRuntime(createLocalHost(core, engine, config), key)
   attachRuntime(core, runtime)
   installSuggestionHooks(core)
   await runtime.start()

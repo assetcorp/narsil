@@ -1,21 +1,29 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { DEFAULT_MAX_PARTITIONS } from '../partitioning/constants'
+import {
+  DEFAULT_MAX_PARTITIONS,
+  ErrorCodes,
+  emitEngineEvent,
+  NarsilError,
+  rewriteSpillOf,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
-import { createRebalancer, type SwapPartitions } from '../partitioning/rebalancer'
-import { rewriteSpillOf } from '../partitioning/rewrite-spill-of'
+import { registerCheckpointQueue, releaseCheckpointQueue } from '../partitioning/manager/checkpoint-prefix'
+import { createRebalancer } from '../partitioning/rebalancer'
 import type { PartitionRouter } from '../partitioning/router'
+import { beginDurableRebalance, finishDurableRebalance } from '../partitioning/wal-routing'
 import { createWriteAheadQueue, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
+import { transitionWalLayout } from '../persistence/durability/layout-transition'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
 import type { PluginRegistry } from '../plugins/registry'
 import type { PendingAnalysisMetadata } from '../types/internal'
 import type { IndexConfig } from '../types/schema'
 import type { DurableAnalysis, EventHandler } from './core'
-import { emitEngineEvent } from './events'
 import type { WorkerOrchestrator } from './orchestration'
-import { applyEveryQueuedWrite, type QueuedFollowUp, replayQueued, runFollowUps } from './rebalance-replay'
+import { bufferPreparedMutation } from './queued-mutation'
+import { replayQueued } from './rebalance-replay'
 
 export interface RebalanceContext {
+  prepareQueuedMutation?: typeof bufferPreparedMutation
   router: PartitionRouter
   waqMap: Map<string, WriteAheadQueue>
   rebalancingIndexes: Set<string>
@@ -24,7 +32,6 @@ export interface RebalanceContext {
   pluginRegistry: PluginRegistry
   orchestrator: WorkerOrchestrator
   durabilityManager: DurabilityManager | null
-  holdDurableWrites: ((indexName: string) => Promise<() => void>) | null
   checkWatermark: (indexName: string) => void
   requireIndex: (name: string) => {
     config: IndexConfig
@@ -34,61 +41,12 @@ export interface RebalanceContext {
   }
 }
 
-interface LoggedLayoutSwitch {
-  durable: DurabilityManager
-  holdWrites: (indexName: string) => Promise<() => void>
-  switchLayout: NonNullable<DurabilityManager['checkpointAfterSwitch']>
-  holdCoverage: NonNullable<DurabilityManager['holdCheckpointCoverage']>
-}
-
-function loggedLayoutSwitchOf(ctx: RebalanceContext): LoggedLayoutSwitch | null {
-  const durable = ctx.durabilityManager
-  const holdWrites = ctx.holdDurableWrites
-  if (durable === null || holdWrites === null) return null
-  const switchLayout = durable.checkpointAfterSwitch?.bind(durable)
-  const holdCoverage = durable.holdCheckpointCoverage?.bind(durable)
-  if (switchLayout === undefined || holdCoverage === undefined) return null
-  return { durable, holdWrites, switchLayout, holdCoverage }
-}
-
-function swapWithCheckpoint(
+export async function executeRebalance(
+  manager: PartitionManager,
   indexName: string,
-  oldCount: number,
-  waq: WriteAheadQueue,
+  targetPartitionCount: number,
   ctx: RebalanceContext,
-  logged: LoggedLayoutSwitch,
-): SwapPartitions {
-  return async (manager, partitions) => {
-    const release = await logged.holdWrites(indexName)
-    let followUps: QueuedFollowUp[] = []
-    try {
-      const shrinks = partitions.length < oldCount
-      const swapped = await logged.switchLayout(
-        indexName,
-        () => {
-          manager.setPartitions(partitions)
-          followUps = applyEveryQueuedWrite(manager, indexName, waq, ctx)
-          logged.holdCoverage(indexName, false)
-          return true
-        },
-        shrinks,
-      )
-      if (!swapped) {
-        throw new NarsilError(
-          ErrorCodes.INSTANCE_SHUT_DOWN,
-          `The engine stopped before it saved the new partition layout of index "${indexName}"`,
-          { indexName },
-        )
-      }
-      logged.holdCoverage(indexName, true)
-    } finally {
-      release()
-    }
-    await runFollowUps(followUps)
-  }
-}
-
-function requireRebalanceTarget(indexName: string, targetPartitionCount: number, ctx: RebalanceContext): void {
+): Promise<void> {
   if (targetPartitionCount <= 0 || !Number.isInteger(targetPartitionCount)) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
@@ -114,50 +72,32 @@ function requireRebalanceTarget(indexName: string, targetPartitionCount: number,
     )
   }
 
-  if (entry.pendingAnalysis !== null || entry.durableAnalysis !== null) {
+  const registered = ctx.requireIndex(indexName)
+  if (registered.pendingAnalysis !== null || registered.durableAnalysis !== null) {
     throw new NarsilError(
       ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
       `Index "${indexName}" is changing its analysis settings, so try the rebalance again once the change ends`,
       { indexName },
     )
   }
-}
 
-async function drainQueue(
-  manager: PartitionManager,
-  indexName: string,
-  waq: WriteAheadQueue,
-  ctx: RebalanceContext,
-  wasPromoted: boolean,
-): Promise<void> {
-  await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
-  do {
-    await replayQueued(manager, indexName, waq, ctx)
-  } while (waq.size > 0)
-}
-
-export async function executeRebalance(
-  manager: PartitionManager,
-  indexName: string,
-  targetPartitionCount: number,
-  ctx: RebalanceContext,
-): Promise<void> {
-  requireRebalanceTarget(indexName, targetPartitionCount, ctx)
   if (targetPartitionCount === manager.partitionCount) {
     return
   }
 
-  const logged = loggedLayoutSwitchOf(ctx)
+  ctx.prepareQueuedMutation = bufferPreparedMutation
   const waq = createWriteAheadQueue()
+  const registry = ctx.durabilityManager?.partitionRegistry
+  registerCheckpointQueue(manager, waq, registry !== undefined)
+  if (registry !== undefined) beginDurableRebalance(manager)
   ctx.waqMap.set(indexName, waq)
   ctx.rebalancingIndexes.add(indexName)
   ctx.rebalanceTargets.set(indexName, targetPartitionCount)
-  logged?.holdCoverage(indexName, true)
   const wasPromoted = ctx.orchestrator.desyncIndex(indexName)
 
   let spill: RewriteSpill | null = null
+  const oldCount = manager.partitionCount
   try {
-    const oldCount = manager.partitionCount
     spill = await rewriteSpillOf(ctx.durabilityManager?.rewriteStorage?.(), manager)
     await createRebalancer().rebalance(
       manager,
@@ -173,7 +113,6 @@ export async function executeRebalance(
         }
       },
       spill,
-      logged === null ? undefined : swapWithCheckpoint(indexName, oldCount, waq, ctx, logged),
     )
 
     try {
@@ -186,37 +125,35 @@ export async function executeRebalance(
       console.warn('onPartitionSplit plugin hook failed:', hookErr instanceof Error ? hookErr.message : String(hookErr))
     }
 
-    await replayQueued(manager, indexName, waq, ctx)
+    if (registry === undefined) await replayQueued(manager, waq, ctx)
+    else {
+      const hooks: Array<() => Promise<void>> = []
+      await transitionWalLayout(registry, indexName, manager, () => replayQueued(manager, waq, ctx, hooks))
+      for (const hook of hooks) await hook()
+    }
 
-    if (ctx.durabilityManager !== null && logged === null) {
-      await ctx.durabilityManager.persistMetadata(indexName)
+    if (ctx.durabilityManager) {
       await (ctx.durabilityManager.checkpointFromMemory?.(indexName) ?? ctx.durabilityManager.checkpoint(indexName))
-    }
-    if (ctx.durabilityManager !== null) {
       await spill?.removeUnread(manager)
-      await replayQueued(manager, indexName, waq, ctx)
+      await replayQueued(manager, waq, ctx)
     }
 
-    await drainQueue(manager, indexName, waq, ctx, wasPromoted)
+    await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
+    do {
+      await replayQueued(manager, waq, ctx)
+    } while (waq.size > 0)
   } catch (err) {
+    waq.fail(err)
     await spill?.removeUnread(manager).catch(() => undefined)
-    try {
-      await replayQueued(manager, indexName, waq, ctx)
-      await drainQueue(manager, indexName, waq, ctx, wasPromoted)
-    } catch (recoveryErr) {
-      console.warn(
-        `Rebalance failure recovery for index "${indexName}" did not complete:`,
-        recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
-      )
-    }
     throw err
-  } finally {
-    ctx.rebalancingIndexes.delete(indexName)
-    ctx.rebalanceTargets.delete(indexName)
-    ctx.waqMap.delete(indexName)
-    logged?.holdCoverage(indexName, false)
-    waq.markReplayed()
   }
+
+  ctx.rebalancingIndexes.delete(indexName)
+  ctx.rebalanceTargets.delete(indexName)
+  ctx.waqMap.delete(indexName)
+  waq.markReplayed()
+  releaseCheckpointQueue(manager, waq)
+  finishDurableRebalance(manager)
 
   ctx.checkWatermark(indexName)
 }

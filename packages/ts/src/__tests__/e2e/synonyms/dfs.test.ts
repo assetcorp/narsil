@@ -16,6 +16,31 @@ afterEach(async () => {
 })
 
 describe('DFS scoring on one engine that holds several partitions', () => {
+  it('counts each query term before overlapping synonym labels can satisfy another term', async () => {
+    const engine = await createNarsil({ workers: NO_WORKERS })
+    engines.push(engine)
+    await engine.createIndex(INDEX, {
+      ...garageConfig([
+        { word: 'quick', synonyms: ['fast'] },
+        { word: 'swift', synonyms: ['quick'] },
+      ]),
+    })
+    expect(
+      (
+        await engine.insertBatch(INDEX, [
+          { id: 'first', title: 'fast road', body: '' },
+          { id: 'second', title: 'quick road', body: '' },
+          { id: 'third', title: 'quick', body: '' },
+          { id: 'fourth', title: 'quick', body: '' },
+        ])
+      ).failed,
+    ).toEqual([])
+    const every = await engine.query(INDEX, { term: 'quick swift road', termMatch: 'all', limit: 10 })
+    expect(every.hits.map(hit => hit.id)).toEqual(['second'])
+    const two = await engine.query(INDEX, { term: 'quick swift', termMatch: 2, limit: 10 })
+    expect(two.hits.map(hit => hit.id).sort()).toEqual(['fourth', 'second', 'third'])
+  })
+
   it('counts every typo match and synonym across all partitions, matching the oracle', async () => {
     const documents = garageCorpus(1_200, 91)
     const engine = await createNarsil({ workers: NO_WORKERS })

@@ -1,6 +1,6 @@
 import { bm25SetsValue } from '../../core/scorer'
+import { requireLoadedOptionalReads } from '../../engine/optional-reads-code'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
-import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
@@ -200,7 +200,8 @@ function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig |
   }
   return {
     fields: [...group.fields],
-    maxPerGroup: group.reduce !== undefined ? MAX_LIMIT : hitsKeptPerGroup(group.maxPerGroup),
+    maxPerGroup:
+      group.reduce !== undefined ? MAX_LIMIT : requireLoadedOptionalReads().hitsKeptPerGroup(group.maxPerGroup),
     limit: group.limit ?? null,
   }
 }
@@ -274,7 +275,7 @@ function convertWireFacetsToLocal(
   for (const [field, buckets] of Object.entries(wireFacets)) {
     const mergedBound = result.facetErrorBounds?.[field] ?? 0
     const kept = requested === undefined ? buckets.length : Math.min(buckets.length, facetLimitOf(requested[field]))
-    const values: Record<string, number> = {}
+    const values: Record<string, number> = Object.create(null)
     for (let index = 0; index < kept; index++) values[buckets[index].value] = buckets[index].count
     let largestCut = 0
     for (let index = kept; index < buckets.length; index++) largestCut = Math.max(largestCut, buckets[index].count)

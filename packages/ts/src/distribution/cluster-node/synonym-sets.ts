@@ -1,9 +1,9 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { configOfNamedSettings } from '../../engine/analysis-change/pending-target'
 import { prepareConfiguredSynonyms } from '../../engine/synonym-sets'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
+import { decode } from '../../serialization/msgpack'
 import type { SynonymRule } from '../../types/synonyms'
 import {
   type IndexMetadataSnapshot,

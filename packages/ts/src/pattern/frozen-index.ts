@@ -9,6 +9,7 @@ export function readPatternArrays(arrays: PatternIndexArrays): PatternIndexReade
   }
 
   return {
+    regions: () => arrays,
     documents: () => arrays.docIds,
 
     postings(first: number, second: number, third: number): Uint32Array {

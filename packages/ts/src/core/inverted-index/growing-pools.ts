@@ -1,7 +1,7 @@
 import { backgroundTurnIsSpent, yieldBackgroundTurn } from '#platform/shared-turns'
 import { POOL_GROWTH_COPY_CHUNK_BYTES, POOL_GROWTH_START_FRACTION } from './constants'
 import { PositionCopy, PostingCopy } from './pool-copy'
-import { grownCapacity, PositionPool as PlainPositionPool, PostingPool as PlainPostingPool } from './pools'
+import { grownCapacity, NO_SLICE, PositionPool as PlainPositionPool, PostingPool as PlainPostingPool } from './pools'
 
 export { EMPTY_POSITIONS, NO_SLICE, sliceCapacity, sliceClassFor } from './pools'
 
@@ -22,6 +22,11 @@ export class PostingPool extends PlainPostingPool {
     return this.copy !== null
   }
 
+  override prepareWrite(needed: number): void {
+    this.copy?.finish()
+    super.prepareWrite(needed)
+  }
+
   override allocate(sliceClass: number): number {
     const start = super.allocate(sliceClass)
     this.copy?.keepPace()
@@ -38,6 +43,11 @@ export class PostingPool extends PlainPostingPool {
   override move(from: number, to: number, count: number): void {
     super.move(from, to, count)
     this.copy?.mirrorRange(to, to + count)
+  }
+
+  override release(start: number, sliceClass: number): void {
+    super.release(start, sliceClass)
+    if (sliceClass !== NO_SLICE) this.copy?.mirrorRange(start, start + 1)
   }
 
   mirrorIntoGrowingCopy(from: number, to: number): void {
@@ -83,6 +93,11 @@ export class PostingPool extends PlainPostingPool {
 export class PositionPool extends PlainPositionPool {
   private copy: PositionCopy | null = null
   private replaced = false
+
+  override prepareWrite(needed: number): void {
+    this.copy?.finish()
+    super.prepareWrite(needed)
+  }
 
   override append(positions: readonly number[]): number {
     const start = super.append(positions)

@@ -1,17 +1,21 @@
-import { type CompositePartition, isCompositePartition } from '../../core/partition/composite'
-import { createSharedFrozenSegment, type SharedSegmentSnapshot } from '../../core/partition/frozen'
-import { mergeFrozenSegments } from '../../core/partition/frozen/merge'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { PartitionManager } from '../../partitioning/manager'
-import { createRequestId } from '../../workers/protocol'
 import {
   COMPACTION_SEGMENT_TRIGGER,
+  createRequestId,
+  createSharedFrozenSegment,
+  ErrorCodes,
   IDLE_MERGE_DELAY_MS,
+  isCompositePartition,
   LIVE_TAIL_FREEZE_FLOOR,
+  NarsilError,
   SEGMENTS_PER_MERGE,
-} from './constants'
+} from '#platform/worker-copies-host'
+import type { CompositePartition } from '../../core/partition/composite'
+import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
+import { mergeFrozenSegmentOutputs } from '../../core/partition/frozen/merge-split'
+import type { PartitionManager } from '../../partitioning/manager'
 import { freezeLiveTail } from './live-tail'
-import { awaitReplicationIdle, replicateToWorkers } from './replication'
+import { publishToWorkers } from './publication-code'
+import { awaitReplicationIdle } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
 
 export type CompactionPolicy = 'ingest' | 'idle'
@@ -36,30 +40,6 @@ function mainCompositeOf(manager: PartitionManager, partitionId: number): Compos
   return isCompositePartition(partition) ? partition : null
 }
 
-export function holdUnbroadcastSegments(
-  state: OrchestratorState,
-  indexName: string,
-  segmentIds: readonly string[],
-): void {
-  let held = state.unbroadcastSegments.get(indexName)
-  if (held === undefined) {
-    held = new Set()
-    state.unbroadcastSegments.set(indexName, held)
-  }
-  for (const segmentId of segmentIds) held.add(segmentId)
-}
-
-export function releaseUnbroadcastSegments(
-  state: OrchestratorState,
-  indexName: string,
-  segmentIds: readonly string[],
-): void {
-  const held = state.unbroadcastSegments.get(indexName)
-  if (held === undefined) return
-  for (const segmentId of segmentIds) held.delete(segmentId)
-  if (held.size === 0) state.unbroadcastSegments.delete(indexName)
-}
-
 function candidateSegmentIds(
   state: OrchestratorState,
   indexName: string,
@@ -67,12 +47,10 @@ function candidateSegmentIds(
   partitionId: number,
   policy: CompactionPolicy,
 ): string[] | null {
-  const unbroadcast = state.unbroadcastSegments.get(indexName)
   const composite = mainCompositeOf(manager, partitionId)
   if (composite !== null) {
     const sizes = composite
       .frozenSegmentSizes()
-      .filter(size => unbroadcast === undefined || !unbroadcast.has(size.segmentId))
       .map(size => ({ segmentId: size.segmentId, documentCount: size.liveDocumentCount }))
     const picks = pickSegmentIds(sizes, policy)
     if (picks !== null) return picks
@@ -92,13 +70,13 @@ async function compactOnWorker(
   indexName: string,
   partitionId: number,
   segmentIds: readonly string[],
-): Promise<SharedSegmentSnapshot | null> {
+): Promise<SharedSegmentSnapshot[] | null> {
   const pool = state.workerPool
   if (pool === null || !state.scaledOutIndexes.has(indexName)) return null
   const lease = pool.leaseLeastBusy(indexName)
   if (lease === null) return null
   try {
-    return await lease.executor.execute<SharedSegmentSnapshot | null>({
+    return await lease.executor.execute<SharedSegmentSnapshot[] | null>({
       type: 'compactSegments',
       indexName,
       partitionId,
@@ -113,6 +91,31 @@ async function compactOnWorker(
   } finally {
     lease.release()
   }
+}
+
+function ledgerHoldsAll(
+  state: OrchestratorState,
+  indexName: string,
+  partitionId: number,
+  segmentIds: readonly string[],
+): boolean {
+  const entries = state.segmentLedger.get(indexName)?.get(partitionId)
+  if (entries === undefined) return false
+  const held = new Set(entries.map(entry => entry.segmentId))
+  return segmentIds.every(segmentId => held.has(segmentId))
+}
+
+function segmentsStillHeld(
+  state: OrchestratorState,
+  indexName: string,
+  manager: PartitionManager,
+  partitionId: number,
+  segmentIds: readonly string[],
+  mergedOnMain: CompositePartition | null,
+): boolean {
+  if (state.executor.getManager(indexName) !== manager) return false
+  if (mergedOnMain === null) return ledgerHoldsAll(state, indexName, partitionId, segmentIds)
+  return mainCompositeOf(manager, partitionId) === mergedOnMain && mainHoldsAll(mergedOnMain, segmentIds)
 }
 
 function forgetLedgerSegments(
@@ -142,33 +145,36 @@ async function compactPartitionSegments(
 
   const composite = mainCompositeOf(manager, partitionId)
   const mainCanMerge = composite !== null && mainHoldsAll(composite, segmentIds)
-  let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
-  if (snapshot === null && mainCanMerge && composite !== null) {
-    snapshot = mergeFrozenSegments(
+  let snapshots = await compactOnWorker(state, indexName, partitionId, segmentIds)
+  if (snapshots === null && mainCanMerge && composite !== null) {
+    snapshots = mergeFrozenSegmentOutputs(
       composite.frozenSegmentsById(segmentIds),
       manager.partialWordAnalysis,
       manager.textAnalysis,
     )
   }
-  if (snapshot === null) {
+  if (snapshots === null) {
     if (!mainCanMerge) forgetLedgerSegments(state, indexName, partitionId, segmentIds)
     return false
   }
-
-  const removedSpellings =
-    mainCanMerge && composite !== null
-      ? composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
-      : undefined
-  await replicateToWorkers(state, {
-    type: 'swapSegments',
-    indexName,
-    partitionId,
-    dropSegmentIds: [...segmentIds],
-    snapshot,
-    removedSpellings,
-    requestId: createRequestId(),
+  const mergedOnMain = mainCanMerge ? composite : null
+  const replacement = snapshots.map(snapshot => createSharedFrozenSegment(snapshot))
+  const publication = await manager.publication.write(() => {
+    if (!segmentsStillHeld(state, indexName, manager, partitionId, segmentIds, mergedOnMain)) return null
+    const removedSpellings = mainCanMerge ? manager.swapFrozenSegments(partitionId, segmentIds, replacement) : undefined
+    publishToWorkers(state, {
+      type: 'swapSegments',
+      indexName,
+      partitionId,
+      dropSegmentIds: [...segmentIds],
+      snapshots,
+      removedSpellings,
+      requestId: createRequestId(),
+    })
+    return true
   })
-  return true
+  if (publication === null) return false
+  return snapshots.length < segmentIds.length
 }
 
 async function compactIndexSegments(
@@ -186,7 +192,7 @@ async function compactIndexSegments(
   for (const partitionId of partitionIds) {
     if (policy === 'idle') {
       await awaitReplicationIdle(state, indexName)
-      freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
+      await freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
     }
     let picks = candidateSegmentIds(state, indexName, manager, partitionId, policy)
     while (picks !== null) {
@@ -216,20 +222,36 @@ export function maybeCompactSegments(
   state.compactionsInFlight.set(indexName, run)
 }
 
-export function scheduleIdleMerge(state: OrchestratorState, indexName: string): void {
-  cancelIdleMerge(state, indexName)
+function armIdleMerge(state: OrchestratorState, indexName: string, dueAt: number, delayMs: number): void {
   const timer = setTimeout(() => {
+    const pending = state.idleMergeTimers.get(indexName)
+    if (pending === undefined || pending.timer !== timer) return
+    const remainingMs = pending.dueAt - Date.now()
+    if (remainingMs > 0) {
+      armIdleMerge(state, indexName, pending.dueAt, remainingMs)
+      return
+    }
     state.idleMergeTimers.delete(indexName)
     maybeCompactSegments(state, indexName, 'idle')
-  }, IDLE_MERGE_DELAY_MS)
+  }, delayMs)
   if (typeof timer.unref === 'function') timer.unref()
-  state.idleMergeTimers.set(indexName, timer)
+  state.idleMergeTimers.set(indexName, { timer, dueAt })
+}
+
+export function scheduleIdleMerge(state: OrchestratorState, indexName: string): void {
+  const dueAt = Date.now() + IDLE_MERGE_DELAY_MS
+  const pending = state.idleMergeTimers.get(indexName)
+  if (pending !== undefined) {
+    pending.dueAt = dueAt
+    return
+  }
+  armIdleMerge(state, indexName, dueAt, IDLE_MERGE_DELAY_MS)
 }
 
 export function cancelIdleMerge(state: OrchestratorState, indexName: string): void {
-  const timer = state.idleMergeTimers.get(indexName)
-  if (timer === undefined) return
-  clearTimeout(timer)
+  const pending = state.idleMergeTimers.get(indexName)
+  if (pending === undefined) return
+  clearTimeout(pending.timer)
   state.idleMergeTimers.delete(indexName)
 }
 

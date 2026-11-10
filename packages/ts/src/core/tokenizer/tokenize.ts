@@ -1,10 +1,10 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { customTokensOf } from '../../analysis/custom-token-code'
 import type { LanguageModule } from '../../types/language'
 import type { CustomTokenizer } from '../../types/schema'
 import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
 import { transformToken } from './cache'
-import { DEFAULT_MIN_TOKEN_LENGTH, DEFAULT_SPLIT_PATTERN, MAX_TOKEN_POSITION } from './constants'
-import { nativeAnalysis } from './native-hook'
+import { DEFAULT_MIN_TOKEN_LENGTH, DEFAULT_SPLIT_PATTERN } from './constants'
+import { nativeAnalysis, type PackedTokenVisitor } from './native-hook'
 import { expandNgrams } from './ngrams'
 import { normalizeForSplitting } from './normalize'
 
@@ -68,59 +68,6 @@ function stripPossessive(token: string): string {
   return token
 }
 
-function refuseTokenizerResult(source: TokenizedTextSource, message: string, details: Record<string, unknown>): never {
-  const code = source === 'document' ? ErrorCodes.DOC_VALIDATION_FAILED : ErrorCodes.CONFIG_INVALID
-  throw new NarsilError(code, `The custom tokenizer ${message}`, details)
-}
-
-function kindOf(value: unknown): string {
-  if (value === null) return 'null'
-  return Array.isArray(value) ? 'array' : typeof value
-}
-
-function checkedTokenizerEntry(
-  entry: unknown,
-  at: number,
-  source: TokenizedTextSource,
-): { token: string; position: number } {
-  const { token, position } = (entry !== null && typeof entry === 'object' ? entry : {}) as Record<string, unknown>
-  if (typeof token !== 'string') {
-    refuseTokenizerResult(
-      source,
-      `returned a token of type ${kindOf(token)} at entry ${at}, where a token is a string`,
-      {
-        entry: at,
-        tokenType: kindOf(token),
-      },
-    )
-  }
-  if (typeof position !== 'number' || !Number.isInteger(position) || position < 0 || position > MAX_TOKEN_POSITION) {
-    const shown = typeof position === 'number' ? String(position) : kindOf(position)
-    refuseTokenizerResult(
-      source,
-      `returned the position ${shown} at entry ${at}, where a position is a whole number from 0 to ${MAX_TOKEN_POSITION}`,
-      { entry: at, position: shown },
-    )
-  }
-  return { token: withUnpairedSurrogatesReplaced(token), position }
-}
-
-export function customTokensOf(
-  tokenizer: CustomTokenizer,
-  text: string,
-  source: TokenizedTextSource = 'query',
-): Array<{ token: string; position: number }> {
-  const entries: unknown = tokenizer.tokenize(text)
-  if (!Array.isArray(entries)) {
-    refuseTokenizerResult(source, `returned ${kindOf(entries)}, where it returns a list of tokens`, {
-      received: kindOf(entries),
-    })
-  }
-  const checked = new Array<{ token: string; position: number }>(entries.length)
-  for (let at = 0; at < checked.length; at++) checked[at] = checkedTokenizerEntry(entries[at], at, source)
-  return checked
-}
-
 export type TokenVisitor = (token: string, position: number, surface: string | undefined, original: string) => void
 
 export function visitTokens(
@@ -128,6 +75,7 @@ export function visitTokens(
   language: LanguageModule,
   options: TokenizeOptions | undefined,
   visit: TokenVisitor,
+  packed?: PackedTokenVisitor,
 ): void {
   const {
     stem = true,
@@ -139,12 +87,12 @@ export function visitTokens(
   } = options ?? {}
 
   if (customTokenizer) {
-    for (const entry of customTokensOf(customTokenizer, text, options?.textSource)) {
+    for (const entry of customTokensOf(customTokenizer, text, options?.textSource ?? 'query')) {
       visit(entry.token, entry.position, undefined, entry.token)
     }
     return
   }
-  if (nativeAnalysis()?.visitTokens(text, language, options, visit) === true) return
+  if (nativeAnalysis()?.visitTokens(text, language, options, visit, packed) === true) return
 
   const rawParts = splitText(normalizeForSplitting(text), language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
@@ -191,7 +139,7 @@ export function visitSurfaceSpellings(text: string, language: LanguageModule, vi
 
 export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
   if (options?.customTokenizer) {
-    const customResult = customTokensOf(options.customTokenizer, text, options.textSource)
+    const customResult = customTokensOf(options.customTokenizer, text, options.textSource ?? 'query')
     return { tokens: customResult, originalTokens: customResult.map(entry => entry.token) }
   }
 
@@ -221,7 +169,7 @@ export function* tokenizeIterator(
   } = options ?? {}
 
   if (customTokenizer) {
-    const customResult = customTokensOf(customTokenizer, text, options?.textSource)
+    const customResult = customTokensOf(customTokenizer, text, options?.textSource ?? 'query')
     for (const entry of customResult) {
       yield entry
     }

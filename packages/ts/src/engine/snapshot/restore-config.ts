@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { MAX_PARTITIONS } from '../../partitioning/constants'
+import { ErrorCodes, MAX_PARTITIONS, NarsilError } from '#platform/storage-host'
 import type {
   BM25FieldParams,
   BM25Params,

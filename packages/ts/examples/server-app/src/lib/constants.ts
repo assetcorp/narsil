@@ -1,0 +1,9 @@
+export const NOTES_COOKIE_NAME = 'narsil-notes-space'
+export const NOTES_COOKIE_MAX_AGE_SECONDS = 2_592_000
+export const MAX_NOTES_COOKIE_LENGTH = 128
+export const MAX_NOTES_REQUEST_BYTES = 1_024
+export const MAX_INDEX_REQUEST_BYTES = 16_777_216
+export const NOTES_INDEX_PREFIX = 'demo-notes-'
+export const OWNER_ONLY_FILE_MODE = 0o600
+export const OWNER_ONLY_DIRECTORY_MODE = 0o700
+export const MAX_NOTES_SECRET_BYTES = 128

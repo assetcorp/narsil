@@ -1,5 +1,8 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { MAX_FILE_BYTES } from '../serialization/constants'
+import { ErrorCodes, NarsilError } from '#platform/durability-config-host'
+
+export { bindDurabilityConfigHost } from '#platform/durability-config-host'
+
+import { MAX_FILE_BYTES } from '#platform/durability-config-host'
 import type { DurabilityConfig, NarsilConfig } from '../types/config'
 import type { DurabilityTier } from './durability-integration'
 
