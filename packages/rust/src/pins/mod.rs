@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::error::Result;
 
-pub(crate) use constants::{FIRST_WRITE_SEQUENCE, MAX_THREAD_SLOTS, NO_HELD_PIN};
+pub(crate) use constants::{FIRST_WRITE_SEQUENCE, LOADED_SEQUENCE, MAX_THREAD_SLOTS, NO_HELD_PIN};
 pub(crate) use slots::{slots_reached, thread_slot};
 
 pub(crate) struct PinTable {
