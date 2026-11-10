@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 
 const [repositoryRoot] = process.argv.slice(2)
@@ -115,8 +115,7 @@ function neighbourLists(node, m, numbers) {
 }
 
 function graphsForm(parts) {
-  const numbers = new Map()
-  parts.flatMap(part => part.docIds).forEach((id, number) => numbers.set(id, number))
+  const numbers = new Map(parts.flatMap(part => part.docIds).map((id, number) => [id, number]))
   const graphs = []
   let sequence = []
   parts.forEach((part, index) => {
@@ -193,9 +192,11 @@ function filesUnder(directory) {
 
 function segmentForms() {
   const forms = {}
-  for (const path of filesUnder(join(SAMPLES, 'wal')).filter(file => /\/segments\/\d+\/s\d+$/.test(file))) {
+  for (const path of filesUnder(join(SAMPLES, 'wal'))) {
+    const sampleName = relative(SAMPLES, path).split(sep).join('/')
+    if (!/\/segments\/\d+\/s\d+$/.test(sampleName)) continue
     const container = decode(payloadOf(readFileSync(path)))
-    forms[relative(SAMPLES, path)] = {
+    forms[sampleName] = {
       partition: documentsForm(container.payload),
       tombstones: container.tombstones ?? [],
     }
