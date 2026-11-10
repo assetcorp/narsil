@@ -160,11 +160,16 @@ function retryWhenMemoryAllows(state: VectorIndexState): void {
   if (state.rebuildWaitTimer !== null || state.disposed) return
   const timer = setTimeout(() => {
     state.rebuildWaitTimer = null
-    if (buildDue(state)) scheduleBuild(state)
+    if (state.hnsw !== null && state.buffer.size > 0) placeWhatWaitedForMemory(state)
     else startShuffledRebuild(state)
   }, SHUFFLED_REBUILD_MEMORY_RETRY_MS)
   timer.unref?.()
   state.rebuildWaitTimer = timer
+}
+
+function placeWhatWaitedForMemory(state: VectorIndexState): void {
+  if (state.building || state.buildsKeptOut !== null) retryWhenMemoryAllows(state)
+  else triggerBuild(state)
 }
 
 export function startShuffledRebuild(state: VectorIndexState): void {
