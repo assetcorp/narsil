@@ -94,8 +94,12 @@ func addColumn(requests []partition.ColumnRequest, request partition.ColumnReque
 	return append(requests, request)
 }
 
-func (ix *Index) columnRequests(filter *model.FilterExpression, facets model.FacetConfig, groupFields []string) []partition.ColumnRequest {
+func (ix *Index) columnRequests(params *model.QueryParams, groupFields []string) []partition.ColumnRequest {
 	var requests []partition.ColumnRequest
+	for _, field := range params.Sort {
+		requests = addColumn(requests, partition.ColumnRequest{Path: field.Field, Sort: true, Mode: query.SortModeOf(field)})
+	}
+	filter, facets := params.Filters, params.Facets
 	if filter != nil {
 		for _, path := range query.FilterSortFields(filter) {
 			requests = addColumn(requests, partition.ColumnRequest{Path: path, Sort: true, Mode: core.SortMin})

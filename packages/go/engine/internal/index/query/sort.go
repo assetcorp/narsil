@@ -14,22 +14,38 @@ import (
 type IDResolver func(segment int, ordinal uint32) (string, bool)
 
 type SortRequest struct {
-	Fields   []model.SortField
-	Limit    int
-	Anchor   []text.SortValue
-	AnchorID string
-	Matched  [][]uint32
-	IDOf     IDResolver
+	Fields    []model.SortField
+	Limit     int
+	Anchor    []text.SortValue
+	AnchorID  string
+	Matched   [][]uint32
+	IDOf      IDResolver
+	Partition int
 }
 
 type SortedEntry struct {
-	Segment int
-	Ordinal uint32
-	ID      string
-	Key     []text.SortValue
+	Partition int
+	Segment   int
+	Ordinal   uint32
+	ID        string
+	Key       []text.SortValue
 }
 
-func sortModeOf(field model.SortField) core.SortMode {
+func MatchedSets(view *View) [][]uint32 {
+	matched := make([][]uint32, len(view.Segments))
+	for index := range view.Segments {
+		matched[index] = newBits(view.Segments[index].capacity())
+	}
+	return matched
+}
+
+func MarkMatched(matched [][]uint32, segment int, ordinal uint32) {
+	if segment >= 0 && segment < len(matched) {
+		setBit(matched[segment], ordinal)
+	}
+}
+
+func SortModeOf(field model.SortField) core.SortMode {
 	switch text.SortModeOf(text.SortDirection(field.Direction), text.SortMode(field.Mode)) {
 	case text.SortModeMax:
 		return core.SortMax
@@ -50,7 +66,7 @@ func sortDirections(fields []model.SortField) []text.SortDirection {
 }
 
 func (v *View) sortColumn(segment *Segment, field model.SortField) (*core.SortColumn, error) {
-	mode := sortModeOf(field)
+	mode := SortModeOf(field)
 	if column := segment.Fields.Sort[SortColumnKey{Field: field.Field, Mode: mode}]; column != nil {
 		return column, nil
 	}
@@ -164,6 +180,15 @@ func (s *segmentSort) entryAfterAnchor(key []text.SortValue, id string) bool {
 	return order > 0 || (order == 0 && text.CompareCodePoints(id, s.request.AnchorID) > 0)
 }
 
+func widenedBits(bits []uint32, words int) []uint32 {
+	if len(bits) >= words {
+		return bits
+	}
+	widened := make([]uint32, words)
+	copy(widened, bits)
+	return widened
+}
+
 func (s *segmentSort) orderSharedKeys(page []SortedEntry) {
 	for start := 0; start < len(page); {
 		end := start + 1
@@ -181,14 +206,14 @@ func (s *segmentSort) orderSharedKeys(page []SortedEntry) {
 
 func (s *segmentSort) page(index int) ([]SortedEntry, error) {
 	segment := &s.view.Segments[index]
+	if s.request.Matched != nil && bitsetEmpty(s.request.Matched[index]) {
+		return nil, nil
+	}
 	live, err := segment.liveBits()
 	if err != nil {
 		return nil, err
 	}
-	request := &core.SortSelectRequest{Directions: make([]uint8, len(s.request.Fields)), Live: live, Filter: live}
-	if s.request.Matched != nil {
-		request.Filter = matchedOrEmpty(s.request.Matched[index])
-	}
+	request := &core.SortSelectRequest{Directions: make([]uint8, len(s.request.Fields))}
 	columns := make([]*core.SortColumn, len(s.request.Fields))
 	for at, field := range s.request.Fields {
 		if columns[at], err = s.view.sortColumn(segment, field); err != nil {
@@ -198,6 +223,12 @@ func (s *segmentSort) page(index int) ([]SortedEntry, error) {
 		if field.Direction == model.SortDescending {
 			request.Directions[at] = core.SortDescending
 		}
+	}
+	words := bitsetWords(uint32(len(columns[0].Current.Kinds)))
+	request.Live = widenedBits(live, words)
+	request.Filter = request.Live
+	if s.request.Matched != nil {
+		request.Filter = widenedBits(s.request.Matched[index], words)
 	}
 	if s.request.Anchor != nil {
 		request.HasAnchor = true
@@ -237,7 +268,7 @@ func (s *segmentSort) page(index int) ([]SortedEntry, error) {
 				key[at] = value
 			}
 			if s.entryAfterAnchor(key, id) {
-				page = append(page, SortedEntry{Segment: index, Ordinal: ordinal, ID: id, Key: key})
+				page = append(page, SortedEntry{Partition: s.request.Partition, Segment: index, Ordinal: ordinal, ID: id, Key: key})
 			}
 		}
 		s.orderSharedKeys(page)

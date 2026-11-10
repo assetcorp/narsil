@@ -24,6 +24,7 @@ type searchPlan struct {
 	work          *core.WorkMeter
 	filters       *filterRun
 	needsAll      bool
+	sortedPage    bool
 	maxResults    int
 	tolerance     int
 	prefixLength  int
@@ -236,7 +237,7 @@ func (plan *searchPlan) keywordQuery(snapshot partition.Snapshot) *query.Keyword
 	if minimum, set := params.MinScore.Get(); set && minimum > 0 {
 		keyword.MinScore = minimum
 	}
-	if params.Facets != nil {
+	if params.Facets != nil || plan.sortedPage {
 		keyword.Collect = query.MatchedOrdinals
 	}
 	return keyword

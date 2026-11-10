@@ -9,10 +9,8 @@ import (
 )
 
 type searchColumns struct {
-	view    *query.View
-	cloned  []bool
-	stored  map[string]*fields.Stored
-	columns []*fields.SortColumn
+	view   *query.View
+	cloned []bool
 }
 
 func (c *searchColumns) indexes(segment int) *query.FieldIndexes {
@@ -23,15 +21,6 @@ func (c *searchColumns) indexes(segment int) *query.FieldIndexes {
 		c.cloned[segment] = true
 	}
 	return held
-}
-
-func (c *searchColumns) release() {
-	for _, stored := range c.stored {
-		stored.Release()
-	}
-	for _, column := range c.columns {
-		column.Release()
-	}
 }
 
 func sortColumnKey(column *fields.SortColumn) query.SortColumnKey {
@@ -66,14 +55,12 @@ func (s Snapshot) growingStored(c *searchColumns, path string) (fields.StoredSou
 	if held := s.side.fields.Stored(path); held != nil {
 		return held, nil
 	}
-	if held := c.stored[path]; held != nil {
-		return held, nil
-	}
-	built, err := buildStored(path, s.partition.settings.Limits, s.side.capacity, s.side.growingDocument)
+	built, err := s.side.view.Built.Stored(path, func() (*fields.Stored, error) {
+		return buildStored(path, s.partition.settings.Limits, s.side.capacity, s.side.growingDocument)
+	})
 	if err != nil {
 		return nil, err
 	}
-	c.stored[path] = built
 	slices := built.Slices()
 	c.indexes(len(s.side.frozen)).Stored[path] = &slices
 	return built, nil
@@ -88,37 +75,37 @@ func (s Snapshot) growingColumn(c *searchColumns, request ColumnRequest) error {
 	if err != nil || !request.Sort {
 		return err
 	}
-	column, err := fields.BuildSortColumn(request.Path, request.Mode, source, s.partition.settings.Limits,
-		s.side.capacity, s.growingLiveBits())
+	key := query.SortColumnKey{Field: request.Path, Mode: request.Mode}
+	column, err := s.side.view.Built.Sort(key, func() (*fields.SortColumn, error) {
+		return fields.BuildSortColumn(request.Path, request.Mode, source, s.partition.settings.Limits,
+			s.side.capacity, s.growingLiveBits())
+	})
 	if err != nil {
 		return err
 	}
-	c.columns = append(c.columns, column)
 	c.indexes(len(s.side.frozen)).Sort[sortColumnKey(column)] = column.Column()
 	return nil
 }
 
-func (s Snapshot) ViewWith(requests []ColumnRequest) (*query.View, func(), error) {
+func (s Snapshot) ViewWith(requests []ColumnRequest) (*query.View, error) {
 	base := s.side.view
 	if len(requests) == 0 {
-		return base, func() {}, nil
+		return base, nil
 	}
 	view := *base
 	view.Segments = slices.Clone(base.Segments)
-	c := &searchColumns{view: &view, cloned: make([]bool, len(view.Segments)), stored: map[string]*fields.Stored{}}
+	c := &searchColumns{view: &view, cloned: make([]bool, len(view.Segments))}
 	for _, request := range requests {
 		for segment := range s.side.frozen {
 			if err := s.frozenColumn(c, segment, request); err != nil {
-				c.release()
-				return nil, nil, err
+				return nil, err
 			}
 		}
 		if err := s.growingColumn(c, request); err != nil {
-			c.release()
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	return &view, c.release, nil
+	return &view, nil
 }
 
 func (s *side) growingDocument(ordinal uint32) (storedDocument, bool, error) {

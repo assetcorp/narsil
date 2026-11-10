@@ -12,7 +12,6 @@ type partitionViews struct {
 	reading  *Reading
 	requests []partition.ColumnRequest
 	views    []*query.View
-	releases []func()
 	err      error
 }
 
@@ -23,13 +22,12 @@ func newPartitionViews(reading *Reading, requests []partition.ColumnRequest) *pa
 func (p *partitionViews) build() {
 	p.views = make([]*query.View, len(p.reading.Snapshots))
 	for at, snapshot := range p.reading.Snapshots {
-		view, release, err := snapshot.ViewWith(p.requests)
+		view, err := snapshot.ViewWith(p.requests)
 		if err != nil {
 			p.err = err
 			return
 		}
 		p.views[at] = view
-		p.releases = append(p.releases, release)
 	}
 }
 
@@ -39,14 +37,6 @@ func (p *partitionViews) all() ([]*query.View, error) {
 		return nil, p.err
 	}
 	return p.views, nil
-}
-
-func (p *partitionViews) release() {
-	p.once.Do(func() {})
-	for _, release := range p.releases {
-		release()
-	}
-	p.releases = nil
 }
 
 type queryReads struct {
@@ -66,11 +56,10 @@ func (ix *Index) openReads(prepared *preparedQuery, groupFields []string) error 
 		reading.Release()
 		return err
 	}
-	views := newPartitionViews(reading, ix.columnRequests(prepared.params.Filters, prepared.params.Facets, groupFields))
+	views := newPartitionViews(reading, ix.columnRequests(&prepared.params, groupFields))
 	prepared.reads = &queryReads{reading: reading, views: views, filters: filters}
 	prepared.filters = filters
 	prepared.reads.release = func() {
-		views.release()
 		filters.release()
 		reading.Release()
 	}

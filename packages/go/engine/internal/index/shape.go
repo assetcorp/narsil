@@ -11,20 +11,6 @@ type shapedResult struct {
 	documents *documentLookup
 }
 
-func sortKeyReader(prepared *preparedQuery, documents *documentLookup) func(id string) []text.SortValue {
-	fields := sortFieldNames(prepared.params.Sort)
-	modes := sortModesOf(prepared.params.Sort)
-	cache := map[string][]text.SortValue{}
-	return func(id string) []text.SortValue {
-		if key, cached := cache[id]; cached {
-			return key
-		}
-		key := readSortValues(documents.decoded(id), fields, modes)
-		cache[id] = key
-		return key
-	}
-}
-
 func pinnedParamIDs(pinned []model.PinnedDocument) map[string]struct{} {
 	ids := make(map[string]struct{}, len(pinned))
 	for _, entry := range pinned {
@@ -42,9 +28,13 @@ func (ix *Index) shapeResults(prepared *preparedQuery, found fanOutResult) (shap
 		count = min(prepared.offset+prepared.limit+1, count)
 	}
 	hits := hitsOf(found.scored, count, params.IncludeScoreComponents)
-	sortKeyOf := sortKeyReader(prepared, documents)
-	if params.Sort != nil {
-		hits = applySorting(hits, params.Sort, sortKeyOf)
+	sortKeys := found.sortKeys
+	if len(params.Sort) > 0 && sortKeys == nil {
+		sorted, keys, err := ix.hitsInSortOrder(prepared, hits)
+		if err != nil {
+			return shapedResult{}, err
+		}
+		hits, sortKeys = sorted, keys
 	}
 	var groups []hitGroup
 	if params.Group != nil {
@@ -67,14 +57,14 @@ func (ix *Index) shapeResults(prepared *preparedQuery, found fanOutResult) (shap
 	}
 	var sorting *paginationSort
 	if signature, sorted := prepared.sortSignature.Get(); sorted {
-		sorting = &paginationSort{signature: signature, directions: sortDirectionsOf(params.Sort), sortKeyOf: sortKeyOf}
+		sorting = &paginationSort{signature: signature, directions: sortDirectionsOf(params.Sort), sortKeyOf: func(id string) []text.SortValue { return sortKeys[id] }}
 	}
 	var page pageOfHits
 	if found.paginate != nil {
 		page = found.paginate(hits, pinnedIDs)
 	} else {
 		searchAfter, _ := params.SearchAfter.Get()
-		paged, err := applyPagination(hits, prepared.limit, prepared.offset, prepared.binding, searchAfter, sorting, pinnedIDs, ix.omitsCursorDepth(prepared))
+		paged, err := applyPagination(hits, prepared.limit, prepared.offset, prepared.binding, searchAfter, sorting, pinnedIDs, sortsWithoutScores(prepared))
 		if err != nil {
 			return shapedResult{}, err
 		}
@@ -101,7 +91,7 @@ func (ix *Index) shapeResults(prepared *preparedQuery, found fanOutResult) (shap
 	return shapedResult{result: result, documents: documents}, documents.failure()
 }
 
-func (ix *Index) omitsCursorDepth(prepared *preparedQuery) bool {
+func sortsWithoutScores(prepared *preparedQuery) bool {
 	params := &prepared.params
 	return prepared.sortSignature.IsSet() && !isBlank(params.Term) && !prepared.vectorOnly && !prepared.hybrid && !params.IncludeScores && !params.IncludeScoreComponents &&
 		!params.MinScore.IsSet() && params.Group == nil && params.Pinned == nil && !termMatchFilters(params.TermMatch)

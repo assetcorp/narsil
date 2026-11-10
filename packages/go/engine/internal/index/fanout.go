@@ -3,10 +3,12 @@ package index
 import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
 
 type fanOutResult struct {
 	scored       []scoredHit
+	sortKeys     map[string][]text.SortValue
 	totalMatched int
 	inexact      bool
 	facets       map[string]model.FacetResult
@@ -26,6 +28,10 @@ func (ix *Index) fanOut(prepared *preparedQuery, plan *searchPlan) (fanOutResult
 		}
 	}
 	facetConfig := plan.query.Facets
+	var matched [][][]uint32
+	if plan.sortedPage {
+		matched = make([][][]uint32, len(views))
+	}
 	if len(views) == 1 {
 		outcome, err := ix.searchPartition(snapshots[0], views[0], plan)
 		if err != nil {
@@ -37,7 +43,11 @@ func (ix *Index) fanOut(prepared *preparedQuery, plan *searchPlan) (fanOutResult
 				return fanOutResult{}, err
 			}
 		}
-		return result, nil
+		if plan.sortedPage {
+			matched[0] = outcome.matched
+			err = ix.withSortedPage(prepared, views, matched, &result)
+		}
+		return result, err
 	}
 	lists := make([][]scoredHit, 0, len(views))
 	var partitionFacets []map[string]model.FacetResult
@@ -47,6 +57,9 @@ func (ix *Index) fanOut(prepared *preparedQuery, plan *searchPlan) (fanOutResult
 		outcome, err := ix.searchPartition(snapshots[at], view, plan)
 		if err != nil {
 			return fanOutResult{}, err
+		}
+		if plan.sortedPage {
+			matched[at] = outcome.matched
 		}
 		if facetConfig != nil {
 			counted, err := facetsOf(view, outcome.matched, everyValue)
@@ -62,6 +75,9 @@ func (ix *Index) fanOut(prepared *preparedQuery, plan *searchPlan) (fanOutResult
 		if result.facets, err = query.MergeFacets(partitionFacets, facetConfig); err != nil {
 			return fanOutResult{}, err
 		}
+	}
+	if plan.sortedPage {
+		return result, ix.withSortedPage(prepared, views, matched, &result)
 	}
 	if result.scored, err = mergeScored(lists); err != nil {
 		return fanOutResult{}, err

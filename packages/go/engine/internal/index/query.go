@@ -265,5 +265,8 @@ func (ix *Index) textRanked(prepared *preparedQuery, pass *analysis.Pass) (fanOu
 	if err != nil {
 		return fanOutResult{}, err
 	}
+	if sortsWithoutScores(prepared) {
+		plan.sortedPage, plan.needsAll, plan.maxResults = true, false, 0
+	}
 	return ix.fanOut(prepared, plan)
 }

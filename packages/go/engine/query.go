@@ -171,7 +171,7 @@ func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryPa
 		return model.PreflightResult{}, err
 	}
 	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.PreflightResult, error) {
-		return target.PreflightWith(resolved, index.QueryOptions{PhraseReady: options.PhraseReady})
+		return target.PreflightWith(ctx, resolved, index.QueryOptions{PhraseReady: options.PhraseReady})
 	})
 	if err != nil {
 		return model.PreflightResult{}, err

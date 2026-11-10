@@ -9,11 +9,6 @@ func newBits(capacity uint32) []uint32 {
 	return make([]uint32, bitsetWords(capacity))
 }
 
-func hasBit(words []uint32, ordinal uint32) bool {
-	word := int(ordinal >> 5)
-	return word < len(words) && words[word]&(1<<(ordinal&31)) != 0
-}
-
 func setBit(words []uint32, ordinal uint32) {
 	if word := int(ordinal >> 5); word < len(words) {
 		words[word] |= 1 << (ordinal & 31)
@@ -21,23 +16,11 @@ func setBit(words []uint32, ordinal uint32) {
 }
 
 func (s *Segment) liveBits() ([]uint32, error) {
-	capacity := s.capacity()
-	if s.Live != nil {
-		if len(s.Live) < bitsetWords(capacity) {
-			return nil, narsilerr.New(narsilerr.CodePartitionCorrupted, "The live bitset of a segment is shorter than its ordinals", nil)
-		}
-		return s.Live[:bitsetWords(capacity)], nil
+	words := bitsetWords(s.capacity())
+	if len(s.Live) < words {
+		return nil, narsilerr.New(narsilerr.CodePartitionCorrupted, "The live bitset of a segment is shorter than its ordinals", nil)
 	}
-	if s.Growing != nil {
-		return nil, narsilerr.New(narsilerr.CodePartitionCorrupted, "A growing segment of the partition view holds no live bitset", nil)
-	}
-	live := newBits(capacity)
-	for ordinal := range capacity {
-		if !hasBit(s.State.Tombstones, ordinal) {
-			setBit(live, ordinal)
-		}
-	}
-	return live, nil
+	return s.Live[:words], nil
 }
 
 func presentOf(index core.FieldIndex, capacity uint32) []uint32 {
