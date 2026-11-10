@@ -169,6 +169,7 @@ export function createVectorIndex(
     releaseToFilesInFlight: Promise.resolve(),
     cold: null,
     graphsHeldOffThread: null,
+    graphsPlacedIntoSinceConnect: new WeakSet(),
     searchWatches: new Set(),
     writeListeners: new Set(),
   }

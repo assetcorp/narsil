@@ -107,8 +107,16 @@ export interface HNSWIndex {
   exclusively<T>(operation: () => T): T
 
   deserialize(data: SerializedHNSWGraph): void
-  /** Writes the graph in parts of `partSize` numbers. Each vector takes the number that `numberOfOrdinal` returns for its ordinal, and the method skips every node whose ordinal has no number. */
-  serializeNumbered(numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array, partSize: number): NumberedHnswGraph[]
+  /**
+   * Writes the graph in parts of `partSize` numbers. Each vector takes the number that `numberOfOrdinal` returns for its ordinal, and the method skips every node whose ordinal has no number.
+   * Pass `connectsFirst` while a build pass has placed nodes since the last `connectUnreached`, and the method then waits for every other thread to finish its write, links every unreached node, and copies the graph before any thread writes to it again.
+   */
+  serializeNumbered(
+    numberOfOrdinal: Int32Array,
+    ordinalOfNumber: Int32Array,
+    partSize: number,
+    connectsFirst?: boolean,
+  ): NumberedHnswGraph[]
   /** Reads a numbered graph back from its parts, and places each node at the ordinal that `ordinalOfNumber` returns for the node's number. */
   deserializeNumbered(graph: NumberedGraphParts, ordinalOfNumber: Int32Array): void
   exportSnapshot(): HNSWSnapshot
@@ -281,8 +289,18 @@ export function createHNSWIndex(
     rebuild: () => relinking(() => rebuildOp(state)),
     exclusively,
     deserialize: (data: SerializedHNSWGraph) => relinking(() => deserializeGraph(state, store, data)),
-    serializeNumbered: (numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array, partSize: number) =>
-      serializeNumberedGraphParts(state, numberOfOrdinal, ordinalOfNumber, partSize),
+    serializeNumbered: (
+      numberOfOrdinal: Int32Array,
+      ordinalOfNumber: Int32Array,
+      partSize: number,
+      connectsFirst = false,
+    ) => {
+      if (!connectsFirst) return serializeNumberedGraphParts(state, numberOfOrdinal, ordinalOfNumber, partSize)
+      return relinking(() => {
+        connectAfterBuild(state)
+        return serializeNumberedGraphParts(state, numberOfOrdinal, ordinalOfNumber, partSize)
+      })
+    },
     deserializeNumbered: (graph: NumberedGraphParts, ordinalOfNumber: Int32Array) =>
       relinking(() => deserializeNumberedGraph(state, graph, ordinalOfNumber)),
     exportSnapshot: () => exportSnapshot(state),
