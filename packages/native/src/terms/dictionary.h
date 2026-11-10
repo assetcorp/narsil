@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum { DICTIONARY_REGIONS = TERM_TABLE_REGIONS + 5 };
+enum { DICTIONARY_REGIONS = TERM_TABLE_REGIONS + 6 };
 
 typedef struct {
   const uint16_t *units;
@@ -22,6 +22,9 @@ uint32_t dictionary_count(const narsil_term_dictionary *dictionary);
 uint32_t dictionary_frequency(const narsil_term_dictionary *dictionary, uint32_t ordinal);
 int dictionary_cursor(const narsil_term_dictionary *dictionary, uint32_t ordinal, term_cursor *cursor);
 int term_next(term_cursor *cursor, uint32_t *point);
+int term_compare_units(const uint8_t *bytes, size_t length, const uint16_t *units, size_t count);
 int dictionary_compare(const narsil_term_dictionary *dictionary, uint32_t left, uint32_t right);
+int dictionary_exact_capacity(size_t slot_count, size_t term_count);
+int64_t dictionary_find_exact(const narsil_term_dictionary *dictionary, const uint16_t *units, size_t count);
 
 #endif

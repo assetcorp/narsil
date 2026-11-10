@@ -147,56 +147,6 @@ static int table_ascends(frozen_removal_plan *plan, const narsil_frozen_strings 
   return slot->ascends;
 }
 
-enum {
-  UTF8_WIDEST = 4,
-  UTF8_PAYLOAD_BITS = 6,
-  UTF8_PAYLOAD_MASK = 0x3f,
-  UTF8_CONTINUATION = 0x80,
-  UTF8_TWO_LEAD = 0xc0,
-  UTF8_THREE_LEAD = 0xe0,
-  UTF8_FOUR_LEAD = 0xf0,
-  UTF8_TWO_BYTE_END = 0x800
-};
-
-static size_t utf8_of(uint32_t point, uint8_t encoded[UTF8_WIDEST]) {
-  if (point < NARSIL_ASCII_END) {
-    encoded[0] = (uint8_t)point;
-    return 1;
-  }
-  if (point < UTF8_TWO_BYTE_END) {
-    encoded[0] = (uint8_t)(UTF8_TWO_LEAD | (point >> UTF8_PAYLOAD_BITS));
-    encoded[1] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
-    return 2;
-  }
-  if (point < NARSIL_SUPPLEMENTARY_FIRST) {
-    encoded[0] = (uint8_t)(UTF8_THREE_LEAD | (point >> (2 * UTF8_PAYLOAD_BITS)));
-    encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
-    encoded[2] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
-    return 3;
-  }
-  encoded[0] = (uint8_t)(UTF8_FOUR_LEAD | (point >> (3 * UTF8_PAYLOAD_BITS)));
-  encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> (2 * UTF8_PAYLOAD_BITS)) & UTF8_PAYLOAD_MASK));
-  encoded[2] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
-  encoded[3] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
-  return UTF8_WIDEST;
-}
-
-static int compare_bytes_to_units(const uint8_t *bytes, size_t length, const uint16_t *units, size_t count) {
-  size_t compared = 0;
-  size_t index = 0;
-  while (index < count) {
-    uint8_t encoded[UTF8_WIDEST];
-    size_t width = utf8_of(narsil_decode_next(units, count, &index), encoded);
-    size_t available = length - compared;
-    size_t shared = available < width ? available : width;
-    int order = shared == 0 ? 0 : memcmp(bytes + compared, encoded, shared);
-    if (order != 0) { return order; }
-    if (available < width) { return -1; }
-    compared += width;
-  }
-  return compared < length ? 1 : 0;
-}
-
 static int holds_lone_surrogate(const uint16_t *units, size_t count) {
   size_t index = 0;
   while (index < count) {
@@ -213,7 +163,7 @@ static int64_t find_ascending_surface(const narsil_frozen_strings *table, const 
   while (low < high) {
     size_t middle = low + ((high - low) / 2);
     uint32_t start = table->offsets[middle * 2];
-    int order = compare_bytes_to_units(table->text + start, table->offsets[(middle * 2) + 1] - start, units, count);
+    int order = term_compare_units(table->text + start, table->offsets[(middle * 2) + 1] - start, units, count);
     if (order == 0) { return (int64_t)middle; }
     if (order < 0) {
       low = middle + 1;
