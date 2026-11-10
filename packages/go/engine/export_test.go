@@ -2,7 +2,12 @@ package engine
 
 import "context"
 
-func SearchedSegmentsOf(ctx context.Context, n *Narsil, indexName string) ([]int, error) {
+type PartitionSegments struct {
+	FrozenSegments   int
+	GrowingDocuments int
+}
+
+func PartitionSegmentsOf(ctx context.Context, n *Narsil, indexName string) ([]PartitionSegments, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, err
@@ -13,10 +18,23 @@ func SearchedSegmentsOf(ctx context.Context, n *Narsil, indexName string) ([]int
 		return nil, err
 	}
 	defer reading.Release()
-	counts := make([]int, len(reading.Snapshots))
+	held := make([]PartitionSegments, len(reading.Snapshots))
 	for partitionID, snapshot := range reading.Snapshots {
-		counts[partitionID] = len(snapshot.SegmentSizes())
-		if snapshot.GrowingCount() > 0 {
+		held[partitionID] = PartitionSegments{FrozenSegments: len(snapshot.SegmentSizes()),
+			GrowingDocuments: snapshot.GrowingCount()}
+	}
+	return held, nil
+}
+
+func SearchedSegmentsOf(ctx context.Context, n *Narsil, indexName string) ([]int, error) {
+	held, err := PartitionSegmentsOf(ctx, n, indexName)
+	if err != nil {
+		return nil, err
+	}
+	counts := make([]int, len(held))
+	for partitionID, partition := range held {
+		counts[partitionID] = partition.FrozenSegments
+		if partition.GrowingDocuments > 0 {
 			counts[partitionID]++
 		}
 	}
