@@ -6,6 +6,7 @@ import {
   addonSources,
   buildDirectory,
   formattedFiles,
+  fuzzSources,
   lintedCoreSources,
   packageDirectory,
   testSources,
@@ -91,10 +92,8 @@ async function runAll(jobs) {
 const { clangTidy, clangFormat, windowsHeaderDirectory, darwinHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
-const lintedConfigurations = configurations(windowsHeaderDirectory, darwinHeaderDirectory)
-const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
-const jobs = lintedConfigurations.flatMap(configuration =>
-  sources.map(source => ({
+function tidyJob(configuration, source) {
+  return {
     label: `clang-tidy, ${configuration.name}: ${relative(packageDirectory, source)}`,
     command: clangTidy,
     args: [
@@ -104,8 +103,16 @@ const jobs = lintedConfigurations.flatMap(configuration =>
       ...configuration.extraArguments.map(argument => `--extra-arg=${argument}`),
       source,
     ],
-  })),
-)
+  }
+}
+
+const lintedConfigurations = configurations(windowsHeaderDirectory, darwinHeaderDirectory)
+const [hostConfiguration] = lintedConfigurations
+const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
+const jobs = [
+  ...lintedConfigurations.flatMap(configuration => sources.map(source => tidyJob(configuration, source))),
+  ...fuzzSources().map(source => tidyJob(hostConfiguration, source)),
+]
 jobs.push({
   label: 'clang-format',
   command: clangFormat,

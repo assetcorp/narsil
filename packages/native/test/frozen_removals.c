@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_analysis.h"
@@ -5,9 +6,11 @@
 #include "../include/narsil_expansion.h"
 #include "../include/narsil_frozen_segments.h"
 #include "../include/narsil_segments.h"
+#include "../include/narsil_suggestions.h"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -327,4 +330,110 @@ void frozen_removal_checks(narsil_workspace *workspace) {
   saturated_counts(workspace, request);
   check(TERM_COUNTS[0] == 2 && SURFACE_COUNTS[0] == 3 && SPELLING_COUNTS[0] == 2 && POSTING_DOCUMENTS[2] == 1,
         "frozen removal leaves shared source counts and postings unchanged");
+}
+
+enum { REFUSED_ROOM = 8, REFUSED_SUGGESTION_WORDS = REFUSED_ROOM * NARSIL_SUGGESTION_WORDS };
+
+static const uint16_t REFUSED_UNITS[] = {'h', 'a', 'r', 'b', 'o', 'r', 'h', 'a', 'r', 'b', 'o', 'r', 's'};
+
+typedef struct {
+  segment_fixture segment;
+  narsil_frozen_segment_state view;
+  narsil_token token;
+  narsil_field_tokens fields[FIELD_COUNT];
+  state_fixture state;
+  uint32_t entries[PREPARED_REPLACEMENTS * 2];
+  double values[PREPARED_REPLACEMENTS];
+  uint64_t written;
+  uint32_t segments[REFUSED_ROOM];
+  uint32_t tokens[REFUSED_ROOM];
+  double factors[REFUSED_ROOM];
+  uint32_t terms[REFUSED_SUGGESTION_WORDS];
+  uint32_t starts[REFUSED_ROOM];
+  uint32_t spellings[REFUSED_SUGGESTION_WORDS];
+  double occurrences[REFUSED_ROOM];
+  uint32_t count;
+} frozen_inputs;
+
+static frozen_inputs *prepare_frozen(int indexed) {
+  frozen_inputs *inputs = calloc(1, sizeof *inputs);
+  if (inputs == NULL) { return NULL; }
+  build_segment(&inputs->segment, indexed);
+  inputs->view = state_of(&inputs->state, PENDING_DOCUMENTS, PENDING_TOKENS);
+  inputs->token = (narsil_token){0, 0, HARBOR_LENGTH, HARBOR_LENGTH, HARBORS_LENGTH, 0, 0, NARSIL_NO_TERM_SLOT};
+  for (uint32_t field = 0; field < FIELD_COUNT; field++) {
+    inputs->fields[field] = (narsil_field_tokens){
+        (uint16_t)field, {&inputs->token, 1, REFUSED_UNITS, sizeof REFUSED_UNITS / sizeof REFUSED_UNITS[0]}};
+  }
+  return inputs;
+}
+
+static void *prepare_indexed_frozen(void) { return prepare_frozen(1); }
+
+static void *prepare_scanned_frozen(void) { return prepare_frozen(0); }
+
+static narsil_remove_frozen_request refused_request(frozen_inputs *inputs, uint32_t ordinal) {
+  return (narsil_remove_frozen_request){&inputs->segment.segment, &inputs->view, ordinal,
+                                        inputs->fields,           FIELD_COUNT,   NULL};
+}
+
+static narsil_status remove_and_settle(narsil_workspace *workspace, void *opaque) {
+  frozen_inputs *inputs = opaque;
+  narsil_remove_frozen_request request = refused_request(inputs, 0);
+  narsil_status status = narsil_remove_frozen_document(workspace, &request);
+  request.ordinal = 1;
+  if (status == NARSIL_OK) { status = narsil_remove_frozen_document(workspace, &request); }
+  return status == NARSIL_OK ? narsil_settle_frozen_state(workspace, request.segment, request.state, NULL) : status;
+}
+
+static narsil_status prepare_refused_removal(narsil_workspace *workspace, void *opaque) {
+  frozen_inputs *inputs = opaque;
+  narsil_remove_frozen_request request = refused_request(inputs, PREPARED_ORDINAL);
+  narsil_frozen_removal_output output = {inputs->entries, inputs->values, PREPARED_REPLACEMENTS, PREPARED_REPLACEMENTS};
+  size_t written = 0;
+  narsil_status status = narsil_prepare_frozen_removal(workspace, &request, &output, &written);
+  inputs->written = written;
+  return status;
+}
+
+static narsil_expansion_output frozen_output(frozen_inputs *inputs) {
+  return (narsil_expansion_output){inputs->segments, REFUSED_ROOM,    inputs->tokens,
+                                   REFUSED_ROOM,     inputs->factors, REFUSED_ROOM};
+}
+
+static narsil_status expand_frozen_prefix(narsil_workspace *workspace, void *opaque) {
+  frozen_inputs *inputs = opaque;
+  static const uint16_t text[] = {'h', 'a', 'r'};
+  narsil_expansion_segment source = {.frozen = &inputs->segment.segment, .state = &inputs->view};
+  narsil_prefix_request request = {&source, 1, text, 3, text, 3, text, 3};
+  narsil_expansion_output output = frozen_output(inputs);
+  return narsil_expand_prefix(workspace, &request, &output, &inputs->count);
+}
+
+static narsil_status suggest_frozen_terms(narsil_workspace *workspace, void *opaque) {
+  frozen_inputs *inputs = opaque;
+  static const uint16_t text[] = {'h', 'a', 'r', 'b'};
+  narsil_expansion_segment source = {.frozen = &inputs->segment.segment, .state = &inputs->view};
+  narsil_suggestion_request request = {&source, 1, text, 4, text, 4, REFUSED_ROOM};
+  narsil_suggestion_output output = {inputs->terms,     REFUSED_SUGGESTION_WORDS, inputs->starts,      REFUSED_ROOM,
+                                     inputs->spellings, REFUSED_SUGGESTION_WORDS, inputs->occurrences, REFUSED_ROOM};
+  return narsil_suggest_terms(workspace, &request, &output, &inputs->count);
+}
+
+static uint64_t digest_frozen(const void *opaque) {
+  const frozen_inputs *inputs = opaque;
+  return digest_bytes(DIGEST_START, &inputs->state, sizeof *inputs - offsetof(frozen_inputs, state));
+}
+
+void frozen_allocation_failures(void) {
+  const failing_call calls[] = {
+      {"frozen removals settled through the removal index", prepare_indexed_frozen, remove_and_settle, digest_frozen,
+       free},
+      {"frozen removals settled through a posting scan", prepare_scanned_frozen, remove_and_settle, digest_frozen,
+       free},
+      {"a prepared frozen removal", prepare_indexed_frozen, prepare_refused_removal, digest_frozen, free},
+      {"a prefix expansion over a frozen segment", prepare_indexed_frozen, expand_frozen_prefix, digest_frozen, free},
+      {"term suggestions over a frozen segment", prepare_indexed_frozen, suggest_frozen_terms, digest_frozen, free},
+  };
+  for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
 }

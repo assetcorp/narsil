@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
@@ -7,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum { CACHE_BUDGET_BYTES = 1000000, EXTRA_OUTPUT_WORD = 17 };
@@ -120,6 +122,54 @@ static void refusal_checks(narsil_workspace *workspace) {
   fixture.text_length[0] = UINT32_MAX;
   check(execute(workspace, &fixture) == NARSIL_OK && fixture.output[0] == 0,
         "corrupt stored text spans cannot read beyond their region");
+}
+
+static const uint16_t REFUSED_TEXT[] = u"Abc cde cdf abcde CDEF xyz";
+
+static pattern_case folded_case(const uint16_t *query, uint32_t operator_kind) {
+  return (pattern_case){query, REFUSED_TEXT, operator_kind, 1, 1, 0, "a refused allocation"};
+}
+
+static void *prepare_refused_pattern(pattern_case sample, uint32_t tolerance) {
+  pattern_fixture *fixture = calloc(1, sizeof *fixture);
+  if (fixture == NULL) { return NULL; }
+  prepare(fixture, &sample);
+  fixture->test.tolerance = tolerance;
+  return fixture;
+}
+
+static void *prepare_refused_regex(void) {
+  return prepare_refused_pattern(folded_case(u"^(ab|c[d-f]+|\\s)*.*abcde.*x[yz]{1,2}$", NARSIL_PATTERN_REGEX), 0);
+}
+
+static void *prepare_refused_wildcard(void) {
+  return prepare_refused_pattern(folded_case(u"*cd?*cdef*x?z", NARSIL_PATTERN_WILDCARD), 0);
+}
+
+static void *prepare_refused_contains(void) {
+  return prepare_refused_pattern(folded_case(u"cdef", NARSIL_PATTERN_CONTAINS), 0);
+}
+
+static void *prepare_refused_typo(void) {
+  return prepare_refused_pattern(folded_case(u"abc cde cdf abcde cdef xyy", NARSIL_PATTERN_EQ), 2);
+}
+
+static narsil_status refused_pattern(narsil_workspace *workspace, void *opaque) { return execute(workspace, opaque); }
+
+static uint64_t digest_refused_pattern(const void *opaque) {
+  const pattern_fixture *fixture = opaque;
+  uint64_t digest = digest_bytes(DIGEST_START, fixture->output, sizeof fixture->output);
+  return digest_word(digest_word(digest, (uint64_t)fixture->spent), fixture->stop);
+}
+
+void pattern_allocation_failures(void) {
+  const failing_call calls[] = {
+      {"a folded expression", prepare_refused_regex, refused_pattern, digest_refused_pattern, free},
+      {"a folded wildcard", prepare_refused_wildcard, refused_pattern, digest_refused_pattern, free},
+      {"a folded substring", prepare_refused_contains, refused_pattern, digest_refused_pattern, free},
+      {"a folded match within two typos", prepare_refused_typo, refused_pattern, digest_refused_pattern, free},
+  };
+  for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
 }
 
 void pattern_checks(narsil_workspace *workspace) {

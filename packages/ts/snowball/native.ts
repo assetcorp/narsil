@@ -7,8 +7,13 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const NATIVE_OUTPUT_DIR = resolve(__dirname, '..', '..', 'native', 'src', 'languages', 'snowball')
 const STEM_CHECK_SOURCE = join(__dirname, 'stem-check.c')
+const CORE_ALLOCATION_HEADER = resolve(NATIVE_OUTPUT_DIR, '..', '..', 'allocation.h')
+const CORE_ALLOCATION_INCLUDE = '#include "../../allocation.h"'
+const STEM_CHECK_SOURCE_PATH = ['src', 'languages', 'snowball']
+const STEM_CHECK_ALLOCATION_PATH = ['src', 'allocation.h']
 
 const RUNTIME_FILES = ['api.h', 'api.c', 'snowball_runtime.h', 'utilities.c']
+const ALLOCATING_RUNTIME_FILES = new Set(['api.c', 'utilities.c'])
 const NARROW_SYMBOL = 'typedef unsigned char symbol;'
 const WIDE_SYMBOL = 'typedef unsigned short symbol;'
 const UNIT_BYTES = 2
@@ -34,11 +39,16 @@ export interface NativeProvenance {
   dataCommit: string
 }
 
-function banner(origin: string, provenance: NativeProvenance): string {
+const ALLOCATION_NOTE = ` *
+ * Each malloc and realloc call goes through core_allocate and core_reallocate in src/allocation.h, so that the
+ * allocation-failure test in packages/native/test can refuse it.
+`
+
+function banner(origin: string, provenance: NativeProvenance, allocates = false): string {
   return `/*
  * ${origin} by the Snowball compiler ${provenance.compilerVersion}, with each symbol widened to a
  * UTF-16 code unit so that the stemmer reads the same units as the TypeScript stemmer.
- *
+${allocates ? ALLOCATION_NOTE : ''} *
  * Snowball is BSD-3-Clause, copyright (c) 2001, Dr Martin Porter and contributors. The NOTICE file at the root
  * of the repository carries the licence. Source from ${provenance.compilerRepository} at
  * ${provenance.compilerCommit}, verified against ${provenance.dataRepository} at
@@ -53,13 +63,28 @@ function withoutGeneratorBanner(source: string): string {
   return source.replace(/^\/\* Generated from \S+ by Snowball \S+ - https:\/\/snowballstem\.org\/ \*\/\n\n?/, '')
 }
 
-function vendored(name: string, source: string, origin: string, provenance: NativeProvenance): NativeSource {
+function vendored(
+  name: string,
+  source: string,
+  origin: string,
+  provenance: NativeProvenance,
+  allocates = false,
+): NativeSource {
   const quiet = name.endsWith('.c') ? `${VENDORED_WARNINGS}\n` : ''
-  return { name, text: `${banner(origin, provenance)}\n${quiet}${source}` }
+  return { name, text: `${banner(origin, provenance, allocates)}\n${quiet}${source}` }
 }
 
 export function nativeStemmerFile(language: string): string {
   return `${language}_stemmer`
+}
+
+function throughCoreAllocation(name: string, source: string): string {
+  if (/\bcalloc\s*\(/.test(source)) {
+    throw new Error(`runtime/${name} calls calloc, which nativeRuntime does not send through src/allocation.h`)
+  }
+  const routed = source.replace(/\bmalloc\s*\(/g, 'core_allocate(').replace(/\brealloc\s*\(/g, 'core_reallocate(')
+  if (routed === source) throw new Error(`runtime/${name} no longer calls malloc or realloc`)
+  return `${CORE_ALLOCATION_INCLUDE}\n\n${routed}`
 }
 
 export function nativeRuntime(compilerDirectory: string, provenance: NativeProvenance): NativeSource[] {
@@ -69,7 +94,9 @@ export function nativeRuntime(compilerDirectory: string, provenance: NativeProve
       if (!source.includes(NARROW_SYMBOL)) throw new Error('runtime/api.h no longer declares the symbol type')
       source = source.replace(NARROW_SYMBOL, WIDE_SYMBOL)
     }
-    return vendored(name, source, `Copied from runtime/${name}`, provenance)
+    const allocates = ALLOCATING_RUNTIME_FILES.has(name)
+    if (allocates) source = throughCoreAllocation(name, source)
+    return vendored(name, source, `Copied from runtime/${name}`, provenance, allocates)
   })
 }
 
@@ -129,8 +156,10 @@ export function stemNatively(
   if (endianness() !== 'LE') throw new Error('the stem check exchanges little-endian units')
   const directory = join(scratch, `${language}-check`)
   rmSync(directory, { recursive: true, force: true })
-  mkdirSync(directory, { recursive: true })
-  for (const source of sources) writeFileSync(join(directory, source.name), source.text)
+  const sourceDirectory = join(directory, ...STEM_CHECK_SOURCE_PATH)
+  mkdirSync(sourceDirectory, { recursive: true })
+  for (const source of sources) writeFileSync(join(sourceDirectory, source.name), source.text)
+  writeFileSync(join(directory, ...STEM_CHECK_ALLOCATION_PATH), readFileSync(CORE_ALLOCATION_HEADER))
   const binary = join(directory, 'stem-check')
   execFileSync('cc', [
     '-std=c11',
@@ -141,11 +170,11 @@ export function stemNatively(
     `-DSTEMMER=${language}`,
     `-DSTEMMER_HEADER="${nativeStemmerFile(language)}.h"`,
     '-I',
-    directory,
+    sourceDirectory,
     STEM_CHECK_SOURCE,
-    join(directory, `${nativeStemmerFile(language)}.c`),
-    join(directory, 'api.c'),
-    join(directory, 'utilities.c'),
+    join(sourceDirectory, `${nativeStemmerFile(language)}.c`),
+    join(sourceDirectory, 'api.c'),
+    join(sourceDirectory, 'utilities.c'),
     '-o',
     binary,
   ])

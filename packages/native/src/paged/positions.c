@@ -3,12 +3,12 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_paged.h"
+#include "../allocation.h"
 #include "../regions.h"
 #include "../segments/regions.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 enum { BYTE_BITS = 8, THIRD_BYTE_SHIFT = 16, FOURTH_BYTE_SHIFT = 24 };
 
@@ -66,7 +66,7 @@ static narsil_status read_offsets(narsil_workspace *workspace, narsil_page_cache
   paged_scratch *scratch = workspace_paged_scratch(workspace);
   size_t bytes = words * sizeof(uint32_t);
   if (bytes > scratch->offset_capacity) {
-    void *grown = realloc(scratch->offsets, bytes);
+    void *grown = core_reallocate(scratch->offsets, bytes);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->offsets = grown;
     scratch->offset_capacity = bytes;

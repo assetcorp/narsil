@@ -41,6 +41,8 @@ int failed_checks(void) { return failures; }
 
 static uint32_t random_state = RANDOM_SEED;
 
+void restart_random(void) { random_state = RANDOM_SEED; }
+
 static uint32_t next_random(void) {
   random_state = (random_state * RANDOM_MULTIPLIER) + RANDOM_INCREMENT;
   return random_state;

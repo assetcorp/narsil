@@ -252,6 +252,7 @@ void entry_unlock(const walk_context *context);
 uint32_t read_neighbours(const walk_context *context, node_layer position, int32_t *out);
 
 int32_t node_top_layer(const walk_context *context, int32_t ordinal);
+int32_t entry_top_layer(const walk_context *context, int32_t entry);
 int32_t *list_at(const walk_context *context, node_layer position, uint32_t *capacity);
 uint32_t list_limit(const narsil_graph *graph, int32_t layer);
 void list_add(const walk_context *context, node_layer position, int32_t neighbour);
@@ -268,7 +269,7 @@ void note_linked(const walk_context *context, int32_t ordinal);
 void note_unlinked(const walk_context *context, int32_t ordinal);
 void note_node_left_unlinked(const walk_context *context);
 void note_nearest_link_due(const walk_context *context, int32_t ordinal);
-narsil_status link_from_nearest(const walk_context *context);
+void link_from_nearest(const walk_context *context, int32_t *nearest_of, int32_t *anchored_by);
 int release_unless_last(const walk_context *context, int32_t ordinal);
 int is_live(const walk_context *context, int32_t ordinal);
 narsil_status reserve_last_links(narsil_workspace *workspace);

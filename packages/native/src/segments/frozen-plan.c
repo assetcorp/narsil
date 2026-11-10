@@ -1,6 +1,7 @@
 #include "frozen.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "strings.h"
 
@@ -19,7 +20,7 @@ narsil_status frozen_removal_add(frozen_removal_plan *plan, uint32_t kind, uint3
       capacity *= FROZEN_CHANGE_GROWTH;
     }
     if (capacity > SIZE_MAX / sizeof *plan->changes) { return NARSIL_OUT_OF_MEMORY; }
-    frozen_change *changes = realloc(plan->changes, capacity * sizeof *changes);
+    frozen_change *changes = core_reallocate(plan->changes, capacity * sizeof *changes);
     if (changes == NULL) { return NARSIL_OUT_OF_MEMORY; }
     plan->changes = changes;
     plan->capacity = capacity;
@@ -39,7 +40,7 @@ narsil_status frozen_reserve_words(uint32_t **words, size_t *capacity, size_t co
     next *= FROZEN_CHANGE_GROWTH;
   }
   if (next > SIZE_MAX / sizeof **words) { return NARSIL_OUT_OF_MEMORY; }
-  uint32_t *grown = realloc(*words, next * sizeof *grown);
+  uint32_t *grown = core_reallocate(*words, next * sizeof *grown);
   if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
   *words = grown;
   *capacity = next;

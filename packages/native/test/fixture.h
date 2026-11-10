@@ -53,6 +53,7 @@ void report(const char *line);
 void check(int condition, const char *what);
 int failed_checks(void);
 float random_unit(void);
+void restart_random(void);
 uint32_t fixture_vector_stride_floats(void);
 uint32_t fixture_record_bytes(uint32_t bits);
 test_fixture *build_fixture(uint32_t bits);
