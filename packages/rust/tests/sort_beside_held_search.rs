@@ -155,10 +155,12 @@ fn insert_range(engine: &Narsil, from: u64, to: u64) {
     );
 }
 
+type RerankScores = Result<Vec<f64>, narsil::AdapterError>;
+
 fn held_rerank(
     entered: Sender<()>,
     release: Receiver<()>,
-) -> RerankWith<impl Fn(&str, &[String]) -> Result<Vec<f64>, narsil::AdapterError> + Send + Sync> {
+) -> RerankWith<impl Fn(&str, &[String]) -> RerankScores + Send + Sync> {
     let entered = Mutex::new(entered);
     let release = Mutex::new(release);
     RerankWith(move |_: &str, documents: &[String]| {

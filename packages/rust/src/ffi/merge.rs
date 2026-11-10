@@ -6,7 +6,6 @@ pub const NARSIL_MERGE_NUMERIC: u32 = 1;
 pub const NARSIL_MERGE_BOOLEAN: u32 = 2;
 pub const NARSIL_MERGE_ENUM: u32 = 3;
 pub const NARSIL_MERGE_GEO: u32 = 4;
-pub const NARSIL_MERGE_STORED: u32 = 5;
 pub const NARSIL_MERGE_PATTERN: u32 = 6;
 pub const NARSIL_FIELD_MERGE_REGIONS: usize = 8;
 

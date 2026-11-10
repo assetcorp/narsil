@@ -3,12 +3,6 @@ use std::ffi::c_int;
 use super::narsil_status;
 
 pub const NARSIL_MATH_LOG: c_int = 0;
-pub const NARSIL_MATH_SIN: c_int = 1;
-pub const NARSIL_MATH_COS: c_int = 2;
-pub const NARSIL_MATH_TAN: c_int = 3;
-pub const NARSIL_MATH_ASIN: c_int = 4;
-pub const NARSIL_MATH_ATAN: c_int = 5;
-pub const NARSIL_MATH_ATAN2: c_int = 6;
 
 #[repr(C)]
 pub struct narsil_math_batch {

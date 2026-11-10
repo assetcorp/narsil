@@ -96,12 +96,6 @@ unsafe extern "C" {
         workspace: *mut narsil_workspace,
         request: *const narsil_remove_frozen_request,
     ) -> narsil_status;
-    pub fn narsil_prepare_frozen_removal(
-        workspace: *mut narsil_workspace,
-        request: *const narsil_remove_frozen_request,
-        output: *const narsil_frozen_removal_output,
-        count: *mut usize,
-    ) -> narsil_status;
     pub fn narsil_settle_frozen_state(
         workspace: *mut narsil_workspace,
         segment: *const narsil_frozen_segment,
