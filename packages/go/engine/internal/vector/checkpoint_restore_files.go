@@ -74,7 +74,7 @@ func (r *CheckpointRestore) restoreVector(file *LoadedVectorFile, position int, 
 		if fileIndex < 0 {
 			cold = nil
 		}
-		ordinal, _, err := store.insertReplaced(docID, vector.values, cold)
+		ordinal, _, err := store.insertReplaced(docID, vector.values, cold, loadedWriteSequence)
 		if err != nil {
 			return noLiveVectorAtPosition, err
 		}
@@ -94,13 +94,13 @@ func (r *CheckpointRestore) restoreVector(file *LoadedVectorFile, position int, 
 			}
 			magnitude = magnitudeOf(vector.values)
 		}
-		ordinal, _, err := store.insertCold(docID, magnitude, *location, PartitionUnknown)
+		ordinal, _, err := store.insertCold(docID, magnitude, *location, PartitionUnknown, loadedWriteSequence)
 		return ordinal, err
 	}
 	if err := vector.read(); err != nil {
 		return noLiveVectorAtPosition, err
 	}
-	ordinal, _, err := store.insert(docID, vector.values, PartitionUnknown, false)
+	ordinal, _, err := store.insert(docID, vector.values, PartitionUnknown, loadedWriteSequence)
 	if err != nil {
 		return noLiveVectorAtPosition, err
 	}

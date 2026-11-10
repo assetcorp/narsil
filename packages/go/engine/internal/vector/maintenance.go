@@ -19,16 +19,18 @@ func (f *Field) Compact() error {
 }
 
 func (f *Field) compactLocked() error {
-	if f.tombstones.size() == 0 && len(f.store.replaced) == 0 {
+	if f.disposed || (f.tombstones.size() == 0 && len(f.store.replaced) == 0) {
 		return nil
 	}
+	f.writer.pinNow()
+	defer f.writer.unpin()
 	if f.graph != nil {
-		removed := f.graph.tombstoneCount()
+		before := f.graph.tombstoneCount()
 		compacted, err := f.compactGraph(f.graph)
 		if err != nil {
 			return err
 		}
-		f.compactedNodeCount += removed
+		f.compactedNodeCount += max(0, before-compacted.tombstoneCount())
 		f.graph = compacted
 	}
 	if f.fresh != nil {
@@ -36,15 +38,24 @@ func (f *Field) compactLocked() error {
 			return err
 		}
 	}
+	oldest := f.slots.oldestPin()
 	for _, docID := range f.tombstones.values() {
+		ordinal, held := f.store.ordinalOf(docID)
+		if held && (!f.store.freeable(ordinal, oldest) || f.graphsHoldNode(ordinal)) {
+			continue
+		}
 		f.store.remove(docID)
 		f.buffer.delete(f.store, docID)
+		f.tombstones.delete(f.store, docID)
 	}
-	for _, ordinal := range f.store.releaseReplacedVectors() {
+	for _, ordinal := range f.store.releaseFreeableReplaced(oldest, f.graphsHoldNode) {
 		f.clearCodes(ordinal)
 	}
-	f.tombstones.clear(f.store)
 	return nil
+}
+
+func (f *Field) graphsHoldNode(ordinal int32) bool {
+	return (f.graph != nil && f.graph.holdsNode(ordinal)) || (f.fresh != nil && f.fresh.holdsNode(ordinal))
 }
 
 func (f *Field) foldIntoGraph(ctx context.Context) error {

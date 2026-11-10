@@ -115,7 +115,7 @@ func (f *Field) startFreshGraph() (*graphMemory, *graphMemory, []string, error) 
 	}
 	order := f.liveDocIDs()
 	shuffleInPlace(order)
-	graph, err := newGraphMemory(f.config.shape)
+	graph, err := newGraphMemory(f.config.shape, f.slots)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -136,6 +136,7 @@ func (f *Field) buildGraphFromStore(ctx context.Context) (bool, error) {
 		built.resource.drop()
 		return false, err
 	}
+	f.keepPlacedVisibleToEarlierSearches(previous, built)
 	if err := f.adoptGraph(built); err != nil {
 		f.writeMu.Unlock()
 		return false, err
@@ -146,6 +147,39 @@ func (f *Field) buildGraphFromStore(ctx context.Context) (bool, error) {
 	f.bufferWhatTheGraphLacks(built)
 	f.writeMu.Unlock()
 	return true, f.releasePendingLocations(ctx)
+}
+
+func (f *Field) keepPlacedVisibleToEarlierSearches(previous, built *graphMemory) {
+	if previous == nil {
+		return
+	}
+	placed := []int32{}
+	f.store.table.eachUnplaced(func(ordinal int32) bool {
+		if built.holdsNode(ordinal) {
+			placed = append(placed, ordinal)
+		}
+		return true
+	})
+	if len(placed) > 0 {
+		previous.lineage.alsoScan.Store(&placed)
+	}
+}
+
+func (f *Field) scanRetiredOutsideOf(graph *graphMemory) {
+	oldest := min(f.slots.oldestPin(), f.slots.Sequence())
+	keep := func(ordinal int32) {
+		if !graph.holdsNode(ordinal) && f.store.holdsVector(ordinal) && !f.store.freeable(ordinal, oldest) {
+			f.store.keepScanning(ordinal)
+		}
+	}
+	for _, docID := range f.tombstones.values() {
+		if ordinal, held := f.store.ordinalOf(docID); held {
+			keep(ordinal)
+		}
+	}
+	for ordinal := range f.store.replaced {
+		keep(ordinal)
+	}
 }
 
 func (f *Field) adoptGraph(graph *graphMemory) error {
@@ -159,6 +193,7 @@ func (f *Field) adoptGraph(graph *graphMemory) error {
 				}
 			}
 		}
+		f.scanRetiredOutsideOf(graph)
 	}
 	if err := f.publish(f.store, graph); err != nil {
 		return err

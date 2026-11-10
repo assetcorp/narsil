@@ -81,6 +81,7 @@ func (s *storeMemory) ensureOrdinal(ordinal int32, cold bool) (bool, error) {
 		bytes  uintptr
 	}{
 		{s.magnitudes, next * 8}, {s.present, next}, {s.head.codePresent, next}, {s.vectorOffset, next * 4},
+		{s.born, next * 8}, {s.retired, next * 8},
 	}
 	for _, growth := range growths {
 		if err := growth.region.growTo(growth.bytes); err != nil {
@@ -139,60 +140,87 @@ func (s *storeMemory) publishOrdinal(ordinal int32) {
 	storeByte(s.present.pointer(), int(ordinal), 1)
 }
 
-func (s *storeMemory) appendOrdinal(docID string, values []float32, partition int32) (int32, bool, error) {
-	ordinal, changed, err := s.claimSlot(docID, false)
+func (s *storeMemory) claimLinked(docID string, cold bool, sequence int64) (int32, int32, bool, bool, error) {
+	previous, hadPrevious := s.ordinalOf(docID)
+	ordinal, changed, err := s.claimSlot(docID, cold)
 	if err != nil {
-		return 0, changed, err
+		return 0, previous, hadPrevious, changed, err
 	}
-	s.writeVector(ordinal, values)
-	s.table.write(ordinal, docID, ordinalHoldsDocument, s.givenPartition(partition))
-	s.publishOrdinal(ordinal)
-	s.byDocID.Store(docID, ordinal)
-	return ordinal, changed, nil
+	s.stampBorn(ordinal, sequence)
+	sequenceWord(s.retired, ordinal).Store(0)
+	return ordinal, previous, hadPrevious, changed, nil
 }
 
-func (s *storeMemory) settleReplacement(previous int32, hadPrevious, keepsReplaced bool) {
+func (s *storeMemory) writeLinked(ordinal int32, docID string, flags uint32, partition, previous int32, hadPrevious bool) {
+	s.table.write(ordinal, docID, flags, partition)
+	if hadPrevious {
+		s.table.setPrevious(ordinal, previous)
+	} else {
+		s.table.setPrevious(ordinal, -1)
+	}
+}
+
+func (s *storeMemory) settleReplacement(previous int32, hadPrevious bool, sequence int64) {
 	if !hadPrevious {
 		s.liveCount.Add(1)
 		s.word(core.StoreWordLiveCount).Add(1)
 		return
 	}
-	if keepsReplaced {
-		s.keepReplacedOrdinal(previous)
+	s.stampRetired(previous, sequence)
+	if s.retiredAt(previous) <= s.bornAt(previous) {
+		s.releaseOrdinal(previous)
 		return
 	}
-	s.retireOrdinal(previous)
+	s.keepReplacedOrdinal(previous)
 }
 
-func (s *storeMemory) insert(docID string, values []float32, partition int32, keepsReplaced bool) (int32, bool, error) {
-	previous, hadPrevious := s.ordinalOf(docID)
-	ordinal, changed, err := s.appendOrdinal(docID, values, partition)
+func (s *storeMemory) insert(docID string, values []float32, partition int32, sequence int64) (int32, bool, error) {
+	ordinal, previous, hadPrevious, changed, err := s.claimLinked(docID, false, sequence)
 	if err != nil {
 		return 0, changed, err
 	}
-	s.settleReplacement(previous, hadPrevious, keepsReplaced)
+	s.writeVector(ordinal, values)
+	s.writeLinked(ordinal, docID, ordinalHoldsDocument, s.givenPartition(partition), previous, hadPrevious)
+	s.publishOrdinal(ordinal)
+	s.byDocID.Store(docID, ordinal)
+	s.settleReplacement(previous, hadPrevious, sequence)
 	return ordinal, changed, nil
 }
 
 func (s *storeMemory) forgetPartitionOf(ordinal int32) {
 	if s.table.partition(ordinal) == unknownPartition {
 		s.unknownParts--
+		s.table.setPartition(ordinal, noPartition)
 	}
 }
 
-func (s *storeMemory) retireOrdinal(ordinal int32) {
+func (s *storeMemory) releaseOrdinal(ordinal int32) {
 	s.table.clearFlag(ordinal, ordinalHoldsDocument)
 	storeByte(s.present.pointer(), int(ordinal), 0)
-	s.pins.note(ordinal)
+	s.noteFreed(ordinal)
 	s.forgetPartitionOf(ordinal)
+	s.stopScanning(ordinal)
 }
 
 func (s *storeMemory) keepReplacedOrdinal(ordinal int32) {
 	s.table.clearFlag(ordinal, ordinalHoldsDocument)
 	s.forgetPartitionOf(ordinal)
-	s.table.setPartition(ordinal, noPartition)
 	s.table.setFlag(ordinal, ordinalReplaced)
 	s.replaced[ordinal] = struct{}{}
+}
+
+func (s *storeMemory) keepScanning(ordinal int32) {
+	if s.table.markScanned(ordinal, ordinalRetiredScan, true) {
+		s.scanned[ordinal] = struct{}{}
+		s.retiredScans.Add(1)
+	}
+}
+
+func (s *storeMemory) stopScanning(ordinal int32) {
+	if s.table.markScanned(ordinal, ordinalRetiredScan, false) {
+		delete(s.scanned, ordinal)
+		s.retiredScans.Add(-1)
+	}
 }
 
 func (s *storeMemory) remove(docID string) {
@@ -201,21 +229,24 @@ func (s *storeMemory) remove(docID string) {
 		return
 	}
 	s.byDocID.Delete(docID)
-	s.retireOrdinal(ordinal)
+	s.releaseOrdinal(ordinal)
 	s.liveCount.Add(-1)
 	s.word(core.StoreWordLiveCount).Add(-1)
 }
 
-func (s *storeMemory) releaseReplacedVectors() []int32 {
-	released := make([]int32, 0, len(s.replaced))
+func (s *storeMemory) releaseFreeableReplaced(oldestPin int64, stillNode func(ordinal int32) bool) []int32 {
+	released := []int32{}
 	for ordinal := range s.replaced {
-		released = append(released, ordinal)
+		if s.freeable(ordinal, oldestPin) && !stillNode(ordinal) {
+			released = append(released, ordinal)
+		}
 	}
-	clear(s.replaced)
 	for _, ordinal := range released {
+		delete(s.replaced, ordinal)
 		s.table.clearFlag(ordinal, ordinalReplaced)
-		s.pins.note(ordinal)
 		storeByte(s.present.pointer(), int(ordinal), 0)
+		s.noteFreed(ordinal)
+		s.stopScanning(ordinal)
 	}
 	return released
 }
@@ -227,21 +258,21 @@ func (s *storeMemory) publishOnDisk(ordinal int32, magnitude float64, location d
 	s.publishOrdinal(ordinal)
 }
 
-func (s *storeMemory) insertCold(docID string, magnitude float64, location diskLocation, partition int32) (int32, bool, error) {
-	previous, hadPrevious := s.ordinalOf(docID)
+func (s *storeMemory) insertCold(docID string, magnitude float64, location diskLocation, partition int32,
+	sequence int64) (int32, bool, error) {
 	s.word(storeWordReleasedVectorsToDisk).Store(1)
-	ordinal, changed, err := s.claimSlot(docID, true)
+	ordinal, previous, hadPrevious, changed, err := s.claimLinked(docID, true, sequence)
 	if err != nil {
 		return 0, changed, err
 	}
-	s.table.write(ordinal, docID, ordinalHoldsDocument, s.givenPartition(partition))
+	s.writeLinked(ordinal, docID, ordinalHoldsDocument, s.givenPartition(partition), previous, hadPrevious)
 	s.publishOnDisk(ordinal, magnitude, location)
 	s.byDocID.Store(docID, ordinal)
-	s.settleReplacement(previous, hadPrevious, false)
+	s.settleReplacement(previous, hadPrevious, sequence)
 	return ordinal, changed, nil
 }
 
-func (s *storeMemory) insertReplaced(docID string, values []float32, location *diskLocation) (int32, bool, error) {
+func (s *storeMemory) insertReplaced(docID string, values []float32, location *diskLocation, sequence int64) (int32, bool, error) {
 	cold := location != nil
 	if cold {
 		s.word(storeWordReleasedVectorsToDisk).Store(1)
@@ -250,7 +281,9 @@ func (s *storeMemory) insertReplaced(docID string, values []float32, location *d
 	if err != nil {
 		return 0, changed, err
 	}
-	s.table.write(ordinal, docID, ordinalReplaced, noPartition)
+	s.stampBorn(ordinal, sequence)
+	sequenceWord(s.retired, ordinal).Store(sequence)
+	s.writeLinked(ordinal, docID, ordinalReplaced, noPartition, -1, false)
 	s.replaced[ordinal] = struct{}{}
 	if cold {
 		s.publishOnDisk(ordinal, magnitudeOf(values), *location)

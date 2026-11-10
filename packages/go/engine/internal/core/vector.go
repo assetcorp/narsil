@@ -14,6 +14,7 @@ type SearchRequest struct {
 	Metric         Metric
 	CandidateCount uint32
 	ThreadSlot     uint32
+	Pin            int64
 	Accepted       []byte
 	HasAccepted    bool
 }
@@ -35,6 +36,7 @@ func (w *Workspace) Search(graph *Graph, store *Store, request SearchRequest, or
 		metric:          C.uint32_t(request.Metric),
 		candidate_count: C.uint32_t(request.CandidateCount),
 		thread_slot:     C.uint32_t(request.ThreadSlot),
+		pin:             C.int64_t(request.Pin),
 	}
 	if request.HasAccepted {
 		accepted := request.Accepted
@@ -59,7 +61,7 @@ func (w *Workspace) Search(graph *Graph, store *Store, request SearchRequest, or
 	return int(nearest.count), nil
 }
 
-func (w *Workspace) Score(store *Store, query []float32, metric Metric, ordinals []int32, distances []float64) error {
+func (w *Workspace) Score(store *Store, query []float32, metric Metric, pin int64, ordinals []int32, distances []float64) error {
 	if uint32(len(query)) != store.Dimension() || len(distances) < len(ordinals) {
 		return &StatusError{Operation: "score", Status: StatusInvalidArgument}
 	}
@@ -73,6 +75,7 @@ func (w *Workspace) Score(store *Store, query []float32, metric Metric, ordinals
 		metric:   C.uint32_t(metric),
 		ordinals: (*C.int32_t)(pinned(&held, ordinals)),
 		count:    uint32Length(len(ordinals)),
+		pin:      C.int64_t(pin),
 	}
 	status := C.narsil_score(w.pointer(), store.store, &native, (*C.double)(pinned(&held, distances)))
 	runtime.KeepAlive(w)

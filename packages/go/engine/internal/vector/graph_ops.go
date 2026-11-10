@@ -41,9 +41,16 @@ func (f *Field) withGraphAlone(graph *graphMemory, operation func(held *graphMem
 	return target, nil
 }
 
+func (f *Field) writerSlotOn(graph *graphMemory) uint32 {
+	f.writer.enter(graph)
+	return f.writer.slot
+}
+
 func (f *Field) connectHeld(held *graphMemory, nearby []int32) error {
 	return withWorkspace(func(workspace *core.Workspace) error {
-		err := workspace.ConnectUnreached(held.native, f.nativeStore(), f.config.nativeMetric, writerThreadSlot, nearby)
+		slot := f.writerSlotOn(held)
+		defer f.writer.leave()
+		err := workspace.ConnectUnreached(held.native, f.nativeStore(), f.config.nativeMetric, slot, nearby)
 		if err != nil {
 			return coreFailure("connectUnreached", err)
 		}
@@ -92,12 +99,14 @@ func (f *Field) countIncomingBeforeWriting(graph *graphMemory, connectsAfterward
 func (f *Field) placeThroughTheCore(graph *graphMemory, ordinal int32) error {
 	level := levelOfOrdinal(ordinal, graph.multiplier)
 	return withWorkspace(func(workspace *core.Workspace) error {
+		slot := f.writerSlotOn(graph)
+		defer f.writer.leave()
 		for range placementRoomRequests {
 			if err := graph.ensureUpperRoom(level); err != nil {
 				return err
 			}
 			err := workspace.Place(graph.native, f.nativeStore(), core.PlaceRequest{
-				Metric: f.config.nativeMetric, Ordinal: ordinal, TopLayer: level, ThreadSlot: writerThreadSlot,
+				Metric: f.config.nativeMetric, Ordinal: ordinal, TopLayer: level, ThreadSlot: slot,
 			})
 			var status *core.StatusError
 			if err == nil {
@@ -148,7 +157,9 @@ func (f *Field) markTombstoneOrdinal(graph *graphMemory, ordinal int32) error {
 	if graph == nil || !graph.holdsNode(ordinal) || uintptr(ordinal) >= graph.tombstones.length {
 		return nil
 	}
-	if err := core.RemoveNode(graph.native, ordinal, writerThreadSlot); err != nil {
+	slot := f.writerSlotOn(graph)
+	defer f.writer.leave()
+	if err := core.RemoveNode(graph.native, ordinal, slot); err != nil {
 		return coreFailure("remove", err)
 	}
 	return nil
@@ -193,7 +204,15 @@ func (f *Field) compactGraph(graph *graphMemory) (*graphMemory, error) {
 		}
 		nearby := f.baseNeighboursOfRemoved(held, removed)
 		err := withWorkspace(func(workspace *core.Workspace) error {
-			if err := workspace.Compact(held.native, f.nativeStore(), f.config.nativeMetric, writerThreadSlot); err != nil {
+			current := f.writerLayout()
+			native, err := core.NewStore(f.store.nativeLayout(current.head, current.tables))
+			if err != nil {
+				return coreFailure("attachStore", err)
+			}
+			defer native.Retire()
+			slot := f.writerSlotOn(held)
+			defer f.writer.leave()
+			if err := workspace.Compact(held.native, native, f.config.nativeMetric, slot); err != nil {
 				return coreFailure("compact", err)
 			}
 			return nil

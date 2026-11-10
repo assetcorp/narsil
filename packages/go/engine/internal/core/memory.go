@@ -3,6 +3,7 @@ package core
 /*
 #include <stdlib.h>
 #include "native/include/narsil_core.h"
+#include "region_memory.h"
 */
 import "C"
 
@@ -88,6 +89,10 @@ type StoreLayout struct {
 	VectorFile         unsafe.Pointer
 	VectorOffset       unsafe.Pointer
 	Files              []*VectorFile
+	BornAt             unsafe.Pointer
+	RetiredAt          unsafe.Pointer
+	Pins               unsafe.Pointer
+	PinSlots           uint32
 }
 
 type Store struct {
@@ -155,7 +160,8 @@ func pointerTable(pointers []unsafe.Pointer) (unsafe.Pointer, error) {
 }
 
 func (s *Store) bind(layout StoreLayout) error {
-	if layout.Header == nil || layout.Dimension == 0 || layout.VectorStrideFloats < layout.Dimension {
+	if layout.Header == nil || layout.Dimension == 0 || layout.VectorStrideFloats < layout.Dimension ||
+		layout.BornAt == nil || layout.RetiredAt == nil || (layout.PinSlots != 0 && layout.Pins == nil) {
 		return &StatusError{Operation: "attachStore", Status: StatusInvalidArgument}
 	}
 	codeBlocks, err := pointerTable(layout.CodeBlocks)
@@ -197,12 +203,68 @@ func (s *Store) bind(layout StoreLayout) error {
 	s.store.vector_offset = (*C.uint32_t)(layout.VectorOffset)
 	s.store.files = (*C.narsil_vector_file)(files)
 	s.store.file_count = C.uint32_t(len(layout.Files))
+	s.store.born_at = (*C.int64_t)(layout.BornAt)
+	s.store.retired_at = (*C.int64_t)(layout.RetiredAt)
+	s.store.pins = (*C.int64_t)(layout.Pins)
+	s.store.pin_slots = C.uint32_t(layout.PinSlots)
 	s.codeBlocks, s.vectorBlocks, s.files = codeBlocks, vectorBlocks, files
 	return nil
 }
 
 func (s *Store) Dimension() uint32 {
 	return uint32(s.store.dimension)
+}
+
+type SharedRegion struct {
+	base      unsafe.Pointer
+	reserved  uintptr
+	committed atomic.Uintptr
+	released  atomic.Bool
+}
+
+func ReserveSharedRegion(maxBytes uintptr) (*SharedRegion, error) {
+	reserved := max(roundToPage(maxBytes), pageBytes)
+	base := C.narsil_go_region_reserve(C.size_t(reserved))
+	if base == nil {
+		return nil, ErrRegionUnavailable
+	}
+	return &SharedRegion{base: base, reserved: reserved}, nil
+}
+
+func (r *SharedRegion) Commit(bytes uintptr) error {
+	if r.committed.Load() >= bytes {
+		return nil
+	}
+	if bytes > r.reserved {
+		return ErrRegionFull
+	}
+	if r.released.Load() {
+		return ErrRegionUnavailable
+	}
+	target := roundToPage(bytes)
+	if C.narsil_go_region_commit(r.base, C.size_t(target)) == 0 {
+		return ErrRegionUnavailable
+	}
+	for {
+		seen := r.committed.Load()
+		if seen >= target || r.committed.CompareAndSwap(seen, target) {
+			return nil
+		}
+	}
+}
+
+func (r *SharedRegion) Committed() uintptr {
+	return r.committed.Load()
+}
+
+func (r *SharedRegion) Pointer() unsafe.Pointer {
+	return r.base
+}
+
+func (r *SharedRegion) Release() {
+	if r.released.CompareAndSwap(false, true) {
+		C.narsil_go_region_release(r.base, C.size_t(r.reserved))
+	}
 }
 
 type VectorFile struct {

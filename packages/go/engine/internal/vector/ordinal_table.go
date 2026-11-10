@@ -11,7 +11,10 @@ const (
 	ordinalUnplaced
 	ordinalReplaced
 	ordinalPinned
+	ordinalRetiredScan
 )
+
+const ordinalScanned = ordinalUnplaced | ordinalRetiredScan
 
 const (
 	unknownPartition int32 = -1
@@ -22,26 +25,47 @@ type ordinalChunk struct {
 	docIDs     [ordinalChunkOrdinals]string
 	flags      [ordinalChunkOrdinals]atomic.Uint32
 	partitions [ordinalChunkOrdinals]atomic.Int32
+	previous   [ordinalChunkOrdinals]atomic.Int32
 	unplaced   atomic.Int32
 }
 
-func (t *ordinalTable) markUnplaced(ordinal int32, unplaced bool) {
+func (t *ordinalTable) markScanned(ordinal int32, flag uint32, on bool) bool {
 	chunk := t.chunkOf(ordinal)
 	if chunk == nil {
-		return
+		return false
 	}
 	word := &chunk.flags[int(ordinal)%ordinalChunkOrdinals]
-	held := word.Load()&ordinalUnplaced != 0
-	if held == unplaced {
-		return
+	held := word.Load()&flag != 0
+	if held == on {
+		return false
 	}
-	if unplaced {
-		word.Or(ordinalUnplaced)
+	if on {
 		chunk.unplaced.Add(1)
-		return
+		word.Or(flag)
+		return true
 	}
-	word.And(^ordinalUnplaced)
+	word.And(^flag)
 	chunk.unplaced.Add(-1)
+	return true
+}
+
+func (t *ordinalTable) markUnplaced(ordinal int32, unplaced bool) {
+	t.markScanned(ordinal, ordinalUnplaced, unplaced)
+}
+
+func (t *ordinalTable) setPrevious(ordinal, previous int32) {
+	if chunk := t.chunkOf(ordinal); chunk != nil {
+		chunk.previous[int(ordinal)%ordinalChunkOrdinals].Store(previous + 1)
+	}
+}
+
+func (t *ordinalTable) previous(ordinal int32) (int32, bool) {
+	chunk := t.chunkOf(ordinal)
+	if chunk == nil {
+		return 0, false
+	}
+	linked := chunk.previous[int(ordinal)%ordinalChunkOrdinals].Load()
+	return linked - 1, linked > 0 && linked-1 < ordinal
 }
 
 func (t *ordinalTable) eachUnplaced(visit func(ordinal int32) bool) {
@@ -57,7 +81,7 @@ func (t *ordinalTable) eachUnplaced(visit func(ordinal int32) bool) {
 			if ordinal >= slots {
 				return
 			}
-			if chunk.flags[position].Load()&ordinalUnplaced != 0 && !visit(ordinal) {
+			if chunk.flags[position].Load()&ordinalScanned != 0 && !visit(ordinal) {
 				return
 			}
 		}

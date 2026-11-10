@@ -35,15 +35,16 @@ func graphIsEmpty(graph *graphMemory) bool {
 		graph.word(core.GraphWordNodeCount).Load()-graph.word(core.GraphWordTombstoneCount).Load() == 0
 }
 
-func (f *Field) traverse(current *layout, request scanRequest, depths searchDepths, accepted *ordinalFilter,
-	scratch *searchScratch) (int, error) {
+func (f *Field) traverse(current *layout, slot uint32, request scanRequest, depths searchDepths,
+	accepted *ordinalFilter, scratch *searchScratch) (int, error) {
 	candidateCount := min(depths.ef, max(1, int(current.graph.word(core.GraphWordSlots).Load())))
 	ordinals, estimates := scratch.candidatesFor(candidateCount)
 	search := core.SearchRequest{
 		Query:          request.query,
 		Metric:         request.nativeMetric,
 		CandidateCount: uint32(candidateCount),
-		ThreadSlot:     searchThreadSlot,
+		ThreadSlot:     slot,
+		Pin:            request.pin,
 	}
 	if accepted != nil {
 		search.Accepted = accepted.bits
@@ -102,7 +103,8 @@ func (f *Field) rescoredHits(current *layout, request scanRequest, count, depth 
 	}
 	scratch.picked = picked
 	distances := scratch.distancesFor(len(picked))
-	if err := scratch.workspace.Score(current.native, request.query, request.nativeMetric, picked, distances); err != nil {
+	err := scratch.workspace.Score(current.native, request.query, request.nativeMetric, request.pin, picked, distances)
+	if err != nil {
 		return nil, coreFailure("score", err)
 	}
 	hits := scratch.hits[:0]
@@ -131,9 +133,7 @@ func scoresDescend(hits []ordinalHit) bool {
 func resolveEveryHit(store *storeMemory, hits []ordinalHit, k int) []ScoredResult {
 	resolved := make([]ScoredResult, 0, len(hits))
 	for _, hit := range hits {
-		if docID, held := store.docIDOf(hit.ordinal); held {
-			resolved = append(resolved, ScoredResult{DocID: docID, Score: hit.score})
-		}
+		resolved = append(resolved, ScoredResult{DocID: store.table.storedDocID(hit.ordinal), Score: hit.score})
 	}
 	slices.SortStableFunc(resolved, highScoreFirst)
 	return resolved[:min(k, len(resolved))]
@@ -155,9 +155,7 @@ func bestResolvedHits(store *storeMemory, hits []ordinalHit, k int) []ScoredResu
 		if len(taken) >= k && hit.score < taken[k-1].Score {
 			break
 		}
-		if docID, held := store.docIDOf(hit.ordinal); held {
-			taken = append(taken, ScoredResult{DocID: docID, Score: hit.score})
-		}
+		taken = append(taken, ScoredResult{DocID: store.table.storedDocID(hit.ordinal), Score: hit.score})
 	}
 	slices.SortStableFunc(taken, highScoreFirst)
 	return taken[:min(k, len(taken))]

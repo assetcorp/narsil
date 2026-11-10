@@ -107,6 +107,7 @@ type scanRequest struct {
 	metric        model.VectorMetric
 	nativeMetric  core.Metric
 	minSimilarity float64
+	pin           int64
 }
 
 func (f *Field) scoreOrdinals(current *layout, request scanRequest, ordinals []int32, tally *scanTally,
@@ -114,7 +115,8 @@ func (f *Field) scoreOrdinals(current *layout, request scanRequest, ordinals []i
 	for start := 0; start < len(ordinals); start += scanChunkOrdinals {
 		chunk := ordinals[start:min(len(ordinals), start+scanChunkOrdinals)]
 		distances := scratch.distancesFor(len(chunk))
-		if err := scratch.workspace.Score(current.native, request.query, request.nativeMetric, chunk, distances); err != nil {
+		err := scratch.workspace.Score(current.native, request.query, request.nativeMetric, request.pin, chunk, distances)
+		if err != nil {
 			return coreFailure("score", err)
 		}
 		for index, ordinal := range chunk {
@@ -125,11 +127,7 @@ func (f *Field) scoreOrdinals(current *layout, request scanRequest, ordinals []i
 			if score < request.minSimilarity {
 				continue
 			}
-			docID, held := current.store.docIDOf(ordinal)
-			if !held {
-				continue
-			}
-			tally.admit(docID, score)
+			tally.admit(current.store.table.storedDocID(ordinal), score)
 		}
 	}
 	return nil
@@ -152,7 +150,7 @@ func (f *Field) scanOrdinals(ctx context.Context, current *layout, request scanR
 		return failure == nil
 	}
 	each(func(ordinal int32) bool {
-		if !liveOrdinal(current.store, ordinal) {
+		if !current.store.admits(ordinal, request.pin) {
 			return true
 		}
 		batch = append(batch, ordinal)
@@ -178,14 +176,35 @@ func everyLiveOrdinal(current *layout) func(visit func(ordinal int32) bool) {
 	}
 }
 
-func unplacedOrdinals(current *layout, accepted *ordinalFilter) func(visit func(ordinal int32) bool) {
+func outsideTheGraph(current *layout, accepted *ordinalFilter) func(visit func(ordinal int32) bool) {
 	return func(visit func(ordinal int32) bool) {
+		scanned := []int32{}
+		open := true
 		current.store.table.eachUnplaced(func(ordinal int32) bool {
 			if accepted != nil && !accepted.has(ordinal) {
 				return true
 			}
-			return visit(ordinal)
+			scanned = append(scanned, ordinal)
+			open = visit(ordinal)
+			return open
 		})
+		listed := current.graph.lineage.alsoScan.Load()
+		if !open || listed == nil {
+			return
+		}
+		visited := make(map[int32]struct{}, len(scanned))
+		for _, ordinal := range scanned {
+			visited[ordinal] = struct{}{}
+		}
+		for _, ordinal := range *listed {
+			if _, seen := visited[ordinal]; seen || (accepted != nil && !accepted.has(ordinal)) {
+				continue
+			}
+			visited[ordinal] = struct{}{}
+			if !visit(ordinal) {
+				return
+			}
+		}
 	}
 }
 

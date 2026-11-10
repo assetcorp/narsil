@@ -32,15 +32,10 @@ func (f *Field) validateVector(docID string, values []float32) error {
 }
 
 func (f *Field) Insert(docID string, values []float32, partition int32) error {
-	if err := f.validateVector(docID, values); err != nil {
-		return err
-	}
-	f.writeMu.Lock()
-	defer f.writeMu.Unlock()
-	return f.insertLocked(docID, values, partition)
+	return f.ApplyWrites([]Write{{DocID: docID, Values: values, Partition: partition}})[0]
 }
 
-func (f *Field) insertLocked(docID string, values []float32, partition int32) error {
+func (f *Field) insertLocked(docID string, values []float32, partition int32, sequence int64) error {
 	if f.disposed {
 		return f.disposedError()
 	}
@@ -48,10 +43,12 @@ func (f *Field) insertLocked(docID string, values []float32, partition int32) er
 		f.revision.Add(1)
 		held := append([]float32(nil), values...)
 		f.cold.insert(docID, held, partition, f)
-		f.cold.writes = append(f.cold.writes, func() error { return f.applyInsert(docID, held, partition) })
+		f.cold.writes = append(f.cold.writes, func(replayed int64) error {
+			return f.applyInsert(docID, held, partition, replayed)
+		})
 		return nil
 	}
-	return f.applyInsert(docID, values, partition)
+	return f.applyInsert(docID, values, partition, sequence)
 }
 
 func (f *Field) holdsThisVectorAlready(docID string, ordinal int32, values []float32) bool {
@@ -70,11 +67,13 @@ func (f *Field) holdsThisVectorAlready(docID string, ordinal int32, values []flo
 	return true
 }
 
-func (f *Field) graphHoldsNode(ordinal int32) bool {
-	return (f.graph != nil && f.graph.holdsNode(ordinal)) || (f.fresh != nil && f.fresh.holdsNode(ordinal))
+func (f *Field) scanWhileRetired(ordinal int32) {
+	if f.graph != nil && !f.graph.holdsNode(ordinal) && f.store.holdsVector(ordinal) {
+		f.store.keepScanning(ordinal)
+	}
 }
 
-func (f *Field) applyInsert(docID string, values []float32, partition int32) error {
+func (f *Field) applyInsert(docID string, values []float32, partition int32, sequence int64) error {
 	store := f.store
 	previous, hadPrevious := store.ordinalOf(docID)
 	if hadPrevious && f.holdsThisVectorAlready(docID, previous, values) {
@@ -85,9 +84,11 @@ func (f *Field) applyInsert(docID string, values []float32, partition int32) err
 		return nil
 	}
 	f.revision.Add(1)
+	if hadPrevious {
+		f.scanWhileRetired(previous)
+	}
 	wasTombstoned := f.tombstones.delete(store, docID)
-	graphHoldsPrevious := hadPrevious && f.graphHoldsNode(previous)
-	_, changed, err := store.insert(docID, values, partition, graphHoldsPrevious)
+	_, changed, err := store.insert(docID, values, partition, sequence)
 	if err != nil {
 		if wasTombstoned {
 			f.tombstones.add(store, docID)
@@ -101,7 +102,7 @@ func (f *Field) applyInsert(docID string, values []float32, partition int32) err
 		if err := f.markTombstoneOrdinal(f.fresh, previous); err != nil {
 			return f.publishAfterFailure(changed, err)
 		}
-		if !graphHoldsPrevious {
+		if !store.holdsVector(previous) {
 			f.clearCodes(previous)
 		}
 	}
@@ -123,12 +124,10 @@ func (f *Field) publishAfterFailure(changed bool, failure error) error {
 }
 
 func (f *Field) Remove(docID string) error {
-	f.writeMu.Lock()
-	defer f.writeMu.Unlock()
-	return f.removeLocked(docID)
+	return f.ApplyWrites([]Write{{DocID: docID, Remove: true}})[0]
 }
 
-func (f *Field) removeLocked(docID string) error {
+func (f *Field) removeLocked(docID string, sequence int64) error {
 	if f.disposed {
 		return f.disposedError()
 	}
@@ -137,50 +136,27 @@ func (f *Field) removeLocked(docID string) error {
 			return nil
 		}
 		f.revision.Add(1)
-		f.cold.writes = append(f.cold.writes, func() error { return f.applyRemove(docID) })
+		f.cold.writes = append(f.cold.writes, func(replayed int64) error { return f.applyRemove(docID, replayed) })
 		return nil
 	}
-	return f.applyRemove(docID)
+	return f.applyRemove(docID, sequence)
 }
 
-func (f *Field) applyRemove(docID string) error {
+func (f *Field) applyRemove(docID string, sequence int64) error {
 	store := f.store
 	ordinal, held := store.ordinalOf(docID)
 	if !held {
 		return nil
 	}
 	f.revision.Add(1)
+	if !f.tombstones.has(docID) {
+		f.scanWhileRetired(ordinal)
+		store.stampRetired(ordinal, sequence)
+	}
 	f.tombstones.add(store, docID)
 	f.buffer.delete(store, docID)
 	delete(f.pendingLocations, docID)
 	return f.markTombstoneOrdinal(f.graph, ordinal)
-}
-
-func (f *Field) GetVector(docID string) ([]float32, bool) {
-	for hold := f.coldHoldNow(); hold != nil; hold = f.coldHoldNow() {
-		values, held := f.coldVectorOf(hold, docID)
-		if f.coldHoldNow() == hold {
-			return values, held
-		}
-	}
-	if err := f.ensureFilesOpen(); err != nil {
-		return nil, false
-	}
-	current := f.acquireLayout()
-	if current == nil {
-		return nil, false
-	}
-	defer current.done()
-	store := current.store
-	ordinal, held := store.ordinalOf(docID)
-	if !held || !liveOrdinal(store, ordinal) {
-		return nil, false
-	}
-	values := make([]float32, store.dimension)
-	if !store.readStoredVector(current.tables, ordinal, values) {
-		return nil, false
-	}
-	return values, true
 }
 
 func (f *Field) Has(docID string) bool {

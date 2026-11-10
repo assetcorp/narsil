@@ -78,10 +78,12 @@ func (f *Field) untilBuildsIdleLocked(ctx context.Context) error {
 }
 
 func (f *Field) emptyFieldBeforeRestore() error {
-	store, err := newStoreMemory(f.config.dimension, f.config.bits, f.config.blockBytes)
+	store, err := newStoreMemory(f.config.dimension, f.config.bits, f.config.blockBytes, f.slots)
 	if err != nil {
 		return err
 	}
+	store.publishSequence(loadedWriteSequence)
+	f.slots.raiseSequenceTo(loadedWriteSequence)
 	previousStore, previousGraph, previousFresh := f.store, f.graph, f.fresh
 	f.tombstones.forget()
 	f.buffer.forget()

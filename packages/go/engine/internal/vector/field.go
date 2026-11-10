@@ -16,6 +16,7 @@ type Config struct {
 	Dimension int
 	Index     *model.VectorIndexConfig
 	Storage   model.VectorStorageMode
+	Slots     *Slots
 
 	AdmitsBackgroundBytes func(bytes int64) bool
 	OnLoadedGraphRepaired func()
@@ -44,6 +45,8 @@ type Field struct {
 	config  fieldConfig
 	writeMu sync.Mutex
 	current atomic.Pointer[layout]
+	slots   *Slots
+	writer  *Lease
 
 	store       *storeMemory
 	graph       *graphMemory
@@ -183,16 +186,54 @@ func New(config Config) (*Field, error) {
 		pendingLocations: map[string]pendingLocation{},
 	}
 	field.builds.init()
-	store, err := newStoreMemory(resolved.dimension, resolved.bits, resolved.blockBytes)
+	if err := field.attachSlots(config.Slots); err != nil {
+		return nil, err
+	}
+	store, err := newStoreMemory(resolved.dimension, resolved.bits, resolved.blockBytes, field.slots)
 	if err != nil {
+		field.detachSlots()
 		return nil, err
 	}
 	field.store = store
 	if err := field.publish(store, nil); err != nil {
 		store.discard()
+		field.detachSlots()
 		return nil, err
 	}
 	return field, nil
+}
+
+func (f *Field) attachSlots(shared *Slots) error {
+	if shared != nil {
+		f.slots = shared.retain()
+	} else {
+		own, err := NewSlots()
+		if err != nil {
+			return err
+		}
+		f.slots = own
+	}
+	writer, err := f.slots.acquireWriter()
+	if err != nil {
+		f.slots.Close()
+		f.slots = nil
+		return err
+	}
+	f.writer = writer
+	return nil
+}
+
+func (f *Field) detachSlots() {
+	if f.writer == nil {
+		return
+	}
+	f.writer.Release()
+	f.writer = nil
+	f.slots.Close()
+}
+
+func (f *Field) Slots() *Slots {
+	return f.slots
 }
 
 func (f *Field) FieldName() string {

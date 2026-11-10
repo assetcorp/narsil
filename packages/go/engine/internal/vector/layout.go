@@ -75,7 +75,8 @@ func buildLayout(store *storeMemory, graph *graphMemory) (*layout, error) {
 		return nil, coreFailure("attachStore", err)
 	}
 	next.native = native
-	next.holds = append(next.holds, store.resource.retain(), store.head.resource.retain())
+	next.holds = append(next.holds, store.resource.retain(), store.head.resource.retain(),
+		store.slotTable.resource.retain())
 	for _, held := range store.tables.resources() {
 		next.holds = append(next.holds, held.retain())
 	}

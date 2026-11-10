@@ -100,29 +100,37 @@ type storeMemory struct {
 	present       *growable
 	vectorFile    *growable
 	vectorOffset  *growable
+	born          *growable
+	retired       *growable
+	slotTable     *Slots
 	tables        *storeTables
 	table         *ordinalTable
 	byDocID       sync.Map
 	liveCount     atomic.Int64
 	removedCount  atomic.Int64
 	unplacedCount atomic.Int64
+	retiredScans  atomic.Int64
 	replaced      map[int32]struct{}
-	pins          retiredPins
+	scanned       map[int32]struct{}
+	freedHolds    int
+	freedHeld     map[int32]struct{}
 	unknownParts  int
 	docIDBytes    int
 	longestDocID  int
 	resource      *sharedResource
 }
 
-func newStoreMemory(dimension int, bits uint32, blockBytes uintptr) (*storeMemory, error) {
+func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots) (*storeMemory, error) {
 	store := &storeMemory{
 		dimension:    dimension,
 		bits:         bits,
 		vectorLayout: vectorBlockGeometry(dimension, blockBytes),
+		slotTable:    slots,
 		tables:       &storeTables{},
 		table:        newOrdinalTable(),
 		replaced:     map[int32]struct{}{},
-		pins:         retiredPins{retired: map[int32]struct{}{}},
+		scanned:      map[int32]struct{}{},
+		freedHeld:    map[int32]struct{}{},
 	}
 	if bits != 0 {
 		store.codeLayout = codeBlockGeometry(dimension, bits)
@@ -141,6 +149,8 @@ func newStoreMemory(dimension int, bits uint32, blockBytes uintptr) (*storeMemor
 		{&store.present, vectorStoreInitialCapacity, MaxVectorOrdinals + 1},
 		{&store.vectorFile, vectorStoreInitialCapacity * 4, (MaxVectorOrdinals + 1) * 4},
 		{&store.vectorOffset, vectorStoreInitialCapacity * 4, (MaxVectorOrdinals + 1) * 4},
+		{&store.born, vectorStoreInitialCapacity * 8, (MaxVectorOrdinals + 1) * 8},
+		{&store.retired, vectorStoreInitialCapacity * 8, (MaxVectorOrdinals + 1) * 8},
 	}
 	for _, region := range regions {
 		memory, err := newGrowable(region.initial, region.max)
@@ -195,7 +205,7 @@ func (h *storeHead) release() {
 }
 
 func (s *storeMemory) every() []*growable {
-	return []*growable{s.magnitudes, s.present, s.vectorFile, s.vectorOffset}
+	return []*growable{s.magnitudes, s.present, s.vectorFile, s.vectorOffset, s.born, s.retired}
 }
 
 func (s *storeMemory) releaseRegions() {
@@ -325,41 +335,6 @@ func (t *storeTables) resources() []*sharedResource {
 		}
 	}
 	return held
-}
-
-func (s *storeMemory) nativeLayout(head *storeHead, tables *storeTables) core.StoreLayout {
-	layout := core.StoreLayout{
-		Header:             head.header.pointer(),
-		Dimension:          uint32(s.dimension),
-		Bits:               s.bits,
-		RecordsPerBlock:    uint32(s.codeLayout.capacity),
-		CodePresent:        head.codePresent.pointer(),
-		Centroid:           head.centroid.pointer(),
-		VectorsPerBlock:    uint32(s.vectorLayout.capacity),
-		VectorStrideFloats: uint32(s.vectorLayout.slotStride / 4),
-		Magnitudes:         s.magnitudes.pointer(),
-		Present:            s.present.pointer(),
-		VectorFile:         s.vectorFile.pointer(),
-		VectorOffset:       s.vectorOffset.pointer(),
-	}
-	for _, block := range tables.codeBlocks {
-		layout.CodeBlocks = append(layout.CodeBlocks, block.slots(s.codeLayout))
-	}
-	for _, block := range tables.vectorBlocks {
-		if block == nil {
-			layout.VectorBlocks = append(layout.VectorBlocks, nil)
-			continue
-		}
-		layout.VectorBlocks = append(layout.VectorBlocks, block.slots(s.vectorLayout))
-	}
-	for _, file := range tables.files {
-		if file == nil || file.mapped == nil {
-			layout.Files = append(layout.Files, nil)
-			continue
-		}
-		layout.Files = append(layout.Files, file.mapped)
-	}
-	return layout
 }
 
 func (s *storeMemory) vectorSlot(tables *storeTables, ordinal int32) []float32 {

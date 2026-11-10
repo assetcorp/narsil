@@ -64,15 +64,11 @@ func (s *storeMemory) releaseToFile(ordinal int32, location diskLocation) bool {
 	return true
 }
 
-func (s *storeMemory) ordinalStillHeld(ordinal int32, kept map[int32]struct{}) bool {
-	if s.holdsDocument(ordinal) {
-		return true
-	}
-	_, held := kept[ordinal]
-	return held
+func (s *storeMemory) ordinalStillHeld(ordinal int32) bool {
+	return s.holdsDocument(ordinal) || s.holdsVector(ordinal) || s.keepsFreedVector(ordinal)
 }
 
-func (s *storeMemory) blockFullyCold(index int, kept map[int32]struct{}) bool {
+func (s *storeMemory) blockFullyCold(index int) bool {
 	capacity := s.vectorLayout.capacity
 	slots := int(s.slots())
 	end := min(slots, (index+1)*capacity)
@@ -80,7 +76,7 @@ func (s *storeMemory) blockFullyCold(index int, kept map[int32]struct{}) bool {
 		return false
 	}
 	for ordinal := index * capacity; ordinal < end; ordinal++ {
-		if s.ordinalStillHeld(int32(ordinal), kept) && s.vectorFileOf(int32(ordinal)) == vectorInMemory {
+		if s.ordinalStillHeld(int32(ordinal)) && s.vectorFileOf(int32(ordinal)) == vectorInMemory {
 			return false
 		}
 	}
@@ -88,11 +84,10 @@ func (s *storeMemory) blockFullyCold(index int, kept map[int32]struct{}) bool {
 }
 
 func (s *storeMemory) releaseColdBlocks() (*storeTables, []*sharedResource) {
-	kept := s.keptOrdinals()
 	var next *storeTables
 	var dropped []*sharedResource
 	for index, block := range s.tables.vectorBlocks {
-		if block == nil || !s.blockFullyCold(index, kept) {
+		if block == nil || !s.blockFullyCold(index) {
 			continue
 		}
 		if next == nil {
@@ -103,7 +98,7 @@ func (s *storeMemory) releaseColdBlocks() (*storeTables, []*sharedResource) {
 	}
 	referenced := map[int32]struct{}{}
 	for ordinal := range s.slots() {
-		if s.ordinalStillHeld(ordinal, kept) && s.vectorFileOf(ordinal) != vectorInMemory {
+		if s.ordinalStillHeld(ordinal) && s.vectorFileOf(ordinal) != vectorInMemory {
 			referenced[s.vectorFileOf(ordinal)] = struct{}{}
 		}
 	}
