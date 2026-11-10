@@ -4,6 +4,7 @@ use std::ptr;
 use super::request::RequestBuilder;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::native::workspace::CoreWorkspace;
 
 /// The posting arrays that a request's pool lists point into.
 #[derive(Clone, Copy)]
@@ -42,17 +43,11 @@ pub(crate) struct Scored {
 }
 
 struct Workspace {
-    handle: *mut ffi::narsil_workspace,
+    core: CoreWorkspace,
     ordinals: Vec<i32>,
     scores: Vec<f64>,
     matched: Vec<u32>,
     live: Vec<u32>,
-}
-
-impl Drop for Workspace {
-    fn drop(&mut self) {
-        unsafe { ffi::narsil_workspace_destroy(self.handle) };
-    }
 }
 
 thread_local! {
@@ -67,13 +62,8 @@ fn core_failed(what: &str) -> NarsilError {
 }
 
 fn created_workspace() -> Result<Workspace> {
-    let mut handle = ptr::null_mut();
-    let status = unsafe { ffi::narsil_workspace_create(&mut handle) };
-    if status != ffi::NARSIL_OK || handle.is_null() {
-        return Err(core_failed("it ran out of memory"));
-    }
     Ok(Workspace {
-        handle,
+        core: CoreWorkspace::create()?,
         ordinals: Vec::new(),
         scores: Vec::new(),
         matched: Vec::new(),
@@ -197,7 +187,8 @@ fn scored_by_the_core(
         total_matched: 0,
         scoring_path: 0,
     };
-    let status = unsafe { ffi::narsil_keyword_score(workspace.handle, &request, &mut output) };
+    let status =
+        unsafe { ffi::narsil_keyword_score(workspace.core.handle(), &request, &mut output) };
     match status {
         ffi::NARSIL_OK => {}
         ffi::NARSIL_OUT_OF_MEMORY => return Err(core_failed("it ran out of memory")),
