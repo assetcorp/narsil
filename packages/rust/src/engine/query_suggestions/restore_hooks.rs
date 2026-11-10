@@ -99,12 +99,16 @@ pub(crate) fn publish_without_source_bans(
     restored: &IndexState,
     publish: impl FnOnce(),
 ) {
-    let _bans = locked(&engine.suggestions.ban_publication);
-    if let Err(error) = remove_source_bans_from(engine, restored) {
+    let removed = {
+        let _bans = locked(&engine.suggestions.ban_publication);
+        let removed = remove_source_bans_from(engine, restored);
+        publish();
+        removed
+    };
+    if let Err(error) = removed {
         let reason = QuerySuggestionsWarningReason::BanRemovalFailed;
         warn_of_failure(engine, &restored.name, reason, &error);
     }
-    publish();
 }
 
 pub(crate) fn after_activate(engine: &EngineInner, index_name: &str) {
