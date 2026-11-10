@@ -136,7 +136,25 @@ impl GrowingSegment {
         Err(out_of_room("a document's removal"))
     }
 
+    fn holds_no_keywords(&self) -> bool {
+        self.terms.count() == 0
+            && self.postings.end() == 0
+            && self.postings.free_entries() == 0
+            && self
+                .positions
+                .as_ref()
+                .is_none_or(|positions| positions.end() <= 1 && positions.free_values() == 0)
+            && self.surfaces.as_ref().is_none_or(|table| table.len() == 0)
+            && self
+                .spellings
+                .as_ref()
+                .is_none_or(|table| table.entries().len() == 0)
+    }
+
     fn batch(&mut self, ending: bool) -> Result<()> {
+        if self.holds_no_keywords() {
+            return Ok(());
+        }
         let segment = self.raw();
         let status = with_workspace(|workspace| {
             Ok(unsafe {

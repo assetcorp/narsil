@@ -15,6 +15,7 @@ use crate::engine::writes::{replay_delete, replay_index};
 use crate::error::{NarsilError, Result};
 use crate::format::manifest::PartitionCheckpoint;
 use crate::format::wal::{LogEntry, Operation};
+use crate::index::partition::in_keyword_batch;
 use crate::value::decode_document;
 use std::sync::Arc;
 
@@ -38,12 +39,14 @@ fn replay_logs(
     checkpoint: &[PartitionCheckpoint],
 ) -> Result<()> {
     let _writer = index.write_lock();
-    let partition_count = index.partitions().len();
-    for partition_id in 0..partition_count {
-        let mut visit = |entry: LogEntry| apply_entry(index, entry);
-        store.replay_partition(&index.name, partition_id as u32, checkpoint, &mut visit)?;
-    }
-    Ok(())
+    let partitions = index.partitions();
+    in_keyword_batch(&partitions, || {
+        for partition_id in 0..partitions.len() {
+            let mut visit = |entry: LogEntry| apply_entry(index, entry);
+            store.replay_partition(&index.name, partition_id as u32, checkpoint, &mut visit)?;
+        }
+        Ok(())
+    })
 }
 
 /// Rebuilds one stored index: its settings from the metadata file, its documents and vectors from the newest
