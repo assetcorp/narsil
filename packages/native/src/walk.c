@@ -227,8 +227,8 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
   nearest->count = 0;
 
   graph_lock_shared(graph, request->thread_slot);
-  status = read_graph_extent(&context);
   int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
+  status = read_graph_extent(&context);
   if (status == NARSIL_OK && entry != NO_ENTRY_POINT) {
     status = workspace_reserve_entry_points(workspace, 1);
     if (status == NARSIL_OK) {

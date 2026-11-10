@@ -82,8 +82,8 @@ static int place_into_an_empty_graph(const walk_context *context, const narsil_p
   if (empty) {
     *status = create_node(context->graph, request);
     if (*status == NARSIL_OK) {
-      atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
       atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
+      atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
     }
   }
   entry_unlock(context);
@@ -98,8 +98,8 @@ static void raise_entry(const walk_context *context, const narsil_place_request 
   int32_t *header = context->graph->header;
   entry_lock(context);
   if (request->top_layer > load_word(header, NARSIL_GRAPH_WORD_TOP_LAYER)) {
-    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
+    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
   }
   entry_unlock(context);
 }
@@ -173,9 +173,11 @@ static void link_neighbours_back(const walk_context *context, const narsil_place
 
 static narsil_status link_node(walk_context *context, const narsil_place_request *request) {
   int32_t former_entry = load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
+  narsil_status status = read_graph_extent(context);
+  if (status != NARSIL_OK) { return status; }
   link_span span = {entry_top_layer(context, former_entry), 0};
   span.link_top = request->top_layer < span.graph_top ? request->top_layer : span.graph_top;
-  narsil_status status = span.link_top >= 0 ? select_every_layer(context, request, span) : NARSIL_OK;
+  if (span.link_top >= 0) { status = select_every_layer(context, request, span); }
   if (status == NARSIL_OK) { status = create_node(context->graph, request); }
   if (status != NARSIL_OK) { return status; }
   include_placed_node(context, request->ordinal);
@@ -195,7 +197,6 @@ static narsil_status link_node(walk_context *context, const narsil_place_request
 static narsil_status place_under_the_graph_lock(walk_context *context, const narsil_place_request *request) {
   narsil_status status = reserve_for_placement(context, request);
   if (status == NARSIL_OK) { status = room_for_node(context->graph, request); }
-  if (status == NARSIL_OK) { status = read_graph_extent(context); }
   if (status != NARSIL_OK || place_into_an_empty_graph(context, request, &status)) { return status; }
   return link_node(context, request);
 }

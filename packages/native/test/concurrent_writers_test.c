@@ -5,6 +5,7 @@
 #include "../include/narsil_core.h"
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -15,6 +16,8 @@
 #define REMOVED_STEP 9
 #define RECALL_NUMERATOR 8
 #define RECALL_DENOMINATOR 10
+#define FIRST_PLACEMENT_RACES 2000
+#define FIRST_PLACEMENT_LAYER 0
 
 typedef struct {
   test_fixture *fixture;
@@ -118,7 +121,136 @@ static void check_the_graph_answers(test_fixture *fixture) {
   narsil_workspace_destroy(workspace);
 }
 
+typedef struct {
+  test_fixture *fixture;
+  narsil_workspace *workspace;
+  atomic_int *arrived;
+  int32_t ordinal;
+  narsil_status status;
+} first_placement;
+
+static void *place_at_the_start_gate(void *argument) {
+  first_placement *placement = argument;
+  atomic_fetch_add(placement->arrived, 1);
+  while (atomic_load(placement->arrived) < WRITER_THREADS) {}
+  narsil_place_request request = {NARSIL_METRIC_EUCLIDEAN, placement->ordinal, FIRST_PLACEMENT_LAYER,
+                                  (uint32_t)placement->ordinal, 0};
+  placement->status =
+      narsil_place(placement->workspace, &placement->fixture->graph, &placement->fixture->store, &request);
+  return NULL;
+}
+
+static int search_reaches_both(narsil_workspace *workspace, test_fixture *fixture, int32_t query_ordinal) {
+  int32_t ordinals[CANDIDATES];
+  double distances[CANDIDATES];
+  const float *query = fixture->vectors + ((size_t)query_ordinal * fixture_vector_stride_floats());
+  narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
+  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}, FIXTURE_PIN};
+  if (narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) != NARSIL_OK) { return 0; }
+  return found.count == WRITER_THREADS;
+}
+
+static int race_the_first_placements(narsil_workspace *const workspaces[WRITER_THREADS]) {
+  test_fixture *fixture = build_fixture_without_a_graph(0);
+  if (fixture == NULL) { return 0; }
+  atomic_int arrived = 0;
+  pthread_t threads[WRITER_THREADS];
+  first_placement placements[WRITER_THREADS];
+  int started = 0;
+  for (int32_t thread = 0; thread < WRITER_THREADS; thread++) {
+    placements[thread] = (first_placement){fixture, workspaces[thread], &arrived, thread, NARSIL_INVALID_ARGUMENT};
+    started += pthread_create(&threads[thread], NULL, place_at_the_start_gate, &placements[thread]) == 0;
+  }
+  if (started != WRITER_THREADS) { atomic_store(&arrived, WRITER_THREADS); }
+  for (int thread = 0; thread < started; thread++) { (void)pthread_join(threads[thread], NULL); }
+  int linked = started == WRITER_THREADS && placements[0].status == NARSIL_OK && placements[1].status == NARSIL_OK;
+  for (int32_t node = 0; linked && node < WRITER_THREADS; node++) {
+    linked = search_reaches_both(workspaces[0], fixture, node);
+  }
+  release_fixture(fixture);
+  return linked;
+}
+
+static void first_placement_race_checks(void) {
+  narsil_workspace *workspaces[WRITER_THREADS] = {NULL, NULL};
+  int created =
+      narsil_workspace_create(&workspaces[0]) == NARSIL_OK && narsil_workspace_create(&workspaces[1]) == NARSIL_OK;
+  check(created, "the test has a workspace for each placer");
+  int unreachable = 0;
+  for (int race = 0; created && race < FIRST_PLACEMENT_RACES; race++) {
+    unreachable += !race_the_first_placements(workspaces);
+  }
+  check(unreachable == 0, "two threads that place the first two nodes at once leave each one reachable by search");
+  narsil_workspace_destroy(workspaces[0]);
+  narsil_workspace_destroy(workspaces[1]);
+}
+
+typedef struct {
+  test_fixture *fixture;
+  narsil_workspace *workspace;
+  atomic_int *arrived;
+  atomic_int *placed;
+  int empty_searches;
+} raised_entry_search;
+
+static void *search_while_the_entry_rises(void *argument) {
+  raised_entry_search *searcher = argument;
+  int32_t ordinals[CANDIDATES];
+  double distances[CANDIDATES];
+  narsil_search_request request = {
+      searcher->fixture->vectors, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 1, {NULL, 0}, FIXTURE_PIN};
+  atomic_fetch_add(searcher->arrived, 1);
+  while (atomic_load(searcher->arrived) < WRITER_THREADS) {}
+  int last = 0;
+  while (!last) {
+    last = atomic_load(searcher->placed);
+    narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
+    narsil_status status =
+        narsil_search(searcher->workspace, &searcher->fixture->graph, &searcher->fixture->store, &request, &found);
+    searcher->empty_searches += status != NARSIL_OK || found.count == 0;
+  }
+  return NULL;
+}
+
+static int race_a_search_with_a_raised_entry(narsil_workspace *const workspaces[WRITER_THREADS]) {
+  test_fixture *fixture = build_fixture_without_a_graph(0);
+  if (fixture == NULL) { return 0; }
+  narsil_place_request first = {NARSIL_METRIC_EUCLIDEAN, 0, FIRST_PLACEMENT_LAYER, 0, 0};
+  int clean = narsil_place(workspaces[0], &fixture->graph, &fixture->store, &first) == NARSIL_OK;
+  atomic_int arrived = 0;
+  atomic_int placed = 0;
+  raised_entry_search searcher = {fixture, workspaces[1], &arrived, &placed, 0};
+  pthread_t thread;
+  int started = clean && pthread_create(&thread, NULL, search_while_the_entry_rises, &searcher) == 0;
+  if (started) {
+    atomic_fetch_add(&arrived, 1);
+    while (atomic_load(&arrived) < WRITER_THREADS) {}
+    narsil_place_request higher = {NARSIL_METRIC_EUCLIDEAN, 1, FIRST_PLACEMENT_LAYER + 1, 0, 0};
+    clean = narsil_place(workspaces[0], &fixture->graph, &fixture->store, &higher) == NARSIL_OK;
+    atomic_store(&placed, 1);
+    (void)pthread_join(thread, NULL);
+  }
+  release_fixture(fixture);
+  return started && clean && searcher.empty_searches == 0;
+}
+
+static void raised_entry_search_checks(void) {
+  narsil_workspace *workspaces[WRITER_THREADS] = {NULL, NULL};
+  int created =
+      narsil_workspace_create(&workspaces[0]) == NARSIL_OK && narsil_workspace_create(&workspaces[1]) == NARSIL_OK;
+  check(created, "the test has a workspace for the placer and the searcher");
+  int failed = 0;
+  for (int race = 0; created && race < FIRST_PLACEMENT_RACES; race++) {
+    failed += !race_a_search_with_a_raised_entry(workspaces);
+  }
+  check(failed == 0, "a search beside a placement that raises the entry point still finds the nodes already placed");
+  narsil_workspace_destroy(workspaces[0]);
+  narsil_workspace_destroy(workspaces[1]);
+}
+
 void concurrent_writer_checks(void) {
+  first_placement_race_checks();
+  raised_entry_search_checks();
   test_fixture *fixture = build_fixture_without_a_graph(0);
   check(fixture != NULL, "the fixture has its memory");
   if (fixture == NULL) { return; }
