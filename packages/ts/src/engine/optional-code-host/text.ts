@@ -9,7 +9,6 @@ import { requireRoom, requireSegment, SegmentRefusal } from '../../core/segment-
 import { lookupExact, lookupPrefix } from '../../core/term-table/portable'
 import { liveFrequency, termCount, termText } from '../../core/term-table/read'
 import { tokenize } from '../../core/tokenizer'
-import { MAX_TOKEN_POSITION } from '../../core/tokenizer/constants'
 
 export function textHostPart() {
   return {
@@ -20,7 +19,6 @@ export function textHostPart() {
     loadSuggestions,
     lookupExact,
     lookupPrefix,
-    MAX_TOKEN_POSITION,
     mergeText,
     partitionDocumentFrequency,
     readFrozenSource,

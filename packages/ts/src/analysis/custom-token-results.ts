@@ -1,6 +1,7 @@
 import type { TokenizedTextSource } from '../core/tokenizer/tokenize'
 import type { CustomTokenizer } from '../types/schema'
-import { ErrorCodes, MAX_TOKEN_POSITION, NarsilError, withUnpairedSurrogatesReplaced } from './custom-token-host'
+import { MAX_TOKEN_POSITION } from './constants'
+import { ErrorCodes, NarsilError, withUnpairedSurrogatesReplaced } from './custom-token-host'
 
 export { bindCustomTokenHost } from './custom-token-host'
 
