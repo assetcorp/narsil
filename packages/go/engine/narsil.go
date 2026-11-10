@@ -120,13 +120,15 @@ func (n *Narsil) enter() (func(), error) {
 
 func (n *Narsil) leave(generation uint64) {
 	n.lifeMu.Lock()
-	n.active--
 	released := n.retired.leave(generation)
+	n.lifeMu.Unlock()
+	releaseIndexes(released)
+	n.lifeMu.Lock()
+	defer n.lifeMu.Unlock()
+	n.active--
 	if n.closed && n.active == 0 {
 		close(n.drained)
 	}
-	n.lifeMu.Unlock()
-	releaseIndexes(released)
 }
 
 // Shutdown stops the engine: it refuses new calls with CodeInstanceShutDown,

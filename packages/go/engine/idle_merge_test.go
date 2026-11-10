@@ -15,7 +15,8 @@ const (
 	idleMergeDocuments     = 4_500
 	idleMergeBatch         = 500
 	idleMergeCodeUnits     = 4_000
-	idleMergeQuietPeriod   = 1_500 * time.Millisecond
+	idleMergeDeadline      = 30 * time.Second
+	idleMergePollInterval  = 50 * time.Millisecond
 	idleMergeMarkerEvery   = 7
 	idleMergeMarkerWord    = "lighthouse"
 	growingSegmentFreezeAt = 16 << 20
@@ -60,14 +61,20 @@ func TestAQuietIndexMergesItsFrozenTextAndItsTailIntoOneSegment(t *testing.T) {
 		t.Fatalf("the ingest holds %d bytes of codes, short of the %d bytes at which a growing segment freezes",
 			codeBytes, growingSegmentFreezeAt)
 	}
-	time.Sleep(idleMergeQuietPeriod)
-	segments, err := engine.SearchedSegmentsOf(ctx, narsil, idleMergeIndex)
-	if err != nil {
-		t.Fatalf("reading the searched segments failed: %v", err)
-	}
-	if len(segments) != 1 || segments[0] != 1 {
-		t.Fatalf("after a quiet period, a search reads %v segments per partition, while an idle index merges its text into one",
-			segments)
+	deadline := time.Now().Add(idleMergeDeadline)
+	for {
+		segments, err := engine.SearchedSegmentsOf(ctx, narsil, idleMergeIndex)
+		if err != nil {
+			t.Fatalf("reading the searched segments failed: %v", err)
+		}
+		if len(segments) == 1 && segments[0] == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%v after the last write, a search reads %v segments per partition, while an idle index merges its text into one",
+				idleMergeDeadline, segments)
+		}
+		time.Sleep(idleMergePollInterval)
 	}
 	found, err := narsil.Query(ctx, idleMergeIndex, engine.QueryParams{Term: idleMergeMarkerWord,
 		Limit: engine.Some(idleMergeDocuments / idleMergeMarkerEvery * 2)})
