@@ -5,7 +5,8 @@ use super::source::and_into;
 use crate::error::Result;
 use crate::ffi;
 use crate::index::segment::SegmentEntry;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 use crate::pattern::{PatternIndexes, PatternTest, WorkMeter};
 use crate::schema::BaseType;
 

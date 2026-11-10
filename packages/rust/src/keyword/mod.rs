@@ -10,4 +10,3 @@ pub(crate) mod slices;
 pub(crate) mod strings;
 pub(crate) mod term_table;
 pub(crate) mod tokens;
-pub(crate) mod workspace;

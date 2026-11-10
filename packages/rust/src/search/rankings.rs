@@ -2,7 +2,8 @@ use std::cmp::Ordering;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
-use crate::keyword::workspace::with_workspace;
+use crate::native::status::query_accepted;
+use crate::native::workspace::with_workspace;
 
 pub(crate) trait RankedEntry {
     fn ranking_score(&self) -> f64;
@@ -117,14 +118,7 @@ fn merged_places(
             }
         })
     })?;
-    if status != ffi::NARSIL_OK {
-        return Err(NarsilError::new(
-            ErrorCode::CONFIG_INVALID,
-            format!(
-                "The search rankings cannot be merged, as the native core returned status {status}"
-            ),
-        ));
-    }
+    query_accepted("a merge of search rankings", status)?;
     Ok(sources
         .iter()
         .zip(&indices)

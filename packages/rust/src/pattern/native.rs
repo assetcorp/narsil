@@ -7,7 +7,8 @@ use crate::ffi;
 use crate::format::keyword_columns::PatternColumn;
 use crate::index::merge::tail_pattern_column;
 use crate::index::segment::{SegmentData, SegmentEntry};
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatternOperator {

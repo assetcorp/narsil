@@ -4,9 +4,10 @@ use super::constants::{
 };
 use super::frozen::FrozenView;
 use super::tokens::{SegmentFieldTokens, raw_fields};
-use super::workspace::{core_refused, with_workspace};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 #[derive(Clone)]
 pub(crate) struct FrozenState {

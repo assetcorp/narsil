@@ -1,7 +1,7 @@
 use super::constants::MAX_FOLD_CODE_POINTS;
 use crate::error::Result;
 use crate::ffi;
-use crate::keyword::workspace::core_refused;
+use crate::native::status::core_refused;
 
 const MAX_UNITS_PER_CODE_POINT: usize = 2;
 

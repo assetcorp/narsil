@@ -1,7 +1,8 @@
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::Result;
 use crate::ffi;
 use crate::index::core_values::CoreStoredValues;
-use crate::keyword::workspace::with_workspace;
+use crate::native::status::{query_accepted, query_refused};
+use crate::native::workspace::with_workspace;
 
 const NO_MATCHES: [u32; 1] = [0];
 
@@ -31,19 +32,7 @@ fn matched_words(matched: &[u32]) -> &[u32] {
     }
 }
 
-fn refused(what: &str, status: ffi::narsil_status) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::CONFIG_INVALID,
-        format!("{what} could not be counted, because the native core returned status {status}"),
-    )
-}
-
-fn checked(what: &str, status: ffi::narsil_status) -> Result<()> {
-    match status {
-        ffi::NARSIL_OK => Ok(()),
-        refusal => Err(refused(what, refusal)),
-    }
-}
+const FACET_MERGE: &str = "a merge of facet lists";
 
 fn input_of<'a>(
     entries: &NumericEntries<'a>,
@@ -77,7 +66,7 @@ pub(super) fn enum_counts(offsets: &[u32], postings: &[u32], matched: &[u32]) ->
             )
         })
     })?;
-    checked("The enum facet", status)?;
+    query_accepted("an enum facet count", status)?;
     Ok(counts)
 }
 
@@ -103,7 +92,7 @@ pub(super) fn boolean_counts(
             counts.len(),
         )
     };
-    checked("The boolean facet", status)?;
+    query_accepted("a boolean facet count", status)?;
     Ok(counts)
 }
 
@@ -125,7 +114,7 @@ pub(super) fn number_counts(
     let status = with_workspace(|workspace| {
         Ok(unsafe { ffi::narsil_number_facet(workspace, &input, &output, &mut found) })
     })?;
-    checked("The numeric facet", status)?;
+    query_accepted("a numeric facet count", status)?;
     let found = found as usize;
     Ok(values.into_iter().zip(counts).take(found).collect())
 }
@@ -150,7 +139,7 @@ pub(super) fn range_counts(
             )
         })
     })?;
-    checked("The numeric ranges", status)?;
+    query_accepted("a numeric range count", status)?;
     Ok(counts)
 }
 
@@ -173,7 +162,7 @@ pub(super) fn stored_range_counts(
             counts.len(),
         )
     };
-    checked("The stored numeric ranges", status)?;
+    query_accepted("a stored numeric range count", status)?;
     Ok(counts)
 }
 
@@ -204,7 +193,7 @@ pub(super) fn value_counts(
             )
         })
     })?;
-    checked("The stored values", status)?;
+    query_accepted("a stored value count", status)?;
     let found = found as usize;
     Ok(elements
         .into_iter()
@@ -221,7 +210,8 @@ pub(super) fn merge_facet_lists(
 ) -> Result<MergedFacet> {
     let distinct = lists.ranks.len();
     let kept = limit.map_or(distinct, |limit| limit.min(distinct));
-    let limit = u32::try_from(kept).map_err(|_| merge_refused(ffi::NARSIL_INVALID_ARGUMENT))?;
+    let limit = u32::try_from(kept)
+        .map_err(|_| query_refused(FACET_MERGE, ffi::NARSIL_INVALID_ARGUMENT))?;
     let request = ffi::narsil_facet_merge_request {
         offsets: lists.offsets.as_ptr(),
         offset_count: lists.offsets.len(),
@@ -252,9 +242,7 @@ pub(super) fn merge_facet_lists(
     let status = with_workspace(|workspace| {
         Ok(unsafe { ffi::narsil_merge_facets(workspace, &request, &mut output) })
     })?;
-    if status != ffi::NARSIL_OK {
-        return Err(merge_refused(status));
-    }
+    query_accepted(FACET_MERGE, status)?;
     let found = output.count as usize;
     keys.truncate(found);
     counts.truncate(found);
@@ -263,13 +251,4 @@ pub(super) fn merge_facet_lists(
         counts,
         error_bound: bound[0],
     })
-}
-
-fn merge_refused(status: ffi::narsil_status) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::CONFIG_INVALID,
-        format!(
-            "The facet lists cannot be merged, because the native core returned status {status}"
-        ),
-    )
 }

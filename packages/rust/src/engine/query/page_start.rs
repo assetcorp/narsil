@@ -1,7 +1,9 @@
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::Result;
 use crate::ffi;
+use crate::native::status::{query_accepted, query_refused};
 
 const BITSET_WORD_BITS: usize = 32;
+const PAGE_SELECTION: &str = "the selection of a result page";
 
 pub(crate) struct AnchorBits {
     words: Vec<u32>,
@@ -19,13 +21,6 @@ impl AnchorBits {
     }
 }
 
-fn unselectable(status: ffi::narsil_status) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::CONFIG_INVALID,
-        format!("The result page cannot be selected, as the native core returned status {status}"),
-    )
-}
-
 pub(crate) fn page_start(
     count: usize,
     scores: Option<&[f64]>,
@@ -33,7 +28,7 @@ pub(crate) fn page_start(
     anchor_score: Option<f64>,
 ) -> Result<usize> {
     let Ok(native_count) = u32::try_from(count) else {
-        return Err(unselectable(ffi::NARSIL_INVALID_ARGUMENT));
+        return Err(query_refused(PAGE_SELECTION, ffi::NARSIL_INVALID_ARGUMENT));
     };
     let request = ffi::narsil_page_request {
         count: native_count,
@@ -50,8 +45,6 @@ pub(crate) fn page_start(
     };
     let mut start = 0u32;
     let status = unsafe { ffi::narsil_page_start(&request, &mut start) };
-    if status != ffi::NARSIL_OK {
-        return Err(unselectable(status));
-    }
+    query_accepted(PAGE_SELECTION, status)?;
     Ok(start as usize)
 }

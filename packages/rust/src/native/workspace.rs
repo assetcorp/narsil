@@ -1,8 +1,31 @@
+use std::cell::RefCell;
 use std::ptr;
 use std::sync::OnceLock;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+
+thread_local! {
+    static WORKSPACE: RefCell<Option<CoreWorkspace>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn with_workspace<T>(
+    work: impl FnOnce(*mut ffi::narsil_workspace) -> Result<T>,
+) -> Result<T> {
+    WORKSPACE.with(|cell| {
+        let mut held = cell.try_borrow_mut().map_err(|_| {
+            NarsilError::new(
+                ErrorCode::INTERNAL_ERROR,
+                "A core call made another core call while the first held the thread's workspace",
+            )
+        })?;
+        let workspace = match held.as_ref() {
+            Some(workspace) => workspace,
+            None => held.insert(CoreWorkspace::create()?),
+        };
+        work(workspace.handle())
+    })
+}
 
 fn core_mismatch() -> Option<String> {
     let reported = unsafe { ffi::narsil_core_abi_version() };

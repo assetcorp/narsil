@@ -5,7 +5,7 @@ use std::ptr;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::keyword::tokens::PACKED_TOKEN_WORDS;
-use crate::keyword::workspace::core_refused;
+use crate::native::status::core_refused;
 
 const PACKED_COUNT_WORDS: usize = 1;
 

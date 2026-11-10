@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use super::constants::{SYNONYM_EXPANSION_CACHE_ENTRIES, SYNONYMS_ADDED_PER_QUERY};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::native::status::query_accepted;
 
 type Selected = Arc<[(String, Vec<String>)]>;
 
@@ -32,15 +33,6 @@ fn query_too_long() -> NarsilError {
 
 pub(super) fn table_index(value: usize) -> Result<u32> {
     u32::try_from(value).map_err(|_| query_too_long())
-}
-
-fn expansion_refused(status: ffi::narsil_status) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::CONFIG_INVALID,
-        format!(
-            "The synonym query could not be expanded, because the native core returned status {status}"
-        ),
-    )
 }
 
 struct Expanded {
@@ -111,9 +103,7 @@ impl SynonymSelection {
         };
         let mut count = 0u32;
         let status = unsafe { ffi::narsil_expand_synonyms(&request, &output, &mut count) };
-        if status != ffi::NARSIL_OK {
-            return Err(expansion_refused(status));
-        }
+        query_accepted("a synonym expansion", status)?;
         expanded.count = count;
         Ok(expanded)
     }

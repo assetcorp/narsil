@@ -2,7 +2,8 @@ use super::{ExpansionSources, units};
 use crate::error::Result;
 use crate::ffi;
 use crate::keyword::constants::{EXPANSION_START_CAPACITY, MAX_ROOM_ATTEMPTS};
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 impl ExpansionSources<'_> {
     pub(crate) fn complete_prefix(&self, typed: &str, stemmed: &str) -> Result<Vec<(String, f64)>> {

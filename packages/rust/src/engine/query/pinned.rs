@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use super::params::Pin;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 const MAX_PLACED_ENTRIES: usize = i32::MAX as usize;
 

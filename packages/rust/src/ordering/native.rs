@@ -3,7 +3,8 @@ use crate::engine::SortMode;
 use crate::error::Result;
 use crate::ffi;
 use crate::index::core_values::CoreStoredValues;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 const WORD_BITS: usize = 32;
 const ORDER_COUNTS: usize = 2;
