@@ -55,9 +55,14 @@ func pickSegments(sizes []partition.SegmentSize, policy CompactionPolicy) []int 
 func (ix *Index) compactSegments(policy CompactionPolicy, stopped func() bool) (int, error) {
 	merges := 0
 	pick := func(sizes []partition.SegmentSize) []int { return pickSegments(sizes, policy) }
-	for _, held := range ix.partitions {
+	for partitionID, held := range ix.partitions {
 		if stopped() {
 			return merges, nil
+		}
+		if policy == CompactWhileIdle {
+			if _, err := ix.FreezeLiveTail(partitionID, liveTailFreezeFloor); err != nil {
+				return merges, err
+			}
 		}
 		for range maxCompactionRounds {
 			if stopped() {
