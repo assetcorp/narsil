@@ -59,10 +59,6 @@ impl StoreTables {
             .map_or(crate::pins::NO_HELD_PIN, |sequence| sequence.oldest_pin())
     }
 
-    pub(crate) fn write_sequence(&self) -> i64 {
-        self.write_sequence.load(Ordering::SeqCst)
-    }
-
     pub(crate) fn record_write_sequence(&self, sequence: i64) {
         self.write_sequence.store(sequence, Ordering::SeqCst);
     }
