@@ -25,6 +25,7 @@ export interface PagedFile {
   readonly cache: ReadCache
   native: NativeOpenFile | null
   closed: boolean
+  suspended: boolean
 }
 
 const readersOfPath = new Map<string, number>()
@@ -41,7 +42,7 @@ export function openPagedFile(path: string, cache: ReadCache): PagedFile {
   const native = openNativePagedFile(path)
   readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
   try {
-    return { path, fileNumber: cache.fileNumber(), cache, native, closed: false }
+    return { path, fileNumber: cache.fileNumber(), cache, native, closed: false, suspended: false }
   } catch (error) {
     native?.core.closePagedFile(native.handle)
     stopReadingPath(path)
@@ -59,28 +60,34 @@ function stopReadingPath(path: string): void {
   fileReaderOfThisThread().retainOnly(new Set(readersOfPath.keys()))
 }
 
-export function closePagedFile(file: PagedFile): void {
-  if (file.closed) return
-  file.closed = true
+function closeNativeHandle(file: PagedFile): void {
   if (file.native !== null) file.cache.releasePageFile(file.native.handle.identity)
   file.native?.core.closePagedFile(file.native.handle)
   file.native = null
+}
+
+export function closePagedFile(file: PagedFile): void {
+  if (file.closed) return
+  file.closed = true
+  closeNativeHandle(file)
   file.cache.releaseFile(file.fileNumber)
+  if (file.suspended) return
   stopReadingPath(file.path)
 }
 
-export function relocatePagedFile(file: PagedFile, path: string): void {
-  if (path === file.path) return
-  const native = openNativePagedFile(path)
-  if (file.native !== null) file.cache.releasePageFile(file.native.handle.identity)
-  file.native?.core.closePagedFile(file.native.handle)
-  file.native = native
+export function suspendPagedFile(file: PagedFile): void {
+  if (file.closed || file.suspended) return
+  file.suspended = true
+  closeNativeHandle(file)
   stopReadingPath(file.path)
-  const retained = new Set(readersOfPath.keys())
-  retained.delete(path)
-  fileReaderOfThisThread().retainOnly(retained)
-  readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
+}
+
+export function resumePagedFile(file: PagedFile, path: string): void {
+  if (file.closed || !file.suspended) return
+  file.suspended = false
   file.path = path
+  readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
+  file.native = openNativePagedFile(path)
 }
 
 function unreadable(path: string, offset: number, target: Uint8Array): never {
