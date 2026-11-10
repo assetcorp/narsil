@@ -6,46 +6,11 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/writeahead"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
-
-type capture struct {
-	seqNos     []uint64
-	whole      []bool
-	logged     []bool
-	left       uint64
-	vectors    []checkpoint.VectorCapture
-	partitions []checkpoint.PartitionCapture
-	selections []*heldSelections
-	frozen     []*index.Reading
-	changes    []*partition.ChangeLog
-	tracked    *index.Index
-}
-
-func (held capture) release() {
-	held.stopTracking()
-	for _, field := range held.vectors {
-		field.Plan.Release()
-	}
-	for _, selections := range held.selections {
-		selections.release()
-	}
-	for partitionID := range held.frozen {
-		held.releaseFrozen(partitionID)
-	}
-}
-
-func (held capture) releaseFrozen(partitionID int) {
-	if reading := held.frozen[partitionID]; reading != nil {
-		held.frozen[partitionID] = nil
-		reading.Release()
-	}
-}
 
 func (durable *Durable) priorManifest(ctx context.Context, store checkpoint.Store) (*manifest.Manifest, error) {
 	read, err := checkpoint.ReadManifest(ctx, store, durable.handle.Name)
@@ -116,59 +81,6 @@ func partitionUnchanged(prior *manifest.Manifest, partitionID int, seqNo uint64)
 		}
 	}
 	return false
-}
-
-func segmentWriteRequestOf(handle *Handle) segmentWriteRequest {
-	return segmentWriteRequest{schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle)}
-}
-
-func (held *capture) writeFrozenPartitions(handle *Handle) error {
-	request := segmentWriteRequestOf(handle)
-	for partitionID, reading := range held.frozen {
-		if reading == nil {
-			continue
-		}
-		files, err := writeSegmentsOf(reading.Snapshots[partitionID].Selections(), request)
-		held.releaseFrozen(partitionID)
-		if err != nil {
-			return err
-		}
-		held.partitions[partitionID].Segments = files
-	}
-	return nil
-}
-
-func (held *capture) freezeWholePartitions(ctx context.Context, handle *Handle, store checkpoint.Store,
-	pagedText bool) error {
-	request := segmentWriteRequestOf(handle)
-	held.partitions = make([]checkpoint.PartitionCapture, len(held.seqNos))
-	held.frozen = make([]*index.Reading, len(held.seqNos))
-	for partitionID, seqNo := range held.seqNos {
-		partition := &held.partitions[partitionID]
-		partition.Checkpoint = manifest.PartitionCheckpoint{PartitionID: uint32(partitionID), LastSeqNo: seqNo,
-			PrimaryTerm: SingleNodePrimaryTerm}
-		if !held.whole[partitionID] {
-			continue
-		}
-		partition.Rewritten = true
-		if !pagedText {
-			reading, err := freezePartition(ctx, handle.Index, partitionID)
-			if err != nil {
-				return err
-			}
-			held.frozen[partitionID] = reading
-			continue
-		}
-		selections, err := holdPartitionSelections(ctx, handle.Index, partitionID)
-		if err != nil {
-			return err
-		}
-		held.selections = append(held.selections, selections)
-		partition.Stream = func(ctx context.Context, entry *manifest.PartitionEntry) error {
-			return selections.stream(ctx, store, handle.Name, entry, request)
-		}
-	}
-	return nil
 }
 
 func flatSchema(handle *Handle) map[string]string {

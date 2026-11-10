@@ -218,21 +218,29 @@ func writeSegmentsOf(selections []partition.Selection, request segmentWriteReque
 	return state.files, state.writeSelections(selections)
 }
 
-func freezePartition(ctx context.Context, target *index.Index, partitionID int) (*index.Reading, error) {
-	if _, err := target.FreezeLiveTail(partitionID, 1); err != nil {
-		return nil, err
+func freezePartitions(ctx context.Context, target *index.Index, partitionIDs []int) (*index.Reading, error) {
+	for _, partitionID := range partitionIDs {
+		if _, err := target.FreezeLiveTail(partitionID, 1); err != nil {
+			return nil, err
+		}
 	}
 	reading, err := target.Read(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if reading.Snapshots[partitionID].GrowingCount() > 0 {
-		reading.Release()
-		return nil, narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-			"A write reached the partition while its checkpoint segments were being built",
-			map[string]any{"partitionId": partitionID})
+	for _, partitionID := range partitionIDs {
+		if reading.Snapshots[partitionID].GrowingCount() > 0 {
+			reading.Release()
+			return nil, narsilerr.New(narsilerr.CodePersistenceSaveFailed,
+				"A write reached the partition while its checkpoint segments were being built",
+				map[string]any{"partitionId": partitionID})
+		}
 	}
 	return reading, nil
+}
+
+func freezePartition(ctx context.Context, target *index.Index, partitionID int) (*index.Reading, error) {
+	return freezePartitions(ctx, target, []int{partitionID})
 }
 
 func partitionSegmentFiles(ctx context.Context, target *index.Index, partitionID int,
@@ -267,6 +275,10 @@ func holdPartitionSelections(ctx context.Context, target *index.Index, partition
 		return nil, err
 	}
 	defer reading.Release()
+	return holdSelectionsOf(reading, partitionID)
+}
+
+func holdSelectionsOf(reading *index.Reading, partitionID int) (*heldSelections, error) {
 	held := &heldSelections{selections: reading.Snapshots[partitionID].Selections()}
 	for _, selection := range held.selections {
 		paged := selection.PagedSegment()
