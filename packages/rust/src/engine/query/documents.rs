@@ -27,12 +27,18 @@ pub(crate) struct QuerySnapshots {
 
 impl QuerySnapshots {
     pub(crate) fn of(index: &IndexState) -> Result<QuerySnapshots> {
-        let layout = index.partitions();
-        let (partitions, pin) = index.published_snapshots(&layout)?;
-        Ok(QuerySnapshots {
-            layout,
-            partitions,
-            pin,
+        index.read_published(|| {
+            let pin = index.vectors.sequence().pin()?;
+            let layout = index.partitions();
+            let partitions = layout
+                .iter()
+                .map(|partition| partition.snapshot())
+                .collect();
+            Ok(QuerySnapshots {
+                layout,
+                partitions,
+                pin,
+            })
         })
     }
 
@@ -48,14 +54,7 @@ impl QuerySnapshots {
     }
 
     pub(crate) fn locate(&self, index: &IndexState, id: &str) -> Result<Option<Location>> {
-        let routed = index.route(id, self.partitions.len());
-        if let Some(location) = self.located_in(routed, id)? {
-            return Ok(Some(location));
-        }
-        for partition in 0..self.partitions.len() {
-            if partition == routed {
-                continue;
-            }
+        for partition in index.routed_first(id, self.partitions.len()) {
             if let Some(location) = self.located_in(partition, id)? {
                 return Ok(Some(location));
             }

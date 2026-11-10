@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use super::constants::{DEFAULT_PAGE_SIZE, RESULT_WINDOW};
 use super::cursor::{decode_page_cursor, query_binding_of, require_matching_cursor};
+use super::documents::QuerySnapshots;
 use super::fusion::{fixed_hybrid_depth, require_within_hybrid_depth};
 use super::highlight::highlight_hits;
 use super::pagination::{PositionWindow, page_by_position};
@@ -115,17 +116,12 @@ fn stored_pins(
     Ok(stored)
 }
 
-fn with_documents(
-    index: &IndexState,
-    partitions: &[Arc<Partition>],
-    hits: Vec<Hit>,
-    projection: &Projection,
-) -> Result<Vec<Hit>> {
+fn with_documents(index: &IndexState, hits: Vec<Hit>, projection: &Projection) -> Result<Vec<Hit>> {
     let mut filled = Vec::with_capacity(hits.len());
     for mut hit in hits {
         hit.document = match projection {
             Projection::Nothing => Default::default(),
-            _ => match index.full_document(partitions, &hit.id)? {
+            _ => match index.full_document(&hit.id)? {
                 Some(document) => project_document(&document, projection),
                 None => continue,
             },
@@ -245,17 +241,17 @@ pub(crate) fn reranked_query(
             binding: &binding,
         },
     );
-    let mut hits = with_documents(index, &partitions, placed[page.range].to_vec(), &projection)?;
+    let mut hits = with_documents(index, placed[page.range].to_vec(), &projection)?;
     let mut groups = groups;
     for group in groups.iter_mut().flatten() {
         let held = std::mem::take(&mut group.hits);
-        group.hits = with_documents(index, &partitions, held, &projection)?;
+        group.hits = with_documents(index, held, &projection)?;
     }
-    let (snapshots, _pin) = index.published_snapshots(&partitions)?;
+    let snapshots = QuerySnapshots::of(index)?;
     highlight_hits(
         index,
-        &partitions,
-        &snapshots,
+        &snapshots.layout,
+        &snapshots.partitions,
         params,
         &mut hits,
         &projection,

@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, RwLockWriteGuard};
 
 use super::changes::LayoutChanges;
 use super::durable::log::IndexLog;
@@ -159,7 +159,7 @@ impl IndexState {
 
     pub(crate) fn replace_synonyms(&self, synonyms: SynonymSet) {
         let layout = self.partitions().with_synonyms(synonyms);
-        replace(&self.text, Arc::new(layout));
+        self.publish_layout(Arc::new(layout));
     }
 
     /// Returns the partitions as they stand, with the analysis and the synonym set that go with them, which stay
@@ -170,16 +170,21 @@ impl IndexState {
 
     pub(crate) fn replace_partitions(&self, partitions: Vec<Arc<Partition>>) {
         let layout = self.partitions().with_partitions(partitions);
-        replace(&self.text, Arc::new(layout));
+        self.publish_layout(Arc::new(layout));
     }
 
     /// Replaces the partitions, their analysis, and the synonym set together, while the caller holds the write lock.
     pub(crate) fn replace_layout(&self, layout: TextLayout) {
-        replace(&self.text, Arc::new(layout));
+        self.publish_layout(Arc::new(layout));
     }
 
     /// Puts back a layout that [`IndexState::partitions`] returned, while the caller holds the write lock.
     pub(crate) fn restore_layout(&self, layout: Arc<TextLayout>) {
+        self.publish_layout(layout);
+    }
+
+    fn publish_layout(&self, layout: Arc<TextLayout>) {
+        let _publishing = self.publication_turn();
         replace(&self.text, layout);
     }
 
@@ -208,7 +213,7 @@ impl IndexState {
         Ok(writer)
     }
 
-    fn read_published<T>(&self, read: impl FnOnce() -> T) -> T {
+    pub(crate) fn read_published<T>(&self, read: impl FnOnce() -> T) -> T {
         let _published = self
             .publication
             .read()
@@ -216,27 +221,31 @@ impl IndexState {
         read()
     }
 
-    pub(crate) fn publish<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
-        let _publishing = self
-            .publication
+    fn publication_turn(&self) -> RwLockWriteGuard<'_, ()> {
+        self.publication
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn publish<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _publishing = self.publication_turn();
         let written = write()?;
         self.vectors.publish_writes();
         Ok(written)
     }
 
-    pub(crate) fn published_snapshots(
-        &self,
-        partitions: &[Arc<Partition>],
-    ) -> Result<(Vec<Arc<PartitionSnapshot>>, Pin)> {
+    pub(crate) fn published_document(&self, id: &str) -> Result<(Option<Arc<Map>>, Pin)> {
         self.read_published(|| {
             let pin = self.vectors.sequence().pin()?;
-            let snapshots = partitions
-                .iter()
-                .map(|partition| partition.snapshot())
-                .collect();
-            Ok((snapshots, pin))
+            let partitions = self.partitions();
+            for at in self.routed_first(id, partitions.len()) {
+                if let Some(partition) = partitions.get(at)
+                    && let Some(stored) = partition.snapshot().document(id)?
+                {
+                    return Ok((Some(stored), pin));
+                }
+            }
+            Ok((None, pin))
         })
     }
 
@@ -258,16 +267,17 @@ impl IndexState {
         fnv1a(id.as_bytes()) as usize % partition_count
     }
 
+    pub(crate) fn routed_first(&self, id: &str, count: usize) -> impl Iterator<Item = usize> {
+        let routed = self.route(id, count);
+        std::iter::once(routed).chain((0..count).filter(move |&at| at != routed))
+    }
+
     /// Returns the partition that holds `id`, searching each partition in turn.
     pub(crate) fn locate(&self, partitions: &[Arc<Partition>], id: &str) -> Result<Option<usize>> {
-        let routed = self.route(id, partitions.len());
-        if let Some(partition) = partitions.get(routed)
-            && partition.snapshot().has(id)?
-        {
-            return Ok(Some(routed));
-        }
-        for (at, partition) in partitions.iter().enumerate() {
-            if at != routed && partition.snapshot().has(id)? {
+        for at in self.routed_first(id, partitions.len()) {
+            if let Some(partition) = partitions.get(at)
+                && partition.snapshot().has(id)?
+            {
                 return Ok(Some(at));
             }
         }
@@ -275,13 +285,9 @@ impl IndexState {
     }
 
     /// Returns the document stored under `id` with its vectors put back, as a read or a hit returns it.
-    pub(crate) fn full_document(
-        &self,
-        partitions: &[Arc<Partition>],
-        id: &str,
-    ) -> Result<Option<Map>> {
-        let (snapshots, pin) = self.published_snapshots(partitions)?;
-        let Some(stored) = self.stored_document(&snapshots, id)? else {
+    pub(crate) fn full_document(&self, id: &str) -> Result<Option<Map>> {
+        let (stored, pin) = self.published_document(id)?;
+        let Some(stored) = stored else {
             return Ok(None);
         };
         let mut document = Arc::unwrap_or_clone(stored);
@@ -295,9 +301,7 @@ impl IndexState {
         snapshots: &[Arc<PartitionSnapshot>],
         id: &str,
     ) -> Result<Option<Arc<Map>>> {
-        let routed = self.route(id, snapshots.len());
-        let others = (0..snapshots.len()).filter(|&at| at != routed);
-        for at in std::iter::once(routed).chain(others) {
+        for at in self.routed_first(id, snapshots.len()) {
             if let Some(snapshot) = snapshots.get(at)
                 && let Some(stored) = snapshot.document(id)?
             {
