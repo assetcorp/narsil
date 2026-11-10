@@ -180,14 +180,7 @@ impl Analyser {
         visit: &mut TokenVisitor<'_>,
     ) -> Result<()> {
         if let Some(tokenizer) = &self.tokenizer {
-            let mut tokens = tokenizer.tokenize(text);
-            if tokens
-                .windows(2)
-                .any(|pair| pair[1].position < pair[0].position)
-            {
-                tokens.sort_by_key(|token| token.position);
-            }
-            for token in &tokens {
+            for token in &tokens_in_position_order(tokenizer.as_ref(), text) {
                 visit(&token.token, token.position, None, &token.token);
             }
             return Ok(());
@@ -227,13 +220,7 @@ impl Analyser {
         packed: &mut PackedTokens,
     ) -> Result<Option<u32>> {
         if let Some(tokenizer) = &self.tokenizer {
-            let mut tokens = tokenizer.tokenize(text);
-            if tokens
-                .windows(2)
-                .any(|pair| pair[1].position < pair[0].position)
-            {
-                tokens.sort_by_key(|token| token.position);
-            }
+            let tokens = tokens_in_position_order(tokenizer.as_ref(), text);
             let mut units = Vec::new();
             for token in &tokens {
                 units.clear();
@@ -276,6 +263,17 @@ impl Analyser {
         }
         core::transform(self.language.index, flags, raw)
     }
+}
+
+fn tokens_in_position_order(tokenizer: &dyn Tokenizer, text: &str) -> Vec<Token> {
+    let mut tokens = tokenizer.tokenize(text);
+    if tokens
+        .windows(2)
+        .any(|pair| pair[1].position < pair[0].position)
+    {
+        tokens.sort_by_key(|token| token.position);
+    }
+    tokens
 }
 
 fn fill(target: &mut String, units: &[u16]) {

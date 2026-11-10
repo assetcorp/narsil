@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 
 use crate::error::Result;
-use crate::format::manifest::{MAX_SEGMENTS_PER_PARTITION, PartitionCheckpoint};
-use crate::format::manifest_refs::{
-    VECTOR_FILE_MAX_VECTORS, dead_bytes_for, id_of, invalid_manifest, sequence_of, uint32_of,
+use crate::format::fields::{non_negative_safe_integer, uint32_of};
+use crate::format::manifest::{
+    MAX_SEGMENTS_PER_PARTITION, PartitionCheckpoint, schema_and_language,
 };
-use crate::schema::require_valid_field_types;
+use crate::format::manifest_refs::{
+    VECTOR_FILE_MAX_VECTORS, dead_bytes_for, id_of, invalid_manifest,
+};
 use crate::value::{Map, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +84,8 @@ fn checkpoint_of(raw: Option<&Value>) -> Vec<PartitionCheckpoint> {
             let map = entry.as_object()?;
             Some(PartitionCheckpoint {
                 partition_id: uint32_of(map.get("partitionId"))?,
-                last_seq_no: sequence_of(map.get("lastSeqNo"))?,
-                primary_term: sequence_of(map.get("primaryTerm"))?,
+                last_seq_no: non_negative_safe_integer(map.get("lastSeqNo"))?,
+                primary_term: non_negative_safe_integer(map.get("primaryTerm"))?,
                 term_history: None,
             })
         })
@@ -220,16 +222,10 @@ fn vectors_of(raw: Option<&Value>) -> Result<Vec<EarlierVectorFieldRef>> {
 }
 
 pub(crate) fn decode_earlier_manifest(raw: &Map) -> Result<EarlierManifest> {
-    let Some(Value::Object(schema)) = raw.get("schema") else {
-        return Err(invalid_manifest("is missing its schema"));
-    };
-    require_valid_field_types(schema)?;
-    let Some(Value::String(language)) = raw.get("language") else {
-        return Err(invalid_manifest("is missing its language"));
-    };
+    let (schema, language) = schema_and_language(raw)?;
     Ok(EarlierManifest {
-        schema: schema.clone(),
-        language: language.clone(),
+        schema,
+        language,
         checkpoint: checkpoint_of(raw.get("checkpoint")),
         partitions: partitions_of(raw.get("partitions"))?,
         vectors: vectors_of(raw.get("vectors"))?,

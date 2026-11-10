@@ -5,14 +5,15 @@ use super::constants::{
 use super::slices::{
     MAX_POOL_ENTRIES, SliceAllocator, grow_to, grown_capacity, region_full, trim_to,
 };
-use super::term_table::{COUNT, HEADER_WORDS, SLOT_CAPACITY, TermTable, slots_holding};
+use super::term_table::{
+    COUNT, HEADER_WORDS, SLOT_CAPACITY, TermTable, rehashed_slots, slots_holding,
+};
 use crate::error::Result;
 use crate::ffi;
+use crate::util::hash::fnv1a_of;
 
 const RUN_POINTS: usize = 3;
 const LAST_RUN_COUNT: usize = 0x7fff_ffff;
-const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
-const FNV_PRIME: u32 = 16_777_619;
 
 #[derive(Clone)]
 pub(crate) struct SurfaceTable {
@@ -109,13 +110,7 @@ impl SurfaceTable {
 }
 
 fn run_hash(points: &[u32]) -> u32 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for &point in points {
-        for byte in 0..4 {
-            hash = (hash ^ ((point >> (byte * 8)) & 0xff)).wrapping_mul(FNV_PRIME);
-        }
-    }
-    hash
+    fnv1a_of(points.iter().flat_map(|point| point.to_le_bytes()))
 }
 
 #[derive(Clone)]
@@ -205,21 +200,10 @@ impl RunTable {
     }
 
     fn rehash(&mut self, capacity: usize) {
-        let mut slots = vec![0i32; capacity];
-        let mask = capacity - 1;
-        for &entry in &self.slots {
-            if entry <= 0 {
-                continue;
-            }
-            let start = (entry as usize - 1) * RUN_POINTS;
-            let points = self.runs.get(start..start + RUN_POINTS).unwrap_or_default();
-            let mut slot = run_hash(points) as usize & mask;
-            while slots[slot] != 0 {
-                slot = (slot + 1) & mask;
-            }
-            slots[slot] = entry;
-        }
-        self.slots = slots;
+        self.slots = rehashed_slots(&self.slots, capacity, |run| {
+            let start = run * RUN_POINTS;
+            run_hash(self.runs.get(start..start + RUN_POINTS).unwrap_or_default())
+        });
         self.header[SLOT_CAPACITY] = capacity as u32;
     }
 

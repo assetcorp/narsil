@@ -1,9 +1,10 @@
-use super::payload::{Rejection, object, string_list, whole_number};
+use super::payload::{Rejection, object, whole_number};
 use super::types::{
     AdapterSetting, EmbeddingConfig, HnswSettings, Metric, Quantization, Storage, VectorPromotion,
 };
 use super::validate::{MAX_M, MIN_M};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::fields::string_list;
 use crate::value::{Map, Value};
 
 const EARLIER_RELEASE_MIN_M: f64 = 1.0;
@@ -111,7 +112,7 @@ pub(crate) fn restored_embedding(raw: &Value, reject: Rejection<'_>) -> Result<E
     for (target, sources) in fields.iter() {
         let sources = match sources {
             Value::String(path) => vec![path.clone()],
-            other => string_list(other)
+            other => string_list(Some(other))
                 .ok_or_else(|| reject("embedding fields must map vector fields to source paths"))?,
         };
         mapped.push((target.clone(), sources));

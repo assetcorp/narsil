@@ -208,23 +208,23 @@ impl DurableDirectory {
         self.sync_path(&parent)
     }
 
-    pub(crate) fn remove(&self, key: &str) -> Result<()> {
-        let (path, parent) = self.parent_of(key)?;
-        match remove_file(&path) {
-            Ok(()) => self.sync_path(&parent),
+    fn settle_removal(&self, key: &str, parent: &Path, removal: io::Result<()>) -> Result<()> {
+        match removal {
+            Ok(()) => self.sync_path(parent),
             Err(error) if is_missing(&error) => Ok(()),
             Err(error) => Err(delete_failed(key, &error)),
         }
     }
 
+    pub(crate) fn remove(&self, key: &str) -> Result<()> {
+        let (path, parent) = self.parent_of(key)?;
+        self.settle_removal(key, &parent, remove_file(&path))
+    }
+
     pub(crate) fn remove_tree(&self, prefix: &str) -> Result<()> {
         let key = prefix.trim_end_matches('/');
         let (path, parent) = self.parent_of(key)?;
-        match std::fs::remove_dir_all(&path) {
-            Ok(()) => self.sync_path(&parent),
-            Err(error) if is_missing(&error) => Ok(()),
-            Err(error) => Err(delete_failed(key, &error)),
-        }
+        self.settle_removal(key, &parent, std::fs::remove_dir_all(&path))
     }
 
     pub(crate) fn rename(&self, from: &str, to: &str) -> Result<bool> {

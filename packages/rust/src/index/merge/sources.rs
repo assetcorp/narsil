@@ -9,6 +9,7 @@ use crate::index::tail::TailSegment;
 use crate::keyword::growing::GrowingRead;
 use crate::keyword::strings::SurfaceTable;
 use crate::keyword::term_table::TermTable;
+use crate::util::bytes::offset_entry;
 
 pub(super) struct PairTable {
     pub(super) text: Vec<u8>,
@@ -72,12 +73,6 @@ pub(super) fn full_column(lengths: &[u32], documents: usize) -> Result<*const u3
     }
 }
 
-fn utf8_entry<'a>(text: &'a [u8], offsets: &[u32], at: usize) -> &'a [u8] {
-    let start = offsets.get(at).copied().unwrap_or(0) as usize;
-    let end = offsets.get(at + 1).copied().unwrap_or(0) as usize;
-    text.get(start..end).unwrap_or(&[])
-}
-
 fn growing_pairs(table: &SurfaceTable, terms: &TermTable, into: &mut PairTable) -> Result<()> {
     for entry in 0..table.len() {
         let count = table.count(entry);
@@ -129,8 +124,8 @@ fn frozen_hold(input: &MergeInput<'_>, segment: &FrozenSegment) -> Result<Source
         for (at, &stored) in forms.counts.iter().enumerate() {
             let kept = stored.saturating_sub(removed.get(at).copied().unwrap_or(0));
             if kept > 0 {
-                let spelling = utf8_entry(&forms.text, &forms.offsets, at * 2);
-                let token = utf8_entry(&forms.text, &forms.offsets, at * 2 + 1);
+                let spelling = offset_entry(&forms.text, &forms.offsets, at * 2);
+                let token = offset_entry(&forms.text, &forms.offsets, at * 2 + 1);
                 surfaces.push(spelling, token, kept)?;
             }
         }
@@ -144,20 +139,16 @@ fn frozen_hold(input: &MergeInput<'_>, segment: &FrozenSegment) -> Result<Source
                 continue;
             };
             if kept > 0 {
-                let spelling = utf8_entry(&words.text, &words.offsets, at);
+                let spelling = offset_entry(&words.text, &words.offsets, at);
                 spellings.push(spelling, segment.token(token as usize).as_bytes(), kept)?;
             }
         }
     }
     let mut lengths = Vec::with_capacity(payload.field_names.len());
-    for name in &payload.field_names {
-        let column = payload
-            .field_lengths
-            .iter()
-            .find(|column| &column.field == name);
+    for column in payload.length_columns() {
         lengths.push(match column {
             None => ptr::null(),
-            Some(column) => full_column(&column.lengths, input.remap.len())?,
+            Some(column) => full_column(column, input.remap.len())?,
         });
     }
     Ok(SourceHold {

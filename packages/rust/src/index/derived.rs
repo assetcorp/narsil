@@ -119,7 +119,7 @@ pub(crate) struct SortedNumbers {
 }
 
 impl SortedNumbers {
-    pub(crate) fn add(&mut self, entries: &[(u32, f64)], covered: usize) {
+    fn add(&mut self, entries: &[(u32, f64)], covered: usize) {
         let mut added: Vec<(u32, f64)> = entries.to_vec();
         added.sort_by(|left, right| left.1.total_cmp(&right.1));
         let mut values = Vec::with_capacity(self.values.len() + added.len());

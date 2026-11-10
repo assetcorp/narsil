@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::format::keyword_columns::EnumColumn;
+use crate::util::bytes::offset_entry;
 
 pub(crate) fn bitset_words(capacity: u32) -> usize {
     capacity.div_ceil(32) as usize
@@ -15,12 +16,6 @@ pub(crate) fn set_bit(bits: &mut [u32], ordinal: u32) {
     if let Some(word) = bits.get_mut((ordinal >> 5) as usize) {
         *word |= 1 << (ordinal & 31);
     }
-}
-
-#[inline]
-pub(crate) fn has_bit(bits: &[u32], ordinal: u32) -> bool {
-    bits.get((ordinal >> 5) as usize)
-        .is_some_and(|word| word & (1 << (ordinal & 31)) != 0)
 }
 
 pub(crate) fn and_into(target: &mut [u32], other: &[u32]) {
@@ -82,9 +77,7 @@ impl<'a> EnumView<'a> {
         match self {
             EnumView::Column(column) => {
                 for (at, value) in column.values.iter().enumerate() {
-                    let start = column.offsets.get(at).copied().unwrap_or(0) as usize;
-                    let end = column.offsets.get(at + 1).copied().unwrap_or(0) as usize;
-                    visit(value, column.documents.get(start..end).unwrap_or(&[]));
+                    visit(value, offset_entry(&column.documents, &column.offsets, at));
                 }
             }
             EnumView::Map(map) => {

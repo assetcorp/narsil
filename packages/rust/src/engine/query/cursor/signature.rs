@@ -1,8 +1,9 @@
 use super::constants::{MAX_SORT_FIELD_NAME_LENGTH, MAX_SORT_FIELDS};
-use crate::engine::query::javascript::{utf16_length, write_json_text};
 use crate::engine::query::params::{SortDirection, SortField, SortMode};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ordering::default_sort_mode;
+use crate::util::text::utf16_length;
+use crate::value::write_json_string;
 
 fn direction_name(direction: SortDirection) -> &'static str {
     match direction {
@@ -49,7 +50,7 @@ pub(crate) fn sort_signature_of(sort: Option<&[SortField]>) -> Result<Option<Str
             signature.push(',');
         }
         signature.push('[');
-        write_json_text(&mut signature, &entry.field);
+        write_json_string(&mut signature, &entry.field);
         signature.push_str(",\"");
         signature.push_str(direction_name(entry.direction));
         signature.push('"');

@@ -4,14 +4,17 @@ mod msgpack;
 mod number_text;
 
 pub use json::{parse_json, write_json};
-pub(crate) use json::{parse_json_raw, untag_value, write_exact_json_into, write_json_into};
+pub(crate) use json::{
+    parse_json_raw, untag_value, write_exact_json_into, write_json_into, write_json_string,
+};
 pub use map::Map;
+pub(crate) use map::array_index_of;
 pub(crate) use msgpack::{
     Decoder, MAX_ENCODING_DEPTH, decode_document, decode_value, encode_document, encode_value,
     write_array_header, write_binary, write_map_header, write_nil, write_number, write_string,
     write_uint,
 };
-pub(crate) use number_text::number_to_text;
+pub(crate) use number_text::{javascript_text, number_to_text};
 
 /// A MessagePack timestamp: whole seconds since the Unix epoch, and the nanoseconds past them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

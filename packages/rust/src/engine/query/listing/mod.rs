@@ -10,6 +10,7 @@ use super::cursor::{
     PageCursor, decode_page_cursor, encode_page_cursor, list_binding, require_matching_cursor,
 };
 use super::params::DocumentProjection;
+use super::projection::resolve_projection;
 use super::require_within_result_window;
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
@@ -17,7 +18,7 @@ use crate::error::Result;
 use crate::value::{Map, Value};
 use constants::MIN_LIST_PAGE_SIZE;
 use filtered::{require_listing_filter, segment_matcher};
-use projection::{Projection, listed_document};
+use projection::listed_document;
 use seek::partition_candidates;
 
 /// Everything that [`Narsil::list_documents`] accepts. Leave `cursor` out for the first page, then pass back the
@@ -66,7 +67,7 @@ fn listed_page(index: &IndexState, params: &ListParams, work_cap: i64) -> Result
     let started = Instant::now();
     let limit = list_page_size(params.limit)?;
     let matcher = segment_matcher(index, params.filters.as_ref(), work_cap)?;
-    let projection = Projection::of(params.document.as_ref());
+    let projection = resolve_projection(params.document.as_ref());
     let binding = list_binding(params.filters.as_ref());
     let anchor = match &params.cursor {
         None => None,

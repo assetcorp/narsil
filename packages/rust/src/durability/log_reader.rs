@@ -209,22 +209,22 @@ pub(crate) fn replay_partition_log(
         let Some(bytes) = read_segment(directory, &segment.key)? else {
             continue;
         };
-        if segment.start_seq_no < marker.active_segment_seq_no {
+        let sealed = segment.start_seq_no < marker.active_segment_seq_no;
+        let durable_length = if sealed {
             check_segment_header(&bytes)
                 .map_err(|error| sealed_header_error(&segment.key, error))?;
-            let entries = read_durable_region(&bytes, bytes.len())?;
-            highest_read = entries
-                .iter()
-                .fold(highest_read, |high, entry| high.max(entry.seq_no as u64));
-            deliver(entries, &mut visit, &mut term, &mut delivered)?;
-            continue;
-        }
-        let durable_length = usize::try_from(marker.durable_byte_length).unwrap_or(usize::MAX);
+            bytes.len()
+        } else {
+            usize::try_from(marker.durable_byte_length).unwrap_or(usize::MAX)
+        };
         let entries = read_durable_region(&bytes, durable_length)?;
         highest_read = entries
             .iter()
             .fold(highest_read, |high, entry| high.max(entry.seq_no as u64));
         deliver(entries, &mut visit, &mut term, &mut delivered)?;
+        if sealed {
+            continue;
+        }
         let floor = highest_read.max(marker.highest_durable_seq_no);
         let (tail, clean_end) = read_tail(&bytes, durable_length, floor as f64);
         let last_tail = tail.last().map(|entry| entry.seq_no as u64);

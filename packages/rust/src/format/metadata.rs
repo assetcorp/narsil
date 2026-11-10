@@ -3,13 +3,14 @@ use crate::format::envelope::{
     Compression, HEADER_BYTES, Header, MAX_FILE_BYTES, gunzip_within, gzip, read_header,
     write_header,
 };
+use crate::format::fields::{non_negative_safe_integer, string_list};
 use crate::format::metadata_parts::{
     Bm25Params, EmbeddingMetadata, NamedAnalysis, PartitionLimits, PendingAnalysis, SyncSetting,
     VectorFieldMetadata, VectorPromotion, bm25_from_wire, bm25_to_wire, config_invalid, describe,
     embedding_from_wire, embedding_to_wire, is_sync_epoch, limits_from_wire, limits_to_wire,
-    named_analysis_to_wire, non_negative_safe_integer, pending_from_wire, positive_integer,
-    promotion_from_wire, promotion_to_wire, string_list, sync_from_wire, sync_to_wire,
-    vector_fields_from_wire, vector_fields_to_wire,
+    named_analysis_to_wire, pending_from_wire, positive_integer, promotion_from_wire,
+    promotion_to_wire, sync_from_wire, sync_to_wire, vector_fields_from_wire,
+    vector_fields_to_wire,
 };
 use crate::util::hash::crc32;
 use crate::value::{Map, Value, decode_value, encode_value};
@@ -162,11 +163,10 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
     }
     meta.index_uuid = text(raw, "index_uuid").filter(|uuid| !uuid.is_empty());
     if let Some(Value::Array(items)) = raw.get("held_partitions") {
-        let held: Option<Vec<u64>> = items
+        meta.held_partitions = items
             .iter()
             .map(|item| non_negative_safe_integer(Some(item)))
             .collect();
-        meta.held_partitions = held;
     }
     meta.synonyms = present(raw, "synonyms");
     if let Some(sync) = raw.get("sync").filter(|value| !value.is_null()) {

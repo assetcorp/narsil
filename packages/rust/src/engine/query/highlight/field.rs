@@ -6,10 +6,10 @@ use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick};
 use super::Highlighter;
 use super::snippet::{SnippetStyle, Span, snippet_of};
 use crate::analysis::TokenOptions;
-use crate::engine::query::javascript::utf16_length;
 use crate::engine::query::results::HighlightMatch;
 use crate::error::Result;
 use crate::search::fuzzy::fuzzy_term_matches;
+use crate::util::text::utf16_length;
 
 const FIELD_WORDS: TokenOptions = TokenOptions {
     stem: false,

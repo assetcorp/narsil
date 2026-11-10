@@ -8,7 +8,37 @@ pub(crate) struct Fields<'a> {
     prefix: &'a str,
 }
 
+pub(crate) const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const MAX_UINT32: f64 = 4_294_967_295.0;
+
+pub(crate) fn whole_number(value: Option<&Value>) -> Option<f64> {
+    match value {
+        Some(Value::Number(number)) if number.is_finite() && number.fract() == 0.0 => Some(*number),
+        _ => None,
+    }
+}
+
+pub(crate) fn whole_number_up_to(value: Option<&Value>, highest: f64) -> Option<f64> {
+    whole_number(value).filter(|number| (0.0..=highest).contains(number))
+}
+
+pub(crate) fn non_negative_safe_integer(value: Option<&Value>) -> Option<u64> {
+    whole_number_up_to(value, MAX_SAFE_INTEGER).map(|number| number as u64)
+}
+
+pub(crate) fn uint32_of(value: Option<&Value>) -> Option<u32> {
+    whole_number_up_to(value, MAX_UINT32).map(|number| number as u32)
+}
+
+pub(crate) fn string_list(value: Option<&Value>) -> Option<Vec<String>> {
+    let Some(Value::Array(items)) = value else {
+        return None;
+    };
+    items
+        .iter()
+        .map(|item| item.as_str().map(str::to_string))
+        .collect()
+}
 
 impl<'a> Fields<'a> {
     pub(crate) fn new(map: &'a Map, code: ErrorCode, prefix: &'a str) -> Fields<'a> {
@@ -102,14 +132,7 @@ impl<'a> Fields<'a> {
     }
 
     pub(crate) fn uint32(&self, key: &str) -> Result<u32> {
-        match self.map.get(key) {
-            Some(Value::Number(number))
-                if number.fract() == 0.0 && (0.0..=MAX_UINT32).contains(number) =>
-            {
-                Ok(*number as u32)
-            }
-            _ => Err(self.error(format!("{key} must be a uint32"))),
-        }
+        uint32_of(self.map.get(key)).ok_or_else(|| self.error(format!("{key} must be a uint32")))
     }
 
     pub(crate) fn require_count(&self, found: usize, expected: usize, name: &str) -> Result<()> {

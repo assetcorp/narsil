@@ -2,6 +2,7 @@ mod assemble;
 mod decode;
 mod encode;
 
+pub(crate) use crate::config::{MAX_M, MIN_M, Metric};
 pub(crate) use assemble::assemble_graph_parts;
 pub(crate) use decode::{decode_earlier_graph_payload, decode_graph_part};
 pub(crate) use encode::encode_graph_part;
@@ -10,37 +11,8 @@ pub(crate) const VECTOR_GRAPH_PAYLOAD_VERSION: u8 = 1;
 pub(crate) const VECTOR_GRAPH_PART_PAYLOAD_VERSION: u8 = 2;
 pub(crate) const GRAPH_PART_ENVELOPE_VERSION: u8 = 2;
 pub(crate) const VECTOR_GRAPH_PART_VECTORS: usize = 16_384;
-pub(crate) const MIN_M: u32 = 2;
-pub(crate) const MAX_M: u32 = 512;
 const GRAPH_PREFIX: &str = "Invalid vector graph payload: ";
 const PART_PREFIX: &str = "Invalid vector graph part payload: ";
-
-/// The distance that a graph was built with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Metric {
-    Cosine,
-    DotProduct,
-    Euclidean,
-}
-
-impl Metric {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Metric::Cosine => "cosine",
-            Metric::DotProduct => "dotProduct",
-            Metric::Euclidean => "euclidean",
-        }
-    }
-
-    pub(crate) fn parse(name: &str) -> Option<Metric> {
-        match name {
-            "cosine" => Some(Metric::Cosine),
-            "dotProduct" => Some(Metric::DotProduct),
-            "euclidean" => Some(Metric::Euclidean),
-            _ => None,
-        }
-    }
-}
 
 /// One HNSW graph over a run of numbered vectors: a level per vector and, for every node, a list per layer.
 #[derive(Debug, Clone, PartialEq)]
