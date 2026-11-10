@@ -3,15 +3,15 @@ package checkpoint
 import (
 	"context"
 	"io"
-	"os"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
 )
 
 func headerOfFile(path string) (envelope.Header, bool) {
-	file, err := os.Open(path)
+	file, err := storage.OpenForReading(path)
 	if err != nil {
 		return envelope.Header{}, false
 	}

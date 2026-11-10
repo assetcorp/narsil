@@ -36,6 +36,7 @@ type indexEntry struct {
 	patternLimit   int
 	embeddingName  string
 	phraseReady    func() error
+	retireIndexes  func(indexes ...*index.Index)
 
 	embedMu  sync.RWMutex
 	embedder model.EmbeddingAdapter
@@ -97,6 +98,9 @@ func (entry *indexEntry) dispose() {
 		if field, found := entry.handle.Vectors[path]; found {
 			field.Dispose()
 		}
+	}
+	if entry.retireIndexes != nil && entry.handle != nil {
+		entry.retireIndexes(entry.swap.current.Load(), entry.handle.Index)
 	}
 }
 

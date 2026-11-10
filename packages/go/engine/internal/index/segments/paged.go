@@ -2,12 +2,12 @@ package segments
 
 import (
 	"fmt"
-	"os"
 	"sync/atomic"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
 )
 
 const PagedPostingWidthBytes = paged.PostingWidthBytes
@@ -37,7 +37,7 @@ func valuesOf(column keyword.Uint32s) []uint32 {
 func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache) (*Paged, error) {
 	opened := &Paged{path: path}
 	opened.holds.Store(1)
-	file, err := os.Open(path)
+	file, err := storage.OpenForReading(path)
 	if err != nil {
 		return nil, err
 	}

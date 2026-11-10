@@ -170,9 +170,11 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 	entry.writeMu.Lock()
 	settings := entry.settingsFor(entry.currentAnalyzer(), targetPartitionCount)
 	entry.writeMu.Unlock()
+	live := entry.index()
 	built, err := index.New(settings)
 	if err == nil {
-		err = copyDocuments(ctx, entry.handle, entry.index(), built, proceed, func(int) {})
+		defer n.retireReplaced(entry, live, built)
+		err = copyDocuments(ctx, entry.handle, live, built, proceed, func(int) {})
 	}
 	if err != nil {
 		return errors.Join(err, entry.abandonRebalance(ctx, run))

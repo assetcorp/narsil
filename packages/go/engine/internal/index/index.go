@@ -42,6 +42,7 @@ type Index struct {
 	synonyms    atomic.Pointer[synonyms.Lookup]
 	bm25        atomic.Pointer[model.BM25Params]
 	compactions compactionScheduler
+	released    atomic.Bool
 }
 
 type StoredDocument struct {
@@ -135,6 +136,9 @@ func New(settings Settings) (*Index, error) {
 }
 
 func (ix *Index) Release() {
+	if !ix.released.CompareAndSwap(false, true) {
+		return
+	}
 	ix.StopCompactions()
 	for _, held := range ix.partitions {
 		held.Release()

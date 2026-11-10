@@ -101,6 +101,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		embedder:       request.embedder,
 	}
 	entry.phraseReady = func() error { return n.requirePhraseReady(entry) }
+	entry.retireIndexes = n.retireIndexes
 	entry.sync.adopt(request.sync)
 	slots, err := vector.NewSlots()
 	if err != nil {
