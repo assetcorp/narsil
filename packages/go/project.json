@@ -42,7 +42,7 @@
       "cache": false,
       "dependsOn": ["narsil-ts:build:code"],
       "options": {
-        "command": "go test -count=1 ./...",
+        "command": "go test -count=1 -timeout 10m ./...",
         "cwd": "packages/go"
       }
     }
