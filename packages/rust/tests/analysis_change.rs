@@ -2,6 +2,7 @@ mod support;
 
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
+use std::ops::Range;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use narsil::{
     AnalysisChange, AnalysisSetting, DurabilityConfig, DurabilityMode, DurabilityTier, ErrorCode,
     IndexConfig, Map, MemoryPersistence, Narsil, NarsilConfig, NarsilEvent, NarsilEventKind,
-    QueryParams, StopWords, StopWordsSetting, Value, WorkStatus,
+    QueryParams, StopWords, StopWordsSetting, Value, WorkStatus, parse_json,
 };
 use support::ScratchDirectory;
 
@@ -19,6 +20,7 @@ const WORDS: [&str; 5] = ["alpha", "bravo", "cedar", "delta", "ember"];
 const DROPPED: &str = "alpha";
 const CHILD_DIRECTORY: &str = "NARSIL_ANALYSIS_CRASH_DIRECTORY";
 const CRASH_DOCUMENTS: u64 = 4_000;
+const MAX_HITS_PER_SEARCH: u64 = 10_000;
 
 fn title_of(version: u64) -> String {
     let first = WORDS[(version % 5) as usize];
@@ -30,12 +32,14 @@ fn document_of(version: u64) -> Map {
     let mut document = Map::new();
     document.insert("id", Value::String(format!("doc-{version}")));
     document.insert("title", Value::String(title_of(version)));
+    document.insert("version", Value::Number(version as f64));
     document
 }
 
 fn index_config() -> IndexConfig {
     let mut schema = Map::new();
     schema.insert("title", Value::String("string".into()));
+    schema.insert("version", Value::String("number".into()));
     IndexConfig {
         schema: Value::Object(schema),
         ..IndexConfig::default()
@@ -93,16 +97,32 @@ fn seed(narsil: &Narsil, count: u64) {
     );
 }
 
-fn found(narsil: &Narsil, word: &str) -> (Vec<String>, bool) {
-    let query = QueryParams {
-        term: Some(word.to_string()),
-        limit: Some(10_000),
-        ..QueryParams::default()
-    };
-    let result = narsil.query(INDEX, &query).expect("the search answers");
-    let mut ids: Vec<String> = result.hits.into_iter().map(|hit| hit.id).collect();
+fn found(narsil: &Narsil, word: &str, versions: Range<u64>) -> (Vec<String>, bool) {
+    let mut ids = Vec::new();
+    let mut stale = false;
+    for first in versions.clone().step_by(MAX_HITS_PER_SEARCH as usize) {
+        let end = (first + MAX_HITS_PER_SEARCH).min(versions.end);
+        let query = QueryParams {
+            term: Some(word.to_string()),
+            filters: Some(
+                parse_json(&format!(
+                    r#"{{"fields": {{"version": {{"gte": {first}, "lt": {end}}}}}}}"#
+                ))
+                .expect("the filter is JSON"),
+            ),
+            limit: Some(MAX_HITS_PER_SEARCH as usize),
+            ..QueryParams::default()
+        };
+        let result = narsil.query(INDEX, &query).expect("the search answers");
+        ids.extend(result.hits.into_iter().map(|hit| hit.id));
+        stale |= result.analysis_stale;
+    }
     ids.sort();
-    (ids, result.analysis_stale)
+    (ids, stale)
+}
+
+fn every_version(versions: &[u64]) -> Range<u64> {
+    0..versions.iter().max().map_or(0, |last| last + 1)
 }
 
 fn ids_with(versions: &[u64], word: &str) -> Vec<String> {
@@ -117,7 +137,7 @@ fn ids_with(versions: &[u64], word: &str) -> Vec<String> {
 
 fn require_terms(narsil: &Narsil, versions: &[u64], alpha_dropped: bool, when: &str) {
     for word in WORDS {
-        let (ids, stale) = found(narsil, word);
+        let (ids, stale) = found(narsil, word, every_version(versions));
         let wanted = if word == DROPPED && alpha_dropped {
             Vec::new()
         } else {
@@ -321,7 +341,7 @@ fn writes_during_an_analysis_change_reach_the_new_terms() {
         std::thread::spawn(move || {
             let mut mixed = 0u64;
             while !done.load(Ordering::SeqCst) {
-                let (ids, _) = found(&narsil, DROPPED);
+                let (ids, _) = found(&narsil, DROPPED, 0..seeded);
                 let seen: HashSet<&String> = ids.iter().collect();
                 let seeded_alpha = ids_with(&(0..seeded).collect::<Vec<_>>(), DROPPED);
                 let held = seeded_alpha.iter().filter(|id| seen.contains(id)).count();
@@ -448,7 +468,7 @@ fn a_kill_during_analysis_changes_reopens_under_one_set_of_settings() {
             CRASH_DOCUMENTS,
             "round {round} lost documents"
         );
-        let (alpha, stale) = found(&narsil, DROPPED);
+        let (alpha, stale) = found(&narsil, DROPPED, every_version(&versions));
         assert!(
             !stale,
             "round {round} reports stale terms after the rebuild"
