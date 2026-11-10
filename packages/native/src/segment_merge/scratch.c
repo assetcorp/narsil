@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -19,7 +20,7 @@ narsil_status segment_merge_reserve(void **allocation, size_t count, size_t *hel
     capacity *= MERGE_CAPACITY_GROWTH;
   }
   if (width == 0 || capacity > SIZE_MAX / width) { return NARSIL_OUT_OF_MEMORY; }
-  void *next = realloc(*allocation, capacity * width);
+  void *next = core_reallocate(*allocation, capacity * width);
   if (next == NULL) { return NARSIL_OUT_OF_MEMORY; }
   *allocation = next;
   *held = capacity;

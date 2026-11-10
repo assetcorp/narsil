@@ -1,0 +1,67 @@
+name: Native core fuzzing
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: Fuzz every entry point that decodes caller or file bytes for seven minutes each
+    runs-on: ubuntu-24.04
+    timeout-minutes: 44
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Install clang with the libFuzzer runtime
+        run: sudo apt-get update && sudo apt-get install --yes clang-18 libclang-rt-18-dev
+
+      - name: Restore the inputs that earlier fuzzing discovered
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/native/build/fuzz/discovered
+          key: native-fuzz-discovered-${{ github.run_id }}
+          restore-keys: native-fuzz-discovered-
+
+      - name: Replay every input that once failed
+        working-directory: packages/native
+        env:
+          NARSIL_FUZZ_CC: clang-18
+        run: node fuzz/run.mjs --replay
+
+      - name: Fuzz each target for seven minutes
+        working-directory: packages/native
+        env:
+          NARSIL_FUZZ_CC: clang-18
+        run: node fuzz/run.mjs --seconds 420
+
+      - name: Save the inputs that this run discovered
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/native/build/fuzz/discovered
+          key: native-fuzz-discovered-${{ github.run_id }}
+
+      - name: Upload the failing inputs and the fuzzer logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: narsil-fuzz-failures
+          path: |
+            packages/native/build/fuzz/artifacts
+            packages/native/build/fuzz/logs
+          if-no-files-found: ignore

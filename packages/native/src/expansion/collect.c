@@ -3,12 +3,12 @@
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_expansion.h"
 #include "../../include/narsil_terms.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "../terms/dictionary.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 narsil_status expansion_find(narsil_workspace *workspace, expansion_scratch *scratch,
@@ -60,7 +60,7 @@ static narsil_status reserve_surfaces(expansion_scratch *scratch, const narsil_e
   size_t count = source->frozen->terms.count;
   if (count > scratch->surface_capacity) {
     if (count > SIZE_MAX / sizeof *scratch->surface_occurrences) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(scratch->surface_occurrences, count * sizeof *scratch->surface_occurrences);
+    void *grown = core_reallocate(scratch->surface_occurrences, count * sizeof *scratch->surface_occurrences);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->surface_occurrences = grown;
     scratch->surface_capacity = count;

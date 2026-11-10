@@ -1,5 +1,6 @@
 #include "scratch.h"
 
+#include "../allocation.h"
 #include "../internal.h"
 
 #include "../../include/narsil_core.h"
@@ -19,12 +20,12 @@
 
 static void *allocation(size_t count, size_t size) {
   if (count == 0 || count > SIZE_MAX / size) { return NULL; }
-  return malloc(count * size);
+  return core_allocate(count * size);
 }
 
 static void *zeroed_allocation(size_t count, size_t size) {
   if (count == 0) { return NULL; }
-  return calloc(count, size);
+  return core_allocate_zeroed(count, size);
 }
 
 void keyword_scratch_release(keyword_scratch *scratch) {
