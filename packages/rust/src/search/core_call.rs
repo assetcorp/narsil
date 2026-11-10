@@ -55,7 +55,7 @@ thread_local! {
     static WORKSPACE: RefCell<Option<Workspace>> = const { RefCell::new(None) };
 }
 
-fn core_failed(what: &str) -> NarsilError {
+fn scoring_failed(what: &str) -> NarsilError {
     NarsilError::new(
         ErrorCode::INTERNAL_ERROR,
         format!("The native core could not score the query, because {what}"),
@@ -77,7 +77,7 @@ fn words_for(capacity: u32) -> usize {
 }
 
 fn length_u32(length: usize, what: &str) -> Result<u32> {
-    u32::try_from(length).map_err(|_| core_failed(&format!("the request holds too many {what}")))
+    u32::try_from(length).map_err(|_| scoring_failed(&format!("the request holds too many {what}")))
 }
 
 fn columns_of(scoring: &FieldScoring<'_>) -> Vec<ffi::narsil_keyword_column> {
@@ -112,7 +112,7 @@ fn scored_by_the_core(
 ) -> Result<Scored> {
     let capacity = settings.capacity;
     if capacity > i32::MAX as u32 {
-        return Err(core_failed("the segment holds too many documents"));
+        return Err(scoring_failed("the segment holds too many documents"));
     }
     let words = words_for(capacity);
     let slots = length_u32(builder.slot_count(), "slots")?;
@@ -229,7 +229,7 @@ pub(crate) fn score(
     WORKSPACE.with(|cell| {
         let mut held = cell
             .try_borrow_mut()
-            .map_err(|_| core_failed("a callback scored a query inside another query"))?;
+            .map_err(|_| scoring_failed("a callback scored a query inside another query"))?;
         let workspace = match held.as_mut() {
             Some(workspace) => workspace,
             None => held.insert(created_workspace()?),
