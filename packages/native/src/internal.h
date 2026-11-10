@@ -121,6 +121,7 @@ typedef struct {
 } layer_search;
 
 typedef struct {
+  int32_t entry;
   int32_t graph_top;
   int32_t link_top;
 } link_span;

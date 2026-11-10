@@ -129,7 +129,7 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
   scored_list *found = &workspace->layer_candidates;
   if (ef_construction == 0 || ef_construction > found->capacity) { return NARSIL_INVALID_ARGUMENT; }
   narsil_candidates candidates = {found->ordinals, found->distances, found->capacity, 0};
-  use_single_entry(workspace, load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT));
+  use_single_entry(workspace, span.entry);
   narsil_status status = descend_layers(context, span.graph_top, request->top_layer + 1, &candidates);
   for (int32_t layer = span.link_top; layer >= 0 && status == NARSIL_OK; layer--) {
     layer_search search = {ef_construction, layer, 0, {NULL, 0}, 0};
@@ -175,7 +175,7 @@ static narsil_status link_node(walk_context *context, const narsil_place_request
   int32_t former_entry = load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
   narsil_status status = read_graph_extent(context);
   if (status != NARSIL_OK) { return status; }
-  link_span span = {entry_top_layer(context, former_entry), 0};
+  link_span span = {former_entry, entry_top_layer(context, former_entry), 0};
   span.link_top = request->top_layer < span.graph_top ? request->top_layer : span.graph_top;
   if (span.link_top >= 0) { status = select_every_layer(context, request, span); }
   if (status == NARSIL_OK) { status = create_node(context->graph, request); }
