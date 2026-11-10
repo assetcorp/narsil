@@ -19,7 +19,7 @@ on:
           - 'github.com/assetcorp/narsil/packages/go/engine'
           - 'delali-narsil'
       version:
-        description: 'Version bump (patch, minor, major, or explicit like 1.2.3). The Python client takes only the explicit version, which must equal packages/python/pyproject.toml'
+        description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
         required: true
         type: string
       dry-run:
@@ -313,7 +313,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write
       id-token: write
     concurrency:
       group: publish-to-pypi
@@ -322,26 +322,57 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main
+        run: |
+          git fetch origin main
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          MAIN_TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$CHECKED_OUT_SHA" != "$MAIN_TIP_SHA" ]; then
+            echo "::error::This run holds $CHECKED_OUT_SHA and main is at $MAIN_TIP_SHA, so the release commit would be rejected as non-fast-forward. Dispatch a fresh run, because re-running replays the commit the original dispatch pinned."
+            exit 1
+          fi
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Setup Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
 
-      - name: Verify this run holds the tip of main and the version in pyproject.toml
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
         env:
           VERSION: ${{ inputs.version }}
-        run: |
-          git fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
-            exit 1
-          fi
-          COMMITTED="$(python3 -c 'import tomllib; print(tomllib.load(open("packages/python/pyproject.toml", "rb"))["project"]["version"])')"
-          if [ "$VERSION" != "$COMMITTED" ]; then
-            echo "::error::The run asks for $VERSION while packages/python/pyproject.toml holds $COMMITTED. Raise the version in a pull request first."
-            exit 1
-          fi
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects=narsil-python --skip-publish
 
       - name: Build the package
         working-directory: packages/python

@@ -2,7 +2,12 @@
   "name": "narsil-rust",
   "release": {
     "version": {
-      "versionActions": ".github/scripts/cargo-version-actions.js"
+      "versionActions": ".github/scripts/toml-version-actions.js",
+      "versionActionsOptions": {
+        "manifest": "Cargo.toml",
+        "table": "package",
+        "lockfile": "Cargo.lock"
+      }
     }
   },
   "targets": {
