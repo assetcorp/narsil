@@ -18,7 +18,7 @@
       "maxShardsPerNode": null
     },
     "config": {
-      "sha256": "db1f80da0e0b0155f72389b0078d80a85b1ddfe6383ce3deff85dec12d064bf5",
+      "sha256": "1b523a8f83b3909e05577bd818562f8e05e503365778e1ff412d47ac9b46dd06",
       "bytes": 498
     },
     "partitions": [
@@ -26,18 +26,18 @@
         "partitionId": 0,
         "lastSeqNo": 45,
         "manifest": {
-          "sha256": "9d28dba0d569ea32a0a2287315c353db5ce3f354c4f6f2ed76da34749732ffad",
+          "sha256": "9257c34a657a1b09ddac76d514f50d32c65b2d3a587a72feb837999a1c90df3a",
           "bytes": 957
         },
         "files": [
           {
             "key": "segments/0/s0000000000000000",
-            "sha256": "29453147c4006193ada83933173204ecb67add70a85faa4937cb65daf4ffcad9",
+            "sha256": "8e07d81afba7a834e9778ca4d7e79491a9ebd07c0e58ea9142be3e58534de3bb",
             "bytes": 47904
           },
           {
             "key": "segments/0/s0000000000000001",
-            "sha256": "76fbc1fe87b936d2bed939b83dc901b9aac0b4019b414d4277e697c9047a6cf1",
+            "sha256": "b954a95a19f11f0d874e6a971f85cb3300654004cb8d9c5ddc3cf55251dbd90b",
             "bytes": 8272
           },
           {

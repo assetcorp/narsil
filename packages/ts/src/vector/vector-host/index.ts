@@ -87,6 +87,7 @@ export {
   squaredLengthsOfCentroidSums,
 } from '../osq/quantize'
 export { openSharedQuantizer } from '../osq/view'
+export { requireUsableVectorOptions } from '../search-depth'
 export { fixedView, growBufferTo, grownByteLength, sharedMemoryAvailable } from '../shared-buffers/growable'
 export { arenaFloat32Distance } from '../simd'
 export { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'

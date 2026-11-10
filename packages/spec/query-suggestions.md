@@ -108,6 +108,8 @@ A node normalises a phrase in five steps:
 4. Replace each run of code points with the White_Space property with one U+0020.
 5. Remove U+0020 from the start and the end.
 
+Each step, and each property test below, follows the Unicode version that the implementation carries. Unicode keeps the NFKC form of an assigned code point fixed. However, a later version assigns new code points and can occasionally change the category, the lowercase mapping, or the White_Space property of an existing one, so one node can accept a phrase that a node built on another Unicode version refuses.
+
 A node must accept a normalised phrase only where each of its code points is a letter (general category L), a mark (M), a decimal digit (Nd), U+0020, U+002D, or U+0027, and where the phrase holds at least `minLetters` letters, at most `maxLength` code points, at most `maxWords` words separated by U+0020, and at most `maxDigits` decimal digits in total. The normalised phrase is the document ID of its suggestion, so two spellings of a phrase that differ only in case and spaces give one suggestion. At 150 code points, a phrase takes at most 300 UTF-16 code units, within the 512 that a document ID allows.
 
 A person's ID is a string of 1 to 256 UTF-16 code units. A group is a string of 1 to 32 characters, where the first is a letter or a digit and the rest are letters, digits, `_`, and `-`, so that no group can reach a key outside the history folder.

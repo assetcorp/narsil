@@ -71,17 +71,19 @@ MaintenanceStatus {
 
 `search` returns up to `k` of the vectors closest to `query`. It orders them by the highest score first for cosine and dot product, and by the smallest distance first for Euclidean. It orders the vectors that tie on score by document ID, ascending in [code point order](algorithms.md#code-point-order).
 
+An implementation must raise `DOC_VALIDATION_FAILED` for a query vector that a caller supplies as a value when an element is not a number, or when its nearest float32 is infinite or NaN, as [Documents](envelope.md#documents) requires of a stored vector.
+
 `search` also returns the number of vectors that pass `filterDocIds` and `minSimilarity`, and whether that number is exact. The coordinator returns those two as `count` and `countExact`. An implementation must report that number exactly where it scores every vector that passes, which it does for an index that holds no graph, for a filter narrow enough that the implementation scans the store, and for any search in which every vector passes `minSimilarity`. Where it traverses a graph and some vectors fall below `minSimilarity`, it must report the number of vectors that it returns and mark that number inexact, because it scores only a fraction of the index during a traversal.
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
+`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search. An implementation must raise `CONFIG_INVALID` for a query whose vector clause sets an `efSearch` that is not a whole number from 1 to 10,000, on every path that takes a query, so that one query can't make a walk keep an unbounded list of candidates. It must raise the error before it runs any part of the search, whatever the index holds, so that the same query fails whether or not its filter matches a document and whether or not the field holds a graph.
 
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
 ```text
 window     = rescoreWindow where the search sets it, and k otherwise
-depth      = ceiling(window * oversample) where oversample is present
+depth      = minimum(ceiling(window * oversample), maximum(10000, defaultDepth(window))) where oversample is present
              defaultDepth(window) where oversample is absent
 candidates = traverse the graph by estimated distance with ef = maximum(efSearch, depth)
 rescored   = the depth nearest candidates that pass filterDocIds, scored by the metric on full-precision vectors
@@ -89,7 +91,7 @@ return the best k of rescored, where the search sets no rescoreWindow or sets mi
 return the best k of rescored and the remaining candidates otherwise
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(n)`, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must cap the depth that `oversample` gives as the block above shows, so that a large `oversample` can't lift the walk past the bound that `efSearch` keeps. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(n)`, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
@@ -475,7 +477,7 @@ The core must skip an ordinal at or above `slots`, a list that ends above `upper
 
 ### Pins
 
-A search must pin the store at one write sequence and answer from the vectors that its pin admits, as [One State per Search](partitioning.md#one-state-per-search) requires. A pin `p` admits ordinal `o` when `bornAt[o]` is at most `p` and `retiredAt[o]` is 0 or above `p`. Every thread must read and write `writeSequence` and every entry of `pins` atomically.
+A search must pin the store at one write sequence and answer from the vectors that its pin admits, as [One State per Search](partitioning.md#one-state-per-search) requires. A pin `p` admits ordinal `o` when `bornAt[o]` is above 0 and at most `p`, and `retiredAt[o]` is 0 or above `p`. Every thread must read and write `writeSequence` and every entry of `pins` atomically.
 
 For each write, a writer must take the next sequence, which is `writeSequence` plus 1. It must store that sequence in `bornAt` of every ordinal that the write adds before it raises `slots` past that ordinal or calls `place` for it. It must also store that sequence in `retiredAt` of every ordinal whose document the write removes or replaces. It must store the sequence in `writeSequence` only after every one of those stores, and only after it places every ordinal that the write adds or marks that ordinal as one that every search scans until the implementation places it. A write that replaces the vector of a document must store the new vector under a new ordinal, because a pin that admits the old ordinal must still read the old vector there.
 
@@ -491,7 +493,7 @@ pin(threadSlot) -> int64
       return seen
 ```
 
-While a thread holds several pins, it must keep its oldest pin plus 1 in its `pins` entry, and it must store 0 there once it releases its last pin. When a thread dies, the implementation must store 0 in that thread's `pins` entry. An implementation may free an ordinal, which means taking its node out of the graph, releasing its vector, or reusing the ordinal, only once its `retiredAt` is above 0 and at most the pin that each non-zero entry of `pins` records. The implementation must compare each entry with `retiredAt` alone, because an entry records only the oldest pin of its thread, and a newer pin of that thread can admit an ordinal that the oldest pin leaves out. An implementation that opens a store from a file must start `writeSequence` at 1 and store 0 in every `bornAt` entry. It must store 1 in the `retiredAt` entry of every tombstoned ordinal and of every ordinal that holds a replaced vector, and 0 in every other entry.
+While a thread holds several pins, it must keep its oldest pin plus 1 in its `pins` entry, and it must store 0 there once it releases its last pin. When a thread dies, the implementation must store 0 in that thread's `pins` entry. An implementation may free an ordinal, which means taking its node out of the graph, releasing its vector, or reusing the ordinal, only once its `retiredAt` is above 0 and at most the pin that each non-zero entry of `pins` records. The implementation must compare each entry with `retiredAt` alone, because an entry records only the oldest pin of its thread, and a newer pin of that thread can admit an ordinal that the oldest pin leaves out. An implementation that opens a store from a file must start `writeSequence` at 1, store 1 in the `bornAt` entry of every ordinal that holds a vector, and store 0 in every other `bornAt` entry, because a pin admits no ordinal whose `bornAt` is 0. It must store 1 in the `retiredAt` entry of every tombstoned ordinal and of every ordinal that holds a replaced vector, and 0 in every other entry.
 
 ### Locks
 

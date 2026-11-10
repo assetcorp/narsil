@@ -48,7 +48,9 @@ partitions {
 }
 ```
 
-`maxDocsPerPartition` and `maxPartitions` must each be a positive integer, and `watermark` must be above 0 and at most 1. A value outside its constraint raises `CONFIG_INVALID`.
+`maxDocsPerPartition` and `maxPartitions` must each be a positive integer, `maxPartitions` must be at most 65,536, and `watermark` must be above 0 and at most 1. A value outside its constraint raises `CONFIG_INVALID`.
+
+A reader must reject with `PERSISTENCE_LOAD_FAILED` a saved index, snapshot, or archive that holds a partition numbered 65,536 or higher, before it creates any partition, so that a damaged count can't make it allocate billions of partitions. A reader must keep loading an index whose stored `maxPartitions` passes 65,536, treating it as 65,536, and an index that holds more partitions than its `maxPartitions` allows, because an earlier release let a rebalance pass the default of one. A later rebalance of that index must still respect `maxPartitions`.
 
 ### Capacity Enforcement
 
@@ -453,6 +455,12 @@ workerCount = max(2, cpuCount - 1)
 ```
 
 capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
+
+### One Copy in Shared Memory
+
+An implementation whose threads share one memory may let every thread search one copy of each index, in place of a copy on every worker, because worker copies exist for threads that cannot read one another's memory. Such an implementation must apply each write to that copy in the order that the writes return, and a write must return only once the copy has applied it, which meets every rule above about `wait: true`, `waitForWrites`, synonym sets, and BM25 settings. It must keep each search apart from a write as [One Writer per Copy](native-core.md#one-writer-per-copy) requires. No search may wait for another search to finish, either directly or behind a write that waits for that search, so that one long search holds back no later search.
+
+The copy threshold, the routing to the copy with the fewest queries, the copy idle interval, and the worker count don't apply to such an implementation, although it may answer the partitions of one query on several threads as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes. [Worker Bootstrap](#worker-bootstrap), [Promotion Failure](#promotion-failure), and [Worker Failure](#worker-failure) don't apply to it either, since every thread shares its registries and its analysis code, so it emits no `workerPromoteFailure` and no `workerCrash` event.
 
 ### Request Threads
 

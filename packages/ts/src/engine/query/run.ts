@@ -230,6 +230,7 @@ export async function runQuery<T>(
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (isVectorOnly || isHybridMode) requireLoadedVectorCode().requireUsableVectorOptions(params.vector)
   if (!isVectorOnly) requireUsablePhrases(params, context)
 
   const shape: QueryShape = {

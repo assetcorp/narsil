@@ -1,0 +1,47 @@
+[package]
+name = "delali-narsil"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Create, change, and search a Narsil index inside a Rust program, with full-text, vector, and hybrid search on Narsil's native core."
+license = "Apache-2.0"
+repository = "https://github.com/assetcorp/narsil"
+homepage = "https://narsil.sondelali.com"
+documentation = "https://docs.rs/delali-narsil"
+readme = "README.md"
+keywords = ["search", "full-text", "vector", "bm25", "hnsw"]
+categories = ["database-implementations", "text-processing"]
+links = "narsil_core"
+build = "build.rs"
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "NOTICE",
+  "build.rs",
+  "layout/structs.list",
+  "src/**/*.rs",
+  "core/include/*.h",
+  "core/src/**/*.c",
+  "core/src/**/*.h",
+]
+
+[lib]
+name = "narsil"
+path = "src/lib.rs"
+
+[dependencies]
+crc32fast = "=1.5.4"
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+getrandom = "=0.4.3"
+jiff = "=0.2.38"
+sha2 = "=0.11.1"
+unicode-normalization = "=0.1.25"
+unicode-properties = { version = "=0.1.4", default-features = false, features = ["general-category"] }
+
+[build-dependencies]
+cc = { version = "=1.10.0", features = ["parallel"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

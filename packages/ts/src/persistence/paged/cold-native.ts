@@ -3,10 +3,10 @@ import {
   compareScores,
   createFixedBuffer,
   defaultEfSearch,
-  defaultRescoreDepth,
   ErrorCodes,
   NarsilError,
   requireSearchActive,
+  rescoreDepth,
   signalOfSearch,
 } from '#platform/storage-host'
 import type { NativeCore } from '../../vector/native/types'
@@ -125,12 +125,7 @@ function prepareSearch(
   if (field === null) return null
   const window = options.rescoreWindow ?? k
   let depth = window
-  if (data.codes !== null) {
-    depth =
-      options.oversample === undefined
-        ? defaultRescoreDepth(data.codes.bits, data.dimension, window)
-        : Math.ceil(window * options.oversample)
-  }
+  if (data.codes !== null) depth = rescoreDepth(data.codes.bits, data.dimension, window, options.oversample)
   const ef = Math.max(options.efSearch ?? defaultEfSearch(data.dimension, window), depth)
   const capacity = Math.min(data.total, ef)
   const allocate = (bytes: number): ArrayBufferLike => (shared ? createFixedBuffer(bytes) : new ArrayBuffer(bytes))

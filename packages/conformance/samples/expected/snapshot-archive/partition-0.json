@@ -24,7 +24,7 @@
             "embedding": "vector[8]"
           },
           "language": "english",
-          "analysisRevision": "ebae3448ae674b59",
+          "analysisRevision": "4026533016c7f4b1",
           "arrayPositionGap": 100,
           "bm25": {
             "k1": 1.4,
@@ -1368,29 +1368,29 @@
           ],
           "surfaceForms": {
             "text": [
-              ["sturdy", "sturdi"],
-              ["stocked", "stock"],
+              ["buckets", "bucket"],
+              ["buyers", "buyer"],
+              ["enamelled", "enamel"],
+              ["folding", "fold"],
+              ["hammers", "hammer"],
+              ["heavy", "heavi"],
               ["items", "item"],
               ["keeps", "keep"],
-              ["running", "run"],
-              ["years", "year"],
-              ["buyers", "buyer"],
-              ["hammers", "hammer"],
               ["kettle", "kettl"],
-              ["ordered", "order"],
               ["kettles", "kettl"],
-              ["heavy", "heavi"],
-              ["trowels", "trowel"],
-              ["folding", "fold"],
               ["ladders", "ladder"],
+              ["lanterns", "lantern"],
+              ["ordered", "order"],
+              ["polished", "polish"],
+              ["running", "run"],
               ["saucepans", "saucepan"],
               ["shears", "shear"],
-              ["enamelled", "enamel"],
-              ["lanterns", "lantern"],
-              ["polished", "polish"],
-              ["buckets", "bucket"]
+              ["stocked", "stock"],
+              ["sturdy", "sturdi"],
+              ["trowels", "trowel"],
+              ["years", "year"]
             ],
-            "counts": [15, 20, 40, 40, 95, 40, 40, 5, 20, 20, 5, 15, 5, 15, 5, 5, 20, 15, 5, 15, 5]
+            "counts": [5, 40, 15, 15, 5, 15, 40, 40, 20, 5, 5, 5, 20, 15, 95, 5, 20, 20, 15, 5, 40]
           },
           "partialWords": {
             "fields": ["description"],
@@ -1667,23 +1667,23 @@
           ],
           "surfaceForms": {
             "text": [
-              ["sturdy", "sturdi"],
-              ["stocked", "stock"],
+              ["buyers", "buyer"],
+              ["folding", "fold"],
+              ["hammers", "hammer"],
+              ["heavy", "heavi"],
               ["items", "item"],
               ["keeps", "keep"],
-              ["running", "run"],
-              ["years", "year"],
-              ["buyers", "buyer"],
-              ["hammers", "hammer"],
               ["kettle", "kettl"],
-              ["ordered", "order"],
               ["kettles", "kettl"],
-              ["heavy", "heavi"],
+              ["ladders", "ladder"],
+              ["ordered", "order"],
+              ["running", "run"],
+              ["stocked", "stock"],
+              ["sturdy", "sturdi"],
               ["trowels", "trowel"],
-              ["folding", "fold"],
-              ["ladders", "ladder"]
+              ["years", "year"]
             ],
-            "counts": [3, 2, 4, 4, 8, 4, 4, 1, 4, 2, 1, 3, 1, 3, 1]
+            "counts": [4, 3, 1, 3, 4, 4, 4, 1, 1, 2, 8, 2, 3, 1, 4]
           },
           "partialWords": {
             "fields": ["description"],
@@ -1960,21 +1960,21 @@
           ],
           "surfaceForms": {
             "text": [
-              ["running", "run"],
-              ["stocked", "stock"],
+              ["buckets", "bucket"],
+              ["buyers", "buyer"],
+              ["enamelled", "enamel"],
               ["items", "item"],
               ["keeps", "keep"],
-              ["years", "year"],
-              ["buyers", "buyer"],
+              ["lanterns", "lantern"],
+              ["ordered", "order"],
+              ["polished", "polish"],
+              ["running", "run"],
               ["saucepans", "saucepan"],
               ["shears", "shear"],
-              ["ordered", "order"],
-              ["enamelled", "enamel"],
-              ["lanterns", "lantern"],
-              ["polished", "polish"],
-              ["buckets", "bucket"]
+              ["stocked", "stock"],
+              ["years", "year"]
             ],
-            "counts": [11, 2, 4, 4, 4, 4, 1, 4, 2, 3, 1, 3, 1]
+            "counts": [1, 4, 3, 4, 4, 1, 2, 3, 11, 1, 4, 2, 4]
           },
           "partialWords": {
             "fields": ["description"],
