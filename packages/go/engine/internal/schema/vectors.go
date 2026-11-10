@@ -5,33 +5,36 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func extractVectors(document model.Document, parsed *Parsed) map[string][]float32 {
+func extractVectors(document *model.Document, parsed *Parsed) map[string][]float32 {
 	extracted := map[string][]float32{}
 	if parsed == nil {
 		return extracted
 	}
 	for path := range parsed.vectors {
 		segments := strings.Split(path, ".")
-		holder := map[string]any(document)
+		holder := document
 		for _, segment := range segments[:len(segments)-1] {
-			next, isMap := holder[segment].(map[string]any)
-			if !isMap {
+			next, _ := codec.HeldValue(holder, segment)
+			nested, isDocument := next.(*model.Document)
+			if !isDocument {
 				holder = nil
 				break
 			}
-			holder = next
+			holder = nested
 		}
 		if holder == nil {
 			continue
 		}
 		leaf := segments[len(segments)-1]
-		if vector, isVector := holder[leaf].([]float32); isVector {
+		held, _ := codec.HeldValue(holder, leaf)
+		if vector, isVector := held.([]float32); isVector {
 			extracted[path] = vector
-			delete(holder, leaf)
+			holder.Delete(leaf)
 		}
 	}
 	return extracted

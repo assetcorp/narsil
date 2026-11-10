@@ -64,14 +64,14 @@ func openCatalogue(t *testing.T, promotion *engine.VectorIndexConfig, documents 
 	if err := narsil.CreateIndex(ctx, "catalogue", engine.IndexConfig{Schema: schema, VectorPromotion: promotion}); err != nil {
 		t.Fatalf("the engine refused the catalogue index: %v", err)
 	}
-	batch := make([]engine.Document, documents)
+	batch := make([]*engine.Document, documents)
 	for at := range batch {
-		batch[at] = engine.Document{
+		batch[at] = engine.DocumentFromMap(map[string]any{
 			"id":        "item-" + strconv.Itoa(at),
 			"title":     "lantern number " + strconv.Itoa(at),
 			"shelf":     []string{"north", "south"}[at%2],
 			"embedding": catalogueVector(at),
-		}
+		})
 	}
 	result, err := narsil.InsertBatch(ctx, "catalogue", batch, engine.InsertOptions{})
 	if err != nil {

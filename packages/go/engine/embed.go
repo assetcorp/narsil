@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -68,44 +69,16 @@ func safeDimensions(adapter model.EmbeddingAdapter) int {
 	return safeEmbedder{adapter: adapter}.Dimensions()
 }
 
-func resolvePath(document model.Document, path string) any {
-	if !strings.Contains(path, ".") {
-		return document[path]
-	}
+func resolvePath(document *model.Document, path string) any {
 	var current any = document
-	for _, segment := range strings.Split(path, ".") {
-		holder, isMap := current.(map[string]any)
-		if !isMap {
+	for segment := range strings.SplitSeq(path, ".") {
+		holder, isDocument := current.(*model.Document)
+		if !isDocument {
 			return nil
 		}
-		current = holder[segment]
+		current, _ = codec.HeldValue(holder, segment)
 	}
 	return current
-}
-
-func setPathCopying(document model.Document, path string, value any) {
-	segments := strings.Split(path, ".")
-	holder := document
-	for _, segment := range segments[:len(segments)-1] {
-		next, isMap := holder[segment].(map[string]any)
-		copied := make(map[string]any, len(next)+1)
-		if isMap {
-			for key, held := range next {
-				copied[key] = held
-			}
-		}
-		holder[segment] = copied
-		holder = copied
-	}
-	holder[segments[len(segments)-1]] = value
-}
-
-func shallowCopy(document model.Document) model.Document {
-	copied := make(model.Document, len(document))
-	for key, value := range document {
-		copied[key] = value
-	}
-	return copied
 }
 
 func adapterFailure(err error, targetField string) error {
@@ -148,7 +121,7 @@ func formatNonFinite(value float32) string {
 	}
 }
 
-func collectSourceText(document model.Document, source model.EmbeddingSource, targetField string, documentIndex int) (string, error) {
+func collectSourceText(document *model.Document, source model.EmbeddingSource, targetField string, documentIndex int) (string, error) {
 	parts := make([]string, 0)
 	for _, field := range source.Fields() {
 		value := resolvePath(document, field)
@@ -187,7 +160,7 @@ func typeNameOf(value any) string {
 	}
 }
 
-func requireMappedVectors(document model.Document, config *model.EmbeddingFieldConfig, adapterName string) error {
+func requireMappedVectors(document *model.Document, config *model.EmbeddingFieldConfig, adapterName string) error {
 	for _, target := range sortedNames(config.Fields) {
 		if resolvePath(document, target) != nil {
 			continue
@@ -204,7 +177,7 @@ func requireMappedVectors(document model.Document, config *model.EmbeddingFieldC
 	return nil
 }
 
-func embedDocument(ctx context.Context, document model.Document, config *model.EmbeddingFieldConfig, adapter model.EmbeddingAdapter) error {
+func embedDocument(ctx context.Context, document *model.Document, config *model.EmbeddingFieldConfig, adapter model.EmbeddingAdapter) error {
 	embedder := safeEmbedder{adapter: adapter}
 	dimensions := embedder.Dimensions()
 	for _, target := range sortedNames(config.Fields) {
@@ -222,7 +195,7 @@ func embedDocument(ctx context.Context, document model.Document, config *model.E
 		if err := validateEmbedded(vector, target, dimensions); err != nil {
 			return err
 		}
-		setPathCopying(document, target, append([]float32(nil), vector...))
+		codec.PutHeldPath(document, target, append([]float32(nil), vector...))
 	}
 	return nil
 }
@@ -232,7 +205,7 @@ func isSourceFailure(err error) bool {
 	return code == narsilerr.CodeEmbeddingNoSource || code == narsilerr.CodeDocValidationFailed
 }
 
-func embedBatch(ctx context.Context, documents []model.Document, live []bool, config *model.EmbeddingFieldConfig,
+func embedBatch(ctx context.Context, documents []*model.Document, live []bool, config *model.EmbeddingFieldConfig,
 	adapter model.EmbeddingAdapter) (map[int]error, error) {
 	embedder := safeEmbedder{adapter: adapter}
 	dimensions := embedder.Dimensions()
@@ -271,7 +244,7 @@ func embedBatch(ctx context.Context, documents []model.Document, live []bool, co
 			if err := validateEmbedded(vectors[at], target, dimensions); err != nil {
 				return nil, err
 			}
-			setPathCopying(documents[member], target, append([]float32(nil), vectors[at]...))
+			codec.PutHeldPath(documents[member], target, append([]float32(nil), vectors[at]...))
 		}
 	}
 	return failed, nil

@@ -12,101 +12,64 @@ func (f *Field) coldView(hold *coldHold) *coldView {
 	return &coldView{live: hold.field.LiveCount()}
 }
 
-func (h *coldHold) vectorOfIn(view *coldView, docID string) ([]float32, bool) {
-	if written, held := view.written[docID]; held {
-		return append([]float32(nil), written.values...), true
+func (h *coldHold) vectorOfIn(view *coldView, docID string, dimension int) ([]float32, bool, error) {
+	if ordinal, held := view.written[docID]; held {
+		values, read := h.writtenVector(ordinal, dimension)
+		return values, read, nil
 	}
 	if _, removed := view.removedIDs[docID]; removed {
-		return nil, false
+		return nil, false, nil
 	}
-	number, held := h.field.NumberOf(docID)
-	if !held {
-		return nil, false
+	number, held, err := h.field.NumberOf(docID)
+	if err != nil || !held {
+		return nil, false, err
 	}
 	values, err := h.field.VectorOfNumber(number)
 	if err != nil {
-		return nil, false
+		return nil, false, err
 	}
-	return values, true
+	return values, true, nil
 }
 
-func (f *Field) coldVectorOf(hold *coldHold, docID string) ([]float32, bool) {
+func (f *Field) coldVectorOf(hold *coldHold, docID string) ([]float32, bool, error) {
 	defer hold.wantLoad()
-	return hold.vectorOfIn(f.coldView(hold), docID)
+	return hold.vectorOfIn(f.coldView(hold), docID, f.config.dimension)
 }
 
-func (f *Field) coldHas(hold *coldHold, docID string) bool {
+func (f *Field) coldHas(hold *coldHold, docID string) (bool, error) {
 	view := f.coldView(hold)
 	if _, held := view.written[docID]; held {
-		return true
+		return true, nil
 	}
 	if _, removed := view.removedIDs[docID]; removed {
-		return false
+		return false, nil
 	}
-	_, held := hold.field.NumberOf(docID)
-	return held
+	_, held, err := hold.field.NumberOf(docID)
+	return held && err == nil, err
 }
 
-func coldAdmission(hold *coldHold, filter *Filter) func(docID string) bool {
+func coldAdmission(ctx context.Context, hold *coldHold, filter *Filter) func(docID string) (bool, error) {
 	if filter == nil {
 		return nil
 	}
 	if filter.byPartitions {
-		return func(docID string) bool {
-			partition, known := hold.field.PartitionOf(docID)
-			if !known {
-				return false
+		return func(docID string) (bool, error) {
+			partition, known, err := hold.field.PartitionOf(ctx, docID)
+			if err != nil || !known {
+				return false, err
 			}
 			_, wanted := filter.partitions[partition]
-			return wanted
+			return wanted, nil
 		}
 	}
 	accepted := make(map[string]struct{}, len(filter.docIDs))
 	for _, docID := range filter.docIDs {
 		accepted[docID] = struct{}{}
 	}
-	return func(docID string) bool {
+	return func(docID string) (bool, error) {
 		_, held := accepted[docID]
-		return held
+		return held, nil
 	}
-}
-
-func scanWritten(view *coldView, query []float32, k int, options SearchOptions,
-	admits func(docID string) bool) []ScoredResult {
-	if len(view.written) == 0 {
-		return []ScoredResult{}
-	}
-	queryMagnitude := magnitudeOf(query)
-	tally := newScanTally(max(k, 1))
-	for docID, written := range view.written {
-		if admits != nil && !admits(docID) {
-			continue
-		}
-		score := plainScore(query, queryMagnitude, written.values, options.Metric)
-		if score >= options.MinSimilarity {
-			tally.admit(docID, score)
-		}
-	}
-	return tally.results()
-}
-
-func scanAcceptedDocIDs(hold *coldHold, view *coldView, query []float32, k int,
-	options SearchOptions) SearchOutcome {
-	queryMagnitude := magnitudeOf(query)
-	tally := newScanTally(max(k, 1))
-	for _, docID := range uniqueDocIDs(options.Filter.docIDs) {
-		values, held := hold.vectorOfIn(view, docID)
-		if !held {
-			continue
-		}
-		score := plainScore(query, queryMagnitude, values, options.Metric)
-		if score < options.MinSimilarity {
-			continue
-		}
-		tally.admit(docID, score)
-	}
-	results := tally.results()
-	return SearchOutcome{Results: results[:min(len(results), max(k, 0))], Matched: tally.matched, MatchedExact: true}
 }
 
 func uniqueDocIDs(docIDs []string) []string {
@@ -135,7 +98,7 @@ func (f *Field) coldSearch(ctx context.Context, hold *coldHold, query []float32,
 			return emptyOutcome(), nil
 		}
 		if float64(admitted)/float64(view.live) < f.config.filterThreshold {
-			return scanAcceptedDocIDs(hold, view, query, k, options), nil
+			return scanAcceptedDocIDs(hold, view, query, k, options)
 		}
 	}
 	if k <= 0 {
@@ -144,12 +107,16 @@ func (f *Field) coldSearch(ctx context.Context, hold *coldHold, query []float32,
 		}
 		return SearchOutcome{Results: []ScoredResult{}}, nil
 	}
-	admits := coldAdmission(hold, options.Filter)
-	fromGraph, err := hold.field.Search(ctx, query, k, options, admits, view.removedNumbers)
+	admits := coldAdmission(ctx, hold, options.Filter)
+	fromGraph, err := hold.field.Search(ctx, query, k, options, view.removedNumbers)
 	if err != nil {
 		return SearchOutcome{}, err
 	}
-	results := mergeResults(fromGraph, scanWritten(view, query, k, options, admits), k)
+	fromWritten, err := scanWritten(hold, view, query, k, options, admits)
+	if err != nil {
+		return SearchOutcome{}, err
+	}
+	results := mergeResults(fromGraph, fromWritten, k)
 	if math.IsInf(options.MinSimilarity, -1) {
 		return SearchOutcome{Results: results, Matched: admitted, MatchedExact: true}, nil
 	}

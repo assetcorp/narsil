@@ -5,7 +5,7 @@ import "context"
 type InsertContext struct {
 	IndexName string
 	DocID     string
-	Document  Document
+	Document  *Document
 }
 
 type RemoveContext struct {
@@ -16,8 +16,8 @@ type RemoveContext struct {
 type UpdateContext struct {
 	IndexName   string
 	DocID       string
-	OldDocument Document
-	NewDocument Document
+	OldDocument *Document
+	NewDocument *Document
 }
 
 type SearchContext struct {

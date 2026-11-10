@@ -85,7 +85,7 @@ func (r *CheckpointRestore) restoreVector(file *LoadedVectorFile, position int, 
 		f.clearCodes(replaced)
 	}
 	if fileIndex >= 0 {
-		magnitude := math.NaN()
+		var magnitude float64
 		if file.ByParts != nil && position < len(file.ByParts.Magnitudes) {
 			magnitude = file.ByParts.Magnitudes[position]
 		} else {

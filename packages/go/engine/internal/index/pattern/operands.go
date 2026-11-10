@@ -3,6 +3,7 @@ package pattern
 import (
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
@@ -10,32 +11,6 @@ import (
 
 func invalidOperand(message, fieldPath, operator string) error {
 	return narsilerr.New(narsilerr.CodeSearchInvalidFilter, message, map[string]any{"fieldPath": fieldPath, "operator": operator})
-}
-
-func requireWellFormed(fieldPath, operator, source string) error {
-	if text.IsWellFormed(source) {
-		return nil
-	}
-	return invalidOperand(`The text of "`+operator+`" on field "`+fieldPath+
-		`" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
-		fieldPath, operator)
-}
-
-func requireWellFormedOperands(fieldPath string, filter *model.FieldFilter) error {
-	wildcard, _ := filter.Wildcard.Get()
-	regex, _ := filter.Regex.Get()
-	named := append(testTextsOf(filter),
-		namedTexts{operator: "wildcard", texts: []string{wildcard}}, namedTexts{operator: "regex", texts: []string{regex}},
-		namedTexts{operator: "containsAll", texts: elementTexts(filter.ContainsAll)},
-		namedTexts{operator: "matchesAny", texts: elementTexts(filter.MatchesAny)})
-	for _, operand := range named {
-		for _, source := range operand.texts {
-			if err := requireWellFormed(fieldPath, operand.operator, source); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func requireTextLength(fieldPath, operator, source string) error {
@@ -50,7 +25,8 @@ func requirePatternText(fieldPath, operator, source string, caseFold bool) error
 	if err := requireTextLength(fieldPath, operator, source); err != nil {
 		return err
 	}
-	if !caseFold || foldedCodePointCount(source) <= MaxPositions {
+	if !caseFold || !text.ExceedsCodePoints(source, MaxPositions/core.MaxFoldCodePoints) ||
+		text.FoldedCodePointCount(source) <= MaxPositions {
 		return nil
 	}
 	limit := strconv.Itoa(MaxPositions)
@@ -75,7 +51,7 @@ func requireTolerance(fieldPath string, filter *model.FieldFilter) error {
 	if kind == model.PatternToleranceAuto || edits == 0 {
 		return nil
 	}
-	prepared := foldTypoText(eq, nil)
+	prepared := foldTypoText(eq)
 	required := typoRunsNeeded(edits, prepared.longestFold)
 	distinct := distinctTypoRunCount(prepared, required)
 	if distinct >= required {
@@ -124,9 +100,6 @@ func elementTexts(values []model.FilterValue) []string {
 }
 
 func CheckOperands(fieldPath string, filter *model.FieldFilter) error {
-	if err := requireWellFormedOperands(fieldPath, filter); err != nil {
-		return err
-	}
 	expressions := []struct {
 		operator Operator
 		value    model.Optional[string]
@@ -139,7 +112,7 @@ func CheckOperands(fieldPath string, filter *model.FieldFilter) error {
 		if err := requireTextLength(fieldPath, string(expression.operator), source); err != nil {
 			return err
 		}
-		if err := CheckExpression(expression.operator, source, filter.CaseFold, fieldPath); err != nil {
+		if err := checkExpression(expression.operator, source, filter.CaseFold, fieldPath); err != nil {
 			return err
 		}
 	}
@@ -162,8 +135,4 @@ func CheckOperands(fieldPath string, filter *model.FieldFilter) error {
 		}
 	}
 	return requireTolerance(fieldPath, filter)
-}
-
-func (search *Search) CheckOperands(fieldPath string, filter *model.FieldFilter) error {
-	return CheckOperands(fieldPath, filter)
 }

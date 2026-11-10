@@ -30,8 +30,8 @@ func suggestionsIndexNameOf(indexName, group string) string {
 	return indexName + suggestions.SuggestionsIndexInfix + group
 }
 
-func suggestionDocument(phrase string, count float64, origin string) model.Document {
-	return model.Document{"id": phrase, "query": phrase, "count": count, "origin": origin}
+func suggestionDocument(phrase string, count float64, origin string) *model.Document {
+	return model.NewDocument().Set("id", phrase).Set("query", phrase).Set("count", count).Set("origin", origin)
 }
 
 func (n *Narsil) heldIndex(name string) (*indexEntry, func(), error) {
@@ -45,7 +45,7 @@ func (n *Narsil) heldIndex(name string) (*indexEntry, func(), error) {
 	return n.acquire(name)
 }
 
-func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents []model.Document) (
+func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents []*model.Document) (
 	model.BatchResult, error) {
 	entry, release, err := n.heldIndex(name)
 	if err != nil {
@@ -178,10 +178,12 @@ func (runtime *suggestionsRuntime) readSuggestions(ctx context.Context, name str
 		}
 		for _, listed := range page.Documents {
 			stored := storedSuggestion{phrase: listed.ID, origin: suggestionOriginPopular}
-			if count, isNumber := listed.Document["count"].(float64); isNumber {
+			held, _ := listed.Document.Get("count")
+			if count, isNumber := held.(float64); isNumber {
 				stored.count = count
 			}
-			if origin, isText := listed.Document["origin"].(string); isText {
+			held, _ = listed.Document.Get("origin")
+			if origin, isText := held.(string); isText {
 				stored.origin = origin
 			}
 			if _, seen := byPhrase[listed.ID]; !seen {
@@ -202,7 +204,7 @@ func (runtime *suggestionsRuntime) writeGroup(ctx context.Context, name string, 
 	if err != nil {
 		return 0, 0, err
 	}
-	var inserts []model.Document
+	var inserts []*model.Document
 	var updates []model.DocumentUpdate
 	var previous []storedSuggestion
 	dueSet := make(map[string]bool, len(due))
@@ -307,7 +309,7 @@ func (runtime *suggestionsRuntime) undoWrites(ctx context.Context, steps []undoS
 		for start := 0; start < len(restore); start += suggestions.BuildWriteBatch {
 			batch := restore[start:min(start+suggestions.BuildWriteBatch, len(restore))]
 			ids := make([]string, len(batch))
-			documents := make([]model.Document, len(batch))
+			documents := make([]*model.Document, len(batch))
 			for at, entry := range batch {
 				ids[at] = entry.phrase
 				documents[at] = suggestionDocument(entry.phrase, entry.count, entry.origin)

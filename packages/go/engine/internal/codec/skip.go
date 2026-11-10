@@ -60,11 +60,3 @@ func (decoder *Decoder) Skip() error {
 	}
 	return nil
 }
-
-func (decoder *Decoder) ReadRaw() ([]byte, error) {
-	start := decoder.position
-	if err := decoder.Skip(); err != nil {
-		return nil, err
-	}
-	return decoder.data[start:decoder.position:decoder.position], nil
-}

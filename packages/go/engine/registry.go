@@ -69,6 +69,14 @@ func sortedNames[V any](values map[string]V) []string {
 	return names
 }
 
+func valuesInNameOrder[V any](values map[string]V) []V {
+	ordered := make([]V, 0, len(values))
+	for _, name := range sortedNames(values) {
+		ordered = append(ordered, values[name])
+	}
+	return ordered
+}
+
 func guardedEmbedder(adapter model.EmbeddingAdapter) model.EmbeddingAdapter {
 	if adapter == nil {
 		return nil

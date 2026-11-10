@@ -17,17 +17,20 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector/payload"
 )
 
-func partitionResolver(handle *Handle) func(docID string) (int32, bool) {
-	return func(docID string) (int32, bool) {
-		if !handle.Index.Has(docID) {
-			return 0, false
+type coldPartitionResolver = func(ctx context.Context, docID string) (int32, bool, error)
+
+func partitionResolver(handle *Handle) coldPartitionResolver {
+	return func(ctx context.Context, docID string) (int32, bool, error) {
+		held, err := handle.Index.Has(ctx, docID)
+		if err != nil || !held {
+			return 0, false, err
 		}
-		return int32(handle.Index.RoutePartition(docID)), true
+		return int32(handle.Index.RoutePartition(docID)), true, nil
 	}
 }
 
 func openColdVectorField(ctx context.Context, store checkpoint.Store, ref manifest.VectorFieldRef,
-	field *vector.Field, resolve func(docID string) (int32, bool)) (bool, error) {
+	field *vector.Field, resolve coldPartitionResolver) (bool, error) {
 	if !holdsEveryHead(ref) {
 		return false, nil
 	}
@@ -58,7 +61,7 @@ func openColdVectorField(ctx context.Context, store checkpoint.Store, ref manife
 }
 
 func openColdLayout(held *coldHeld, store checkpoint.Store, ref manifest.VectorFieldRef, paths []string,
-	field *vector.Field, resolve func(docID string) (int32, bool)) (vector.ColdVectorField, error) {
+	field *vector.Field, resolve coldPartitionResolver) (vector.ColdVectorField, error) {
 	codeBits := field.CodeBits()
 	var codes *coldCodes
 	files := make([]vector.ColdGraphFile, 0, len(ref.Files))

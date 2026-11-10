@@ -17,7 +17,7 @@ func (n *Narsil) openArchive(ctx context.Context, entry *indexEntry) (*persist.A
 	}
 	entry.writeMu.Lock()
 	defer entry.writeMu.Unlock()
-	return persist.ArchiveFromMemory(ctx, entry.handle, 0)
+	return persist.ArchiveFromMemory(ctx, entry.handle)
 }
 
 // Snapshot writes a snapshot archive of the index called indexName to
@@ -52,14 +52,6 @@ func (n *Narsil) Snapshot(ctx context.Context, indexName string, options Snapsho
 	return opened.Write(ctx, destination, config, history)
 }
 
-func exportHeader(configuration indexconfig.Configuration) map[string]any {
-	header := map[string]any{}
-	for _, item := range configuration.Value() {
-		header[item.Key] = item.Value
-	}
-	return header
-}
-
 // ExportDocuments writes every document of the index called indexName to
 // destination as a document export: one JSON line with the index settings,
 // then one JSON line per document with its vectors. ImportDocumentExport
@@ -79,7 +71,7 @@ func (n *Narsil) ExportDocuments(ctx context.Context, indexName string, destinat
 		return err
 	}
 	defer opened.Release()
-	return opened.Export(ctx, destination, exportHeader(configuration))
+	return opened.Export(ctx, destination, configuration.Value())
 }
 
 func (n *Narsil) prepareImportTarget(ctx context.Context, indexName string, configuration indexconfig.Configuration) error {
@@ -166,13 +158,18 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	defer release()
 	failures := make([]error, len(batch))
 	position := make(map[string]int, len(batch))
-	inserts := make([]model.Document, 0, len(batch))
+	inserts := make([]*model.Document, 0, len(batch))
 	outcome := newBatchOutcome()
 	defer entry.scheduleVectorBuilds(outcome.touched)
 	for at, document := range batch {
 		position[document.ID] = at
-		if entry.index().Has(document.ID) {
-			update := model.DocumentUpdate{DocID: document.ID, Document: document.Document}
+		held, err := entry.index().Has(ctx, document.ID)
+		if err != nil {
+			return nil, err
+		}
+		imported := model.DocumentFromMap(document.Document)
+		if held {
+			update := model.DocumentUpdate{DocID: document.ID, Document: imported}
 			if err := n.updateOne(ctx, entry, update, outcome.touched); err != nil {
 				if !isPerDocument(err) {
 					return nil, err
@@ -181,7 +178,7 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 			}
 			continue
 		}
-		inserts = append(inserts, document.Document)
+		inserts = append(inserts, imported)
 	}
 	for start := 0; start < len(inserts); start += batchChunkSize {
 		end := min(start+batchChunkSize, len(inserts))

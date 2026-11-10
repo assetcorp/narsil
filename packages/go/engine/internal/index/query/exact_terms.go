@@ -8,11 +8,13 @@ import (
 )
 
 type exactTerms struct {
-	column   map[string]int
-	units    []uint16
-	offsets  []uint32
-	row      map[*Segment]int
-	ordinals []uint32
+	column      map[string]int
+	units       []uint16
+	offsets     []uint32
+	row         map[*Segment]int
+	ordinals    []uint32
+	frequencies []uint32
+	held        []uint32
 }
 
 func (e *exactTerms) reset() {
@@ -25,6 +27,7 @@ func (e *exactTerms) reset() {
 	e.units = e.units[:0]
 	e.offsets = append(e.offsets[:0], 0)
 	e.ordinals = e.ordinals[:0]
+	e.frequencies = e.frequencies[:0]
 }
 
 func (e *exactTerms) add(token string) {
@@ -71,25 +74,92 @@ func (e *exactTerms) resolve(workspace *core.Workspace, segment *Segment) (int, 
 	count := len(e.offsets) - 1
 	start := len(e.ordinals)
 	e.ordinals = slices.Grow(e.ordinals, count)[:start+count]
-	if _, err := workspace.LookupExactBatch(segment.dictionary(), e.units, e.offsets, e.ordinals[start:]); err != nil {
-		e.ordinals = e.ordinals[:start]
+	e.frequencies = slices.Grow(e.frequencies, count)[:start+count]
+	_, err := workspace.LookupExactBatch(segment.dictionary(), e.units, e.offsets, e.ordinals[start:])
+	if err == nil {
+		err = e.readFrequencies(segment, e.ordinals[start:], e.frequencies[start:])
+	}
+	if err != nil {
+		e.ordinals, e.frequencies = e.ordinals[:start], e.frequencies[:start]
 		return 0, err
 	}
 	e.row[segment] = start
 	return start, nil
 }
 
-func (s *searcher) exact(segment *Segment, token string) (uint32, bool, error) {
+func (e *exactTerms) readFrequencies(segment *Segment, terms, into []uint32) error {
+	held := e.held[:0]
+	for _, term := range terms {
+		if term != core.TermAbsent {
+			held = append(held, term)
+		}
+	}
+	e.held = held
+	if err := core.DocumentFrequencies(segment.dictionary(), held, into); err != nil {
+		return err
+	}
+	read := len(held)
+	for at := len(terms) - 1; at >= 0; at-- {
+		if terms[at] == core.TermAbsent {
+			into[at] = 0
+			continue
+		}
+		read--
+		into[at] = into[read]
+	}
+	return nil
+}
+
+func (s *searcher) resolved(segment *Segment, token string) (int, bool, error) {
 	column, known := s.terms.column[token]
 	if !known || len(s.terms.units) == 0 {
-		return s.finder.exact(s.workspace, segment, token)
+		return 0, false, nil
 	}
 	start, err := s.terms.resolve(s.workspace, segment)
+	return start + column, err == nil, err
+}
+
+func (s *searcher) exact(segment *Segment, token string) (uint32, bool, error) {
+	at, batched, err := s.resolved(segment, token)
 	if err != nil {
 		return 0, false, err
 	}
-	term := s.terms.ordinals[start+column]
+	if !batched {
+		return s.finder.exact(s.workspace, segment, token)
+	}
+	term := s.terms.ordinals[at]
 	return term, term != core.TermAbsent, nil
+}
+
+func (s *searcher) segmentFrequency(segment *Segment, token string) (float64, error) {
+	at, batched, err := s.resolved(segment, token)
+	if err != nil {
+		return 0, err
+	}
+	if batched {
+		return float64(s.terms.frequencies[at]), nil
+	}
+	if _, found, err := s.finder.exact(s.workspace, segment, token); err != nil || !found {
+		return 0, err
+	}
+	counts, err := s.finder.frequencies(segment, s.finder.single[:])
+	if err != nil {
+		return 0, err
+	}
+	return float64(counts[0]), nil
+}
+
+func (s *searcher) matchFrequencies(segment *Segment, token string, matches []uint32) ([]uint32, error) {
+	if len(matches) == 1 {
+		at, batched, err := s.resolved(segment, token)
+		if err != nil {
+			return nil, err
+		}
+		if batched && s.terms.ordinals[at] == matches[0] {
+			return s.terms.frequencies[at : at+1], nil
+		}
+	}
+	return s.finder.frequencies(segment, matches)
 }
 
 func (s *searcher) typo(segment *Segment, token string, tolerance, prefixLength uint32) ([]uint32, error) {

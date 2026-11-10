@@ -1,8 +1,6 @@
 package segment
 
 const (
-	DefaultTargetSegmentBytes = 1_073_741_824
-
 	estimatedBytesPerToken    = 10
 	estimatedBytesPerDocument = 64
 	targetBlockEntries        = 128

@@ -4,10 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
 // Restore replaces the index called indexName with the one that the snapshot
@@ -146,17 +144,9 @@ func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 	if err := entry.noteCleared(); err != nil {
 		return err
 	}
-	var ids []string
-	if len(entry.vectorPaths) > 0 {
-		_ = entry.index().ReadPartitions(func(views []partition.View) error {
-			for _, view := range views {
-				ids = append(ids, view.SortedDocumentIDs()...)
-			}
-			return nil
-		})
+	if err := entry.index().Clear(entry.handle.NamedVectorFields()); err != nil {
+		return err
 	}
-	entry.index().Clear()
-	vector.RemoveDocuments(entry.namedVectorFields(), ids)
 	entry.watermarkLatched = 0
 	if entry.durable == nil {
 		return nil

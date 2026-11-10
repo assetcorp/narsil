@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -35,15 +37,19 @@ type storableWalk struct {
 	skip map[string]int
 }
 
-func AssertStorableDocument(document map[string]any, parsed *Parsed) error {
+func AssertStorableDocument(document *model.Document, parsed *Parsed) error {
 	if document == nil {
-		return narsilerr.New(narsilerr.CodeDocValidationFailed, "Document must be a plain object", map[string]any{"received": "object"})
+		return documentRequired()
 	}
 	walk := storableWalk{}
 	if parsed != nil {
 		walk.skip = parsed.vectors
 	}
 	return walk.value(document, "", 0)
+}
+
+func nestsTooDeep(path string) error {
+	return rejectStored(path, fmt.Sprintf("nests deeper than %d levels", MaxDocumentNestingDepth))
 }
 
 func (w storableWalk) value(value any, path string, depth int) error {
@@ -62,7 +68,7 @@ func (w storableWalk) value(value any, path string, depth int) error {
 		return nil
 	case []any:
 		if depth >= MaxDocumentNestingDepth {
-			return rejectStored(path, fmt.Sprintf("nests deeper than %d levels", MaxDocumentNestingDepth))
+			return nestsTooDeep(path)
 		}
 		for i, item := range typed {
 			if err := w.value(item, path+"["+strconv.Itoa(i)+"]", depth+1); err != nil {
@@ -70,17 +76,17 @@ func (w storableWalk) value(value any, path string, depth int) error {
 			}
 		}
 		return nil
-	case map[string]any:
+	case *model.Document:
 		if depth >= MaxDocumentNestingDepth {
-			return rejectStored(path, fmt.Sprintf("nests deeper than %d levels", MaxDocumentNestingDepth))
+			return nestsTooDeep(path)
 		}
 		return w.object(typed, path, depth)
 	}
 	return w.unsupported(value, path, depth)
 }
 
-func (w storableWalk) object(values map[string]any, path string, depth int) error {
-	for _, key := range sortedKeys(values) {
+func (w storableWalk) object(values *model.Document, path string, depth int) error {
+	for key, value := range codec.HeldEntries(values) {
 		keyPath := joinPath(path, key)
 		if reservedObjectKeys[key] {
 			return rejectStored(keyPath, "uses a reserved object key")
@@ -91,7 +97,7 @@ func (w storableWalk) object(values map[string]any, path string, depth int) erro
 		if _, isVector := w.skip[keyPath]; isVector {
 			continue
 		}
-		if err := w.value(values[key], keyPath, depth+1); err != nil {
+		if err := w.value(value, keyPath, depth+1); err != nil {
 			return err
 		}
 	}
@@ -103,7 +109,7 @@ func (w storableWalk) unsupported(value any, path string, depth int) error {
 	switch reflected.Kind() {
 	case reflect.Map, reflect.Slice, reflect.Array:
 		if depth >= MaxDocumentNestingDepth {
-			return rejectStored(path, fmt.Sprintf("nests deeper than %d levels", MaxDocumentNestingDepth))
+			return nestsTooDeep(path)
 		}
 	case reflect.Func, reflect.Chan, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer:
 		return rejectStored(path, fmt.Sprintf("holds a %s, which cannot be stored or recovered", reflected.Kind()))

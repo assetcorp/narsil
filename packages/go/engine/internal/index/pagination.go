@@ -2,7 +2,6 @@ package index
 
 import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
@@ -14,11 +13,11 @@ type paginationSort struct {
 }
 
 type pageOfHits struct {
-	hits   []results.Hit
+	hits   []resultHit
 	cursor string
 }
 
-func ordersAfterAnchor(hit results.Hit, anchor cursor.PageCursor, sort *paginationSort) bool {
+func ordersAfterAnchor(hit resultHit, anchor cursor.PageCursor, sort *paginationSort) bool {
 	if sort != nil && anchor.SortSignature.IsSet() {
 		comparison := text.CompareComparableKeys(sort.sortKeyOf(hit.ID), anchor.SortKey, sort.directions)
 		if comparison == 0 {
@@ -37,16 +36,16 @@ func ordersAfterAnchor(hit results.Hit, anchor cursor.PageCursor, sort *paginati
 	return score == anchorScore && text.CompareCodePoints(hit.ID, anchor.Anchor) > 0
 }
 
-func lastOrganicHit(page []results.Hit, pinnedIDs map[string]struct{}) (results.Hit, bool) {
+func lastOrganicHit(page []resultHit, pinnedIDs map[string]struct{}) (resultHit, bool) {
 	for at := len(page) - 1; at >= 0; at-- {
 		if _, pinned := pinnedIDs[page[at].ID]; !pinned {
 			return page[at], true
 		}
 	}
-	return results.Hit{}, false
+	return resultHit{}, false
 }
 
-func applyPagination(hits []results.Hit, limit, offset int, binding func() string, searchAfter string, sort *paginationSort, pinnedIDs map[string]struct{}, omitsDepth bool) (pageOfHits, error) {
+func applyPagination(hits []resultHit, limit, offset int, binding func() string, searchAfter string, sort *paginationSort, pinnedIDs map[string]struct{}, omitsDepth bool) (pageOfHits, error) {
 	var decoded cursor.PageCursor
 	seeking := searchAfter != ""
 	if seeking {
@@ -64,7 +63,7 @@ func applyPagination(hits []results.Hit, limit, offset int, binding func() strin
 		decoded = parsed
 	}
 	if limit <= 0 {
-		return pageOfHits{hits: []results.Hit{}}, nil
+		return pageOfHits{hits: []resultHit{}}, nil
 	}
 	start := 0
 	if seeking {
@@ -79,7 +78,7 @@ func applyPagination(hits []results.Hit, limit, offset int, binding func() strin
 	afterOffset := start + offset
 	from := min(afterOffset, len(hits))
 	to := min(afterOffset+limit, len(hits))
-	page := append([]results.Hit{}, hits[from:max(from, to)]...)
+	page := append([]resultHit{}, hits[from:max(from, to)]...)
 	hasMore := afterOffset+limit < len(hits)
 	last, found := lastOrganicHit(page, pinnedIDs)
 	if !hasMore || !found {

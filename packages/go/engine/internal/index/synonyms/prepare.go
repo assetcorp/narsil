@@ -19,15 +19,6 @@ func Prepare(rules []model.SynonymRule, pass *analysis.Pass, strictWords bool, m
 	return prepareParsed(parsed, pass, strictWords, report)
 }
 
-func PrepareValue(value any, pass *analysis.Pass, strictWords bool, messagePrefix string) (*Prepared, error) {
-	report := problems{prefix: messagePrefix}
-	parsed, err := parseRulesValue(value, report)
-	if err != nil {
-		return nil, err
-	}
-	return prepareParsed(parsed, pass, strictWords, report)
-}
-
 func prepareParsed(rules []model.SynonymRule, pass *analysis.Pass, strictWords bool, report problems) (*Prepared, error) {
 	if len(rules) == 0 {
 		return nil, nil
@@ -41,12 +32,4 @@ func prepareParsed(rules []model.SynonymRule, pass *analysis.Pass, strictWords b
 		return nil, err
 	}
 	return &Prepared{Encoded: encodeRules(rules), Lookup: lookup}, nil
-}
-
-func StoredLookup(encoded []byte, pass *analysis.Pass) (*Lookup, error) {
-	rules, err := DecodeRules(encoded)
-	if err != nil {
-		return nil, err
-	}
-	return buildLookup(rules, pass, nil)
 }

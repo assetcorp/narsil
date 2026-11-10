@@ -54,7 +54,7 @@ func runTableRefusal(count uint64) error {
 		map[string]any{"runs": float64(count)})
 }
 
-func (t *runTable) reserve(count, members uint64) error {
+func (t *runTable) reserve(count uint64) error {
 	if count < uint64(t.header[headerCount]) || count > lastRunCount {
 		return runTableRefusal(count)
 	}
@@ -75,18 +75,21 @@ func (t *runTable) reserve(count, members uint64) error {
 			return err
 		}
 	}
-	if members > t.members.len() {
-		capacity, err := grownCapacity(t.members.len(), members)
-		if err != nil {
-			return err
-		}
-		t.members.clearFrom(uint64(t.allocation[allocationEnd]))
-		if err := t.members.resize(capacity); err != nil {
-			return err
-		}
-	}
 	t.header[headerSlotCapacity] = uint32(t.slots.len())
 	return nil
+}
+
+func (t *runTable) memberBound(added uint64) uint64 {
+	return runMemberBoundFactor * (uint64(t.allocation[allocationEnd]) + added)
+}
+
+func (t *runTable) growMembers() error {
+	capacity, err := grownCapacity(t.members.len(), t.members.len()+1)
+	if err != nil {
+		return err
+	}
+	t.members.clearFrom(uint64(t.allocation[allocationEnd]))
+	return t.members.resize(capacity)
 }
 
 func (t *runTable) trim() error {

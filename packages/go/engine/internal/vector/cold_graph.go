@@ -5,9 +5,10 @@ import (
 	"encoding/binary"
 	"math"
 	"strconv"
-	"sync"
+	"sync/atomic"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
@@ -19,20 +20,23 @@ type ColdSection interface {
 }
 
 type ColdGraphFile struct {
-	Key       string
-	Count     int
-	Dead      []byte
-	IDs       ColdSection
-	IDOffsets ColdSection
-	IDOrder   ColdSection
-	Records   ColdSection
-	Vectors   ColdSection
+	Key         string
+	Count       int
+	Dead        []byte
+	IDs         ColdSection
+	IDOffsets   ColdSection
+	IDOrder     ColdSection
+	Vectors     ColdSection
+	Magnitudes  ColdSection
+	Path        string
+	VectorPages core.PageSection
+	RecordPages *core.PageSection
 }
 
 type ColdGraphPart struct {
-	Levels      []byte
-	NodeOffsets []uint32
-	Neighbours  ColdSection
+	Levels         []byte
+	NodeOffsets    []uint32
+	NeighbourPages core.PageSection
 }
 
 type ColdGraphInput struct {
@@ -43,7 +47,7 @@ type ColdGraphInput struct {
 	Parts            []ColdGraphPart
 	EntryPoint       int
 	MaxLayer         int
-	ResolvePartition func(docID string) (int32, bool)
+	ResolvePartition func(ctx context.Context, docID string) (int32, bool, error)
 	FilePaths        []string
 	Close            func()
 }
@@ -51,10 +55,13 @@ type ColdGraphInput struct {
 type coldGraphField struct {
 	input        ColdGraphInput
 	firstNumbers []int
+	paged        core.PagedVectorField
 	total        int
 	live         int
 	resident     int
-	closeOnce    sync.Once
+	partitions   atomic.Pointer[[]int32]
+	mapping      atomic.Pointer[coldMapping]
+	closed       atomic.Bool
 }
 
 func coldReadFailed(message string, key string) error {
@@ -101,8 +108,8 @@ func NewColdGraphField(input ColdGraphInput) (ColdVectorField, bool) {
 	for _, part := range input.Parts {
 		resident += len(part.Levels) + len(part.NodeOffsets)*coldIDOffsetEntryBytes
 	}
-	return &coldGraphField{input: input, firstNumbers: firstNumbers, total: total, live: live, resident: resident},
-		true
+	return &coldGraphField{input: input, firstNumbers: firstNumbers, paged: pagedFieldOf(input, firstNumbers, total),
+		total: total, live: live, resident: resident}, true
 }
 
 func (c *coldGraphField) fileOfNumber(number int) int {
@@ -116,18 +123,6 @@ func (c *coldGraphField) fileOfNumber(number int) int {
 		}
 	}
 	return low
-}
-
-func (c *coldGraphField) topLayerOf(number int) int {
-	part := number / coldGraphPartVectors
-	if number < 0 || part >= len(c.input.Parts) {
-		return -1
-	}
-	levels := c.input.Parts[part].Levels
-	if offset := number % coldGraphPartVectors; offset < len(levels) {
-		return int(levels[offset]) - 1
-	}
-	return -1
 }
 
 func (c *coldGraphField) idInFile(file ColdGraphFile, position int) (string, error) {
@@ -210,20 +205,23 @@ func (c *coldGraphField) LiveCount() int {
 }
 
 func (c *coldGraphField) ResidentBytes() int {
+	if table := c.partitions.Load(); table != nil {
+		return c.resident + len(*table)*coldPartitionEntryBytes
+	}
 	return c.resident
 }
 
-func (c *coldGraphField) NumberOf(docID string) (int, bool) {
+func (c *coldGraphField) NumberOf(docID string) (int, bool, error) {
 	for at := len(c.input.Files) - 1; at >= 0; at-- {
 		position, found, err := c.positionOfID(at, docID)
 		if err != nil {
-			return 0, false
+			return 0, false, err
 		}
 		if found && !isDead(c.input.Files[at].Dead, position) {
-			return c.firstNumbers[at] + position, true
+			return c.firstNumbers[at] + position, true, nil
 		}
 	}
-	return 0, false
+	return 0, false, nil
 }
 
 func (c *coldGraphField) VectorOfNumber(number int) ([]float32, error) {
@@ -237,26 +235,24 @@ func (c *coldGraphField) VectorOfNumber(number int) ([]float32, error) {
 	return values, nil
 }
 
-func (c *coldGraphField) PartitionOf(docID string) (int32, bool) {
+func (c *coldGraphField) PartitionOf(ctx context.Context, docID string) (int32, bool, error) {
 	if c.input.ResolvePartition == nil {
-		return 0, false
+		return 0, false, nil
 	}
-	return c.input.ResolvePartition(docID)
+	return c.input.ResolvePartition(ctx, docID)
 }
 
 func (c *coldGraphField) FilePaths() []string {
 	return append([]string(nil), c.input.FilePaths...)
 }
 
-func (c *coldGraphField) Search(ctx context.Context, query []float32, k int, options SearchOptions,
-	admits func(docID string) bool, excluded map[int]struct{}) ([]ScoredResult, error) {
-	return c.walk(ctx, query, k, options, admits, excluded)
-}
-
 func (c *coldGraphField) Close() {
-	c.closeOnce.Do(func() {
-		if c.input.Close != nil {
-			c.input.Close()
-		}
-	})
+	if c.closed.Swap(true) {
+		return
+	}
+	c.partitions.Store(nil)
+	c.dropMapping()
+	if c.input.Close != nil {
+		c.input.Close()
+	}
 }

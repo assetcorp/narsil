@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	narsiltext "github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
 
@@ -49,7 +50,7 @@ func kindName(value any) string {
 		return "boolean"
 	case []any:
 		return "array"
-	case map[string]any:
+	case *codec.Document:
 		return "object"
 	}
 	if _, isNumber := numberOf(value); isNumber {
@@ -122,12 +123,14 @@ type geopoint struct {
 }
 
 func geopointOf(path string, value any) (geopoint, error) {
-	record, isRecord := value.(map[string]any)
+	record, isRecord := value.(*codec.Document)
 	if !isRecord {
 		return geopoint{}, invalidGeopoint(path, "expected a geopoint object with lat and lon")
 	}
-	lat, latIsNumber := numberOf(record["lat"])
-	lon, lonIsNumber := numberOf(record["lon"])
+	heldLat, _ := codec.HeldValue(record, "lat")
+	heldLon, _ := codec.HeldValue(record, "lon")
+	lat, latIsNumber := numberOf(heldLat)
+	lon, lonIsNumber := numberOf(heldLon)
 	if !latIsNumber || !lonIsNumber || math.IsNaN(lat) || math.IsNaN(lon) {
 		return geopoint{}, invalidGeopoint(path, "geopoint requires numeric lat and lon")
 	}
@@ -140,19 +143,18 @@ func geopointOf(path string, value any) (geopoint, error) {
 	return geopoint{lat: lat, lon: lon}, nil
 }
 
-func nestedValue(document map[string]any, path string) (any, bool) {
+func nestedValue(document *codec.Document, path string) (any, bool) {
 	if document == nil {
 		return nil, false
 	}
 	if !strings.Contains(path, ".") {
-		value, found := document[path]
-		return value, found
+		return codec.HeldValue(document, path)
 	}
 	var current any = document
 	for part := range strings.SplitSeq(path, ".") {
 		switch typed := current.(type) {
-		case map[string]any:
-			value, found := typed[part]
+		case *codec.Document:
+			value, found := codec.HeldValue(typed, part)
 			if !found {
 				return nil, false
 			}

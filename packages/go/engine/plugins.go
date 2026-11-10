@@ -80,73 +80,50 @@ func (runner *pluginRunner) has(pick func(model.Plugin) bool) bool {
 	return false
 }
 
-func (runner *pluginRunner) insert(ctx context.Context, name hookName, insert *model.InsertContext) error {
+type pluginHook[C any] func(ctx context.Context, hooked *C) error
+
+func runHooks[C any](ctx context.Context, runner *pluginRunner, name hookName, later hookName, hooked *C,
+	hooksOf func(model.Plugin) (pluginHook[C], pluginHook[C])) error {
 	return runner.each(ctx, name, func(plugin model.Plugin) func(context.Context) error {
-		hook := plugin.BeforeInsert
-		if name == hookAfterInsert {
-			hook = plugin.AfterInsert
+		hook, laterHook := hooksOf(plugin)
+		if name == later {
+			hook = laterHook
 		}
 		if hook == nil {
 			return nil
 		}
-		return func(ctx context.Context) error { return hook(ctx, insert) }
+		return func(ctx context.Context) error { return hook(ctx, hooked) }
+	})
+}
+
+func (runner *pluginRunner) insert(ctx context.Context, name hookName, insert *model.InsertContext) error {
+	return runHooks(ctx, runner, name, hookAfterInsert, insert, func(plugin model.Plugin) (pluginHook[model.InsertContext], pluginHook[model.InsertContext]) {
+		return plugin.BeforeInsert, plugin.AfterInsert
 	})
 }
 
 func (runner *pluginRunner) update(ctx context.Context, name hookName, update *model.UpdateContext) error {
-	return runner.each(ctx, name, func(plugin model.Plugin) func(context.Context) error {
-		hook := plugin.BeforeUpdate
-		if name == hookAfterUpdate {
-			hook = plugin.AfterUpdate
-		}
-		if hook == nil {
-			return nil
-		}
-		return func(ctx context.Context) error { return hook(ctx, update) }
+	return runHooks(ctx, runner, name, hookAfterUpdate, update, func(plugin model.Plugin) (pluginHook[model.UpdateContext], pluginHook[model.UpdateContext]) {
+		return plugin.BeforeUpdate, plugin.AfterUpdate
 	})
 }
 
 func (runner *pluginRunner) remove(ctx context.Context, name hookName, remove *model.RemoveContext) error {
-	return runner.each(ctx, name, func(plugin model.Plugin) func(context.Context) error {
-		hook := plugin.BeforeRemove
-		if name == hookAfterRemove {
-			hook = plugin.AfterRemove
-		}
-		if hook == nil {
-			return nil
-		}
-		return func(ctx context.Context) error { return hook(ctx, remove) }
+	return runHooks(ctx, runner, name, hookAfterRemove, remove, func(plugin model.Plugin) (pluginHook[model.RemoveContext], pluginHook[model.RemoveContext]) {
+		return plugin.BeforeRemove, plugin.AfterRemove
 	})
 }
 
 func (runner *pluginRunner) search(ctx context.Context, name hookName, search *model.SearchContext) error {
-	return runner.each(ctx, name, func(plugin model.Plugin) func(context.Context) error {
-		hook := plugin.BeforeSearch
-		if name == hookAfterSearch {
-			hook = plugin.AfterSearch
-		}
-		if hook == nil {
-			return nil
-		}
-		return func(ctx context.Context) error { return hook(ctx, search) }
+	return runHooks(ctx, runner, name, hookAfterSearch, search, func(plugin model.Plugin) (pluginHook[model.SearchContext], pluginHook[model.SearchContext]) {
+		return plugin.BeforeSearch, plugin.AfterSearch
 	})
 }
 
 func (runner *pluginRunner) index(ctx context.Context, name hookName, index *model.IndexContext) error {
-	return runner.each(ctx, name, func(plugin model.Plugin) func(context.Context) error {
-		hook := plugin.OnIndexCreate
-		if name == hookOnIndexDrop {
-			hook = plugin.OnIndexDrop
-		}
-		if hook == nil {
-			return nil
-		}
-		return func(ctx context.Context) error { return hook(ctx, index) }
+	return runHooks(ctx, runner, name, hookOnIndexDrop, index, func(plugin model.Plugin) (pluginHook[model.IndexContext], pluginHook[model.IndexContext]) {
+		return plugin.OnIndexCreate, plugin.OnIndexDrop
 	})
-}
-
-func (runner *pluginRunner) hasRemoveHooks() bool {
-	return runner.has(func(plugin model.Plugin) bool { return plugin.BeforeRemove != nil || plugin.AfterRemove != nil })
 }
 
 func (runner *pluginRunner) hasUpdateHooks() bool {

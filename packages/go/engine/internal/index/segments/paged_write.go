@@ -1,24 +1,22 @@
 package segments
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"slices"
 	"strings"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/segment"
 )
 
 var emptyMessagePackMap = []byte{0x80}
 
-type PagedDocuments struct {
-	Schema    map[string]string
-	IDs       []string
-	Documents [][]byte
+type StoredDocuments struct {
+	Schema     map[string]string
+	Tombstones []string
+	IDs        []string
+	Documents  [][]byte
 }
 
 func uint32Column(values []uint32) keyword.Uint32s {
@@ -77,11 +75,11 @@ func (k *Keyword) partialColumn() *keyword.PartialWordColumn {
 	}
 }
 
-func (k *Keyword) keywordSegment(documents PagedDocuments) (*keyword.Segment, error) {
+func (k *Keyword) KeywordFile(documents StoredDocuments) (*keyword.Segment, error) {
 	frozen := &k.Segment
 	count := int(frozen.DocumentCount)
 	if len(documents.IDs) != count || (documents.Documents != nil && len(documents.Documents) != count) {
-		return nil, fmt.Errorf("%w: the paged segment needs one ID and one document per ordinal", ErrInvalidInput)
+		return nil, fmt.Errorf("%w: the keyword file needs one ID and one document per ordinal", ErrInvalidInput)
 	}
 	ids, idOffsets, idOrder, err := idColumns(documents.IDs)
 	if err != nil {
@@ -99,13 +97,16 @@ func (k *Keyword) keywordSegment(documents PagedDocuments) (*keyword.Segment, er
 		return nil, err
 	}
 	built := &keyword.Segment{
-		Schema: documents.Schema, DocumentCount: frozen.DocumentCount,
-		IDs: ids, IDOffsets: idOffsets, IDOrder: idOrder, Documents: encoded, DocumentOffsets: documentOffsets,
+		Schema: documents.Schema, Tombstones: append([]string{}, documents.Tombstones...),
+		DocumentCount: frozen.DocumentCount,
+		IDs:           ids, IDOffsets: idOffsets, IDOrder: idOrder, Documents: encoded, DocumentOffsets: documentOffsets,
 		FieldNames: slices.Clone(k.FieldNames), Tokens: frozen.Terms.Text,
 		TokenOffsets: uint32Column(frozen.Terms.Offsets), DocumentFrequencies: uint32Column(frozen.Terms.Counts),
 		PostingOffsets: uint32Column(frozen.PostingOffsets), PostingDocuments: uint32Column(frozen.PostingDocuments),
 		PostingFrequencies: uint16Column(frozen.PostingFrequencies), PostingFields: uint16Column(frozen.PostingFields),
 		PartialWords: k.partialColumn(),
+		Numeric:      []keyword.ValueColumn{}, Sizes: []keyword.ValueColumn{}, Boolean: []keyword.BooleanColumn{},
+		Enum: []keyword.EnumColumn{}, Geopoint: []keyword.GeopointColumn{}, Pattern: []keyword.PatternColumn{},
 	}
 	if built.Schema == nil {
 		built.Schema = map[string]string{}
@@ -128,15 +129,11 @@ func (k *Keyword) keywordSegment(documents PagedDocuments) (*keyword.Segment, er
 	return built, nil
 }
 
-func WritePaged(ctx context.Context, writer io.Writer, scratchPath string, frozen *Keyword,
-	documents PagedDocuments) (int64, error) {
-	built, err := frozen.keywordSegment(documents)
+func (f *Frozen) KeywordFile(documents StoredDocuments) (*keyword.Segment, error) {
+	built, err := f.Keyword.KeywordFile(documents)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	written, err := segment.WritePaged(ctx, writer, scratchPath, built)
-	if err != nil {
-		return 0, err
-	}
-	return written.Bytes, nil
+	f.Fields.fillFileColumns(built)
+	return built, nil
 }

@@ -21,15 +21,16 @@ const (
 	mapTag
 )
 
+const canonicalNaNBits uint64 = 0x7FF8000000000000
+
 const (
-	canonicalNaNBits     uint64 = 0x7FF8000000000000
-	listingFiltersSlot          = 2
-	listingBoundSlots           = 16
-	uint32ShiftHighByte         = 24
-	float64ShiftHighByte        = 56
-	bitsPerByte                 = 8
-	lowNibbleMask               = 0x0F
-	bitsPerHexDigit             = 4
+	listingFiltersSlot   = 2
+	listingBoundSlots    = 16
+	uint32ShiftHighByte  = 24
+	float64ShiftHighByte = 56
+	bitsPerByte          = 8
+	lowNibbleMask        = 0x0F
+	bitsPerHexDigit      = 4
 )
 
 type boundKind uint8
@@ -62,10 +63,6 @@ type boundEntry struct {
 
 func absentValue() boundValue {
 	return boundValue{}
-}
-
-func nullValue() boundValue {
-	return boundValue{kind: boundNull}
 }
 
 func booleanValue(value bool) boundValue {

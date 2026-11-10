@@ -1,18 +1,8 @@
 package growing
 
 import (
-	"errors"
-
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
-
-func statusOf(err error) core.Status {
-	var status *core.StatusError
-	if errors.As(err, &status) {
-		return status.Status
-	}
-	return core.StatusOK
-}
 
 func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
 	if s.released {
@@ -36,14 +26,16 @@ func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
 	counted := s.countsNonemptyTerms()
 	s.refreshView()
 	err = workspace.IndexTerms(&s.view, ordinal, fields)
-	if statusOf(err) == core.StatusNeedsRoom {
-		if err := s.reserveDocument(fields); err != nil {
-			return err
+	if core.StatusOf(err) == core.StatusNeedsRoom {
+		runMembers, failure := s.reserveDocument(workspace, fields)
+		if failure != nil {
+			return failure
 		}
-		s.refreshView()
-		err = workspace.IndexTerms(&s.view, ordinal, fields)
+		if err, failure = s.indexReserved(workspace, ordinal, fields, runMembers); failure != nil {
+			return failure
+		}
 	}
-	if statusOf(err) == core.StatusSegmentFull {
+	if core.StatusOf(err) == core.StatusSegmentFull {
 		return ErrSegmentFull
 	}
 	if err == nil {
@@ -52,28 +44,46 @@ func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
 	return s.accept(err, counted)
 }
 
-func (s *Segment) reserveDocument(fields []core.FieldTokens) error {
+func (s *Segment) reserveDocument(workspace *core.Workspace, fields []core.FieldTokens) (uint64, error) {
 	capacity, err := measureDocument(fields, s.fields.partial.values)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if err := s.reservePostings(capacity); err != nil {
-		return err
+	if err := s.reservePostings(workspace, capacity); err != nil {
+		return 0, err
 	}
 	if len(capacity.surfaces.texts) > 0 {
 		if s.surfaces == nil {
 			if s.surfaces, err = newSurfaceTable(); err != nil {
-				return err
+				return 0, err
 			}
 		}
-		if err := reserveStrings(s.surfaces, capacity.surfaces.texts, nil); err != nil {
-			return err
+		if err := reserveStrings(workspace, s.surfaces, capacity.surfaces.texts); err != nil {
+			return 0, err
 		}
 	}
 	if s.spellings != nil {
-		return s.spellings.reserveWords(capacity.spellings.texts)
+		return s.spellings.reserveWords(workspace, capacity.spellings.texts)
 	}
-	return nil
+	return 0, nil
+}
+
+func (s *Segment) indexReserved(workspace *core.Workspace, ordinal uint32, fields []core.FieldTokens, runMembers uint64) (status, failure error) {
+	s.refreshView()
+	status = workspace.IndexTerms(&s.view, ordinal, fields)
+	if runMembers == 0 {
+		return status, nil
+	}
+	runs := s.spellings.runs
+	bound := runs.memberBound(runMembers)
+	for core.StatusOf(status) == core.StatusNeedsRoom && runs.members.len() < bound {
+		if failure = runs.growMembers(); failure != nil {
+			return nil, failure
+		}
+		s.refreshView()
+		status = workspace.IndexTerms(&s.view, ordinal, fields)
+	}
+	return status, nil
 }
 
 func (s *Segment) Remove(ordinal uint32, fields []core.FieldTokens) error {
@@ -108,8 +118,14 @@ func (s *Segment) RemoveTextless(ordinal uint32) error {
 	if !s.held.has(ordinal) {
 		return heldRefusal(ordinal, false)
 	}
-	if !s.retireTextless(uint64(ordinal)) {
-		return refusal(&core.StatusError{Operation: "removeTextless", Status: core.StatusInvalidArgument})
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return err
+	}
+	defer workspace.Release()
+	s.refreshView()
+	if err := workspace.RemoveDocument(&s.view, ordinal, nil); err != nil {
+		return refusal(err)
 	}
 	s.held.clear(ordinal)
 	return nil

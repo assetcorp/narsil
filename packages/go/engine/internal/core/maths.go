@@ -3,9 +3,10 @@ package core
 /*
 #include <stdint.h>
 #include "native/include/narsil_math.h"
-#include "native/src/math/fdlibm.h"
 */
 import "C"
+
+import "math"
 
 type MathFunction uint32
 
@@ -37,30 +38,14 @@ func ApplyMath(function MathFunction, first, second, results []float64) error {
 	return statusError("applyMath", C.narsil_math_apply(C.narsil_math_function(function), &batch))
 }
 
+func mathOf(function MathFunction, first, second float64) float64 {
+	values := []float64{first, second, 0}
+	if err := ApplyMath(function, values[:1], values[1:2], values[2:]); err != nil {
+		return math.NaN()
+	}
+	return values[2]
+}
+
 func Ln(value float64) float64 {
-	return float64(C.fdlibm_log(C.double(value)))
-}
-
-func Sin(value float64) float64 {
-	return float64(C.fdlibm_sin(C.double(value)))
-}
-
-func Cos(value float64) float64 {
-	return float64(C.fdlibm_cos(C.double(value)))
-}
-
-func Tan(value float64) float64 {
-	return float64(C.fdlibm_tan(C.double(value)))
-}
-
-func Asin(value float64) float64 {
-	return float64(C.fdlibm_asin(C.double(value)))
-}
-
-func Atan(value float64) float64 {
-	return float64(C.fdlibm_atan(C.double(value)))
-}
-
-func Atan2(rise, run float64) float64 {
-	return float64(C.fdlibm_atan2(C.double(rise), C.double(run)))
+	return mathOf(MathLog, value, 0)
 }

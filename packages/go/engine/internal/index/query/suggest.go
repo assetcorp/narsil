@@ -43,7 +43,12 @@ func validateExpansionView(view *View) error {
 		return err
 	}
 	for index := range view.Segments {
-		if !view.Segments[index].pagedTotalsHeld() {
+		held, err := view.Segments[index].pagedTotalsHeld()
+		if err != nil {
+			return narsilerr.Wrap(narsilerr.CodePartitionCorrupted, "The term totals of a paged segment could not be read", err,
+				map[string]any{"segment": index})
+		}
+		if !held {
 			return narsilerr.New(narsilerr.CodePartitionCorrupted, "A paged segment of the partition view needs one term total for every term",
 				map[string]any{"segment": index})
 		}

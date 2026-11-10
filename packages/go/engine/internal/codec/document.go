@@ -50,8 +50,12 @@ func ObjectKeyOrder(record map[string]any) []string {
 	for key := range record {
 		keys = append(keys, key)
 	}
-	slices.SortFunc(keys, compareObjectKeys)
+	SortObjectKeys(keys)
 	return keys
+}
+
+func SortObjectKeys(keys []string) {
+	slices.SortFunc(keys, compareObjectKeys)
 }
 
 func IsNegativeZero(value float64) bool {
@@ -96,6 +100,8 @@ func HoldsNegativeZero(value any, depth int) bool {
 				return true
 			}
 		}
+	case *Document:
+		return depth <= MaxDocumentEncodingDepth && documentHoldsNegativeZero(typed, depth)
 	}
 	return false
 }
@@ -108,9 +114,13 @@ func documentEncodeOptions(value any, startDepth int) EncodeOptions {
 	}
 }
 
-func AppendDocument(destination []byte, document map[string]any) ([]byte, error) {
+type DocumentEntries interface {
+	map[string]any | OrderedMap | *Document
+}
+
+func AppendDocument[D DocumentEntries](destination []byte, document D) ([]byte, error) {
 	start := len(destination)
-	encoded, err := AppendValue(destination, document, documentEncodeOptions(document, 1))
+	encoded, err := AppendValue(destination, any(document), documentEncodeOptions(any(document), 1))
 	if err != nil {
 		return destination[:start], narsilerr.New(
 			narsilerr.CodeDocValidationFailed,
@@ -121,14 +131,8 @@ func AppendDocument(destination []byte, document map[string]any) ([]byte, error)
 	return encoded, nil
 }
 
-func EncodeDocument(document map[string]any) ([]byte, error) {
+func EncodeDocument[D DocumentEntries](document D) ([]byte, error) {
 	return AppendDocument(nil, document)
-}
-
-func EncodeDocumentReply(payload any) ([]byte, error) {
-	options := documentEncodeOptions(payload, 1-DocumentReplyEnvelopeDepth)
-	options.MaxDepth = DefaultMaxEncodeDepth
-	return Marshal(payload, options)
 }
 
 func messageOf(err error) string {

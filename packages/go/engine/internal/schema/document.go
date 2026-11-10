@@ -6,13 +6,25 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func ValidateDocument(document model.Document, parsed *Parsed, patternValueLimit int) error {
+func documentRequired() error {
+	return narsilerr.New(narsilerr.CodeDocValidationFailed, "Document must be a plain object", map[string]any{"received": "object"})
+}
+
+func RequireDocument(document *model.Document) error {
 	if document == nil {
-		return narsilerr.New(narsilerr.CodeDocValidationFailed, "Document must be a plain object", map[string]any{"received": "object"})
+		return documentRequired()
+	}
+	return nil
+}
+
+func ValidateDocument(document *model.Document, parsed *Parsed, patternValueLimit int) error {
+	if document == nil {
+		return documentRequired()
 	}
 	if patternValueLimit <= 0 {
 		patternValueLimit = DefaultPatternValueLimit
@@ -33,9 +45,9 @@ func rootOf(parsed *Parsed) *level {
 	return parsed.root
 }
 
-func validateLevel(document map[string]any, current *level, limit int) error {
+func validateLevel(document *model.Document, current *level, limit int) error {
 	for _, entry := range current.entries {
-		value := document[entry.name]
+		value, _ := codec.HeldValue(document, entry.name)
 		if value == nil {
 			continue
 		}
@@ -43,8 +55,8 @@ func validateLevel(document map[string]any, current *level, limit int) error {
 			if !isStoredObject(value) {
 				return narsilerr.New(narsilerr.CodeDocValidationFailed, fmt.Sprintf("Field %q expected an object", entry.path), map[string]any{"field": entry.path, "received": receivedKind(value)})
 			}
-			nested, isMap := value.(map[string]any)
-			if !isMap {
+			nested, isDocument := value.(*model.Document)
+			if !isDocument {
 				continue
 			}
 			if err := validateLevel(nested, entry.nested, limit); err != nil {
@@ -59,8 +71,8 @@ func validateLevel(document map[string]any, current *level, limit int) error {
 	return nil
 }
 
-func requireIDFieldKey(document map[string]any) error {
-	id, present := document[documentIDField]
+func requireIDFieldKey(document *model.Document) error {
+	id, present := codec.HeldValue(document, documentIDField)
 	if !present {
 		return nil
 	}
@@ -82,7 +94,7 @@ func requireIDFieldKey(document map[string]any) error {
 	)
 }
 
-func ValidateDocumentStrict(document model.Document, parsed *Parsed) error {
+func ValidateDocumentStrict(document *model.Document, parsed *Parsed) error {
 	var extras []string
 	collectExtraFields(document, rootOf(parsed), "", &extras)
 	if len(extras) == 0 {
@@ -95,8 +107,8 @@ func ValidateDocumentStrict(document model.Document, parsed *Parsed) error {
 	)
 }
 
-func collectExtraFields(document map[string]any, current *level, prefix string, extras *[]string) {
-	for _, key := range sortedKeys(document) {
+func collectExtraFields(document *model.Document, current *level, prefix string, extras *[]string) {
+	for key, value := range codec.HeldEntries(document) {
 		if key == documentIDField {
 			continue
 		}
@@ -106,13 +118,13 @@ func collectExtraFields(document map[string]any, current *level, prefix string, 
 			*extras = append(*extras, path)
 			continue
 		}
-		if nested, isMap := document[key].(map[string]any); isMap && entry.nested != nil {
+		if nested, isDocument := value.(*model.Document); isDocument && entry.nested != nil {
 			collectExtraFields(nested, entry.nested, path, extras)
 		}
 	}
 }
 
-func ValidateRequiredFields(document model.Document, required []string) error {
+func ValidateRequiredFields(document *model.Document, required []string) error {
 	for _, field := range required {
 		if isMissing(resolveNestedValue(document, field)) {
 			return narsilerr.New(narsilerr.CodeDocMissingRequiredField, fmt.Sprintf("Document is missing required field %q", field), map[string]any{"field": field})
@@ -134,9 +146,10 @@ func isMissing(value any) bool {
 	}
 }
 
-func resolveNestedValue(document model.Document, path string) any {
+func resolveNestedValue(document *model.Document, path string) any {
 	if !strings.Contains(path, ".") {
-		return document[path]
+		value, _ := codec.HeldValue(document, path)
+		return value
 	}
 	var current any = document
 	for _, segment := range strings.Split(path, ".") {
@@ -153,6 +166,8 @@ func propertyOf(container any, segment string) (any, bool) {
 	switch typed := container.(type) {
 	case nil:
 		return nil, false
+	case *model.Document:
+		return codec.HeldValue(typed, segment)
 	case map[string]any:
 		value, found := typed[segment]
 		return value, found

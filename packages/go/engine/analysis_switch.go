@@ -70,7 +70,7 @@ func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, se
 		if err := side.proceed(); err != nil {
 			return persist.IndexSwap{}, false, err
 		}
-		if err := entry.catchUpLocked(built); err != nil {
+		if err := entry.catchUpLocked(ctx, built); err != nil {
 			return persist.IndexSwap{}, false, err
 		}
 		lookup, rules, err := prepareSynonyms(side.analyzer, entry.currentConfig().Synonyms, false)
@@ -83,9 +83,10 @@ func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, se
 		undo := side.adopt(rules, settings)
 		entry.swap.current.Store(built)
 		return persist.IndexSwap{Index: built, NewDetachedIndex: detachedBuilder(settings, built), Committed: side.committed,
-			Revert: func(*index.Index) {
+			Revert: func(*index.Index) error {
 				entry.swap.current.Store(previous)
 				undo()
+				return nil
 			}}, true, nil
 	})
 }
@@ -105,12 +106,12 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 		if err := side.proceed(); err != nil {
 			return err
 		}
-		return entry.catchUp(built, side.proceed)
+		return entry.catchUp(n.stopping, built, side.proceed)
 	}
-	if err := copyDocuments(entry.handle, live, built, step, side.onPartitions); err != nil {
+	if err := copyDocuments(n.stopping, entry.handle, live, built, step, side.onPartitions); err != nil {
 		return err
 	}
-	if err := entry.catchUp(built, side.proceed); err != nil {
+	if err := entry.catchUp(n.stopping, built, side.proceed); err != nil {
 		return err
 	}
 	if side.renewsEpoch {

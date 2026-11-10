@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -45,15 +46,16 @@ func ValidateDocID(docID string) error {
 	return nil
 }
 
-func ProvidedDocID(document model.Document) (string, bool) {
-	id, isText := textOf(document[documentIDField])
+func ProvidedDocID(document *model.Document) (string, bool) {
+	held, _ := codec.HeldValue(document, documentIDField)
+	id, isText := textOf(held)
 	if !isText || id == "" {
 		return "", false
 	}
 	return id, true
 }
 
-func RequireMatchingDocID(docID string, document model.Document) error {
+func RequireMatchingDocID(docID string, document *model.Document) error {
 	embedded, found := ProvidedDocID(document)
 	if !found || embedded == docID {
 		return nil

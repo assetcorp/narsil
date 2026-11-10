@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -109,13 +110,28 @@ func (entry *indexEntry) beginRestore() func() {
 	}
 }
 
-func (entry *indexEntry) holds(id string) bool {
-	if run := entry.rebalancing(); run != nil {
-		if present, buffered := run.state(id); buffered {
-			return present
+func (entry *indexEntry) presence(ctx context.Context, ids []string) ([]bool, error) {
+	pinned, unpin, err := entry.index().Pin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unpin()
+	present := make([]bool, len(ids))
+	for at, id := range ids {
+		if present[at], err = entry.holds(pinned, id); err != nil {
+			return nil, err
 		}
 	}
-	return entry.index().Has(id)
+	return present, nil
+}
+
+func (entry *indexEntry) holds(ctx context.Context, id string) (bool, error) {
+	if run := entry.rebalancing(); run != nil {
+		if present, buffered := run.state(id); buffered {
+			return present, nil
+		}
+	}
+	return entry.index().Has(ctx, id)
 }
 
 func (entry *indexEntry) noteCleared() error {

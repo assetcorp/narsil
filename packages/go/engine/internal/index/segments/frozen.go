@@ -12,7 +12,6 @@ var (
 	ErrTombstoned    = errors.New("the frozen segment already removed this ordinal")
 	ErrUnsplittable  = errors.New("the merge holds fewer than two documents, so it cannot split")
 	ErrPendingRemove = errors.New("the frozen segment state holds removals that are not settled")
-	ErrStalePrepare  = errors.New("the state changed after this removal was prepared, so it cannot publish")
 	ErrEmptyMerge    = errors.New("the merge keeps no documents, so it would build an empty segment")
 	ErrMissingTokens = errors.New("the selection drops a live document whose tokens the caller did not supply")
 )
@@ -34,7 +33,7 @@ type FieldSet[S any] struct {
 
 type GrowingFields = FieldSet[*core.StoredValues]
 
-type FrozenFields = FieldSet[*core.StoredValueRegions]
+type FrozenFields = FieldSet[*core.StoredValueSlices]
 
 type Keyword struct {
 	Segment           core.FrozenSegment

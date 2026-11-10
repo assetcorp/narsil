@@ -106,7 +106,7 @@ func (watch *heapWatch) admit(indexName string) error {
 			"heapBytes": used, "heapLimitBytes": limit})
 }
 
-func (watch *heapWatch) check(indexName string, estimate func() int64) {
+func (watch *heapWatch) check(indexName string, estimate func() (int64, error)) {
 	limit, limited := heapLimit()
 	if !limited {
 		return
@@ -124,8 +124,16 @@ func (watch *heapWatch) check(indexName string, estimate func() int64) {
 		delete(watch.pressured, indexName)
 	}
 	watch.mu.Unlock()
-	if emit {
-		watch.events.emit(model.HeapPressureEvent{IndexName: indexName, HeapUsed: used, HeapLimit: limit,
-			EstimatedMemoryBytes: estimate()})
+	if !emit {
+		return
 	}
+	estimated, err := estimate()
+	if err != nil {
+		watch.mu.Lock()
+		delete(watch.pressured, indexName)
+		watch.mu.Unlock()
+		return
+	}
+	watch.events.emit(model.HeapPressureEvent{IndexName: indexName, HeapUsed: used, HeapLimit: limit,
+		EstimatedMemoryBytes: estimated})
 }

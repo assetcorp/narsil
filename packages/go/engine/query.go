@@ -71,19 +71,46 @@ func (entry *indexEntry) embedQueryText(ctx context.Context, params model.QueryP
 }
 
 func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
-	requested model.DocumentProjection) {
+	requested model.DocumentProjection) error {
 	if len(entry.vectorPaths) == 0 {
-		return
+		return nil
 	}
 	shown := projection.Resolve(requested)
 	for _, hit := range result.Hits {
-		entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown)
+		if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+			return err
+		}
 	}
 	for _, group := range result.Groups {
 		for _, hit := range group.Hits {
-			entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown)
+			if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
+}
+
+func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
+	options index.QueryOptions) (model.QueryResult, error) {
+	pinned, unpin, err := target.Pin(ctx)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer unpin()
+	var result model.QueryResult
+	if resolved.Rerank != nil {
+		result, err = target.QueryReranked(pinned, resolved, n.rerank.maxWindow, n.rerankScorer, options)
+	} else {
+		result, err = target.QueryWith(pinned, resolved, options)
+	}
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	if err := entry.attachHitVectors(pinned, &result, resolved.Document); err != nil {
+		return model.QueryResult{}, err
+	}
+	return result, nil
 }
 
 func (n *Narsil) prepareSearch(ctx context.Context, entry *indexEntry, params model.QueryParams) (model.QueryParams, index.QueryOptions, error) {
@@ -117,22 +144,13 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	ctx, unpin, err := entry.pinVectors(ctx, resolved.Vector != nil)
-	if err != nil {
-		return model.QueryResult{}, err
-	}
-	defer unpin()
 	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.QueryResult, error) {
-		if resolved.Rerank != nil {
-			return target.QueryReranked(ctx, resolved, n.rerank.maxWindow, n.rerankScorer, options)
-		}
-		return target.QueryWith(ctx, resolved, options)
+		return n.queryPinned(ctx, entry, target, resolved, options)
 	})
 	if err != nil {
 		return model.QueryResult{}, err
 	}
 	result.AnalysisStale = stale
-	entry.attachHitVectors(ctx, &result, resolved.Document)
 	observed := result
 	observed.Hits = append([]model.Hit(nil), result.Hits...)
 	_ = n.plugins.search(ctx, hookAfterSearch, &model.SearchContext{IndexName: indexName, Params: &resolved, Results: &observed})

@@ -135,7 +135,7 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, err
 			group[at] = writes[member]
 		}
 		log := durable.partitions[partitionID]
-		outcomes, logged, err := durable.applyLogged(log, partitionID, group)
+		outcomes, logged, err := durable.applyLogged(ctx, log, partitionID, group)
 		if err != nil {
 			return nil, err
 		}
@@ -156,13 +156,17 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, err
 	return failures, nil
 }
 
-func (durable *Durable) applyLogged(log *partitionLog, partitionID int, group []Write) ([]error, int64, error) {
+func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, partitionID int, group []Write) ([]error,
+	int64, error) {
 	log.mutex.Lock()
 	defer log.mutex.Unlock()
 	if log.failed != nil {
 		return nil, 0, log.failed
 	}
-	outcomes := durable.handle.apply(group, partitionID)
+	outcomes, err := durable.handle.apply(ctx, group)
+	if err != nil {
+		return nil, 0, err
+	}
 	var entries []wal.Entry
 	var documentBytes int64
 	for at, write := range group {

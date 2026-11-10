@@ -2,6 +2,7 @@ package codec
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 
@@ -36,6 +37,7 @@ type Decoder struct {
 	errorCode   string
 	shareBinary bool
 	maxDepth    int
+	shared      string
 }
 
 func NewDecoder(data []byte, options DecodeOptions) *Decoder {
@@ -61,7 +63,9 @@ func (decoder *Decoder) More() bool {
 	return decoder.position < len(decoder.data)
 }
 
-func (decoder *Decoder) Errorf(format string, arguments ...any) error {
+var ErrTruncated = errors.New("the MessagePack payload holds fewer bytes than it declares")
+
+func (decoder *Decoder) failure(format string, arguments ...any) *narsilerr.Error {
 	return narsilerr.New(
 		decoder.errorCode,
 		"MessagePack decoding failed: "+fmt.Sprintf(format, arguments...),
@@ -69,8 +73,13 @@ func (decoder *Decoder) Errorf(format string, arguments ...any) error {
 	)
 }
 
+func (decoder *Decoder) Errorf(format string, arguments ...any) error {
+	return decoder.failure(format, arguments...)
+}
+
 func (decoder *Decoder) insufficient() error {
-	return decoder.Errorf("Insufficient data at buffer[%d] of %d byte(s)", decoder.position, len(decoder.data))
+	return decoder.failure("Insufficient data at buffer[%d] of %d byte(s)", decoder.position, len(decoder.data)).
+		CausedBy(ErrTruncated)
 }
 
 func (decoder *Decoder) take(count int) ([]byte, error) {
@@ -145,14 +154,6 @@ func typeOfTag(tag byte) ValueType {
 	return TypeInvalid
 }
 
-func (decoder *Decoder) PeekType() (ValueType, error) {
-	tag, err := decoder.peekTag()
-	if err != nil {
-		return TypeInvalid, err
-	}
-	return typeOfTag(tag), nil
-}
-
 func (decoder *Decoder) unexpected(tag byte, wanted string) error {
 	if typeOfTag(tag) == TypeInvalid {
 		return decoder.Errorf("Unrecognized type byte: 0x%02x", tag)
@@ -166,33 +167,6 @@ func (decoder *Decoder) TryReadNil() bool {
 		return true
 	}
 	return false
-}
-
-func (decoder *Decoder) ReadNil() error {
-	tag, err := decoder.readTag()
-	if err != nil {
-		return err
-	}
-	if tag != tagNil {
-		decoder.position--
-		return decoder.unexpected(tag, "nil")
-	}
-	return nil
-}
-
-func (decoder *Decoder) ReadBool() (bool, error) {
-	tag, err := decoder.readTag()
-	if err != nil {
-		return false, err
-	}
-	switch tag {
-	case tagTrue:
-		return true, nil
-	case tagFalse:
-		return false, nil
-	}
-	decoder.position--
-	return false, decoder.unexpected(tag, "a boolean")
 }
 
 func (decoder *Decoder) readNumberAfterTag(tag byte) (float64, bool, error) {
@@ -258,6 +232,29 @@ func (decoder *Decoder) ReadNumber() (float64, error) {
 		return 0, decoder.unexpected(tag, "a number")
 	}
 	return number, err
+}
+
+func (decoder *Decoder) ReadUnsigned() (uint64, error) {
+	tag, err := decoder.readTag()
+	if err != nil {
+		return 0, err
+	}
+	if tag <= tagPositiveFixintLast {
+		return uint64(tag), nil
+	}
+	if tag < tagUint8 || tag > tagUint64 {
+		decoder.position--
+		return 0, decoder.unexpected(tag, "an unsigned integer")
+	}
+	bytes, err := decoder.take(numberWidth(tag))
+	if err != nil {
+		return 0, err
+	}
+	var value uint64
+	for _, part := range bytes {
+		value = value<<8 | uint64(part)
+	}
+	return value, nil
 }
 
 func (decoder *Decoder) stringLengthAfterTag(tag byte) (int, bool, error) {

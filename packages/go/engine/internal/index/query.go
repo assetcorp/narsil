@@ -4,11 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -19,10 +18,12 @@ type preparedQuery struct {
 	offset        int
 	sortSignature model.Optional[string]
 	bm25          *model.BM25Params
-	work          *partition.WorkMeter
+	work          *core.WorkMeter
+	closeWork     func()
 	binding       func() string
 	projection    projection.Projection
-	filter        *partitionFilter
+	filters       *filterRun
+	reads         *queryReads
 	term          *analysedTerm
 	vectorOnly    bool
 	hybrid        bool
@@ -35,6 +36,17 @@ func (q *preparedQuery) context() context.Context {
 		return context.Background()
 	}
 	return q.ctx
+}
+
+func (q *preparedQuery) close() {
+	if q.reads != nil {
+		q.reads.release()
+		q.reads = nil
+	}
+	if q.closeWork != nil {
+		q.closeWork()
+		q.work, q.closeWork = nil, nil
+	}
 }
 
 type searchModes struct {
@@ -59,12 +71,18 @@ func sortFieldNames(fields []model.SortField) []string {
 	return names
 }
 
+func groupFieldsOf(params *model.QueryParams) []string {
+	if params.Group == nil {
+		return nil
+	}
+	return params.Group.Fields
+}
+
 func (ix *Index) prepareQuery(request model.QueryParams) (*preparedQuery, error) {
 	prepared := &preparedQuery{
 		limit:   cursor.ClampLimit(request.Limit),
 		offset:  cursor.ClampOffset(request.Offset),
 		binding: cursor.LazyQueryBinding(request),
-		work:    partition.NewWorkMeter(ix.settings.SearchWorkCap),
 	}
 	if err := cursor.RequireWithinResultWindow(prepared.limit, prepared.offset); err != nil {
 		return nil, err
@@ -86,7 +104,7 @@ func (ix *Index) prepareQuery(request model.QueryParams) (*preparedQuery, error)
 			"A hybrid query cannot carry a sort, because fusion defines the order of hybrid results",
 			map[string]any{"sort": sortFieldNames(request.Sort)})
 	}
-	if prepared.filter, err = ix.validQueryParams(&request, prepared.work); err != nil {
+	if err := ix.validQueryParams(&request); err != nil {
 		return nil, err
 	}
 	if err := ix.requireUsableVectorClause(&request, modes); err != nil {
@@ -99,6 +117,20 @@ func (ix *Index) prepareQuery(request model.QueryParams) (*preparedQuery, error)
 	return prepared, nil
 }
 
+func (ix *Index) openQuery(ctx context.Context, prepared *preparedQuery) error {
+	prepared.ctx = ctx
+	work, closeWork, err := openWorkMeter(ctx, ix.settings.SearchWorkCap)
+	if err != nil {
+		return err
+	}
+	prepared.work, prepared.closeWork = work, closeWork
+	if err := ix.openReads(prepared, groupFieldsOf(&prepared.params)); err != nil {
+		prepared.close()
+		return err
+	}
+	return nil
+}
+
 func (ix *Index) requireUsableVectorClause(request *model.QueryParams, modes searchModes) error {
 	if err := ix.requireVectorSearchable(request, modes.vectorOnly || modes.hybrid); err != nil {
 		return err
@@ -109,18 +141,17 @@ func (ix *Index) requireUsableVectorClause(request *model.QueryParams, modes sea
 	return requireUsableQueryVector(request)
 }
 
-func (ix *Index) validQueryParams(query *model.QueryParams, work *partition.WorkMeter) (*partitionFilter, error) {
-	if err := requireValidTypoTolerance(query); err != nil {
-		return nil, err
+func (ix *Index) validQueryParams(params *model.QueryParams) error {
+	if err := requireValidTypoTolerance(params); err != nil {
+		return err
 	}
-	if err := results.RequireSortableFields(query.Sort, ix.settings.Schema, ix.settings.Strict); err != nil {
-		return nil, err
+	if err := requireSortableFields(params.Sort, ix.settings.Schema, ix.settings.Strict); err != nil {
+		return err
 	}
-	filter, err := ix.compileFilter(query.Filters, work)
-	if err != nil {
-		return nil, err
+	if err := ix.validateFilter(params.Filters); err != nil {
+		return err
 	}
-	return filter, ix.requireUsableQueryFields(query)
+	return ix.requireUsableQueryFields(params)
 }
 
 func (ix *Index) requireUsablePhrases(term analysedTerm, phraseReady func() error) error {
@@ -158,7 +189,6 @@ func (ix *Index) QueryWith(ctx context.Context, request model.QueryParams, optio
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	prepared.ctx = ctx
 	prepared.phraseReady = options.PhraseReady
 	if options.Binding != nil {
 		prepared.binding = options.Binding
@@ -167,12 +197,22 @@ func (ix *Index) QueryWith(ctx context.Context, request model.QueryParams, optio
 	if err != nil {
 		return model.QueryResult{}, err
 	}
+	prepared.ctx = ctx
 	if err := ix.analyseQueryTerm(prepared, pass); err != nil {
 		return model.QueryResult{}, err
 	}
-	found, err := ix.rankedResults(prepared, pass)
+	pinned, unpin, err := ix.Pin(ctx)
 	if err != nil {
 		return model.QueryResult{}, err
+	}
+	defer unpin()
+	if err := ix.openQuery(pinned, prepared); err != nil {
+		return model.QueryResult{}, err
+	}
+	defer prepared.close()
+	found, err := ix.rankedResults(prepared, pass)
+	if err != nil {
+		return model.QueryResult{}, stoppedSearchFailure(ctx, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return model.QueryResult{}, err
@@ -225,7 +265,5 @@ func (ix *Index) textRanked(prepared *preparedQuery, pass *analysis.Pass) (fanOu
 	if err != nil {
 		return fanOutResult{}, err
 	}
-	held := ix.acquireAll(ix.allPartitionIDs())
-	defer held.release()
-	return ix.fanOut(held.partitions, plan, prepared.filter)
+	return ix.fanOut(prepared, plan)
 }

@@ -15,7 +15,6 @@ type fieldScoring struct {
 	searchable   []uint8
 	partialMarks []uint8
 	numbers      []float64
-	averages     []float64
 	zeros        []uint32
 }
 

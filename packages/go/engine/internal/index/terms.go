@@ -7,13 +7,18 @@ import (
 	"strings"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
+type queryToken struct {
+	Token    string
+	Position int
+}
+
 type queryPhrases struct {
 	words             string
-	phrases           []partition.Phrase
+	phrases           []query.Phrase
 	keptPhraseCount   int
 	largestPhraseSize int
 	largestTokenCount int
@@ -25,7 +30,7 @@ type analysedTerm struct {
 	quotes     queryPhrases
 	words      string
 	tokens     []analysis.Token
-	unique     []partition.QueryToken
+	unique     []queryToken
 	usesPrefix bool
 }
 
@@ -133,7 +138,11 @@ func analyseQueryPhrases(parts []string, pass *analysis.Pass) (queryPhrases, err
 			continue
 		}
 		seen[identity] = struct{}{}
-		analysed.phrases = append(analysed.phrases, partition.Phrase{Key: phraseKeyOf(tokens, offsets), Tokens: tokens, Offsets: offsets})
+		relative := make([]uint32, len(offsets))
+		for at, offset := range offsets {
+			relative[at] = uint32(offset)
+		}
+		analysed.phrases = append(analysed.phrases, query.Phrase{Key: phraseKeyOf(tokens, offsets), Tokens: tokens, Offsets: relative})
 	}
 	analysed.words = strings.Join(wordParts, " ")
 	if analysed.keptPhraseCount > 0 {
@@ -197,27 +206,27 @@ func analyseTerm(term string, prefix bool, pass *analysis.Pass) (analysedTerm, e
 			continue
 		}
 		seen[token.Term] = struct{}{}
-		analysed.unique = append(analysed.unique, partition.QueryToken{Token: token.Term, Position: token.Position})
+		analysed.unique = append(analysed.unique, queryToken{Token: token.Term, Position: token.Position})
 	}
 	return analysed, nil
 }
 
-func (a *analysedTerm) phrases() []partition.Phrase {
+func (a *analysedTerm) phrases() []query.Phrase {
 	if !a.quoted {
 		return nil
 	}
 	return a.quotes.phrases
 }
 
-func (a *analysedTerm) lastToken() (partition.QueryToken, bool) {
+func (a *analysedTerm) lastToken() (queryToken, bool) {
 	if len(a.tokens) == 0 {
-		return partition.QueryToken{}, false
+		return queryToken{}, false
 	}
 	last := a.tokens[len(a.tokens)-1]
-	return partition.QueryToken{Token: last.Term, Position: last.Position}, true
+	return queryToken{Token: last.Term, Position: last.Position}, true
 }
 
-func uniqueTokenTerms(tokens []partition.QueryToken) []string {
+func uniqueTokenTerms(tokens []queryToken) []string {
 	terms := make([]string, len(tokens))
 	for index, token := range tokens {
 		terms[index] = token.Token

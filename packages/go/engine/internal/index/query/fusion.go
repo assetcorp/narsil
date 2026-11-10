@@ -2,7 +2,6 @@ package query
 
 import (
 	"math"
-	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -100,12 +99,10 @@ func Fuse(textLeg, vectorLeg []RankedEntry, settings FusionSettings) ([]RankedEn
 			request.Vector.Scores[position] = entry.Score
 		}
 	}
-	capacity := len(textLeg) + len(vectorLeg)
-	request.IDRanks = make([]uint32, capacity)
-	for key := range request.IDRanks {
-		request.IDRanks[key] = uint32(key)
-	}
-	output := &core.FusionOutput{Keys: make([]uint32, capacity), Scores: make([]float64, capacity)}
+	request.IDRanks = IDRanks(len(entries), func(left, right int) int {
+		return text.CompareCodePoints(entries[left].ID, entries[right].ID)
+	})
+	output := &core.FusionOutput{Keys: make([]uint32, len(entries)), Scores: make([]float64, len(entries))}
 	workspace, err := core.AcquireWorkspace()
 	if err != nil {
 		return nil, err
@@ -116,16 +113,6 @@ func Fuse(textLeg, vectorLeg []RankedEntry, settings FusionSettings) ([]RankedEn
 		return nil, fusionFailure(err)
 	}
 	keys, scores := output.Keys[:found], output.Scores[:found]
-	for start := 0; start < len(keys); {
-		end := start + 1
-		for end < len(keys) && scores[end] == scores[start] {
-			end++
-		}
-		slices.SortStableFunc(keys[start:end], func(left, right uint32) int {
-			return text.CompareCodePoints(entries[left].ID, entries[right].ID)
-		})
-		start = end
-	}
 	fused := make([]RankedEntry, found)
 	for position, key := range keys {
 		if int(key) >= len(entries) {

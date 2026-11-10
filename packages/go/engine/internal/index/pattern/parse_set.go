@@ -34,60 +34,60 @@ func (reader *regexReader) parseSet(start int) (*node, *parseFailure) {
 
 func (reader *regexReader) parseSetItem() (setItem, *parseFailure) {
 	start := reader.at
-	low, lowClass, failure := reader.parseSetMember(true)
+	low, lowIsClass, failure := reader.parseSetMember(true)
 	if failure != nil {
 		return setItem{}, failure
 	}
-	if lowClass != nil {
-		return *lowClass, nil
+	if lowIsClass {
+		return setItem{kind: setClass}, nil
 	}
 	if reader.peek(0) != '-' || reader.peek(1) == ']' {
 		return setItem{kind: setMember, codePoint: low}, nil
 	}
 	reader.at++
-	high, highClass, failure := reader.parseSetMember(false)
+	high, highIsClass, failure := reader.parseSetMember(false)
 	if failure != nil {
 		return setItem{}, failure
 	}
-	if highClass != nil {
+	if highIsClass {
 		return setItem{}, &parseFailure{rangeEndsInClassReason, start}
 	}
 	if low > high {
 		return setItem{}, &parseFailure{"holds the set range " + quoted(string(low)+"-"+string(high)) +
 			", whose low end is above its high end", start}
 	}
-	return setItem{kind: setRange, low: low, high: high}, nil
+	return setItem{kind: setRange}, nil
 }
 
-func (reader *regexReader) parseSetMember(classAllowed bool) (rune, *setItem, *parseFailure) {
+func (reader *regexReader) parseSetMember(classAllowed bool) (rune, bool, *parseFailure) {
 	start := reader.at
 	codePoint := reader.take()
 	if codePoint == noCodePoint {
-		return 0, nil, &parseFailure{setNeverClosesReason, start}
+		return 0, false, &parseFailure{setNeverClosesReason, start}
 	}
 	if codePoint == '[' || codePoint == ']' || codePoint == '-' {
 		shown := string(codePoint)
-		return 0, nil, &parseFailure{"holds " + quoted(shown) + " inside a set. Write " + quoted(`\`+shown) +
+		return 0, false, &parseFailure{"holds " + quoted(shown) + " inside a set. Write " + quoted(`\`+shown) +
 			" to match that code point there", start}
 	}
 	if codePoint != '\\' {
-		return codePoint, nil, nil
+		return codePoint, false, nil
 	}
 	escaped := reader.take()
 	if escaped == noCodePoint {
-		return 0, nil, &parseFailure{trailingEscape, start}
+		return 0, false, &parseFailure{trailingEscape, start}
 	}
-	class, isClass := classEscape(escaped)
+	isClass := isClassEscape(escaped)
 	if isClass && classAllowed {
-		return 0, &setItem{kind: setClass, class: class}, nil
+		return 0, true, nil
 	}
 	if isASCIIPunctuation(escaped) {
-		return escaped, nil, nil
+		return escaped, false, nil
 	}
 	if isClass {
-		return 0, nil, &parseFailure{rangeEndsInClassReason, start}
+		return 0, false, &parseFailure{rangeEndsInClassReason, start}
 	}
-	return 0, nil, &parseFailure{unknownEscape(escaped), start}
+	return 0, false, &parseFailure{unknownEscape(escaped), start}
 }
 
 func (reader *regexReader) parseNumberRange(start int) (*node, *parseFailure) {

@@ -91,33 +91,34 @@ type mappedVectorFile struct {
 }
 
 type storeMemory struct {
-	dimension     int
-	bits          uint32
-	vectorLayout  blockGeometry
-	codeLayout    blockGeometry
-	head          *storeHead
-	magnitudes    *growable
-	present       *growable
-	vectorFile    *growable
-	vectorOffset  *growable
-	born          *growable
-	retired       *growable
-	slotTable     *Slots
-	tables        *storeTables
-	table         *ordinalTable
-	byDocID       sync.Map
-	liveCount     atomic.Int64
-	removedCount  atomic.Int64
-	unplacedCount atomic.Int64
-	retiredScans  atomic.Int64
-	replaced      map[int32]struct{}
-	scanned       map[int32]struct{}
-	freedHolds    int
-	freedHeld     map[int32]struct{}
-	unknownParts  int
-	docIDBytes    int
-	longestDocID  int
-	resource      *sharedResource
+	dimension      int
+	bits           uint32
+	vectorLayout   blockGeometry
+	codeLayout     blockGeometry
+	head           *storeHead
+	magnitudes     *growable
+	present        *growable
+	vectorFile     *growable
+	vectorOffset   *growable
+	born           *growable
+	retired        *growable
+	slotTable      *Slots
+	tables         *storeTables
+	table          *ordinalTable
+	byDocID        sync.Map
+	liveCount      atomic.Int64
+	removedCount   atomic.Int64
+	unplacedCount  atomic.Int64
+	retiredScans   atomic.Int64
+	liveBySequence atomic.Pointer[[]liveAtSequence]
+	replaced       map[int32]struct{}
+	scanned        map[int32]struct{}
+	freedHolds     int
+	freedHeld      map[int32]struct{}
+	unknownParts   int
+	docIDBytes     int
+	longestDocID   int
+	resource       *sharedResource
 }
 
 func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots) (*storeMemory, error) {
@@ -233,10 +234,6 @@ func (s *storeMemory) slots() int32 {
 
 func (s *storeMemory) calibrated() bool {
 	return s.word(core.StoreWordCalibrated).Load() == 1
-}
-
-func (s *storeMemory) codeCount() int {
-	return int(s.word(core.StoreWordCodeCount).Load())
 }
 
 func (s *storeMemory) calibrationGeneration() int32 {

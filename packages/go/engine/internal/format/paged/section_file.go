@@ -66,10 +66,7 @@ func (reader SectionReader) page(page int64) ([]byte, error) {
 		}
 	}
 	data := make([]byte, min(section.PageBytes, section.Length-page*section.PageBytes))
-	if err := readFileRange(file.source, entry, data, file.key); err != nil {
-		return nil, err
-	}
-	if err := requirePage(section, page, data, file.key); err != nil {
+	if err := readPageOf(file.source, section, page, data, file.key); err != nil {
 		return nil, err
 	}
 	if !file.closed.Load() {

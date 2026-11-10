@@ -272,7 +272,7 @@ func (b *filterBuilder) fieldPlan(path string, filter *model.FieldFilter, parsed
 		return err
 	}
 	if parsed.Pattern {
-		if err := b.patternTests(path, filter, p.append); err != nil {
+		if err := p.patternTests(filter); err != nil {
 			return err
 		}
 	} else {

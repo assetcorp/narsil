@@ -1,150 +1,116 @@
 package partition
 
 import (
-	"sort"
-
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/frozen"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
 
-func indexesOf(documents []*StoredDocument, fields []schema.Field) frozen.FieldIndexes {
-	scratch := newSide()
-	valueFields := make([]schema.Field, len(fields))
-	for at, field := range fields {
-		valueFields[at] = field
-		valueFields[at].Pattern = false
+func growingFields(set *fields.Set, declared []schema.Field) *segments.GrowingFields {
+	collected := &segments.GrowingFields{}
+	for _, field := range declared {
+		path := field.Path
+		if index := set.Numeric(path); index != nil {
+			collected.Numeric = append(collected.Numeric, segments.Field[*core.NumericIndex]{Path: path, Index: index.Index()})
+		}
+		if index := set.Sizes(path); index != nil {
+			collected.Sizes = append(collected.Sizes, segments.Field[*core.NumericIndex]{Path: path, Index: index.Index()})
+		}
+		if index := set.Boolean(path); index != nil {
+			collected.Boolean = append(collected.Boolean, segments.Field[*core.BooleanIndex]{Path: path, Index: index.Index()})
+		}
+		if index := set.Enum(path); index != nil {
+			collected.Enum = append(collected.Enum, segments.Field[*core.EnumIndex]{Path: path, Index: index.Index()})
+		}
+		if index := set.Geo(path); index != nil {
+			collected.Geo = append(collected.Geo, segments.Field[*core.GeoIndex]{Path: path, Index: index.Index()})
+		}
+		if index := set.Pattern(path); index != nil {
+			collected.Pattern = append(collected.Pattern, segments.Field[*core.PatternIndex]{Path: path, Index: index.Index()})
+		}
 	}
-	for ordinal, document := range documents {
-		scratch.indexValues(uint32(ordinal), document.Fields, valueFields)
+	for _, path := range set.StoredFields() {
+		if stored := set.Stored(path); stored != nil {
+			collected.Stored = append(collected.Stored, segments.Field[*core.StoredValues]{Path: path, Index: stored.Values()})
+		}
 	}
-	scratch.settle()
-	return frozen.FieldIndexes{Numbers: scratch.numbers, Booleans: scratch.booleans, Enums: scratch.enums, Geopoints: scratch.geopoints, Sizes: scratch.sizes}
+	return collected
 }
 
-func (s *side) tailHoldsPositions() bool {
-	holds := false
-	s.postings.ForEachToken(func(token string) bool {
-		list, found := s.postings.Lookup(token)
-		holds = found && list.HoldsPositions()
-		return !holds
+func (s *side) partialFieldNames() []string {
+	var names []string
+	for _, name := range s.names.names[:s.fieldCount] {
+		if s.names.partial[name] {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (s *side) freezeGrowing(w *core.Workspace, declared []schema.Field, columns []ColumnRequest) (*freezeResult, error) {
+	if err := s.growing.EndBatch(); err != nil {
+		return nil, err
+	}
+	if err := s.fields.Settle(s.capacity); err != nil {
+		return nil, err
+	}
+	mapping := make([]uint32, s.capacity)
+	ids := make([]string, 0, s.liveCount)
+	documents := make([][]byte, 0, s.liveCount)
+	for ordinal := range s.capacity {
+		mapping[ordinal] = core.MergeDroppedOrdinal
+		if !s.holdsLive(ordinal) {
+			continue
+		}
+		document, held := s.gen.documents.at(s.index, ordinal)
+		if !held {
+			return nil, corruptedPartition("a live growing ordinal holds no stored document", ordinal)
+		}
+		mapping[ordinal] = uint32(len(ids))
+		ids = append(ids, document.id)
+		documents = append(documents, document.encoded)
+	}
+	frozen, err := segments.Freeze(w, segments.GrowingInput{
+		Segment:           s.growing.View(),
+		FieldNames:        append([]string(nil), s.names.names[:s.fieldCount]...),
+		PartialFieldNames: s.partialFieldNames(),
+		Mapping:           mapping,
+		Fields:            growingFields(s.fields, declared),
 	})
-	return holds
+	if err != nil {
+		return nil, err
+	}
+	return &freezeResult{segment: newFrozenSegment(frozen, ids, documents), next: newGeneration(), columns: columns}, nil
 }
 
-func (s *side) frozenTail(fields []schema.Field) *frozen.Segment {
-	remap := make([]int32, s.documents.capacity())
-	documents := make([]*StoredDocument, 0, s.documents.count)
-	for ordinal := range remap {
-		remap[ordinal] = -1
-		if document := s.documents.at(uint32(ordinal)); document != nil {
-			remap[ordinal] = int32(len(documents))
-			documents = append(documents, document)
-		}
-	}
-	builder := frozen.NewBuilder(documents, append([]string(nil), s.fieldNames...), s.tailHoldsPositions())
-	s.postings.ForEachToken(func(token string) bool {
-		list, found := s.postings.Lookup(token)
-		if !found {
-			return true
-		}
-		builder.BeginToken(token)
-		for row, ordinal := range list.DocIDs {
-			if list.DeadDocuments > 0 && s.postings.IsRetired(ordinal) || int(ordinal) >= len(remap) || remap[ordinal] < 0 {
-				continue
-			}
-			builder.AddRow(uint32(remap[ordinal]), list.Frequencies[row], list.Fields[row], list.PositionsAt(row))
-		}
-		return true
-	})
-	names := make([]string, 0, len(s.statistics.totalFieldLengths))
-	for field := range s.statistics.totalFieldLengths {
-		names = append(names, field)
-	}
-	sort.Strings(names)
-	columns := make([][]uint32, len(names))
-	for at, field := range names {
-		column := make([]uint32, len(documents))
-		source := s.documents.lengthColumns[field]
-		for ordinal, target := range remap {
-			if target >= 0 && ordinal < len(source) {
-				column[target] = source[ordinal]
-			}
-		}
-		columns[at] = column
-	}
-	surfaces := make([]frozen.SurfaceForm, 0, len(s.surfaces.entries))
-	for surface, entry := range s.surfaces.entries {
-		surfaces = append(surfaces, frozen.SurfaceForm{Surface: surface, Token: entry.token, Occurrences: entry.count})
-	}
-	parts := frozen.Parts{LengthNames: names, LengthColumns: columns, Indexes: indexesOf(documents, fields), Surfaces: surfaces,
-		Patterns: s.frozenPatterns(remap)}
-	if encoded, held := s.partial.Encode(); held {
-		parts.PartialSpellings = &encoded
-	}
-	return builder.Finish(parts)
-}
-
-func (p *Partition) FreezeLiveTail(minimumDocuments int) bool {
-	p.pair.writer.Lock()
-	defer p.pair.writer.Unlock()
-	active := p.pair.activeState()
-	if active.documents.count == 0 || active.documents.count < minimumDocuments {
-		return false
-	}
-	segment := active.frozenTail(p.fields)
-	p.pair.publish([]operation{{kind: freezeTail, segment: segment}})
-	return true
-}
-
-func (p *Partition) AttachFrozenSegment(segment *frozen.Segment, tombstonedIDs []string) error {
-	if segment == nil {
-		return nil
-	}
-	analysed, err := p.analysisFor(false)
+func (s *side) restart(p *Partition, result *freezeResult) error {
+	fresh, err := p.newSide(s.index, result.next)
 	if err != nil {
 		return err
 	}
-	tombstoned := map[string]struct{}{}
-	for _, id := range tombstonedIDs {
-		tombstoned[id] = struct{}{}
-	}
-	isTombstoned := func(ordinal int) bool {
-		id, _ := segment.IDAt(uint32(ordinal))
-		_, removed := tombstoned[id]
-		return removed
-	}
-	segment, rebuilt, err := p.withPartialTable(segment, isTombstoned, analysed.Pass)
-	if err != nil {
+	s.release()
+	s.gen, s.growing, s.fields = result.next, fresh.growing, fresh.fields
+	s.fieldCount, s.capacity, s.liveCount = 0, 0, 0
+	s.ids, s.live = map[string]uint32{}, nil
+	if err := s.growing.BeginBatch(); err != nil {
 		return err
 	}
-	var carried []carriedTombstone
-	for ordinal := range segment.DocumentCount() {
-		id, _ := segment.IDAt(uint32(ordinal))
-		if _, removed := tombstoned[id]; !removed {
-			continue
-		}
-		document, err := segment.DocumentAt(uint32(ordinal))
-		if err != nil {
-			return err
-		}
-		text, err := p.carriedText(segment, document, analysed, !rebuilt)
-		if err != nil {
-			return err
-		}
-		carried = append(carried, carriedTombstone{ordinal: uint32(ordinal), text: text})
+	return s.keepColumns(result.columns)
+}
+
+func (s *side) installFreeze(p *Partition, result *freezeResult) error {
+	if err := s.restart(p, result); err != nil {
+		return err
 	}
-	p.pair.writer.Lock()
-	defer p.pair.writer.Unlock()
-	active := p.pair.activeState()
-	for ordinal := range segment.DocumentCount() {
-		id, _ := segment.IDAt(uint32(ordinal))
-		if _, removed := tombstoned[id]; removed {
-			continue
-		}
-		if active.locate(id).found() {
-			return alreadyExists(id, p.id)
-		}
+	s.frozen = append(s.frozen[:len(s.frozen):len(s.frozen)], newFrozenSide(result.segment, result.segment.newState()))
+	return nil
+}
+
+func (s *side) clear(p *Partition, result *freezeResult) error {
+	if err := s.restart(p, result); err != nil {
+		return err
 	}
-	p.pair.publish([]operation{{kind: swapSegments, segment: segment, carried: carried}})
+	s.frozen = nil
 	return nil
 }

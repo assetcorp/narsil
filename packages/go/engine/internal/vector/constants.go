@@ -60,8 +60,7 @@ const (
 	diskAdoptionYieldInterval      = 4096
 	searchScratchInitialCandidates = 256
 	initialReachQueue              = 4096
-	readerWaitFirstDelay           = 2 * time.Microsecond
-	readerWaitMaxDelay             = time.Millisecond
+	liveCountsKept                 = 16
 )
 
 const (
@@ -74,22 +73,11 @@ const (
 )
 
 const (
-	osqLambda                 = 0.1
-	osqRefineRounds           = 5
-	osqRefineTolerance        = 1e-8
-	osqRecordTrailerBytes     = 16
-	osqQueryPlanesNarrowCodes = 4
-	osqLevelsInATwoBitByte    = 4
-	osqWideQueryBits          = 8
-	osqNarrowQueryBits        = 4
-	coldWalkNoEntry           = -1
-	coldGraphPartVectors      = vectorGraphPartVectors
-	coldIDOffsetEntryBytes    = 4
-	coldVectorComponentBytes  = 4
-	coldNeighbourEntryBytes   = 4
-)
-
-var (
-	osqGridByBits  = map[uint32]float64{1: 0.798, 2: 1.493, 4: 2.514, 8: 3.922}
-	osqStepsByBits = map[uint32]float64{1: 1, 2: 3, 4: 15, 8: 255}
+	coldGraphPartVectors     = vectorGraphPartVectors
+	coldIDOffsetEntryBytes   = 4
+	coldVectorComponentBytes = 4
+	coldPageCacheSlots       = 64
+	coldPartitionEntryBytes  = 4
+	coldMagnitudeBytes       = 8
+	coldPageChecksumBytes    = 4
 )

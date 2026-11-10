@@ -4,39 +4,41 @@ import (
 	"context"
 	"maps"
 	"sync"
+	"sync/atomic"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
 type ColdVectorField interface {
 	LiveCount() int
 	ResidentBytes() int
-	NumberOf(docID string) (int, bool)
+	NumberOf(docID string) (int, bool, error)
 	VectorOfNumber(number int) ([]float32, error)
-	PartitionOf(docID string) (int32, bool)
+	PartitionOf(ctx context.Context, docID string) (int32, bool, error)
 	FilePaths() []string
-	Search(ctx context.Context, query []float32, k int, options SearchOptions, admits func(docID string) bool,
-		excluded map[int]struct{}) ([]ScoredResult, error)
+	Search(ctx context.Context, query []float32, k int, options SearchOptions, excluded map[int]struct{}) ([]ScoredResult,
+		error)
+	ScoreNumbers(query []float32, metric core.Metric, numbers []int, distances []float64) error
 	Close()
 }
 
 type ColdFieldLoad func(ctx context.Context, beginRestore func(shape CheckpointRestoreShape) (*CheckpointRestore, error),
 	stillWanted func() bool, loadingWanted <-chan struct{}) error
 
-type coldWritten struct {
-	values    []float32
-	partition int32
-}
-
 type coldView struct {
-	written        map[string]coldWritten
+	written        map[string]int32
 	removedNumbers map[int]struct{}
 	removedIDs     map[string]struct{}
 	live           int
+	sequence       int64
 }
 
 type coldHold struct {
 	field    ColdVectorField
+	stored   atomic.Pointer[coldWrittenStore]
 	view     *coldView
-	writes   []func(sequence int64) error
+	writes   []func() error
+	replay   atomic.Pointer[error]
 	loaded   chan struct{}
 	failure  error
 	wanted   chan struct{}
@@ -46,7 +48,14 @@ type coldHold struct {
 
 func (v *coldView) copied() *coldView {
 	return &coldView{written: maps.Clone(v.written), removedNumbers: maps.Clone(v.removedNumbers),
-		removedIDs: maps.Clone(v.removedIDs), live: v.live}
+		removedIDs: maps.Clone(v.removedIDs), live: v.live, sequence: v.sequence}
+}
+
+func (h *coldHold) replayFailure() error {
+	if failure := h.replay.Load(); failure != nil {
+		return *failure
+	}
+	return nil
 }
 
 func (h *coldHold) wantLoad() {
@@ -62,42 +71,73 @@ func (f *Field) setCold(hold *coldHold) {
 	f.coldNow.Store(hold)
 }
 
-func (f *Field) retireOlderCopy(view *coldView, docID string) bool {
+func (f *Field) retireOlderCopy(view *coldView, docID string) (bool, error) {
 	if _, held := view.written[docID]; held {
 		delete(view.written, docID)
-		return true
+		return true, nil
 	}
 	if _, removed := view.removedIDs[docID]; removed {
-		return false
+		return false, nil
 	}
-	number, held := f.cold.field.NumberOf(docID)
-	if !held {
-		return false
+	number, held, err := f.cold.field.NumberOf(docID)
+	if err != nil || !held {
+		return false, err
 	}
 	view.removedIDs[docID] = struct{}{}
 	view.removedNumbers[number] = struct{}{}
-	return true
+	return true, nil
 }
 
-func (h *coldHold) insert(docID string, values []float32, partition int32, field *Field) {
+func (h *coldHold) insert(docID string, values []float32, field *Field) error {
 	view := h.view.copied()
-	if !field.retireOlderCopy(view, docID) {
+	replaced, err := field.retireOlderCopy(view, docID)
+	if err != nil {
+		return err
+	}
+	stored := h.stored.Load()
+	if stored == nil {
+		created, err := newColdWrittenStore(field.config.dimension, field.config.blockBytes)
+		if err != nil {
+			return err
+		}
+		stored = created
+		h.stored.Store(stored)
+	}
+	ordinal, sequence, err := stored.insert(docID, values)
+	if err != nil {
+		return err
+	}
+	if !replaced {
 		view.live++
 	}
-	view.written[docID] = coldWritten{values: append([]float32(nil), values...), partition: partition}
+	view.written[docID] = ordinal
+	view.sequence = sequence
 	h.view = view
 	field.coldViewNow.Store(view)
+	return nil
 }
 
-func (h *coldHold) remove(docID string, field *Field) bool {
+func (h *coldHold) remove(docID string, field *Field) (bool, error) {
 	view := h.view.copied()
-	removed := field.retireOlderCopy(view, docID)
-	if removed {
-		view.live--
-		h.view = view
-		field.coldViewNow.Store(view)
+	removed, err := field.retireOlderCopy(view, docID)
+	if err != nil || !removed {
+		return false, err
 	}
-	return removed
+	if stored := h.stored.Load(); stored != nil {
+		view.sequence = stored.remove(docID)
+	}
+	view.live--
+	h.view = view
+	field.coldViewNow.Store(view)
+	return true, nil
+}
+
+func (h *coldHold) release() {
+	h.cancel()
+	h.field.Close()
+	if stored := h.stored.Swap(nil); stored != nil {
+		stored.close()
+	}
 }
 
 func (f *Field) CodeBits() uint32 {
@@ -115,7 +155,7 @@ func (f *Field) OpenColdField(field ColdVectorField, load ColdFieldLoad) {
 	ctx, cancel := context.WithCancel(f.builds.lifetime)
 	hold := &coldHold{
 		field:  field,
-		view:   &coldView{written: map[string]coldWritten{}, removedNumbers: map[int]struct{}{}, removedIDs: map[string]struct{}{}, live: field.LiveCount()},
+		view:   &coldView{written: map[string]int32{}, removedNumbers: map[int]struct{}{}, removedIDs: map[string]struct{}{}, live: field.LiveCount()},
 		loaded: make(chan struct{}),
 		wanted: make(chan struct{}),
 		cancel: cancel,
@@ -157,19 +197,21 @@ func (f *Field) loadCold(ctx context.Context, hold *coldHold, load ColdFieldLoad
 }
 
 func (f *Field) endColdHold(hold *coldHold) error {
-	var failure error
 	replayed := max(f.slots.Sequence(), loadedWriteSequence)
 	for _, write := range hold.writes {
-		if err := write(replayed); err != nil && failure == nil {
-			failure = err
+		if err := write(); err != nil {
+			hold.replay.Store(&err)
+			hold.writes = nil
+			hold.release()
+			return err
 		}
 	}
 	f.store.publishSequence(replayed)
 	f.setCold(nil)
 	f.coldViewNow.Store(nil)
-	hold.field.Close()
-	hold.cancel()
-	return failure
+	f.recordAdmittedLive()
+	hold.release()
+	return nil
 }
 
 func (f *Field) cancelColdHold() {
@@ -179,8 +221,7 @@ func (f *Field) cancelColdHold() {
 	}
 	f.setCold(nil)
 	f.coldViewNow.Store(nil)
-	hold.cancel()
-	hold.field.Close()
+	hold.release()
 }
 
 func (f *Field) UntilColdLoaded(ctx context.Context) error {

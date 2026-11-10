@@ -117,13 +117,13 @@ var patternMerge = fieldMerge[*core.PatternIndex, *core.PatternIndex]{
 	},
 }
 
-func storedMerge[T any](source func(T) core.FieldIndex) fieldMerge[T, *core.StoredValueRegions] {
-	return fieldMerge[T, *core.StoredValueRegions]{
+func storedMerge[T any](source func(T) core.FieldIndex) fieldMerge[T, *core.StoredValueSlices] {
+	return fieldMerge[T, *core.StoredValueSlices]{
 		kind:   core.FieldMergeStored,
 		source: source,
-		empty:  func(documents uint32) core.FieldIndex { return core.EmptyStoredValueRegions(documents).Values() },
-		allocate: func(sizes core.FieldMergeSizes) (*core.StoredValueRegions, core.FieldIndex) {
-			regions := core.NewStoredValueRegions(sizes)
+		empty:  func(documents uint32) core.FieldIndex { return core.EmptyStoredValueSlices(documents).Values() },
+		allocate: func(sizes core.FieldMergeSizes) (*core.StoredValueSlices, core.FieldIndex) {
+			regions := core.NewStoredValueSlices(sizes)
 			return regions, regions.Values()
 		},
 	}
@@ -176,7 +176,7 @@ func growingStored(values *core.StoredValues) core.FieldIndex {
 	return values
 }
 
-func frozenStored(regions *core.StoredValueRegions) core.FieldIndex {
+func frozenStored(regions *core.StoredValueSlices) core.FieldIndex {
 	if regions == nil {
 		return (*core.StoredValues)(nil)
 	}

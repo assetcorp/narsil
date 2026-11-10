@@ -11,11 +11,14 @@ type rowColumns struct {
 type requestBuilder struct {
 	request core.KeywordRequest
 	output  core.KeywordOutput
+	labels  []string
 }
 
 func (b *requestBuilder) begin(segment *Segment) {
 	request := &b.request
 	documents, frequencies, fields := segment.pool()
+	clear(b.labels)
+	b.labels = b.labels[:0]
 	*request = core.KeywordRequest{
 		PoolDocIDs:      documents,
 		PoolFrequencies: frequencies,
@@ -54,7 +57,8 @@ func (b *requestBuilder) pushSlotValue(value float64) {
 	request.Slots[len(request.Slots)-core.KeywordSlotStride+core.KeywordSlotValueEnd] = uint32(len(request.SlotValues))
 }
 
-func (b *requestBuilder) pushList(flags, start, length uint32, first, second float64) {
+func (b *requestBuilder) pushList(flags, start, length uint32, first, second float64, label string) {
+	b.labels = append(b.labels, label)
 	request := &b.request
 	request.Lists = append(request.Lists, flags, start, length)
 	request.ListValues = append(request.ListValues, first, second)
@@ -77,20 +81,20 @@ func orderedFlag(ordered bool) uint32 {
 	return 0
 }
 
-func (b *requestBuilder) poolList(list postingList, first, second float64) {
-	b.pushList(orderedFlag(list.ordered), list.start, list.length, first, second)
+func (b *requestBuilder) poolList(list postingList, first, second float64, label string) {
+	b.pushList(orderedFlag(list.ordered), list.start, list.length, first, second, label)
 }
 
-func (b *requestBuilder) rowList(rows *rowColumns, ordered bool, first, second float64) {
+func (b *requestBuilder) rowList(rows *rowColumns, ordered bool, first, second float64, label string) {
 	request := &b.request
 	start := uint32(len(request.RowDocIDs))
 	request.RowDocIDs = append(request.RowDocIDs, rows.documents...)
 	request.RowFrequencies = append(request.RowFrequencies, rows.frequencies...)
 	request.RowFields = append(request.RowFields, rows.fields...)
-	b.pushList(core.KeywordListFromRows|orderedFlag(ordered), start, uint32(len(rows.documents)), first, second)
+	b.pushList(core.KeywordListFromRows|orderedFlag(ordered), start, uint32(len(rows.documents)), first, second, label)
 }
 
-func (b *requestBuilder) phraseSlot(documentFrequencies []float64, documents []uint32, fields []uint16, frequencies []uint32) {
+func (b *requestBuilder) phraseSlot(documentFrequencies []float64, documents []uint32, fields []uint16, frequencies []uint32, label string) {
 	b.openSlot(core.KeywordPhraseSlot, 0)
 	for _, frequency := range documentFrequencies {
 		b.pushSlotValue(frequency)
@@ -106,7 +110,7 @@ func (b *requestBuilder) phraseSlot(documentFrequencies []float64, documents []u
 			ordered = false
 		}
 	}
-	b.pushList(core.KeywordListFromRows|orderedFlag(ordered), start, uint32(len(documents)), 0, 0)
+	b.pushList(core.KeywordListFromRows|orderedFlag(ordered), start, uint32(len(documents)), 0, 0, label)
 }
 
 func (b *requestBuilder) sizeOutput(capacity uint32) *core.KeywordOutput {

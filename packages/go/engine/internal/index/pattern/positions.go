@@ -1,10 +1,18 @@
 package pattern
 
-const saturatedPositions = MaxPositions + 1
+import (
+	"math"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
+)
 
 type multiFoldKey struct {
 	codePoints [3]rune
 	count      int
+}
+
+func appendFolded(destination []rune, codePoint rune) []rune {
+	return text.AppendFoldedCodePoint(destination, codePoint)
 }
 
 func saturating(total int) int {
@@ -76,4 +84,52 @@ func distinctMultiFolds(items []setItem) [][]rune {
 		folds = append(folds, fold)
 	}
 	return folds
+}
+
+type typoText struct {
+	folded      []rune
+	longestFold int
+}
+
+func foldTypoText(source string) typoText {
+	prepared := typoText{folded: make([]rune, 0, len(source))}
+	for _, codePoint := range source {
+		before := len(prepared.folded)
+		prepared.folded = appendFolded(prepared.folded, codePoint)
+		prepared.longestFold = max(prepared.longestFold, len(prepared.folded)-before)
+	}
+	return prepared
+}
+
+type runKey [RunCodePoints]rune
+
+func roundHalfUp(numerator, denominator int) int {
+	value := float64(numerator) / float64(denominator)
+	whole := math.Floor(value)
+	if value-whole >= 0.5 {
+		whole++
+	}
+	return int(whole)
+}
+
+func typoRunsNeeded(tolerance, longestFold int) int {
+	return tolerance*(2+longestFold) + 1
+}
+
+func distinctTypoRunCount(prepared typoText, limit int) int {
+	folded := prepared.folded
+	positions := len(folded) - RunCodePoints + 1
+	kept := map[runKey]struct{}{}
+	keep := func(at int) {
+		kept[runKey{folded[at], folded[at+1], folded[at+2]}] = struct{}{}
+	}
+	if positions > limit && limit > 1 {
+		for pick := range limit {
+			keep(roundHalfUp(pick*(positions-1), limit-1))
+		}
+	}
+	for at := 0; at < positions && len(kept) < limit; at++ {
+		keep(at)
+	}
+	return len(kept)
 }

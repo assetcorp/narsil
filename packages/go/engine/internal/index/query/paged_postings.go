@@ -3,6 +3,8 @@ package query
 import (
 	"encoding/binary"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -31,8 +33,35 @@ func (p *pagedPool) reset(segment *Segment) {
 	clear(p.lists)
 }
 
-func pagedPhraseRefusal() error {
-	return narsilerr.New(narsilerr.CodeConfigInvalid, "A phrase search on a paged segment needs the positions section of that segment, which the partition view does not hold", nil)
+func (s *searcher) pagedPhrasePostings(segment *Segment, term uint32, found bool) (core.PhrasePostings, error) {
+	if !found {
+		return core.PhrasePostings{Ordered: true}, nil
+	}
+	list, err := s.postingsOf(segment, term)
+	if err != nil {
+		return core.PhrasePostings{}, err
+	}
+	offsets, values, held, err := segment.Paged.ReadPositions(term)
+	if err != nil {
+		return core.PhrasePostings{}, narsilerr.Passthrough(err, narsilerr.CodePartitionCorrupted, "The positions of a paged segment could not be read")
+	}
+	if !held || len(offsets) != int(list.length)+1 {
+		return core.PhrasePostings{Ordered: true}, nil
+	}
+	documents, _, fields := s.poolOf(segment)
+	end := list.start + list.length
+	postings := core.PhrasePostings{
+		Documents:      documents[list.start:end],
+		Fields:         fields[list.start:end],
+		PositionStarts: offsets[:list.length],
+		PositionCounts: make([]uint32, list.length),
+		Positions:      values,
+		Ordered:        list.ordered,
+	}
+	for row := range list.length {
+		postings.PositionCounts[row] = offsets[row+1] - offsets[row]
+	}
+	return postings, nil
 }
 
 func (s *searcher) postingsOf(segment *Segment, term uint32) (postingList, error) {
@@ -56,7 +85,7 @@ func (s *searcher) postingsOf(segment *Segment, term uint32) (postingList, error
 	}
 	read, err := segment.Paged.ReadPostings(s.workspace, term, pool.bytes[:count*pagedPostingBytes])
 	if err != nil {
-		return postingList{}, narsilerr.Wrap(narsilerr.CodePartitionCorrupted, "The postings of a paged segment could not be read", err, nil)
+		return postingList{}, narsilerr.Passthrough(err, narsilerr.CodePartitionCorrupted, "The postings of a paged segment could not be read")
 	}
 	if read != count {
 		return postingList{}, narsilerr.New(narsilerr.CodePartitionCorrupted, "A paged segment returned a posting count its offsets do not hold", nil)

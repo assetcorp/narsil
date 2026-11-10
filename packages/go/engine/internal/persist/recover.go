@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/wal"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
@@ -110,7 +110,7 @@ func (manager *Manager) recoverHandle(ctx context.Context, handle *Handle) (*Dur
 		return nil, err
 	}
 	if manager.logged() {
-		if err := manager.replayLogs(handle, applied); err != nil {
+		if err := manager.replayLogs(ctx, handle, applied); err != nil {
 			if upgrade != nil {
 				manager.reportUpgrade(handle.Name, upgrade.layout, LayoutUpgradeFailed, err)
 			}
@@ -189,11 +189,10 @@ func LoadManifest(ctx context.Context, store checkpoint.Store, handle *Handle, l
 					" beyond the partition count "+strconv.Itoa(count),
 				map[string]any{"indexName": handle.Name, "partitionId": entry.PartitionID, "partitionCount": count})
 		}
-		if err := checkpoint.EachStoredSegment(ctx, store, entry, listed.Schema, pagedText,
-			func(segment checkpoint.StoredSegment) error {
-				return loadSegment(handle.Index, int(entry.PartitionID), segment)
-			}); err != nil {
-			return err
+		for _, ref := range entry.Segments {
+			if err := loadListedSegment(ctx, store, handle, int(entry.PartitionID), ref.File, listed.Schema); err != nil {
+				return err
+			}
 		}
 	}
 	for _, ref := range listed.Vectors {
@@ -252,51 +251,43 @@ func textStoredOnDisk(handle *Handle) bool {
 	return set && storage == textStorageDisk
 }
 
-func loadSegment(target *index.Index, attachTo int, segment checkpoint.StoredSegment) error {
-	removed := segment.RemovedIDs()
-	replaced := make([]string, 0, len(removed))
-	chosen := map[string]struct{}{}
-	choose := func(id string) {
-		if _, held := chosen[id]; held || !target.Has(id) {
-			return
-		}
-		chosen[id] = struct{}{}
-		replaced = append(replaced, id)
-	}
-	for _, id := range removed {
-		choose(id)
-	}
+func loadSegment(ctx context.Context, target *index.Index, attachTo int, segment checkpoint.StoredSegment) error {
 	count := segment.DocumentTotal()
+	stored := make([]string, count)
 	for ordinal := range count {
-		choose(segment.DocumentID(ordinal))
+		stored[ordinal] = segment.DocumentID(ordinal)
 	}
-	for start := 0; start < len(replaced); start += RecoveryInsertBatchDocuments {
-		end := min(start+RecoveryInsertBatchDocuments, len(replaced))
-		if err := firstFailure(target.Remove(replaced[start:end])); err != nil {
-			return err
-		}
+	replaced, err := heldDocumentIDs(ctx, target, segment.RemovedIDs(), stored)
+	if err != nil {
+		return err
+	}
+	if err := applyInBatches(target, index.WriteRemove, removalsOf(replaced), firstFailure); err != nil {
+		return err
 	}
 	if count > 0 && routesWhole(target, attachTo, segment) {
-		return attachStored(target, attachTo, segment)
+		if err := attachStored(target, attachTo, segment); err != nil {
+			return narsilerr.Passthrough(err, narsilerr.CodePersistenceLoadFailed,
+				"A checkpoint segment cannot be attached to its partition")
+		}
+		return nil
 	}
-	batch := make([]partition.Document, 0, min(count, RecoveryInsertBatchDocuments))
+	inserted := make([]index.DocumentWrite, count)
 	for ordinal := range count {
 		fields, err := segment.StoredDocument(ordinal)
 		if err != nil {
 			return err
 		}
-		batch = append(batch, partition.Document{ID: segment.DocumentID(ordinal), Fields: fields})
-		if len(batch) == RecoveryInsertBatchDocuments || ordinal == count-1 {
-			if err := firstFailure(target.Insert(batch)); err != nil {
-				return err
-			}
-			batch = batch[:0]
+		encoded, err := segment.EncodedDocument(ordinal)
+		if err != nil {
+			return err
 		}
+		inserted[ordinal] = index.DocumentWrite{ID: stored[ordinal], Fields: fields, Encoded: slices.Clone(encoded)}
 	}
-	return nil
+	return applyInBatches(target, index.WriteInsert, inserted, firstFailure)
 }
 
 type replayBuffer struct {
+	ctx         context.Context
 	handle      *Handle
 	vectorPaths map[string]int
 	pending     []Write
@@ -318,26 +309,24 @@ func (buffer *replayBuffer) flush() error {
 	if len(buffer.pending) == 0 {
 		return nil
 	}
-	groups := map[int][]Write{}
-	for _, write := range buffer.pending {
-		partitionID := buffer.handle.Index.RoutePartition(write.DocumentID)
-		groups[partitionID] = append(groups[partitionID], write)
+	pending := buffer.pending
+	buffer.pending = nil
+	failures, err := buffer.handle.apply(buffer.ctx, pending)
+	if err != nil {
+		return err
 	}
-	buffer.pending = buffer.pending[:0]
-	for partitionID, group := range groups {
-		for at, err := range buffer.handle.apply(group, partitionID) {
-			if err != nil && narsilerr.CodeOf(err) != narsilerr.CodeDocNotFound {
-				return narsilerr.Wrap(narsilerr.CodePersistenceWalCorrupt,
-					`The log record for document "`+group[at].DocumentID+`" cannot be replayed`, err, nil)
-			}
+	for at, failure := range failures {
+		if failure != nil && narsilerr.CodeOf(failure) != narsilerr.CodeDocNotFound {
+			return narsilerr.Wrap(narsilerr.CodePersistenceWalCorrupt,
+				`The log record for document "`+pending[at].DocumentID+`" cannot be replayed`, failure, nil)
 		}
 	}
 	return nil
 }
 
-func (manager *Manager) replayLogs(handle *Handle, applied []uint64) error {
+func (manager *Manager) replayLogs(ctx context.Context, handle *Handle, applied []uint64) error {
 	for partitionID := range applied {
-		buffer := &replayBuffer{handle: handle, vectorPaths: handle.vectorPaths()}
+		buffer := &replayBuffer{ctx: ctx, handle: handle, vectorPaths: handle.vectorPaths()}
 		replayed, err := writeahead.Replay(manager.directory, handle.Name, uint32(partitionID), applied[partitionID],
 			buffer.add)
 		if err != nil {

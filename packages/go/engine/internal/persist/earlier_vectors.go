@@ -154,21 +154,16 @@ func vectorPlaces(handle *Handle, fields []earlier.VectorField) (map[string][]ve
 	return places, nil
 }
 
-func applyEarlierWrites(handle *Handle, writes []Write) error {
-	groups := map[int][]Write{}
-	for _, write := range writes {
-		partitionID := handle.Index.RoutePartition(write.DocumentID)
-		groups[partitionID] = append(groups[partitionID], write)
+func applyEarlierWrites(ctx context.Context, handle *Handle, writes []Write) error {
+	failures, err := handle.apply(ctx, writes)
+	if err != nil {
+		return err
 	}
-	for partitionID, group := range groups {
-		if err := firstFailure(handle.apply(group, partitionID)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return firstFailure(failures)
 }
 
-func insertEarlierDocuments(handle *Handle, partitions [][]byte, fields []earlier.VectorField) error {
+func insertEarlierDocuments(ctx context.Context, handle *Handle, partitions [][]byte,
+	fields []earlier.VectorField) error {
 	places, err := vectorPlaces(handle, fields)
 	if err != nil {
 		return err
@@ -179,7 +174,7 @@ func insertEarlierDocuments(handle *Handle, partitions [][]byte, fields []earlie
 		if err != nil {
 			return err
 		}
-		for _, id := range sortedDocumentIDs(stored.Documents) {
+		for _, id := range sortedKeys(stored.Documents) {
 			write := Write{DocumentID: id, Document: stored.Documents[id]}
 			for _, place := range places[id] {
 				field := fields[place.field]
@@ -191,12 +186,12 @@ func insertEarlierDocuments(handle *Handle, partitions [][]byte, fields []earlie
 			}
 			pending = append(pending, write)
 			if len(pending) == RecoveryInsertBatchDocuments {
-				if err := applyEarlierWrites(handle, pending); err != nil {
+				if err := applyEarlierWrites(ctx, handle, pending); err != nil {
 					return err
 				}
 				pending = pending[:0]
 			}
 		}
 	}
-	return applyEarlierWrites(handle, pending)
+	return applyEarlierWrites(ctx, handle, pending)
 }

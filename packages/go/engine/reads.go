@@ -7,32 +7,39 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
-func (entry *indexEntry) attachVectors(document model.Document, id string, shown projection.Projection) {
-	entry.attachVectorsUnder(context.Background(), document, id, shown)
-}
-
-func (entry *indexEntry) attachVectorsUnder(ctx context.Context, document model.Document, id string,
-	shown projection.Projection) {
+func (entry *indexEntry) attachVectorsUnder(ctx context.Context, document *model.Document, id string,
+	shown projection.Projection) error {
 	if len(entry.vectorPaths) == 0 || document == nil {
-		return
+		return nil
 	}
-	shown.CopyVectorsInto(document, entry.vectorPaths, func(path string) ([]float32, bool) {
+	return shown.CopyVectorsInto(document, entry.vectorPaths, func(path string) ([]float32, bool, error) {
 		return entry.handle.Vectors[path].GetVectorUnder(ctx, id)
 	})
 }
 
-func (entry *indexEntry) storedDocument(id string) (model.Document, bool) {
-	document, found := entry.index().GetProjected(id, model.DocumentProjection{})
-	if !found {
-		return nil, false
+func (entry *indexEntry) storedDocument(ctx context.Context, id string) (*model.Document, bool, error) {
+	ix := entry.index()
+	pinned, unpin, err := ix.Pin(ctx)
+	if err != nil {
+		return nil, false, err
 	}
-	entry.attachVectors(document, id, projection.Resolve(model.DocumentProjection{}))
-	return document, true
+	defer unpin()
+	document, found, err := ix.GetProjected(pinned, id, model.DocumentProjection{})
+	if err != nil || !found {
+		return nil, false, err
+	}
+	if err := entry.attachVectorsUnder(pinned, document, id, projection.Resolve(model.DocumentProjection{})); err != nil {
+		return nil, false, err
+	}
+	return document, true, nil
 }
 
-// Get returns a copy of the document stored under docID in the index called
-// indexName, with its vectors, and false when no document holds that ID.
-func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (Document, bool, error) {
+// Get returns the document stored under docID in the index called indexName,
+// with its vectors, and nil and false when no document holds that ID. The
+// document holds its own copy of the stored bytes, so it stays readable
+// after later writes, a vacuum, a compaction, and Close, and a change to it
+// reaches the index only through Update.
+func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (*Document, bool, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, false, err
@@ -41,24 +48,32 @@ func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (Docum
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	document, found := entry.storedDocument(docID)
-	return document, found, nil
+	return entry.storedDocument(ctx, docID)
 }
 
-// GetMultiple returns a copy of each stored document among docIDs, keyed by
-// ID; an ID that holds no document is absent from the map.
-func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []string) (map[string]Document, error) {
+// GetMultiple returns each stored document among docIDs as Get returns it,
+// keyed by ID; an ID that holds no document is absent from the map.
+func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []string) (map[string]*Document, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	found := make(map[string]model.Document, len(docIDs))
+	pinned, unpin, err := entry.index().Pin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unpin()
+	found := make(map[string]*model.Document, len(docIDs))
 	for _, id := range docIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if document, held := entry.storedDocument(id); held {
+		document, held, err := entry.storedDocument(pinned, id)
+		if err != nil {
+			return nil, err
+		}
+		if held {
 			found[id] = document
 		}
 	}
@@ -72,7 +87,10 @@ func (n *Narsil) Has(ctx context.Context, indexName string, docID string) (bool,
 		return false, err
 	}
 	defer release()
-	return entry.index().Has(docID), ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return entry.index().Has(ctx, docID)
 }
 
 // CountDocuments returns the number of documents in the index called indexName.
@@ -98,13 +116,20 @@ func (n *Narsil) ListDocuments(ctx context.Context, indexName string, params Lis
 	if err := ctx.Err(); err != nil {
 		return model.ListResult{}, err
 	}
-	result, err := entry.index().List(params)
+	pinned, unpin, err := entry.index().Pin(ctx)
+	if err != nil {
+		return model.ListResult{}, err
+	}
+	defer unpin()
+	result, err := entry.index().List(pinned, params)
 	if err != nil {
 		return model.ListResult{}, err
 	}
 	shown := projection.Resolve(params.Document)
 	for _, listed := range result.Documents {
-		entry.attachVectors(listed.Document, listed.ID, shown)
+		if err := entry.attachVectorsUnder(pinned, listed.Document, listed.ID, shown); err != nil {
+			return model.ListResult{}, err
+		}
 	}
 	return result, nil
 }

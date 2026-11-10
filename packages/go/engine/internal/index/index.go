@@ -6,11 +6,13 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/synonyms"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
 type Settings struct {
@@ -26,13 +28,23 @@ type Settings struct {
 	Strict          bool
 	SearchWorkCap   int64
 	Vectors         VectorFields
+	Slots           *vector.Slots
+	PatternLimit    uint32
 }
 
 type Index struct {
 	settings   Settings
+	slots      *vector.Slots
+	sides      *partition.Sides
+	kept       *partition.KeptColumns
 	partitions []*partition.Partition
 	synonyms   atomic.Pointer[synonyms.Lookup]
 	bm25       atomic.Pointer[model.BM25Params]
+}
+
+type StoredDocument struct {
+	ID       string
+	Document *codec.Document
 }
 
 func (ix *Index) Synonyms() *synonyms.Lookup {
@@ -51,6 +63,39 @@ func (ix *Index) SetBM25(params *model.BM25Params) {
 	ix.bm25.Store(params)
 }
 
+func (ix *Index) Slots() *vector.Slots {
+	return ix.slots
+}
+
+func fieldLimits(patternLimit uint32) fields.Limits {
+	limits := fields.DefaultLimits()
+	if patternLimit > 0 {
+		limits.PatternValueLimit = patternLimit
+	}
+	return limits
+}
+
+func partitionSettings(settings *Settings, kept *partition.KeptColumns, id int) partition.Settings {
+	declared := settings.Schema.Fields()
+	var text []schema.Field
+	for _, field := range declared {
+		if field.IsWordIndexed() {
+			text = append(text, field)
+		}
+	}
+	return partition.Settings{
+		ID:              id,
+		TextFields:      text,
+		ValueFields:     declared,
+		PartialFields:   settings.Schema.PartialFields(),
+		Analyzer:        settings.Analyzer,
+		CollectSurfaces: settings.CollectSurfaces,
+		TrackPositions:  settings.TrackPositions,
+		Limits:          fieldLimits(settings.PatternLimit),
+		Kept:            kept,
+	}
+}
+
 func New(settings Settings) (*Index, error) {
 	if settings.Schema == nil || settings.Analyzer == nil {
 		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "An index needs a parsed schema and an analyser", nil)
@@ -66,21 +111,40 @@ func New(settings Settings) (*Index, error) {
 	if settings.SearchWorkCap <= 0 {
 		settings.SearchWorkCap = DefaultSearchWorkCap
 	}
-	fields := settings.Schema.Fields()
-	index := &Index{settings: settings, partitions: make([]*partition.Partition, settings.PartitionCount)}
-	for id := range index.partitions {
-		index.partitions[id] = partition.New(partition.Settings{
-			ID:              id,
-			Fields:          fields,
-			PartialFields:   settings.Schema.PartialFields(),
-			Analyzer:        settings.Analyzer,
-			CollectSurfaces: settings.CollectSurfaces,
-			TrackPositions:  settings.TrackPositions,
-		})
+	ix := &Index{settings: settings, kept: &partition.KeptColumns{}}
+	if settings.Slots != nil {
+		ix.slots = settings.Slots.Retain()
+	} else {
+		slots, err := vector.NewSlots()
+		if err != nil {
+			return nil, err
+		}
+		ix.slots = slots
 	}
-	index.synonyms.Store(settings.Synonyms)
-	index.bm25.Store(settings.BM25)
-	return index, nil
+	ix.sides = partition.NewSides(ix.slots)
+	for id := range settings.PartitionCount {
+		created, err := partition.New(partitionSettings(&settings, ix.kept, id))
+		if err != nil {
+			ix.Release()
+			return nil, err
+		}
+		ix.partitions = append(ix.partitions, created)
+		ix.sides.Add(created)
+	}
+	ix.synonyms.Store(settings.Synonyms)
+	ix.bm25.Store(settings.BM25)
+	return ix, nil
+}
+
+func (ix *Index) Release() {
+	for _, held := range ix.partitions {
+		held.Release()
+	}
+	ix.partitions = nil
+	if ix.slots != nil {
+		ix.slots.Close()
+		ix.slots = nil
+	}
 }
 
 func (ix *Index) PartitionCount() int {
@@ -89,119 +153,4 @@ func (ix *Index) PartitionCount() int {
 
 func (ix *Index) partitionOf(id string) int {
 	return int(codec.FNV1aString(id) % uint32(len(ix.partitions)))
-}
-
-func (ix *Index) routed(ids []string) map[int][]int {
-	groups := map[int][]int{}
-	for at, id := range ids {
-		target := ix.partitionOf(id)
-		groups[target] = append(groups[target], at)
-	}
-	return groups
-}
-
-func (ix *Index) Insert(documents []partition.Document) []error {
-	ids := make([]string, len(documents))
-	for at, document := range documents {
-		ids[at] = document.ID
-	}
-	failures := make([]error, len(documents))
-	for target, members := range ix.routed(ids) {
-		batch := make([]partition.Document, len(members))
-		for at, member := range members {
-			batch[at] = documents[member]
-		}
-		for at, err := range ix.partitions[target].Insert(batch) {
-			failures[members[at]] = err
-		}
-	}
-	return failures
-}
-
-func (ix *Index) Update(documents []partition.Document) []error {
-	ids := make([]string, len(documents))
-	for at, document := range documents {
-		ids[at] = document.ID
-	}
-	failures := make([]error, len(documents))
-	for target, members := range ix.routed(ids) {
-		batch := make([]partition.Document, len(members))
-		for at, member := range members {
-			batch[at] = documents[member]
-		}
-		for at, err := range ix.partitions[target].Update(batch) {
-			failures[members[at]] = err
-		}
-	}
-	return failures
-}
-
-func (ix *Index) Remove(ids []string) []error {
-	failures := make([]error, len(ids))
-	for target, members := range ix.routed(ids) {
-		batch := make([]string, len(members))
-		for at, member := range members {
-			batch[at] = ids[member]
-		}
-		for at, err := range ix.partitions[target].Remove(batch) {
-			failures[members[at]] = err
-		}
-	}
-	return failures
-}
-
-func (ix *Index) Clear() {
-	for _, held := range ix.partitions {
-		held.Clear()
-	}
-}
-
-func (ix *Index) Get(id string) (*partition.StoredDocument, bool) {
-	var found *partition.StoredDocument
-	ix.partitions[ix.partitionOf(id)].Read(func(view partition.View) {
-		found, _, _ = view.Document(id)
-	})
-	return found, found != nil
-}
-
-func (ix *Index) Has(id string) bool {
-	_, found := ix.Get(id)
-	return found
-}
-
-func (ix *Index) Count() int {
-	total := 0
-	for _, held := range ix.partitions {
-		held.Read(func(view partition.View) { total += view.Count() })
-	}
-	return total
-}
-
-type views struct {
-	partitions []partition.View
-	releases   []func()
-}
-
-func (ix *Index) acquireAll(partitionIDs []int) views {
-	held := views{}
-	for _, id := range partitionIDs {
-		view, release := ix.partitions[id].Acquire()
-		held.partitions = append(held.partitions, view)
-		held.releases = append(held.releases, release)
-	}
-	return held
-}
-
-func (v views) release() {
-	for _, release := range v.releases {
-		release()
-	}
-}
-
-func (ix *Index) allPartitionIDs() []int {
-	ids := make([]int, len(ix.partitions))
-	for id := range ids {
-		ids[id] = id
-	}
-	return ids
 }

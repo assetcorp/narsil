@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
@@ -17,7 +18,7 @@ type IndexSwap struct {
 	Buffered         *BufferedLog
 	MetadataFirst    bool
 	Committed        func(listed manifest.Manifest) bool
-	Revert           func(previous *index.Index)
+	Revert           func(previous *index.Index) error
 }
 
 type swappedLayout struct {
@@ -114,7 +115,7 @@ func layoutUnion(previous []*partitionLog, current []*partitionLog) []*partition
 	return union
 }
 
-func (durable *Durable) revertLayout(swap IndexSwap, previous swappedLayout) {
+func (durable *Durable) revertLayout(swap IndexSwap, previous swappedLayout) error {
 	current := durable.partitions
 	durable.lockLayout()
 	for _, log := range previous.partitions[min(len(current), len(previous.partitions)):] {
@@ -131,8 +132,9 @@ func (durable *Durable) revertLayout(swap IndexSwap, previous swappedLayout) {
 		}
 	}
 	if swap.Revert != nil {
-		swap.Revert(previous.index)
+		return swap.Revert(previous.index)
 	}
+	return nil
 }
 
 func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap, bool, error)) (bool, error) {
@@ -173,32 +175,18 @@ func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap
 		}
 		return true, nil
 	}
-	durable.revertLayout(swap, previous)
+	reverted := durable.revertLayout(swap, previous)
 	_ = durable.writeMetadata(context.WithoutCancel(ctx), uint64(previous.index.Count()))
-	return false, err
+	return false, errors.Join(err, reverted)
 }
 
-func (handle *Handle) ApplyTo(target *index.Index, writes []Write, withVectors bool) []error {
+func (handle *Handle) ApplyTo(ctx context.Context, target *index.Index, writes []Write, withVectors bool) ([]error,
+	error) {
 	routed := Handle{Name: handle.Name, Index: target, Schema: handle.Schema}
 	if withVectors {
 		routed.Vectors = handle.Vectors
 	}
-	groups := map[int][]int{}
-	for at, write := range writes {
-		partitionID := target.RoutePartition(write.DocumentID)
-		groups[partitionID] = append(groups[partitionID], at)
-	}
-	failures := make([]error, len(writes))
-	for partitionID, members := range groups {
-		group := make([]Write, len(members))
-		for at, member := range members {
-			group[at] = writes[member]
-		}
-		for at, err := range routed.apply(group, partitionID) {
-			failures[members[at]] = err
-		}
-	}
-	return failures
+	return routed.apply(ctx, writes)
 }
 
 type BufferedLog struct {

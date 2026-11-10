@@ -1,235 +1,158 @@
 package partition
 
 import (
-	"sort"
-
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/bitset"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fieldindex"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/geo"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/postings"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
 
-type View struct {
-	state    *side
-	tailOnly bool
-	failure  *readFailure
-}
-
-func (p *Partition) Read(visit func(view View)) {
-	p.pair.read(func(state *side) { visit(View{state: state, failure: &readFailure{}}) })
-}
-
-func (p *Partition) Acquire() (View, func()) {
-	current := p.pair.acquire()
-	released := false
-	return View{state: current.state, failure: &readFailure{}}, func() {
-		if released {
-			return
-		}
-		released = true
-		current.readers.Add(-1)
-	}
-}
-
-func (v View) sources() []keywordSource {
-	if v.tailOnly || len(v.state.frozen) == 0 {
-		return []keywordSource{v.state}
-	}
-	return v.state.subSources()
-}
-
-func (v View) layout() ordinalLayout {
-	return layoutOf(v.sources())
-}
-
-func (v View) LiveTail() View {
-	return View{state: v.state, tailOnly: true, failure: v.failure}
-}
-
-func (v View) HoldsFrozenSegments() bool {
-	return !v.tailOnly && len(v.state.frozen) > 0
-}
-
-func (v View) SearchFulltext(params *SearchParams) (SearchResult, error) {
-	if v.tailOnly {
-		return searcher{src: v.state}.searchFulltext(params)
-	}
-	return v.state.searchComposite(params)
-}
-
-func (v View) Count() int {
-	total := 0
-	for _, sub := range v.sources() {
-		total += sub.documentCount()
-	}
-	return total
-}
-
-func (v View) Capacity() uint32 {
-	if !v.HoldsFrozenSegments() {
-		return v.state.documents.capacity()
-	}
-	return v.layout().total
-}
-
-func (v View) OrdinalCapacity() int {
-	return int(v.Capacity())
-}
-
-func (v View) Live() bitset.Bits {
-	if !v.HoldsFrozenSegments() {
-		return v.state.documents.live
-	}
-	sources := v.sources()
-	layout := layoutOf(sources)
-	live := bitset.New(int(layout.total))
-	for at, sub := range sources {
-		layout.place(live, at, sub.liveBits())
-	}
-	return live
-}
-
-func (v View) Document(id string) (*StoredDocument, uint32, bool) {
-	document, ordinal, found, err := v.DocumentRead(id)
-	if err != nil {
-		v.failure.record(err)
-		return nil, 0, false
-	}
-	return document, ordinal, found
-}
-
-func (v View) DocumentAt(ordinal uint32) *StoredDocument {
-	document, err := v.DocumentAtRead(ordinal)
-	if err != nil {
-		v.failure.record(err)
-		return nil
-	}
-	return document
-}
-
-func (v View) StoredDocument(ordinal uint32) (map[string]any, bool) {
-	document := v.DocumentAt(ordinal)
-	if document == nil {
-		return nil, false
-	}
-	return document.Fields, true
-}
-
-func (v View) OrdinalOf(id string) (uint32, bool) {
-	if !v.HoldsFrozenSegments() {
-		_, ordinal, found := v.state.documents.get(id)
-		return ordinal, found
-	}
-	layout := v.layout()
-	for at, sub := range v.state.frozen {
-		if ordinal, found := sub.holdsLive(id); found {
-			return layout.bases[at] + ordinal, true
+func schemaTypes(settings Settings) map[string]schema.ParsedFieldType {
+	types := make(map[string]schema.ParsedFieldType, len(settings.TextFields)+len(settings.ValueFields))
+	for _, group := range [][]schema.Field{settings.TextFields, settings.ValueFields} {
+		for _, field := range group {
+			types[field.Path] = field.ParsedFieldType
 		}
 	}
-	_, ordinal, found := v.state.documents.get(id)
-	return layout.bases[len(layout.bases)-1] + ordinal, found
+	return types
 }
 
-func (v View) ForEachDocument(visit func(ordinal uint32, document *StoredDocument) bool) {
-	v.failure.record(v.EachDocument(visit))
-}
-
-func (v View) SortedDocumentIDs() []string {
-	if !v.HoldsFrozenSegments() {
-		return v.state.documents.sortedDocumentIDs()
+func emptyFieldIndexes() query.FieldIndexes {
+	return query.FieldIndexes{
+		Numeric: map[string]*core.NumericIndex{},
+		Size:    map[string]*core.NumericIndex{},
+		Boolean: map[string]*core.BooleanIndex{},
+		Enum:    map[string]*core.EnumIndex{},
+		Geo:     map[string]*core.GeoIndex{},
+		Pattern: map[string]*core.PatternIndex{},
+		Stored:  map[string]*core.StoredValueSlices{},
+		Sort:    map[query.SortColumnKey]*core.SortColumn{},
+		Present: map[string][]uint32{},
 	}
-	var merged []string
-	for _, sub := range v.state.frozen {
-		merged = append(merged, sub.sortedDocumentIDs()...)
+}
+
+func addColumns(indexes *query.FieldIndexes, set *fields.Set) {
+	for _, path := range set.StoredFields() {
+		slices := set.Stored(path).Slices()
+		indexes.Stored[path] = &slices
 	}
-	merged = append(merged, v.state.documents.sortedDocumentIDs()...)
-	sort.SliceStable(merged, func(left, right int) bool { return text.CompareCodePoints(merged[left], merged[right]) < 0 })
-	return merged
-}
-
-func (v View) TotalDocuments() int {
-	return v.Count()
-}
-
-func (v View) TotalFieldLengths() map[string]float64 {
-	if !v.HoldsFrozenSegments() {
-		return v.state.statistics.totals()
-	}
-	_, totals := aggregateFieldStats(v.sources())
-	return totals
-}
-
-func (v View) DocumentFrequency(token string) (uint32, bool) {
-	total, present := uint32(0), false
-	for _, sub := range v.sources() {
-		if sub.holdsToken(token) {
-			present = true
-			total += sub.documentFrequency(token)
+	if columns := set.SortColumns(); columns != nil {
+		for _, column := range columns.Columns() {
+			indexes.Sort[query.SortColumnKey{Field: column.Field(), Mode: column.Mode()}] = column.Column()
 		}
 	}
-	return total, present
 }
 
-func (v View) FuzzyTokens(token string, tolerance, prefixLength int) []string {
-	var tokens []string
-	seen := map[string]struct{}{}
-	for _, sub := range v.sources() {
-		for _, candidate := range sub.fuzzyTokens(token, tolerance, prefixLength) {
-			if _, held := seen[candidate]; !held {
-				seen[candidate] = struct{}{}
-				tokens = append(tokens, candidate)
-			}
+func growingIndexes(set *fields.Set, declared []schema.Field) query.FieldIndexes {
+	indexes := emptyFieldIndexes()
+	for _, field := range declared {
+		path := field.Path
+		if index := set.Numeric(path); index != nil {
+			indexes.Numeric[path] = index.Index()
+		}
+		if index := set.Sizes(path); index != nil {
+			indexes.Size[path] = index.Index()
+		}
+		if index := set.Boolean(path); index != nil {
+			indexes.Boolean[path] = index.Index()
+		}
+		if index := set.Enum(path); index != nil {
+			indexes.Enum[path] = index.Index()
+		}
+		if index := set.Geo(path); index != nil {
+			indexes.Geo[path] = index.Index()
+		}
+		if index := set.Pattern(path); index != nil {
+			indexes.Pattern[path] = index.Index()
+		}
+		if present := set.Present(path); present != nil {
+			indexes.Present[path] = present
 		}
 	}
-	return tokens
+	addColumns(&indexes, set)
+	return indexes
 }
 
-func (v View) PrefixSearch(prefix string, limit int) []postings.Suggestion {
-	if !v.HoldsFrozenSegments() {
-		return v.state.postings.PrefixSearch(prefix, limit)
+func collectFrozen[T any](target map[string]T, entries []segments.Field[T]) {
+	for _, entry := range entries {
+		target[entry.Path] = entry.Index
 	}
-	if prefix == "" || limit <= 0 {
-		return nil
+}
+
+func frozenIndexes(segment *frozenSegment) query.FieldIndexes {
+	indexes := emptyFieldIndexes()
+	held := &segment.frozen.Fields
+	collectFrozen(indexes.Numeric, held.Numeric)
+	collectFrozen(indexes.Size, held.Sizes)
+	collectFrozen(indexes.Boolean, held.Boolean)
+	collectFrozen(indexes.Enum, held.Enum)
+	collectFrozen(indexes.Geo, held.Geo)
+	collectFrozen(indexes.Pattern, held.Pattern)
+	for _, entry := range held.Stored {
+		slices := core.StoredValueSlices(*entry.Index)
+		indexes.Stored[entry.Path] = &slices
 	}
-	totals := map[string]uint32{}
-	for _, sub := range v.sources() {
-		for _, suggestion := range sub.prefixSuggestions(prefix) {
-			totals[suggestion.Term] += suggestion.DocumentFrequency
-		}
+	return indexes
+}
+
+func (f *frozenSide) querySegment() query.Segment {
+	keyword := f.segment.keyword()
+	built := query.Segment{
+		Frozen:            &keyword.Segment,
+		State:             &f.state.Core,
+		Positions:         query.FrozenPositions{Offsets: keyword.PositionOffsets, Values: keyword.PositionValues},
+		SpellingRuns:      &keyword.SpellingRuns,
+		FrozenLengths:     keyword.FieldLengths,
+		FrozenFieldTotals: f.totals,
+		Fields:            frozenIndexes(f.segment),
 	}
-	results := make([]postings.Suggestion, 0, len(totals))
-	for term, frequency := range totals {
-		results = append(results, postings.Suggestion{Term: term, DocumentFrequency: frequency})
+	if f.segment.paged != nil {
+		built.Paged = f.segment.paged
 	}
-	sort.Slice(results, func(left, right int) bool {
-		if results[left].DocumentFrequency != results[right].DocumentFrequency {
-			return results[left].DocumentFrequency > results[right].DocumentFrequency
-		}
-		return text.CompareCodePoints(results[left].Term, results[right].Term) < 0
+	return built
+}
+
+func (s *side) growingLive() []uint32 {
+	words := max(1, (int(s.growing.View().OrdinalCapacity)+31)>>5)
+	for len(s.live) < words {
+		s.live = append(s.live, 0)
+	}
+	return s.live
+}
+
+func (s *side) refreshView(p *Partition) {
+	view := &query.View{
+		FieldNames: append([]string(nil), s.names.names[:s.viewFields]...),
+		Schema:     p.schema,
+		Segments:   make([]query.Segment, 0, len(s.frozen)+1),
+	}
+	for at := range s.frozen {
+		view.Segments = append(view.Segments, s.frozen[at].querySegment())
+	}
+	view.Segments = append(view.Segments, query.Segment{
+		Growing: s.growing.View(),
+		Live:    s.growingLive(),
+		Fields:  growingIndexes(s.fields, p.settings.ValueFields),
 	})
-	if len(results) > limit {
-		results = results[:limit]
+	s.view = view
+}
+
+func (f *frozenSide) removeLengths(ordinal uint32) {
+	for field, lengths := range f.segment.keyword().FieldLengths {
+		if field < len(f.totals) && uint64(ordinal) < uint64(len(lengths)) {
+			f.totals[field] -= float64(lengths[ordinal])
+		}
 	}
-	return results
 }
 
-func (v View) Geopoint(path string) *geo.Index {
-	return v.state.geopoints[path]
-}
-
-func (v View) ValueSizes(path string) *fieldindex.Numeric {
-	return v.state.sizes[path]
-}
-
-func (v View) NumericIndex(path string) *fieldindex.Numeric {
-	return v.state.numbers[path]
-}
-
-func (v View) BooleanIndex(path string) *fieldindex.Boolean {
-	return v.state.booleans[path]
-}
-
-func (v View) EnumIndex(path string) *fieldindex.Enum {
-	return v.state.enums[path]
+func newFrozenSide(segment *frozenSegment, state *segments.State) frozenSide {
+	held := frozenSide{segment: segment, state: state,
+		totals: append([]float64(nil), segment.keyword().TotalFieldLengths...)}
+	for ordinal := range segment.documentCount() {
+		if state.Tombstoned(ordinal) {
+			held.removeLengths(ordinal)
+		}
+	}
+	return held
 }

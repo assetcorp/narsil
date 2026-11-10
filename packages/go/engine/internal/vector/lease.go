@@ -87,8 +87,7 @@ func WithLease(ctx context.Context, lease *Lease) context.Context {
 }
 
 func (s *Slots) searchLease(ctx context.Context) (*Lease, func(), error) {
-	shared, held := ctx.Value(leaseKey{}).(*Lease)
-	if held && shared != nil && shared.slots == s && !shared.released.Load() {
+	if shared, held := s.PinnedLease(ctx); held {
 		if shared.inUse.CompareAndSwap(false, true) {
 			return shared, func() { shared.leave(); shared.inUse.Store(false) }, nil
 		}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -32,7 +33,10 @@ type sizeWalk struct {
 	over         bool
 }
 
-func RequireDocumentWithinSizeLimit(document model.Document, parsed *Parsed) error {
+func RequireDocumentWithinSizeLimit(document *model.Document, parsed *Parsed) error {
+	if document == nil {
+		return documentRequired()
+	}
 	walk := &sizeWalk{}
 	if parsed != nil {
 		walk.vectorPaths = parsed.vectors
@@ -216,6 +220,20 @@ func (w *sizeWalk) value(value any, path string, mapPath bool, depth int) {
 					return
 				}
 				w.value(item, path, false, depth+1)
+			}
+		}
+	case *model.Document:
+		if typed == nil {
+			w.addBoth(1)
+			return
+		}
+		if w.container(typed.Len()) {
+			for key, item := range codec.HeldEntries(typed) {
+				if w.stopped() {
+					return
+				}
+				w.text(len(key))
+				w.value(item, joinPath(path, key), mapPath, depth+1)
 			}
 		}
 	case map[string]any:

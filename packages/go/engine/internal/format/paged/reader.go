@@ -151,6 +151,15 @@ func (reader *Reader) ReadSection(section Section, position int64, length int64)
 	spanStart := firstPage * section.PageBytes
 	spanEnd := min((lastPage+1)*section.PageBytes, section.Length)
 	span := make([]byte, spanEnd-spanStart)
+	if native, held := reader.source.(PageSource); held {
+		for page := firstPage; page <= lastPage; page++ {
+			from := page*section.PageBytes - spanStart
+			if err := native.ReadPage(section, page, span[from:min(from+section.PageBytes, int64(len(span)))]); err != nil {
+				return nil, err
+			}
+		}
+		return span[position-spanStart : position-spanStart+length], nil
+	}
 	if err := reader.readAt(envelope.HeaderBytes+section.Offset+spanStart, span); err != nil {
 		return nil, err
 	}

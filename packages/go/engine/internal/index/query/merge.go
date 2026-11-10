@@ -8,39 +8,24 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func compareScores(left, right float64) int {
-	difference := right - left
-	if !math.IsNaN(difference) {
-		switch {
-		case difference > 0:
-			return 1
-		case difference < 0:
-			return -1
-		}
-		return 0
-	}
-	if left == right {
-		return 0
-	}
-	if math.IsNaN(left) {
-		if math.IsNaN(right) {
-			return 0
-		}
-		return 1
-	}
-	return -1
+func scoresTie(left, right float64) bool {
+	return left == right || math.IsNaN(left) && math.IsNaN(right)
 }
 
-func orderHits(hits []Hit, order DocumentOrder) {
-	slices.SortStableFunc(hits, func(left, right Hit) int {
-		if compared := compareScores(left.Score, right.Score); compared != 0 {
-			return compared
+func orderTiedHits(hits []Hit, order DocumentOrder) {
+	if order == nil {
+		return
+	}
+	for start := 0; start < len(hits); {
+		end := start + 1
+		for end < len(hits) && scoresTie(hits[start].Score, hits[end].Score) {
+			end++
 		}
-		if order == nil {
-			return 0
+		if end-start > 1 {
+			slices.SortFunc(hits[start:end], order)
 		}
-		return order(left, right)
-	})
+		start = end
+	}
 }
 
 func IDRanks(count int, compare func(left, right int) int) []uint32 {
@@ -125,8 +110,8 @@ func mergedEntries(output core.MergeOutput, found uint32) []MergedEntry {
 	return merged
 }
 
-func MergeHits(workspace *core.Workspace, lists [][]Hit, order DocumentOrder, limit uint64) ([]Hit, error) {
-	var only []Hit
+func MergeByScore[Entry any](workspace *core.Workspace, lists [][]Entry, limit uint64, scoreOf func(Entry) float64, order func(left, right Entry) int) ([]Entry, error) {
+	var only []Entry
 	populated, total := 0, 0
 	for _, list := range lists {
 		if len(list) > 0 {
@@ -138,14 +123,14 @@ func MergeHits(workspace *core.Workspace, lists [][]Hit, order DocumentOrder, li
 	if populated <= 1 {
 		return only[:min(uint64(len(only)), limit)], nil
 	}
-	flat := make([]Hit, 0, total)
+	flat := make([]Entry, 0, total)
 	scores := make([][]float64, len(lists))
-	for list, hits := range lists {
-		scores[list] = make([]float64, len(hits))
-		for at, hit := range hits {
-			scores[list][at] = hit.Score
+	for list, entries := range lists {
+		scores[list] = make([]float64, len(entries))
+		for at, entry := range entries {
+			scores[list][at] = scoreOf(entry)
 		}
-		flat = append(flat, hits...)
+		flat = append(flat, entries...)
 	}
 	ranks := IDRanks(len(flat), func(left, right int) int {
 		if order == nil {
@@ -157,9 +142,13 @@ func MergeHits(workspace *core.Workspace, lists [][]Hit, order DocumentOrder, li
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]Hit, len(merged))
+	entries := make([]Entry, len(merged))
 	for at, entry := range merged {
-		hits[at] = lists[entry.List][entry.Index]
+		entries[at] = lists[entry.List][entry.Index]
 	}
-	return hits, nil
+	return entries, nil
+}
+
+func MergeHits(workspace *core.Workspace, lists [][]Hit, order DocumentOrder, limit uint64) ([]Hit, error) {
+	return MergeByScore(workspace, lists, limit, func(hit Hit) float64 { return hit.Score }, order)
 }

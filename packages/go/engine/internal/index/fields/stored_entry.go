@@ -52,6 +52,7 @@ func (e *storedEntry) appendElement(path string, value any, index int, limits Li
 		}
 		encoded, err := codec.AppendValue(e.encoded, value, codec.EncodeOptions{
 			ForceIntegerToFloat: codec.HoldsNegativeZero(value, 1),
+			FromValues:          true,
 			MaxDepth:            codec.MaxDocumentEncodingDepth,
 			ErrorCode:           narsilerr.CodeDocValidationFailed,
 		})
@@ -90,8 +91,8 @@ func holdsForeignNaN(value any, depth int) bool {
 				return true
 			}
 		}
-	case map[string]any:
-		for _, element := range typed {
+	case *codec.Document:
+		for _, element := range codec.HeldEntries(typed) {
 			if holdsForeignNaN(element, depth+1) {
 				return true
 			}
@@ -113,10 +114,10 @@ func withJavaScriptNaN(value any, depth int) any {
 			copied[at] = withJavaScriptNaN(element, depth+1)
 		}
 		return copied
-	case map[string]any:
-		copied := make(map[string]any, len(typed))
-		for key, element := range typed {
-			copied[key] = withJavaScriptNaN(element, depth+1)
+	case *codec.Document:
+		copied := codec.NewDocumentOfLength(typed.Len())
+		for key, element := range codec.HeldEntries(typed) {
+			codec.PutHeld(copied, key, withJavaScriptNaN(element, depth+1))
 		}
 		return copied
 	}

@@ -103,7 +103,10 @@ type WriteOptions = model.WriteOptions
 // InsertOptions sets how an insert waits.
 type InsertOptions = model.InsertOptions
 
-// DocumentUpdate is one entry of UpdateBatch: the ID and the replacement document.
+// DocumentUpdate is one entry of UpdateBatch: the ID and the replacement
+// document. Set Fields in place of Document to store the replacement with
+// the key order that the Fields holds; UpdateBatch reads Fields when it is
+// not nil and Document otherwise.
 type DocumentUpdate = model.DocumentUpdate
 
 // SnapshotOptions sets what Snapshot adds to the archive beyond the checkpoint.

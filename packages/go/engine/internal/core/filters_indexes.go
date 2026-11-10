@@ -49,10 +49,7 @@ type fieldIndexRegions struct {
 }
 
 func fieldRegionOf[T any](values []T) fieldIndexRegion {
-	if len(values) == 0 {
-		return fieldIndexRegion{}
-	}
-	return fieldIndexRegion{data: unsafe.Pointer(unsafe.SliceData(values)), length: uintptr(len(values))}
+	return fieldIndexRegion{data: sliceStart(values), length: uintptr(len(values))}
 }
 
 func (r fieldIndexRegion) pinnedData(held *pins) unsafe.Pointer {

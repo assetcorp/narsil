@@ -24,8 +24,8 @@ func logMatchesMemory(prior *manifest.Manifest, partitionCount int) bool {
 func (durable *Durable) mostOfEachChanged(prior *manifest.Manifest, held *capture, changed []int) bool {
 	for _, partitionID := range changed {
 		records := held.seqNos[partitionID] - priorSeqNoOf(prior, partitionID)
-		documents := durable.handle.Index.PartitionDocumentCount(partitionID)
-		if documents > WholePartitionLargestDocumentCount ||
+		documents, err := durable.handle.Index.PartitionDocumentCount(context.Background(), partitionID)
+		if err != nil || documents > WholePartitionLargestDocumentCount ||
 			float64(records) < float64(documents)*WholePartitionMinChangedShare {
 			return false
 		}

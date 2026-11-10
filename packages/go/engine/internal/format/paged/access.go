@@ -94,39 +94,63 @@ func (reader *Reader) requireListRules(list PostingList, token int) error {
 	return nil
 }
 
-func (reader *Reader) Positions(token int) (PositionList, bool, error) {
+type PositionSpan struct {
+	Offsets      Section
+	Values       Section
+	FirstPosting uint32
+	PostingCount uint32
+	First        uint32
+	End          uint32
+	offsets      keyword.Uint32s
+}
+
+func (reader *Reader) PositionSpan(token int) (PositionSpan, bool, error) {
 	if !reader.Resident.TracksPositions {
-		return PositionList{}, false, nil
+		return PositionSpan{}, false, nil
 	}
 	if err := reader.requireToken(token); err != nil {
-		return PositionList{}, false, err
+		return PositionSpan{}, false, err
 	}
 	offsetsSection, err := reader.Section("positionOffsets")
 	if err != nil {
-		return PositionList{}, false, err
+		return PositionSpan{}, false, err
 	}
 	valuesSection, err := reader.Section("positions")
 	if err != nil {
-		return PositionList{}, false, err
+		return PositionSpan{}, false, err
 	}
 	start, count := reader.postingSpan(token)
 	offsets, err := reader.ReadSection(offsetsSection, start*PositionWidthBytes, (count+1)*PositionWidthBytes)
 	if err != nil {
+		return PositionSpan{}, false, err
+	}
+	span := PositionSpan{Offsets: offsetsSection, Values: valuesSection, FirstPosting: uint32(start),
+		PostingCount: uint32(count), offsets: offsets}
+	span.First, span.End = span.offsets.At(0), span.offsets.At(int(count))
+	endByte := int64(span.End) * PositionWidthBytes
+	if span.End < span.First || endByte > valuesSection.Length || (start == 0 && span.First != 0) ||
+		((start+count+1)*PositionWidthBytes == offsetsSection.Length && endByte != valuesSection.Length) {
+		return PositionSpan{}, false, loadFailed("The positions of token "+itoaInt(token)+" of the "+what+
+			" leave their section", map[string]any{"token": token})
+	}
+	return span, true, nil
+}
+
+func (reader *Reader) Positions(token int) (PositionList, bool, error) {
+	span, tracks, err := reader.PositionSpan(token)
+	if err != nil || !tracks {
 		return PositionList{}, false, err
 	}
-	list := PositionList{Offsets: offsets}
-	first := list.Offsets.At(0)
-	end := list.Offsets.At(int(count))
-	for row := 0; row <= int(count); row++ {
+	list := PositionList{Offsets: span.offsets, first: span.First}
+	for row := 0; row <= int(span.PostingCount); row++ {
 		value := list.Offsets.At(row)
-		if value < first || value > end || (row > 0 && value < list.Offsets.At(row-1)) {
+		if value < span.First || value > span.End || (row > 0 && value < list.Offsets.At(row-1)) {
 			return PositionList{}, false, loadFailed("The position offsets of token "+itoaInt(token)+" of the "+what+
 				" leave their list", map[string]any{"token": token, "row": row})
 		}
 	}
-	list.first = first
-	list.Values, err = reader.ReadSection(valuesSection, int64(first)*PositionWidthBytes,
-		int64(end-first)*PositionWidthBytes)
+	list.Values, err = reader.ReadSection(span.Values, int64(span.First)*PositionWidthBytes,
+		int64(span.End-span.First)*PositionWidthBytes)
 	if err != nil {
 		return PositionList{}, false, err
 	}

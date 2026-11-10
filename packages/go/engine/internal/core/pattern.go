@@ -52,10 +52,6 @@ func (t *PatternTest) valid() bool {
 		(t.Tolerance == 0 || t.Operator == PatternEq) && len(t.Text) <= PatternMaxTextUnits
 }
 
-func PatternBitsetWords(ordinals uint64) uint64 {
-	return bitsetWords(ordinals)
-}
-
 func pinStoredValues(held *pins, values *StoredValues) {
 	for _, pointer := range []unsafe.Pointer{values.Shapes, values.Starts, values.Kinds, values.Numbers,
 		values.TextStart, values.TextLength, values.Units, values.Bytes} {

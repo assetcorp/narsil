@@ -11,6 +11,13 @@ func RegionElementBytes[T RegionElement]() uintptr {
 	return unsafe.Sizeof(zero)
 }
 
+func sliceStart[T any](values []T) unsafe.Pointer {
+	if len(values) == 0 {
+		return nil
+	}
+	return unsafe.Pointer(unsafe.SliceData(values))
+}
+
 func RegionSlice[T RegionElement](region *Region, count int) []T {
 	if region == nil || count <= 0 {
 		return nil

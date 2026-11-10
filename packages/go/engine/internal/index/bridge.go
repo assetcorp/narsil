@@ -1,158 +1,135 @@
 package index
 
 import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/bitset"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/facets"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fieldindex"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/filters"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/geo"
+	"math/bits"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/pattern"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
 
-type filterSource struct {
-	sub partition.Sub
+type filterRun struct {
+	run        *query.FilterRun
+	expression *model.FilterExpression
 }
 
-func (s filterSource) Capacity() int {
-	return s.sub.OrdinalCapacity()
-}
-
-func (s filterSource) Live() bitset.Bits {
-	return s.sub.Live()
-}
-
-func (s filterSource) Numeric(fieldPath string) *fieldindex.Numeric {
-	return s.sub.NumericIndex(fieldPath)
-}
-
-func (s filterSource) Boolean(fieldPath string) *fieldindex.Boolean {
-	return s.sub.BooleanIndex(fieldPath)
-}
-
-func (s filterSource) Enum(fieldPath string) *fieldindex.Enum {
-	return s.sub.EnumIndex(fieldPath)
-}
-
-func (s filterSource) Geo(fieldPath string) *geo.Index {
-	return s.sub.Geopoint(fieldPath)
-}
-
-func (s filterSource) Sizes(fieldPath string) *fieldindex.Numeric {
-	return s.sub.ValueSizes(fieldPath)
-}
-
-func (s filterSource) PatternIndex(fieldPath string) (pattern.Reader, bool) {
-	return s.sub.PatternIndex(fieldPath)
-}
-
-func (s filterSource) Document(ordinal uint32) (map[string]any, bool) {
-	return s.sub.StoredDocument(ordinal)
-}
-
-func (s filterSource) Ordinal(id string) (uint32, bool) {
-	return s.sub.OrdinalOf(id)
-}
-
-func (s filterSource) ExternalID(ordinal uint32) (string, bool) {
-	document := s.sub.DocumentAt(ordinal)
-	if document == nil {
-		return "", false
+func (ix *Index) validateFilter(expression *model.FilterExpression) error {
+	if expression == nil {
+		return nil
 	}
-	return document.ID, true
+	return query.ValidateFilter(expression, ix.settings.Schema, pattern.CheckOperands)
 }
 
-type partitionFilter struct {
-	compiled *filters.Filter
-}
-
-func (f *partitionFilter) matches(view partition.View) (bitset.Bits, error) {
-	subs := view.Subs()
-	if len(subs) == 1 {
-		return filters.Evaluate(f.compiled, filterSource{sub: subs[0]})
+func newFilterRun(expression *model.FilterExpression, work *core.WorkMeter) (*filterRun, error) {
+	if expression == nil {
+		return nil, nil
 	}
-	combined := bitset.New(view.OrdinalCapacity())
-	for _, sub := range subs {
-		accepted, err := filters.Evaluate(f.compiled, filterSource{sub: sub})
-		if err != nil {
-			return nil, err
-		}
-		accepted.AndWith(sub.Live())
-		sub.PlaceInto(combined, accepted)
-	}
-	return combined, nil
-}
-
-func (f *partitionFilter) matchingIDs(view partition.View) ([]string, error) {
-	var ids []string
-	for _, sub := range view.Subs() {
-		matched, err := filters.MatchingIDs(f.compiled, filterSource{sub: sub})
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, matched...)
-	}
-	return ids, nil
-}
-
-func (ix *Index) patternSearchFor(work *partition.WorkMeter) filters.PatternSearch {
-	for _, field := range ix.settings.Schema.Fields() {
-		if field.Pattern {
-			return pattern.NewSearch(work)
-		}
-	}
-	return nil
-}
-
-func (ix *Index) compileFilter(expression *model.FilterExpression, work *partition.WorkMeter) (*partitionFilter, error) {
-	compiled, err := filters.Validate(expression, ix.settings.Schema, ix.patternSearchFor(work))
-	if err != nil || compiled == nil {
+	run, err := query.NewFilterRun(work)
+	if err != nil {
 		return nil, err
 	}
-	return &partitionFilter{compiled: compiled}, nil
+	return &filterRun{run: run, expression: expression}, nil
 }
 
-func (ix *Index) facetsOf(view partition.View, outcome partitionOutcome, config model.FacetConfig) (map[string]model.FacetResult, error) {
-	subs := view.Subs()
-	if !view.HoldsFrozenSegments() {
-		if outcome.holdsOrdinals {
-			return facets.ComputeFacets(subs[0], outcome.matchedOrdinals, config, ix.settings.Schema), nil
-		}
-		return facets.ComputeFacetsForIDs(subs[0], outcome.matchedIDs, config, ix.settings.Schema), nil
+func (f *filterRun) release() {
+	if f != nil {
+		f.run.Release()
 	}
-	everyValue := results.EveryValueFacetConfig(config)
-	counted := make([]map[string]model.FacetResult, 0, len(subs))
-	for _, sub := range subs {
-		if outcome.holdsOrdinals {
-			counted = append(counted, facets.ComputeFacets(sub, sub.Of(outcome.matchedOrdinals), everyValue, ix.settings.Schema))
+}
+
+func (f *filterRun) evaluate(view *query.View) ([][]uint32, error) {
+	return f.run.Evaluate(view, f.expression)
+}
+
+func anyBitSet(matched [][]uint32) bool {
+	for _, segment := range matched {
+		for _, word := range segment {
+			if word != 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func eachOrdinal(words []uint32, visit func(ordinal uint32)) {
+	for word, held := range words {
+		for held != 0 {
+			bit := bits.TrailingZeros32(held)
+			visit(uint32(word<<5 + bit))
+			held &= held - 1
+		}
+	}
+}
+
+func matchingIDs(snapshot partition.Snapshot, matched [][]uint32) []string {
+	var ids []string
+	for segment, words := range matched {
+		eachOrdinal(words, func(ordinal uint32) {
+			if id, live := snapshot.IDAt(segment, ordinal); live {
+				ids = append(ids, id)
+			}
+		})
+	}
+	return ids
+}
+
+func indexedFacetBase(base schema.BaseFieldType) bool {
+	switch base {
+	case schema.BaseNumber, schema.BaseNumberList, schema.BaseEnum, schema.BaseEnumList, schema.BaseBoolean, schema.BaseBooleanList:
+		return true
+	}
+	return false
+}
+
+func addColumn(requests []partition.ColumnRequest, request partition.ColumnRequest) []partition.ColumnRequest {
+	for _, held := range requests {
+		if held == request {
+			return requests
+		}
+	}
+	return append(requests, request)
+}
+
+func (ix *Index) columnRequests(filter *model.FilterExpression, facets model.FacetConfig, groupFields []string) []partition.ColumnRequest {
+	var requests []partition.ColumnRequest
+	if filter != nil {
+		for _, path := range query.FilterSortFields(filter) {
+			requests = addColumn(requests, partition.ColumnRequest{Path: path, Sort: true, Mode: core.SortMin})
+		}
+		for _, path := range query.FilteredFields(filter) {
+			if field, declared := ix.settings.Schema.Field(path); declared && field.Pattern {
+				requests = addColumn(requests, partition.ColumnRequest{Path: path})
+			}
+		}
+	}
+	for _, path := range facetFieldOrder(facets) {
+		if field, declared := ix.settings.Schema.Field(path); declared && indexedFacetBase(field.Base) {
 			continue
 		}
-		counted = append(counted, facets.ComputeFacetsForIDs(sub, outcome.matchedIDs, everyValue, ix.settings.Schema))
+		requests = addColumn(requests, partition.ColumnRequest{Path: path})
 	}
-	return results.MergeFacets(counted, config), nil
-}
-
-type singleDocument struct {
-	document *partition.StoredDocument
-}
-
-func (s singleDocument) StoredDocument(ordinal uint32) (map[string]any, bool) {
-	if s.document == nil || ordinal != 0 {
-		return nil, false
+	for _, path := range groupFields {
+		requests = addColumn(requests, partition.ColumnRequest{Path: path})
 	}
-	return s.document.Fields, true
+	return requests
 }
 
-func (s singleDocument) OrdinalOf(id string) (uint32, bool) {
-	return 0, s.document != nil && s.document.ID == id
-}
-
-func (ix *Index) sortValuesOf(document *partition.StoredDocument, fields []string, modes []text.SortMode) []text.SortValue {
-	if document == nil {
-		return make([]text.SortValue, len(fields))
+func everyValueFacetConfig(config model.FacetConfig) model.FacetConfig {
+	widened := make(model.FacetConfig, len(config))
+	for field, fieldConfig := range config {
+		fieldConfig.Limit = model.Optional[int]{}
+		widened[field] = fieldConfig
 	}
-	return facets.SortValues(singleDocument{document: document}, document.ID, fields, modes)
+	return widened
+}
+
+func facetsOf(view *query.View, matched [][]uint32, config model.FacetConfig) (map[string]model.FacetResult, error) {
+	if len(matched) != len(view.Segments) {
+		matched = make([][]uint32, len(view.Segments))
+	}
+	return query.Facets(view, matched, config)
 }

@@ -1,14 +1,30 @@
 package index
 
 import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
-func (ix *Index) statsTokensOf(plan *searchPlan) map[string]struct{} {
-	tokens := map[string]struct{}{}
+type tokenSet struct {
+	order []string
+	held  map[string]struct{}
+}
+
+func (s *tokenSet) add(token string) {
+	if s.held == nil {
+		s.held = map[string]struct{}{}
+	}
+	if _, found := s.held[token]; found {
+		return
+	}
+	s.held[token] = struct{}{}
+	s.order = append(s.order, token)
+}
+
+func (ix *Index) statsTokensOf(plan *searchPlan) *tokenSet {
+	tokens := &tokenSet{}
 	for _, token := range plan.term.unique {
-		tokens[token.Token] = struct{}{}
+		tokens.add(token.Token)
 	}
 	expansion := plan.expansion
 	if expansion == nil && len(plan.term.unique) > 0 {
@@ -16,78 +32,64 @@ func (ix *Index) statsTokensOf(plan *searchPlan) map[string]struct{} {
 	}
 	if expansion != nil {
 		for _, synonym := range expansion.Tokens {
-			tokens[synonym] = struct{}{}
+			tokens.add(synonym)
 		}
 	}
 	for _, phrase := range plan.term.phrases() {
 		for _, token := range phrase.Tokens {
-			tokens[token] = struct{}{}
+			tokens.add(token)
 		}
 	}
 	return tokens
 }
 
-func addReachedTokens(tokens map[string]struct{}, views []partition.View, plan *searchPlan) {
-	query := plan.query
-	if query.Exact || len(plan.term.tokens) == 0 {
-		return
+func addReachedTokens(tokens *tokenSet, views []*query.View, plan *searchPlan) error {
+	params := plan.query
+	if params.Exact || len(plan.term.tokens) == 0 {
+		return nil
 	}
-	partial := plan.partialWords()
-	if !(plan.tolerance > 0 || plan.term.usesPrefix || query.PartialWords) {
-		return
+	if !(plan.tolerance > 0 || plan.term.usesPrefix || params.PartialWords) {
+		return nil
 	}
-	added := map[string]struct{}{}
+	if plan.tolerance > 0 {
+		reached, err := query.TypoTokens(views, uniqueTokenTerms(plan.term.unique), uint32(plan.tolerance), uint32(plan.prefixLength))
+		if err != nil {
+			return err
+		}
+		for _, token := range reached {
+			tokens.add(token)
+		}
+	}
+	if !plan.term.usesPrefix && len(plan.partialFields) == 0 {
+		return nil
+	}
 	for _, view := range views {
-		if plan.tolerance > 0 {
-			for _, token := range plan.term.unique {
-				for _, match := range view.FuzzyTokens(token.Token, plan.tolerance, plan.prefixLength) {
-					tokens[match] = struct{}{}
-				}
-			}
+		groups, err := termGroupsFor(view, plan, nil)
+		if err != nil {
+			return err
 		}
-		if !plan.term.usesPrefix && len(partial.fields) == 0 {
-			continue
-		}
-		for _, group := range termGroupsFor(view, &plan.term, plan.written, plan.term.usesPrefix, nil, partial) {
+		for _, group := range groups {
 			for _, member := range group.Members {
 				if member.Token != group.Token {
-					added[member.Token] = struct{}{}
+					tokens.add(member.Token)
 				}
 			}
 		}
 	}
-	for token := range added {
-		tokens[token] = struct{}{}
-	}
+	return nil
 }
 
-func (ix *Index) collectQueryTermStats(views []partition.View, plan *searchPlan) *partition.GlobalStatistics {
+func (ix *Index) collectQueryTermStats(views []*query.View, plan *searchPlan) (*query.Statistics, error) {
 	tokens := ix.statsTokensOf(plan)
-	addReachedTokens(tokens, views, plan)
-	stats := &partition.GlobalStatistics{AverageFieldLengths: map[string]float64{}, DocFrequencies: map[string]float64{}}
-	totalFieldLengths := map[string]float64{}
-	for _, view := range views {
-		stats.TotalDocuments += float64(view.TotalDocuments())
-		for field, length := range view.TotalFieldLengths() {
-			totalFieldLengths[field] += length
-		}
-		for token := range tokens {
-			if frequency, present := view.DocumentFrequency(token); present {
-				stats.DocFrequencies[token] += float64(frequency)
-			}
-		}
+	if err := addReachedTokens(tokens, views, plan); err != nil {
+		return nil, err
 	}
-	if stats.TotalDocuments > 0 {
-		for field, total := range totalFieldLengths {
-			stats.AverageFieldLengths[field] = total / stats.TotalDocuments
-		}
-	}
-	return stats
+	return query.CollectStatistics(views, tokens.order)
 }
 
-func (ix *Index) scoringModeOf(query *model.QueryParams) model.ScoringMode {
-	if query.Scoring != "" {
-		return query.Scoring
+func (ix *Index) scoringModeOf(params *model.QueryParams) model.ScoringMode {
+	if params.Scoring != "" {
+		return params.Scoring
 	}
 	if ix.settings.DefaultScoring != "" {
 		return ix.settings.DefaultScoring

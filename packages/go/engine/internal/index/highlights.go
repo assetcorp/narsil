@@ -1,36 +1,115 @@
 package index
 
 import (
+	"math"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/highlight"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
-func (ix *Index) highlightSource(prepared *preparedQuery) highlight.QuerySource {
-	params := &prepared.params
-	source := highlight.QuerySource{
-		Words:        params.Term,
-		Prefix:       params.Prefix,
-		Exact:        params.Exact,
-		Tolerance:    params.Tolerance,
-		PrefixLength: params.PrefixLength,
-		ExpandSynonyms: func(tokens []string) []string {
-			expansion := ix.Synonyms().Expand(tokens)
-			if expansion == nil {
-				return nil
-			}
-			return expansion.Tokens
-		},
+type highlightPlan struct {
+	tokens        []string
+	options       query.HighlightOptions
+	partialWords  []string
+	partialFields []string
+}
+
+func highlightLength(value model.Optional[int]) uint32 {
+	length := value.Or(query.DefaultMaxSnippetLength)
+	return uint32(min(max(length, 0), math.MaxUint32))
+}
+
+func tokenTerms(tokens []analysis.Token) []string {
+	terms := make([]string, len(tokens))
+	for at, token := range tokens {
+		terms[at] = token.Term
 	}
+	return terms
+}
+
+func (ix *Index) highlightPlanOf(prepared *preparedQuery, pass *analysis.Pass) (*highlightPlan, error) {
+	params := &prepared.params
+	config := params.Highlight
+	words, prefix, quoted := params.Term, params.Prefix, false
+	var phraseTokens []string
 	if term := prepared.term; term != nil && term.quoted {
-		source.Words = term.words
-		source.Quoted = true
-		source.Prefix = term.usesPrefix
+		words, prefix, quoted = term.words, term.usesPrefix, true
 		for _, phrase := range term.quotes.phrases {
-			source.PhraseTokens = append(source.PhraseTokens, phrase.Tokens...)
+			phraseTokens = append(phraseTokens, phrase.Tokens...)
 		}
 	}
-	return source
+	var queryTokens []analysis.Token
+	if !quoted || !isBlank(words) {
+		tokens, err := pass.Tokens(words, analysis.QueryOptions)
+		if err != nil {
+			return nil, err
+		}
+		queryTokens = tokens
+	}
+	plan := &highlightPlan{tokens: tokenTerms(queryTokens), options: query.DefaultHighlightOptions(ix.settings.Analyzer.Language())}
+	options := &plan.options
+	options.PreTag = config.PreTag.Or(query.DefaultHighlightPreTag)
+	options.PostTag = config.PostTag.Or(query.DefaultHighlightPostTag)
+	options.MaxSnippetLength = highlightLength(config.MaxSnippetLength)
+	options.PrefixLength = uint32(params.PrefixLength.Or(defaultFuzzyPrefixLength))
+	if !params.Exact {
+		options.Tolerance = uint32(params.Tolerance.Or(0))
+	}
+	usesPrefix := prefix && !params.Exact && len(queryTokens) > 0
+	usesPartialWords := params.PartialWords && !params.Exact && len(queryTokens) > 0
+	var written []analysis.Token
+	if usesPrefix || usesPartialWords {
+		tokens, err := pass.Tokens(words, analysis.WrittenOptions)
+		if err != nil {
+			return nil, err
+		}
+		written = tokens
+	}
+	if usesPrefix {
+		last := queryTokens[len(queryTokens)-1]
+		for _, word := range written {
+			if word.Position == last.Position {
+				options.PrefixToken, options.HasPrefixToken, options.CompletedToken = word.Term, true, last.Term
+				break
+			}
+		}
+	}
+	if usesPartialWords {
+		if fields := ix.partialHighlightFields(params); len(fields) > 0 {
+			plan.partialWords, plan.partialFields = partialWordsToHighlight(queryTokens, written), fields
+		}
+	}
+	if !params.Exact && len(queryTokens) > 0 {
+		if expansion := ix.Synonyms().Expand(plan.tokens); expansion != nil {
+			options.Synonyms = append(options.Synonyms, expansion.Tokens...)
+		}
+	}
+	options.Synonyms = append(options.Synonyms, phraseTokens...)
+	return plan, nil
+}
+
+func (plan *highlightPlan) field(field, value string) (model.HighlightMatch, error) {
+	options := plan.options
+	if len(plan.partialWords) > 0 && containsField(plan.partialFields, field) {
+		options.PartialWords = plan.partialWords
+	}
+	match, err := query.Highlight(value, plan.tokens, options)
+	if err != nil {
+		return model.HighlightMatch{}, err
+	}
+	positions := make([]model.HighlightPosition, len(match.Positions))
+	for at, span := range match.Positions {
+		positions[at] = model.HighlightPosition{Start: span.Start, End: span.End}
+	}
+	return model.HighlightMatch{Snippet: match.Snippet, Positions: positions}, nil
+}
+
+func heldText(document *codec.Document, field string) (string, bool) {
+	held, _ := codec.HeldValue(document, field)
+	text, isText := held.(string)
+	return text, isText
 }
 
 func (ix *Index) applyHighlights(hits []model.Hit, documents *documentLookup, prepared *preparedQuery, pass *analysis.Pass) error {
@@ -38,7 +117,7 @@ func (ix *Index) applyHighlights(hits []model.Hit, documents *documentLookup, pr
 	if config == nil {
 		return nil
 	}
-	query, err := highlight.NewQuery(ix.settings.Analyzer, pass, ix.highlightSource(prepared))
+	plan, err := ix.highlightPlanOf(prepared, pass)
 	if err != nil {
 		return err
 	}
@@ -46,32 +125,21 @@ func (ix *Index) applyHighlights(hits []model.Hit, documents *documentLookup, pr
 	for _, field := range config.Fields {
 		readsStored = readsStored || !prepared.projection.KeepsField(field)
 	}
-	options := highlight.Options{PreTag: config.PreTag, PostTag: config.PostTag, MaxSnippetLength: config.MaxSnippetLength}
-	partialMatcher, partialFields, err := ix.partialWordHighlighter(prepared, pass)
-	if err != nil {
-		return err
-	}
 	for at := range hits {
 		marked := map[string]model.HighlightMatch{}
-		var stored model.Document
+		var stored *codec.Document
 		for _, field := range config.Fields {
-			value, isText := hits[at].Document[field].(string)
+			value, isText := heldText(hits[at].Document, field)
 			if !isText && readsStored {
 				if stored == nil {
-					if held := documents.stored(hits[at].ID); held != nil {
-						stored = held.Fields
-					}
+					stored = documents.decoded(hits[at].ID)
 				}
-				value, isText = stored[field].(string)
+				value, isText = heldText(stored, field)
 			}
 			if !isText {
 				continue
 			}
-			fieldOptions := options
-			if containsField(partialFields, field) {
-				fieldOptions.PartialWords = partialMatcher
-			}
-			match, err := highlight.Field(value, query, fieldOptions)
+			match, err := plan.field(field, value)
 			if err != nil {
 				return err
 			}
@@ -79,5 +147,5 @@ func (ix *Index) applyHighlights(hits []model.Hit, documents *documentLookup, pr
 		}
 		hits[at].Highlights = marked
 	}
-	return nil
+	return documents.failure()
 }

@@ -96,14 +96,23 @@ func (entry *indexEntry) capacityPartitionCount() int {
 	return count
 }
 
-func (entry *indexEntry) replayInto(target *index.Index, writes []persist.Write) {
+func (entry *indexEntry) replayInto(ctx context.Context, target *index.Index, writes []persist.Write) error {
 	if len(writes) == 0 {
-		return
+		return nil
 	}
-	_ = entry.handle.ApplyTo(target, writes, true)
+	failures, err := entry.handle.ApplyTo(context.WithoutCancel(ctx), target, writes, true)
 	for _, path := range entry.vectorPaths {
 		entry.handle.Vectors[path].ScheduleBuild()
 	}
+	if err != nil {
+		return err
+	}
+	for _, failure := range failures {
+		if failure != nil && narsilerr.CodeOf(failure) != narsilerr.CodeDocNotFound {
+			return failure
+		}
+	}
+	return nil
 }
 
 func (entry *indexEntry) awaitReplay(ctx context.Context) error {

@@ -44,6 +44,7 @@ func (f *Field) PublishSequence(sequence int64) {
 	defer f.writeMu.Unlock()
 	if !f.disposed {
 		f.store.publishSequence(sequence)
+		f.recordCommittedLive(sequence)
 	}
 }
 
@@ -67,53 +68,57 @@ func fieldsBySlots(fields []NamedField) map[*Slots][]NamedField {
 	return grouped
 }
 
-func applyUnderOneSequence(fields []NamedField, apply func(sequence int64, named NamedField)) {
+func applyField(sequence int64, named NamedField, documents []DocumentVectors, failures []error) {
+	owners := make([]int, 0, len(documents))
+	writes := make([]Write, 0, len(documents))
+	for at, document := range documents {
+		if failures[at] != nil {
+			continue
+		}
+		values, present := document.Vectors[named.Path]
+		owners = append(owners, at)
+		writes = append(writes, Write{DocID: document.DocID, Values: values, Partition: document.Partition,
+			Remove: document.Remove || !present})
+	}
+	if len(writes) == 0 {
+		return
+	}
+	for at, err := range named.Field.ApplyWritesAt(sequence, writes) {
+		if err != nil {
+			failures[owners[at]] = err
+		}
+	}
+}
+
+func ApplyDocumentsAt(sequence int64, fields []NamedField, documents []DocumentVectors, failures []error) {
+	for _, named := range fields {
+		applyField(sequence, named, documents, failures)
+	}
+	for _, named := range fields {
+		named.Field.PublishSequence(sequence)
+	}
+}
+
+func ApplyDocuments(fields []NamedField, documents []DocumentVectors, failures []error) {
 	for slots, group := range fieldsBySlots(fields) {
 		_ = slots.Write(func(sequence int64) error {
-			for _, named := range group {
-				apply(sequence, named)
-			}
-			for _, named := range group {
-				named.Field.PublishSequence(sequence)
-			}
+			ApplyDocumentsAt(sequence, group, documents, failures)
 			return nil
 		})
 	}
 }
 
-func ApplyDocuments(fields []NamedField, documents []DocumentVectors, failures []error) {
-	applyUnderOneSequence(fields, func(sequence int64, named NamedField) {
-		owners := make([]int, 0, len(documents))
-		writes := make([]Write, 0, len(documents))
-		for at, document := range documents {
-			if failures[at] != nil {
-				continue
-			}
-			values, present := document.Vectors[named.Path]
-			owners = append(owners, at)
-			writes = append(writes, Write{DocID: document.DocID, Values: values, Partition: document.Partition,
-				Remove: document.Remove || !present})
-		}
-		if len(writes) == 0 {
-			return
-		}
-		for at, err := range named.Field.ApplyWritesAt(sequence, writes) {
-			if err != nil {
-				failures[owners[at]] = err
-			}
-		}
-	})
+func RemovalsOf(docIDs []string) []DocumentVectors {
+	removals := make([]DocumentVectors, len(docIDs))
+	for at, docID := range docIDs {
+		removals[at] = DocumentVectors{DocID: docID, Remove: true}
+	}
+	return removals
 }
 
 func RemoveDocuments(fields []NamedField, docIDs []string) {
 	if len(docIDs) == 0 {
 		return
 	}
-	writes := make([]Write, len(docIDs))
-	for at, docID := range docIDs {
-		writes[at] = Write{DocID: docID, Remove: true}
-	}
-	applyUnderOneSequence(fields, func(sequence int64, named NamedField) {
-		_ = named.Field.ApplyWritesAt(sequence, writes)
-	})
+	ApplyDocuments(fields, RemovalsOf(docIDs), make([]error, len(docIDs)))
 }

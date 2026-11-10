@@ -247,7 +247,7 @@ func (s *Stored) Backfill(capacity uint32, valueAt func(ordinal uint32) (any, bo
 }
 
 func (s *Stored) Values() *core.StoredValues {
-	return core.StoredValuesOf(s.Slices())
+	return s.Slices().Values()
 }
 
 func (s *Stored) Slices() core.StoredValueSlices {

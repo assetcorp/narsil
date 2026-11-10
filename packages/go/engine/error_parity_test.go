@@ -51,25 +51,33 @@ func indexNameCase(name string, indexName string) parityCase {
 		goIndex: &goConfig, indexName: indexName}
 }
 
-func insertCase(name string, id string, document engine.Document) parityCase {
+func documentsFromMaps(documents []map[string]any) []*engine.Document {
+	built := make([]*engine.Document, len(documents))
+	for at, document := range documents {
+		built[at] = engine.DocumentFromMap(document)
+	}
+	return built
+}
+
+func insertCase(name string, id string, document map[string]any) parityCase {
 	ts := map[string]any{"document": tsValue(document)}
 	if id != "" {
 		ts["id"] = id
 	}
 	return parityCase{name: name, action: "insert", ts: ts, run: func(ctx context.Context, narsil *engine.Narsil) error {
-		_, err := narsil.Insert(ctx, parityIndexName, document, id, engine.InsertOptions{})
+		_, err := narsil.Insert(ctx, parityIndexName, engine.DocumentFromMap(document), id, engine.InsertOptions{})
 		return err
 	}}
 }
 
-func batchCase(name string, documents []engine.Document) parityCase {
+func batchCase(name string, documents []map[string]any) parityCase {
 	encoded := make([]any, len(documents))
 	for at, document := range documents {
 		encoded[at] = tsValue(document)
 	}
 	return parityCase{name: name, action: "insertBatch", ts: map[string]any{"batch": encoded},
 		run: func(ctx context.Context, narsil *engine.Narsil) error {
-			result, err := narsil.InsertBatch(ctx, parityIndexName, documents, engine.InsertOptions{})
+			result, err := narsil.InsertBatch(ctx, parityIndexName, documentsFromMaps(documents), engine.InsertOptions{})
 			if err != nil {
 				return err
 			}
@@ -80,10 +88,10 @@ func batchCase(name string, documents []engine.Document) parityCase {
 		}}
 }
 
-func updateCase(name string, id string, document engine.Document) parityCase {
+func updateCase(name string, id string, document map[string]any) parityCase {
 	return parityCase{name: name, action: "update", ts: map[string]any{"id": id, "document": tsValue(document)},
 		run: func(ctx context.Context, narsil *engine.Narsil) error {
-			return narsil.Update(ctx, parityIndexName, id, document, engine.WriteOptions{})
+			return narsil.Update(ctx, parityIndexName, id, engine.DocumentFromMap(document), engine.WriteOptions{})
 		}}
 }
 
@@ -205,7 +213,7 @@ func (c parityCase) goOutcome(ctx context.Context) string {
 	if err := narsil.CreateIndex(ctx, parityIndexName, index); err != nil {
 		return "the case index was refused: " + goOutcome(err)
 	}
-	result, err := narsil.InsertBatch(ctx, parityIndexName, parityBaseDocumentList(), engine.InsertOptions{})
+	result, err := narsil.InsertBatch(ctx, parityIndexName, documentsFromMaps(parityBaseDocumentList()), engine.InsertOptions{})
 	if err != nil || len(result.Failed) > 0 {
 		return "the case documents were refused: " + goOutcome(err)
 	}

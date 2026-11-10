@@ -1,8 +1,6 @@
 package vector
 
 import (
-	"errors"
-
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
@@ -108,11 +106,10 @@ func (f *Field) placeThroughTheCore(graph *graphMemory, ordinal int32) error {
 			err := workspace.Place(graph.native, f.nativeStore(), core.PlaceRequest{
 				Metric: f.config.nativeMetric, Ordinal: ordinal, TopLayer: level, ThreadSlot: slot,
 			})
-			var status *core.StatusError
 			if err == nil {
 				return nil
 			}
-			if !errors.As(err, &status) || status.Status != core.StatusNeedsRoom {
+			if core.StatusOf(err) != core.StatusNeedsRoom {
 				return coreFailure("place", err)
 			}
 			if err := graph.ensureCapacity(int(ordinal) + 1); err != nil {

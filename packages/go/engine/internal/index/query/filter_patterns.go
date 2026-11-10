@@ -8,7 +8,15 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
+	narsiltext "github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
+
+func patternWorkCapExceeded(workCap int64) error {
+	return narsilerr.New(narsilerr.CodeSearchWorkCapExceeded,
+		"The engine stopped this search before it checked every candidate, because the work on its pattern tests and phrases passed the cap of "+
+			narsiltext.FormatNumber(float64(workCap))+" units. Narrow the tests or the phrases, or raise the patternWorkCap engine setting",
+		map[string]any{"cap": float64(workCap)})
+}
 
 func sortTextUnits(text string) []uint16 {
 	if utf8.RuneCountInString(text) > SortValueMaxCodePoints {
@@ -66,9 +74,9 @@ func (b *filterBuilder) matchPattern(path string, operator core.PatternOperator,
 			test.CountPreparation = true
 		}
 	}
-	err := b.run.workspace.PatternMatch(index, core.StoredValuesOf(*values), test, b.run.meter, into)
+	err := b.run.workspace.PatternMatch(index, values.Values(), test, b.run.meter, into)
 	if spent := b.run.meter.Spent(); spent > b.run.meter.Cap() {
-		return narsilerr.New(narsilerr.CodeSearchWorkCapExceeded, "The work on the pattern tests and phrases of this search passed its cap", map[string]any{"cap": float64(b.run.meter.Cap())})
+		return patternWorkCapExceeded(b.run.meter.Cap())
 	}
 	if b.run.meter.Stopped() {
 		return ErrStopped
@@ -89,9 +97,38 @@ func (b *filterBuilder) matching(path string, operator core.PatternOperator, tex
 	return into, nil
 }
 
-func (b *filterBuilder) excluding(path string, excluded []uint32) []uint32 {
-	universe := andBits(b.presentBits(path), b.live)
-	return andBits(universe, notBits(excluded, b.capacity))
+func (p *fieldPlan) patternTest(operator core.PatternOperator, texts []string, caseFold bool, tolerance uint32, negated bool) error {
+	words, err := p.b.matching(p.path, operator, texts, caseFold, tolerance)
+	if err != nil {
+		return err
+	}
+	if negated {
+		p.b.emit(core.FilterPresent, p.field, 0, 0)
+	}
+	p.b.bitset(words)
+	if negated {
+		p.b.emit(core.FilterAndNot, 0, 0, 0)
+	}
+	p.append()
+	return nil
+}
+
+func (b *filterBuilder) intersection(universe, left, right []uint32) ([]uint32, error) {
+	program := &core.FilterProgram{
+		Plan: []uint32{
+			uint32(core.FilterBitset), 0, 0, 0,
+			uint32(core.FilterBitset), 0, 0, 1,
+			uint32(core.FilterAnd), 0, 0, 2,
+		},
+		Offsets: make([]uint32, 1),
+		Bitsets: [][]uint32{left, right},
+		Live:    universe,
+	}
+	into := newBits(b.capacity)
+	if err := b.run.workspace.EvaluateFilter(program, into); err != nil {
+		return nil, narsilerr.Wrap(narsilerr.CodeConfigInvalid, "The filter plan cannot be evaluated", err, nil)
+	}
+	return into, nil
 }
 
 func distinctTexts(texts []string) []string {
@@ -106,39 +143,27 @@ func distinctTexts(texts []string) []string {
 	return kept
 }
 
-func (b *filterBuilder) patternTests(path string, filter *model.FieldFilter, appended func()) error {
+func (p *fieldPlan) patternTests(filter *model.FieldFilter) error {
 	caseFold := filter.CaseFold
-	push := func(words []uint32, err error) error {
-		if err != nil {
-			return err
-		}
-		b.bitset(words)
-		appended()
-		return nil
-	}
 	if text, isText := filter.Eq.Text(); isText {
-		if err := push(b.matching(path, core.PatternEq, []string{text}, caseFold, patternTolerance(filter.Tolerance))); err != nil {
+		if err := p.patternTest(core.PatternEq, []string{text}, caseFold, patternTolerance(filter.Tolerance), false); err != nil {
 			return err
 		}
 	}
 	if text, isText := filter.Ne.Text(); isText {
-		excluded, err := b.matching(path, core.PatternEq, []string{text}, caseFold, 0)
-		if err != nil {
+		if err := p.patternTest(core.PatternEq, []string{text}, caseFold, 0, true); err != nil {
 			return err
 		}
-		_ = push(b.excluding(path, excluded), nil)
 	}
 	if filter.In != nil {
-		if err := push(b.matching(path, core.PatternEq, distinctTexts(filter.In), caseFold, 0)); err != nil {
+		if err := p.patternTest(core.PatternEq, distinctTexts(filter.In), caseFold, 0, false); err != nil {
 			return err
 		}
 	}
 	if filter.Nin != nil {
-		excluded, err := b.matching(path, core.PatternEq, distinctTexts(filter.Nin), caseFold, 0)
-		if err != nil {
+		if err := p.patternTest(core.PatternEq, distinctTexts(filter.Nin), caseFold, 0, true); err != nil {
 			return err
 		}
-		_ = push(b.excluding(path, excluded), nil)
 	}
 	for _, entry := range []struct {
 		text     model.Optional[string]
@@ -148,7 +173,7 @@ func (b *filterBuilder) patternTests(path string, filter *model.FieldFilter, app
 		{filter.Contains, core.PatternContains}, {filter.Wildcard, core.PatternWildcard}, {filter.Regex, core.PatternRegex},
 	} {
 		if text, set := entry.text.Get(); set {
-			if err := push(b.matching(path, entry.operator, []string{text}, caseFold, 0)); err != nil {
+			if err := p.patternTest(entry.operator, []string{text}, caseFold, 0, false); err != nil {
 				return err
 			}
 		}
@@ -157,18 +182,17 @@ func (b *filterBuilder) patternTests(path string, filter *model.FieldFilter, app
 }
 
 func (b *filterBuilder) patternElements(path string, values []model.FilterValue, every bool) ([]uint32, error) {
-	var words []uint32
+	present := b.presentBits(path)[:bitsetWords(b.capacity)]
+	words := newBits(b.capacity)
 	if every {
-		words = append([]uint32(nil), b.presentBits(path)...)
-	} else {
-		words = newBits(b.capacity)
+		words = present
 	}
 	for _, value := range values {
 		text, isText := value.Text()
 		if !isText {
 			continue
 		}
-		if every && countBits(words) == 0 {
+		if every && bitsetEmpty(words) {
 			break
 		}
 		into := words
@@ -179,7 +203,10 @@ func (b *filterBuilder) patternElements(path string, values []model.FilterValue,
 			return nil, err
 		}
 		if every {
-			words = andBits(words, into)
+			var err error
+			if words, err = b.intersection(present, words, into); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return words, nil

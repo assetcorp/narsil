@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
@@ -29,7 +31,7 @@ type pendingInsert struct {
 	write   persist.Write
 }
 
-func requireDocument(document model.Document) error {
+func requireDocument(document *model.Document) error {
 	if document == nil {
 		return narsilerr.New(narsilerr.CodeDocValidationFailed, "Each document must be an object, while this entry is null",
 			map[string]any{"received": "null"})
@@ -40,9 +42,11 @@ func requireDocument(document model.Document) error {
 // InsertBatch adds documents to the index called indexName in chunks of
 // 1,000 and reports each one: the IDs that the engine wrote, and each
 // refused document with its error. One refused document never stops the
-// rest. The returned error is set only when the whole call fails, such as
-// for an unknown index, a cancelled context, or a durable write that failed.
-func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []Document, options InsertOptions) (BatchResult, error) {
+// rest, and a nil entry is refused with CodeDocValidationFailed. The engine
+// reads each document once, as Insert does. The returned error is set only
+// when the whole call fails, such as for an unknown index, a cancelled
+// context, or a durable write that failed.
+func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []*Document, options InsertOptions) (BatchResult, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.BatchResult{}, err
@@ -51,24 +55,34 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	defer n.emitWrite(indexName)
 	outcome := newBatchOutcome()
 	defer entry.scheduleVectorBuilds(outcome.touched)
-	for start := 0; start < len(documents); start += batchChunkSize {
-		if err := ctx.Err(); err != nil {
-			return outcome.result, err
-		}
-		end := min(start+batchChunkSize, len(documents))
-		if err := n.insertChunk(ctx, entry, documents[start:end], outcome); err != nil {
-			return outcome.result, err
-		}
+	err = eachBatchChunk(ctx, documents, func(chunk []*model.Document) error {
+		return n.insertChunk(ctx, entry, chunk, outcome)
+	})
+	if err != nil {
+		return outcome.result, err
 	}
 	n.afterWrite(entry)
 	return outcome.result, nil
 }
 
-func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents []model.Document, outcome *batchOutcome) error {
+func eachBatchChunk[T any](ctx context.Context, entries []T, apply func(chunk []T) error) error {
+	for start := 0; start < len(entries); start += batchChunkSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := apply(entries[start:min(start+batchChunkSize, len(entries))]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents []*model.Document, outcome *batchOutcome) error {
 	contexts := make([]*model.InsertContext, len(documents))
-	working := make([]model.Document, len(documents))
+	working := make([]*model.Document, len(documents))
 	live := make([]bool, len(documents))
-	for at, document := range documents {
+	for at := range documents {
+		document := codec.SnapshotDocument(documents[at])
 		reported, _ := schema.ProvidedDocID(document)
 		if err := requireDocument(document); err != nil {
 			outcome.fail(reported, err)
@@ -79,12 +93,16 @@ func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents [
 			outcome.fail(reported, err)
 			continue
 		}
-		contexts[at] = &model.InsertContext{IndexName: entry.name, DocID: id, Document: shallowCopy(document)}
+		contexts[at] = &model.InsertContext{IndexName: entry.name, DocID: id, Document: document}
 		if err := n.plugins.insert(ctx, hookBeforeInsert, contexts[at]); err != nil {
 			outcome.fail(id, err)
 			continue
 		}
 		working[at] = contexts[at].Document
+		if err := requireDocument(working[at]); err != nil {
+			outcome.fail(id, err)
+			continue
+		}
 		if len(entry.config.Required) > 0 {
 			if err := schema.ValidateRequiredFields(working[at], entry.config.Required); err != nil {
 				outcome.fail(id, err)
@@ -118,7 +136,7 @@ func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents [
 	return n.applyInsertChunk(ctx, entry, pending, outcome)
 }
 
-func (n *Narsil) embedChunk(ctx context.Context, entry *indexEntry, working []model.Document, live []bool,
+func (n *Narsil) embedChunk(ctx context.Context, entry *indexEntry, working []*model.Document, live []bool,
 	contexts []*model.InsertContext, outcome *batchOutcome) error {
 	config := entry.config.Embedding
 	if config == nil {
@@ -161,10 +179,19 @@ func (n *Narsil) embedChunk(ctx context.Context, entry *indexEntry, working []mo
 
 func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pending []pendingInsert, outcome *batchOutcome) error {
 	entry.writeMu.Lock()
+	ids := make([]string, len(pending))
+	for at, insert := range pending {
+		ids[at] = insert.id
+	}
+	present, err := entry.presence(ctx, ids)
+	if err != nil {
+		entry.writeMu.Unlock()
+		return err
+	}
 	accepted := make([]pendingInsert, 0, len(pending))
 	seen := make(map[string]struct{}, len(pending))
-	for _, insert := range pending {
-		if _, repeated := seen[insert.id]; repeated || entry.holds(insert.id) {
+	for at, insert := range pending {
+		if _, repeated := seen[insert.id]; repeated || present[at] {
 			outcome.fail(insert.id, entry.alreadyExists(insert.id))
 			continue
 		}
@@ -179,7 +206,7 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pendin
 	for at, insert := range accepted {
 		writes[at] = insert.write
 	}
-	failures, err := entry.apply(ctx, writes, writeInsert)
+	failures, err := entry.apply(ctx, writes, index.WriteInsert)
 	entry.writeMu.Unlock()
 	if err != nil {
 		for _, insert := range accepted {
@@ -238,35 +265,11 @@ func (n *Narsil) updateOne(ctx context.Context, entry *indexEntry, update model.
 	if err := schema.ValidateDocID(update.DocID); err != nil {
 		return err
 	}
-	if err := requireDocument(update.Document); err != nil {
+	working := codec.SnapshotDocument(update.Document)
+	if err := requireDocument(working); err != nil {
 		return err
 	}
-	if err := schema.RequireMatchingDocID(update.DocID, update.Document); err != nil {
-		return err
-	}
-	working := shallowCopy(update.Document)
-	hook := &model.UpdateContext{IndexName: entry.name, DocID: update.DocID, NewDocument: working}
-	if n.plugins.hasUpdateHooks() {
-		previous, found := entry.storedDocument(update.DocID)
-		if !found {
-			previous = model.Document{}
-		}
-		hook.OldDocument = previous
-		if err := n.plugins.update(ctx, hookBeforeUpdate, hook); err != nil {
-			return err
-		}
-	}
-	write, err := n.prepareOne(ctx, entry, hook.NewDocument)
-	if err != nil {
-		return err
-	}
-	write.DocumentID = update.DocID
-	if err := n.heap.admit(entry.name); err != nil {
-		return err
-	}
-	entry.writeMu.Lock()
-	err = n.applyUpdateLocked(ctx, entry, write)
-	entry.writeMu.Unlock()
+	hook, write, err := n.replaceDocument(ctx, entry, entry.name, update.DocID, working)
 	if err != nil {
 		return err
 	}
@@ -286,16 +289,10 @@ func (n *Narsil) RemoveBatch(ctx context.Context, indexName string, docIDs []str
 	defer release()
 	defer n.emitWrite(indexName)
 	outcome := newBatchOutcome()
-	for start := 0; start < len(docIDs); start += batchChunkSize {
-		if err := ctx.Err(); err != nil {
-			return outcome.result, err
-		}
-		end := min(start+batchChunkSize, len(docIDs))
-		if err := n.removeChunk(ctx, entry, docIDs[start:end], outcome); err != nil {
-			return outcome.result, err
-		}
-	}
-	return outcome.result, nil
+	err = eachBatchChunk(ctx, docIDs, func(chunk []string) error {
+		return n.removeChunk(ctx, entry, chunk, outcome)
+	})
+	return outcome.result, err
 }
 
 func (n *Narsil) removeChunk(ctx context.Context, entry *indexEntry, ids []string, outcome *batchOutcome) error {
@@ -313,10 +310,19 @@ func (n *Narsil) removeChunk(ctx context.Context, entry *indexEntry, ids []strin
 		contexts = append(contexts, remove)
 	}
 	entry.writeMu.Lock()
+	candidates := make([]string, len(contexts))
+	for at, remove := range contexts {
+		candidates[at] = remove.DocID
+	}
+	present, err := entry.presence(ctx, candidates)
+	if err != nil {
+		entry.writeMu.Unlock()
+		return err
+	}
 	accepted := make([]*model.RemoveContext, 0, len(contexts))
 	seen := make(map[string]struct{}, len(contexts))
-	for _, remove := range contexts {
-		if _, repeated := seen[remove.DocID]; repeated || !entry.holds(remove.DocID) {
+	for at, remove := range contexts {
+		if _, repeated := seen[remove.DocID]; repeated || !present[at] {
 			outcome.fail(remove.DocID, documentNotFound(remove.DocID))
 			continue
 		}
@@ -327,7 +333,7 @@ func (n *Narsil) removeChunk(ctx context.Context, entry *indexEntry, ids []strin
 	for at, remove := range accepted {
 		writes[at] = persist.Write{DocumentID: remove.DocID}
 	}
-	failures, err := entry.apply(ctx, writes, writeRemove)
+	failures, err := entry.apply(ctx, writes, index.WriteRemove)
 	entry.writeMu.Unlock()
 	if err != nil {
 		for _, remove := range accepted {

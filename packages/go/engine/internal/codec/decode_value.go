@@ -3,6 +3,7 @@ package codec
 import (
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
@@ -85,9 +86,13 @@ func (decoder *Decoder) readStringAfterTag(tag byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	start := decoder.position
 	bytes, err := decoder.take(length)
 	if err != nil {
 		return "", err
+	}
+	if decoder.shared != "" && utf8.Valid(bytes) {
+		return decoder.shared[start:decoder.position], nil
 	}
 	return text.DecodeUTF8(bytes), nil
 }
@@ -181,30 +186,34 @@ func (decoder *Decoder) readOrderedMap(count int, depth int) (OrderedMap, error)
 		positions[key] = len(entries)
 		entries = append(entries, MapEntry{Key: key, Value: value})
 	}
-	return inJavaScriptPropertyOrder(entries), nil
+	return InJavaScriptPropertyOrder(entries), nil
 }
 
-func inJavaScriptPropertyOrder(entries OrderedMap) OrderedMap {
+func InJavaScriptPropertyOrder(entries OrderedMap) OrderedMap {
+	return inPropertyOrder(entries, func(entry MapEntry) string { return entry.Key })
+}
+
+func inPropertyOrder[S ~[]E, E any](entries S, keyOf func(E) string) S {
 	indexCount := 0
 	for _, entry := range entries {
-		if _, isIndex := arrayIndexOf(entry.Key); isIndex {
+		if _, isIndex := arrayIndexOf(keyOf(entry)); isIndex {
 			indexCount++
 		}
 	}
 	if indexCount == 0 {
 		return entries
 	}
-	ordered := make(OrderedMap, 0, len(entries))
+	ordered := make(S, 0, len(entries))
 	for _, entry := range entries {
-		if _, isIndex := arrayIndexOf(entry.Key); isIndex {
+		if _, isIndex := arrayIndexOf(keyOf(entry)); isIndex {
 			ordered = append(ordered, entry)
 		}
 	}
-	slices.SortFunc(ordered, func(left, right MapEntry) int {
-		return compareObjectKeys(left.Key, right.Key)
+	slices.SortFunc(ordered, func(left, right E) int {
+		return compareObjectKeys(keyOf(left), keyOf(right))
 	})
 	for _, entry := range entries {
-		if _, isIndex := arrayIndexOf(entry.Key); !isIndex {
+		if _, isIndex := arrayIndexOf(keyOf(entry)); !isIndex {
 			ordered = append(ordered, entry)
 		}
 	}
@@ -280,12 +289,4 @@ func DecodeDocument(data []byte, options DecodeOptions) (map[string]any, error) 
 	}
 	document, _ := value.(map[string]any)
 	return document, nil
-}
-
-func AppendReencoded(destination []byte, encoded []byte, encodeOptions EncodeOptions, decodeOptions DecodeOptions) ([]byte, error) {
-	value, err := UnmarshalAsJavaScript(encoded, decodeOptions)
-	if err != nil {
-		return destination, err
-	}
-	return AppendValue(destination, value, encodeOptions)
 }

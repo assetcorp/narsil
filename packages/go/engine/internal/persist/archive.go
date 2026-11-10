@@ -64,7 +64,7 @@ func (durable *Durable) OpenArchive(ctx context.Context) (*Archive, error) {
 	return opened, nil
 }
 
-func ArchiveFromMemory(ctx context.Context, handle *Handle, targetBytes int64) (*Archive, error) {
+func ArchiveFromMemory(ctx context.Context, handle *Handle) (*Archive, error) {
 	for _, field := range handle.vectorFields() {
 		if err := field.CompleteGraph(ctx); err != nil {
 			return nil, err
@@ -75,7 +75,7 @@ func ArchiveFromMemory(ctx context.Context, handle *Handle, targetBytes int64) (
 	for at := range every {
 		every[at] = true
 	}
-	partitions, err := buildPartitions(handle, held.seqNos, every, targetBytes, false)
+	partitions, err := buildPartitions(ctx, handle, held.seqNos, every)
 	if err != nil {
 		return nil, err
 	}

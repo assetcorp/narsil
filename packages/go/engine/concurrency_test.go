@@ -88,7 +88,7 @@ func (run *mixedRun) ownerStep(position int, random *rand.Rand) error {
 			owner.live[id] = held
 		}
 	} else {
-		batch := []engine.Document{}
+		batch := []*engine.Document{}
 		staged := map[string]mixedDocument{}
 		for offset := 0; offset < mixedSlotsPerOwner && len(batch) < mixedInsertBatch; offset++ {
 			candidate := (slot + offset) % mixedSlotsPerOwner
@@ -97,8 +97,7 @@ func (run *mixedRun) ownerStep(position int, random *rand.Rand) error {
 				continue
 			}
 			fields, held := mixedFields(owner.token, candidate, version)
-			fields["id"] = candidateID
-			batch = append(batch, fields)
+			batch = append(batch, fields.Set("id", candidateID))
 			staged[candidateID] = held
 		}
 		result, err := run.narsil.InsertBatch(run.ctx, mixedIndexName, batch, engine.InsertOptions{})

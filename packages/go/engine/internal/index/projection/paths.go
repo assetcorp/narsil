@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -14,8 +15,8 @@ type PathRead struct {
 	Value any
 }
 
-func ReadPath(document model.Document, path []string) PathRead {
-	var current any = map[string]any(document)
+func ReadPath(document *model.Document, path []string) PathRead {
+	var current any = document
 	for _, segment := range path {
 		next, found := ownValue(current, segment)
 		if !found {
@@ -114,9 +115,8 @@ func typedArrayIndex(key string, length int) (int, bool) {
 
 func ownValue(container any, key string) (any, bool) {
 	switch typed := container.(type) {
-	case map[string]any:
-		value, found := typed[key]
-		return value, found
+	case *model.Document:
+		return codec.HeldValue(typed, key)
 	case []byte:
 		if index, found := typedArrayIndex(key, len(typed)); found {
 			return float64(typed[index]), true
@@ -130,83 +130,70 @@ func ownValue(container any, key string) (any, bool) {
 }
 
 func isRecord(value any) bool {
-	switch value.(type) {
-	case map[string]any, []byte, []float32, time.Time:
+	switch typed := value.(type) {
+	case *model.Document:
+		return typed != nil
+	case []byte, []float32, time.Time:
 		return true
 	}
 	return false
 }
 
-func recordCopy(record any) map[string]any {
-	switch typed := record.(type) {
-	case map[string]any:
-		copied := make(map[string]any, len(typed))
-		for key, value := range typed {
-			copied[key] = value
-		}
-		return copied
-	case []byte:
-		copied := make(map[string]any, len(typed))
-		for index, element := range typed {
-			copied[strconv.Itoa(index)] = float64(element)
-		}
-		return copied
-	case []float32:
-		copied := make(map[string]any, len(typed))
-		for index, element := range typed {
-			copied[strconv.Itoa(index)] = float64(element)
-		}
-		return copied
+func indexedRecord[E byte | float32](elements []E) *model.Document {
+	copied := codec.NewDocumentOfLength(len(elements))
+	for index, element := range elements {
+		codec.PutHeld(copied, strconv.Itoa(index), float64(element))
 	}
-	return map[string]any{}
+	return copied
 }
 
-func writePath(target map[string]any, path []string, value any) {
+func recordCopy(record any) *model.Document {
+	switch typed := record.(type) {
+	case *model.Document:
+		return shallowCopy(typed)
+	case []byte:
+		return indexedRecord(typed)
+	case []float32:
+		return indexedRecord(typed)
+	}
+	return model.NewDocument()
+}
+
+func writePath(target *model.Document, path []string, value any) {
 	current := target
 	for _, segment := range path[:len(path)-1] {
-		switch existing := current[segment].(type) {
-		case map[string]any:
-			current = existing
-			continue
+		existing, _ := codec.HeldValue(current, segment)
+		switch typed := existing.(type) {
+		case *model.Document:
+			if typed != nil {
+				current = typed
+				continue
+			}
 		case []byte, []float32, time.Time:
 			return
 		}
-		created := map[string]any{}
-		current[segment] = created
+		created := model.NewDocument()
+		codec.PutHeld(current, segment, created)
 		current = created
 	}
-	current[path[len(path)-1]] = value
-}
-
-func writeFieldPath(target map[string]any, fieldPath string, value any) {
-	segments := strings.Split(fieldPath, ".")
-	current := target
-	for _, segment := range segments[:len(segments)-1] {
-		next, isMap := current[segment].(map[string]any)
-		if !isMap {
-			next = map[string]any{}
-			current[segment] = next
-		}
-		current = next
-	}
-	current[segments[len(segments)-1]] = value
+	codec.PutHeld(current, path[len(path)-1], value)
 }
 
 func cloneExcept(value any, path []string, exclude [][]string) any {
 	if !excludeReachesBelow(exclude, path) || !isRecord(value) {
 		return CopyValue(value)
 	}
-	entries, isMap := value.(map[string]any)
-	if !isMap {
+	entries, isDocument := value.(*model.Document)
+	if !isDocument {
 		entries = recordCopy(value)
 	}
-	kept := map[string]any{}
-	for key, child := range entries {
+	kept := codec.NewDocumentOfLength(entries.Len())
+	for key, child := range codec.HeldEntries(entries) {
 		childPath := append(path[:len(path):len(path)], key)
 		if coveredByAny(exclude, childPath) {
 			continue
 		}
-		kept[key] = cloneExcept(child, childPath, exclude)
+		codec.PutHeld(kept, key, cloneExcept(child, childPath, exclude))
 	}
 	return kept
 }

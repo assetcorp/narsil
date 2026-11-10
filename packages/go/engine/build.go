@@ -101,7 +101,12 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		embedder:       request.embedder,
 	}
 	entry.sync.adopt(request.sync)
-	vectors, err := buildVectorFields(request.name, request.parsed, config.VectorPromotion, n.defaultVectorStorage())
+	slots, err := vector.NewSlots()
+	if err != nil {
+		return nil, err
+	}
+	defer slots.Close()
+	vectors, err := buildVectorFields(request.name, request.parsed, config.VectorPromotion, n.defaultVectorStorage(), slots)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +123,8 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		Strict:          config.Strict,
 		SearchWorkCap:   n.config.PatternWorkCap.Or(0),
 		Vectors:         source,
+		Slots:           slots,
+		PatternLimit:    uint32(entry.patternLimit),
 	}
 	if bm25IsSet(config.BM25) {
 		params := config.BM25
@@ -128,8 +135,6 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		disposeFields(vectors)
 		return nil, err
 	}
-	detachedSettings := indexSettings
-	detachedSettings.PartitionCount = 1
 	entry.handle = &persist.Handle{
 		Name:    request.name,
 		Index:   built,
@@ -138,12 +143,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		Metadata: func(documentCount uint64) (metadata.Metadata, error) {
 			return entry.metadataOf(documentCount)
 		},
-		NewDetachedIndex: func() (*index.Index, error) {
-			current := detachedSettings
-			current.Synonyms = built.Synonyms()
-			current.BM25 = built.BM25()
-			return index.New(current)
-		},
+		NewDetachedIndex: detachedBuilder(indexSettings, built),
 		SyncHistoryMoved: func() { n.syncRetention.schedule(n, request.name) },
 	}
 	entry.swap.adopt(built, indexSettings)
@@ -177,22 +177,13 @@ func (n *Narsil) defaultVectorStorage() model.VectorStorageMode {
 }
 
 func buildVectorFields(indexName string, parsed *schema.Parsed, promotion *model.VectorIndexConfig,
-	defaultStorage model.VectorStorageMode) (map[string]*vector.Field, error) {
+	defaultStorage model.VectorStorageMode, slots *vector.Slots) (map[string]*vector.Field, error) {
 	fields := map[string]*vector.Field{}
 	storage := defaultStorage
 	if promotion != nil && promotion.Storage != "" {
 		storage = promotion.Storage
 	}
-	paths := sortedVectorPaths(parsed)
-	if len(paths) == 0 {
-		return fields, nil
-	}
-	slots, err := vector.NewSlots()
-	if err != nil {
-		return nil, err
-	}
-	defer slots.Close()
-	for _, path := range paths {
+	for _, path := range sortedVectorPaths(parsed) {
 		field, err := vector.New(vector.Config{FieldName: path, IndexName: indexName,
 			Dimension: parsed.VectorFields()[path], Index: promotion, Storage: storage, Slots: slots})
 		if err != nil {

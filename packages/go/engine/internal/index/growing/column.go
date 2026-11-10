@@ -16,11 +16,6 @@ func widthOf[T core.RegionElement]() uint64 {
 	return uint64(core.RegionElementBytes[T]())
 }
 
-func newColumn[T core.RegionElement](count uint64) (column[T], error) {
-	var created column[T]
-	return created, created.resize(count)
-}
-
 func (c *column[T]) len() uint64 {
 	return uint64(len(c.values))
 }

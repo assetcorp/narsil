@@ -12,20 +12,8 @@ type Expansion struct {
 	Expanded []ExpandedToken
 }
 
-type frequency interface {
-	~int | ~int32 | ~int64 | ~uint32 | ~uint64 | ~float64
-}
-
 func (t ExpandedToken) Has(token string) bool {
 	return slices.Contains(t.Synonyms, token)
-}
-
-func DocumentFrequency[N frequency](expanded ExpandedToken, frequencyOf func(token string) N) N {
-	var largest N
-	for _, synonym := range expanded.Synonyms {
-		largest = max(largest, frequencyOf(synonym))
-	}
-	return largest
 }
 
 func (l *Lookup) Expand(queryTokens []string) *Expansion {

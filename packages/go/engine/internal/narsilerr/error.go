@@ -40,6 +40,11 @@ func Wrap(code, message string, cause error, details map[string]any) *Error {
 	return failure
 }
 
+func (e *Error) CausedBy(cause error) *Error {
+	e.cause = cause
+	return e
+}
+
 func As(err error) (*Error, bool) {
 	var failure *Error
 	if errors.As(err, &failure) {

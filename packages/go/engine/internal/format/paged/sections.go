@@ -39,10 +39,7 @@ func CheckSectionPages(source io.ReaderAt, section Section, key string) error {
 	for page := int64(0); page*section.PageBytes < section.Length; page++ {
 		from := page * section.PageBytes
 		data := buffer[:min(section.PageBytes, section.Length-from)]
-		if err := readFileRange(source, envelope.HeaderBytes+section.Offset+from, data, key); err != nil {
-			return err
-		}
-		if err := requirePage(section, page, data, key); err != nil {
+		if err := readPageOf(source, section, page, data, key); err != nil {
 			return err
 		}
 	}
@@ -51,12 +48,21 @@ func CheckSectionPages(source io.ReaderAt, section Section, key string) error {
 
 func ReadSectionChecked(source io.ReaderAt, section Section, key string) ([]byte, error) {
 	data := make([]byte, section.Length)
-	if err := readFileRange(source, envelope.HeaderBytes+section.Offset, data, key); err != nil {
-		return nil, err
+	if _, native := source.(PageSource); !native {
+		if err := readFileRange(source, envelope.HeaderBytes+section.Offset, data, key); err != nil {
+			return nil, err
+		}
+		for page := int64(0); page*section.PageBytes < section.Length; page++ {
+			from := page * section.PageBytes
+			if err := requirePage(section, page, data[from:min(from+section.PageBytes, section.Length)], key); err != nil {
+				return nil, err
+			}
+		}
+		return data, nil
 	}
 	for page := int64(0); page*section.PageBytes < section.Length; page++ {
 		from := page * section.PageBytes
-		if err := requirePage(section, page, data[from:min(from+section.PageBytes, section.Length)], key); err != nil {
+		if err := readPageOf(source, section, page, data[from:min(from+section.PageBytes, section.Length)], key); err != nil {
 			return nil, err
 		}
 	}

@@ -1,7 +1,6 @@
 package query
 
 import (
-	"errors"
 	"unicode/utf16"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -105,8 +104,7 @@ func Highlight(text string, tokens []string, options HighlightOptions) (Highligh
 			Positions: make([]uint32, spans*highlightPositionsPerSpan),
 		}
 		outcome, err := workspace.Highlight(analyser, request, output)
-		var status *core.StatusError
-		if errors.As(err, &status) && status.Status == core.StatusNeedsRoom && spans < length {
+		if core.StatusOf(err) == core.StatusNeedsRoom && spans < length {
 			spans = min(length, spans*highlightSpanGrowthFactor)
 			continue
 		}

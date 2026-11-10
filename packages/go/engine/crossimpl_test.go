@@ -81,9 +81,9 @@ func goSave(t *testing.T, scenario crossScenario, plan crossPlan, directory stri
 		t.Fatalf("the Go engine refused the index: %v", err)
 	}
 	for start := 0; start < len(plan.Documents); start += crossInsertBatch {
-		batch := make([]engine.Document, 0, crossInsertBatch)
+		batch := make([]*engine.Document, 0, crossInsertBatch)
 		for _, document := range plan.Documents[start:min(start+crossInsertBatch, len(plan.Documents))] {
-			batch = append(batch, engine.Document(document))
+			batch = append(batch, engine.DocumentFromMap(document))
 		}
 		result, err := narsil.InsertBatch(ctx, plan.Index, batch, engine.InsertOptions{})
 		if err != nil || len(result.Failed) > 0 {
@@ -108,9 +108,9 @@ func goSave(t *testing.T, scenario crossScenario, plan crossPlan, directory stri
 	for _, operation := range plan.Later {
 		switch operation.Op {
 		case "insert":
-			_, err = narsil.Insert(ctx, plan.Index, engine.Document(operation.Document), "", engine.InsertOptions{})
+			_, err = narsil.Insert(ctx, plan.Index, engine.DocumentFromMap(operation.Document), "", engine.InsertOptions{})
 		case "update":
-			err = narsil.Update(ctx, plan.Index, operation.ID, engine.Document(operation.Document), engine.WriteOptions{})
+			err = narsil.Update(ctx, plan.Index, operation.ID, engine.DocumentFromMap(operation.Document), engine.WriteOptions{})
 		case "remove":
 			err = narsil.Remove(ctx, plan.Index, operation.ID, engine.WriteOptions{})
 		}

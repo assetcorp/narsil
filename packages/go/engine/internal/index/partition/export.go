@@ -1,95 +1,74 @@
 package partition
 
 import (
-	"sort"
-
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fieldindex"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/geo"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/postings"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
-type SurfaceForm struct {
-	Surface     string
-	Token       string
-	Occurrences int
+type Selection struct {
+	Source  segments.Source
+	segment *frozenSegment
 }
 
-type FieldIndexes struct {
-	Numbers    map[string]*fieldindex.Numeric
-	Booleans   map[string]*fieldindex.Boolean
-	Enums      map[string]*fieldindex.Enum
-	Geopoints  map[string]*geo.Index
-	ValueSizes map[string]*fieldindex.Numeric
+func (s Selection) DocumentCount() uint32 {
+	return s.segment.documentCount()
 }
 
-func (v View) Postings() *postings.Index {
-	return v.state.postings
+func (s Selection) Keeps(ordinal uint32) bool {
+	return !s.Source.State.Tombstoned(ordinal) && (s.Source.Keep == nil || s.Source.Keep(ordinal))
 }
 
-func (v View) FieldNames() []string {
-	return append([]string{}, v.state.fieldNames...)
-}
-
-func (v View) SurfaceForms() []SurfaceForm {
-	forms := make([]SurfaceForm, 0, len(v.state.surfaces.entries))
-	for surface, entry := range v.state.surfaces.entries {
-		forms = append(forms, SurfaceForm{Surface: surface, Token: entry.token, Occurrences: entry.count})
+func (s Selection) Document(ordinal uint32) (string, []byte, error) {
+	stored, held, err := s.segment.documentAt(ordinal)
+	if err != nil {
+		return "", nil, err
 	}
-	sort.Slice(forms, func(left, right int) bool {
-		return text.CompareCodePoints(forms[left].Surface, forms[right].Surface) < 0
-	})
-	return forms
+	if !held {
+		return "", nil, corruptedPartition("a frozen ordinal holds no stored document", ordinal)
+	}
+	return stored.id, stored.encoded, nil
 }
 
-func (v View) FieldIndexes() FieldIndexes {
-	state := v.state
-	return FieldIndexes{
-		Numbers:    copyIndexes(state.numbers),
-		Booleans:   copyIndexes(state.booleans),
-		Enums:      copyIndexes(state.enums),
-		Geopoints:  copyIndexes(state.geopoints),
-		ValueSizes: copyIndexes(state.sizes),
-	}
+func (s Selection) Paged() bool {
+	return s.segment.paged != nil
 }
 
-func (v View) AverageFieldLengths() map[string]float64 {
-	if !v.HoldsFrozenSegments() {
-		return v.state.statistics.averageFieldLengths()
-	}
-	documents, totals := aggregateFieldStats(v.sources())
-	averages := make(map[string]float64, len(totals))
-	if documents > 0 {
-		for field, total := range totals {
-			averages[field] = total / float64(documents)
-		}
-	}
-	return averages
+func (s Selection) Keeping(keep func(ordinal uint32) bool) Selection {
+	narrowed := s
+	narrowed.Source.Keep = keep
+	return narrowed
 }
 
-func (v View) DocumentFrequencies() map[string]uint32 {
-	frequencies := make(map[string]uint32, v.state.postings.Size())
-	v.state.postings.ForEachToken(func(token string) bool {
-		frequencies[token] = v.state.postings.DocumentFrequency(token)
-		return true
-	})
-	if v.tailOnly {
-		return frequencies
+func (s Selection) Resident(w *core.Workspace) (Selection, error) {
+	if s.segment.paged == nil {
+		return s, nil
 	}
-	for _, sub := range v.state.frozen {
-		for at := 0; at < sub.segment.TokenCount(); at++ {
-			if documents := sub.liveFrequencyAt(at); documents > 0 {
-				frequencies[sub.segment.TokenAt(at)] += documents
-			}
-		}
+	frozen, err := s.segment.paged.Resident(w)
+	if err != nil {
+		return Selection{}, err
 	}
-	return frequencies
+	resident := s
+	resident.Source.Frozen = frozen
+	resident.Source.State = segments.NewState(&frozen.Keyword, nil)
+	resident.Source.Keep = s.Keeps
+	return resident, nil
 }
 
-func copyIndexes[V any](indexes map[string]V) map[string]V {
-	copied := make(map[string]V, len(indexes))
-	for path, index := range indexes {
-		copied[path] = index
+func (s Snapshot) GrowingCount() int {
+	return s.side.liveCount
+}
+
+func (s Snapshot) Selections() []Selection {
+	selections := make([]Selection, 0, len(s.side.frozen))
+	analysing := &planner{partition: s.partition}
+	for _, held := range s.side.frozen {
+		segment := held.segment
+		selections = append(selections, Selection{segment: segment, Source: segments.Source{
+			Segment: len(selections), Frozen: segment.frozen, State: held.state.Clone(),
+			Tokens: func(ordinal uint32) ([]segments.Tokens, error) {
+				text, err := analysing.removedText(segment, ordinal)
+				return text.frozenTokens(), err
+			}}})
 	}
-	return copied
+	return selections
 }

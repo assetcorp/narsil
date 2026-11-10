@@ -134,10 +134,7 @@ func (r *TokenRewriter) Release() {
 }
 
 func unitsPointer(units []uint16) *C.uint16_t {
-	if len(units) == 0 {
-		return nil
-	}
-	return (*C.uint16_t)(unsafe.Pointer(unsafe.SliceData(units)))
+	return (*C.uint16_t)(sliceStart(units))
 }
 
 func copyUnits(pointer *C.uint16_t, length C.size_t) []uint16 {

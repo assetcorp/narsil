@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"strings"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/export"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -85,53 +87,47 @@ func (field *exportVectors) vectorOf(docID string) ([]float32, bool, error) {
 	return values, true, nil
 }
 
-func (opened *Archive) winners(ctx context.Context, entry manifest.PartitionEntry) (map[string]int, error) {
-	winners := map[string]int{}
-	for at, ref := range entry.Segments {
-		segment, err := checkpoint.OpenStoredSegment(ctx, opened.store, ref.File, opened.pagedText)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range segment.RemovedIDs() {
-			delete(winners, id)
-		}
-		for ordinal := range segment.DocumentTotal() {
-			winners[segment.DocumentID(ordinal)] = at
-		}
-	}
-	return winners, nil
-}
-
-func (opened *Archive) exportSegment(writer *export.Writer, segment checkpoint.StoredSegment, at int,
-	winners map[string]int, vectors []*exportVectors) error {
-	for ordinal := range segment.DocumentTotal() {
-		id := segment.DocumentID(ordinal)
-		if winner, live := winners[id]; !live || winner != at {
-			continue
-		}
-		document, err := segment.StoredDocument(ordinal)
+func exportScan(writer *export.Writer, scans []segmentScan, at int, vectors []*exportVectors) error {
+	scan := scans[at]
+	for ordinal := range scan.count {
+		id, err := scan.idAt(ordinal)
 		if err != nil {
 			return err
 		}
-		found := map[string][]float32{}
+		latest, err := countsAsLatestHolder(scans, at, id)
+		if err != nil {
+			return err
+		}
+		if !latest {
+			continue
+		}
+		encoded, err := scan.encodedAt(ordinal)
+		if err != nil {
+			return err
+		}
+		stored, err := storedEntries(encoded)
+		if err != nil {
+			return err
+		}
+		document := withoutVectorFields(stored, scan.schema)
 		for _, field := range vectors {
 			values, held, err := field.vectorOf(id)
 			if err != nil {
 				return err
 			}
 			if held {
-				found[field.fieldPath] = values
+				document = withNestedValue(document, strings.Split(field.fieldPath, "."), values)
 			}
 		}
-		if err := writer.WriteDocument(id, withVectors(document, found)); err != nil {
+		if err := writer.WriteStoredDocument(id, document); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (opened *Archive) Export(ctx context.Context, destination io.Writer, header map[string]any) error {
-	writer, err := export.NewWriter(destination, export.Header{Index: header})
+func (opened *Archive) Export(ctx context.Context, destination io.Writer, header codec.OrderedMap) error {
+	writer, err := export.NewWriterInStoredOrder(destination, header)
 	if err != nil {
 		return err
 	}
@@ -140,18 +136,27 @@ func (opened *Archive) Export(ctx context.Context, destination io.Writer, header
 		return err
 	}
 	for _, entry := range opened.Manifest.Partitions {
-		winners, err := opened.winners(ctx, entry)
+		if err := opened.exportPartition(ctx, writer, entry, vectors); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (opened *Archive) exportPartition(ctx context.Context, writer *export.Writer, entry manifest.PartitionEntry,
+	vectors []*exportVectors) error {
+	scans := make([]segmentScan, 0, len(entry.Segments))
+	defer func() { closeScans(scans) }()
+	for _, ref := range entry.Segments {
+		scan, err := openSegmentScan(ctx, opened.store, ref.File, opened.pagedText)
 		if err != nil {
 			return err
 		}
-		for at, ref := range entry.Segments {
-			segment, err := checkpoint.OpenStoredSegment(ctx, opened.store, ref.File, opened.pagedText)
-			if err != nil {
-				return err
-			}
-			if err := opened.exportSegment(writer, segment, at, winners, vectors); err != nil {
-				return err
-			}
+		scans = append(scans, scan)
+	}
+	for at := range scans {
+		if err := exportScan(writer, scans, at, vectors); err != nil {
+			return err
 		}
 	}
 	return nil

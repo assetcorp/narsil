@@ -31,6 +31,25 @@ func highScoreFirst(left, right ScoredResult) int {
 	return text.CompareCodePoints(left.DocID, right.DocID)
 }
 
+func scoresTie(left, right float64) bool {
+	return left == right || (math.IsNaN(left) && math.IsNaN(right))
+}
+
+func orderTiedScoresByDocumentID(ranked []ScoredResult) {
+	for start := 0; start < len(ranked); {
+		end := start + 1
+		for end < len(ranked) && scoresTie(ranked[start].Score, ranked[end].Score) {
+			end++
+		}
+		if end-start > 1 {
+			slices.SortFunc(ranked[start:end], func(left, right ScoredResult) int {
+				return text.CompareCodePoints(left.DocID, right.DocID)
+			})
+		}
+		start = end
+	}
+}
+
 func toScore(distance float64, metric model.VectorMetric) float64 {
 	switch metric {
 	case model.MetricDotProduct:
@@ -108,6 +127,7 @@ type scanRequest struct {
 	nativeMetric  core.Metric
 	minSimilarity float64
 	pin           int64
+	liveAtPin     int
 }
 
 func (f *Field) scoreOrdinals(current *layout, request scanRequest, ordinals []int32, tally *scanTally,

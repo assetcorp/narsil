@@ -76,32 +76,6 @@ func (t *stringTable) textAt(ordinal uint64) ([]uint16, bool) {
 	return t.units.values[start:end], true
 }
 
-func (t *stringTable) find(text []uint16) (uint64, bool) {
-	slots := t.slots.values
-	if len(slots) == 0 {
-		return 0, false
-	}
-	mask := uint64(len(slots) - 1)
-	count := t.count()
-	used := t.unitsUsed()
-	slot := uint64(hashUnits(text)) & mask
-	for scanned := 0; scanned < len(slots); scanned++ {
-		entry := slots[slot]
-		if entry == 0 {
-			return 0, false
-		}
-		ordinal := uint64(entry) - 1
-		if entry > 0 && ordinal < count && ordinal < t.length.len() && uint64(t.length.values[ordinal]) == uint64(len(text)) {
-			start := uint64(t.offset.values[ordinal])
-			if start <= used && uint64(len(text)) <= used-start && slices.Equal(t.units.values[start:start+uint64(len(text))], text) {
-				return ordinal, true
-			}
-		}
-		slot = (slot + 1) & mask
-	}
-	return 0, false
-}
-
 func capacityFor(current, needed uint64) uint64 {
 	return max(needed, min(lastOffset, current*termRegionGrowthFactor))
 }

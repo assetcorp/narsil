@@ -2,11 +2,12 @@ package text
 
 import "unicode/utf8"
 
+const ReplacementCharacter rune = 0xFFFD
+
 const (
-	ReplacementCharacter rune = 0xFFFD
-	asciiLimit                = 0x80
-	continuationFirst         = 0x80
-	continuationLast          = 0xBF
+	asciiLimit        = 0x80
+	continuationFirst = 0x80
+	continuationLast  = 0xBF
 )
 
 type byteText interface {
@@ -67,11 +68,6 @@ func NextCodePoint(source string, at int) (rune, int) {
 	return codePoint, size
 }
 
-func NextCodePointInBytes(source []byte, at int) (rune, int) {
-	codePoint, size, _ := decodeAt(source, at)
-	return codePoint, size
-}
-
 func IsWellFormed(source string) bool {
 	return utf8.ValidString(source)
 }
@@ -101,15 +97,6 @@ func appendWellFormed[T byteText](destination []byte, source T) []byte {
 		at += size
 	}
 	return destination
-}
-
-func CodePointCount(source string) int {
-	counted := 0
-	for at := 0; at < len(source); counted++ {
-		_, size, _ := decodeAt(source, at)
-		at += size
-	}
-	return counted
 }
 
 func ExceedsCodePoints(source string, maximum int) bool {

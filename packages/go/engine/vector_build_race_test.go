@@ -125,8 +125,12 @@ func sameVector(left []float32, right []float32) bool {
 	return true
 }
 
-func returnedEmbedding(document engine.Document) ([]float32, bool) {
-	switch held := document["embedding"].(type) {
+func returnedEmbedding(document *engine.Document) ([]float32, bool) {
+	if document == nil {
+		return nil, false
+	}
+	embedding, _ := document.Get("embedding")
+	switch held := embedding.(type) {
 	case []float32:
 		return held, true
 	case []float64:
@@ -169,7 +173,7 @@ func (writer *placingWriter) target() (int, bool) {
 
 func (race *placingRace) insertBatch(writer *placingWriter) error {
 	start := writer.random.Intn(placingSlotsPerWriter)
-	batch := []engine.Document{}
+	batch := []*engine.Document{}
 	staged := map[int][]float32{}
 	for offset := 0; offset < placingSlotsPerWriter && len(batch) < placingInsertBatch; offset++ {
 		slot := (start + offset) % placingSlotsPerWriter
@@ -179,7 +183,7 @@ func (race *placingRace) insertBatch(writer *placingWriter) error {
 		vector := randomUnitishVector(writer.random)
 		id := placingID(writer.position, slot)
 		race.oracle.recordWritten(id, vector)
-		batch = append(batch, engine.Document{"id": id, "title": "lantern " + id, "embedding": vector})
+		batch = append(batch, engine.DocumentFromMap(map[string]any{"id": id, "title": "lantern " + id, "embedding": vector}))
 		staged[slot] = vector
 	}
 	result, err := race.narsil.InsertBatch(race.ctx, placingIndexName, batch, engine.InsertOptions{})
@@ -210,7 +214,7 @@ func (race *placingRace) writerStep(writer *placingWriter) error {
 	if choice < placingInsertChoices+placingUpdateChoices {
 		vector := randomUnitishVector(writer.random)
 		race.oracle.recordWritten(id, vector)
-		document := engine.Document{"title": "lantern " + id, "embedding": vector}
+		document := engine.DocumentFromMap(map[string]any{"title": "lantern " + id, "embedding": vector})
 		if err := race.narsil.Update(race.ctx, placingIndexName, id, document, engine.WriteOptions{}); err != nil {
 			return fmt.Errorf("updating %s failed: %w", id, err)
 		}

@@ -13,7 +13,7 @@ type InsertOptions struct {
 
 type DocumentUpdate struct {
 	DocID    string
-	Document Document
+	Document *Document
 }
 
 type SnapshotOptions struct {

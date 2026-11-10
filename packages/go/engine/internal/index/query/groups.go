@@ -120,7 +120,7 @@ func groupHitsWith(workspace *core.Workspace, fields []core.StoredValueSlices, o
 		MaxPerGroup: perGroup, HasLimit: limit >= 0, Limit: uint32(max(0, limit)),
 	}
 	for at := range fields {
-		request.Values[at] = *core.StoredValuesOf(fields[at])
+		request.Values[at] = *fields[at].Values()
 	}
 	output := &core.GroupOutput{
 		Heads: make([]uint32, count), Offsets: make([]uint32, count+1), Hits: make([]uint32, count), Members: make([]uint32, count),

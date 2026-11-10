@@ -218,7 +218,7 @@ func AppendExactJSON(destination []byte, value any, documentID string) ([]byte, 
 	return target.output, nil
 }
 
-func AppendDocumentJSON(destination []byte, document map[string]any, documentID string) ([]byte, error) {
+func AppendDocumentJSON(destination []byte, document any, documentID string) ([]byte, error) {
 	target := jsonLineTarget{documentID: documentID, tagged: true, output: destination}
 	if err := target.appendValue(document, ""); err != nil {
 		return destination, err

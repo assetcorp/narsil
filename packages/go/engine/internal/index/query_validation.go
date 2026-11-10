@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/facets"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
@@ -144,6 +144,29 @@ func undeclaredFieldOnStrictIndex(field, option string) error {
 		map[string]any{"field": field, "option": option})
 }
 
+func facetFieldOrder(config model.FacetConfig) []string {
+	keys := make(map[string]any, len(config))
+	for fieldPath := range config {
+		keys[fieldPath] = nil
+	}
+	return codec.ObjectKeyOrder(keys)
+}
+
+func (ix *Index) requireFacetableFields(config model.FacetConfig) error {
+	for _, fieldPath := range facetFieldOrder(config) {
+		field, declared := ix.settings.Schema.Field(fieldPath)
+		if ix.settings.Strict && !declared {
+			return undeclaredFieldOnStrictIndex(fieldPath, "facet")
+		}
+		if declared && (field.Base == schema.BaseGeopoint || field.Base == schema.BaseVector) {
+			return narsilerr.New(narsilerr.CodeSearchInvalidField,
+				"The engine counts the values of a text, number, boolean, or enum field, and the schema declares field "+quoted(fieldPath)+" as "+quoted(string(field.Type)),
+				map[string]any{"field": fieldPath, "fieldType": string(field.Type)})
+		}
+	}
+	return nil
+}
+
 func (ix *Index) requireGroupableFields(fields []string) error {
 	for _, field := range fields {
 		declared, found := ix.settings.Schema.Field(field)
@@ -169,7 +192,7 @@ func (ix *Index) requireUsableQueryFields(query *model.QueryParams) error {
 		}
 	}
 	if query.Facets != nil {
-		if err := facets.RequireFacetableFields(query.Facets, ix.settings.Schema, ix.settings.Strict); err != nil {
+		if err := ix.requireFacetableFields(query.Facets); err != nil {
 			return err
 		}
 	}

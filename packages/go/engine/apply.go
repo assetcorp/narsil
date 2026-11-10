@@ -4,20 +4,12 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
-)
-
-type writeKind uint8
-
-const (
-	writeInsert writeKind = iota
-	writeUpdate
-	writeRemove
 )
 
 func (entry *indexEntry) alreadyExists(id string) error {
@@ -49,15 +41,19 @@ func (entry *indexEntry) capacityError(pending int) error {
 			"maxDocsPerPartition": maximum, "partitionCount": partitions})
 }
 
-func (entry *indexEntry) prepared(document model.Document) (persist.Write, error) {
+func (entry *indexEntry) prepared(document *model.Document) (persist.Write, error) {
 	prepared, err := schema.PrepareDocument(document, entry.parsed, entry.rules())
 	if err != nil {
 		return persist.Write{}, err
 	}
-	return persist.Write{Document: prepared.Document, Vectors: prepared.Vectors}, nil
+	encoded, err := codec.EncodeDocument(prepared.Document)
+	if err != nil {
+		return persist.Write{}, err
+	}
+	return persist.Write{Document: prepared.Document.Map(), Encoded: encoded, Vectors: prepared.Vectors}, nil
 }
 
-func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind writeKind) ([]error, error) {
+func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind index.WriteKind) ([]error, error) {
 	if len(writes) == 0 {
 		return []error{}, nil
 	}
@@ -65,14 +61,14 @@ func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind
 		return buffered, err
 	}
 	var failures []error
+	var err error
 	if entry.durable != nil {
-		outcomes, err := entry.durable.Apply(ctx, writes)
-		if err != nil {
-			return nil, err
-		}
-		failures = outcomes
+		failures, err = entry.durable.Apply(ctx, writes)
 	} else {
-		failures = entry.applyInMemory(writes, kind)
+		failures, err = entry.applyInMemory(writes, kind)
+	}
+	if err != nil {
+		return nil, err
 	}
 	for at, failure := range failures {
 		failures[at] = documentTokensRefused(failure)
@@ -96,60 +92,8 @@ func (entry *indexEntry) scheduleVectorBuilds(touched touchedVectors) {
 	}
 }
 
-func (entry *indexEntry) applyInMemory(writes []persist.Write, kind writeKind) []error {
-	ix := entry.index()
-	var failures []error
-	switch kind {
-	case writeRemove:
-		ids := make([]string, len(writes))
-		for at, write := range writes {
-			ids[at] = write.DocumentID
-		}
-		failures = ix.Remove(ids)
-	default:
-		documents := make([]partition.Document, len(writes))
-		for at, write := range writes {
-			documents[at] = partition.Document{ID: write.DocumentID, Fields: write.Document}
-		}
-		if kind == writeInsert {
-			failures = ix.Insert(documents)
-		} else {
-			failures = ix.Update(documents)
-		}
-	}
-	if len(entry.vectorPaths) == 0 {
-		return failures
-	}
-	indexed := append([]error(nil), failures...)
-	documents := make([]vector.DocumentVectors, len(writes))
-	for at, write := range writes {
-		documents[at] = vector.DocumentVectors{DocID: write.DocumentID, Vectors: write.Vectors,
-			Partition: int32(ix.RoutePartition(write.DocumentID)), Remove: kind == writeRemove}
-	}
-	fields := entry.namedVectorFields()
-	vector.ApplyDocuments(fields, documents, failures)
-	if kind != writeInsert {
-		return failures
-	}
-	var refused []string
-	for at, write := range writes {
-		if indexed[at] == nil && failures[at] != nil {
-			refused = append(refused, write.DocumentID)
-		}
-	}
-	if len(refused) > 0 {
-		_ = ix.Remove(refused)
-		vector.RemoveDocuments(fields, refused)
-	}
-	return failures
-}
-
-func (entry *indexEntry) namedVectorFields() []vector.NamedField {
-	fields := make([]vector.NamedField, len(entry.vectorPaths))
-	for at, path := range entry.vectorPaths {
-		fields[at] = vector.NamedField{Path: path, Field: entry.handle.Vectors[path]}
-	}
-	return fields
+func (entry *indexEntry) applyInMemory(writes []persist.Write, kind index.WriteKind) ([]error, error) {
+	return entry.index().Apply(kind, persist.DocumentWrites(writes), entry.handle.NamedVectorFields())
 }
 
 func engineErrorOf(err error) *narsilerr.Error {

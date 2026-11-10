@@ -15,19 +15,13 @@ type StoredSegment interface {
 	DocumentTotal() int
 	DocumentID(ordinal int) string
 	StoredDocument(ordinal int) (map[string]any, error)
-	HoldsPagedText() bool
-	FieldNames() []string
-	TracksPositions() bool
-	TokenCount() int
-	Token(at int) string
-	VisitRows(at int, visit RowVisitor) error
-	FieldLengthColumns() []keyword.FieldLengthColumn
-	SurfaceForms() (*keyword.SurfaceFormColumn, error)
+	EncodedDocument(ordinal int) ([]byte, error)
+	KeywordFile() (*keyword.Segment, bool)
 }
 
-func (keywordStored) HoldsPagedText() bool { return false }
+func (stored keywordStored) KeywordFile() (*keyword.Segment, bool) { return stored.segment, true }
 
-func (pagedStored) HoldsPagedText() bool { return true }
+func (pagedStored) KeywordFile() (*keyword.Segment, bool) { return nil, false }
 
 type keywordStored struct {
 	segment *keyword.Segment
@@ -45,6 +39,10 @@ func (stored keywordStored) StoredDocument(ordinal int) (map[string]any, error) 
 	return stored.segment.Document(ordinal)
 }
 
+func (stored keywordStored) EncodedDocument(ordinal int) ([]byte, error) {
+	return stored.segment.EncodedDocument(ordinal), nil
+}
+
 type pagedStored struct {
 	reader *paged.Reader
 	ids    []string
@@ -60,6 +58,10 @@ func (stored pagedStored) DocumentID(ordinal int) string { return stored.ids[ord
 
 func (stored pagedStored) StoredDocument(ordinal int) (map[string]any, error) {
 	return stored.reader.Document(uint32(ordinal))
+}
+
+func (stored pagedStored) EncodedDocument(ordinal int) ([]byte, error) {
+	return stored.reader.EncodedDocument(uint32(ordinal))
 }
 
 func holdsPagedText(data []byte) bool {
@@ -106,21 +108,4 @@ func OpenStoredSegment(ctx context.Context, store Store, ref manifest.FileRef, p
 		return nil, err
 	}
 	return keywordStored{segment: segment}, nil
-}
-
-func EachStoredSegment(ctx context.Context, store Store, entry manifest.PartitionEntry, schema map[string]string,
-	pagedText bool, visit func(StoredSegment) error) error {
-	for _, ref := range entry.Segments {
-		segment, err := OpenStoredSegment(ctx, store, ref.File, pagedText)
-		if err != nil {
-			return err
-		}
-		if err := RequireAgreedSchema(schema, segment.FieldSchema(), ref.File.Key); err != nil {
-			return err
-		}
-		if err := visit(segment); err != nil {
-			return err
-		}
-	}
-	return nil
 }

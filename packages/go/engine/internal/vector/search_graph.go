@@ -37,7 +37,11 @@ func graphIsEmpty(graph *graphMemory) bool {
 
 func (f *Field) traverse(current *layout, slot uint32, request scanRequest, depths searchDepths,
 	accepted *ordinalFilter, scratch *searchScratch) (int, error) {
-	candidateCount := min(depths.ef, max(1, int(current.graph.word(core.GraphWordSlots).Load())))
+	admitted := request.liveAtPin
+	if accepted != nil {
+		admitted = accepted.count
+	}
+	candidateCount := min(depths.ef, max(1, admitted))
 	ordinals, estimates := scratch.candidatesFor(candidateCount)
 	search := core.SearchRequest{
 		Query:          request.query,
@@ -121,52 +125,31 @@ func (f *Field) rescoredHits(current *layout, request scanRequest, count, depth 
 	return hits, nil
 }
 
-func scoresDescend(hits []ordinalHit) bool {
-	for index := 1; index < len(hits); index++ {
-		if !(hits[index].score <= hits[index-1].score) {
-			return false
-		}
+func compareHitScores(left, right ordinalHit) int {
+	switch {
+	case right.score > left.score:
+		return 1
+	case right.score < left.score:
+		return -1
+	case scoresTie(left.score, right.score):
+		return 0
+	case math.IsNaN(left.score):
+		return 1
 	}
-	return len(hits) == 0 || !math.IsNaN(hits[0].score)
-}
-
-func resolveEveryHit(store *storeMemory, hits []ordinalHit, k int) []ScoredResult {
-	resolved := make([]ScoredResult, 0, len(hits))
-	for _, hit := range hits {
-		resolved = append(resolved, ScoredResult{DocID: store.table.storedDocID(hit.ordinal), Score: hit.score})
-	}
-	slices.SortStableFunc(resolved, highScoreFirst)
-	return resolved[:min(k, len(resolved))]
+	return -1
 }
 
 func bestResolvedHits(store *storeMemory, hits []ordinalHit, k int) []ScoredResult {
-	ordered := hits
-	if !scoresDescend(hits) {
-		if slices.ContainsFunc(hits, func(hit ordinalHit) bool { return math.IsNaN(hit.score) }) {
-			return resolveEveryHit(store, hits, k)
-		}
-		ordered = slices.Clone(hits)
-		slices.SortStableFunc(ordered, func(left, right ordinalHit) int {
-			return compareScoresDescending(left.score, right.score)
-		})
+	if !slices.IsSortedFunc(hits, compareHitScores) {
+		slices.SortStableFunc(hits, compareHitScores)
 	}
-	taken := make([]ScoredResult, 0, min(k, len(ordered)))
-	for _, hit := range ordered {
-		if len(taken) >= k && hit.score < taken[k-1].Score {
+	taken := make([]ScoredResult, 0, min(k, len(hits)))
+	for _, hit := range hits {
+		if len(taken) >= k && !scoresTie(hit.score, taken[k-1].Score) {
 			break
 		}
 		taken = append(taken, ScoredResult{DocID: store.table.storedDocID(hit.ordinal), Score: hit.score})
 	}
-	slices.SortStableFunc(taken, highScoreFirst)
+	orderTiedScoresByDocumentID(taken)
 	return taken[:min(k, len(taken))]
-}
-
-func compareScoresDescending(left, right float64) int {
-	if right > left {
-		return 1
-	}
-	if right < left {
-		return -1
-	}
-	return 0
 }

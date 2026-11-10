@@ -5,6 +5,8 @@ const (
 	MaxStableHeadAttempts   = 8
 	InitialBlockStarts      = 4_096
 	SharedReadCacheBytes    = 134_217_728
+	NativePageCacheShare    = 0.25
+	NativeAsyncPageCaches   = 4
 	MergeReadCacheBytes     = 33_554_432
 	LargestCachedEntryShare = 0.25
 )

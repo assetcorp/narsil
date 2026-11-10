@@ -215,7 +215,7 @@ func walkGroups(in *reader, visitor PhraseVisitor, onGroup func(string)) error {
 }
 
 func readTopLevel(payload []byte) (OpenedCounts, error) {
-	in := &reader{bytes: payload}
+	in := newReader(payload)
 	keys, err := in.mapHeader()
 	if err != nil {
 		return OpenedCounts{}, err
@@ -249,9 +249,9 @@ func readTopLevel(payload []byte) (OpenedCounts, error) {
 				err = fail("The file holds an indexUuid of the wrong length")
 			}
 		case keyGroups:
-			opened.groupsStart = in.position
+			opened.groupsStart = in.position()
 			err = walkGroups(in, nil, nil)
-			opened.groupsEnd = in.position
+			opened.groupsEnd = in.position()
 		default:
 			err = fail("The file holds an unexpected key \"" + key + "\"")
 		}
@@ -294,7 +294,7 @@ func OpenCounts(data []byte, expectedDay string, fingerprint []byte) (OpenedCoun
 }
 
 func (opened OpenedCounts) groups() *reader {
-	return &reader{bytes: opened.payload, position: opened.groupsStart}
+	return newReader(opened.payload[opened.groupsStart:])
 }
 
 func (opened OpenedCounts) Visit(visitor PhraseVisitor) {

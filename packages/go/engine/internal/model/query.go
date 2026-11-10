@@ -125,7 +125,7 @@ type FacetFieldConfig struct {
 type FacetConfig map[string]FacetFieldConfig
 
 type GroupReducer struct {
-	Reduce       func(accumulator any, document Document, score float64) (any, error)
+	Reduce       func(accumulator any, document *Document, score float64) (any, error)
 	InitialValue func() any
 }
 

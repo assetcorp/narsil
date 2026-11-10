@@ -82,7 +82,7 @@ func buildEarlierSnapshot(ctx context.Context, name string, reader *bufio.Reader
 	if err != nil {
 		return nil, Restoring{}, err
 	}
-	if err := insertEarlierDocuments(handle, snapshot.Partitions, snapshot.VectorIndexes); err != nil {
+	if err := insertEarlierDocuments(ctx, handle, snapshot.Partitions, snapshot.VectorIndexes); err != nil {
 		disposeVectors(handle)
 		return nil, Restoring{}, err
 	}
@@ -92,9 +92,9 @@ func buildEarlierSnapshot(ctx context.Context, name string, reader *bufio.Reader
 	return handle, restoring, nil
 }
 
-func archiveOfEarlierSnapshot(ctx context.Context, handle *Handle, restoring Restoring, targetBytes int64) (
-	io.ReadCloser, func() error, error) {
-	built, err := ArchiveFromMemory(ctx, handle, targetBytes)
+func archiveOfEarlierSnapshot(ctx context.Context, handle *Handle, restoring Restoring) (io.ReadCloser, func() error,
+	error) {
+	built, err := ArchiveFromMemory(ctx, handle)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,7 +126,7 @@ func (manager *Manager) restoreEarlierSnapshot(ctx context.Context, name string,
 		return nil, err
 	}
 	defer disposeVectors(detached)
-	source, wait, err := archiveOfEarlierSnapshot(ctx, detached, restoring, manager.settings.TargetSegmentBytes)
+	source, wait, err := archiveOfEarlierSnapshot(ctx, detached, restoring)
 	if err != nil {
 		return nil, err
 	}

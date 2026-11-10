@@ -7,7 +7,10 @@ package core
 */
 import "C"
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 const ExpectedABIVersion = C.NARSIL_CORE_ABI_VERSION
 
@@ -67,15 +70,19 @@ func (s Status) String() string {
 	return fmt.Sprintf("status(%d)", int(s))
 }
 
+func StatusOf(err error) Status {
+	var refused *StatusError
+	if errors.As(err, &refused) {
+		return refused.Status
+	}
+	return StatusOK
+}
+
 func statusError(operation string, status C.narsil_status) error {
 	if status == C.NARSIL_OK {
 		return nil
 	}
 	return &StatusError{Operation: operation, Status: Status(status)}
-}
-
-func ABIVersion() int {
-	return int(C.narsil_core_abi_version())
 }
 
 func RecordBytes(dimension, bits uint32) uint32 {

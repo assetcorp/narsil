@@ -1,118 +1,97 @@
 package partition
 
 import (
-	"sort"
+	"math/bits"
+	"sync"
 	"sync/atomic"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/bitset"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/stored"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-type StoredDocument = stored.Document
-
-type documentStore struct {
-	ordinals      map[string]uint32
-	documents     []*StoredDocument
-	lengthColumns map[string][]uint32
-	count         int
-	contentBytes  int
-	live          bitset.Bits
-	sortedIDs     atomic.Pointer[[]string]
+type storedDocument struct {
+	id      string
+	encoded []byte
 }
 
-func newDocumentStore() documentStore {
-	return documentStore{ordinals: map[string]uint32{}, lengthColumns: map[string][]uint32{}, live: bitset.New(0)}
+type documentEntry struct {
+	id      string
+	encoded [sideCount][]byte
 }
 
-func (s *documentStore) get(id string) (*StoredDocument, uint32, bool) {
-	ordinal, found := s.ordinals[id]
-	if !found {
-		return nil, 0, false
-	}
-	return s.documents[ordinal], ordinal, true
+type documentTable struct {
+	writing  sync.Mutex
+	reserved uint32
+	chunks   atomic.Pointer[[][]documentEntry]
 }
 
-func (s *documentStore) at(ordinal uint32) *StoredDocument {
-	if int(ordinal) >= len(s.documents) {
+func newDocumentTable() *documentTable {
+	return &documentTable{}
+}
+
+func documentChunkOf(ordinal uint32) (int, uint64) {
+	doubled := uint64(ordinal)>>documentTableFirstChunkBits + 1
+	chunk := bits.Len64(doubled) - 1
+	first := (uint64(1)<<chunk - 1) << documentTableFirstChunkBits
+	return chunk, uint64(ordinal) - first
+}
+
+func (t *documentTable) entryAt(ordinal uint32) *documentEntry {
+	chunks := t.chunks.Load()
+	if chunks == nil {
 		return nil
 	}
-	return s.documents[ordinal]
-}
-
-func (s *documentStore) capacity() uint32 {
-	return uint32(len(s.documents))
-}
-
-func (s *documentStore) store(document *StoredDocument) uint32 {
-	ordinal, found := s.ordinals[document.ID]
-	if found {
-		s.contentBytes -= s.documents[ordinal].ContentBytes
-	} else {
-		ordinal = uint32(len(s.documents))
-		s.ordinals[document.ID] = ordinal
-		s.documents = append(s.documents, nil)
-		s.count++
-		s.live = bitset.Grown(s.live, ordinal)
-		s.live.Set(ordinal)
-		s.sortedIDs.Store(nil)
+	chunk, offset := documentChunkOf(ordinal)
+	if chunk >= len(*chunks) {
+		return nil
 	}
-	s.documents[ordinal] = document
-	s.contentBytes += document.ContentBytes
-	s.writeFieldLengths(ordinal, document.FieldLengths)
+	return &(*chunks)[chunk][offset]
+}
+
+func (t *documentTable) reserve(id string) uint32 {
+	t.writing.Lock()
+	defer t.writing.Unlock()
+	ordinal := t.reserved
+	chunk, offset := documentChunkOf(ordinal)
+	var held [][]documentEntry
+	if current := t.chunks.Load(); current != nil {
+		held = *current
+	}
+	if chunk >= len(held) {
+		grown := append(held, make([]documentEntry, uint64(1)<<(chunk+documentTableFirstChunkBits)))
+		t.chunks.Store(&grown)
+		held = grown
+	}
+	held[chunk][offset].id = id
+	t.reserved++
 	return ordinal
 }
 
-func (s *documentStore) writeFieldLengths(ordinal uint32, lengths map[string]uint32) {
-	for field, length := range lengths {
-		column := s.lengthColumns[field]
-		if int(ordinal) >= len(column) {
-			grown := make([]uint32, max(int(ordinal)+1, len(column)*2, firstLengthColumnCapacity))
-			copy(grown, column)
-			column = grown
-			s.lengthColumns[field] = column
-		}
-		column[ordinal] = length
+func (t *documentTable) set(side int, ordinal uint32, encoded []byte) {
+	t.writing.Lock()
+	defer t.writing.Unlock()
+	if ordinal >= t.reserved {
+		return
+	}
+	if entry := t.entryAt(ordinal); entry != nil {
+		entry.encoded[side] = encoded
 	}
 }
 
-func (s *documentStore) remove(id string) (uint32, bool) {
-	ordinal, found := s.ordinals[id]
-	if !found {
-		return 0, false
+func (t *documentTable) at(side int, ordinal uint32) (storedDocument, bool) {
+	entry := t.entryAt(ordinal)
+	if entry == nil {
+		return storedDocument{}, false
 	}
-	s.contentBytes -= s.documents[ordinal].ContentBytes
-	s.count--
-	s.live.Clear(ordinal)
-	delete(s.ordinals, id)
-	s.documents[ordinal] = nil
-	s.sortedIDs.Store(nil)
-	for _, column := range s.lengthColumns {
-		if int(ordinal) < len(column) {
-			column[ordinal] = 0
-		}
+	encoded := entry.encoded[side]
+	if encoded == nil {
+		return storedDocument{}, false
 	}
-	return ordinal, true
+	return storedDocument{id: entry.id, encoded: encoded}, true
 }
 
-func (s *documentStore) forEach(visit func(ordinal uint32, document *StoredDocument) bool) {
-	for ordinal, document := range s.documents {
-		if document != nil && !visit(uint32(ordinal), document) {
-			return
-		}
-	}
-}
+var storedDecoding = codec.DecodeOptions{ErrorCode: narsilerr.CodePartitionCorrupted}
 
-func (s *documentStore) sortedDocumentIDs() []string {
-	if held := s.sortedIDs.Load(); held != nil {
-		return *held
-	}
-	ids := make([]string, 0, s.count)
-	s.forEach(func(_ uint32, document *StoredDocument) bool {
-		ids = append(ids, document.ID)
-		return true
-	})
-	sort.Slice(ids, func(left, right int) bool { return text.CompareCodePoints(ids[left], ids[right]) < 0 })
-	s.sortedIDs.CompareAndSwap(nil, &ids)
-	return ids
+func decodeStored(document storedDocument) (*codec.Document, error) {
+	return codec.DecodeStoredDocument(document.encoded, storedDecoding)
 }
