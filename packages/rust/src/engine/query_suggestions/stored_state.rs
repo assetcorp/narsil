@@ -41,10 +41,6 @@ fn stored_state_of(
 }
 
 impl SuggestionState {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.setting.is_none() && self.banned.is_empty() && self.source.is_none()
-    }
-
     pub(crate) fn enabled(&self) -> bool {
         self.setting.as_ref().is_some_and(|setting| setting.enabled)
     }

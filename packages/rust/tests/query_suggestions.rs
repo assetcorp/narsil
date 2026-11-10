@@ -1,5 +1,7 @@
 mod support;
 
+use std::path::PathBuf;
+
 use narsil::{
     ErrorCode, ManualQuerySuggestion, QuerySuggestionsBuildStatus, QuerySuggestionsSetting,
     RecordQueryOutcome, SyncSetting,
@@ -459,4 +461,68 @@ fn an_index_never_holds_device_sync_and_popular_query_suggestions_at_once() {
             .is_none_or(|setting| !setting.enabled);
         assert!(off, "closed: {closed}");
     }
+}
+
+#[test]
+fn a_restore_under_a_free_name_deletes_the_counts_that_a_dropped_index_left_behind() {
+    let scratch = ScratchDirectory::new("suggestions-restore-leftovers");
+    let root = scratch.path();
+    let corpus = corpus();
+    let narsil = open(root, Some(KEY));
+    create_with_corpus(&narsil, INDEX, &corpus);
+    let mut without_suggestions = Vec::new();
+    narsil
+        .snapshot(INDEX, &mut without_suggestions)
+        .expect("the snapshot is written");
+    narsil
+        .query_suggestions()
+        .update_setting(INDEX, &setting(MIN_PEOPLE, MIN_RESULTS))
+        .expect("the feature turns on");
+    record_all(&narsil, &first_round());
+    narsil.shutdown().expect("the engine shuts down");
+    let left_behind: Vec<(PathBuf, Vec<u8>)> = history_files(root, INDEX)
+        .into_iter()
+        .map(|file| {
+            let bytes = std::fs::read(&file).expect("every history file reads");
+            (file, bytes)
+        })
+        .collect();
+    assert!(
+        !left_behind.is_empty(),
+        "a clean shutdown saves the day's counts"
+    );
+
+    let narsil = open(root, Some(KEY));
+    narsil.drop_index(INDEX).expect("the index drops");
+    narsil.shutdown().expect("the engine shuts down");
+    for (file, bytes) in &left_behind {
+        if let Some(folder) = file.parent() {
+            std::fs::create_dir_all(folder).expect("the history folder is made again");
+        }
+        std::fs::write(file, bytes).expect("the counts of the dropped index are put back");
+    }
+
+    let keyless = open(root, None);
+    keyless
+        .restore(INDEX, &mut without_suggestions.as_slice())
+        .expect("the snapshot restores under the free name");
+    keyless.shutdown().expect("the engine shuts down");
+    assert!(
+        history_files(root, INDEX).is_empty(),
+        "the restore deletes the counts that the dropped index left behind"
+    );
+
+    let narsil = open(root, Some(KEY));
+    narsil
+        .query_suggestions()
+        .update_setting(INDEX, &setting(MIN_PEOPLE, MIN_RESULTS))
+        .expect("the feature turns on");
+    let preview = narsil
+        .query_suggestions()
+        .preview(INDEX, Some(1_000))
+        .expect("the preview reads");
+    assert!(
+        preview.entries.is_empty(),
+        "no search of the dropped index reaches the restored one"
+    );
 }

@@ -8,7 +8,7 @@ use super::types::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Compression, Expectation, open_checksummed, pack};
-use crate::format::metadata_parts::non_negative_safe_integer;
+use crate::format::fields::non_negative_safe_integer;
 use crate::value::{
     Value, decode_value, write_array_header, write_binary, write_map_header, write_string,
     write_uint,

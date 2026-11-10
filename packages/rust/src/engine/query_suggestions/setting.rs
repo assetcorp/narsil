@@ -2,9 +2,9 @@ use super::constants as limits;
 use super::phrase::{PhraseLimits, is_group, utf16_length};
 use super::schedule::{parse_schedule, time_zone_named};
 use super::types::{QuerySuggestionsSetting, QuerySuggestionsSource};
-use crate::engine::index_lifecycle::constants::MAX_SAFE_INTEGER;
 use crate::error::Result;
-use crate::format::metadata_parts::{config_invalid, whole_number};
+use crate::format::fields::{MAX_SAFE_INTEGER, whole_number};
+use crate::format::metadata_parts::config_invalid;
 use crate::schema::{BaseType, CompiledSchema};
 use crate::value::{Map, Value, encode_value};
 
@@ -273,7 +273,7 @@ pub(crate) fn setting_to_wire(setting: &QuerySuggestionsSetting, case: KeyCase) 
 
 fn limit_of(value: &Value, key: &str) -> Result<u64> {
     let number = whole_number(Some(value))
-        .filter(|number| number.abs() <= MAX_SAFE_INTEGER as f64)
+        .filter(|number| number.abs() <= MAX_SAFE_INTEGER)
         .ok_or_else(|| config_invalid(format!("{key} must be a whole number")))?;
     if number < 0.0 {
         return Err(config_invalid(format!(
