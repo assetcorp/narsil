@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::bans::union_of_bans;
 use super::constants::BUILD_WRITE_BATCH;
 use super::engine_hooks::clear_leftovers_of_name;
-use super::host::{suggestion_state_of, suggestion_states, warn, warn_of_failure};
+use super::host::{locked, suggestion_state_of, suggestion_states, warn, warn_of_failure};
 use super::restored_history::RestoredHistory;
 use super::stored_state::SuggestionState;
 use super::suggestions_writer::remove_suggestions;
@@ -94,11 +94,17 @@ fn remove_source_bans_from(engine: &EngineInner, restored: &IndexState) -> Resul
     Ok(())
 }
 
-pub(crate) fn before_publish(engine: &EngineInner, restored: &IndexState) {
+pub(crate) fn publish_without_source_bans(
+    engine: &EngineInner,
+    restored: &IndexState,
+    publish: impl FnOnce(),
+) {
+    let _bans = locked(&engine.suggestions.ban_publication);
     if let Err(error) = remove_source_bans_from(engine, restored) {
         let reason = QuerySuggestionsWarningReason::BanRemovalFailed;
         warn_of_failure(engine, &restored.name, reason, &error);
     }
+    publish();
 }
 
 pub(crate) fn after_activate(engine: &EngineInner, index_name: &str) {

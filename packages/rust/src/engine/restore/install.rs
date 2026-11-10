@@ -12,7 +12,7 @@ use crate::engine::index::IndexState;
 use crate::engine::memory::constants::RESTORE_PROCESS_BYTES_PER_STORED_BYTE;
 use crate::engine::memory::require_restore_memory;
 use crate::engine::query_suggestions::restore_hooks::{
-    after_activate, before_install, before_publish,
+    after_activate, before_install, publish_without_source_bans,
 };
 use crate::engine::sync::carry_sync_onto;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -142,10 +142,11 @@ pub(super) fn activate(
         let log = durable.adopt_restore(staged, &manifest.checkpoint, metadata)?;
         index.attach_log(log);
     }
-    before_publish(engine, &index);
-    engine
-        .indexes_mut()
-        .insert(index.name.clone(), Arc::clone(&index));
+    publish_without_source_bans(engine, &index, || {
+        engine
+            .indexes_mut()
+            .insert(index.name.clone(), Arc::clone(&index));
+    });
     engine.lifecycle.forget(&index.name);
     engine.lifecycle.touch(&index);
     if let Some(old) = &previous {
