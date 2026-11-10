@@ -1,57 +1,91 @@
-use std::sync::Arc;
-
-use super::constants::MAX_SOURCE_INDEX_NAME_LENGTH;
-use super::setting::invalid_setting;
-use super::state::SuggestionState;
-use crate::engine::EngineInner;
-use crate::engine::index::IndexState;
-use crate::engine::sync::sync_is_on;
+use super::bans::{ban_list_to_wire, stored_ban_list};
+use super::setting::{
+    KeyCase, setting_from_wire, setting_to_wire, source_from_wire, source_to_wire,
+};
+use super::types::{QuerySuggestionsSetting, QuerySuggestionsSource};
 use crate::error::Result;
+use crate::format::metadata::IndexMetadata;
+use crate::value::{Map, Value};
 
-/// The index whose suggestions state a change reads, with whether device sync is on for it.
-pub(crate) struct IndexView<'a> {
-    pub(crate) index: &'a IndexState,
-    pub(crate) has_sync: bool,
+const PAYLOAD_SETTING: &str = "querySuggestions";
+const PAYLOAD_BANS: &str = "bannedQueries";
+const PAYLOAD_SOURCE: &str = "querySuggestionsSource";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct SuggestionState {
+    pub(crate) setting: Option<QuerySuggestionsSetting>,
+    pub(crate) banned: Vec<String>,
+    pub(crate) source: Option<QuerySuggestionsSource>,
 }
 
-/// Refuses a suggestions index as the source of suggestions, and a source whose name leaves no room for the names
-/// of its suggestions indexes, with `CONFIG_INVALID`.
-pub(crate) fn require_source(index: &IndexState) -> Result<()> {
-    if index.suggestion_state().source.is_some() {
-        return Err(invalid_setting(format!(
-            "Index \"{}\" is a suggestions index, so it takes no query suggestions",
-            index.name
-        )));
-    }
-    if index.name.chars().map(char::len_utf16).sum::<usize>() > MAX_SOURCE_INDEX_NAME_LENGTH {
-        return Err(invalid_setting(format!(
-            "Index \"{}\" has a name longer than {MAX_SOURCE_INDEX_NAME_LENGTH} characters, which leaves no room for the names of its suggestions indexes",
-            index.name
-        )));
-    }
-    Ok(())
+fn present(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|value| !value.is_null())
 }
 
-/// Replaces the suggestions state of `index_name` with the one that `change` returns, holding the name and the
-/// write lock of the index, so that the metadata file holds the new state before any call reads it.
-pub(crate) fn update_state(
-    engine: &EngineInner,
-    index_name: &str,
-    change: impl FnOnce(&IndexView<'_>, &SuggestionState) -> Result<SuggestionState>,
+fn stored_state_of(
+    setting: Option<&Value>,
+    banned: Option<&Value>,
+    source: Option<&Value>,
+    case: KeyCase,
 ) -> Result<SuggestionState> {
-    let _name = engine.names.take(index_name);
-    let index: Arc<IndexState> = engine.open_index(index_name)?;
-    let _writer = index.lock_writes()?;
-    let metadata = index.log().map(|log| log.metadata(&index));
-    let view = IndexView {
-        index: &index,
-        has_sync: metadata.as_ref().is_some_and(sync_is_on),
-    };
-    let next = change(&view, &index.suggestion_state())?;
-    if let (Some(log), Some(mut metadata)) = (index.log(), metadata) {
-        next.write_metadata(&mut metadata);
-        log.write_recorded(metadata)?;
+    Ok(SuggestionState {
+        setting: present(setting)
+            .map(|raw| setting_from_wire(raw, case))
+            .transpose()?,
+        banned: present(banned)
+            .map(stored_ban_list)
+            .transpose()?
+            .unwrap_or_default(),
+        source: present(source).map(source_from_wire).transpose()?,
+    })
+}
+
+impl SuggestionState {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.setting.is_none() && self.banned.is_empty() && self.source.is_none()
     }
-    index.replace_suggestion_state(next.clone());
-    Ok(next)
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.setting.as_ref().is_some_and(|setting| setting.enabled)
+    }
+
+    pub(crate) fn from_metadata(metadata: &IndexMetadata) -> Result<SuggestionState> {
+        let banned = metadata.banned_queries.as_deref().map(ban_list_to_wire);
+        stored_state_of(
+            metadata.query_suggestions.as_ref(),
+            banned.as_ref(),
+            metadata.query_suggestions_source.as_ref(),
+            KeyCase::Snake,
+        )
+    }
+
+    pub(crate) fn from_payload(payload: &Map) -> Result<SuggestionState> {
+        stored_state_of(
+            payload.get(PAYLOAD_SETTING),
+            payload.get(PAYLOAD_BANS),
+            payload.get(PAYLOAD_SOURCE),
+            KeyCase::Camel,
+        )
+    }
+
+    pub(crate) fn write_metadata(&self, metadata: &mut IndexMetadata) {
+        metadata.query_suggestions = self
+            .setting
+            .as_ref()
+            .map(|setting| setting_to_wire(setting, KeyCase::Snake));
+        metadata.banned_queries = (!self.banned.is_empty()).then(|| self.banned.clone());
+        metadata.query_suggestions_source = self.source.as_ref().map(source_to_wire);
+    }
+
+    pub(crate) fn write_payload(&self, payload: &mut Map) {
+        if let Some(setting) = &self.setting {
+            payload.insert(PAYLOAD_SETTING, setting_to_wire(setting, KeyCase::Camel));
+        }
+        if !self.banned.is_empty() {
+            payload.insert(PAYLOAD_BANS, ban_list_to_wire(&self.banned));
+        }
+        if let Some(source) = &self.source {
+            payload.insert(PAYLOAD_SOURCE, source_to_wire(source));
+        }
+    }
 }

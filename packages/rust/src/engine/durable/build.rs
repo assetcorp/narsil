@@ -10,7 +10,7 @@ use crate::engine::EngineInner;
 use crate::engine::changes::analysis::terms_are_stale;
 use crate::engine::index::IndexState;
 use crate::engine::lifecycle::{DEFAULT_LANGUAGE, initial_partition_count, resolved_analysis};
-use crate::engine::query_suggestions::state::SuggestionState;
+use crate::engine::query_suggestions::stored_state::SuggestionState;
 use crate::engine::synonyms::{SynonymSet, prepare_synonyms};
 use crate::engine::vectors::IndexVectors;
 use crate::engine::vectors::embedding::bind_embedding;

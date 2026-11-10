@@ -1,32 +1,25 @@
 use std::collections::HashMap;
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Condvar, Mutex};
 
 use super::build::run_build;
-use super::build_record::{BuildRecord, decode_build_record, encode_build_record, new_build_id};
+use super::build_record::{BuildRecord, new_build_id};
 use super::constants::SOURCES_DIGEST_BYTES;
-use super::history::{HistoryRead, build_record_key, read_history_file};
+use super::host::{locked, read_build_record, warn_of_failure, write_build_record};
 use super::types::{
     QuerySuggestionsBuild, QuerySuggestionsBuildPhase, QuerySuggestionsBuildStatus,
     QuerySuggestionsBuildTrigger, QuerySuggestionsWarningReason,
 };
-use super::warnings::warn;
 use crate::durability::platform::now_ms;
 use crate::engine::events::NarsilEvent;
 use crate::engine::{EngineInner, Narsil};
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::Result;
+use crate::format::metadata_parts::config_invalid;
 
-/// The builds of each index: the one under way, and the last one that ended since the engine started.
 #[derive(Default)]
 pub(crate) struct BuildRunner {
     running: Mutex<HashMap<String, QuerySuggestionsBuild>>,
     finished: Mutex<HashMap<String, QuerySuggestionsBuild>>,
     settled: Condvar,
-}
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn emit_phase(engine: &EngineInner, index_name: &str, build: &QuerySuggestionsBuild) {
@@ -48,15 +41,6 @@ fn emit_phase(engine: &EngineInner, index_name: &str, build: &QuerySuggestionsBu
     });
 }
 
-/// Reads the record of the last build of `index_name`, or `None` where it is missing or damaged.
-pub(crate) fn read_build_record(engine: &EngineInner, index_name: &str) -> Option<BuildRecord> {
-    let files = engine.suggestions.files(engine);
-    match read_history_file(files, &build_record_key(index_name)) {
-        Ok(HistoryRead::Bytes(bytes)) => decode_build_record(&bytes),
-        _ => None,
-    }
-}
-
 fn new_build(
     trigger: QuerySuggestionsBuildTrigger,
     status: QuerySuggestionsBuildStatus,
@@ -74,9 +58,14 @@ fn new_build(
     })
 }
 
+pub(crate) fn ended_as_planned(build: &QuerySuggestionsBuild) -> bool {
+    matches!(
+        build.status,
+        QuerySuggestionsBuildStatus::Completed | QuerySuggestionsBuildStatus::Skipped
+    )
+}
+
 impl BuildRunner {
-    /// Returns the build of `index_name` under way, else the last one that ended, else the one that its record
-    /// holds.
     pub(crate) fn last_build(
         &self,
         engine: &EngineInner,
@@ -91,7 +80,6 @@ impl BuildRunner {
         read_build_record(engine, index_name).map(|record| record.build)
     }
 
-    /// Waits until no build is under way.
     pub(crate) fn settle(&self) {
         let mut running = locked(&self.running);
         while !running.is_empty() {
@@ -102,13 +90,10 @@ impl BuildRunner {
         }
     }
 
-    /// Forgets the last build of a dropped index.
     pub(crate) fn forget(&self, index_name: &str) {
         locked(&self.finished).remove(index_name);
     }
 
-    /// Runs a build of `index_name` on the calling thread and returns how it ended, or a skipped build at once
-    /// where another build of the index is under way.
     pub(crate) fn start(
         &self,
         narsil: &Narsil,
@@ -119,17 +104,11 @@ impl BuildRunner {
         let runtime = &engine.suggestions;
         let setting = runtime.enabled_setting(engine, index_name)?;
         if runtime.scrambler().is_none() {
-            return Err(NarsilError::new(
-                ErrorCode::CONFIG_INVALID,
+            return Err(config_invalid(
                 "This engine has no query suggestions key, so it builds no suggestions",
             ));
         }
-        if runtime.is_stopping() {
-            return Err(NarsilError::new(
-                ErrorCode::INSTANCE_SHUT_DOWN,
-                "The engine is shutting down",
-            ));
-        }
+        runtime.guard_stopping()?;
         let build = {
             let mut running = locked(&self.running);
             if running.contains_key(index_name) {
@@ -144,12 +123,8 @@ impl BuildRunner {
             build
         };
         emit_phase(engine, index_name, &build);
-        let last_completed = read_build_record(engine, index_name).filter(|record| {
-            matches!(
-                record.build.status,
-                QuerySuggestionsBuildStatus::Completed | QuerySuggestionsBuildStatus::Skipped
-            )
-        });
+        let last_completed =
+            read_build_record(engine, index_name).filter(|record| ended_as_planned(&record.build));
         let started_at = i64::try_from(build.started_at).unwrap_or(i64::MAX);
         let outcome = run_build(
             narsil,
@@ -175,21 +150,14 @@ impl BuildRunner {
             }
         };
         let record = BuildRecord {
-            build: finished.clone(),
+            build: finished,
             sources_digest,
         };
-        let files = runtime.files(engine);
-        if let Err(error) = encode_build_record(&record)
-            .and_then(|bytes| files.write_commit(&build_record_key(index_name), &bytes))
-        {
-            warn(
-                engine,
-                index_name,
-                QuerySuggestionsWarningReason::SaveFailed,
-                None,
-                Some(error.message().to_string()),
-            );
+        if let Err(error) = write_build_record(engine, index_name, &record) {
+            let reason = QuerySuggestionsWarningReason::SaveFailed;
+            warn_of_failure(engine, index_name, reason, &error);
         }
+        let finished = record.build;
         locked(&self.finished).insert(index_name.to_string(), finished.clone());
         {
             let mut running = locked(&self.running);

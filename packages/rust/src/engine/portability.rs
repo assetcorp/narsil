@@ -3,7 +3,7 @@ use std::io::Write;
 use super::Narsil;
 use super::durable::archive::{archive_checkpoint, current_metadata, encoded_configuration};
 use super::durable::constants::MAX_SNAPSHOT_ANALYSIS_ATTEMPTS;
-use super::query_suggestions::archive::HistoryEntries;
+use super::query_suggestions::archive_history::HistoryEntries;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::{ArchiveSource, write_snapshot_archive};
 

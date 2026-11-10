@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use super::engine_config::LifecycleLimits;
 use super::index::IndexState;
-use super::query_suggestions::state::SuggestionState;
+use super::query_suggestions::stored_state::SuggestionState;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};

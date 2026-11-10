@@ -5,7 +5,7 @@ use super::changes::LayoutChanges;
 use super::durable::log::IndexLog;
 use super::index_lifecycle::residency::IndexResidency;
 use super::layout::TextLayout;
-use super::query_suggestions::state::SuggestionState;
+use super::query_suggestions::stored_state::SuggestionState;
 use super::synonyms::SynonymSet;
 use super::vectors::IndexVectors;
 use crate::analysis::Analyser;

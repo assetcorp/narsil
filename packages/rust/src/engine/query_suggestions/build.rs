@@ -1,30 +1,27 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use super::build_record::{BuildRecord, MergedSource, sources_digest_of};
 use super::constants::{MS_PER_SECOND, SOURCES_DIGEST_BYTES};
-use super::days::cutoff_day;
-use super::history::{HistoryRead, history_files_of, read_history_file};
-use super::known::suggestion_state_of;
-use super::merge::{FileOutcome, MergeResult, MergeSettings, Merger};
+use super::day_store::cutoff_day;
+use super::history_files::{HistoryRead, history_files_of, read_history_file};
+use super::host::{suggestion_state_of, warn};
+use super::merge::{DuePhrase, FileOutcome, MergeResult, MergeSettings, Merger};
 use super::setting::ResolvedSetting;
-use super::types::{QuerySuggestionsBuildStatus, QuerySuggestionsWarningReason};
-use super::warnings::warn;
-use super::writer::{
+use super::suggestions_writer::{
     UndoStep, ensure_suggestions_index, marked_suggestion_indexes, undo_writes, write_group,
 };
+use super::types::{QuerySuggestionsBuildStatus, QuerySuggestionsWarningReason};
 use crate::engine::Narsil;
 use crate::engine::query::params::{QueryParams, TermMatch};
 use crate::error::{ErrorCode, NarsilError, Result};
 
-/// The history that a build merged: the due phrases, the files that it read, and the oldest day among them.
 pub(crate) struct MergedHistory {
     pub(crate) result: MergeResult,
     pub(crate) sources: Vec<MergedSource>,
     pub(crate) oldest_day: Option<String>,
 }
 
-/// What a build did, which its record keeps.
 pub(crate) struct BuildOutcome {
     pub(crate) status: QuerySuggestionsBuildStatus,
     pub(crate) published: u64,
@@ -33,11 +30,12 @@ pub(crate) struct BuildOutcome {
     pub(crate) sources_digest: [u8; SOURCES_DIGEST_BYTES],
 }
 
-fn shutting_down() -> NarsilError {
-    NarsilError::new(ErrorCode::INSTANCE_SHUT_DOWN, "The engine is shutting down")
+fn banned_now(narsil: &Narsil, index_name: &str) -> HashSet<String> {
+    suggestion_state_of(&narsil.inner, index_name)
+        .map(|state| state.banned.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
-/// Saves the counts of the day, then merges every history file of `index_name` that the setting still keeps.
 pub(crate) fn merge_history(
     narsil: &Narsil,
     index_name: &str,
@@ -50,24 +48,20 @@ pub(crate) fn merge_history(
     runtime.save_day(engine, index_name);
     let files = runtime.files(engine);
     let cutoff = cutoff_day(now_ms, setting.retention_days);
-    let banned: HashSet<String> = engine
-        .reach_index(index_name)?
-        .suggestion_state()
-        .banned
-        .iter()
-        .cloned()
-        .collect();
-    let mut merger = Merger::new(MergeSettings {
-        min_people: setting.min_people as usize,
-        max_merge_phrases: setting.max_merge_phrases as usize,
-        max_groups: setting.max_groups as usize,
-        marked_groups: marked_suggestion_indexes(engine, index_name)
+    let state = engine.reach_index(index_name)?.suggestion_state();
+    let mut merger = Merger::new(
+        MergeSettings {
+            min_people: setting.min_people as usize,
+            max_merge_phrases: setting.max_merge_phrases as usize,
+            max_groups: setting.max_groups as usize,
+            banned: state.banned.iter().cloned().collect(),
+            memory_bytes: setting.merge_memory_bytes,
+            fingerprint: *scrambler.fingerprint(),
+        },
+        marked_suggestion_indexes(engine, index_name)
             .into_keys()
             .collect(),
-        banned,
-        memory_bytes: setting.merge_memory_bytes,
-        fingerprint: *scrambler.fingerprint(),
-    });
+    );
     let listed = history_files_of(files, index_name).map_err(|error| {
         NarsilError::new(
             ErrorCode::PERSISTENCE_LOAD_FAILED,
@@ -77,73 +71,43 @@ pub(crate) fn merge_history(
             ),
         )
     })?;
-    let mut merged = MergedHistory {
-        result: MergeResult::default(),
-        sources: Vec::new(),
-        oldest_day: None,
-    };
+    let mut sources = Vec::new();
+    let mut oldest_day: Option<String> = None;
     for file in listed.into_iter().filter(|file| file.day >= cutoff) {
-        let bytes = match read_history_file(files, &file.key)? {
+        let unreadable = match read_history_file(files, &file.key)? {
             HistoryRead::Missing => continue,
-            HistoryRead::TooLong => {
-                warn(
-                    engine,
-                    index_name,
-                    QuerySuggestionsWarningReason::DamagedFile,
-                    Some(file.key),
-                    None,
-                );
-                continue;
-            }
-            HistoryRead::Bytes(bytes) => bytes,
-        };
-        match merger.add_file(&bytes, &file.day)? {
-            FileOutcome::Merged { day, saved_at } => {
-                if merged
-                    .oldest_day
-                    .as_ref()
-                    .is_none_or(|oldest| day < *oldest)
-                {
-                    merged.oldest_day = Some(day);
+            HistoryRead::TooLong => QuerySuggestionsWarningReason::DamagedFile,
+            HistoryRead::Bytes(bytes) => match merger.add_file(&bytes, &file.day)? {
+                FileOutcome::Merged { day, saved_at } => {
+                    if oldest_day.as_ref().is_none_or(|oldest| day < *oldest) {
+                        oldest_day = Some(day);
+                    }
+                    sources.push(MergedSource {
+                        key: file.key,
+                        saved_at,
+                    });
+                    continue;
                 }
-                merged.sources.push(MergedSource {
-                    node_id: String::new(),
-                    key: file.key,
-                    saved_at,
-                });
-            }
-            FileOutcome::Damaged => warn(
-                engine,
-                index_name,
-                QuerySuggestionsWarningReason::DamagedFile,
-                Some(file.key),
-                None,
-            ),
-            FileOutcome::OtherKey => warn(
-                engine,
-                index_name,
-                QuerySuggestionsWarningReason::OtherKey,
-                Some(file.key),
-                None,
-            ),
-        }
+                FileOutcome::Damaged => QuerySuggestionsWarningReason::DamagedFile,
+                FileOutcome::OtherKey => QuerySuggestionsWarningReason::OtherKey,
+            },
+        };
+        warn(engine, index_name, unreadable, Some(file.key), None);
     }
-    merged.result = merger.result();
-    Ok(merged)
+    Ok(MergedHistory {
+        result: merger.result(),
+        sources,
+        oldest_day,
+    })
 }
 
-/// Reports whether a search of every word of `phrase` in the setting's fields finds at least `minResults`
-/// documents, then waits so that the checks keep to `resultChecksPerSecond`.
 pub(crate) fn meets_min_results(
     narsil: &Narsil,
     index_name: &str,
     setting: &ResolvedSetting,
     phrase: &str,
 ) -> Result<bool> {
-    let runtime = &narsil.inner.suggestions;
-    if runtime.is_stopping() {
-        return Err(shutting_down());
-    }
+    narsil.inner.suggestions.guard_stopping()?;
     let checked = narsil.preflight(
         index_name,
         &QueryParams {
@@ -153,16 +117,12 @@ pub(crate) fn meets_min_results(
             ..QueryParams::default()
         },
     )?;
-    let pause =
-        Duration::from_millis(MS_PER_SECOND / u64::from(setting.result_checks_per_second.max(1)));
-    if runtime.pause(pause) {
-        return Err(shutting_down());
-    }
+    std::thread::sleep(Duration::from_millis(
+        MS_PER_SECOND / u64::from(setting.result_checks_per_second.max(1)),
+    ));
     Ok(checked.count >= u64::from(setting.min_results))
 }
 
-/// Returns the groups that a build writes, the groups that hold a suggestions index first, and the number of
-/// phrases of the groups that `maxGroups` leaves out.
 pub(crate) fn groups_to_write(
     narsil: &Narsil,
     index_name: &str,
@@ -185,14 +145,10 @@ pub(crate) fn groups_to_write(
     (groups, discarded)
 }
 
-fn banned_now(narsil: &Narsil, index_name: &str) -> HashSet<String> {
-    suggestion_state_of(&narsil.inner, index_name)
-        .map(|state| state.banned.iter().cloned().collect())
-        .unwrap_or_default()
+pub(crate) fn due_phrases_of<'a>(result: &'a MergeResult, group: &str) -> &'a [DuePhrase] {
+    result.groups.get(group).map_or(&[][..], Vec::as_slice)
 }
 
-/// Runs one build of `index_name`: merges the history, skips where it matches the last completed build, checks
-/// each due phrase, and writes each group, undoing every write where one fails.
 pub(crate) fn run_build(
     narsil: &Narsil,
     index_name: &str,
@@ -202,14 +158,15 @@ pub(crate) fn run_build(
 ) -> Result<BuildOutcome> {
     let merged = merge_history(narsil, index_name, setting, now_ms)?;
     let sources_digest = sources_digest_of(&merged.sources);
+    let outcome = |status, published, removed, discarded| BuildOutcome {
+        status,
+        published,
+        removed,
+        discarded,
+        sources_digest,
+    };
     if last_completed.is_some_and(|record| record.sources_digest == sources_digest) {
-        return Ok(BuildOutcome {
-            status: QuerySuggestionsBuildStatus::Skipped,
-            published: 0,
-            removed: 0,
-            discarded: 0,
-            sources_digest,
-        });
+        return Ok(outcome(QuerySuggestionsBuildStatus::Skipped, 0, 0, 0));
     }
     let cutoff = cutoff_day(now_ms, setting.retention_days);
     let only_add = merged
@@ -217,26 +174,21 @@ pub(crate) fn run_build(
         .as_ref()
         .is_none_or(|oldest| *oldest > cutoff);
     let (groups, groups_discarded) = groups_to_write(narsil, index_name, setting, &merged.result);
-    let mut due_by_group: BTreeMap<usize, (String, Vec<(String, u64)>)> = BTreeMap::new();
-    for (order, group) in groups.into_iter().enumerate() {
+    let mut due_by_group: Vec<(String, Vec<(String, u64)>)> = Vec::new();
+    for group in groups {
         let mut due = Vec::new();
-        for phrase in merged
-            .result
-            .groups
-            .get(&group)
-            .map_or(&[][..], Vec::as_slice)
-        {
+        for phrase in due_phrases_of(&merged.result, &group) {
             if meets_min_results(narsil, index_name, setting, &phrase.phrase)? {
                 due.push((phrase.phrase.clone(), phrase.count));
             }
         }
-        due_by_group.insert(order, (group, due));
+        due_by_group.push((group, due));
     }
     let runtime = &narsil.inner.suggestions;
     let mut undo: Vec<UndoStep> = Vec::new();
     let mut created: Vec<String> = Vec::new();
     let (mut published, mut removed) = (0, 0);
-    let written = due_by_group.values().try_for_each(|(group, due)| {
+    let written = due_by_group.iter().try_for_each(|(group, due)| {
         let _turn = runtime.write_turns.take(index_name);
         let name = ensure_suggestions_index(narsil, index_name, group, &mut created)?;
         let changes = write_group(
@@ -261,11 +213,11 @@ pub(crate) fn run_build(
         }
         return Err(error);
     }
-    Ok(BuildOutcome {
-        status: QuerySuggestionsBuildStatus::Completed,
+    let discarded = merged.result.discarded + groups_discarded;
+    Ok(outcome(
+        QuerySuggestionsBuildStatus::Completed,
         published,
         removed,
-        discarded: merged.result.discarded + groups_discarded,
-        sources_digest,
-    })
+        discarded,
+    ))
 }
