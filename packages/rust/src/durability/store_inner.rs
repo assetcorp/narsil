@@ -38,6 +38,16 @@ pub(crate) fn store_poisoned() -> NarsilError {
     )
 }
 
+fn store_shut_down(directory: &DurableDirectory) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::PERSISTENCE_SAVE_FAILED,
+        format!(
+            "The engine has shut down and released the durability directory \"{}\", so it writes nothing more to it",
+            directory.root().display()
+        ),
+    )
+}
+
 impl StoreInner {
     pub(crate) fn start(config: StoreConfig) -> Result<(Arc<StoreInner>, JoinHandle<()>)> {
         config.validate()?;
@@ -97,6 +107,20 @@ impl StoreInner {
             | ErrorCode::PERSISTENCE_DELETE_FAILED => self.mark_fatal(error),
             _ => error,
         })
+    }
+
+    fn shut_down_started(&self) -> bool {
+        *self
+            .stopping
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    pub(crate) fn require_open(&self) -> Result<()> {
+        if self.shut_down_started() {
+            return Err(store_shut_down(&self.directory));
+        }
+        Ok(())
     }
 
     pub(crate) fn require_healthy(&self) -> Result<()> {
@@ -181,13 +205,13 @@ impl StoreInner {
             self.config.segment_max_bytes,
             start,
         ));
-        let previous = self
-            .logs
-            .write()
-            .map_err(|_| store_poisoned())?
-            .entry(index_name.to_string())
-            .or_default()
-            .insert(partition_id, log);
+        let previous = {
+            let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
+            self.require_open()?;
+            logs.entry(index_name.to_string())
+                .or_default()
+                .insert(partition_id, log)
+        };
         if let Some(previous) = previous {
             self.guard(previous.close(&self.directory))?;
         }
@@ -215,6 +239,7 @@ impl StoreInner {
             ));
         }
         let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
+        self.require_open()?;
         let log = logs
             .entry(index_name.to_string())
             .or_default()
@@ -311,13 +336,7 @@ impl StoreInner {
         if let Some(thread) = thread {
             let _ = thread.join();
         }
-        let logs: Vec<Arc<PartitionLog>> = {
-            let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
-            logs.drain()
-                .flat_map(|(_, partitions)| partitions.into_values())
-                .collect()
-        };
-        let outcome = self.close_logs(logs);
+        let outcome = self.close_logs(self.every_log()?);
         if let Some(mut lock) = self.lock.lock().ok().and_then(|mut lock| lock.take()) {
             lock.release();
         }
