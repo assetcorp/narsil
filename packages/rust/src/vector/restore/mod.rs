@@ -55,6 +55,13 @@ pub(crate) struct VectorRestore {
     finished: bool,
 }
 
+fn holds_no_vector(key: &str, position: usize) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::PERSISTENCE_LOAD_FAILED,
+        format!("The vector file \"{key}\" holds no readable vector at position {position}"),
+    )
+}
+
 fn empty_writer(shared: &Shared, writer: &mut Writer) {
     writer.generation = Arc::new(Generation::empty(
         &shared.settings,
@@ -82,28 +89,35 @@ fn empty_writer(shared: &Shared, writer: &mut Writer) {
         .store(0, Ordering::Release);
 }
 
+pub(crate) fn begin_restore_of(
+    shared: &Arc<Shared>,
+    shape: CheckpointRestoreShape,
+) -> VectorRestore {
+    shared.restoring.store(true, Ordering::Release);
+    let mut writer = shared.lock_writer();
+    writer.holds_publication = true;
+    empty_writer(shared, &mut writer);
+    let settings = &shared.settings;
+    let cold = settings.reads_from_disk()
+        && (shape.holds_graph || shape.live_vectors >= settings.promotion_threshold);
+    VectorRestore {
+        shared: Arc::clone(shared),
+        graph: shape.graph,
+        cold,
+        restores_codes: settings.bits() != 0 && shape.holds_graph,
+        files: Vec::new(),
+        tombstoned: Vec::new(),
+        next_number: 0,
+        centroid: None,
+        codes_agree: true,
+        finished: false,
+    }
+}
+
 impl VectorField {
     pub(crate) fn begin_restore(&self, shape: CheckpointRestoreShape) -> VectorRestore {
-        let shared = &self.shared;
-        shared.restoring.store(true, Ordering::Release);
-        let mut writer = shared.lock_writer();
-        writer.holds_publication = true;
-        empty_writer(shared, &mut writer);
-        let settings = &shared.settings;
-        let cold = settings.reads_from_disk()
-            && (shape.holds_graph || shape.live_vectors >= settings.promotion_threshold);
-        VectorRestore {
-            shared: Arc::clone(shared),
-            graph: shape.graph,
-            cold,
-            restores_codes: settings.bits() != 0 && shape.holds_graph,
-            files: Vec::new(),
-            tombstoned: Vec::new(),
-            next_number: 0,
-            centroid: None,
-            codes_agree: true,
-            finished: false,
-        }
+        self.shared.cancel_cold_hold(true);
+        begin_restore_of(&self.shared, shape)
     }
 }
 
@@ -160,23 +174,24 @@ impl VectorRestore {
             if dead && !self.graph_holds_node_for(first_number + at) {
                 continue;
             }
-            let Some(vector) = file.vectors.get(at * dimension..(at + 1) * dimension) else {
-                continue;
-            };
+            let vector = file.vectors.get(at * dimension..(at + 1) * dimension);
             let offset = loaded.location.as_ref().map_or(0, |location| {
                 location.vectors_offset + (at * dimension * 4) as u64
             });
-            let held = match (file_index, u32::try_from(offset)) {
-                (Some(index), Ok(offset)) => Held::InFile {
-                    magnitude: file
-                        .disk
-                        .as_ref()
-                        .and_then(|disk| disk.magnitudes.get(at).copied())
-                        .unwrap_or_else(|| magnitude_of(vector)),
+            let magnitude = file
+                .disk
+                .as_ref()
+                .and_then(|disk| disk.magnitudes.get(at).copied())
+                .or_else(|| vector.map(magnitude_of));
+            let held = match (file_index, u32::try_from(offset), magnitude, vector) {
+                (Some(index), Ok(offset), Some(magnitude), _) => Held::InFile {
+                    magnitude,
                     file: index,
                     offset,
                 },
-                _ => Held::InMemory(vector),
+                (_, _, _, Some(vector)) => Held::InMemory(vector),
+                _ if file.vectors.is_empty() => return Err(holds_no_vector(&loaded.key, at)),
+                _ => continue,
             };
             let loaded_at = LOADED_SEQUENCE;
             if dead {

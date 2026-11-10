@@ -79,6 +79,20 @@ fn page_length(section: &PagedSection, page: u64) -> usize {
     section.page_bytes.min(section.length.saturating_sub(from)) as usize
 }
 
+pub(crate) fn paged_read(
+    read: impl FnOnce(
+        *mut ffi::narsil_workspace,
+        *mut ffi::narsil_page_cache,
+        *mut ffi::narsil_page_fault,
+    ) -> ffi::narsil_status,
+) -> Result<(ffi::narsil_status, ffi::narsil_page_fault)> {
+    let mut fault = ffi::narsil_page_fault::default();
+    let status = with_page_cache(|cache| {
+        with_workspace(|workspace| Ok(read(workspace, cache, &mut fault)))
+    })?;
+    Ok((status, fault))
+}
+
 impl PagedFile {
     pub(crate) fn open(path: &Path) -> Result<PagedFile> {
         let file = File::open(path).map_err(|error| unopened(path, error))?;
@@ -107,7 +121,7 @@ impl PagedFile {
         self.number
     }
 
-    fn identity(&self) -> u64 {
+    pub(crate) fn identity(&self) -> u64 {
         unsafe { ffi::narsil_paged_file_identity(self.native.0) }
     }
 
@@ -130,7 +144,7 @@ impl PagedFile {
         }
     }
 
-    fn page_failed(
+    pub(crate) fn page_failed(
         &self,
         status: ffi::narsil_status,
         fault: &ffi::narsil_page_fault,
@@ -173,13 +187,9 @@ impl PagedFile {
             *mut ffi::narsil_page_fault,
         ) -> ffi::narsil_status,
     ) -> Result<ffi::narsil_status> {
-        let mut fault = ffi::narsil_page_fault::default();
-        let status = with_page_cache(|cache| {
-            with_workspace(|workspace| Ok(read(workspace, cache, &mut fault)))
-        })?;
-        match status {
-            ffi::NARSIL_OK | ffi::NARSIL_NEEDS_ROOM => Ok(status),
-            status => Err(self.page_failed(status, &fault, sections)),
+        match paged_read(read)? {
+            (status @ (ffi::NARSIL_OK | ffi::NARSIL_NEEDS_ROOM), _) => Ok(status),
+            (status, fault) => Err(self.page_failed(status, &fault, sections)),
         }
     }
 
@@ -269,6 +279,33 @@ impl PagedFile {
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
+    fn read_past_the_cache(
+        &self,
+        section: &PagedSection,
+        raw: &ffi::narsil_page_section,
+        page: u64,
+        target: &mut [u8],
+    ) -> Result<()> {
+        let mut fault = ffi::narsil_page_fault::default();
+        let status = with_workspace(|workspace| {
+            Ok(unsafe {
+                ffi::narsil_read_page(
+                    workspace,
+                    ptr::null_mut(),
+                    raw,
+                    page,
+                    target.as_mut_ptr(),
+                    target.len(),
+                    &mut fault,
+                )
+            })
+        })?;
+        match status {
+            ffi::NARSIL_OK => Ok(()),
+            status => Err(self.page_failed(status, &fault, &[section])),
+        }
+    }
+
     pub(crate) fn whole_checked(&self, section: &PagedSection) -> Result<Vec<u8>> {
         let mut bytes = vec![0u8; section.length as usize];
         if section.page_bytes == 0 {
@@ -276,24 +313,24 @@ impl PagedFile {
         }
         let raw = self.section(section);
         for (page, chunk) in bytes.chunks_mut(section.page_bytes as usize).enumerate() {
-            let mut fault = ffi::narsil_page_fault::default();
-            let status = with_workspace(|workspace| {
-                Ok(unsafe {
-                    ffi::narsil_read_page(
-                        workspace,
-                        ptr::null_mut(),
-                        &raw,
-                        page as u64,
-                        chunk.as_mut_ptr(),
-                        chunk.len(),
-                        &mut fault,
-                    )
-                })
-            })?;
-            if status != ffi::NARSIL_OK {
-                return Err(self.page_failed(status, &fault, &[section]));
-            }
+            self.read_past_the_cache(section, &raw, page as u64, chunk)?;
         }
         Ok(bytes)
+    }
+
+    pub(crate) fn check_every_page(&self, section: &PagedSection) -> Result<()> {
+        if section.page_bytes == 0 {
+            return Err(unreadable(&self.path, section.offset));
+        }
+        let raw = self.section(section);
+        let mut held = vec![0u8; page_length(section, 0)];
+        for page in 0..section.page_count() {
+            let length = page_length(section, page);
+            let Some(target) = held.get_mut(..length) else {
+                return Err(unreadable(&self.path, section.offset));
+            };
+            self.read_past_the_cache(section, &raw, page, target)?;
+        }
+        Ok(())
     }
 }

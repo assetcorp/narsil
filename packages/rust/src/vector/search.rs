@@ -3,6 +3,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pins::Pin;
 
 use super::build::schedule_build;
+use super::cold::{ColdQuery, search_cold};
 use super::constants::{
     MAX_EF_SEARCH, MAX_RESCORE_WINDOW, MAX_SEARCH_K, MIN_EF_SEARCH, MIN_OVERSAMPLE,
     MIN_RESCORE_WINDOW, SCORE_CHUNK_VECTORS,
@@ -200,6 +201,21 @@ impl VectorField {
         require_dimension_of(&self.shared, query.len())?;
         require_usable_query(query)?;
         let pin = pin.value();
+        if let Some(hold) = self.shared.cold_hold() {
+            let outcome = search_cold(
+                &hold,
+                &ColdQuery {
+                    query,
+                    k,
+                    options,
+                    matching,
+                    pin,
+                    filter_threshold: self.shared.settings.filter_threshold,
+                },
+            );
+            hold.want_load();
+            return outcome;
+        }
         let generation = self.shared.current();
         let admitted = matching.map(|doc_ids| generation.filter_of(doc_ids.iter().copied(), pin));
         let filter = admitted.as_ref();

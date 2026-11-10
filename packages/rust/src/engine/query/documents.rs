@@ -93,7 +93,7 @@ impl QuerySnapshots {
             return Ok(Some(stored));
         }
         let mut document = Arc::unwrap_or_clone(stored);
-        let vectors = index.vectors.pinned_vectors(id, self.pin.value());
+        let vectors = index.vectors.pinned_vectors(id, self.pin.value())?;
         index.vectors.attach(vectors, &mut document);
         Ok(Some(Arc::new(document)))
     }
