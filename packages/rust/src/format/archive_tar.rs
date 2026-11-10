@@ -1,5 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::text::is_javascript_whitespace;
+use crate::value::MAX_SAFE_INTEGER;
 
 pub(crate) const TAR_BLOCK_BYTES: usize = 512;
 const NAME_OFFSET: usize = 0;
@@ -33,7 +34,6 @@ const PAX_HEADER_NAME: &str = "PaxHeader";
 const SPACE: u8 = 0x20;
 const EQUALS: u8 = 0x3d;
 const NEWLINE: u8 = 0x0a;
-const MAX_SAFE_INTEGER: i128 = 9_007_199_254_740_991;
 
 pub(crate) fn invalid_archive(message: impl AsRef<str>) -> NarsilError {
     NarsilError::new(
@@ -173,7 +173,7 @@ fn read_octal(block: &[u8], offset: usize, length: usize, what: &str) -> Result<
     }
     u64::from_str_radix(text, 8)
         .ok()
-        .filter(|value| i128::from(*value) <= MAX_SAFE_INTEGER)
+        .filter(|value| *value <= MAX_SAFE_INTEGER)
         .ok_or_else(invalid)
 }
 
@@ -236,7 +236,7 @@ pub(crate) fn parse_leading_integer(text: &str) -> Option<i128> {
 
 pub(crate) fn is_safe_integer(value: Option<i128>) -> Option<u64> {
     value
-        .filter(|number| (0..=MAX_SAFE_INTEGER).contains(number))
+        .filter(|number| (0..=i128::from(MAX_SAFE_INTEGER)).contains(number))
         .map(|number| number as u64)
 }
 

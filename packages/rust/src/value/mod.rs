@@ -16,6 +16,8 @@ pub(crate) use msgpack::{
 };
 pub(crate) use number_text::{javascript_text, number_to_text};
 
+pub(crate) const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
 /// A MessagePack timestamp: whole seconds since the Unix epoch, and the nanoseconds past them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Timestamp {

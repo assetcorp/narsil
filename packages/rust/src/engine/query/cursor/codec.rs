@@ -5,12 +5,13 @@ use super::constants::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::base64;
-use crate::value::{Map, Value, number_to_text, parse_json_raw, write_json_string};
+use crate::value::{
+    MAX_SAFE_INTEGER, Map, Value, number_to_text, parse_json_raw, write_json_string,
+};
 
 const CURSOR_VERSION: f64 = 4.0;
 const NON_FINITE_CURSOR_VERSION: f64 = 5.0;
 const BINDING_HEX_DIGITS: usize = 8;
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 /// The decoded paging cursor that a search and a listing share: the last document returned, the score or the sort
 /// key that the next page seeks past, the number of results before the next page, and the binding of the request
@@ -208,7 +209,7 @@ pub(crate) fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
     let depth = match object.get("d") {
         None => 0,
         Some(Value::Number(depth))
-            if depth.fract() == 0.0 && *depth >= 1.0 && *depth <= MAX_SAFE_INTEGER =>
+            if depth.fract() == 0.0 && *depth >= 1.0 && *depth <= MAX_SAFE_INTEGER as f64 =>
         {
             *depth as u64
         }

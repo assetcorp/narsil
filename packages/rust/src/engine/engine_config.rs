@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use super::durable::config::NarsilConfig;
-use super::index_lifecycle::constants::{DEFAULT_MAX_REOPEN_WAITERS, MAX_SAFE_INTEGER};
+use super::index_lifecycle::constants::DEFAULT_MAX_REOPEN_WAITERS;
 use super::memory::constants::{DEFAULT_BLOCK_WRITES_ABOVE, DEFAULT_RESUME_WRITES_BELOW};
 use super::rerank_settings::RerankSettings;
 use super::stale_review::StaleRebuild;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::MAX_SAFE_INTEGER;
 
 /// Returns the ID of a document inserted without one, in place of the UUID version 7 that the engine generates by
 /// default.

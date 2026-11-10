@@ -5,8 +5,8 @@ use super::cache::with_page_cache;
 use crate::error::{Result, load_failed};
 use crate::ffi;
 use crate::index::constants::PAGED_ID_START_BYTES;
+use crate::value::MAX_SAFE_INTEGER;
 
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const WRITE_RECORD_WORDS: usize = 2;
 
 impl PagedSections {

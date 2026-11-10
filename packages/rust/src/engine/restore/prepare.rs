@@ -18,9 +18,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
 use crate::schema::{CompiledSchema, schema_fields, validate_schema};
 use crate::synonyms::wire::synonym_rules_of;
-use crate::value::{Map, Value};
-
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+use crate::value::{MAX_SAFE_INTEGER, Map, Value};
 
 /// An index built from a restored configuration, outside the engine until the restore installs it, with the
 /// metadata facts that the configuration recorded about the analysis that built its terms.
@@ -48,7 +46,9 @@ pub(crate) fn snapshot_rejection(message: &str) -> NarsilError {
 fn analysis_generation(payload: &Map) -> u64 {
     match payload.get("analysisGeneration") {
         Some(Value::Number(number))
-            if number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER && *number > 0.0 =>
+            if number.fract() == 0.0
+                && number.abs() <= MAX_SAFE_INTEGER as f64
+                && *number > 0.0 =>
         {
             *number as u64
         }
