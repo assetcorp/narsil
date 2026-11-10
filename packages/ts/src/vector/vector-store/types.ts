@@ -78,6 +78,8 @@ export interface VectorStore extends VectorBuildReader {
   readonly view: SharedVectorStoreView
   /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the store keeps the document's previous vector readable at its old ordinal until {@link VectorStore.releaseReplacedVectors} runs; otherwise the store retires the old ordinal at once. */
   insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
+  requireRoomFor(docId: string): void
+  reclaim(docId: string, ordinal: number, partitionId?: number, keepsReplacedVector?: boolean): boolean
   readonly replacedVectorCount: number
   /** Stamps the ordinal as retired by a new write, so that every pin taken after that write leaves it out while older pins still admit it. */
   retire(ordinal: number): void

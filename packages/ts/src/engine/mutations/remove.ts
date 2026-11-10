@@ -16,7 +16,7 @@ import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { ApplyMutation, MutationContext } from './context'
-import { rollbackRemovedDocument } from './durable-rollback'
+import { holdVectorsForRollback, rollbackRemovedDocument } from './durable-rollback'
 import { recordChunk } from './record-batch'
 
 interface PreparedRemoval {
@@ -26,6 +26,7 @@ interface PreparedRemoval {
   restoreDoc: AnyDocument | undefined
   removedSpellings: RemovedSpellings | undefined
   buffered: boolean
+  releaseVectorHolds?: () => void
 }
 
 function asRemoveError(err: unknown): NarsilError {
@@ -69,6 +70,7 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
       return queued
     }
     prepared.restoreDoc = ctx.durability ? manager.get(docId) : undefined
+    if (ctx.durability !== null) prepared.releaseVectorHolds = holdVectorsForRollback(manager.getVectorIndexes(), docId)
     manager.remove(docId, undefined, {
       onRemovedSpellings: spellings => {
         prepared.removedSpellings = spellings
@@ -120,6 +122,8 @@ export async function removeDocument(
     } catch (err) {
       await rollbackRemovedDocument(ctx, indexName, docId, prepared.restoreDoc, err, prepared.preparedText)
       throw err
+    } finally {
+      prepared.releaseVectorHolds?.()
     }
   } else {
     await apply()
@@ -158,30 +162,35 @@ export async function removeDocumentBatch(
       }
 
       const applies = prepared.map(removal => applyOfRemoval(ctx, indexName, removal))
-      const failures = await recordChunk(ctx, indexName, prepared, applies)
-
-      for (let i = 0; i < prepared.length; i++) {
-        const removal = prepared[i]
-        const failure = failures[i]
-        if (failure !== null) {
-          let error = failure.error
-          try {
-            await rollbackRemovedDocument(
-              ctx,
-              indexName,
-              removal.docId,
-              removal.restoreDoc,
-              error,
-              removal.preparedText,
-            )
-          } catch (rollbackError) {
-            error = rollbackError
+      try {
+        const failures = await recordChunk(ctx, indexName, prepared, applies)
+        for (let i = 0; i < prepared.length; i++) {
+          const removal = prepared[i]
+          const failure = failures[i]
+          if (failure !== null) {
+            let error = failure.error
+            try {
+              await rollbackRemovedDocument(
+                ctx,
+                indexName,
+                removal.docId,
+                removal.restoreDoc,
+                error,
+                removal.preparedText,
+              )
+            } catch (rollbackError) {
+              error = rollbackError
+            }
+            removal.releaseVectorHolds?.()
+            failed.push({ docId: removal.docId, error: asRemoveError(error) })
+            continue
           }
-          failed.push({ docId: removal.docId, error: asRemoveError(error) })
-          continue
+          removal.releaseVectorHolds?.()
+          if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
+          succeeded.push(removal.docId)
         }
-        if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
-        succeeded.push(removal.docId)
+      } finally {
+        for (const removal of prepared) removal.releaseVectorHolds?.()
       }
 
       if (chunkEnd < docIds.length) {

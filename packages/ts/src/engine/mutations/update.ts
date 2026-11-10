@@ -26,8 +26,8 @@ import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { ApplyMutation, MutationContext } from './context'
-import { rollbackUpdatedDocument } from './durable-rollback'
-import { recordChunk } from './record-batch'
+import { holdVectorsForRollback, rollbackUpdatedDocument } from './durable-rollback'
+import { type ChunkFailure, recordChunk } from './record-batch'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 
@@ -77,6 +77,7 @@ interface PreparedUpdate {
   extractedVectors: Map<string, Float32Array | null>
   removedSpellings: RemovedSpellings | undefined
   buffered: boolean
+  releaseVectorHolds?: () => void
 }
 
 function asUpdateError(err: unknown): NarsilError {
@@ -193,12 +194,18 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       prepared.buffered = true
       return queued
     }
+    if (manager.has(docId)) {
+      for (const [fieldPath, vector] of extractedVectors) {
+        if (vector !== null) manager.getVectorIndexes().get(fieldPath)?.requireRoomFor(docId, vector)
+      }
+    }
     prepared.oldDocument =
       extractedVectors.size > 0 || ctx.durability !== null || ctx.pluginRegistry.hasHooks('afterUpdate')
         ? manager.get(docId)
         : undefined
     prepared.rollbackDoc = prepared.oldDocument
     prepared.rollbackRef = ctx.durability === null ? undefined : manager.getRef(docId)
+    if (ctx.durability !== null) prepared.releaseVectorHolds = holdVectorsForRollback(manager.getVectorIndexes(), docId)
     const stored = manager.update(docId, partitionDoc, {
       onRemovedSpellings: spellings => {
         prepared.removedSpellings = spellings
@@ -271,6 +278,8 @@ export async function updateDocument(
         prepared.rollbackRef,
       )
       throw err
+    } finally {
+      prepared.releaseVectorHolds?.()
     }
   } else {
     await apply()
@@ -331,26 +340,30 @@ export async function updateDocumentBatch(
     }
 
     const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
-    const failures = await recordChunk(ctx, indexName, prepared, applies)
-
-    for (let i = prepared.length - 1; i >= 0; i--) {
-      const failure = failures[i]
-      if (failure === null) continue
-      const update = prepared[i]
-      try {
-        await rollbackUpdatedDocument(
-          ctx,
-          indexName,
-          update.docId,
-          update.rollbackDoc,
-          failure.error,
-          update.preparedText,
-          update.appliedRef,
-          update.rollbackRef,
-        )
-      } catch (error) {
-        failure.error = error
+    let failures: (ChunkFailure | null)[]
+    try {
+      failures = await recordChunk(ctx, indexName, prepared, applies)
+      for (let i = prepared.length - 1; i >= 0; i--) {
+        const failure = failures[i]
+        if (failure === null) continue
+        const update = prepared[i]
+        try {
+          await rollbackUpdatedDocument(
+            ctx,
+            indexName,
+            update.docId,
+            update.rollbackDoc,
+            failure.error,
+            update.preparedText,
+            update.appliedRef,
+            update.rollbackRef,
+          )
+        } catch (error) {
+          failure.error = error
+        }
       }
+    } finally {
+      for (const update of prepared) update.releaseVectorHolds?.()
     }
 
     for (let i = 0; i < prepared.length; i++) {

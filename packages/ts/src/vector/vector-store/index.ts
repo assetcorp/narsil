@@ -25,6 +25,7 @@ import {
   partitionFilterOf,
   relayout,
   relocateFiles,
+  requireRoomForSlot,
 } from './open-store'
 import { createOrdinalReads, entryAt } from './ordinal-reads'
 import { createRetiredVectorPins, pinnedReads } from './retired-pins'
@@ -37,6 +38,7 @@ import {
   freeRetired,
   NO_PARTITION,
   oldestPinOf,
+  reclaimOrdinal,
   retireInWrite,
   retireOrdinal,
   retireStoredOrdinal,
@@ -158,6 +160,14 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       endWrite(store, sequence)
       settleReplacement(state, store, previous, keepsReplacedVector)
       return ordinal
+    },
+
+    requireRoomFor(docId: string): void {
+      if (state.open !== null) requireRoomForSlot(state.open, docId)
+    },
+
+    reclaim(docId: string, ordinal: number, partitionId?: number, keepsReplacedVector = false): boolean {
+      return reclaimOrdinal(state, docId, ordinal, partitionId, keepsReplacedVector)
     },
 
     retire(ordinal: number): void {

@@ -11,6 +11,7 @@ import {
   IN_MEMORY,
   magnitude,
   NarsilError,
+  requireBytesWithinLimit,
   STORE_BLOCK_COUNT,
   STORE_CODE_BLOCK_COUNT,
   STORE_DOC_ID_BYTES,
@@ -136,15 +137,29 @@ function ensureFloatSlot(store: OpenStore, ordinal: number): void {
   if (block !== null) ensureBlockSlots(block, (ordinal % handles.layout.capacity) + 1)
 }
 
-export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
+const LONGEST_UTF8_BYTES_OF_A_UTF16_UNIT = 3
+const encoder = new TextEncoder()
+
+export function requireOrdinalWithinLimit(ordinal: number): void {
   const maxOrdinals = VECTOR_MEMORY_LIMITS.maxOrdinals
-  if (ordinal >= maxOrdinals) {
-    throw new NarsilError(
-      ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-      `A vector field holds at most ${maxOrdinals} vectors, deleted ones included, until it is rebuilt`,
-      { ordinal, maxOrdinals },
-    )
-  }
+  if (ordinal < maxOrdinals) return
+  throw new NarsilError(
+    ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+    `A vector field holds at most ${maxOrdinals} vectors, deleted ones included, until it is rebuilt`,
+    { ordinal, maxOrdinals },
+  )
+}
+
+export function requireRoomForSlot(store: OpenStore, docId: string): void {
+  const { header, docIdBytes } = store.handles
+  requireOrdinalWithinLimit(Atomics.load(header, STORE_SLOTS))
+  const heldBytes = Atomics.load(header, STORE_DOC_ID_BYTES)
+  if (heldBytes + docId.length * LONGEST_UTF8_BYTES_OF_A_UTF16_UNIT <= docIdBytes.maxByteLength) return
+  requireBytesWithinLimit(heldBytes + encoder.encode(docId).length, docIdBytes.maxByteLength)
+}
+
+export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
+  requireOrdinalWithinLimit(ordinal)
   const { handles } = store
   growBufferTo(handles.magnitudes, (ordinal + 1) * 8)
   growBufferTo(handles.present, ordinal + 1)

@@ -136,6 +136,41 @@ export function endWrite(store: OpenStore, sequence: number): void {
   publishSequence(store.sequences, sequence)
 }
 
+const NOT_RETIRED = 0n
+
+function clearRetirement(store: OpenStore, ordinal: number): void {
+  const writes = store.sequences
+  coverOrdinal(writes, ordinal)
+  Atomics.store(writes.retired, ordinal, NOT_RETIRED)
+}
+
+export function reclaimOrdinal(
+  state: StoreState,
+  docId: string,
+  ordinal: number,
+  partitionId: number | undefined,
+  keepsReplacedVector: boolean,
+): boolean {
+  const store = state.open
+  if (store === null) return false
+  const current = state.docToOrd.get(docId)
+  if (current === ordinal) {
+    clearRetirement(store, ordinal)
+    return true
+  }
+  if (state.ordToDoc[ordinal] !== undefined) return false
+  if (!state.replacedOrdinals.delete(ordinal) && !state.awaitingFree.delete(ordinal)) return false
+  const sequence = beginWrite(state, store)
+  clearRetirement(store, ordinal)
+  recordPartition(state, store, ordinal, partitionId)
+  state.ordToDoc[ordinal] = docId
+  state.docToOrd.set(docId, ordinal)
+  if (current !== undefined) retireInWrite(store, current, sequence)
+  endWrite(store, sequence)
+  settleReplacement(state, store, current, keepsReplacedVector)
+  return true
+}
+
 export function retireStoredOrdinal(state: StoreState, ordinal: number): boolean {
   const store = state.open
   if (store === null) return false

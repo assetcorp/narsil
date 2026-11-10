@@ -35,6 +35,7 @@ import {
   openColdField,
   untilColdLoaded,
 } from './cold'
+import { sameVector } from './cold-writes'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
 import { createRemovedDocuments, createUnplacedVectors } from './flagged-documents'
 import { onceGraphFree, untilGraphReleased, withGraphFree } from './graph-pass'
@@ -48,6 +49,7 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { vectorPublicationSource } from './publication'
+import { holdForRollback } from './rollback-holds'
 import { fetchedOutcome, search as searchOp, withBufferedVectors } from './search'
 import { searchFiltered } from './search-in-turns'
 import { searchOffThread } from './search-off-thread'
@@ -171,9 +173,10 @@ export function createVectorIndex(
     graphsHeldOffThread: null,
     searchWatches: new Set(),
     writeListeners: new Set(),
+    rollbackHolds: new Map(),
   }
 
-  const { insert, remove } = createVectorWrites(state)
+  const { insert, remove, requireRoomForNewVector, restore: restoreVector } = createVectorWrites(state)
 
   function getVector(docId: string): Float32Array | null {
     if (state.cold !== null) return coldVectorOf(state.cold, docId)
@@ -181,6 +184,21 @@ export function createVectorIndex(
     const entry = state.store.get(docId)
     if (!entry) return null
     return new Float32Array(entry.vector)
+  }
+
+  function requireRoomFor(docId: string, vector: Float32Array): void {
+    try {
+      requireRoomForNewVector(docId)
+    } catch (error) {
+      const held = getVector(docId)
+      if (held === null || held.length !== vector.length || !sameVector(held, vector)) throw error
+    }
+  }
+
+  function restore(docId: string, vector: Float32Array, partitionId?: number): void {
+    const held = getVector(docId)
+    if (held !== null && held.length === vector.length && sameVector(held, vector)) return
+    restoreVector(docId, vector, partitionId)
   }
 
   function has(docId: string): boolean {
@@ -254,6 +272,9 @@ export function createVectorIndex(
       return state.metric
     },
     insert,
+    requireRoomFor,
+    restore,
+    holdForRollback: (docId: string) => holdForRollback(state, docId),
     remove,
     partitionsKnown: () => state.cold !== null || state.store.partitionsKnown,
     assignPartitions: (resolve: (docId: string) => number | undefined) => {

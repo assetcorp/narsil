@@ -19,6 +19,7 @@ import {
   markTombstone as markTombstoneOp,
   rebuild as rebuildOp,
   resetGraph,
+  reviveTombstone,
 } from './mutation'
 import {
   deserializeNumberedGraph,
@@ -74,6 +75,7 @@ export interface HNSWIndex {
   insertOrdinal(ordinal: number, connectsAfterwards?: boolean): boolean
   markTombstone(docId: string): void
   markTombstoneOrdinal(ordinal: number): void
+  reviveOrdinal(ordinal: number): void
   holdsNode(ordinal: number): boolean
   holdsTombstone(ordinal: number): boolean
   has(docId: string): boolean
@@ -245,6 +247,7 @@ export function createHNSWIndex(
       if (ord !== undefined) markTombstoneOp(state, ord)
     },
     markTombstoneOrdinal: (ordinal: number) => markTombstoneOp(state, ordinal),
+    reviveOrdinal: (ordinal: number) => reviveTombstone(state, ordinal),
     holdsNode: (ordinal: number) => hasNode(state.adjacency, ordinal),
     holdsTombstone: (ordinal: number) => hasNode(state.adjacency, ordinal) && isTombstoned(state, ordinal),
     has: (docId: string) => {
