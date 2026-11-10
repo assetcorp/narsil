@@ -1,5 +1,6 @@
+import { ErrorCodes, isNarsilError } from '@delali/narsil/client'
 import { type ChangeEvent, useCallback, useState } from 'react'
-import { useEngineActions } from '../../../engine-actions'
+import { type EngineActions, useEngineActions } from '../../../engine-actions'
 import { Button } from '../../ui/button'
 import { Input } from '../../ui/input'
 import { ManageSection } from './ManageSection'
@@ -14,6 +15,16 @@ function wholeNumber(raw: string, low: number, high: number, label: string): num
     throw new Error(`${label} has to be a whole number from ${low} to ${high.toLocaleString()}.`)
   }
   return parsed
+}
+
+async function rebalanceRaisingLimit(actions: EngineActions, indexName: string, count: number): Promise<void> {
+  try {
+    await actions.rebalance(indexName, count)
+  } catch (err) {
+    if (!isNarsilError(err) || err.code !== ErrorCodes.PARTITION_CAPACITY_EXCEEDED) throw err
+    await actions.updatePartitionConfig(indexName, { maxPartitions: count })
+    await actions.rebalance(indexName, count)
+  }
 }
 
 export function PartitionSection({ indexName, partitionCount }: { indexName: string; partitionCount: number }) {
@@ -34,7 +45,7 @@ export function PartitionSection({ indexName, partitionCount }: { indexName: str
   const handleRebalance = useCallback(() => {
     void run('Spreading the documents across partitions', async () => {
       const count = wholeNumber(target, 1, MAX_DEMO_PARTITIONS, 'The partition count')
-      await actions.rebalance(indexName, count)
+      await rebalanceRaisingLimit(actions, indexName, count)
       actions.onChanged(indexName)
       return `The index holds its documents in ${count} partition${count === 1 ? '' : 's'}.`
     })

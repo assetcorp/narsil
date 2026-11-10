@@ -67,3 +67,20 @@ test('an export lists every place, and a snapshot restore brings back a place re
   expect(await server.has(PLACES_INDEX, accraId)).toBe(true)
   expect(await server.countDocuments(PLACES_INDEX)).toBe(places.length)
 })
+
+test('a rebalance from the inspector keeps a partition limit that the caller set above it', async ({ page }) => {
+  const startingCount = (await server.getStats(PLACES_INDEX)).partitionCount
+  await server.updatePartitionConfig(PLACES_INDEX, { maxPartitions: 16 })
+
+  await openManage(page)
+  await page.getByLabel('Partition count').fill('8')
+  await page.getByRole('button', { name: 'Rebalance' }).click()
+  await expect(sectionStatus(page, 'manage-partitions')).toContainText('8 partitions')
+
+  const widened = await server.waitForTask((await server.rebalance(PLACES_INDEX, 16)).id)
+  expect({ status: widened.status, error: widened.error }).toEqual({ status: 'succeeded', error: undefined })
+  expect((await server.getStats(PLACES_INDEX)).partitionCount).toBe(16)
+
+  const restored = await server.waitForTask((await server.rebalance(PLACES_INDEX, startingCount)).id)
+  expect(restored.status).toBe('succeeded')
+})
