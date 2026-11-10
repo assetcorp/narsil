@@ -2,6 +2,7 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_groups.h"
+#include "../allocation.h"
 #include "../internal.h"
 
 #include <stddef.h>
@@ -15,7 +16,7 @@ static narsil_status reserve(group_scratch *scratch, uint32_t count) {
   size_t stride = sizeof(hit_group) + (GROUP_INDEX_ARRAYS * sizeof(uint32_t));
   if (count > SIZE_MAX / stride) { return NARSIL_INVALID_ARGUMENT; }
   size_t bytes = (size_t)count * stride;
-  void *allocation = malloc(bytes);
+  void *allocation = core_allocate(bytes);
   if (allocation == NULL) { return NARSIL_OUT_OF_MEMORY; }
   free(scratch->allocation);
   scratch->allocation = allocation;

@@ -1,11 +1,11 @@
 #include "ast.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "constants.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 static int reserve_node(pattern_ast *tree) {
   if (tree->count < tree->capacity) { return 1; }
@@ -17,7 +17,7 @@ static int reserve_node(pattern_ast *tree) {
   }
   size_t capacity = tree->capacity == 0 ? PATTERN_AST_INITIAL_CAPACITY : tree->capacity;
   if (capacity <= tree->count) { capacity = capacity <= limit / 2 ? capacity * 2 : limit; }
-  pattern_node *nodes = realloc(tree->nodes, capacity * sizeof *nodes);
+  pattern_node *nodes = core_reallocate(tree->nodes, capacity * sizeof *nodes);
   if (nodes == NULL) {
     tree->status = NARSIL_OUT_OF_MEMORY;
     return 0;

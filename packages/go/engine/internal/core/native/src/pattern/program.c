@@ -1,6 +1,7 @@
 #include "program.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "ast.h"
 #include "constants.h"
@@ -22,7 +23,7 @@ uint32_t pattern_program_add(pattern_program *program, const pattern_state *stat
     }
     size_t capacity = program->capacity == 0 ? PATTERN_AST_INITIAL_CAPACITY : program->capacity;
     if (capacity <= program->count) { capacity = capacity <= limit / 2 ? capacity * 2 : limit; }
-    pattern_state *states = realloc(program->states, capacity * sizeof *states);
+    pattern_state *states = core_reallocate(program->states, capacity * sizeof *states);
     if (states == NULL) {
       program->status = NARSIL_OUT_OF_MEMORY;
       return PATTERN_NO_NODE;
@@ -49,8 +50,8 @@ static narsil_status reserve_compiler(pattern_compiler *compiler, size_t count) 
   if (count > SIZE_MAX / sizeof *compiler->frames || count > SIZE_MAX / sizeof *compiler->prepared) {
     return NARSIL_OUT_OF_MEMORY;
   }
-  pattern_compile_frame *frames = malloc(count * sizeof *frames);
-  pattern_state *prepared = malloc(count * sizeof *prepared);
+  pattern_compile_frame *frames = core_allocate(count * sizeof *frames);
+  pattern_state *prepared = core_allocate(count * sizeof *prepared);
   if (frames == NULL || prepared == NULL) {
     free(frames);
     free(prepared);
