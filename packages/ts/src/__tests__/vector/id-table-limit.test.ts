@@ -312,6 +312,8 @@ function writeUnderTheFileSizeLimit(planPath: string): Promise<WriterReport> {
     )
     let output = ''
     let errors = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', chunk => {
       output += chunk
     })
