@@ -11,6 +11,7 @@ import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { connectOffThread, connectOnThisThread } from './connect-in-turns'
 import { connectAfterBuild } from './connect-unreached'
+import { copyGraphHandles } from './copy'
 import { createSharedGraphHandles, GRAPH_RETIRED, GRAPH_UNLINKED_NODES, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
@@ -107,6 +108,7 @@ export interface HNSWIndex {
   rebuild(): void
   /** Performs an operation that rewrites the graph in place while every other thread waits. */
   exclusively<T>(operation: () => T): T
+  copy(): HNSWIndex
 
   deserialize(data: SerializedHNSWGraph): void
   /** Writes the graph in parts of `partSize` numbers. Each vector takes the number that `numberOfOrdinal` returns for its ordinal, and the method skips every node whose ordinal has no number. */
@@ -283,6 +285,14 @@ export function createHNSWIndex(
     connectOnThisThread: (inSlices: boolean) => connectOnThisThread(state, inSlices),
     rebuild: () => relinking(() => rebuildOp(state)),
     exclusively,
+    copy: () =>
+      createHNSWIndex(
+        dimension,
+        store,
+        { m: state.M, efConstruction: state.efCons, metric: state.buildMetric },
+        quantizer,
+        copyGraphHandles(state),
+      ),
     deserialize: (data: SerializedHNSWGraph) => relinking(() => deserializeGraph(state, store, data)),
     serializeNumbered: (numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array, partSize: number) =>
       serializeNumberedGraphParts(state, numberOfOrdinal, ordinalOfNumber, partSize),

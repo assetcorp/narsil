@@ -1,6 +1,7 @@
 import type { PartitionManager } from '../../partitioning/manager'
 import { captureAppliedPrefix, requiresLayoutCheckpoint } from '../../partitioning/manager/checkpoint-prefix'
 import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
+import { whileGraphsStayComplete } from './complete-graphs'
 import {
   LOG_RECORDS_PER_CHECKPOINT,
   WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
@@ -176,8 +177,9 @@ export async function captureCheckpoint(
   termHistoryOf?: (partitionId: number, lastSeqNo: number) => TermStart[],
   onCaptured?: () => void,
 ): Promise<CheckpointCapture> {
-  for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
-  return whileNoMutationApplies([...indexState.partitions.values()], () =>
+  const whileNoBuildPassOrMutationRuns = <T>(capture: () => T | Promise<T>): Promise<T> =>
+    whileGraphsStayComplete(vectorIndexes, () => whileNoMutationApplies([...indexState.partitions.values()], capture))
+  return whileNoBuildPassOrMutationRuns(() =>
     captureAppliedPrefix(manager, cutoffs => {
       onCaptured?.()
       const partitionCount = manager.partitionCount

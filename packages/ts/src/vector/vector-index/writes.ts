@@ -66,15 +66,21 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
   }
 
   function graphsHoldNode(ordinal: number): boolean {
-    return (state.hnsw?.holdsNode(ordinal) ?? false) || (state.freshGraph?.holdsNode(ordinal) ?? false)
+    return (
+      (state.hnsw?.holdsNode(ordinal) ?? false) ||
+      (state.freshGraph?.holdsNode(ordinal) ?? false) ||
+      (state.growingCopy?.holdsNode(ordinal) ?? false)
+    )
   }
 
   function retireFromGraphs(previous: number, graphHoldsPrevious: boolean): void {
     const graph = state.hnsw
     const freshGraph = state.freshGraph
+    const growingCopy = state.growingCopy
     afterGraphPass(state, () => {
       graph?.markTombstoneOrdinal(previous)
       freshGraph?.markTombstoneOrdinal(previous)
+      growingCopy?.markTombstoneOrdinal(previous)
     })
     if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
   }
@@ -111,9 +117,11 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     if (previous !== undefined) retireFromGraphs(previous, graphHoldsPrevious)
     const graph = state.hnsw
     const freshGraph = state.freshGraph
+    const growingCopy = state.growingCopy
     afterGraphPass(state, () => {
       graph?.reviveOrdinal(ordinal)
       freshGraph?.reviveOrdinal(ordinal)
+      growingCopy?.reviveOrdinal(ordinal)
     })
     finishPlacingInBuffer(docId)
     return true
@@ -132,7 +140,11 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     if (state.buffer.retiredCount !== 0) forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     const graph = state.hnsw
-    if (graph !== null) afterGraphPass(state, () => graph.markTombstoneOrdinal(ordinal))
+    const growingCopy = state.growingCopy
+    afterGraphPass(state, () => {
+      graph?.markTombstoneOrdinal(ordinal)
+      growingCopy?.markTombstoneOrdinal(ordinal)
+    })
   }
 
   return {

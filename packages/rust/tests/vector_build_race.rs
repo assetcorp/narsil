@@ -42,6 +42,7 @@ const GROWTH_MAX_DOCUMENTS: u64 = 10_000;
 const GROWTH_EXHAUSTIVE_EF: u32 = 10_000;
 const GROWTH_TARGETS_PER_READER: u64 = 32;
 const GROWTH_ROUNDS: u64 = 6;
+const GROWTH_ROUNDS_UNTIL_A_SEARCH_OVERLAPS: u64 = 30;
 const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
 const CHILD_ROUND: &str = "NARSIL_VECTOR_BUILD_KILL_ROUND";
@@ -422,13 +423,15 @@ fn searches_during_a_growth_pass_find_every_acknowledged_vector() {
     let engine = Narsil::new();
     let mut during = 0;
     let mut misses = Vec::new();
-    for round in 0..GROWTH_ROUNDS {
+    let mut round = 0;
+    while round < GROWTH_ROUNDS || (during == 0 && round < GROWTH_ROUNDS_UNTIL_A_SEARCH_OVERLAPS) {
         if round > 0 {
             engine.drop_index(INDEX).expect("the index drops");
         }
         let (searches, missed) = growth_round(&engine, round);
         during += searches;
         misses.extend(missed);
+        round += 1;
     }
     assert!(during > 0, "no search ran while a pass placed vectors");
     assert!(
