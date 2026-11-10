@@ -1,13 +1,12 @@
-use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use super::constants::MAX_CACHED_DERIVED_COLUMNS;
+use super::core_values::CoreStoredValues;
 use super::segment::{SegmentData, SegmentEntry};
 use crate::engine::SortMode;
 use crate::error::Result;
 use crate::ordering::KeyColumn;
-use crate::schema::BaseType;
 
 pub(crate) trait DerivedColumn: Clone + Default {
     fn len(&self) -> usize;
@@ -72,55 +71,50 @@ impl<K, C: DerivedColumn> ColumnCache<K, C> {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FacetColumn {
-    names: Vec<String>,
-    lookup: HashMap<String, u32>,
-    offsets: Vec<u32>,
-    ids: Vec<u32>,
+pub(crate) struct SortedNumbers {
+    pub(crate) values: Vec<f64>,
+    pub(crate) ordinals: Vec<u32>,
+    covered: usize,
 }
 
-impl FacetColumn {
-    pub(crate) fn push_document<'k>(&mut self, keys: impl Iterator<Item = &'k str>) {
-        if self.offsets.is_empty() {
-            self.offsets.push(0);
+impl SortedNumbers {
+    pub(crate) fn add(&mut self, entries: &[(u32, f64)], covered: usize) {
+        let mut added: Vec<(u32, f64)> = entries.to_vec();
+        added.sort_by(|left, right| left.1.total_cmp(&right.1));
+        let mut values = Vec::with_capacity(self.values.len() + added.len());
+        let mut ordinals = Vec::with_capacity(values.capacity());
+        let mut held = self.values.iter().zip(&self.ordinals).peekable();
+        for (ordinal, value) in added {
+            while let Some((held_value, held_ordinal)) =
+                held.next_if(|(held_value, _)| held_value.total_cmp(&value).is_le())
+            {
+                values.push(*held_value);
+                ordinals.push(*held_ordinal);
+            }
+            values.push(value);
+            ordinals.push(ordinal);
         }
-        for key in keys {
-            let id = match self.lookup.get(key) {
-                Some(id) => *id,
-                None => {
-                    let id = self.names.len() as u32;
-                    self.names.push(key.to_string());
-                    self.lookup.insert(key.to_string(), id);
-                    id
-                }
-            };
-            self.ids.push(id);
+        for (held_value, held_ordinal) in held {
+            values.push(*held_value);
+            ordinals.push(*held_ordinal);
         }
-        self.offsets.push(self.ids.len() as u32);
-    }
-
-    pub(crate) fn ids(&self, ordinal: u32) -> &[u32] {
-        let at = ordinal as usize;
-        let start = self.offsets.get(at).copied().unwrap_or(0) as usize;
-        let end = self.offsets.get(at + 1).copied().unwrap_or(0) as usize;
-        self.ids.get(start..end).unwrap_or(&[])
-    }
-
-    pub(crate) fn names(&self) -> &[String] {
-        &self.names
+        self.values = values;
+        self.ordinals = ordinals;
+        self.covered = covered;
     }
 }
 
-impl DerivedColumn for FacetColumn {
+impl DerivedColumn for SortedNumbers {
     fn len(&self) -> usize {
-        self.offsets.len().saturating_sub(1)
+        self.covered
     }
 }
 
 #[derive(Default)]
 pub(crate) struct DerivedColumns {
     pub(crate) sort_keys: ColumnCache<(String, SortMode), KeyColumn>,
-    pub(crate) facet_keys: ColumnCache<(String, Option<BaseType>), FacetColumn>,
+    pub(crate) sorted_numbers: ColumnCache<String, SortedNumbers>,
+    pub(crate) stored_values: ColumnCache<String, CoreStoredValues>,
 }
 
 impl SegmentEntry {

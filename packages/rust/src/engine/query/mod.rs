@@ -3,7 +3,7 @@ mod bm25;
 pub(crate) mod constants;
 mod coverage;
 mod cursor;
-mod documents;
+pub(crate) mod documents;
 mod facets;
 mod fulltext;
 mod fusion;
