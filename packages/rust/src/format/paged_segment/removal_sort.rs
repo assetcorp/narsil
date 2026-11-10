@@ -3,6 +3,7 @@ use super::constants::{
 };
 use super::sink::{ScratchFile, ScratchNames, SectionSink};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::bytes::le_u32;
 
 const TRIPLE_BYTES: usize = 12;
 const VALUES_PER_ENTRY: u64 = 2;
@@ -23,12 +24,6 @@ pub(crate) struct RemovalWriter {
 
 fn save_failed(message: String) -> NarsilError {
     NarsilError::new(ErrorCode::PERSISTENCE_SAVE_FAILED, message)
-}
-
-fn le_u32(bytes: &[u8], at: usize) -> u32 {
-    bytes.get(at..at + 4).map_or(0, |raw| {
-        u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])
-    })
 }
 
 fn held_capacity() -> usize {

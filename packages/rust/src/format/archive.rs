@@ -6,9 +6,9 @@ use crate::format::archive_tar::{
     parse_pax_records, parse_tar_header, tar_end, tar_entry_headers, tar_padding,
 };
 use crate::format::envelope::{HEADER_BYTES, MAX_FILE_BYTES};
-use crate::format::layout::SEGMENTS_MARKER;
 use crate::format::manifest::{
     DecodedManifest, SegmentManifest, decode_manifest_payload, listed_keys, open_manifest_payload,
+    source_index_name,
 };
 use crate::format::manifest_refs::FileRef;
 
@@ -155,19 +155,6 @@ fn read_named_entry(reader: &mut dyn Read, expected: &str) -> Result<Vec<u8>> {
     read_padded(reader, header.size)
 }
 
-/// Returns the index name that an archive's manifest keys start with.
-pub(crate) fn archive_index_name(keys: &[String]) -> Result<String> {
-    let Some(first) = keys.first() else {
-        return Ok("archive".to_string());
-    };
-    match first.find(SEGMENTS_MARKER) {
-        Some(at) if at > 0 => Ok(first[..at].to_string()),
-        _ => Err(invalid_archive(format!(
-            "the manifest lists the key \"{first}\" outside any index"
-        ))),
-    }
-}
-
 fn header_checksum_of(bytes: &[u8]) -> Option<u32> {
     if bytes.len() < HEADER_BYTES {
         return None;
@@ -236,7 +223,7 @@ pub(crate) fn read_snapshot_archive(
     sink.config(read_named_entry(reader, ARCHIVE_CONFIG_ENTRY)?)?;
     let manifest_bytes = read_named_entry(reader, ARCHIVE_MANIFEST_ENTRY)?;
     let (_, raw) = open_manifest_payload(&manifest_bytes)?;
-    let source_index_name = archive_index_name(&listed_keys(&raw))?;
+    let source_index_name = source_index_name(&listed_keys(&raw))?;
     let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, &source_index_name)?
     else {
         return Err(invalid_archive(

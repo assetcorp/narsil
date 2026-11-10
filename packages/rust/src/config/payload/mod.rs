@@ -36,11 +36,3 @@ pub(super) fn whole_number(
         Some(_) => Err(reject(message)),
     }
 }
-
-pub(super) fn string_list(value: &Value) -> Option<Vec<String>> {
-    value
-        .as_array()?
-        .iter()
-        .map(|item| item.as_str().map(str::to_string))
-        .collect()
-}

@@ -1,9 +1,6 @@
-use super::{ExpansionSources, units};
+use super::{ExpansionSources, expansion_rows, units};
 use crate::error::Result;
 use crate::ffi;
-use crate::keyword::constants::{EXPANSION_START_CAPACITY, MAX_ROOM_ATTEMPTS};
-use crate::native::status::core_refused;
-use crate::native::workspace::with_workspace;
 
 impl ExpansionSources<'_> {
     pub(crate) fn complete_prefix(&self, typed: &str, stemmed: &str) -> Result<Vec<(String, f64)>> {
@@ -20,36 +17,11 @@ impl ExpansionSources<'_> {
             own: own.as_ptr(),
             own_length: own.len(),
         };
-        let mut capacity = EXPANSION_START_CAPACITY;
-        for _ in 0..MAX_ROOM_ATTEMPTS {
-            let mut found_segments = vec![0u32; capacity];
-            let mut tokens = vec![0u32; capacity];
-            let mut factors = vec![0f64; capacity];
-            let output = ffi::narsil_expansion_output {
-                segments: found_segments.as_mut_ptr(),
-                segment_capacity: capacity,
-                tokens: tokens.as_mut_ptr(),
-                token_capacity: capacity,
-                factors: factors.as_mut_ptr(),
-                factor_capacity: capacity,
-            };
-            let mut count = 0u32;
-            let status = with_workspace(|workspace| {
-                Ok(unsafe { ffi::narsil_expand_prefix(workspace, &request, &output, &mut count) })
-            })?;
-            match status {
-                ffi::NARSIL_OK => {
-                    let mut completions = Vec::with_capacity(count as usize);
-                    for at in 0..count as usize {
-                        let token = self.token(found_segments[at], tokens[at])?;
-                        completions.push((token, factors[at]));
-                    }
-                    return Ok(completions);
-                }
-                ffi::NARSIL_NEEDS_ROOM => capacity *= 2,
-                status => return Err(core_refused("a prefix completion", status)),
-            }
-        }
-        Err(core_refused("a prefix completion", ffi::NARSIL_NEEDS_ROOM))
+        let rows = expansion_rows("a prefix completion", |workspace, output, count| unsafe {
+            ffi::narsil_expand_prefix(workspace, &request, &output, count)
+        })?;
+        (0..rows.count)
+            .map(|at| self.expansion(&rows, at))
+            .collect()
     }
 }

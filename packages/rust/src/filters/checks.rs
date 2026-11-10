@@ -1,7 +1,7 @@
 use super::constants::MAX_FILTER_ARRAY_SIZE;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::{BaseType, FieldType};
-use crate::value::{Map, Value, number_to_text};
+use crate::value::{Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OperandKind {
@@ -68,30 +68,6 @@ pub(crate) fn kind_of_value(value: Option<&Value>) -> Option<OperandKind> {
         Some(Value::Bool(_)) => Some(OperandKind::Boolean),
         Some(Value::String(_)) => Some(OperandKind::Text),
         _ => None,
-    }
-}
-
-pub(crate) fn js_string(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::Null) => "null".to_string(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::Number(number)) => number_to_text(*number),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(elements)) => elements
-            .iter()
-            .map(|element| match element {
-                Value::Null => String::new(),
-                other => js_string(Some(other)),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(Value::Bytes(bytes)) => bytes
-            .iter()
-            .map(u8::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(_) => "[object Object]".to_string(),
     }
 }
 

@@ -1,106 +1,58 @@
+use std::ops::Range;
+
 use crate::error::{Result, load_failed};
 
-pub(crate) fn u32_list(bytes: &[u8], what: &str) -> Result<Vec<u32>> {
-    if bytes.len() % 4 != 0 {
-        return load_failed(format!(
-            "{what} holds {} bytes, which is not a whole number of uint32 values",
-            bytes.len()
-        ));
-    }
-    Ok(bytes
-        .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect())
+macro_rules! little_endian_lists {
+    ($($kind:ty, $shown:literal, $list:ident, $bytes:ident;)*) => {
+        $(
+            pub(crate) fn $list(bytes: &[u8], what: &str) -> Result<Vec<$kind>> {
+                const WIDTH: usize = std::mem::size_of::<$kind>();
+                if bytes.len() % WIDTH != 0 {
+                    return load_failed(format!(
+                        "{what} holds {} bytes, which is not a whole number of {} values",
+                        bytes.len(),
+                        $shown
+                    ));
+                }
+                Ok(bytes
+                    .chunks_exact(WIDTH)
+                    .map(|chunk| {
+                        <$kind>::from_le_bytes(<[u8; WIDTH]>::try_from(chunk).unwrap_or_default())
+                    })
+                    .collect())
+            }
+
+            pub(crate) fn $bytes(values: &[$kind]) -> Vec<u8> {
+                let mut out = Vec::with_capacity(std::mem::size_of_val(values));
+                for value in values {
+                    out.extend_from_slice(&value.to_le_bytes());
+                }
+                out
+            }
+        )*
+    };
 }
 
-pub(crate) fn u16_list(bytes: &[u8], what: &str) -> Result<Vec<u16>> {
-    if bytes.len() % 2 != 0 {
-        return load_failed(format!(
-            "{what} holds {} bytes, which is not a whole number of uint16 values",
-            bytes.len()
-        ));
-    }
-    Ok(bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect())
+little_endian_lists! {
+    u32, "uint32", u32_list, u32_bytes;
+    u16, "uint16", u16_list, u16_bytes;
+    u64, "uint64", u64_list, u64_bytes;
+    f64, "float64", f64_list, f64_bytes;
+    f32, "float32", f32_list, f32_bytes;
 }
 
-pub(crate) fn u64_list(bytes: &[u8], what: &str) -> Result<Vec<u64>> {
-    if bytes.len() % 8 != 0 {
-        return load_failed(format!(
-            "{what} holds {} bytes, which is not a whole number of uint64 values",
-            bytes.len()
-        ));
-    }
-    Ok(bytes
-        .chunks_exact(8)
-        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap_or([0; 8])))
-        .collect())
+pub(crate) fn le_u32(bytes: &[u8], at: usize) -> u32 {
+    bytes.get(at..at + 4).map_or(0, |raw| {
+        u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])
+    })
 }
 
-pub(crate) fn f64_list(bytes: &[u8], what: &str) -> Result<Vec<f64>> {
-    if bytes.len() % 8 != 0 {
-        return load_failed(format!(
-            "{what} holds {} bytes, which is not a whole number of float64 values",
-            bytes.len()
-        ));
-    }
-    Ok(bytes
-        .chunks_exact(8)
-        .map(|chunk| f64::from_le_bytes(chunk.try_into().unwrap_or([0; 8])))
-        .collect())
+pub(crate) fn offset_range(offsets: &[u32], at: usize) -> Range<usize> {
+    let start = offsets.get(at).copied().unwrap_or(0) as usize;
+    let end = offsets.get(at + 1).copied().unwrap_or(0) as usize;
+    start..end
 }
 
-pub(crate) fn f32_list(bytes: &[u8], what: &str) -> Result<Vec<f32>> {
-    if bytes.len() % 4 != 0 {
-        return load_failed(format!(
-            "{what} holds {} bytes, which is not a whole number of float32 values",
-            bytes.len()
-        ));
-    }
-    Ok(bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect())
-}
-
-pub(crate) fn u32_bytes(values: &[u32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 4);
-    for value in values {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
-}
-
-pub(crate) fn u16_bytes(values: &[u16]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 2);
-    for value in values {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
-}
-
-pub(crate) fn u64_bytes(values: &[u64]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 8);
-    for value in values {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
-}
-
-pub(crate) fn f64_bytes(values: &[f64]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 8);
-    for value in values {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
-}
-
-pub(crate) fn f32_bytes(values: &[f32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 4);
-    for value in values {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    out
+pub(crate) fn offset_entry<'a, T>(values: &'a [T], offsets: &[u32], at: usize) -> &'a [T] {
+    values.get(offset_range(offsets, at)).unwrap_or(&[])
 }

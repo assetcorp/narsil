@@ -299,50 +299,33 @@ pub(crate) fn random_token() -> io::Result<String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
-    #[cfg(windows)]
-    {
-        use super::constants::{WINDOWS_RENAME_ATTEMPTS, WINDOWS_RENAME_RETRY_MS};
-        let mut attempt = 0;
-        loop {
-            match std::fs::rename(from, to) {
-                Err(error)
-                    if error.kind() == io::ErrorKind::PermissionDenied
-                        && attempt + 1 < WINDOWS_RENAME_ATTEMPTS =>
-                {
-                    attempt += 1;
-                    std::thread::sleep(std::time::Duration::from_millis(WINDOWS_RENAME_RETRY_MS));
-                }
-                other => return other,
+#[cfg(windows)]
+fn retried_while_access_is_denied(mut operation: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    use super::constants::{WINDOWS_RENAME_ATTEMPTS, WINDOWS_RENAME_RETRY_MS};
+    let mut attempt = 0;
+    loop {
+        match operation() {
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied
+                    && attempt + 1 < WINDOWS_RENAME_ATTEMPTS =>
+            {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(WINDOWS_RENAME_RETRY_MS));
             }
+            other => return other,
         }
-    }
-    #[cfg(not(windows))]
-    {
-        std::fs::rename(from, to)
     }
 }
 
+#[cfg(not(windows))]
+fn retried_while_access_is_denied(mut operation: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    operation()
+}
+
+pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
+    retried_while_access_is_denied(|| std::fs::rename(from, to))
+}
+
 pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
-    #[cfg(windows)]
-    {
-        use super::constants::{WINDOWS_RENAME_ATTEMPTS, WINDOWS_RENAME_RETRY_MS};
-        let mut attempt = 0;
-        loop {
-            match std::fs::remove_file(path) {
-                Err(error)
-                    if error.kind() == io::ErrorKind::PermissionDenied
-                        && attempt + 1 < WINDOWS_RENAME_ATTEMPTS =>
-                {
-                    attempt += 1;
-                    std::thread::sleep(std::time::Duration::from_millis(WINDOWS_RENAME_RETRY_MS));
-                }
-                other => return other,
-            }
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        std::fs::remove_file(path)
-    }
+    retried_while_access_is_denied(|| std::fs::remove_file(path))
 }

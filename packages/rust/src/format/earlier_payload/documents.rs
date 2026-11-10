@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use crate::error::{Result, load_failed};
 use crate::schema::require_valid_field_types;
-use crate::value::{Decoder, MAX_ENCODING_DEPTH, Map, Value, number_to_text};
+use crate::value::{Decoder, MAX_ENCODING_DEPTH, Map, Value, array_index_of, number_to_text};
 
 const PREFIX: &str = "Invalid partition payload: ";
-const LARGEST_ARRAY_INDEX: u64 = 4_294_967_294;
 const TOP_LEVEL_DEPTH: usize = 1;
 const MIN_ENTRY_BYTES: usize = 2;
 
@@ -68,18 +67,6 @@ fn skip_value(decoder: &mut Decoder<'_>, depth: usize) -> Result<()> {
         return Ok(());
     }
     decoder.read_value(depth).map(drop)
-}
-
-fn array_index_of(key: &str) -> Option<u64> {
-    let bytes = key.as_bytes();
-    if bytes.is_empty() || bytes.len() > 10 || !bytes.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    if bytes.len() > 1 && bytes.first() == Some(&b'0') {
-        return None;
-    }
-    let value = key.parse::<u64>().ok()?;
-    (value <= LARGEST_ARRAY_INDEX).then_some(value)
 }
 
 fn read_documents(decoder: &mut Decoder<'_>, total_bytes: usize) -> Result<ListedDocuments> {

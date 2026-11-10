@@ -22,6 +22,19 @@ fn is_strict(index: &IndexState) -> bool {
     index.config().strict == Some(true)
 }
 
+fn field_type_for<'a>(
+    index: &'a IndexState,
+    strict: bool,
+    field: &str,
+    option: &str,
+) -> Result<Option<&'a FieldType>> {
+    let field_type = index.schema.field_type(field);
+    if strict && field_type.is_none() {
+        return Err(undeclared_on_strict_index(field, option));
+    }
+    Ok(field_type)
+}
+
 fn is_geopoint_or_vector(field_type: &FieldType) -> bool {
     matches!(field_type.base, BaseType::Geopoint | BaseType::Vector)
 }
@@ -64,10 +77,7 @@ pub(crate) fn require_sortable_fields(
 ) -> Result<()> {
     let strict = is_strict(index);
     for entry in sort.unwrap_or(&[]) {
-        let field_type = index.schema.field_type(&entry.field);
-        if strict && field_type.is_none() {
-            return Err(undeclared_on_strict_index(&entry.field, "sort"));
-        }
+        let field_type = field_type_for(index, strict, &entry.field, "sort")?;
         require_sort_mode(entry, field_type)?;
         let Some(field_type) = field_type else {
             continue;
@@ -131,10 +141,7 @@ fn require_boostable_fields(index: &IndexState, boost: &[(String, f64)]) -> Resu
 fn require_facetable_fields(index: &IndexState, fields: &[&str]) -> Result<()> {
     let strict = is_strict(index);
     for field in fields {
-        let field_type = index.schema.field_type(field);
-        if strict && field_type.is_none() {
-            return Err(undeclared_on_strict_index(field, "facet"));
-        }
+        let field_type = field_type_for(index, strict, field, "facet")?;
         if let Some(field_type) = field_type.filter(|field_type| is_geopoint_or_vector(field_type))
         {
             return Err(invalid_field(format!(
@@ -149,10 +156,7 @@ fn require_facetable_fields(index: &IndexState, fields: &[&str]) -> Result<()> {
 fn require_groupable_fields(index: &IndexState, fields: &[String]) -> Result<()> {
     let strict = is_strict(index);
     for field in fields {
-        let field_type = index.schema.field_type(field);
-        if strict && field_type.is_none() {
-            return Err(undeclared_on_strict_index(field, "group"));
-        }
+        let field_type = field_type_for(index, strict, field, "group")?;
         if let Some(field_type) =
             field_type.filter(|field_type| field_type.base == BaseType::Vector)
         {

@@ -2,13 +2,17 @@ const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
 const FNV_PRIME: u32 = 16_777_619;
 const BASE36_DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
-pub(crate) fn fnv1a(bytes: &[u8]) -> u32 {
+pub(crate) fn fnv1a_of(bytes: impl IntoIterator<Item = u8>) -> u32 {
     let mut hash = FNV_OFFSET_BASIS;
     for byte in bytes {
-        hash ^= *byte as u32;
+        hash ^= u32::from(byte);
         hash = hash.wrapping_mul(FNV_PRIME);
     }
     hash
+}
+
+pub(crate) fn fnv1a(bytes: &[u8]) -> u32 {
+    fnv1a_of(bytes.iter().copied())
 }
 
 pub(crate) fn crc32(bytes: &[u8]) -> u32 {

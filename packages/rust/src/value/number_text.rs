@@ -1,5 +1,32 @@
+use super::Value;
+
 const LARGEST_PLAIN_EXPONENT: i32 = 21;
 const SMALLEST_PLAIN_EXPONENT: i32 = -6;
+
+pub(crate) fn javascript_text(value: Option<&Value>) -> String {
+    match value {
+        None => "undefined".to_string(),
+        Some(Value::Null) => "null".to_string(),
+        Some(Value::Bool(flag)) => flag.to_string(),
+        Some(Value::Number(number)) => number_to_text(*number),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Object(_)) => "[object Object]".to_string(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                other => javascript_text(Some(other)),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Some(Value::Bytes(bytes)) => bytes
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        Some(Value::Timestamp(timestamp)) => timestamp.seconds.to_string(),
+    }
+}
 
 /// Writes a number the way ECMAScript's `Number.prototype.toString` writes it, with the shortest digits that
 /// read back as the same float64.

@@ -11,14 +11,14 @@ use crate::conformance::vectors::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::{
-    ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY, ArchiveSink, ArchiveSource, archive_index_name,
+    ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY, ArchiveSink, ArchiveSource,
     read_snapshot_archive, write_snapshot_archive,
 };
 use crate::format::envelope::pack;
 use crate::format::keyword_segment::KEYWORD_SEGMENT_ENVELOPE_VERSION;
 use crate::format::manifest::{
     DecodedManifest, MANIFEST_ENVELOPE_VERSION, SegmentManifest, decode_manifest_payload,
-    listed_keys, manifest_to_wire,
+    listed_keys, manifest_to_wire, source_index_name,
 };
 use crate::format::manifest_refs::FileRef;
 use crate::format::paged_segment::PAGED_SEGMENT_ENVELOPE_VERSION;
@@ -257,7 +257,7 @@ pub(crate) fn write_snapshot_archive_form(form: &Map) -> Result<Vec<u8>> {
     let manifest_form = object(manifest_entry.get("content"), "manifest content")?;
     let mut payload = object(manifest_form.get("payload"), "manifest payload")?.clone();
     dead_from_form(&mut payload)?;
-    let index_name = archive_index_name(&listed_keys(&payload))?;
+    let index_name = source_index_name(&listed_keys(&payload))?;
     let mut written: HashMap<String, Vec<u8>> = HashMap::new();
     for entry in file_entries {
         let entry = object(Some(entry), "entry")?;

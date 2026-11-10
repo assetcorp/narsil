@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{Rejection, object, string_list, whole_number};
+use super::{Rejection, object, whole_number};
 use crate::analysis::StopWords;
 use crate::config::restore_vector::restored_vector_promotion;
 use crate::config::types::{
@@ -9,6 +9,7 @@ use crate::config::types::{
 };
 use crate::config::validate::stored_max_partitions;
 use crate::error::Result;
+use crate::format::fields::string_list;
 use crate::value::{Map, Value};
 
 fn finite_number(
@@ -119,8 +120,8 @@ pub(crate) fn restored_config_fields(payload: &Map, reject: Rejection<'_>) -> Re
     }
     let list = match stop_list {
         None => None,
-        Some(list) => {
-            Some(string_list(list).ok_or_else(|| reject("stopWordList must be a list of words"))?)
+        found => {
+            Some(string_list(found).ok_or_else(|| reject("stopWordList must be a list of words"))?)
         }
     };
     match (stop_name, list) {
@@ -162,7 +163,7 @@ pub(crate) fn restored_config_fields(payload: &Map, reject: Rejection<'_>) -> Re
     config.strict = boolean(payload.get("strict"), "strict", reject)?;
     if let Some(required) = payload.get("required") {
         config.required = Some(
-            string_list(required)
+            string_list(Some(required))
                 .ok_or_else(|| reject("required must be a list of field paths"))?,
         );
     }

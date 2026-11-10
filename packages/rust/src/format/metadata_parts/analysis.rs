@@ -1,4 +1,5 @@
-use super::{positive_integer, string_list};
+use super::positive_integer;
+use crate::format::fields::string_list;
 use crate::value::{Map, Value};
 
 #[derive(Debug, Clone, PartialEq, Default)]

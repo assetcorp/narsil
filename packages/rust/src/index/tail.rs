@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use super::core_values::CoreStoredValues;
-use super::derived::{DerivedColumns, KeptColumns};
+use super::derived::{DerivedColumns, KeptColumns, SortedNumbers};
 use super::indexed::IndexedDocument;
 use super::stored_values::path_value;
 use crate::error::Result;
@@ -70,6 +70,23 @@ impl TailSegment {
             derived: DerivedColumns::kept_by(kept),
             name_ranks: Vec::new(),
         }
+    }
+
+    pub(crate) fn sorted_numbers(&self, field: &str) -> Result<Arc<SortedNumbers>> {
+        let entries = self
+            .columns
+            .numeric
+            .get(field)
+            .map_or(&[][..], Vec::as_slice);
+        self.derived.sorted_numbers.column(
+            |held| held == field,
+            || field.to_string(),
+            self.len(),
+            |sorted, range| {
+                sorted.add_range(entries, range);
+                Ok(())
+            },
+        )
     }
 
     fn keep_derived(&mut self) -> Result<()> {

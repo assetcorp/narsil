@@ -6,6 +6,7 @@ use super::frozen::FrozenView;
 use super::tokens::{SegmentFieldTokens, raw_fields};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::index::segment::bit_is_set;
 use crate::native::status::core_refused;
 use crate::native::workspace::with_workspace;
 
@@ -21,12 +22,6 @@ pub(crate) struct FrozenState {
     pending_documents: Vec<u32>,
     pending_tokens: Vec<u32>,
     pending_units: Vec<u16>,
-}
-
-fn bit_is_set(words: &[u32], ordinal: u32) -> bool {
-    words
-        .get((ordinal >> 5) as usize)
-        .is_some_and(|word| word & (1 << (ordinal & 31)) != 0)
 }
 
 impl FrozenState {
