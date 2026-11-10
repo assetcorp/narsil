@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use crate::error::Result;
 use crate::format::graph_part::GraphParts;
 
-use super::super::build::{connect_unlinked, level_of, schedule_build};
+use super::super::build::{connect_unreached, level_of, schedule_build};
 use super::super::calibration::measure_live;
 use super::super::checkpoint::{SavedVectorFile, signature_of};
 use super::super::constants::{DRIFT_CHECK_GROWTH_FACTOR, RECALIBRATION_CHUNK_VECTORS};
@@ -135,7 +135,7 @@ fn place_later_nodes(
         }
         Ok(())
     })?;
-    connect_unlinked(writer, &graph)?;
+    connect_unreached(writer, &graph)?;
     Ok(graph)
 }
 

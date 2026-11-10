@@ -270,9 +270,12 @@ fn require_searches_agree(narsil: &Narsil, model: &BTreeMap<String, u64>) {
     let mut ids: Vec<String> = found.hits.into_iter().map(|hit| hit.id).collect();
     ids.sort();
     let wanted: Vec<String> = model.keys().cloned().collect();
-    assert_eq!(
-        ids, wanted,
-        "the vector search after recovery returns every document"
+    let missing: Vec<&String> = wanted.iter().filter(|id| !ids.contains(id)).collect();
+    let extra: Vec<&String> = ids.iter().filter(|id| !wanted.contains(id)).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "the vector search after recovery returns every document: missing {missing:?} extra {extra:?} of {}",
+        wanted.len()
     );
 }
 

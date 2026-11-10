@@ -15,7 +15,7 @@ use super::graph::{GraphTables, upper_words_of};
 use super::writes::compacted_buffer;
 use placement::{adopt, place_batch};
 
-pub(crate) use placement::connect_unlinked;
+pub(crate) use placement::connect_unreached;
 
 const GOLDEN_GAMMA: u32 = 0x9e37_79b9;
 const FIRST_MIX_MULTIPLIER: u32 = 0x21f0_aaad;
@@ -310,7 +310,7 @@ pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
     if !still_current(&writer, &plan) {
         return Ok(false);
     }
-    connect_unlinked(&writer, &plan.graph)?;
+    connect_unreached(&writer, &plan.graph)?;
     if plan.fresh {
         adopt(shared, &mut writer, &plan.graph);
         release_pending_locations(shared, &mut writer)?;
