@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::documents::Location;
 use super::gather::QueryRun;
@@ -21,7 +22,10 @@ fn projected(
     }
     Ok(run
         .document(id, location)?
-        .map(|document| project_document(&document, projection)))
+        .map(|document| match projection {
+            Projection::Full => Arc::unwrap_or_clone(document),
+            _ => project_document(&document, projection),
+        }))
 }
 
 fn reports_scores(run: &QueryRun<'_>) -> bool {
