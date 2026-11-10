@@ -1,15 +1,17 @@
 use std::cell::RefCell;
 use std::ptr;
 
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::Result;
 use crate::ffi;
+use crate::native::status::core_failed;
+use crate::native::workspace::CoreWorkspace;
 use crate::pins::thread_slot;
 
 use super::graph::GraphTables;
 use super::store::StoreTables;
 
 pub(crate) struct Scratch {
-    workspace: *mut ffi::narsil_workspace,
+    workspace: CoreWorkspace,
     slot: u32,
     pub(crate) ordinals: Vec<i32>,
     pub(crate) distances: Vec<f64>,
@@ -17,28 +19,10 @@ pub(crate) struct Scratch {
     pub(crate) scores: Vec<f64>,
 }
 
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        unsafe { ffi::narsil_workspace_destroy(self.workspace) };
-    }
-}
-
 fn created_scratch() -> Result<Scratch> {
-    crate::ffi::layout::core_layout_matches().map_err(|mismatch| {
-        NarsilError::new(
-            ErrorCode::INTERNAL_ERROR,
-            format!("The native core and the Rust bindings disagree on the layout of a structure: {mismatch}"),
-        )
-    })?;
-    let slot = thread_slot()?;
-    let mut workspace = ptr::null_mut();
-    let status = unsafe { ffi::narsil_workspace_create(&mut workspace) };
-    if status != ffi::NARSIL_OK || workspace.is_null() {
-        return Err(core_failed(status, "create a search workspace"));
-    }
     Ok(Scratch {
-        workspace,
-        slot,
+        workspace: CoreWorkspace::create()?,
+        slot: thread_slot()?,
         ordinals: Vec::new(),
         distances: Vec::new(),
         batch: Vec::new(),
@@ -63,20 +47,6 @@ pub(crate) fn with_scratch<T>(work: impl FnOnce(&mut Scratch) -> Result<T>) -> R
         }
         Err(_) => work(&mut created_scratch()?),
     })
-}
-
-pub(crate) fn core_failed(status: ffi::narsil_status, what: &str) -> NarsilError {
-    let reason = match status {
-        ffi::NARSIL_OUT_OF_MEMORY => "it ran out of memory",
-        ffi::NARSIL_NEEDS_ROOM => "the field had no room for the vector",
-        ffi::NARSIL_GRAPH_NOT_HELD_ALONE => "another thread held the graph",
-        ffi::NARSIL_FILE_UNREADABLE => "it could not read a vector file",
-        _ => "it refused the arguments",
-    };
-    NarsilError::new(
-        ErrorCode::INTERNAL_ERROR,
-        format!("The native core could not {what}, because {reason}"),
-    )
 }
 
 fn checked(status: ffi::narsil_status, what: &str) -> Result<()> {
@@ -132,7 +102,7 @@ impl Scratch {
         };
         let status = unsafe {
             ffi::narsil_search(
-                self.workspace,
+                self.workspace.handle(),
                 &raw_graph,
                 &raw_store,
                 &request,
@@ -165,7 +135,7 @@ impl Scratch {
         };
         let status = unsafe {
             ffi::narsil_score(
-                self.workspace,
+                self.workspace.handle(),
                 &raw_store,
                 &request,
                 self.scores.as_mut_ptr(),
@@ -197,7 +167,8 @@ impl Scratch {
             },
         };
         let _admitted = graph.placements.admit_placement();
-        let status = unsafe { ffi::narsil_place(self.workspace, &raw_graph, &raw_store, &request) };
+        let status =
+            unsafe { ffi::narsil_place(self.workspace.handle(), &raw_graph, &raw_store, &request) };
         graph.placements.note_placement();
         status
     }
@@ -226,8 +197,9 @@ impl Scratch {
             metric,
             thread_slot: self.slot,
         };
-        let status =
-            unsafe { ffi::narsil_compact(self.workspace, &raw_graph, &raw_store, &request) };
+        let status = unsafe {
+            ffi::narsil_compact(self.workspace.handle(), &raw_graph, &raw_store, &request)
+        };
         checked(status, "compact a vector graph")
     }
 
@@ -251,7 +223,7 @@ impl Scratch {
             nearby_count: nearby.len() as u32,
         };
         let status = unsafe {
-            ffi::narsil_connect_unreached(self.workspace, &raw_graph, &raw_store, &request)
+            ffi::narsil_connect_unreached(self.workspace.handle(), &raw_graph, &raw_store, &request)
         };
         checked(status, "connect the unreached nodes of a vector graph")?;
         graph.placements.note_connected();
@@ -273,7 +245,7 @@ impl Scratch {
             ordinals: ordinals.as_ptr(),
             count: ordinals.len() as u32,
         };
-        let status = unsafe { ffi::narsil_quantise(self.workspace, &raw_store, &request) };
+        let status = unsafe { ffi::narsil_quantise(self.workspace.handle(), &raw_store, &request) };
         checked(status, "code vectors")
     }
 
@@ -294,12 +266,17 @@ impl Scratch {
             count: ordinals.len() as u32,
         };
         let status = unsafe {
-            ffi::narsil_measure(self.workspace, &raw_store, &request, totals.as_mut_ptr())
+            ffi::narsil_measure(
+                self.workspace.handle(),
+                &raw_store,
+                &request,
+                totals.as_mut_ptr(),
+            )
         };
         checked(status, "measure vectors")
     }
 
     pub(crate) fn workspace_bytes(&self) -> usize {
-        unsafe { ffi::narsil_workspace_bytes(self.workspace) }
+        unsafe { ffi::narsil_workspace_bytes(self.workspace.handle()) }
     }
 }

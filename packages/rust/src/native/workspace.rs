@@ -50,14 +50,11 @@ fn require_matching_core() -> Result<()> {
     }
 }
 
-/// One workspace of the native core, which holds the scratch memory of the calls that one thread makes.
 pub(crate) struct CoreWorkspace {
     handle: *mut ffi::narsil_workspace,
 }
 
 impl CoreWorkspace {
-    /// Creates a workspace once the linked core reports the ABI version and the structure layouts that the
-    /// bindings describe.
     pub(crate) fn create() -> Result<CoreWorkspace> {
         require_matching_core()?;
         let mut handle = ptr::null_mut();

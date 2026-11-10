@@ -24,6 +24,20 @@ pub(crate) fn core_refused(operation: &str, status: ffi::narsil_status) -> Narsi
     refused_as(code, operation, status)
 }
 
+pub(crate) fn core_failed(status: ffi::narsil_status, operation: &str) -> NarsilError {
+    let reason = match status {
+        ffi::NARSIL_OUT_OF_MEMORY => "it ran out of memory",
+        ffi::NARSIL_NEEDS_ROOM => "the field had no room for the vector",
+        ffi::NARSIL_GRAPH_NOT_HELD_ALONE => "another thread held the graph",
+        ffi::NARSIL_FILE_UNREADABLE => "it could not read a vector file",
+        _ => "it refused the arguments",
+    };
+    NarsilError::new(
+        ErrorCode::INTERNAL_ERROR,
+        format!("The native core could not {operation}, because {reason}"),
+    )
+}
+
 pub(crate) fn query_refused(operation: &str, status: ffi::narsil_status) -> NarsilError {
     refused_as(ErrorCode::CONFIG_INVALID, operation, status)
 }
