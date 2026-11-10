@@ -3,10 +3,9 @@ use std::ptr;
 use crate::error::Result;
 use crate::ffi;
 use crate::index::paged::paged_read;
-use crate::native::status::core_refused;
+use crate::native::status::{core_failed, core_refused};
 use crate::pattern::WorkMeter;
 
-use super::super::core::core_failed;
 use super::super::graph_search::depths_for;
 use super::super::ranking::VectorHit;
 use super::super::search::VectorSearchOptions;

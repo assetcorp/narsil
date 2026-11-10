@@ -1,11 +1,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::error::Result;
+use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::native::status::core_failed;
 
 use super::super::constants::BUILD_CHUNK_VECTORS;
-use super::super::core::{core_failed, with_scratch};
+use super::super::core::with_scratch;
 use super::super::field::{BufferList, Counts, Placing, Shared, Writer};
 use super::super::graph::{GraphTables, upper_words_of};
 use super::super::store::{FLAG_BUFFERED, StoreTables};
@@ -166,9 +167,9 @@ fn place_in_parallel(
             let mut outcome = Ok(());
             for handle in handles {
                 let joined = handle.join().unwrap_or_else(|_| {
-                    Err(core_failed(
-                        ffi::NARSIL_INVALID_ARGUMENT,
-                        "finish placing vectors",
+                    Err(NarsilError::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        "A thread that placed vectors in a graph stopped with a panic",
                     ))
                 });
                 if outcome.is_ok() {
