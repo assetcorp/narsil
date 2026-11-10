@@ -5,7 +5,8 @@ use crate::analysis::with_core_analyser;
 use crate::engine::query::results::{HighlightMatch, HighlightPosition};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
-use crate::keyword::workspace::with_workspace;
+use crate::native::status::refused_as;
+use crate::native::workspace::with_workspace;
 
 pub(super) struct CoreHighlightQuery {
     pub(super) terms: Vec<(Vec<u16>, u32)>,
@@ -37,10 +38,7 @@ fn highlight_refused(status: ffi::narsil_status) -> NarsilError {
             ErrorCode::DOC_VALIDATION_FAILED,
             "The text holds more than 1,073,741,824 UTF-16 code units, which is more than the engine highlights",
         ),
-        _ => NarsilError::new(
-            ErrorCode::INTERNAL_ERROR,
-            format!("The native core refused to highlight a field with status {status}"),
-        ),
+        _ => refused_as(ErrorCode::INTERNAL_ERROR, "a field's highlight", status),
     }
 }
 

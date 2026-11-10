@@ -8,7 +8,8 @@ use crate::ffi;
 use crate::format::keyword_columns::{FieldLengthColumn, SurfaceForms};
 use crate::format::keyword_segment::Positions;
 use crate::index::segment::SegmentData;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 #[derive(Default)]
 pub(crate) struct MergedPostings {

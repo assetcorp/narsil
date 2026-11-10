@@ -2,10 +2,11 @@ use std::ptr;
 
 use super::constants::{LOOKUP_START_CAPACITY, MAX_ROOM_ATTEMPTS};
 use super::growing::GrowingRead;
-use super::workspace::{core_refused, with_workspace};
 use crate::error::Result;
 use crate::ffi;
 use crate::index::segment::{SegmentData, SegmentEntry};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 pub(crate) enum Dictionary {
     Growing(Box<GrowingRead>),

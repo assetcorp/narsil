@@ -4,7 +4,8 @@ use crate::ffi;
 use crate::keyword::constants::{
     MAX_ROOM_ATTEMPTS, SUGGESTION_SPELLINGS_PER_TERM, SUGGESTION_TERM_START_CAPACITY,
 };
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 const WORDS: usize = ffi::NARSIL_SUGGESTION_WORDS;
 

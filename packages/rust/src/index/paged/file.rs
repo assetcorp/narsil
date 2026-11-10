@@ -10,7 +10,8 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::format::envelope::HEADER_BYTES;
 use crate::format::paged_segment::head::PagedSection;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 static NEXT_FILE_NUMBER: AtomicU64 = AtomicU64::new(1);
 

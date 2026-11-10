@@ -9,7 +9,8 @@ use crate::keyword::constants::{
 };
 use crate::keyword::strings::SurfaceTable;
 use crate::keyword::tokens::{SegmentFieldTokens, raw_fields};
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Indexed {

@@ -7,7 +7,8 @@ use super::constants::{
 use super::params::{HybridConfig, HybridStrategy};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
-use crate::keyword::workspace::with_workspace;
+use crate::native::status::{query_accepted, query_refused};
+use crate::native::workspace::with_workspace;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::search::rankings::id_ranks;
@@ -88,12 +89,7 @@ pub(crate) fn require_within_hybrid_depth(
     ))
 }
 
-fn unfusable(status: ffi::narsil_status) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::CONFIG_INVALID,
-        format!("The hybrid rankings cannot be fused, as the native core returned status {status}"),
-    )
-}
+const HYBRID_FUSION: &str = "a fusion of hybrid rankings";
 
 struct Legs {
     entries: Vec<KeywordHit>,
@@ -157,7 +153,7 @@ pub(crate) fn fuse(
 ) -> Result<Vec<KeywordHit>> {
     let capacity = text.len() + vector.len();
     if u32::try_from(capacity).is_err() {
-        return Err(unfusable(ffi::NARSIL_INVALID_ARGUMENT));
+        return Err(query_refused(HYBRID_FUSION, ffi::NARSIL_INVALID_ARGUMENT));
     }
     let legs = keyed_legs(fusion, text, vector);
     let ranks = id_ranks(&legs.entries);
@@ -184,9 +180,7 @@ pub(crate) fn fuse(
     let status = with_workspace(|workspace| {
         Ok(unsafe { ffi::narsil_fuse(workspace, &request, &mut output) })
     })?;
-    if status != ffi::NARSIL_OK {
-        return Err(unfusable(status));
-    }
+    query_accepted(HYBRID_FUSION, status)?;
     let found = output.count as usize;
     let mut held: Vec<Option<KeywordHit>> = legs.entries.into_iter().map(Some).collect();
     let mut fused = Vec::with_capacity(found);

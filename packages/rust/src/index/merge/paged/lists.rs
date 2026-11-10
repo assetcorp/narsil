@@ -14,7 +14,8 @@ use crate::format::paged_segment::{SMALLEST_BLOCK_POSTINGS, TokenSections};
 use crate::index::frozen::FrozenSegment;
 use crate::index::paged::{PostingList, PostingPositions};
 use crate::index::segment::SegmentData;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 pub(super) struct ListSinks {
     pub(super) postings: SectionSink,

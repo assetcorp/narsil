@@ -6,7 +6,8 @@ use crate::keyword::lookups::{ABSENT_TERM, lookup_exact_batch};
 use crate::keyword::slices::slice_capacities;
 use crate::keyword::strings::{SpellingTable, SurfaceTable};
 use crate::keyword::tokens::SegmentFieldTokens;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 const NO_SLICE: u8 = u8::MAX;
 const RUN_POINTS: usize = 3;

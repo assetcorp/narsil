@@ -3,7 +3,8 @@ use std::ptr;
 use super::inputs::MergeInput;
 use crate::error::Result;
 use crate::ffi;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 
 const REGIONS: usize = ffi::NARSIL_FIELD_MERGE_REGIONS;
 

@@ -8,7 +8,8 @@ use crate::error::Result;
 use crate::ffi;
 use crate::index::segment::SegmentEntry;
 use crate::keyword::dictionary::Dictionary;
-use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 use crate::pattern::WorkMeter;
 use rows::{TokenPostings, token_postings};
 

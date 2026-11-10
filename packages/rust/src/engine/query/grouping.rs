@@ -8,7 +8,8 @@ use super::ranked::{Ranked, locate_all};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::index::core_values::CoreStoredValues;
-use crate::keyword::workspace::with_workspace;
+use crate::native::status::query_accepted;
+use crate::native::workspace::with_workspace;
 use crate::search::rankings::id_ranks;
 use crate::value::Value;
 
@@ -137,12 +138,7 @@ fn group_in_core(
     let status = with_workspace(|workspace| {
         Ok(unsafe { ffi::narsil_group_hits(workspace, &request, &mut output) })
     })?;
-    if status != ffi::NARSIL_OK {
-        return Err(NarsilError::new(
-            ErrorCode::CONFIG_INVALID,
-            format!("The hits cannot be grouped, as the native core returned status {status}"),
-        ));
-    }
+    query_accepted("a grouping of hits", status)?;
     let found = output.count as usize;
     heads.truncate(found);
     offsets.truncate(found + 1);
