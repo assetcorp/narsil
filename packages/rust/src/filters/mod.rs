@@ -11,7 +11,6 @@ mod program;
 mod regions;
 mod segments;
 pub(crate) mod source;
-mod text_range;
 mod tree;
 mod walk;
 

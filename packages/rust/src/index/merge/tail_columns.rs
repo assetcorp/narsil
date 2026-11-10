@@ -9,7 +9,7 @@ use crate::format::keyword_columns::{
 use crate::index::indexed::nested_value;
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::index::tail::TailSegment;
-use crate::pattern::text::{Run, runs_of};
+use crate::pattern::constants::PATTERN_RUN_CODE_POINTS;
 use crate::schema::CompiledSchema;
 use crate::util::case_fold::append_folded;
 use crate::value::Value;
@@ -24,14 +24,15 @@ pub(crate) struct InputColumns<'a> {
     pub(crate) pattern: Cow<'a, [PatternColumn]>,
 }
 
-fn tail_pattern_column(path: &str, values: &[(u32, Value)]) -> Result<PatternColumn> {
-    let mut column = PatternColumn {
-        field: path.to_string(),
-        offsets: vec![0],
-        ..PatternColumn::default()
-    };
+type PatternRun = [u32; PATTERN_RUN_CODE_POINTS];
+
+/// Builds the pattern index of one field of a tail: the ordinals that hold a value, ascending, and each run of
+/// the case fold of any value once, in code point order, with the ascending ordinals that hold it.
+pub(crate) fn tail_pattern_column(path: &str, values: &[(u32, Value)]) -> Result<PatternColumn> {
+    let mut documents: Vec<u32> = Vec::new();
+    let mut ordinals_by_run: BTreeMap<PatternRun, Vec<u32>> = BTreeMap::new();
     let mut folded = Vec::new();
-    let mut runs: BTreeSet<Run> = BTreeSet::new();
+    let mut runs: BTreeSet<PatternRun> = BTreeSet::new();
     for (ordinal, value) in values {
         let texts: Vec<&str> = match value {
             Value::String(text) => vec![text.as_str()],
@@ -44,22 +45,41 @@ fn tail_pattern_column(path: &str, values: &[(u32, Value)]) -> Result<PatternCol
                 .collect(),
             _ => continue,
         };
-        column.documents.push(*ordinal);
+        documents.push(*ordinal);
         runs.clear();
         for text in texts {
             folded.clear();
             for point in text.chars() {
                 append_folded(u32::from(point), &mut folded);
             }
-            runs.extend(runs_of(&folded));
+            runs.extend(
+                folded
+                    .windows(PATTERN_RUN_CODE_POINTS)
+                    .map(|window| [window[0], window[1], window[2]]),
+            );
         }
         for run in &runs {
-            column.runs.extend_from_slice(run);
-            column.postings.push(*ordinal);
-            column
-                .offsets
-                .push(as_u32(column.postings.len(), "pattern postings")?);
+            ordinals_by_run.entry(*run).or_default().push(*ordinal);
         }
+    }
+    documents.sort_unstable();
+    documents.dedup();
+    let mut column = PatternColumn {
+        field: path.to_string(),
+        documents,
+        runs: Vec::with_capacity(ordinals_by_run.len() * PATTERN_RUN_CODE_POINTS),
+        offsets: Vec::with_capacity(ordinals_by_run.len() + 1),
+        postings: Vec::new(),
+    };
+    column.offsets.push(0);
+    for (run, mut ordinals) in ordinals_by_run {
+        ordinals.sort_unstable();
+        ordinals.dedup();
+        column.runs.extend_from_slice(&run);
+        column.postings.extend_from_slice(&ordinals);
+        column
+            .offsets
+            .push(as_u32(column.postings.len(), "pattern postings")?);
     }
     Ok(column)
 }
