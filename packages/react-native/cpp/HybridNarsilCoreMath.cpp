@@ -26,7 +26,7 @@ double* valuesOf(const MemoryView& view, const char* what, size_t* count) {
 
 double HybridNarsilCoreImpl::applyMath(double operation, const MemoryView& first, const MemoryView& second,
                                        const MemoryView& results) {
-  if (!std::isfinite(operation) || operation < 0 || operation >= NARSIL_MATH_FUNCTION_COUNT ||
+  if (!std::isfinite(operation) || operation < 0 || operation >= static_cast<double>(NARSIL_MATH_FUNCTION_COUNT) ||
       std::floor(operation) != operation) {
     throwInvalid("The maths function must be an index from the core's header");
   }

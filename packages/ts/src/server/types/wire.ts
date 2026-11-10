@@ -8,6 +8,7 @@ import type {
 } from '../../types/query-suggestions'
 import type {
   GroupResult,
+  Hit,
   IndexStats,
   ListResult,
   PreflightResult,
@@ -16,7 +17,7 @@ import type {
 } from '../../types/results'
 import type { BM25Params, FieldType, PartitionConfig, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../types/search'
-import type { SyncSetting } from '../../types/sync'
+import type { SyncSetting, SyncStatus } from '../../types/sync'
 import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
 import type {
@@ -87,14 +88,36 @@ export type HttpQueryParams = Omit<QueryParams, 'group'> & {
  *
  * @public
  */
-export type HttpGroupResult = Omit<GroupResult, 'reduced' | 'reducerError'>
+export type HttpGroupResult = Omit<GroupResult, 'hits' | 'reduced' | 'reducerError'> & {
+  /** These hits retain the scores of the group's ranking. */
+  hits: HttpHit[]
+}
+
+/**
+ * A relevance score in an HTTP response, with exact strings for non-finite values.
+ *
+ * @public
+ */
+export type HttpScore = number | 'NaN' | 'Infinity' | '-Infinity'
+
+/**
+ * A search hit whose score uses the HTTP representation of {@link HttpScore}.
+ *
+ * @public
+ */
+export type HttpHit = Omit<Hit, 'score'> & {
+  /** The client decodes this value to a numeric score, or leaves it absent when the search returns no score. */
+  score?: HttpScore
+}
 
 /**
  * The body of `POST /indexes/{name}/search`.
  *
  * @public
  */
-export type HttpQueryResult = Omit<QueryResult, 'groups'> & {
+export type HttpQueryResult = Omit<QueryResult, 'hits' | 'groups'> & {
+  /** These hits follow the search's ranking, with scores encoded for HTTP. */
+  hits: HttpHit[]
   /** These groups arrive when the query asked for grouping. */
   groups?: HttpGroupResult[]
 }
@@ -282,6 +305,8 @@ export interface HttpWireTypes {
   ReplicationFactorResponse: ReplicationFactorResponse
   /** The body of `POST /indexes/{name}/suggest`. */
   SuggestResult: SuggestResult
+  /** The body of `GET /indexes/{name}/sync`. */
+  SyncStatus: SyncStatus
   /** The body of `GET /tasks`. */
   TaskListPage: TaskListPage
   /** The body of every route that starts a task, and of `GET /tasks/{id}`. */

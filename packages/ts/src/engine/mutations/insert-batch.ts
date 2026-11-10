@@ -1,23 +1,27 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
-import { validateBatchList, validateDocId } from '../validation'
-import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
-import type { MutationContext } from './context'
 import {
   admitInsert,
   asBatchInsertError,
+  awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
   collectRequiredFieldFailures,
   embedChunkDocuments,
+  MIN_DOCUMENTS_FOR_SEGMENTS,
+  prepareDocumentVectors,
   providedDocId,
   requireDocumentObject,
-} from './insert-admission'
+  turnIsSpent,
+  turnsAreBudgeted,
+  validateBatchList,
+  validateDocId,
+  validateVectorDimensions,
+  yieldTurn,
+} from '#platform/optional-writes-host'
+import type { BatchResult } from '../../types/results'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { insertBatchViaSegments } from './insert-batch-segments'
-import { replicateAsSegments } from './segment-replication'
-import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,
@@ -38,7 +42,6 @@ export async function insertDocumentBatch(
   }
 
   const succeeded: string[] = []
-  const succeededDocs: AnyDocument[] = []
   const failed: BatchResult['failed'] = []
   const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
@@ -48,7 +51,6 @@ export async function insertDocumentBatch(
   const batchVecIndexes = batchManager.getVectorIndexes()
   const batchVectorFieldPaths = batchVecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
   const touchedVectorFields = new Set<string>()
-  const bufferedDocIds = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
@@ -80,9 +82,7 @@ export async function insertDocumentBatch(
           continue
         }
         if (application.status === 'buffered') {
-          bufferedDocIds.add(doc.docId)
           succeeded.push(doc.docId)
-          succeededDocs.push(doc.partitionDoc)
           continue
         }
 
@@ -99,7 +99,6 @@ export async function insertDocumentBatch(
         }
 
         succeeded.push(doc.docId)
-        succeededDocs.push(doc.partitionDoc)
       }
     }
 
@@ -111,7 +110,8 @@ export async function insertDocumentBatch(
 
       const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
-        requireDocumentObject(documents[i])
+        const sizing = requireDocumentObject(documents[i])
+        if (sizing !== null) await sizing
         validateDocId(batchDocId)
 
         if (hasBeforeHook) {
@@ -144,32 +144,6 @@ export async function insertDocumentBatch(
     if (chunkEnd < documents.length) {
       ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
-    }
-  }
-
-  const replicableIds: string[] = []
-  const replicableDocs: AnyDocument[] = []
-  for (let i = 0; i < succeeded.length; i++) {
-    if (bufferedDocIds.has(succeeded[i])) continue
-    replicableIds.push(succeeded[i])
-    replicableDocs.push(succeededDocs[i])
-  }
-
-  const replicatedAsSegments =
-    copiesBuildSegments &&
-    (await replicateAsSegments(ctx, indexName, replicableIds, replicableDocs, options?.skipClone))
-
-  if (!replicatedAsSegments) {
-    for (let i = 0; i < replicableIds.length; i++) {
-      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-      await ctx.orchestrator.replicateToWorkers({
-        type: 'insert',
-        indexName,
-        docId: replicableIds[i],
-        document: replicableDocs[i],
-        requestId: `replicate-insert-${replicableIds[i]}`,
-        skipClone: options?.skipClone,
-      })
     }
   }
 

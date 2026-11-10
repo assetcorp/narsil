@@ -1,6 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { MAX_FILE_BYTES } from '../../../serialization/constants'
-import { HEADER_SIZE } from '../../../serialization/header'
+import { ErrorCodes, HEADER_SIZE, MAX_FILE_BYTES, NarsilError } from '#platform/storage-host'
 import { type FileRef, MAX_SEGMENT_ID } from './manifest'
 
 export function invalidManifest(message: string, details?: Record<string, unknown>): never {

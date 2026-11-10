@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import { validateEntryPayload } from '../../replication/codec'
 import {
   createSnapshotStreamState,

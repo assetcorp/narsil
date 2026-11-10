@@ -100,7 +100,7 @@ const stopWords = new Set([
  */
 export const faroese: LanguageModule = {
   name: 'faroese',
-  revision: '1',
+  revision: 'a0010c6b81c493c0',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áðíóúýæø]+/gi },

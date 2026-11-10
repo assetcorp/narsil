@@ -1,7 +1,7 @@
 import { generateId } from '../../../core/id-generator'
 import { bm25SetsValue } from '../../../core/scorer'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
-import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration'
+import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration-limit'
 import { prepareConfiguredSynonyms } from '../../../engine/synonym-sets'
 import { requireSurfaceFormsForPartialFields } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'

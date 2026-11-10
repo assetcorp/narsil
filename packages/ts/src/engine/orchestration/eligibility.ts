@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/segment-merge-host'
 import type { IndexConfig } from '../../types/schema'
 import type { OrchestratorState } from './types'
 

@@ -1,55 +1,17 @@
-import { encode } from '@msgpack/msgpack'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
-import { packChecksummedEnvelope } from '../../serialization/envelope-file'
+import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-code'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
-import type { IndexRegistryEntry } from '../core'
-import { rulesOfStoredSynonyms } from '../synonym-sets'
-import { INDEX_CONFIGURATION_ENVELOPE_VERSION } from './index-configuration-decode'
 
-export {
-  decodeIndexConfiguration,
-  INDEX_CONFIGURATION_ENVELOPE_VERSION,
-  requireConfigurationShape,
-} from './index-configuration-decode'
-
-function refuseCode(entry: IndexRegistryEntry): void {
-  if (entry.config.tokenizer !== undefined && typeof entry.config.tokenizer !== 'string') {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'A snapshot persists no code, so the index tokenizer must be a name registered with registerTokenizer',
-    )
-  }
-  if (typeof entry.config.stopWords === 'function') {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'A snapshot persists no code, so the index stop words must be a name registered with registerStopWords',
-    )
-  }
-}
-
-export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
-  refuseCode(entry)
-  const synonyms = entry.synonyms === null ? undefined : rulesOfStoredSynonyms(entry.synonyms)
-  const payload = configurationPayloadOf(
-    entry.config,
-    entry.language,
-    entry.embeddingAdapterName,
-    entry.analysisRevision,
-    entry.arrayPositionGap,
-    synonyms,
-    entry.analysisGeneration,
-  )
-  const withSuggestions = { ...payload, ...entry.querySuggestions }
-  return entry.sync === null ? withSuggestions : { ...withSuggestions, syncEpoch: entry.sync.epoch }
-}
-
-export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
+export function oversizedConfigurationPayloadOf(
+  config: IndexConfig,
+  language: LanguageModule,
+): Record<string, unknown> | null {
   const adapter = config.embedding?.adapter
   const payload = configurationPayloadOf(
     config,
@@ -58,8 +20,10 @@ export function requireConfigurationWithinSizeLimit(config: IndexConfig, languag
     language.revision,
     ARRAY_POSITION_GAP,
   )
-  if (messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES) return
-  const bytes = encode(payload).byteLength
+  return messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES ? null : payload
+}
+
+export function requireEncodedConfigurationWithinSizeLimit(bytes: number): void {
   if (bytes <= MAX_INDEX_CONFIGURATION_BYTES) return
   throw new NarsilError(
     ErrorCodes.CONFIG_INVALID,
@@ -68,7 +32,18 @@ export function requireConfigurationWithinSizeLimit(config: IndexConfig, languag
   )
 }
 
-function configurationPayloadOf(
+export function configurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): Promise<void> | null {
+  const payload = oversizedConfigurationPayloadOf(config, language)
+  if (payload === null) return null
+  const code = loadedMessagePack()
+  if (code !== null) {
+    requireEncodedConfigurationWithinSizeLimit(code.encode(payload).byteLength)
+    return null
+  }
+  return loadMessagePack().then(loaded => requireEncodedConfigurationWithinSizeLimit(loaded.encode(payload).byteLength))
+}
+
+export function configurationPayloadOf(
   config: IndexConfig,
   language: LanguageModule,
   adapterName: string | null,
@@ -115,19 +90,4 @@ function configurationPayloadOf(
         }
       : {}),
   }
-}
-
-export async function encodeIndexConfiguration(entry: IndexRegistryEntry): Promise<Uint8Array> {
-  const packed = await packChecksummedEnvelope(
-    [encode(indexConfigurationOf(entry))],
-    INDEX_CONFIGURATION_ENVELOPE_VERSION,
-    'index configuration',
-  )
-  const bytes = new Uint8Array(packed.byteLength)
-  let offset = 0
-  for (const chunk of packed.chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
 }

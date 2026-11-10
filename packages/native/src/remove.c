@@ -73,8 +73,12 @@ static void drop_unreachable_candidates(const walk_context *context, node_layer 
   candidates->count = kept;
 }
 
+static int compaction_takes_out(const walk_context *context, int32_t ordinal) {
+  return is_tombstoned(context, ordinal) && store_may_free(context, ordinal);
+}
+
 static int leaves_with_this_compaction(const walk_context *context, int32_t ordinal) {
-  return node_top_layer(context, ordinal) < 0 || is_tombstoned(context, ordinal);
+  return node_top_layer(context, ordinal) < 0 || compaction_takes_out(context, ordinal);
 }
 
 static held_links gather_repair_candidates(const walk_context *context, node_layer position, removed_node removed) {
@@ -197,8 +201,11 @@ narsil_status narsil_compact(narsil_workspace *workspace, const narsil_graph *gr
   if (status == NARSIL_OK) { status = reserve_last_links(workspace); }
   if (status != NARSIL_OK) { return status; }
   if (load_word(graph->header, NARSIL_GRAPH_WORD_TOMBSTONE_COUNT) == 0) { return NARSIL_OK; }
+  context.oldest_pin = oldest_held_pin(store);
   for (uint32_t ordinal = 0; ordinal < context.slots; ordinal++) {
-    if (node_top_layer(&context, (int32_t)ordinal) < 0 || !is_tombstoned(&context, (int32_t)ordinal)) { continue; }
+    if (node_top_layer(&context, (int32_t)ordinal) < 0 || !compaction_takes_out(&context, (int32_t)ordinal)) {
+      continue;
+    }
     take_node_out(&context, (int32_t)ordinal);
   }
   return NARSIL_OK;

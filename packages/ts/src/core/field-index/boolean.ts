@@ -1,10 +1,10 @@
-import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { countBooleanFacet } from '../../search/facets'
+import { bitsetClear, bitsetHas, bitsetSet } from '../bitset'
+import { FieldPresence } from './presence'
 
 export interface BooleanFieldIndexReader {
-  queryEq(value: boolean): Set<number>
-  queryNe(value: boolean): Set<number>
-  getAllDocIds(): Set<number>
-  queryEqBitset(value: boolean, capacity: number): Uint32Array
+  regionBytes(): number
+  regions(capacity: number): { trueBits: Uint32Array; falseBits: Uint32Array }
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   serialize(): { trueDocs: number[]; falseDocs: number[] }
@@ -19,83 +19,96 @@ export interface BooleanFieldIndex extends BooleanFieldIndexReader {
 }
 
 export function createBooleanIndex(): BooleanFieldIndex {
-  const trueDocs = new Set<number>()
-  const falseDocs = new Set<number>()
+  let trueBits = new Uint32Array(1)
+  let falseBits = new Uint32Array(1)
+  let trueCount = 0
+  let falseCount = 0
+  const present = new FieldPresence(function* () {
+    yield* ordinals(trueBits)
+    yield* ordinals(falseBits)
+  })
+
+  function grow(ordinal: number): void {
+    const words = (ordinal >>> 5) + 1
+    if (words <= trueBits.length) return
+    const nextTrue = new Uint32Array(Math.max(words, trueBits.length * 2))
+    const nextFalse = new Uint32Array(nextTrue.length)
+    nextTrue.set(trueBits)
+    nextFalse.set(falseBits)
+    trueBits = nextTrue
+    falseBits = nextFalse
+  }
+
+  function* ordinals(bits: Uint32Array): Generator<number> {
+    for (let at = 0; at < bits.length; at++) {
+      let word = bits[at]
+      while (word !== 0) {
+        yield at * 32 + (31 - Math.clz32(word & -word))
+        word &= word - 1
+      }
+    }
+  }
+
+  function insert(ordinal: number, value: boolean): void {
+    grow(ordinal)
+    const bits = value ? trueBits : falseBits
+    if (bitsetHas(bits, ordinal)) return
+    present.invalidate()
+    bitsetSet(bits, ordinal)
+    if (value) trueCount++
+    else falseCount++
+  }
+
+  function clear(): void {
+    present.invalidate()
+    trueBits = new Uint32Array(1)
+    falseBits = new Uint32Array(1)
+    trueCount = 0
+    falseCount = 0
+  }
 
   return {
-    insert(internalId: number, value: boolean): void {
-      if (value) trueDocs.add(internalId)
-      else falseDocs.add(internalId)
+    regionBytes: () => trueBits.byteLength + falseBits.byteLength + present.bytes(),
+    regions() {
+      return { trueBits, falseBits }
     },
+
+    insert,
 
     remove(internalId: number, value: boolean): void {
-      if (value) trueDocs.delete(internalId)
-      else falseDocs.delete(internalId)
-    },
-
-    queryEq(value: boolean): Set<number> {
-      return new Set(value ? trueDocs : falseDocs)
-    },
-
-    queryNe(value: boolean): Set<number> {
-      return new Set(value ? falseDocs : trueDocs)
-    },
-
-    getAllDocIds(): Set<number> {
-      const all = new Set(trueDocs)
-      for (const id of falseDocs) all.add(id)
-      return all
-    },
-
-    queryEqBitset(value: boolean, capacity: number): Uint32Array {
-      const source = value ? trueDocs : falseDocs
-      const bs = createBitSet(capacity)
-      for (const id of source) {
-        bitsetSet(bs, id)
-      }
-      return bs
+      const bits = value ? trueBits : falseBits
+      if (!bitsetHas(bits, internalId)) return
+      present.invalidate()
+      bitsetClear(bits, internalId)
+      if (value) trueCount--
+      else falseCount--
     },
 
     getAllDocIdsBitset(capacity: number): Uint32Array {
-      const bs = createBitSet(capacity)
-      for (const id of trueDocs) bitsetSet(bs, id)
-      for (const id of falseDocs) bitsetSet(bs, id)
-      return bs
+      return present.regions(capacity)
     },
 
     count(): number {
-      return trueDocs.size + falseDocs.size
+      return trueCount + falseCount
     },
 
     facetCounts(matched: Uint32Array): { trueCount: number; falseCount: number } {
-      let trueCount = 0
-      let falseCount = 0
-      for (const id of trueDocs) {
-        if (bitsetHas(matched, id)) trueCount++
-      }
-      for (const id of falseDocs) {
-        if (bitsetHas(matched, id)) falseCount++
-      }
-      return { trueCount, falseCount }
+      return countBooleanFacet(trueBits, falseBits, matched)
     },
 
-    clear(): void {
-      trueDocs.clear()
-      falseDocs.clear()
-    },
+    clear,
 
     serialize(): { trueDocs: number[]; falseDocs: number[] } {
       return {
-        trueDocs: Array.from(trueDocs),
-        falseDocs: Array.from(falseDocs),
+        trueDocs: Array.from(ordinals(trueBits)),
+        falseDocs: Array.from(ordinals(falseBits)),
       }
     },
 
     deserialize(data: { trueDocs: number[]; falseDocs: number[] }): void {
-      trueDocs.clear()
-      falseDocs.clear()
-      for (const id of data.trueDocs) trueDocs.add(id)
-      for (const id of data.falseDocs) falseDocs.add(id)
+      clear()
+      for (const id of data.trueDocs) insert(id, true)
+      for (const id of data.falseDocs) insert(id, false)
     },
   }
 }

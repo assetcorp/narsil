@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-host'
 import type { OpenStore } from './open-store'
 import { entryAt } from './ordinal-reads'
 import type { VectorStore } from './types'

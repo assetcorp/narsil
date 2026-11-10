@@ -1,4 +1,4 @@
-import { QUERY_HISTORY_FOLDER } from '../../query-suggestions/constants'
+import { QUERY_HISTORY_FOLDER } from '#platform/storage-host'
 import type { DurabilityManager, HistoryStorage } from './types'
 
 export async function removeQueryHistoryOf(storage: HistoryStorage, indexName: string): Promise<void> {

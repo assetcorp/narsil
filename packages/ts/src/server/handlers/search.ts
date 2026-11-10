@@ -1,8 +1,11 @@
+import { bindQuerySignal, clearQuerySignal } from '../../narsil/internals'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { encodeQueryResult } from '../query-response'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
+import { requestSignal } from '../request-signal'
 import { validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import type { ReadHandlerDeps } from './document-reads'
 
@@ -19,10 +22,20 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      const result = await engine.query(ctx.params[0], withServerRerankWindow(params, limits))
-      await respondAnswer(ctx, result, 'hits', `a search on index '${ctx.params[0]}'`)
+      const query = withServerRerankWindow(params, limits)
+      const result = await searchWithSignal(ctx, query)
+      await respondAnswer(ctx, encodeQueryResult(result), 'hits', `a search on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)
+    }
+  }
+
+  async function searchWithSignal(ctx: RouteContext, params: QueryParams) {
+    bindQuerySignal(params, requestSignal(ctx.abort))
+    try {
+      return await engine.query(ctx.params[0], params)
+    } finally {
+      clearQuerySignal(params)
     }
   }
 
@@ -36,7 +49,12 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      respondJson(ctx, await engine.preflight(ctx.params[0], params))
+      bindQuerySignal(params, requestSignal(ctx.abort))
+      try {
+        respondJson(ctx, await engine.preflight(ctx.params[0], params))
+      } finally {
+        clearQuerySignal(params)
+      }
     } catch (err) {
       respondError(ctx, err)
     }

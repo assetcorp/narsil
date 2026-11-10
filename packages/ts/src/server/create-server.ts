@@ -184,6 +184,7 @@ function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | 
     restore: admin.restore,
     exportDocuments: documentExport.exportDocuments,
     importExport: documentExport.importExport,
+    getSync: syncSetting.getSync,
     updateSync: syncSetting.updateSync,
     syncSnapshot: createSyncSnapshotHandler(syncServing),
     updateQuerySuggestions: suggestions.update,

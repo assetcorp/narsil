@@ -1,11 +1,39 @@
-import { compareCodePoints } from '../core/ordering'
+import { groupHits } from '#platform/group-hits'
+import { gatheredStoredFields } from '../core/stored-values/gather'
+import type { StoredFieldReference } from '../core/stored-values/references'
+import {
+  compareCodePoints,
+  DEFAULT_MAX_PER_GROUP,
+  ErrorCodes,
+  NarsilError,
+  undeclaredFieldOnStrictIndex,
+  VECTOR_PATTERN,
+} from '../engine/optional-reads-host-bindings'
 import type { GroupResult, Hit } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { GroupConfig } from '../types/search'
-import { DEFAULT_MAX_PER_GROUP } from './constants'
+
+export function requireGroupableFields(
+  fields: readonly string[],
+  flatSchema: Record<string, string>,
+  strict: boolean,
+): void {
+  for (const field of fields) {
+    const fieldType = flatSchema[field]
+    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(field, 'group')
+    if (fieldType !== undefined && VECTOR_PATTERN.test(fieldType)) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FIELD,
+        `The engine groups hits by a text, number, boolean, enum, or geopoint field, and the schema declares field "${field}" as "${fieldType}"`,
+        { field, fieldType },
+      )
+    }
+  }
+}
 
 export interface GroupedDocuments {
   fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
+  storedFields(docId: string, fieldPaths: readonly string[]): StoredFieldReference[] | undefined
   document(docId: string): AnyDocument | undefined
 }
 
@@ -23,36 +51,52 @@ export function applyGrouping<T = AnyDocument>(
     return [{ values: {}, hits: hits as Array<Hit> }]
   }
 
-  const groupMap = new Map<string, { values: Record<string, unknown>; hits: Array<Hit<T>> }>()
-
-  for (const hit of hits) {
-    const stored = documents.fieldValues(hit.id, group.fields)
-    const fieldValues: unknown[] = []
-    const valuesRecord: Record<string, unknown> = {}
-
-    for (let at = 0; at < group.fields.length; at++) {
-      const value = stored?.[at]
-      fieldValues.push(value)
-      valuesRecord[group.fields[at]] = value
-    }
-
-    const compositeKey = JSON.stringify(fieldValues)
-    const existing = groupMap.get(compositeKey)
-
-    if (existing) {
-      existing.hits.push(hit)
-    } else {
-      groupMap.set(compositeKey, { values: valuesRecord, hits: [hit] })
-    }
+  if (hits.length > 0xffffffff)
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The hit count exceeds the group layout')
+  const { fields, ordinals } = gatheredStoredFields(
+    hits.map(hit => documents.storedFields(hit.id, group.fields)),
+    group.fields.length,
+  )
+  const scores = Float64Array.from(hits, hit => hit.score ?? 0)
+  const order = Uint32Array.from(hits, (_, position) => position).sort((left, right) =>
+    compareCodePoints(hits[left].id, hits[right].id),
+  )
+  const idRanks = new Uint32Array(hits.length)
+  let rank = 0
+  for (let at = 0; at < order.length; at++) {
+    if (at > 0 && hits[order[at - 1]].id !== hits[order[at]].id) rank++
+    idRanks[order[at]] = rank
   }
-
-  const groups: GroupResult[] = []
-
   const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
-
-  for (const entry of groupMap.values()) {
-    const everyHit = entry.hits as Array<Hit>
-    const result: GroupResult = { values: entry.values, hits: everyHit.slice(0, keptPerGroup) }
+  const limit =
+    group.limit !== undefined && Number.isFinite(group.limit) && group.limit >= 0
+      ? Math.min(Math.floor(group.limit), hits.length)
+      : null
+  const heads = new Uint32Array(hits.length)
+  const offsets = new Uint32Array(hits.length + 1)
+  const positions = new Uint32Array(hits.length)
+  const members = new Uint32Array(hits.length)
+  const found = groupHits(
+    fields,
+    ordinals,
+    scores,
+    idRanks,
+    group.reduce === undefined ? Math.min(keptPerGroup, hits.length) : hits.length,
+    group.reduce === undefined ? limit : null,
+    heads,
+    offsets,
+    positions,
+    members,
+  )
+  if (found < 0) throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The hits cannot be grouped', { status: found })
+  const groups: GroupResult[] = []
+  for (let at = 0; at < found; at++) {
+    const values: Record<string, unknown> = Object.create(null)
+    const row = documents.fieldValues(hits[heads[at]].id, group.fields)
+    for (let field = 0; field < group.fields.length; field++) values[group.fields[field]] = row?.[field]
+    const everyHit: Hit[] = []
+    for (let member = offsets[at]; member < offsets[at + 1]; member++) everyHit.push(hits[positions[member]] as Hit)
+    const result: GroupResult = { values, hits: everyHit.slice(0, keptPerGroup) }
 
     if (group.reduce) {
       const folded = foldGroupReducer(
@@ -69,21 +113,7 @@ export function applyGrouping<T = AnyDocument>(
     groups.push(result)
   }
 
-  groups.sort((a, b) => {
-    const aScore = a.hits.length > 0 ? (a.hits[0].score ?? 0) : 0
-    const bScore = b.hits.length > 0 ? (b.hits[0].score ?? 0) : 0
-    if (aScore !== bScore) return bScore - aScore
-    const aId = a.hits.length > 0 ? a.hits[0].id : ''
-    const bId = b.hits.length > 0 ? b.hits[0].id : ''
-    return compareCodePoints(aId, bId)
-  })
-
-  if (group.limit !== undefined && Number.isFinite(group.limit) && group.limit >= 0) {
-    const cap = Math.floor(group.limit)
-    if (groups.length > cap) {
-      groups.length = cap
-    }
-  }
+  if (limit !== null && groups.length > limit) groups.length = limit
 
   return groups
 }

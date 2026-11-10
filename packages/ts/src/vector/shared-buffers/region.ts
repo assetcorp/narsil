@@ -1,5 +1,5 @@
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import { reserveVectorRegion } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
 
 function reserve(maxBytes: number): ArrayBuffer | null {
   try {

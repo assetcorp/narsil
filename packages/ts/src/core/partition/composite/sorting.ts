@@ -1,46 +1,6 @@
-import {
-  type ComparableSortValue,
-  compareCodePoints,
-  compareComparableValues,
-  type SortDirection,
-  type SortMode,
-} from '../../ordering'
+import type { ComparableSortValue, SortMode } from '../../ordering'
 import type { PartitionReadState } from '../read-state'
-import {
-  prepareSortColumnsOf,
-  type SortColumnsRequest,
-  type SortedPageEntry,
-  type SortPageRequest,
-  sortedPageOf,
-  sortValuesOf,
-} from '../sorting'
-import { type OrdinalLayout, subMatchesView } from './filters'
-
-function compareEntries(a: SortedPageEntry, b: SortedPageEntry, directions: readonly SortDirection[]): number {
-  for (let i = 0; i < directions.length; i++) {
-    const comparison = compareComparableValues(a.key[i] ?? null, b.key[i] ?? null, directions[i])
-    if (comparison !== 0) return comparison
-  }
-  return compareCodePoints(a.id, b.id)
-}
-
-export function compositeSortedPage(
-  subs: readonly PartitionReadState[],
-  layout: OrdinalLayout,
-  request: SortPageRequest,
-): SortedPageEntry[] {
-  const pages = subs.map((sub, index) =>
-    sortedPageOf(sub, {
-      ...request,
-      matches: request.matches === null ? null : subMatchesView(request.matches, layout, index),
-    }),
-  )
-
-  const merged = pages.flat()
-  merged.sort((a, b) => compareEntries(a, b, request.directions))
-  if (merged.length > request.limit) merged.length = request.limit
-  return merged
-}
+import { prepareSortColumnsOf, type SortColumnsRequest, sortValuesOf } from '../sorting'
 
 export function prepareCompositeSortColumns(subs: readonly PartitionReadState[], request: SortColumnsRequest): void {
   for (const sub of subs) prepareSortColumnsOf(sub, request)

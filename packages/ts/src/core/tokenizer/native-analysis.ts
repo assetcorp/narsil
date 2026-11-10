@@ -3,8 +3,12 @@ import type { LanguageModule } from '../../types/language'
 import type { NativeStopWordSetHandle } from '../../vector/native/analysis-types'
 import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
 import type { NativeCore } from '../../vector/native/types'
-import { NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS, NATIVE_ANALYSIS_HELD_TERMS } from './constants'
-import type { NativeAnalysis } from './native-hook'
+import {
+  NATIVE_ANALYSIS_FIRST_PACKED_UNITS,
+  NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS,
+  NATIVE_ANALYSIS_HELD_TERMS,
+} from './constants'
+import type { NativeAnalysis, PackedTokenVisitor } from './native-hook'
 import type { TokenizeOptions, TokenVisitor } from './tokenize'
 
 const STEM_FLAG = 1
@@ -37,6 +41,9 @@ let languagesOfCore = new WeakMap<LanguageModule, CoreLanguage | null>()
 let heldStopWords = new WeakMap<object, HeldStopWords>()
 let sharedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
 let recordsInUse = false
+let packedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
+let packedUnits = new Uint16Array(NATIVE_ANALYSIS_FIRST_PACKED_UNITS)
+let packedInUse = false
 let termsBySlot: Array<string | undefined> | null = null
 
 function activeCore(): NativeCore | null {
@@ -83,6 +90,13 @@ function coreLanguageOf(core: NativeCore, module: LanguageModule): CoreLanguage 
   return language
 }
 
+export function nativeCoreLanguage(language: LanguageModule): { core: NativeCore; index: number } | null {
+  const core = activeCore()
+  if (core === null) return null
+  const selected = coreLanguageOf(core, language)
+  return selected === null ? null : { core, index: selected.index }
+}
+
 function holdsTheSameWords(held: ReadonlySet<string>, words: ReadonlySet<unknown>): boolean {
   let strings = 0
   for (const word of words) {
@@ -112,6 +126,47 @@ function stopWordsFor(
   const words = override instanceof Set ? override : override(module.stopWords)
   if (words === module.stopWords) return language.moduleStopWords
   return heldSetFor(core, override, words)
+}
+
+function visitPacked(
+  core: NativeCore,
+  index: number,
+  flags: number,
+  text: string,
+  stopWords: NativeStopWordSetHandle | null,
+  packed: PackedTokenVisitor,
+): boolean {
+  const shared = !packedInUse
+  let records = shared ? packedRecords : new Uint32Array(packedRecords.length)
+  let units = shared ? packedUnits : new Uint16Array(packedUnits.length)
+  let written = core.analysePacked(index, flags, text, stopWords, records, units)
+  if (written === null) {
+    const neededUnits = records[1]
+    records = new Uint32Array(Math.max(records.length, 1 + records[0] * TOKEN_RECORD_WORDS))
+    units = new Uint16Array(Math.max(units.length, neededUnits))
+    if (shared) {
+      packedRecords = records
+      packedUnits = units
+    }
+    written = core.analysePacked(index, flags, text, stopWords, records, units)
+  }
+  const count = records[0]
+  if (
+    typeof written !== 'number' ||
+    written < 0 ||
+    written > units.length ||
+    count > (records.length - 1) / TOKEN_RECORD_WORDS
+  ) {
+    noteFallback('analyse')
+    return false
+  }
+  if (shared) packedInUse = true
+  try {
+    packed(records, count, units, written)
+  } finally {
+    if (shared) packedInUse = false
+  }
+  return true
 }
 
 function analyseWith(
@@ -179,6 +234,7 @@ function visitTokens(
   language: LanguageModule,
   options: TokenizeOptions | undefined,
   visit: TokenVisitor,
+  packed?: PackedTokenVisitor,
 ): boolean {
   const core = activeCore()
   if (core === null) return false
@@ -191,6 +247,7 @@ function visitTokens(
     (options?.removeDiacritics === true ? REMOVE_DIACRITICS_FLAG : 0) |
     (options?.collectSurfaces === true ? COLLECT_SURFACES_FLAG : 0)
   const stopWords = removeStopWords ? stopWordsFor(core, coreLanguage, language, options?.stopWordOverride) : null
+  if (packed !== undefined) return visitPacked(core, coreLanguage.index, flags, text, stopWords, packed)
   const analysed = analyseWith(core, coreLanguage.index, flags, text, stopWords)
   if (analysed === null) return false
   visitRecords(analysed, visit)

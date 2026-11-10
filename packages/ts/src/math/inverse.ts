@@ -1,4 +1,4 @@
-import { highWord, INFINITE_HIGH_WORD, lowWord, MAGNITUDE_MASK, withLowWord } from './words'
+import { highWord, INFINITE_HIGH_WORD, lowWord, MAGNITUDE_MASK, withLowWord } from '../geo/geo-host-bindings'
 
 const ONE_HIGH_WORD = 0x3ff00000
 const STEEP_SINE_LIMIT = 0.97499990463256836

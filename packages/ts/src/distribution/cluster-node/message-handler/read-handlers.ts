@@ -1,5 +1,6 @@
-import { decode } from '@msgpack/msgpack'
-import { normalizeSort, readSortValues, sortModesOf } from '../../../search/sorting'
+import { readSortValues } from '../../../search/sort-keys'
+import { normalizeSort, sortModesOf } from '../../../search/sorting'
+import { decode } from '../../../serialization/msgpack'
 import type { AnyDocument } from '../../../types/schema'
 import type { ListParams } from '../../../types/search'
 import {

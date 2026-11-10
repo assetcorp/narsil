@@ -1,5 +1,6 @@
 import { getFs, getPath } from '#platform/durable-fs'
 import { generateId } from '../../core/id-generator'
+import { holdsUnpairedSurrogate } from '../../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../../errors'
 
 const NODE_ID_FILE_NAME = '.narsil-node-id'
@@ -60,7 +61,15 @@ export async function resolveNodeId(
   explicitNodeId: string | undefined,
   directory: string | undefined,
 ): Promise<string> {
-  if (explicitNodeId !== undefined) return explicitNodeId
+  if (explicitNodeId !== undefined) {
+    if (typeof explicitNodeId !== 'string' || explicitNodeId.length === 0 || holdsUnpairedSurrogate(explicitNodeId)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'ClusterNodeConfig.nodeId must be a non-empty string without an unpaired surrogate, the half of a character such as an emoji whose other half is missing, because the cluster hashes, sorts, and stores node ids as UTF-8',
+      )
+    }
+    return explicitNodeId
+  }
   if (directory === undefined) return generateId()
 
   const pathModule = await getPath()

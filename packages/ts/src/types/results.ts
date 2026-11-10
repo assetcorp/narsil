@@ -247,6 +247,13 @@ export interface IndexStats {
   language: string
   /** The index was created with this field layout. */
   schema: SchemaDefinition
+  /**
+   * This many searches on this instance's main copy hold a state of the index
+   * open right now. Each search holds one state from its start until it
+   * answers, fails, or is cancelled, so the figure falls back to 0 once every
+   * search has finished. A cluster reports no figure.
+   */
+  heldSearchStates?: number
 }
 
 /**

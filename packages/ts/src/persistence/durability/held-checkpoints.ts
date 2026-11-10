@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { HeldCheckpointReport } from '../../types/memory'
 import type { IndexState, PartitionState } from './manager-state'
 import type { IndexDurabilityHooks } from './types'

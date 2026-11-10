@@ -185,6 +185,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -551,6 +552,7 @@ export interface SyncSetting {
 
 // @public
 export interface SyncSettingOperations {
+    getSync(indexName: string, options?: RequestOptions): Promise<SyncStatus>;
     syncSnapshot(indexName: string, resume?: SyncSnapshotResume, options?: RequestOptions): Promise<SyncSnapshotDownload>;
     updateSync(indexName: string, setting: SyncSetting, options?: RequestOptions): Promise<void>;
 }
@@ -567,6 +569,12 @@ export interface SyncSnapshotDownload {
 export interface SyncSnapshotResume {
     entityTag: string;
     offset: number;
+}
+
+// @public
+export interface SyncStatus extends SyncSetting {
+    active: boolean;
+    epoch: string | null;
 }
 
 // @public

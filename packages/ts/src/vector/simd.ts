@@ -1,4 +1,3 @@
-import { markSimdUnavailable } from '../runtime/simd-support'
 import type { VectorMetric } from './brute-force'
 import { SIMD_DISTANCE_SHARED_MEMORY_WASM_BASE64, SIMD_DISTANCE_WASM_BASE64 } from './simd-wasm-binary'
 
@@ -42,7 +41,9 @@ try {
   wasmExports = null
   f32View = null
 }
-if (wasmExports === null) markSimdUnavailable()
+export function simdModuleLoaded(): boolean {
+  return wasmExports !== null
+}
 
 const OFFSET_B_BYTES = 16384
 

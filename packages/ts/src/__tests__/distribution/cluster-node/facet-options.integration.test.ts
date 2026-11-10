@@ -115,6 +115,17 @@ describe('facet ranges and lowest-first facets across a cluster', () => {
     })
   }, 30_000)
 
+  it('returns prototype-property values as counted buckets through the distributed response', async () => {
+    const brands = ['__proto__', 'constructor', 'toString', '\ue000', '\u{10000}']
+    const documents = brands.map((brand, at) => ({ id: `marked-${at}`, title: 'marked', brand, price: 1 }))
+    await router.insertBatch('boots', documents)
+    for (const sort of ['asc', 'desc'] as const) {
+      const result = await router.query('boots', { term: 'marked', facets: { brand: { sort, limit: 3 } } })
+      expect(Object.entries(result.facets?.brand.values ?? {})).toEqual(brands.slice(0, 3).map(brand => [brand, 1]))
+      expect(result.facets?.brand.errorBound).toBe(1)
+    }
+  }, 30_000)
+
   it('orders and cuts price ranges lowest first, with the bound one engine reports', async () => {
     await expectSameFacets({
       term: 'trail',

@@ -1,21 +1,23 @@
-import { decode } from '@msgpack/msgpack'
-import { createSharedFrozenSegment } from '../../../core/partition/frozen'
-import { freezeSegmentShared } from '../../../core/partition/frozen/shared-snapshot'
-import { buildSegmentPayload } from '../../../core/partition/segment-builder'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import type { PartitionManager } from '../../../partitioning/manager'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { HEADER_SIZE } from '../../../serialization/header'
-import { MIN_M } from '../../../vector/hnsw/constants'
-import type { VectorIndex } from '../../../vector/vector-index'
 import {
+  buildSegmentPayloads,
+  countDead,
+  createSharedFrozenSegment,
+  decode,
   decodeVectorFilePayload,
   decodeVectorGraphPayload,
+  deserializePartition,
+  ErrorCodes,
+  freezeSegmentShared,
   graphPartsOfEarlierPayload,
-  type VectorGraphParts,
-} from '../../../vector/vector-index/checkpoint-payload'
-import { countDead } from '../../../vector/vector-index/dead-bits'
+  HEADER_SIZE,
+  MIN_M,
+  NarsilError,
+  openChecksummedEnvelope,
+  resolvePartitionInsertOptions,
+} from '#platform/storage-host'
+import type { PartitionManager } from '../../../partitioning/manager'
+import type { VectorIndex } from '../../../vector/vector-index'
+import type { VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import { growPartitionsTo } from '../segment/load'
 import type { FileRef } from '../segment/manifest'
@@ -57,20 +59,21 @@ function removeWhatTheSegmentReplaces(manager: PartitionManager, segment: Earlie
 
 function attachDocuments(manager: PartitionManager, partitionId: number, segment: EarlierSegmentDocuments): void {
   if (segment.documents.length === 0) return
-  const payload = buildSegmentPayload(
+  const outputs = buildSegmentPayloads(
     segment.documents,
     manager.config.schema,
     manager.language,
     resolvePartitionInsertOptions(manager.config, manager.analysis),
     manager.config.trackPositions ?? true,
   )
-  const documents = segment.documents.map(entry => entry.document)
-  const snapshot = freezeSegmentShared(payload, documents)
-  if (snapshot === null) {
-    manager.mergeSegment(partitionId, payload, documents)
-    return
+  const prepared = outputs.map(({ payload, documents: members }) => {
+    const documents = members.map(entry => entry.document)
+    return { payload, documents, snapshot: freezeSegmentShared(payload, documents) }
+  })
+  for (const { payload, documents, snapshot } of prepared) {
+    if (snapshot === null) manager.mergeSegment(partitionId, payload, documents)
+    else manager.attachFrozenSegment(partitionId, createSharedFrozenSegment(snapshot))
   }
-  manager.attachFrozenSegment(partitionId, createSharedFrozenSegment(snapshot))
 }
 
 async function loadPartition(
@@ -97,7 +100,7 @@ async function loadPartition(
     totalPartitions: deps.manager.partitionCount,
     language: deps.manager.language.name,
   })
-  deps.manager.deserializePartition(partition.partitionId, merged)
+  deps.manager.deserializePartition(partition.partitionId, merged, deserializePartition)
 }
 
 async function readGraph(store: CheckpointStore, ref: EarlierVectorFieldRef): Promise<VectorGraphParts | null> {

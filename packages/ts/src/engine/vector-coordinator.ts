@@ -59,7 +59,7 @@ export function validateVectorDimensions(
 
 export function prepareDocumentVectors(
   document: Record<string, unknown>,
-  vectorFieldPaths: Set<string>,
+  vectorFieldPaths: ReadonlySet<string>,
 ): { partitionDoc: Record<string, unknown>; extractedVectors: Map<string, Float32Array> } {
   if (vectorFieldPaths.size === 0) {
     return { partitionDoc: document, extractedVectors: new Map() }

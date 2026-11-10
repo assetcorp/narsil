@@ -1,8 +1,13 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import { compareCodePoints } from '../../core/ordering'
+import {
+  compareCodePoints,
+  ErrorCodes,
+  MAX_FILE_BYTES,
+  NarsilError,
+  turnIsSpent,
+  turnsAreBudgeted,
+  yieldTurn,
+} from '#platform/storage-host'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { DEFAULT_SEGMENT_MAX_BYTES } from './constants'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
 import { createGroupCommitCoordinator } from './group-commit'

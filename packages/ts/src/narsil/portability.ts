@@ -1,16 +1,17 @@
 import type { EngineCore } from '../engine/core'
 import { announceIndexCreated, announceIndexDropped } from '../engine/index-lifecycle'
 import type { SnapshotDeps } from '../engine/snapshot'
-import { indexConfigurationOf } from '../engine/snapshot/index-configuration'
 import { validateIndexName } from '../engine/validation'
 import { getVectorFieldPaths } from '../engine/vector-fields'
 import { emitWriteEventAfter } from '../engine/write-events'
+import { loadStorageCode } from '../persistence/storage-code'
 import type { ByteSource } from '../types/byte-source'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil, SnapshotOptions } from '../types/engine'
 import type { DocumentImportResult } from '../types/results'
 import { DEFAULT_REQUEST_TIMEOUT_MS } from '../workers/constants'
 import type { RestoreHost } from './restore-queue'
+import { loadRestoreQueue } from './restore-queue-code'
 
 export type PortabilityOperations = Pick<Narsil, 'snapshot' | 'restore' | 'exportDocuments' | 'importDocumentExport'>
 
@@ -34,7 +35,7 @@ export function portabilityOperations(
     const { restoresInFlight } = core
     const previous = restoresInFlight.get(indexName) ?? Promise.resolve()
     const restored = previous.then(async () => {
-      const { runRestore } = await import('./restore-queue')
+      const { runRestore } = await loadRestoreQueue()
       await runRestore(core, restoreHost, indexName, data, engine())
     })
     const settled = restored.then(
@@ -68,7 +69,7 @@ export function portabilityOperations(
   return {
     snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>> {
       return withOpenIndex(indexName, async () => {
-        const { createSnapshot } = await import('../engine/snapshot')
+        const { createSnapshot } = await loadStorageCode()
         return createSnapshot(snapshotDepsOf(indexName), options?.queryHistory === true ? core : null)
       })
     },
@@ -82,10 +83,7 @@ export function portabilityOperations(
 
     exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>> {
       return withOpenIndex(indexName, async () => {
-        const [{ checkpointForArchive }, { documentExportStream }] = await Promise.all([
-          import('../engine/snapshot'),
-          import('../engine/export/write'),
-        ])
+        const { checkpointForArchive, documentExportStream, indexConfigurationOf } = await loadStorageCode()
         const header = indexConfigurationOf(core.requireIndex(indexName))
         return documentExportStream(header, await checkpointForArchive(snapshotDepsOf(indexName)))
       })
@@ -93,9 +91,7 @@ export function portabilityOperations(
 
     importDocumentExport(indexName: string, data: ByteSource): Promise<DocumentImportResult> {
       core.guardShutdown()
-      const imported = import('../engine/export/import').then(({ readDocumentExport }) =>
-        readDocumentExport(engine(), indexName, data),
-      )
+      const imported = loadStorageCode().then(({ readDocumentExport }) => readDocumentExport(engine(), indexName, data))
       return emitWriteEventAfter(core, indexName, imported)
     },
   }

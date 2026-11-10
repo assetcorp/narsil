@@ -1,8 +1,15 @@
-import { createVectorFileReader, type VectorFileReader } from '#platform/vector-file'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32 } from '../../serialization/crc32'
-import { HEADER_SIZE } from '../../serialization/header'
+import {
+  crc32,
+  createFixedBuffer,
+  createVectorFileReader,
+  ErrorCodes,
+  HEADER_SIZE,
+  NarsilError,
+} from '#platform/storage-host'
+import type { VectorFileReader } from '#platform/vector-file'
+import type { NativePageSection } from '../../vector/native/types/paged'
 import type { FileSection } from './format'
+import { type NativeOpenFile, nativeSection, openNativePagedFile, requireNativePage } from './native-file'
 import { CACHED_PAGE, type ReadCache } from './read-cache'
 
 let threadReader: VectorFileReader | null = null
@@ -16,14 +23,30 @@ export interface PagedFile {
   path: string
   readonly fileNumber: number
   readonly cache: ReadCache
+  native: NativeOpenFile | null
   closed: boolean
 }
 
 const readersOfPath = new Map<string, number>()
 
+export function cachedFileBytes(file: PagedFile): number {
+  if (file.closed) return 0
+  return (
+    file.cache.bytesOfFile(file.fileNumber) +
+    (file.native === null ? 0 : file.cache.bytesOfPageFile(file.native.handle.identity))
+  )
+}
+
 export function openPagedFile(path: string, cache: ReadCache): PagedFile {
+  const native = openNativePagedFile(path)
   readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
-  return { path, fileNumber: cache.fileNumber(), cache, closed: false }
+  try {
+    return { path, fileNumber: cache.fileNumber(), cache, native, closed: false }
+  } catch (error) {
+    native?.core.closePagedFile(native.handle)
+    stopReadingPath(path)
+    throw error
+  }
 }
 
 function stopReadingPath(path: string): void {
@@ -39,13 +62,23 @@ function stopReadingPath(path: string): void {
 export function closePagedFile(file: PagedFile): void {
   if (file.closed) return
   file.closed = true
+  if (file.native !== null) file.cache.releasePageFile(file.native.handle.identity)
+  file.native?.core.closePagedFile(file.native.handle)
+  file.native = null
   file.cache.releaseFile(file.fileNumber)
   stopReadingPath(file.path)
 }
 
 export function relocatePagedFile(file: PagedFile, path: string): void {
   if (path === file.path) return
+  const native = openNativePagedFile(path)
+  if (file.native !== null) file.cache.releasePageFile(file.native.handle.identity)
+  file.native?.core.closePagedFile(file.native.handle)
+  file.native = native
   stopReadingPath(file.path)
+  const retained = new Set(readersOfPath.keys())
+  retained.delete(path)
+  fileReaderOfThisThread().retainOnly(retained)
   readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
   file.path = path
 }
@@ -83,6 +116,7 @@ export function requirePageChecksum(path: string, section: FileSection, page: nu
 
 export interface SectionReader {
   readonly length: number
+  readonly native: NativePageSection | null
   read(position: number, target: Uint8Array): void
   fetchRows(positions: readonly number[], rowBytes: number): Promise<unknown> | null
   bytesAt(position: number, length: number): Uint8Array
@@ -92,28 +126,53 @@ export interface SectionReader {
 export function createSectionReader(file: PagedFile, section: FileSection): SectionReader {
   const { pageBytes, length } = section
   const start = HEADER_SIZE + section.offset
+  const fault = new BigUint64Array(3)
 
   function pageAt(page: number): Uint8Array {
     const entry = start + page * pageBytes
     const held = file.cache.get<Uint8Array>(file.fileNumber, CACHED_PAGE, entry)
     if (held !== undefined) return held
     const bytes = new Uint8Array(Math.min(pageBytes, length - page * pageBytes))
-    readFileRange(file.path, entry, bytes)
-    requirePageChecksum(file.path, section, page, bytes)
+    const descriptor = nativeSection(file.native, section)
+    if (descriptor !== null && file.native !== null) {
+      const status = file.native.core.readPage(descriptor, file.cache.pageCache(), BigInt(page), bytes, fault)
+      requireNativePage(status, file.path, section.name, fault[2])
+    } else {
+      readFileRange(file.path, entry, bytes)
+      requirePageChecksum(file.path, section, page, bytes)
+    }
     file.cache.put(file.fileNumber, CACHED_PAGE, entry, bytes, bytes.byteLength)
     return bytes
   }
 
   async function fetchPage(page: number): Promise<void> {
     const entry = start + page * pageBytes
-    const bytes = new Uint8Array(Math.min(pageBytes, length - page * pageBytes))
-    if (!(await fileReaderOfThisThread().readLater(file.path, entry, bytes))) unreadable(file.path, entry, bytes)
-    requirePageChecksum(file.path, section, page, bytes)
+    const size = Math.min(pageBytes, length - page * pageBytes)
+    const native = file.native
+    const descriptor = nativeSection(native, section)
+    const bytes = new Uint8Array(native === null ? new ArrayBuffer(size) : createFixedBuffer(size))
+    if (native !== null && descriptor !== null) {
+      const failure = new BigUint64Array(createFixedBuffer(3 * BigUint64Array.BYTES_PER_ELEMENT))
+      const status = await native.core.readPageAsync(descriptor, null, BigInt(page), bytes, failure)
+      requireNativePage(status, file.path, section.name, failure[2])
+    } else {
+      if (!(await fileReaderOfThisThread().readLater(file.path, entry, bytes))) unreadable(file.path, entry, bytes)
+      requirePageChecksum(file.path, section, page, bytes)
+    }
     if (!file.closed) file.cache.put(file.fileNumber, CACHED_PAGE, entry, bytes, bytes.byteLength)
   }
 
   function requireInside(position: number, size: number): void {
-    if (position >= 0 && position + size <= length) return
+    if (
+      !file.closed &&
+      Number.isSafeInteger(position) &&
+      Number.isSafeInteger(size) &&
+      position >= 0 &&
+      size >= 0 &&
+      position <= length &&
+      size <= length - position
+    )
+      return
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_LOAD_FAILED,
       `A read of ${size} bytes at ${position} ends outside section "${section.name}" of "${file.path}"`,
@@ -137,6 +196,9 @@ export function createSectionReader(file: PagedFile, section: FileSection): Sect
 
   return {
     length,
+    get native() {
+      return nativeSection(file.native, section)
+    },
     read,
 
     fetchRows(positions: readonly number[], rowBytes: number): Promise<unknown> | null {
@@ -178,6 +240,23 @@ export async function checkEverySectionPage(
   section: FileSection,
   stillWanted: () => boolean,
 ): Promise<void> {
+  const native = openNativePagedFile(path)
+  if (native !== null) {
+    try {
+      const descriptor = nativeSection(native, section)
+      if (descriptor === null) return
+      const output = new Uint8Array(createFixedBuffer(section.pageBytes))
+      const failure = new BigUint64Array(createFixedBuffer(3 * BigUint64Array.BYTES_PER_ELEMENT))
+      for (let page = 0; page * section.pageBytes < section.length; page++) {
+        if (!stillWanted()) return
+        const status = await native.core.readPageAsync(descriptor, null, BigInt(page), output, failure)
+        requireNativePage(status, path, section.name, failure[2])
+      }
+    } finally {
+      native.core.closePagedFile(native.handle)
+    }
+    return
+  }
   const reader = fileReaderOfThisThread()
   const start = HEADER_SIZE + section.offset
   for (let page = 0; page * section.pageBytes < section.length; page++) {
@@ -191,6 +270,23 @@ export async function checkEverySectionPage(
 
 export function readWholeSectionChecked(path: string, section: FileSection, shared: boolean): Uint8Array {
   const target = new Uint8Array(shared ? new SharedArrayBuffer(section.length) : new ArrayBuffer(section.length))
+  const native = openNativePagedFile(path)
+  if (native !== null) {
+    try {
+      const descriptor = nativeSection(native, section)
+      if (descriptor === null) return target
+      const failure = new BigUint64Array(3)
+      for (let page = 0; page * section.pageBytes < section.length; page++) {
+        const from = page * section.pageBytes
+        const to = Math.min(from + section.pageBytes, section.length)
+        const status = native.core.readPage(descriptor, null, BigInt(page), target.subarray(from, to), failure)
+        requireNativePage(status, path, section.name, failure[2])
+      }
+    } finally {
+      native.core.closePagedFile(native.handle)
+    }
+    return target
+  }
   const start = HEADER_SIZE + section.offset
   if (section.length > 0) readFileRange(path, start, target)
   for (let page = 0; page * section.pageBytes < section.length; page++) {

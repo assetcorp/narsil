@@ -1,21 +1,38 @@
-import type { RecomputedHit } from '../../scoring'
+import type { Hit } from '@delali/narsil'
 import { Badge } from '../ui/badge'
 
 interface RankComparisonProps {
-  recomputedHits: RecomputedHit[]
+  baselineHits: Hit[]
+  tunedHits: Hit[]
 }
 
-export function RankComparison({ recomputedHits }: RankComparisonProps) {
-  if (recomputedHits.length === 0) return null
+const ROWS_SHOWN = 20
 
-  const hasChanges = recomputedHits.some(h => h.originalRank !== h.recomputedRank)
+function titleOf(hit: Hit): string {
+  const document = hit.document as Record<string, unknown> | undefined
+  const title = document?.title ?? document?.name ?? hit.id
+  return String(title)
+}
+
+export function RankComparison({ baselineHits, tunedHits }: RankComparisonProps) {
+  if (tunedHits.length === 0) return null
+
+  const baselineRanks = new Map(baselineHits.map((hit, index) => [hit.id, index + 1]))
+  const rows = tunedHits.slice(0, ROWS_SHOWN).map((hit, index) => ({
+    hit,
+    tunedRank: index + 1,
+    originalRank: baselineRanks.get(hit.id) ?? null,
+  }))
+  const hasChanges = rows.some(row => row.originalRank !== row.tunedRank)
 
   return (
-    <div className="min-w-0 rounded-lg border">
+    <div className="min-w-0 rounded-lg border" data-testid="rank-comparison">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Rank Comparison</h3>
         <p className="text-xs text-muted-foreground">
-          {hasChanges ? 'Rankings changed with tuned parameters' : 'No rank changes with current parameters'}
+          {hasChanges
+            ? 'The engine ranked this query differently under the tuned settings'
+            : 'The tuned settings leave the ranking unchanged'}
         </p>
       </div>
       <div className="max-h-64 overflow-auto">
@@ -23,30 +40,34 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">
               <th className="px-3 py-2 text-left font-medium">Document</th>
-              <th className="px-3 py-2 text-right font-medium">Original</th>
+              <th className="px-3 py-2 text-right font-medium">Default</th>
               <th className="px-3 py-2 text-right font-medium">Tuned</th>
               <th className="px-3 py-2 text-right font-medium">Score</th>
               <th className="px-3 py-2 text-right font-medium">Change</th>
             </tr>
           </thead>
           <tbody>
-            {recomputedHits.slice(0, 20).map(item => {
-              const doc = item.hit.document
-              const title = String(doc.title ?? doc.id ?? item.hit.id)
-              const delta = item.originalRank - item.recomputedRank
-
+            {rows.map(row => {
+              const delta = row.originalRank === null ? null : row.originalRank - row.tunedRank
               return (
-                <tr key={item.hit.id} className="border-b last:border-b-0">
-                  <td className="max-w-[200px] truncate px-3 py-1.5">{title}</td>
-                  <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">#{item.originalRank}</td>
-                  <td className="px-3 py-1.5 text-right font-mono">#{item.recomputedRank}</td>
-                  <td className="px-3 py-1.5 text-right font-mono">{item.recomputedScore.toFixed(3)}</td>
+                <tr
+                  key={row.hit.id}
+                  className="border-b last:border-b-0"
+                  data-testid="rank-row"
+                  data-doc-id={row.hit.id}
+                >
+                  <td className="max-w-50 truncate px-3 py-1.5">{titleOf(row.hit)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
+                    {row.originalRank === null ? 'new' : `#${row.originalRank}`}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono">#{row.tunedRank}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{(row.hit.score ?? 0).toFixed(3)}</td>
                   <td className="px-3 py-1.5 text-right">
-                    {delta !== 0 && (
+                    {delta !== null && delta !== 0 ? (
                       <Badge variant={delta > 0 ? 'default' : 'destructive'} className="text-[10px]">
-                        {delta > 0 ? `\u2191${delta}` : `\u2193${Math.abs(delta)}`}
+                        {delta > 0 ? `↑${delta}` : `↓${Math.abs(delta)}`}
                       </Badge>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
               )

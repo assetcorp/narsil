@@ -1,4 +1,5 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
 import { newSyncEpoch } from '../../sync/epoch'
 import type { IndexMetadataSnapshot } from './index-metadata'
 import { type AnalysisFailure, isRecord, type PendingClusterAnalysis } from './index-settings'

@@ -1,6 +1,5 @@
 import { resolveCheckpointWorkerEntry } from '#platform/checkpoint-worker-entry'
-import { spawnNodeWorker } from '#platform/node-worker'
-import { detectRuntime } from '../../runtime/detect'
+import { detectRuntime, spawnNodeWorker } from '#platform/storage-host'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
 import {
   CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS,

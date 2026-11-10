@@ -1,7 +1,6 @@
-import { DISK_ADOPTION_YIELD_INTERVAL } from './constants'
-import { isDead } from './dead-bits'
+import { DISK_ADOPTION_YIELD_INTERVAL, isDead, yieldBuildTurn } from '#platform/vector-host'
 import { untilGraphReleased } from './graph-pass'
-import { type VectorIndexState, yieldBuildTurn } from './shared'
+import type { VectorIndexState } from './shared'
 import { resendSharedHandles } from './worker-copies'
 
 export interface VectorPartFile {

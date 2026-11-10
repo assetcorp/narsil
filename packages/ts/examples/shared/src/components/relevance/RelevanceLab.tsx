@@ -1,8 +1,8 @@
 import type { QueryResult } from '@delali/narsil'
 import { Loader2, Search } from 'lucide-react'
-import { type ChangeEvent, useCallback, useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useMemo } from 'react'
 import type { IndexSchemaView } from '../../hooks/use-index-schema'
-import { type BM25Config, computeFieldAverages, DEFAULT_BM25_CONFIG, recomputeScores } from '../../scoring'
+import { type BM25Config, DEFAULT_BM25_CONFIG, splitEngineScores } from '../../scoring'
 import { useActiveIndex, useIndexWorkspace } from '../../workspace'
 import { IndexSelector } from '../IndexSelector'
 import { Input } from '../ui/input'
@@ -14,22 +14,35 @@ export interface RelevanceLabProps {
   schema: IndexSchemaView
   term: string
   onTermChange: (term: string) => void
+  config: BM25Config
+  onConfigChange: (update: (current: BM25Config) => BM25Config) => void
   result: QueryResult | undefined
+  tunedResult: QueryResult | undefined
   isLoading: boolean
   error: Error | undefined
 }
 
-export function RelevanceLab({ schema, term, onTermChange, result, isLoading, error }: RelevanceLabProps) {
+export function RelevanceLab({
+  schema,
+  term,
+  onTermChange,
+  config,
+  onConfigChange: setConfig,
+  result,
+  tunedResult,
+  isLoading,
+  error,
+}: RelevanceLabProps) {
   const { activeIndexName } = useIndexWorkspace()
   const activeIndex = useActiveIndex()
   const fields = schema.searchablePaths
-  const [config, setConfig] = useState<BM25Config>(DEFAULT_BM25_CONFIG)
 
   const hits = result?.hits
+  const tunedHits = tunedResult?.hits
   const recomputedHits = useMemo(() => {
-    if (hits === undefined || hits.length === 0) return []
-    return recomputeScores(hits, config, computeFieldAverages(hits))
-  }, [hits, config])
+    if (tunedHits === undefined || tunedHits.length === 0) return []
+    return splitEngineScores(tunedHits, config)
+  }, [tunedHits, config])
 
   const handleTermChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -38,29 +51,38 @@ export function RelevanceLab({ schema, term, onTermChange, result, isLoading, er
     [onTermChange],
   )
 
-  const handleK1Change = useCallback((k1: number) => {
-    setConfig(current => ({ ...current, k1 }))
-  }, [])
+  const handleK1Change = useCallback(
+    (k1: number) => {
+      setConfig(current => ({ ...current, k1 }))
+    },
+    [setConfig],
+  )
 
-  const handleBChange = useCallback((b: number) => {
-    setConfig(current => ({ ...current, b }))
-  }, [])
+  const handleBChange = useCallback(
+    (b: number) => {
+      setConfig(current => ({ ...current, b }))
+    },
+    [setConfig],
+  )
 
-  const handleFieldBoostChange = useCallback((field: string, boost: number) => {
-    setConfig(current => {
-      const fieldBoosts = { ...current.fieldBoosts }
-      if (boost === 1) {
-        delete fieldBoosts[field]
-      } else {
-        fieldBoosts[field] = boost
-      }
-      return { ...current, fieldBoosts }
-    })
-  }, [])
+  const handleFieldBoostChange = useCallback(
+    (field: string, boost: number) => {
+      setConfig(current => {
+        const fieldBoosts = { ...current.fieldBoosts }
+        if (boost === 1) {
+          delete fieldBoosts[field]
+        } else {
+          fieldBoosts[field] = boost
+        }
+        return { ...current, fieldBoosts }
+      })
+    },
+    [setConfig],
+  )
 
   const handleReset = useCallback(() => {
-    setConfig({ ...DEFAULT_BM25_CONFIG, fieldBoosts: {} })
-  }, [])
+    setConfig(() => ({ ...DEFAULT_BM25_CONFIG, fieldBoosts: {} }))
+  }, [setConfig])
 
   if (activeIndexName === null) {
     return (
@@ -116,7 +138,7 @@ export function RelevanceLab({ schema, term, onTermChange, result, isLoading, er
       {recomputedHits.length > 0 ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
           <div className="flex flex-col gap-4">
-            <RankComparison recomputedHits={recomputedHits} />
+            <RankComparison baselineHits={hits ?? []} tunedHits={tunedResult?.hits ?? []} />
             <ScoreBreakdown recomputedHits={recomputedHits} fields={fields} />
           </div>
           <aside>

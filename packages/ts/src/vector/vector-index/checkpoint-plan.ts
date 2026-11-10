@@ -1,16 +1,14 @@
-import { MAX_DOC_ID_LENGTH } from '../../engine/constants'
-import { MAX_FILE_BYTES } from '../../serialization/constants'
+import { MAX_DOC_ID_LENGTH, MAX_FILE_BYTES } from '#platform/vector-core-host'
 import { graphWithoutNodes, type NumberedHnswGraph } from '../hnsw/numbered-graph'
 import { osqBitsOf } from '../osq'
 import { osqRecordBytes } from '../osq/record'
 import { STORE_CALIBRATION_GENERATION } from '../vector-store/handles'
+import type { VectorFilePayload, VectorGraphPartPayload } from './checkpoint-payload'
 import {
   VECTOR_FILE_MAX_VECTORS,
   VECTOR_FILE_PAYLOAD_VERSION,
   VECTOR_GRAPH_PART_PAYLOAD_VERSION,
   VECTOR_GRAPH_PART_VECTORS,
-  type VectorFilePayload,
-  type VectorGraphPartPayload,
 } from './checkpoint-payload'
 import {
   VECTOR_FILE_CENTROID_BYTES_PER_COMPONENT,
@@ -302,6 +300,20 @@ export function planCheckpoint(
   pinsRetiredVectors = false,
 ): VectorCheckpointPlan {
   if (pinsRetiredVectors) state.store.pinRetiredVectors()
+  try {
+    return prepareCheckpoint(state, listedKeys, rewritesGraph, pinsRetiredVectors)
+  } catch (error) {
+    if (pinsRetiredVectors) state.store.unpinRetiredVectors()
+    throw error
+  }
+}
+
+function prepareCheckpoint(
+  state: VectorIndexState,
+  listedKeys: readonly string[] | null,
+  rewritesGraph: boolean,
+  pinsRetiredVectors: boolean,
+): VectorCheckpointPlan {
   let pinned = pinsRetiredVectors
   const signature = signatureOf(state)
   const calibration = signature.calibration

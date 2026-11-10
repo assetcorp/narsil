@@ -1,6 +1,9 @@
-import { MAX_HISTORY_FILE_BYTES, QUERY_HISTORY_ARCHIVE_PREFIX } from '../../query-suggestions/constants'
-import { MAX_FILE_BYTES } from '../../serialization/constants'
-import { HEADER_SIZE } from '../../serialization/header'
+import {
+  HEADER_SIZE,
+  MAX_FILE_BYTES,
+  MAX_HISTORY_FILE_BYTES,
+  QUERY_HISTORY_ARCHIVE_PREFIX,
+} from '#platform/storage-host'
 import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
 import { decodeManifestPayload, listedKeysOf, openManifestPayload } from '../durability/segment/manifest-decode'
 import type { ByteReader } from './byte-reader'
@@ -18,6 +21,7 @@ interface EntryHeader {
 }
 
 export interface ArchiveReadHandlers {
+  partitionId?: number
   config(bytes: Uint8Array): Promise<void>
   manifest(manifest: SegmentManifest, sourceIndexName: string): Promise<void>
   file(entryName: string, ref: FileRef, chunks: AsyncIterable<Uint8Array>): Promise<void>
@@ -104,7 +108,7 @@ export async function readSnapshotArchive(reader: ByteReader, handlers: ArchiveR
   await handlers.config(await readNamedEntry(reader, ARCHIVE_CONFIG_ENTRY))
   const raw = await openManifestPayload(await readNamedEntry(reader, ARCHIVE_MANIFEST_ENTRY))
   const sourceIndexName = sourceIndexNameOf(listedKeysOf(raw))
-  const decoded = decodeManifestPayload(raw, sourceIndexName)
+  const decoded = decodeManifestPayload(raw, sourceIndexName, handlers.partitionId)
   if (decoded.kind !== 'current') invalidArchive('the manifest holds the layout of an earlier release')
   const manifest = decoded.manifest
   await handlers.manifest(manifest, sourceIndexName)

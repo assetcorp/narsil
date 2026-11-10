@@ -17,6 +17,8 @@
 #define BASE_LIST_WORDS (MAX_BASE_NEIGHBOURS + NARSIL_LIST_WORDS_OVER_NEIGHBOURS)
 #define UPPER_LIST_WORDS (MAX_NEIGHBOURS + NARSIL_LIST_WORDS_OVER_NEIGHBOURS)
 #define UPPER_WORDS (NODES * UPPER_LIST_WORDS)
+#define FIXTURE_BORN_SEQUENCE 1
+#define FIXTURE_PIN FIXTURE_BORN_SEQUENCE
 
 typedef struct {
   int32_t graph_header[NARSIL_GRAPH_HEADER_WORDS];
@@ -36,6 +38,9 @@ typedef struct {
   double magnitudes[NODES];
   int32_t vector_file[NODES];
   uint32_t vector_offset[NODES];
+  int64_t born_at[NODES];
+  int64_t retired_at[NODES];
+  int64_t pins[THREAD_SLOTS];
   float *vectors;
   uint8_t *records;
   const float *vector_blocks[1];
@@ -60,5 +65,24 @@ void analysis_thread_checks(void);
 void write_checks(narsil_workspace *workspace);
 void record_checks(narsil_workspace *workspace);
 void vector_file_checks(narsil_workspace *workspace);
+void group_checks(narsil_workspace *workspace);
+void sort_value_checks(narsil_workspace *workspace);
+void sort_order_checks(narsil_workspace *workspace);
+void boolean_facet_checks(void);
+void numeric_facet_checks(narsil_workspace *workspace);
+void enum_facet_checks(narsil_workspace *workspace);
+void value_facet_checks(narsil_workspace *workspace);
+void sort_select_checks(narsil_workspace *workspace);
+void filter_checks(narsil_workspace *workspace);
+void pattern_checks(narsil_workspace *workspace);
+void segment_write_checks(narsil_workspace *workspace);
+void frozen_removal_checks(narsil_workspace *workspace);
+void segment_merge_checks(narsil_workspace *workspace);
+void field_merge_checks(narsil_workspace *workspace);
+void synonym_checks(void);
+void phrase_checks(narsil_workspace *workspace);
+void highlight_checks(narsil_workspace *workspace);
+void paged_vector_checks(narsil_workspace *workspace);
+void paged_posting_checks(narsil_workspace *workspace);
 
 #endif

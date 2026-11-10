@@ -3,23 +3,23 @@ import { useDocumentBrowser, useIndexSchema, useIndexWorkspace } from '@delali/n
 import { DocumentsView } from '@delali/narsil-example-shared/components/documents/DocumentsView'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { EMBEDDING_FIELD } from '#/lib/ask/types'
+import { useRefreshOnChange } from '#/lib/index-changes'
 
 export const Route = createFileRoute('/documents')({ component: DocumentsPage })
-
-const WITHOUT_STORED_VECTOR = { exclude: [EMBEDDING_FIELD] }
 
 function DocumentsPage() {
   const { activeIndexName } = useIndexWorkspace()
   const stats = useStats(activeIndexName ?? '', { enabled: activeIndexName !== null })
   const schema = useIndexSchema(stats.data)
-  const browser = useDocumentBrowser(activeIndexName, schema.fields)
+  const vectorPaths = useMemo(() => [...schema.vectorPaths], [schema.vectorPaths])
+  const browser = useDocumentBrowser(activeIndexName, schema.fields, vectorPaths)
 
-  const params = useMemo(() => ({ ...browser.params, document: WITHOUT_STORED_VECTOR }), [browser.params])
-  const list = useDocuments(activeIndexName ?? '', params, {
+  const list = useDocuments(activeIndexName ?? '', browser.params, {
     enabled: activeIndexName !== null,
     keepPreviousData: true,
   })
+  useRefreshOnChange(list.refresh)
+  useRefreshOnChange(stats.refresh)
 
   return (
     <DocumentsView

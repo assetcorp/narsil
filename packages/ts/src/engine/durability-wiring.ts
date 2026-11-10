@@ -6,6 +6,10 @@ import type { HeldCheckpointReport } from '../types/memory'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
+import type { WorkerOrchestrator } from './orchestration'
+import { scheduleSyncRetention } from './sync/retention'
+
+export { createInvalidationFromConfig } from './invalidation'
 
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
@@ -51,9 +55,26 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     keepsSyncHistory: indexName => wiring.indexRegistry.get(indexName)?.sync?.active === true,
     onHistoryMoved(indexName) {
       if (wiring.indexRegistry.get(indexName)?.sync?.active !== true) return
-      import('./sync/retention')
-        .then(retention => retention.scheduleSyncRetention(wiring.engineCore(), indexName))
-        .catch((error: unknown) => wiring.emitFatalError(error instanceof Error ? error : new Error(String(error))))
+      try {
+        scheduleSyncRetention(wiring.engineCore(), indexName)
+      } catch (error) {
+        wiring.emitFatalError(error instanceof Error ? error : new Error(String(error)))
+      }
     },
   })
+}
+
+export async function reloadIndexAndCopies(
+  orchestrator: WorkerOrchestrator,
+  durability: DurabilityIntegration | null,
+  indexName: string,
+): Promise<void> {
+  const manager = durability?.manager
+  if (manager?.reloadIndex === undefined) return
+  const wasScaledOut = orchestrator.desyncIndex(indexName)
+  try {
+    await manager.reloadIndex(indexName)
+  } finally {
+    await orchestrator.resyncIndex(indexName, wasScaledOut)
+  }
 }

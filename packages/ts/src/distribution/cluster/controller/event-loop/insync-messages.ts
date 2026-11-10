@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../../../serialization/msgpack'
 import type { ClusterCoordinator } from '../../../coordinator/types'
 import { isRecord, isValidInteger } from '../../../payload-guards'
 import { createInsyncConfirmMessage } from '../../../replication/codec'

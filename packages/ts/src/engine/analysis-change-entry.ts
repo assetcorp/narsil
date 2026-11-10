@@ -1,3 +1,4 @@
+import { loadOptionalWrites, loadStorageCode } from '#platform/restore-queue-host'
 import type { EngineCore, IndexRegistryEntry } from './core'
 
 function holdsChangeWork(entry: IndexRegistryEntry | undefined): boolean {
@@ -6,7 +7,7 @@ function holdsChangeWork(entry: IndexRegistryEntry | undefined): boolean {
 
 export async function abandonChangeOf(core: EngineCore, indexName: string): Promise<void> {
   if (!holdsChangeWork(core.indexRegistry.get(indexName))) return
-  const { abandonAnalysisChange } = await import('./analysis-change')
+  const { abandonAnalysisChange } = await loadStorageCode()
   await abandonAnalysisChange(core, indexName)
 }
 
@@ -14,7 +15,7 @@ export async function resumeChangeOf(core: EngineCore, indexName: string): Promi
   if ((core.indexRegistry.get(indexName)?.pendingAnalysis ?? null) === null) return
   if (core.mutationCtx.capacityScope === 'partition') return
   if (core.executor.getManager(indexName) === undefined) return
-  const { resumeAnalysisChange } = await import('./analysis-change')
+  const [{ resumeAnalysisChange }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
   void resumeAnalysisChange(core, indexName).catch(() => undefined)
 }
 

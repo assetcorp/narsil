@@ -1,5 +1,5 @@
+import { highWord, lowWord, MAGNITUDE_MASK, withLowWord } from '../geo/geo-host-bindings'
 import { quarterTurn, reduceQuarterTurn, remPio2, THREE_PI_OVER_FOUR_LIMIT } from './reduce'
-import { highWord, lowWord, MAGNITUDE_MASK, withLowWord } from './words'
 
 const PI_OVER_FOUR_LIMIT = 0.7853984832763672
 const TINY_SINE_LIMIT = 7.450580596923828e-9

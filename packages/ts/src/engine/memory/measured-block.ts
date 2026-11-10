@@ -1,7 +1,11 @@
 import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { collectGarbageBeforeRefusal, collectYoungGenerationBeforeRefusal } from '../../runtime/thread-heap'
-import { ENGINE_MEMORY_FIGURES_MAX_AGE_MS, FULL_MEMORY_COLLECTION_INTERVAL_MS } from './constants'
+import {
+  ENGINE_MEMORY_FIGURES_MAX_AGE_MS,
+  FULL_MEMORY_COLLECTION_INTERVAL_MS,
+  WRITE_MEMORY_FIGURES_MAX_AGE_MS,
+} from './constants'
 import { type MemoryFractionSettings, type MemoryFractions, memoryFractionsOf } from './fractions'
 import { readEngineMemoryFigures } from './measure'
 import { createMemoryMonitor, type MemoryMonitor } from './monitor'
@@ -36,7 +40,7 @@ export function createMeasuredWriteBlock(settings: MemoryFractionSettings | unde
     fractions,
     monitor,
     refuseWhileFull(indexName) {
-      monitor.measureIfOlderThan(ENGINE_MEMORY_FIGURES_MAX_AGE_MS)
+      monitor.measureIfOlderThan(WRITE_MEMORY_FIGURES_MAX_AGE_MS)
       if (!monitor.isFull()) return
       monitor.measureWithoutGarbage()
       if (!monitor.isFull()) return

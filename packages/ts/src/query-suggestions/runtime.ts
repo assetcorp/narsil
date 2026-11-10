@@ -1,14 +1,22 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  acceptedPhrase,
+  DayStore,
+  dayOf,
+  ErrorCodes,
+  isGroup,
+  isPerson,
+  loadDigest,
+  MIN_KEY_BYTES,
+  NarsilError,
+  RestoredHistory,
+  removeHistoryFolder,
+  resolveSetting,
+} from '#platform/suggestions-host'
 import type { QuerySuggestionsSetting, RecordedQuery, RecordQueryResult } from '../types/query-suggestions'
 import { BuildRunner } from './build-runner'
-import { MIN_KEY_BYTES } from './constants'
-import { DayStore, dayOf } from './day-store'
-import { removeHistoryFolder } from './history-files'
 import type { SuggestionsHost } from './host'
-import { acceptedPhrase, isGroup, isPerson } from './phrase'
-import { RestoredHistory } from './restored-history'
 import { createPersonScrambler, type PersonScrambler } from './scramble'
-import { type ResolvedSetting, resolveSetting } from './setting'
+import type { ResolvedSetting } from './setting'
 import { markedSuggestionIndexes } from './suggestions-writer'
 import { SuggestionTimers } from './timers'
 
@@ -36,6 +44,14 @@ export function notEnabled(indexName: string): NarsilError {
   )
 }
 
+export async function createQuerySuggestionsRuntime(
+  host: SuggestionsHost,
+  key: Uint8Array | null,
+): Promise<QuerySuggestionsRuntime> {
+  const scrambler = key === null ? null : createPersonScrambler(key, await loadDigest())
+  return new QuerySuggestionsRuntime(host, scrambler)
+}
+
 export class QuerySuggestionsRuntime {
   readonly host: SuggestionsHost
   readonly scrambler: PersonScrambler | null
@@ -45,9 +61,9 @@ export class QuerySuggestionsRuntime {
   private readonly locks = new Map<string, Promise<unknown>>()
   private stopping = false
 
-  constructor(host: SuggestionsHost, key: Uint8Array | null) {
+  constructor(host: SuggestionsHost, scrambler: PersonScrambler | null) {
     this.host = host
-    this.scrambler = key === null ? null : createPersonScrambler(key)
+    this.scrambler = scrambler
     this.days = this.scrambler === null ? null : new DayStore(host, this.scrambler)
     this.builds = new BuildRunner(this)
     this.timers = new SuggestionTimers(this)

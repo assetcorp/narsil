@@ -1,4 +1,7 @@
-import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/embed-host'
+
+export { bindEmbedHost } from '#platform/embed-host'
+
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { EmbeddingFieldConfig } from '../types/schema'
 
@@ -182,13 +185,11 @@ export async function embedDocumentFields(
   return embeddedFields
 }
 
-const SOURCE_FAILURE_CODES = new Set<NarsilErrorCode>([
-  ErrorCodes.EMBEDDING_NO_SOURCE,
-  ErrorCodes.DOC_VALIDATION_FAILED,
-])
-
 function isDocumentSourceError(err: unknown): err is NarsilError {
-  return err instanceof NarsilError && SOURCE_FAILURE_CODES.has(err.code)
+  return (
+    err instanceof NarsilError &&
+    (err.code === ErrorCodes.EMBEDDING_NO_SOURCE || err.code === ErrorCodes.DOC_VALIDATION_FAILED)
+  )
 }
 
 export async function embedBatchDocumentFields(

@@ -54,13 +54,16 @@ namespace margelo::nitro::narsil {
     MemoryView present     SWIFT_PRIVATE;
     MemoryView vectorFile     SWIFT_PRIVATE;
     MemoryView vectorOffset     SWIFT_PRIVATE;
+    MemoryView bornAt     SWIFT_PRIVATE;
+    MemoryView retiredAt     SWIFT_PRIVATE;
+    MemoryView pins     SWIFT_PRIVATE;
     std::vector<std::string> vectorFiles     SWIFT_PRIVATE;
     std::vector<MemoryView> codeBlocks     SWIFT_PRIVATE;
     std::vector<MemoryView> vectorBlocks     SWIFT_PRIVATE;
 
   public:
     StoreMemory() = default;
-    explicit StoreMemory(MemoryView storeHeader, double dimension, double bits, double recordsPerBlock, double vectorsPerBlock, double vectorStrideBytes, MemoryView codePresent, MemoryView centroid, MemoryView magnitudes, MemoryView present, MemoryView vectorFile, MemoryView vectorOffset, std::vector<std::string> vectorFiles, std::vector<MemoryView> codeBlocks, std::vector<MemoryView> vectorBlocks): storeHeader(storeHeader), dimension(dimension), bits(bits), recordsPerBlock(recordsPerBlock), vectorsPerBlock(vectorsPerBlock), vectorStrideBytes(vectorStrideBytes), codePresent(codePresent), centroid(centroid), magnitudes(magnitudes), present(present), vectorFile(vectorFile), vectorOffset(vectorOffset), vectorFiles(vectorFiles), codeBlocks(codeBlocks), vectorBlocks(vectorBlocks) {}
+    explicit StoreMemory(MemoryView storeHeader, double dimension, double bits, double recordsPerBlock, double vectorsPerBlock, double vectorStrideBytes, MemoryView codePresent, MemoryView centroid, MemoryView magnitudes, MemoryView present, MemoryView vectorFile, MemoryView vectorOffset, MemoryView bornAt, MemoryView retiredAt, MemoryView pins, std::vector<std::string> vectorFiles, std::vector<MemoryView> codeBlocks, std::vector<MemoryView> vectorBlocks): storeHeader(storeHeader), dimension(dimension), bits(bits), recordsPerBlock(recordsPerBlock), vectorsPerBlock(vectorsPerBlock), vectorStrideBytes(vectorStrideBytes), codePresent(codePresent), centroid(centroid), magnitudes(magnitudes), present(present), vectorFile(vectorFile), vectorOffset(vectorOffset), bornAt(bornAt), retiredAt(retiredAt), pins(pins), vectorFiles(vectorFiles), codeBlocks(codeBlocks), vectorBlocks(vectorBlocks) {}
 
   public:
     friend bool operator==(const StoreMemory& lhs, const StoreMemory& rhs) = default;
@@ -88,6 +91,9 @@ namespace margelo::nitro {
         JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "present"))),
         JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorFile"))),
         JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorOffset"))),
+        JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "bornAt"))),
+        JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "retiredAt"))),
+        JSIConverter<margelo::nitro::narsil::MemoryView>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "pins"))),
         JSIConverter<std::vector<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorFiles"))),
         JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "codeBlocks"))),
         JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorBlocks")))
@@ -107,6 +113,9 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "present"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.present));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "vectorFile"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.vectorFile));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "vectorOffset"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.vectorOffset));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "bornAt"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.bornAt));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "retiredAt"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.retiredAt));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "pins"), JSIConverter<margelo::nitro::narsil::MemoryView>::toJSI(runtime, arg.pins));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "vectorFiles"), JSIConverter<std::vector<std::string>>::toJSI(runtime, arg.vectorFiles));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "codeBlocks"), JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::toJSI(runtime, arg.codeBlocks));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "vectorBlocks"), JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::toJSI(runtime, arg.vectorBlocks));
@@ -132,6 +141,9 @@ namespace margelo::nitro {
       if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "present")))) return false;
       if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorFile")))) return false;
       if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorOffset")))) return false;
+      if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "bornAt")))) return false;
+      if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "retiredAt")))) return false;
+      if (!JSIConverter<margelo::nitro::narsil::MemoryView>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "pins")))) return false;
       if (!JSIConverter<std::vector<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorFiles")))) return false;
       if (!JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "codeBlocks")))) return false;
       if (!JSIConverter<std::vector<margelo::nitro::narsil::MemoryView>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "vectorBlocks")))) return false;

@@ -528,7 +528,7 @@ static const uint32_t keep_ranges[22] = {
 
 const narsil_language narsil_language_tatar = {
   .name = "tatar",
-  .revision = "1",
+  .revision = "a643fe59228158cf",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 1005,
