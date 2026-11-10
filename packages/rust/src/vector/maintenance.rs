@@ -42,6 +42,7 @@ pub(crate) fn graph_needs_rebuild(shared: &Shared, generation: &Generation) -> b
 }
 
 fn compact_graph(shared: &Shared, writer: &Writer, graph: &GraphTables) -> Result<()> {
+    let _published = writer.generation.store.hold_published()?;
     let _alone = graph.hold_alone();
     if graph.incoming_uncounted() {
         graph.count_incoming();

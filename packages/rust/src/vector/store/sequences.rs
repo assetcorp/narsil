@@ -1,6 +1,8 @@
 use std::sync::atomic::Ordering;
 
 use super::StoreTables;
+use crate::error::Result;
+use crate::pins::{IndexSequence, Pin};
 
 const NOT_RETIRED: i64 = 0;
 const NOT_BORN: i64 = 0;
@@ -74,6 +76,10 @@ impl StoreTables {
         self.sequence
             .as_ref()
             .is_some_and(|sequence| sequence.stamped_after(pin))
+    }
+
+    pub(crate) fn hold_published(&self) -> Result<Option<Pin>> {
+        self.sequence.as_ref().map(IndexSequence::pin).transpose()
     }
 
     pub(crate) fn admitted_count(&self, pin: i64) -> u64 {
