@@ -49,7 +49,8 @@ export class SpellingTable extends SurfaceTable implements NativeSpellingTable {
       for (const _point of word) points++
       if (points <= 3) continue
       spellings.add(word)
-      plan.points[plan.prepare(word)] = points
+      const entry = plan.prepare(word)
+      plan.points[entry] = points
     }
     reserveStrings(this, spellings)
     const members = collectRuns(plan)
