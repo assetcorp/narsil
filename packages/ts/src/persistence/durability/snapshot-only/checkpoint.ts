@@ -3,6 +3,7 @@ import { captureAppliedPrefix } from '../../../partitioning/manager/checkpoint-p
 import type { PersistenceAdapter } from '../../../types/adapters'
 import type { IndexMetadata } from '../../../types/internal'
 import type { VectorCheckpointPlan, VectorIndex } from '../../../vector/vector-index'
+import { whileGraphsStayComplete } from '../complete-graphs'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
 import { partitionContentsOf } from '../segment/captured-partition'
@@ -115,9 +116,11 @@ export async function writeSnapshotOnlyCheckpoint(
   input: SnapshotOnlyCheckpointInput,
 ): Promise<{ documentCount: number; positions: ReadonlyMap<number, number>; partitionCount: number }> {
   const store = adapterCheckpointStore(input.adapter)
-  for (const vectorIndex of input.vectorIndexes.values()) await vectorIndex.completeGraph()
-  const prior = await readCurrentManifest(store, input.indexName)
-  const captured = await captureAppliedPrefix(input.manager, cutoffs => capture(input, prior, cutoffs))
+  const { prior, captured } = await whileGraphsStayComplete(input.vectorIndexes, async () => {
+    const prior = await readCurrentManifest(store, input.indexName)
+    const captured = await captureAppliedPrefix(input.manager, cutoffs => capture(input, prior, cutoffs))
+    return { prior, captured }
+  })
   try {
     await writeCaptured(input, store, prior, captured)
     return {
