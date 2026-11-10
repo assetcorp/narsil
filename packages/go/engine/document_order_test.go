@@ -243,6 +243,7 @@ func heldBeforeLaterWrites(t *testing.T, narsil *engine.Narsil) map[string][]*en
 }
 
 func TestHeldDocumentsOutliveLaterWritesCompactionAndShutdown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	narsil, err := engine.New(ctx, engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)},
 		Durability: &engine.DurabilityConfig{Directory: t.TempDir(), Mode: engine.DurabilitySync,

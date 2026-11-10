@@ -168,6 +168,13 @@ func runSearchesAcrossMerges(t *testing.T, directory string) {
 }
 
 func TestSearchesFindEveryDocumentWhileSegmentsMergeAfterWritesGoQuiet(t *testing.T) {
-	t.Run("in memory", func(t *testing.T) { runSearchesAcrossMerges(t, "") })
-	t.Run("durable", func(t *testing.T) { runSearchesAcrossMerges(t, t.TempDir()) })
+	t.Parallel()
+	t.Run("in memory", func(t *testing.T) {
+		t.Parallel()
+		runSearchesAcrossMerges(t, "")
+	})
+	t.Run("durable", func(t *testing.T) {
+		t.Parallel()
+		runSearchesAcrossMerges(t, t.TempDir())
+	})
 }

@@ -83,6 +83,7 @@ func textBytesOf(ledger *diskTextLedger, from int, to int) int64 {
 }
 
 func TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory(t *testing.T) {
+	t.Parallel()
 	engines := []*checkpointedEngine{startCheckpointedEngine(t, "idle", true),
 		startCheckpointedEngine(t, "busy", false)}
 	for burst := range checkpointedBursts {
