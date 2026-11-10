@@ -18,7 +18,7 @@ const TEST_TIMEOUT_MS = 120_000
 const INDEX = 'passages'
 const FIELD = 'embedding'
 
-interface Passage {
+type Passage = {
   id: string
   title: string
   embedding: number[]
