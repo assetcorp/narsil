@@ -15,7 +15,7 @@ use super::graph::{GraphTables, upper_words_of};
 use super::writes::compacted_buffer;
 use placement::{adopt, place_batch};
 
-pub(crate) use placement::connect_unreached;
+pub(crate) use placement::{connect_held_alone, connect_unreached};
 
 const GOLDEN_GAMMA: u32 = 0x9e37_79b9;
 const FIRST_MIX_MULTIPLIER: u32 = 0x21f0_aaad;
@@ -76,6 +76,10 @@ pub(crate) fn lock_gate(shared: &Shared) -> MutexGuard<'_, ()> {
         .build_gate
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub(crate) fn build_pass_under_way(shared: &Shared) -> bool {
+    shared.build_gate.try_lock().is_err()
 }
 
 pub(crate) fn shuffled_rebuild_due(shared: &Shared, graph: &GraphTables, held: u64) -> bool {
@@ -302,6 +306,7 @@ pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
             Ok(false) => return Ok(false),
             Err(error) => {
                 abandon(shared, &plan);
+                reconnect_part_grown(shared, &plan);
                 return Err(error);
             }
         }
@@ -316,6 +321,17 @@ pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
         release_pending_locations(shared, &mut writer)?;
     }
     Ok(true)
+}
+
+fn reconnect_part_grown(shared: &Shared, plan: &Plan) {
+    if plan.fresh {
+        return;
+    }
+    let writer = shared.lock_writer();
+    if still_current(&writer, plan) && connect_unreached(&writer, &plan.graph).is_err() {
+        plan.graph
+            .set_word(crate::ffi::NARSIL_GRAPH_WORD_UNLINKED_NODES, 1);
+    }
 }
 
 fn abandon(shared: &Shared, plan: &Plan) {
