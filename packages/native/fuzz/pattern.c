@@ -18,8 +18,20 @@ enum {
   TOLERANCE_CHOICES = 5,
   RUN_POINTS = 3,
   MAX_QUERY_UNITS = 64,
-  MAX_MATCHER_BYTES = 1U << 20
+  MAX_MATCHER_BYTES = 1U << 20,
+  MAX_FOLDED_UNITS = 256,
+  LONGEST_FOLD_POINTS = 3
 };
+
+static void fold(fuzz_input *input) {
+  size_t length = fuzz_below(input, MAX_FOLDED_UNITS + 1);
+  const uint16_t *text = FUZZ_ARRAY(input, uint16_t, length);
+  size_t longest = length * LONGEST_FOLD_POINTS;
+  size_t capacity = fuzz_raw(input) ? fuzz_count(input, longest) : longest;
+  uint32_t *points = FUZZ_ROOM(input, uint32_t, capacity);
+  uint32_t count = 0;
+  if (!input->exhausted_memory) { (void)narsil_case_fold(text, length, points, capacity, &count); }
+}
 
 static narsil_pattern_list fuzz_list(fuzz_input *input, size_t count) {
   return (narsil_pattern_list){FUZZ_ARRAY(input, uint32_t, count), count};
@@ -66,6 +78,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (!input.exhausted_memory) {
     (void)narsil_pattern_match(workspace, &index, &values, &test, &meter, into, into_words);
   }
+  fold(&input);
   narsil_workspace_destroy(workspace);
   fuzz_release(&input);
   return 0;
