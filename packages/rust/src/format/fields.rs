@@ -1,5 +1,5 @@
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::{Map, Value};
+use crate::value::{MAX_SAFE_INTEGER, Map, Value};
 
 /// Reads the fields of one decoded payload map, raising one error code for every malformed field.
 pub(crate) struct Fields<'a> {
@@ -8,7 +8,6 @@ pub(crate) struct Fields<'a> {
     prefix: &'a str,
 }
 
-pub(crate) const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const MAX_UINT32: f64 = 4_294_967_295.0;
 
 pub(crate) fn whole_number(value: Option<&Value>) -> Option<f64> {
@@ -23,7 +22,7 @@ pub(crate) fn whole_number_up_to(value: Option<&Value>, highest: f64) -> Option<
 }
 
 pub(crate) fn non_negative_safe_integer(value: Option<&Value>) -> Option<u64> {
-    whole_number_up_to(value, MAX_SAFE_INTEGER).map(|number| number as u64)
+    whole_number_up_to(value, MAX_SAFE_INTEGER as f64).map(|number| number as u64)
 }
 
 pub(crate) fn uint32_of(value: Option<&Value>) -> Option<u32> {

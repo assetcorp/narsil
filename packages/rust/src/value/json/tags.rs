@@ -1,9 +1,7 @@
 use super::parse::parse_json_raw;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::base64;
-use crate::value::{Map, Timestamp, Value};
-
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+use crate::value::{MAX_SAFE_INTEGER, Map, Timestamp, Value};
 const MAX_NANOSECONDS: f64 = 999_999_999.0;
 
 fn refuse(path: &str, reason: &str) -> NarsilError {
@@ -27,7 +25,7 @@ fn untag_tag(tag: &str, value: Value, path: &str, depth: usize) -> Result<Value>
                     "holds a \"$date\" tag other than [seconds, nanoseconds]",
                 ));
             };
-            if seconds.fract() != 0.0 || seconds.abs() > MAX_SAFE_INTEGER {
+            if seconds.fract() != 0.0 || seconds.abs() > MAX_SAFE_INTEGER as f64 {
                 return Err(refuse(
                     path,
                     "holds a \"$date\" tag whose seconds are not an integer from -9007199254740991 to 9007199254740991",

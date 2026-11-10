@@ -1,8 +1,8 @@
 use super::{COMMIT_MARKER_SLOT_BYTES, COMMIT_MARKER_SLOTS};
 use crate::util::hash::crc32;
+use crate::value::MAX_SAFE_INTEGER;
 
 const MARKER_CRC_OFFSET: usize = 32;
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CommitMarker {

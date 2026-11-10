@@ -1,8 +1,7 @@
 use super::{MAX_ENCODING_DEPTH, TIMESTAMP_EXTENSION};
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::{Map, Timestamp, Value};
+use crate::value::{MAX_SAFE_INTEGER, Map, Timestamp, Value};
 
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const TIMESTAMP_32_SECONDS_LIMIT: i64 = 0x1_0000_0000;
 const TIMESTAMP_64_SECONDS_LIMIT: i64 = 0x4_0000_0000;
 
@@ -47,7 +46,7 @@ fn write_int(out: &mut Vec<u8>, number: i64) {
 }
 
 pub(crate) fn write_number(out: &mut Vec<u8>, number: f64) {
-    let integral = number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER;
+    let integral = number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER as f64;
     if integral && !(number == 0.0 && number.is_sign_negative()) {
         write_int(out, number as i64);
     } else {

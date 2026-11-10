@@ -3,13 +3,13 @@ use std::io::{self, BufRead};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::index_configuration::require_configuration_shape;
 use crate::value::{
-    Map, Value, number_to_text, parse_json_raw, untag_value, write_exact_json_into, write_json_into,
+    MAX_SAFE_INTEGER, Map, Value, number_to_text, parse_json_raw, untag_value,
+    write_exact_json_into, write_json_into,
 };
 
 pub(crate) const DOCUMENT_EXPORT_FORMAT: &str = "narsil-export";
 pub(crate) const DOCUMENT_EXPORT_VERSION: f64 = 1.0;
 pub(crate) const MAX_EXPORT_LINE_BYTES: usize = 117_443_592;
-const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 const NEWLINE: u8 = b'\n';
 
 /// Why a line of an export holds no text that a reader can take.
@@ -195,7 +195,7 @@ fn require_json_values(value: &Value, path: &str, doc_id: &str, tagged: bool) ->
         Value::Number(number) if !number.is_finite() && !tagged => refuse(&number_to_text(*number)),
         Value::Bytes(_) if !tagged => refuse("bytes"),
         Value::Timestamp(_) if !tagged => refuse("a date"),
-        Value::Timestamp(timestamp) if timestamp.seconds.abs() > MAX_SAFE_INTEGER => {
+        Value::Timestamp(timestamp) if timestamp.seconds.unsigned_abs() > MAX_SAFE_INTEGER => {
             refuse("a date")
         }
         Value::Array(items) => items.iter().enumerate().try_for_each(|(at, item)| {

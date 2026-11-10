@@ -3,9 +3,8 @@ use std::collections::HashSet;
 use super::constants::{MAX_MAX_LENGTH, MAX_MAX_WORDS, MAX_PEOPLE_PER_PHRASE_IN_FILE};
 use super::phrase::{PhraseLimits, is_group, is_normal_phrase};
 use super::scramble::ScrambledId;
-use crate::engine::index_lifecycle::constants::MAX_SAFE_INTEGER;
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::Decoder;
+use crate::value::{Decoder, MAX_SAFE_INTEGER};
 
 pub(crate) const KEY_PHRASE: &str = "phrase";
 pub(crate) const KEY_COUNT: &str = "count";

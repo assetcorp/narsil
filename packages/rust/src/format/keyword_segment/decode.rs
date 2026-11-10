@@ -14,9 +14,8 @@ use crate::format::segment_checks::{
 };
 use crate::schema::require_valid_field_types;
 use crate::util::bytes::{u16_list, u32_list, u64_list};
-use crate::value::{Map, Value, decode_value};
+use crate::value::{MAX_SAFE_INTEGER, Map, Value, decode_value};
 
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const ERROR_PREFIX: &str = "Invalid keyword segment: ";
 
 fn u32_field(segment: &Fields<'_>, key: &str) -> Result<Vec<u32>> {
