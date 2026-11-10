@@ -182,6 +182,24 @@ impl PartitionSnapshot {
         Ok(Some(document))
     }
 
+    fn keyword_batch(&mut self, ending: bool) -> Result<()> {
+        let Some(SegmentData::Tail(tail)) = self.segments.last_mut().map(|entry| &mut entry.data)
+        else {
+            return Ok(());
+        };
+        match Arc::get_mut(tail) {
+            Some(tail) if ending => tail.keyword.end_batch(),
+            Some(tail) => tail.keyword.begin_batch(),
+            None => Ok(()),
+        }
+    }
+
+    /// Closes a batch of writes on the tail segment, where the native core compacts the keyword tables of a tail
+    /// that no search reads.
+    pub(crate) fn end_batch(&mut self) -> Result<()> {
+        self.keyword_batch(true)
+    }
+
     pub(crate) fn clear(&mut self) {
         self.segments.clear();
         self.stats = PartitionStats::default();
@@ -226,4 +244,35 @@ impl Partition {
         *published(&self.published) = Arc::new(copy);
         result
     }
+
+    fn keyword_batch(&self, ending: bool) -> Result<()> {
+        let mut guard = published(&self.published);
+        match Arc::get_mut(&mut guard) {
+            Some(snapshot) => snapshot.keyword_batch(ending),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Runs `writes` between an opened and a closed batch on every partition of `partitions`, closing the batch
+/// where the writes fail too. The writer of the index must hold its write lock throughout, and a partition
+/// whose snapshot a search still holds keeps its keyword tables as they are.
+pub(crate) fn in_keyword_batch<R>(
+    partitions: &[Arc<Partition>],
+    writes: impl FnOnce() -> Result<R>,
+) -> Result<R> {
+    for partition in partitions {
+        partition.keyword_batch(false)?;
+    }
+    let written = writes();
+    let mut closed = Ok(());
+    for partition in partitions {
+        let ended = partition.keyword_batch(true);
+        if closed.is_ok() {
+            closed = ended;
+        }
+    }
+    let result = written?;
+    closed?;
+    Ok(result)
 }

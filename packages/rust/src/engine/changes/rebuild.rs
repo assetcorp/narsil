@@ -104,6 +104,9 @@ impl Rebuild<'_> {
             progress(done + 1);
         }
         self.require_current()?;
+        for snapshot in &mut built {
+            snapshot.end_batch()?;
+        }
         Ok(built
             .into_iter()
             .map(|snapshot| Arc::new(Partition::new(snapshot)))

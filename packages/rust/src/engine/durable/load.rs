@@ -17,7 +17,7 @@ use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, decode_vector_fil
 use crate::format::vector_head::{check_graph_part_head, check_vector_file_head};
 use crate::index::frozen::FrozenSegment;
 use crate::index::paged::{PagedListing, open_paged_segment};
-use crate::index::partition::{Partition, PartitionSnapshot};
+use crate::index::partition::{Partition, PartitionSnapshot, in_keyword_batch};
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::value::{Map, Value};
 use crate::vector::restore::{CheckpointRestoreShape, LoadedVectorFile, VectorFileLocation};
@@ -73,12 +73,14 @@ pub(super) fn remove_replaced<'a>(
 ) -> Result<()> {
     let partitions = index.partitions();
     let analyse = |document: &Map| index.index_document(document);
-    for id in ids {
-        if let Some(at) = index.locate(&partitions, id)? {
-            partitions[at].write(|snapshot| snapshot.remove(id, &analyse))?;
+    in_keyword_batch(&partitions, || {
+        for id in ids {
+            if let Some(at) = index.locate(&partitions, id)? {
+                partitions[at].write(|snapshot| snapshot.remove(id, &analyse))?;
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn attach_segment(target: &Partition, id: u64, frozen: Arc<FrozenSegment>) {

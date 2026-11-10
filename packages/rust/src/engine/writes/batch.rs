@@ -8,6 +8,7 @@ use crate::engine::constants::BATCH_CHUNK_DOCUMENTS;
 use crate::engine::durable::log::{LogFailure, PendingLog};
 use crate::engine::index::IndexState;
 use crate::error::{NarsilError, Result};
+use crate::index::partition::in_keyword_batch;
 use crate::schema::require_document_within_size_limit;
 use crate::value::Map;
 
@@ -190,7 +191,7 @@ pub(crate) fn update_batch(index: &IndexState, updates: Vec<(String, Map)>) -> R
 /// Removes many documents, refusing each missing one alone.
 pub(crate) fn remove_batch(index: &IndexState, doc_ids: Vec<String>) -> Result<BatchResult> {
     let mut result = BatchResult::default();
-    let appended = {
+    let (appended, batched) = {
         let _writer = match index.lock_writes() {
             Ok(writer) => writer,
             Err(error) => {
@@ -203,16 +204,20 @@ pub(crate) fn remove_batch(index: &IndexState, doc_ids: Vec<String>) -> Result<B
         };
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
-        for doc_id in doc_ids {
-            let outcome = validate_doc_id(&doc_id)
-                .and_then(|()| apply_remove(index, &partitions, &doc_id, &mut log));
-            match outcome {
-                Ok(()) => result.succeeded.push(doc_id),
-                Err(error) => result.failed.push(BatchFailure { doc_id, error }),
+        let batched = in_keyword_batch(&partitions, || {
+            for doc_id in doc_ids {
+                let outcome = validate_doc_id(&doc_id)
+                    .and_then(|()| apply_remove(index, &partitions, &doc_id, &mut log));
+                match outcome {
+                    Ok(()) => result.succeeded.push(doc_id),
+                    Err(error) => result.failed.push(BatchFailure { doc_id, error }),
+                }
             }
-        }
-        log.append()
+            Ok(())
+        });
+        (log.append(), batched)
     };
     settle_logged(&mut result, appended.wait());
+    batched?;
     Ok(result)
 }
