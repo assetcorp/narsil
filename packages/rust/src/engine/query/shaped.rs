@@ -43,6 +43,7 @@ fn sorted_page(
     highlight_hits(
         run.index,
         &run.snapshots.layout,
+        &run.snapshots.partitions,
         run.params,
         &mut hits,
         projection,
@@ -70,15 +71,7 @@ pub(crate) fn shaped_page(
         return sorted_page(run, plan, signature, projection);
     }
     let input = match search {
-        SearchPlan::Vector => vector_hits(
-            run.index,
-            params,
-            run.limit,
-            run.offset,
-            cursor_depth(run)?,
-            run.scope,
-            &run.snapshots.pin,
-        )?,
+        SearchPlan::Vector => vector_hits(run, cursor_depth(run)?)?,
         SearchPlan::Hybrid => hybrid_hits(run, cursor_depth(run)?)?,
         SearchPlan::Text => text_ranked(run, params)?,
     };
@@ -94,6 +87,7 @@ pub(crate) fn shaped_page(
     highlight_hits(
         run.index,
         &run.snapshots.layout,
+        &run.snapshots.partitions,
         params,
         &mut hits,
         projection,

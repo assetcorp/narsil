@@ -103,15 +103,7 @@ fn preflight_count(
     }
     let (count, count_exact) = match plan {
         SearchPlan::Vector => {
-            let found = vector_hits(
-                index,
-                &resolved,
-                PREFLIGHT_VECTOR_DEPTH,
-                0,
-                0,
-                &scope,
-                &run.snapshots.pin,
-            )?;
+            let found = vector_hits(&run, 0)?;
             (found.total_matched, found.exact)
         }
         SearchPlan::Hybrid => {

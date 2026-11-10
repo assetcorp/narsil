@@ -136,8 +136,9 @@ fn apply_insert(
     index.changes.track_write(id)?;
     index.vectors.insert_vectors(id, &vectors)?;
     let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
-    let appended =
-        partition.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze));
+    let appended = index.publish(|| {
+        partition.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze))
+    });
     match appended {
         Ok(()) => log.record_index(routed as u32, id, encoded),
         Err(_) => {
@@ -209,7 +210,18 @@ fn apply_update(
     let indexed = index.index_document(&document)?;
     index.changes.track_write(id)?;
     let undo = index.vectors.update_vectors(id, &vectors)?;
-    let replaced = replace_document(index, partitions, at, id, document, indexed);
+    let routed = index.route(id, partitions.len());
+    let replaced = index.publish(|| {
+        replace_document(
+            index,
+            partitions,
+            at,
+            routed,
+            id,
+            Arc::new(document),
+            indexed,
+        )
+    });
     match replaced {
         Ok(()) => log.record_index(index.route(id, partitions.len()) as u32, id, encoded),
         Err(_) => index.vectors.undo(id, undo),
@@ -221,17 +233,16 @@ fn replace_document(
     index: &IndexState,
     partitions: &[Arc<Partition>],
     at: usize,
+    target: usize,
     id: &str,
-    document: Map,
+    stored: Arc<Map>,
     indexed: IndexedDocument,
 ) -> Result<()> {
-    let stored = Arc::new(document);
-    let routed = index.route(id, partitions.len());
     let analyse = |document: &Map| index.index_document(document);
     let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
-    if routed != at {
+    if target != at {
         partitions[at].write(|snapshot| snapshot.remove(id, &analyse))?;
-        let target = partitions.get(routed).unwrap_or(&partitions[at]);
+        let target = partitions.get(target).unwrap_or(&partitions[at]);
         return target.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze));
     }
     partitions[at].write(|snapshot| {
@@ -275,13 +286,19 @@ pub(crate) fn apply_remove(
     };
     let analyse = |document: &Map| index.index_document(document);
     index.changes.track_write(id)?;
-    match partitions[at].write(|snapshot| snapshot.remove(id, &analyse))? {
-        Some(_) => {
-            log.record_delete(index.route(id, partitions.len()) as u32, id);
-            index.vectors.remove_vectors(id)
-        }
-        None => Err(index.not_found(id)),
+    let undo = index.vectors.remove_document_vectors(id)?;
+    let removed =
+        index.publish(
+            || match partitions[at].write(|snapshot| snapshot.remove(id, &analyse))? {
+                Some(_) => Ok(()),
+                None => Err(index.not_found(id)),
+            },
+        );
+    match removed {
+        Ok(()) => log.record_delete(index.route(id, partitions.len()) as u32, id),
+        Err(_) => index.vectors.undo(id, undo),
     }
+    removed
 }
 
 /// Removes the document stored under `doc_id`.

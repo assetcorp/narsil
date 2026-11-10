@@ -16,6 +16,7 @@ use crate::index::indexed::{IndexedDocument, IndexingOptions, index_document};
 use crate::index::merge::freeze_segment;
 use crate::index::partition::{Partition, PartitionSnapshot};
 use crate::index::segment::SegmentEntry;
+use crate::pins::Pin;
 use crate::schema::CompiledSchema;
 use crate::util::hash::fnv1a;
 use crate::value::Map;
@@ -41,6 +42,7 @@ pub(crate) struct IndexState {
     pub(crate) vectors: IndexVectors,
     text: RwLock<Arc<TextLayout>>,
     writer: Mutex<()>,
+    publication: RwLock<()>,
     log: OnceLock<IndexLog>,
     retired: AtomicBool,
     pub(crate) changes: LayoutChanges,
@@ -96,6 +98,7 @@ impl IndexState {
             vectors,
             text: RwLock::new(Arc::new(text)),
             writer: Mutex::new(()),
+            publication: RwLock::new(()),
             log: OnceLock::new(),
             retired: AtomicBool::new(false),
             changes: LayoutChanges::default(),
@@ -205,6 +208,38 @@ impl IndexState {
         Ok(writer)
     }
 
+    fn read_published<T>(&self, read: impl FnOnce() -> T) -> T {
+        let _published = self
+            .publication
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        read()
+    }
+
+    pub(crate) fn publish<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _publishing = self
+            .publication
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let written = write()?;
+        self.vectors.publish_writes();
+        Ok(written)
+    }
+
+    pub(crate) fn published_snapshots(
+        &self,
+        partitions: &[Arc<Partition>],
+    ) -> Result<(Vec<Arc<PartitionSnapshot>>, Pin)> {
+        self.read_published(|| {
+            let pin = self.vectors.sequence().pin()?;
+            let snapshots = partitions
+                .iter()
+                .map(|partition| partition.snapshot())
+                .collect();
+            Ok((snapshots, pin))
+        })
+    }
+
     /// Marks the index as out of the engine, while the caller holds its write lock, so that every later write to
     /// this copy fails.
     pub(crate) fn retire(&self) {
@@ -245,20 +280,31 @@ impl IndexState {
         partitions: &[Arc<Partition>],
         id: &str,
     ) -> Result<Option<Map>> {
-        let pin = self.vectors.sequence().pin()?;
-        let Some(at) = self.locate(partitions, id)? else {
-            return Ok(None);
-        };
-        let Some(partition) = partitions.get(at) else {
-            return Ok(None);
-        };
-        let Some(stored) = partition.snapshot().document(id)? else {
+        let (snapshots, pin) = self.published_snapshots(partitions)?;
+        let Some(stored) = self.stored_document(&snapshots, id)? else {
             return Ok(None);
         };
         let mut document = Arc::unwrap_or_clone(stored);
         let vectors = self.vectors.pinned_vectors(id, pin.value())?;
         self.vectors.attach(vectors, &mut document);
         Ok(Some(document))
+    }
+
+    pub(crate) fn stored_document(
+        &self,
+        snapshots: &[Arc<PartitionSnapshot>],
+        id: &str,
+    ) -> Result<Option<Arc<Map>>> {
+        let routed = self.route(id, snapshots.len());
+        let others = (0..snapshots.len()).filter(|&at| at != routed);
+        for at in std::iter::once(routed).chain(others) {
+            if let Some(snapshot) = snapshots.get(at)
+                && let Some(stored) = snapshot.document(id)?
+            {
+                return Ok(Some(stored));
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) fn document_count(&self) -> u64 {

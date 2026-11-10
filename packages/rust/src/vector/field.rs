@@ -338,11 +338,6 @@ impl VectorField {
         self.shared.settings.dimension
     }
 
-    pub(crate) fn record_write_sequence(&self, sequence: i64) {
-        let writer = self.shared.lock_writer();
-        writer.generation.store.record_write_sequence(sequence);
-    }
-
     pub(crate) fn pinned_vector(&self, doc_id: &str, pin: i64) -> Result<Option<Vec<f32>>> {
         if let Some(hold) = self.shared.cold_hold() {
             return hold.pinned_vector(doc_id, pin);

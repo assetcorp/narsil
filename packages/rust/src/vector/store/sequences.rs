@@ -3,9 +3,17 @@ use std::sync::atomic::Ordering;
 use super::StoreTables;
 
 const NOT_RETIRED: i64 = 0;
+const NOT_BORN: i64 = 0;
 
 impl StoreTables {
+    fn record_stamp(&self, sequence: i64) {
+        if let Some(index_sequence) = &self.sequence {
+            index_sequence.record_stamp(sequence);
+        }
+    }
+
     pub(crate) fn stamp_born(&self, ordinal: u32, sequence: i64) {
+        self.record_stamp(sequence);
         if let Some(entry) = self.born_at.get(ordinal as usize) {
             entry.store(sequence, Ordering::SeqCst);
         }
@@ -20,6 +28,7 @@ impl StoreTables {
         if let Some(entry) = self.retired_at.get(ordinal as usize)
             && entry.load(Ordering::SeqCst) == NOT_RETIRED
         {
+            self.record_stamp(sequence);
             entry.store(sequence, Ordering::SeqCst);
         }
     }
@@ -56,11 +65,25 @@ impl StoreTables {
     pub(crate) fn oldest_pin(&self) -> i64 {
         self.sequence
             .as_ref()
-            .map_or(crate::pins::NO_HELD_PIN, |sequence| sequence.oldest_pin())
+            .map_or(crate::pins::NO_HELD_PIN, |sequence| {
+                sequence.oldest_pin().min(sequence.current())
+            })
     }
 
-    pub(crate) fn record_write_sequence(&self, sequence: i64) {
-        self.write_sequence.store(sequence, Ordering::SeqCst);
+    pub(crate) fn stamped_after(&self, pin: i64) -> bool {
+        self.sequence
+            .as_ref()
+            .is_some_and(|sequence| sequence.stamped_after(pin))
+    }
+
+    pub(crate) fn admitted_count(&self, pin: i64) -> u64 {
+        (0..self.slots())
+            .filter(|&ordinal| {
+                let retired = self.retired_at(ordinal);
+                let born = self.born_at(ordinal);
+                (retired == NOT_RETIRED || retired > pin) && born != NOT_BORN && born <= pin
+            })
+            .count() as u64
     }
 
     pub(crate) fn sequence_bytes(&self) -> usize {

@@ -86,6 +86,10 @@ impl IndexVectors {
         Ok(undo)
     }
 
+    pub(crate) fn remove_document_vectors(&self, doc_id: &str) -> Result<VectorUndo> {
+        self.update_vectors(doc_id, &DocumentVectors::new(vec![None; self.fields.len()]))
+    }
+
     /// Puts back what [`IndexVectors::update_vectors`] replaced.
     pub(crate) fn undo(&self, doc_id: &str, undo: VectorUndo) {
         for (position, previous) in undo.replaced.into_iter().rev() {

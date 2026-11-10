@@ -27,12 +27,8 @@ pub(crate) struct QuerySnapshots {
 
 impl QuerySnapshots {
     pub(crate) fn of(index: &IndexState) -> Result<QuerySnapshots> {
-        let pin = index.vectors.sequence().pin()?;
         let layout = index.partitions();
-        let partitions = layout
-            .iter()
-            .map(|partition| partition.snapshot())
-            .collect();
+        let (partitions, pin) = index.published_snapshots(&layout)?;
         Ok(QuerySnapshots {
             layout,
             partitions,

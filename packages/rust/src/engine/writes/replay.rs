@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::apply_remove;
+use super::{apply_remove, replace_document};
 use crate::engine::durable::log::PendingLog;
 use crate::engine::index::IndexState;
 use crate::error::Result;
@@ -23,34 +23,34 @@ pub(crate) fn place_document(
     mut document: Map,
 ) -> Result<()> {
     let partitions = index.partitions();
-    let mut unlogged = PendingLog::begin(None)?;
-    if index.locate(&partitions, id)?.is_some() {
-        apply_remove(index, &partitions, id, &mut unlogged)?;
-    }
-    let Some(partition) = partitions.get(partition_at) else {
+    if partition_at >= partitions.len() {
         return Err(index.not_found(id));
-    };
+    }
+    let held_at = index.locate(&partitions, id)?;
     let vectors = index.vectors.take_vectors(&mut document, false);
     let indexed = index.index_document(&document)?;
-    index.vectors.insert_vectors(id, &vectors)?;
+    index.changes.track_write(id)?;
+    let undo = index.vectors.update_vectors(id, &vectors)?;
+    let stored = Arc::new(document);
     let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
-    let appended = partition
-        .write(|snapshot| snapshot.append(id.to_string(), Arc::new(document), indexed, &freeze));
-    if appended.is_err() {
-        let _ = index.vectors.remove_vectors(id);
+    let placed = index.publish(|| match held_at {
+        Some(at) => replace_document(index, &partitions, at, partition_at, id, stored, indexed),
+        None => partitions[partition_at]
+            .write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze)),
+    });
+    if placed.is_err() {
+        index.vectors.undo(id, undo);
     }
-    index.vectors.publish_writes();
-    appended
+    placed
 }
 
 /// Applies a `DELETE` record of the write-ahead log, which removes nothing where the index holds no such document.
 pub(crate) fn replay_delete(index: &IndexState, id: &str) -> Result<()> {
     let partitions = index.partitions();
-    let removed = if index.locate(&partitions, id)?.is_none() {
-        index.vectors.remove_vectors(id)
-    } else {
-        apply_remove(index, &partitions, id, &mut PendingLog::begin(None)?)
-    };
+    if index.locate(&partitions, id)?.is_some() {
+        return apply_remove(index, &partitions, id, &mut PendingLog::begin(None)?);
+    }
+    let removed = index.vectors.remove_vectors(id);
     index.vectors.publish_writes();
     removed
 }

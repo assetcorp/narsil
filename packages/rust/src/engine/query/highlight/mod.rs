@@ -3,6 +3,7 @@ mod native;
 mod snippet;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use super::constants::{
     DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_HIGHLIGHT_POST_TAG, DEFAULT_HIGHLIGHT_PRE_TAG,
@@ -16,6 +17,7 @@ use crate::analysis::{Analyser, ResolvedAnalysis, TokenOptions};
 use crate::engine::index::IndexState;
 use crate::engine::layout::TextLayout;
 use crate::error::Result;
+use crate::index::partition::PartitionSnapshot;
 use crate::util::text::javascript_trim;
 use crate::value::{Map, Value};
 use native::CoreHighlightQuery;
@@ -268,6 +270,7 @@ fn text_field<'d>(document: &'d Map, field: &str) -> Option<&'d str> {
 pub(crate) fn highlight_hits(
     index: &IndexState,
     layout: &TextLayout,
+    snapshots: &[Arc<PartitionSnapshot>],
     params: &QueryParams,
     hits: &mut [Hit],
     projection: &Projection,
@@ -282,13 +285,13 @@ pub(crate) fn highlight_hits(
         .any(|field| !projection_keeps_field(projection, field));
     for hit in hits.iter_mut() {
         let mut highlights = BTreeMap::new();
-        let mut stored: Option<Option<Map>> = None;
+        let mut stored: Option<Option<Arc<Map>>> = None;
         for field in &config.fields {
             let found = match text_field(&hit.document, field) {
                 Some(text) => Some(highlighter.highlight_field(text, field)?),
                 None if reads_stored => {
                     if stored.is_none() {
-                        stored = Some(index.full_document(&layout.partitions, &hit.id)?);
+                        stored = Some(index.stored_document(snapshots, &hit.id)?);
                     }
                     match stored
                         .as_ref()

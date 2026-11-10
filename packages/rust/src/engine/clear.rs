@@ -28,7 +28,7 @@ fn track_every_document(
     Ok(())
 }
 
-fn clear_vectors(index: &IndexState) -> Result<()> {
+fn remove_every_vector(index: &IndexState) -> Result<()> {
     for entry in index.vectors.fields() {
         entry.field.shared.cancel_cold_hold(true);
         let generation = entry.field.shared.current();
@@ -41,6 +41,12 @@ fn clear_vectors(index: &IndexState) -> Result<()> {
         for id in &ids {
             entry.field.remove(id)?;
         }
+    }
+    Ok(())
+}
+
+fn compact_every_vector_field(index: &IndexState) -> Result<()> {
+    for entry in index.vectors.fields() {
         entry.field.compact()?;
     }
     Ok(())
@@ -55,10 +61,14 @@ fn clear_index(index: &IndexState) -> Result<()> {
         if layout_change_runs(index) {
             track_every_document(index, &partitions)?;
         }
-        for partition in partitions.iter() {
-            partition.write(|snapshot| snapshot.clear());
-        }
-        clear_vectors(index)?;
+        remove_every_vector(index)?;
+        index.publish(|| {
+            for partition in partitions.iter() {
+                partition.write(|snapshot| snapshot.clear());
+            }
+            Ok(())
+        })?;
+        compact_every_vector_field(index)?;
     }
     checkpoint_now(index)
 }

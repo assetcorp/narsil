@@ -251,7 +251,15 @@ pub(crate) fn reranked_query(
         let held = std::mem::take(&mut group.hits);
         group.hits = with_documents(index, &partitions, held, &projection)?;
     }
-    highlight_hits(index, &partitions, params, &mut hits, &projection)?;
+    let (snapshots, _pin) = index.published_snapshots(&partitions)?;
+    highlight_hits(
+        index,
+        &partitions,
+        &snapshots,
+        params,
+        &mut hits,
+        &projection,
+    )?;
     share_highlights(&mut groups, &hits, &ordered.shared_ids, pinned_ids.as_ref());
     let (count, count_exact) = match &plain {
         Some(plain) => (plain.count, plain.count_exact),
