@@ -254,6 +254,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
     }
     try {
       graph.connectUnreached()
+      state.graphsPlacedIntoSinceConnect.delete(graph)
       noteWrite(state)
       state.buildRetryDelayMs = 0
       scheduleWorkerCopyLoad(state)

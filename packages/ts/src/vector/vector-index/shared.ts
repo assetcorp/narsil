@@ -187,6 +187,7 @@ export interface VectorIndexState {
   /** The field answers from its files through this hold until the background load of its codes and graph ends. */
   cold: ColdVectorHold | null
   graphsHeldOffThread: GraphsHeldOffThread | null
+  readonly graphsPlacedIntoSinceConnect: WeakSet<HNSWIndex>
   readonly searchWatches: Set<SearchWatch>
   readonly writeListeners: Set<(docId: string) => void>
 }

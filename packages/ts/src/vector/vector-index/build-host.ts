@@ -28,6 +28,7 @@ interface Dispatch {
 interface PlacementFallback {
   noWorkerWarned: boolean
   shortAnswerWarned: boolean
+  workerAnswerFailed: boolean
 }
 
 async function dispatcherFor(state: VectorIndexState, graph: HNSWIndex): Promise<Dispatch | null> {
@@ -64,7 +65,7 @@ export async function insertIntoGraph(
 
   const pending = new Set<Promise<void>>()
   const limit = dispatch.workerCount * GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER
-  const fallback: PlacementFallback = { noWorkerWarned: false, shortAnswerWarned: false }
+  const fallback: PlacementFallback = { noWorkerWarned: false, shortAnswerWarned: false, workerAnswerFailed: false }
   let batchDocIds: string[] = []
   let batchOrdinals: number[] = []
 
@@ -82,6 +83,7 @@ export async function insertIntoGraph(
     if (pending.size >= limit) await Promise.race(pending)
   }
 
+  state.graphsPlacedIntoSinceConnect.add(graph)
   for (const docId of docIds) {
     if (state.disposed) break
     if (!admit(docId)) continue
@@ -97,6 +99,7 @@ export async function insertIntoGraph(
   if (turnsAreBudgeted) await connectGraph(state, graph)
   else graph.connectUnreached()
   if (state.disposed) return false
+  if (!fallback.workerAnswerFailed) state.graphsPlacedIntoSinceConnect.delete(graph)
   noteWrite(state)
   return true
 }
@@ -114,6 +117,7 @@ async function placeChunk(
     outcome = await dispatch.send(chunkOrdinals)
   } catch {
     outcome = null
+    fallback.workerAnswerFailed = true
   }
   if (state.disposed) return
   if (outcome === null) {
@@ -156,6 +160,7 @@ async function insertLocally(
     if (!admit(docId)) continue
     const ordinal = state.store.getOrdinal(docId)
     if (ordinal === undefined) continue
+    state.graphsPlacedIntoSinceConnect.add(graph)
     if (turnsAreBudgeted) {
       graph.insertOrdinal(ordinal, true)
       if (graph.holdsUnlinkedNode) await connectGraph(state, graph)
@@ -178,6 +183,7 @@ async function insertLocally(
   if (count > 0) {
     if (turnsAreBudgeted) await connectGraph(state, graph)
     else graph.connectUnreached()
+    state.graphsPlacedIntoSinceConnect.delete(graph)
     noteWrite(state)
   }
   return true
