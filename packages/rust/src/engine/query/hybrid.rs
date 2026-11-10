@@ -62,7 +62,15 @@ fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
     let k = vector_fetch_depth(run.limit, run.offset, cursor_depth)?;
     let text = text_ranked(run, params)?;
     let matching = id_slices(&matched);
-    let vector = vector_leg(index, clause, query, k, None, matching.as_deref())?;
+    let vector = vector_leg(
+        index,
+        clause,
+        query,
+        k,
+        None,
+        matching.as_deref(),
+        &run.snapshots.pin,
+    )?;
     let mut hits = fused(fusion, &text.hits, &vector.hits);
     if let Some(threshold) = score_floor(params) {
         hits.retain(|hit| hit.score >= threshold);
@@ -128,6 +136,7 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
         depth,
         Some(HYBRID_RESCORE_WINDOW),
         matching.as_deref(),
+        &run.snapshots.pin,
     )?;
     let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];
     let mut hits = fused(fusion, text_ranked_hits, &vector.hits);

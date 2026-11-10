@@ -77,6 +77,7 @@ pub(crate) fn shaped_page(
             run.offset,
             cursor_depth(run)?,
             run.scope,
+            &run.snapshots.pin,
         )?,
         SearchPlan::Hybrid => hybrid_hits(run, cursor_depth(run)?)?,
         SearchPlan::Text => text_ranked(run, params)?,

@@ -47,18 +47,18 @@ impl<'q> QueryRun<'q> {
         params: &'q QueryParams,
         scope: &'q QueryScope,
         shape: RunShape<'q>,
-    ) -> QueryRun<'q> {
-        QueryRun {
+    ) -> Result<QueryRun<'q>> {
+        Ok(QueryRun {
             index,
             params,
             scope,
-            snapshots: QuerySnapshots::of(index),
+            snapshots: QuerySnapshots::of(index)?,
             limit: shape.limit,
             offset: shape.offset,
             signature: shape.signature,
             requested: shape.requested,
             binding: OnceCell::new(),
-        }
+        })
     }
 
     pub(crate) fn binding(&self) -> &str {

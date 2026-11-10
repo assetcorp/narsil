@@ -15,6 +15,7 @@ mod geo;
 mod index;
 mod ordering;
 mod pattern;
+mod pins;
 mod schema;
 mod search;
 mod synonyms;

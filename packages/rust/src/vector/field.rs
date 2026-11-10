@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
 
 use crate::error::Result;
+use crate::pins::IndexSequence;
 
 use super::build::BuildJob;
 use super::checkpoint::{FieldSignature, SavedVectorFile};
@@ -99,12 +100,17 @@ pub(crate) struct Generation {
 }
 
 impl Generation {
-    pub(crate) fn empty(settings: &VectorSettings, hasher: RandomState) -> Generation {
+    pub(crate) fn empty(
+        settings: &VectorSettings,
+        hasher: RandomState,
+        sequence: &Arc<IndexSequence>,
+    ) -> Generation {
         Generation {
             store: Arc::new(StoreTables::new(
                 settings.dimension,
                 settings.bits(),
                 MIN_ORDINAL_CAPACITY,
+                Some(Arc::clone(sequence)),
             )),
             graph: None,
             names: Arc::new(OrdinalNames::new()),
@@ -236,6 +242,7 @@ impl History {
 pub(crate) struct Shared {
     pub(crate) settings: VectorSettings,
     pub(crate) hasher: RandomState,
+    pub(crate) sequence: Arc<IndexSequence>,
     pub(crate) published: RwLock<Arc<Generation>>,
     pub(crate) writer: Mutex<Writer>,
     pub(crate) history: History,
@@ -282,14 +289,18 @@ impl Shared {
 }
 
 impl VectorField {
-    pub(crate) fn new(settings: VectorSettings) -> Result<VectorField> {
+    pub(crate) fn new(
+        settings: VectorSettings,
+        sequence: Arc<IndexSequence>,
+    ) -> Result<VectorField> {
         require_dimension(settings.dimension)?;
         let hasher = RandomState::new();
-        let generation = Arc::new(Generation::empty(&settings, hasher.clone()));
+        let generation = Arc::new(Generation::empty(&settings, hasher.clone(), &sequence));
         Ok(VectorField {
             shared: Arc::new(Shared {
                 settings,
                 hasher,
+                sequence,
                 published: RwLock::new(Arc::clone(&generation)),
                 writer: Mutex::new(Writer {
                     generation,
@@ -324,8 +335,23 @@ impl VectorField {
         self.shared.settings.dimension
     }
 
-    pub(crate) fn holds_version(&self, doc_id: &str, ordinal: u32) -> bool {
-        self.shared.current().live_ordinal_of(doc_id) == Some(ordinal)
+    pub(crate) fn record_write_sequence(&self, sequence: i64) {
+        let writer = self.shared.lock_writer();
+        writer.generation.store.record_write_sequence(sequence);
+    }
+
+    pub(crate) fn pinned_vector(&self, doc_id: &str, pin: i64) -> Option<Vec<f32>> {
+        let generation = self.shared.current();
+        let ordinal = generation.pinned_ordinal_of(doc_id, pin)?;
+        let retired = generation.store.retired_at(ordinal);
+        if retired != 0 && retired <= pin {
+            return None;
+        }
+        let mut vector = vec![0f32; self.dimension()];
+        generation
+            .store
+            .read_vector(ordinal, &mut vector)
+            .then_some(vector)
     }
 
     pub(crate) fn get_vector(&self, doc_id: &str) -> Option<Vec<f32>> {

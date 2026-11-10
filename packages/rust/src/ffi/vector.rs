@@ -29,6 +29,15 @@ pub const NARSIL_STORE_WORD_CALIBRATED: usize = 3;
 pub const NARSIL_STORE_WORD_CODE_COUNT: usize = 4;
 pub const NARSIL_STORE_WORD_CALIBRATION_GENERATION: usize = 7;
 
+pub const NARSIL_HELD_WORD_NODE: usize = 0;
+pub const NARSIL_HELD_WORD_NODE_VALUE: usize = 1;
+pub const NARSIL_HELD_WORD_GRAPH: usize = 2;
+pub const NARSIL_HELD_WORD_ENTRY: usize = 5;
+pub const NARSIL_OSQ_TRAILER_BYTES: usize = 16;
+pub const NARSIL_MAX_PLACEMENT_LAYERS: usize = 64;
+pub const NARSIL_GRAPH_HELD_ALONE_LOCK: i32 = -1;
+pub const NARSIL_WAKE_ENTRY_LOCK: i32 = -1;
+
 pub const NARSIL_VECTOR_IN_A_BLOCK: i32 = -1;
 pub const NARSIL_GRAPH_HELD_ALONE: u32 = u32::MAX;
 
@@ -82,6 +91,10 @@ pub struct narsil_store {
     pub vector_offset: *const u32,
     pub files: *const narsil_vector_file,
     pub file_count: u32,
+    pub born_at: *const i64,
+    pub retired_at: *const i64,
+    pub pins: *const i64,
+    pub pin_slots: u32,
 }
 
 #[repr(C)]
@@ -105,6 +118,7 @@ pub struct narsil_search_request {
     pub candidate_count: u32,
     pub thread_slot: u32,
     pub accepted: narsil_ordinal_set,
+    pub pin: i64,
 }
 
 #[repr(C)]
@@ -113,6 +127,7 @@ pub struct narsil_score_request {
     pub metric: u32,
     pub ordinals: *const i32,
     pub count: u32,
+    pub pin: i64,
 }
 
 #[repr(C)]

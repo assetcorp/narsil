@@ -59,6 +59,8 @@ error_codes! {
     PARTITION_REBALANCING_BACKPRESSURE,
     /// A worker thread stopped while it held work.
     WORKER_CRASHED,
+    /// Every thread slot of the process is in use, so the engine cannot serve another thread until one ends.
+    WORKER_BUSY,
     /// A worker thread still held the old index when the engine stopped waiting for it.
     WORKER_TIMEOUT,
     /// A task that the engine runs apart from its caller failed, such as a merge of query history that passed its

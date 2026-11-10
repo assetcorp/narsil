@@ -1,4 +1,26 @@
-use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU8, AtomicU32, AtomicU64, Ordering};
+
+pub(crate) fn sequences(len: usize) -> Box<[AtomicI64]> {
+    let zeroed = Box::<[AtomicI64]>::new_zeroed_slice(len);
+    unsafe { zeroed.assume_init() }
+}
+
+pub(crate) fn copied_sequences(from: &[AtomicI64], len: usize) -> Box<[AtomicI64]> {
+    let copy = sequences(len);
+    for (target, source) in copy.iter().zip(from) {
+        target.store(source.load(Ordering::Acquire), Ordering::Release);
+    }
+    copy
+}
+
+pub(crate) fn sequence_ptr(words: &[AtomicI64]) -> *const i64 {
+    words.as_ptr().cast::<i64>()
+}
+
+pub(crate) fn zeroed_words(len: usize) -> Box<[AtomicI32]> {
+    let zeroed = Box::<[AtomicI32]>::new_zeroed_slice(len);
+    unsafe { zeroed.assume_init() }
+}
 
 pub(crate) fn words(len: usize, value: i32) -> Box<[AtomicI32]> {
     (0..len).map(|_| AtomicI32::new(value)).collect()

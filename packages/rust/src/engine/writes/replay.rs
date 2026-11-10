@@ -37,14 +37,18 @@ pub(crate) fn place_document(
     if appended.is_err() {
         let _ = index.vectors.remove_vectors(id);
     }
+    index.vectors.publish_writes();
     appended
 }
 
 /// Applies a `DELETE` record of the write-ahead log, which removes nothing where the index holds no such document.
 pub(crate) fn replay_delete(index: &IndexState, id: &str) -> Result<()> {
     let partitions = index.partitions();
-    if index.locate(&partitions, id)?.is_none() {
-        return index.vectors.remove_vectors(id);
-    }
-    apply_remove(index, &partitions, id, &mut PendingLog::begin(None)?)
+    let removed = if index.locate(&partitions, id)?.is_none() {
+        index.vectors.remove_vectors(id)
+    } else {
+        apply_remove(index, &partitions, id, &mut PendingLog::begin(None)?)
+    };
+    index.vectors.publish_writes();
+    removed
 }

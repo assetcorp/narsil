@@ -9,6 +9,7 @@ use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::index::stored_values::{FieldColumn, path_value};
 use crate::index::tail::TailSegment;
+use crate::pins::Pin;
 use crate::value::{Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,16 +22,22 @@ pub(crate) struct Location {
 pub(crate) struct QuerySnapshots {
     pub(crate) layout: Arc<TextLayout>,
     pub(crate) partitions: Vec<Arc<PartitionSnapshot>>,
+    pub(crate) pin: Pin,
 }
 
 impl QuerySnapshots {
-    pub(crate) fn of(index: &IndexState) -> QuerySnapshots {
+    pub(crate) fn of(index: &IndexState) -> Result<QuerySnapshots> {
+        let pin = index.vectors.sequence().pin()?;
         let layout = index.partitions();
         let partitions = layout
             .iter()
             .map(|partition| partition.snapshot())
             .collect();
-        QuerySnapshots { layout, partitions }
+        Ok(QuerySnapshots {
+            layout,
+            partitions,
+            pin,
+        })
     }
 
     fn located_in(&self, partition: usize, id: &str) -> Result<Option<Location>> {
@@ -73,19 +80,22 @@ impl QuerySnapshots {
         id: &str,
         location: Option<Location>,
     ) -> Result<Option<Arc<Map>>> {
-        if !index.vectors.is_empty() {
-            return Ok(index
-                .full_document(&self.layout.partitions, id)?
-                .map(Arc::new));
-        }
         let location = match location {
             Some(location) => Some(location),
             None => self.locate(index, id)?,
         };
-        match location.and_then(|location| Some((self.entry(location)?, location.ordinal))) {
-            Some((entry, ordinal)) => entry.document(ordinal).map(Some),
-            None => Ok(None),
+        let stored =
+            match location.and_then(|location| Some((self.entry(location)?, location.ordinal))) {
+                Some((entry, ordinal)) => entry.document(ordinal)?,
+                None => return Ok(None),
+            };
+        if index.vectors.is_empty() {
+            return Ok(Some(stored));
         }
+        let mut document = Arc::unwrap_or_clone(stored);
+        let vectors = index.vectors.pinned_vectors(id, self.pin.value());
+        index.vectors.attach(vectors, &mut document);
+        Ok(Some(Arc::new(document)))
     }
 }
 

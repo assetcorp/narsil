@@ -6,7 +6,9 @@ pub const NARSIL_ANALYSE_STEM: u32 = 1 << 0;
 pub const NARSIL_ANALYSE_REMOVE_STOP_WORDS: u32 = 1 << 1;
 pub const NARSIL_ANALYSE_REMOVE_DIACRITICS: u32 = 1 << 2;
 pub const NARSIL_ANALYSE_COLLECT_SURFACES: u32 = 1 << 3;
+pub const NARSIL_ANALYSE_SPELLINGS: u32 = 1 << 4;
 pub const NARSIL_NO_SURFACE: u32 = u32::MAX;
+pub const NARSIL_NO_TERM_SLOT: u32 = u32::MAX;
 pub const NARSIL_MAX_ANALYSED_UNITS: u32 = 1 << 30;
 
 #[repr(C)]
@@ -33,6 +35,7 @@ pub struct narsil_token {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct narsil_tokens {
     pub tokens: *const narsil_token,
     pub token_count: u32,

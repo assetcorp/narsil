@@ -19,6 +19,7 @@ include = [
   "LICENSE",
   "NOTICE",
   "build.rs",
+  "layout/structs.list",
   "src/**/*.rs",
   "core/include/*.h",
   "core/src/**/*.c",

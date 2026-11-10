@@ -191,6 +191,7 @@ pub(crate) fn listed_document(
         Projection::Full => return index.full_document(partitions, id),
         Projection::Fields { .. } => {}
     }
+    let pin = index.vectors.sequence().pin()?;
     let mut attempt = 1;
     loop {
         let Some(at) = index.locate(partitions, id)? else {
@@ -208,7 +209,12 @@ pub(crate) fn listed_document(
             .fields()
             .iter()
             .filter(|entry| projection.keeps_field(&entry.path))
-            .filter_map(|entry| Some((entry.path.as_str(), entry.field.get_vector(id)?)))
+            .filter_map(|entry| {
+                Some((
+                    entry.path.as_str(),
+                    entry.field.pinned_vector(id, pin.value())?,
+                ))
+            })
             .collect();
         if attempt >= DOCUMENT_READ_ATTEMPTS || Arc::ptr_eq(&snapshot, &partition.snapshot()) {
             let mut document = projection.project(&stored);

@@ -13,7 +13,7 @@ use super::field::{Generation, NO_DRIFT_CHECK, Shared, VectorField, Writer};
 use super::files::MappedFile;
 use super::numbered::{NO_ORDINAL, NumberedParts};
 use super::store::{FLAG_CURRENT, FLAG_REPLACED, magnitude_of};
-use super::writes::{Held, append, retire_previous};
+use super::writes::{Held, Stamp, append, retire_previous};
 
 pub(crate) struct CheckpointRestoreShape {
     pub(crate) live_vectors: u64,
@@ -55,7 +55,11 @@ pub(crate) struct VectorRestore {
 }
 
 fn empty_writer(shared: &Shared, writer: &mut Writer) {
-    writer.generation = Arc::new(Generation::empty(&shared.settings, shared.hasher.clone()));
+    writer.generation = Arc::new(Generation::empty(
+        &shared.settings,
+        shared.hasher.clone(),
+        &shared.sequence,
+    ));
     writer.id_slots_used = 0;
     writer.job = None;
     writer.placing = None;
@@ -173,17 +177,26 @@ impl VectorRestore {
                 },
                 _ => Held::InMemory(vector),
             };
+            let loaded_at = shared.sequence.current();
             if dead {
-                let ordinal = append(&shared, &mut writer, doc_id, held, FLAG_REPLACED)?;
+                let stamp = Stamp {
+                    flags: FLAG_REPLACED,
+                    born: loaded_at,
+                };
+                let ordinal = append(&shared, &mut writer, doc_id, held, stamp)?;
                 ordinals[at] = ordinal as i32;
                 self.tombstoned.push(ordinal);
                 continue;
             }
             if let Some(previous) = writer.generation.ordinal_of(doc_id) {
-                retire_previous(&mut writer, previous)?;
+                retire_previous(&mut writer, previous, loaded_at)?;
             }
             let in_memory = matches!(held, Held::InMemory(_));
-            let ordinal = append(&shared, &mut writer, doc_id, held, FLAG_CURRENT)?;
+            let stamp = Stamp {
+                flags: FLAG_CURRENT,
+                born: loaded_at,
+            };
+            let ordinal = append(&shared, &mut writer, doc_id, held, stamp)?;
             ordinals[at] = ordinal as i32;
             if on_disk
                 && in_memory

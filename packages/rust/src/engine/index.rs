@@ -2,8 +2,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 
 use super::changes::LayoutChanges;
-use super::constants::DOCUMENT_READ_ATTEMPTS;
-use super::document_writes::DocumentWrites;
 use super::durable::log::IndexLog;
 use super::index_lifecycle::residency::IndexResidency;
 use super::layout::TextLayout;
@@ -19,10 +17,15 @@ use crate::schema::CompiledSchema;
 use crate::util::hash::fnv1a;
 use crate::value::Map;
 
-enum DocumentRead<T> {
-    Absent,
-    Found(T),
-    SnapshotReplaced,
+pub(crate) struct WriteTurn<'a> {
+    _lock: MutexGuard<'a, ()>,
+    index: &'a IndexState,
+}
+
+impl Drop for WriteTurn<'_> {
+    fn drop(&mut self) {
+        self.index.vectors.publish_writes();
+    }
 }
 
 /// One index of an engine: its settings and its partitions, which searches read and its one writer changes.
@@ -33,7 +36,6 @@ pub(crate) struct IndexState {
     pub(crate) track_positions: bool,
     pub(crate) collect_surfaces: bool,
     pub(crate) vectors: IndexVectors,
-    pub(crate) document_writes: DocumentWrites,
     text: RwLock<Arc<TextLayout>>,
     writer: Mutex<()>,
     log: OnceLock<IndexLog>,
@@ -89,7 +91,6 @@ impl IndexState {
             track_positions,
             collect_surfaces,
             vectors,
-            document_writes: DocumentWrites::default(),
             text: RwLock::new(Arc::new(text)),
             writer: Mutex::new(()),
             log: OnceLock::new(),
@@ -177,15 +178,18 @@ impl IndexState {
     }
 
     /// Takes the index's write lock, which every change holds so that changes apply one at a time.
-    pub(crate) fn write_lock(&self) -> MutexGuard<'_, ()> {
-        guarded(&self.writer)
+    pub(crate) fn write_lock(&self) -> WriteTurn<'_> {
+        WriteTurn {
+            _lock: guarded(&self.writer),
+            index: self,
+        }
     }
 
     /// Takes the write lock for a document write, refusing the write where a drop, a restore, or a close has taken
     /// the index out of the engine while the write waited, so that no write reaches a log that another index now
     /// owns.
-    pub(crate) fn lock_writes(&self) -> Result<MutexGuard<'_, ()>> {
-        let writer = guarded(&self.writer);
+    pub(crate) fn lock_writes(&self) -> Result<WriteTurn<'_>> {
+        let writer = self.write_lock();
         if self.retired.load(Ordering::Acquire) {
             return Err(NarsilError::new(
                 ErrorCode::INDEX_NOT_FOUND,
@@ -238,86 +242,20 @@ impl IndexState {
         partitions: &[Arc<Partition>],
         id: &str,
     ) -> Result<Option<Map>> {
-        self.scored_document(partitions, id, None)
-    }
-
-    /// Returns the document stored under `id` with its vectors put back, or `None` where `scored` names a vector
-    /// field and the ordinal that a search scored there, and a write gave the document another vector since.
-    pub(crate) fn scored_document(
-        &self,
-        partitions: &[Arc<Partition>],
-        id: &str,
-        scored: Option<(&str, u32)>,
-    ) -> Result<Option<Map>> {
-        self.read_document(partitions, id, |stored| {
-            if let Some((path, ordinal)) = scored
-                && !self.vectors.holds_version(path, id, ordinal)
-            {
-                return None;
-            }
-            let vectors = self.vectors.stored_vectors(id);
-            let mut document = stored.clone();
-            self.vectors.attach(vectors, &mut document);
-            Some(document)
-        })
-    }
-
-    /// Returns what `read` makes of the stored document under `id` and the vectors that it reads, or `None` where
-    /// the index holds no such document or `read` refuses it.
-    ///
-    /// The read runs again where a write to that document overlapped it or a write replaced its partition's
-    /// snapshot meanwhile, and it runs under the write lock once [`DOCUMENT_READ_ATTEMPTS`] tries have overlapped
-    /// a write, so that no document comes back with its fields from one write and its vectors from another.
-    pub(crate) fn read_document<T>(
-        &self,
-        partitions: &[Arc<Partition>],
-        id: &str,
-        mut read: impl FnMut(&Map) -> Option<T>,
-    ) -> Result<Option<T>> {
-        for _ in 0..DOCUMENT_READ_ATTEMPTS {
-            let Some(seen) = self.document_writes.read_begin(id) else {
-                std::thread::yield_now();
-                continue;
-            };
-            let outcome = self.read_document_once(partitions, id, &mut read, true)?;
-            if !self.document_writes.unchanged_since(id, seen) {
-                continue;
-            }
-            match outcome {
-                DocumentRead::Absent => return Ok(None),
-                DocumentRead::Found(value) => return Ok(Some(value)),
-                DocumentRead::SnapshotReplaced => {}
-            }
-        }
-        let _writer = self.write_lock();
-        match self.read_document_once(partitions, id, &mut read, false)? {
-            DocumentRead::Found(value) => Ok(Some(value)),
-            DocumentRead::Absent | DocumentRead::SnapshotReplaced => Ok(None),
-        }
-    }
-
-    fn read_document_once<T>(
-        &self,
-        partitions: &[Arc<Partition>],
-        id: &str,
-        read: &mut impl FnMut(&Map) -> Option<T>,
-        snapshot_can_change: bool,
-    ) -> Result<DocumentRead<T>> {
+        let pin = self.vectors.sequence().pin()?;
         let Some(at) = self.locate(partitions, id)? else {
-            return Ok(DocumentRead::Absent);
+            return Ok(None);
         };
         let Some(partition) = partitions.get(at) else {
-            return Ok(DocumentRead::Absent);
+            return Ok(None);
         };
-        let snapshot = partition.snapshot();
-        let Some(stored) = snapshot.document(id)? else {
-            return Ok(DocumentRead::Absent);
+        let Some(stored) = partition.snapshot().document(id)? else {
+            return Ok(None);
         };
-        let value = read(&stored);
-        if snapshot_can_change && !Arc::ptr_eq(&snapshot, &partition.snapshot()) {
-            return Ok(DocumentRead::SnapshotReplaced);
-        }
-        Ok(value.map_or(DocumentRead::Absent, DocumentRead::Found))
+        let mut document = Arc::unwrap_or_clone(stored);
+        let vectors = self.vectors.pinned_vectors(id, pin.value());
+        self.vectors.attach(vectors, &mut document);
+        Ok(Some(document))
     }
 
     pub(crate) fn document_count(&self) -> u64 {

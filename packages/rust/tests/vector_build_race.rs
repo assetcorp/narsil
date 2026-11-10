@@ -32,6 +32,8 @@ const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
 const CHILD_ROUND: &str = "NARSIL_VECTOR_BUILD_KILL_ROUND";
 const KILL_ROUNDS: u64 = 2;
+const CHILD_LINE_MARK: &str = "narsil-child: ";
+const CHILD_GO: &str = "go";
 const ROUND_ID_STRIDE: u64 = 1_000_000;
 const ACKS_WHILE_BUILDING_BEFORE_KILL: u64 = 40;
 
@@ -188,7 +190,10 @@ fn require_searches_match_oracle(engine: &Narsil, live: &HashMap<String, Vec<f32
         assert_eq!(result.hits.len(), LIMIT.min(live.len()), "{when}");
         for hit in &result.hits {
             let Some(current) = live.get(&hit.id) else {
-                panic!("{when}: the search returns {}, which the oracle holds removed", hit.id);
+                panic!(
+                    "{when}: the search returns {}, which the oracle holds removed",
+                    hit.id
+                );
             };
             let score = hit.score.expect("a score");
             let truth = cosine(&target, current);
@@ -215,7 +220,8 @@ struct GraphCounts {
 }
 
 fn saved_graph_counts(root: &Path) -> GraphCounts {
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/reference_graph_counts.mjs");
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/reference_graph_counts.mjs");
     let output = Command::new("node")
         .arg(script)
         .arg(repository_root())
@@ -228,7 +234,8 @@ fn saved_graph_counts(root: &Path) -> GraphCounts {
         "the checkpoint reader failed; install packages/ts first: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let parsed = parse_json(&String::from_utf8_lossy(&output.stdout)).expect("the reader writes JSON");
+    let parsed =
+        parse_json(&String::from_utf8_lossy(&output.stdout)).expect("the reader writes JSON");
     let fields = parsed.as_array().expect("one entry per field");
     assert_eq!(fields.len(), 1);
     let field = &fields[0];
@@ -266,9 +273,16 @@ fn require_graph_holds_live_documents(
         counts.live_without_node.first()
     );
     let nodes: HashSet<&String> = counts.live_nodes.iter().collect();
-    assert_eq!(nodes.len(), counts.live_nodes.len(), "{when}: a document holds two live nodes");
+    assert_eq!(
+        nodes.len(),
+        counts.live_nodes.len(),
+        "{when}: a document holds two live nodes"
+    );
     let wanted: HashSet<&String> = live.keys().collect();
-    assert_eq!(nodes, wanted, "{when}: the live nodes differ from the live documents");
+    assert_eq!(
+        nodes, wanted,
+        "{when}: the live nodes differ from the live documents"
+    );
     assert_eq!(
         counts.node_count,
         live.len() as u64 + counts.tombstone_count,
@@ -285,7 +299,10 @@ fn require_graph_holds_live_documents(
         .expect("the field compacts");
     engine.checkpoint(INDEX).expect("the checkpoint commits");
     let compacted = saved_graph_counts(root);
-    assert_eq!(compacted.tombstone_count, 0, "{when}: tombstoneCount after compaction");
+    assert_eq!(
+        compacted.tombstone_count, 0,
+        "{when}: tombstoneCount after compaction"
+    );
     assert_eq!(
         compacted.node_count,
         live.len() as u64,
@@ -296,8 +313,8 @@ fn require_graph_holds_live_documents(
 #[test]
 fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
     let root = ScratchDirectory::new("vector-build-race");
-    let engine = Narsil::open(durable_config(root.path(), DurabilityMode::Async))
-        .expect("the engine opens");
+    let engine =
+        Narsil::open(durable_config(root.path(), DurabilityMode::Async)).expect("the engine opens");
     engine
         .create_index(INDEX, index_config())
         .expect("the index is created");
@@ -315,7 +332,9 @@ fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
                 let batch: Vec<Map> = (first..first + WAVE_DOCUMENTS)
                     .map(|number| document(number, number))
                     .collect();
-                let result = engine.insert_batch(INDEX, batch).expect("the batch completes");
+                let result = engine
+                    .insert_batch(INDEX, batch)
+                    .expect("the batch completes");
                 assert!(result.failed.is_empty());
                 for number in first..first + WAVE_DOCUMENTS {
                     live.insert(id_of(number), vector_of(number));
@@ -324,7 +343,9 @@ fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
                     let number = first + offset;
                     let changes = match offset % 5 {
                         0 => {
-                            engine.remove(INDEX, &id_of(number)).expect("the removal succeeds");
+                            engine
+                                .remove(INDEX, &id_of(number))
+                                .expect("the removal succeeds");
                             live.remove(&id_of(number));
                             true
                         }
@@ -369,7 +390,9 @@ fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
         live.len() as u64
     );
     for number in 0..WAVES * WAVE_DOCUMENTS {
-        let stored = engine.get(INDEX, &id_of(number)).expect("the read succeeds");
+        let stored = engine
+            .get(INDEX, &id_of(number))
+            .expect("the read succeeds");
         match live.get(&id_of(number)) {
             None => assert!(stored.is_none(), "doc-{number} survives its removal"),
             Some(vector) => assert_eq!(
@@ -386,8 +409,18 @@ fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
 
 fn tell_parent(line: &str) {
     let mut out = std::io::stdout().lock();
-    writeln!(out, "{line}").expect("the child writes");
+    writeln!(out, "\n{CHILD_LINE_MARK}{line}").expect("the child writes");
     out.flush().expect("the child flushes");
+}
+
+fn announce_write(line: &str) {
+    tell_parent(line);
+    let mut heard = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut heard)
+        .expect("the child hears the parent");
+    assert_eq!(heard.trim(), CHILD_GO, "the parent lets the write go ahead");
 }
 
 fn environment_number(name: &str) -> u64 {
@@ -413,23 +446,27 @@ fn vector_build_kill_child() {
     }
     for wave in 0.. {
         let first = first_id + wave * WAVE_DOCUMENTS;
-        tell_parent(&format!("INSERT {first} {WAVE_DOCUMENTS}"));
+        announce_write(&format!("INSERT {first} {WAVE_DOCUMENTS}"));
         let batch: Vec<Map> = (first..first + WAVE_DOCUMENTS)
             .map(|number| document(number, number))
             .collect();
-        let result = engine.insert_batch(INDEX, batch).expect("the batch completes");
+        let result = engine
+            .insert_batch(INDEX, batch)
+            .expect("the batch completes");
         assert!(result.failed.is_empty());
         tell_parent("ACK");
         for offset in 0..WAVE_DOCUMENTS {
             let number = first + offset;
             match offset % 5 {
                 0 => {
-                    tell_parent(&format!("REMOVE {number}"));
-                    engine.remove(INDEX, &id_of(number)).expect("the removal succeeds");
+                    announce_write(&format!("REMOVE {number}"));
+                    engine
+                        .remove(INDEX, &id_of(number))
+                        .expect("the removal succeeds");
                 }
                 1 => {
                     let seed = number + UPDATE_SEED * (1 + wave + ROUND_ID_STRIDE * round);
-                    tell_parent(&format!("UPDATE {number} {seed}"));
+                    announce_write(&format!("UPDATE {number} {seed}"));
                     engine
                         .update(INDEX, &id_of(number), document(number, seed))
                         .expect("the update succeeds");
@@ -498,32 +535,52 @@ fn numbers_of(write: &Logged) -> Vec<u64> {
     }
 }
 
-fn kill_mid_build(root: &Path, round: u64, state: &mut HashMap<u64, Option<u64>>) -> Option<Logged> {
+fn kill_mid_build(
+    root: &Path,
+    round: u64,
+    state: &mut HashMap<u64, Option<u64>>,
+) -> Option<Logged> {
     let mut child = Command::new(std::env::current_exe().expect("the test binary has a path"))
-        .args(["--exact", "vector_build_kill_child", "--nocapture", "--test-threads=1"])
+        .args([
+            "--exact",
+            "vector_build_kill_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env(CHILD_DIRECTORY, root)
         .env(CHILD_FIRST_ID, (round * ROUND_ID_STRIDE).to_string())
         .env(CHILD_ROUND, round.to_string())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .expect("the child starts");
     let stdout = child.stdout.take().expect("the child's output is piped");
+    let mut go = child.stdin.take().expect("the child's input is piped");
     let mut pending: Option<Logged> = None;
     let mut acks_while_building = 0u64;
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
+        let Some(line) = line.strip_prefix(CHILD_LINE_MARK) else {
+            continue;
+        };
         if line == "ACK" {
             if let Some(write) = pending.take() {
                 apply(&write, state);
             }
         } else if line == "BUILDING" {
             acks_while_building += 1;
+        } else if let Some(write) = parsed_write(line) {
+            pending = Some(write);
+            if writeln!(go, "{CHILD_GO}")
+                .and_then(|()| go.flush())
+                .is_err()
+            {
+                break;
+            }
             if acks_while_building >= ACKS_WHILE_BUILDING_BEFORE_KILL {
                 break;
             }
-        } else if let Some(write) = parsed_write(&line) {
-            pending = Some(write);
         }
     }
     let _ = child.kill();
@@ -541,7 +598,11 @@ fn recovered_live(
     in_flight: Option<&Logged>,
     round: u64,
 ) -> HashMap<String, Vec<f32>> {
-    let uncertain: HashSet<u64> = in_flight.map(numbers_of).unwrap_or_default().into_iter().collect();
+    let uncertain: HashSet<u64> = in_flight
+        .map(numbers_of)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
     let mut applied = state.clone();
     if let Some(write) = in_flight {
         apply(write, &mut applied);
@@ -557,7 +618,8 @@ fn recovered_live(
             .map(|document| vector_in(&document));
         let acknowledged = state.get(&number).copied().flatten().map(vector_of);
         let in_flight_state = applied.get(&number).copied().flatten().map(vector_of);
-        let allowed = stored == acknowledged || (uncertain.contains(&number) && stored == in_flight_state);
+        let allowed =
+            stored == acknowledged || (uncertain.contains(&number) && stored == in_flight_state);
         assert!(
             allowed,
             "round {round}: doc-{number} recovers as {stored:?}, but the acknowledged writes leave {acknowledged:?}"

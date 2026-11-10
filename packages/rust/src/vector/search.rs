@@ -1,5 +1,6 @@
 use crate::config::Metric;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::pins::Pin;
 
 use super::build::schedule_build;
 use super::constants::{
@@ -126,6 +127,7 @@ pub(crate) struct Scan<'a> {
     pub(crate) query: &'a [f32],
     pub(crate) k: usize,
     pub(crate) options: &'a VectorSearchOptions,
+    pub(crate) pin: i64,
 }
 
 pub(crate) fn scan(
@@ -139,9 +141,6 @@ pub(crate) fn scan(
     batch.clear();
     let mut outcome = Ok(());
     for ordinal in ordinals {
-        if !generation.store.is_live(ordinal) {
-            continue;
-        }
         batch.push(ordinal as i32);
         if batch.len() == SCORE_CHUNK_VECTORS {
             outcome = score_batch(scratch, request, &batch, &mut ranked);
@@ -172,6 +171,7 @@ fn score_batch(
         request.query,
         metric_code(metric),
         batch,
+        request.pin,
     )?;
     for (at, &ordinal) in batch.iter().enumerate() {
         let distance = scratch.scores[at];
@@ -194,14 +194,16 @@ impl VectorField {
         k: usize,
         options: &VectorSearchOptions,
         matching: Option<&[&str]>,
+        pin: &Pin,
     ) -> Result<VectorSearchOutcome> {
         options.validate(k)?;
         require_dimension_of(&self.shared, query.len())?;
         require_usable_query(query)?;
+        let pin = pin.value();
         let generation = self.shared.current();
-        let admitted = matching.map(|doc_ids| generation.filter_of(doc_ids.iter().copied()));
+        let admitted = matching.map(|doc_ids| generation.filter_of(doc_ids.iter().copied(), pin));
         let filter = admitted.as_ref();
-        if generation.counts.live() == 0 || filter.is_some_and(|found| found.count() == 0) {
+        if generation.store.slots() == 0 || filter.is_some_and(|found| found.count() == 0) {
             return Ok(empty(0));
         }
         if k == 0 {
@@ -217,6 +219,7 @@ impl VectorField {
                 query,
                 k,
                 options,
+                pin,
             };
             let Some(graph) = &generation.graph else {
                 return exact_scan(scratch, &request, filter);
@@ -241,6 +244,7 @@ impl VectorField {
                     k,
                     options,
                     filter,
+                    pin,
                 },
             )?;
             if generation.buffer.len() == 0 {
