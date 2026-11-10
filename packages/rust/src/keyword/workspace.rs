@@ -1,21 +1,11 @@
 use std::cell::RefCell;
-use std::ptr;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
-
-struct Workspace {
-    handle: *mut ffi::narsil_workspace,
-}
-
-impl Drop for Workspace {
-    fn drop(&mut self) {
-        unsafe { ffi::narsil_workspace_destroy(self.handle) };
-    }
-}
+use crate::native::workspace::CoreWorkspace;
 
 thread_local! {
-    static WORKSPACE: RefCell<Option<Workspace>> = const { RefCell::new(None) };
+    static WORKSPACE: RefCell<Option<CoreWorkspace>> = const { RefCell::new(None) };
 }
 
 pub(crate) fn core_refused(operation: &str, status: ffi::narsil_status) -> NarsilError {
@@ -43,17 +33,10 @@ pub(crate) fn with_workspace<T>(
                 "A keyword write called back into the engine while the native core held its workspace",
             )
         })?;
-        if held.is_none() {
-            let mut handle = ptr::null_mut();
-            let status = unsafe { ffi::narsil_workspace_create(&mut handle) };
-            if status != ffi::NARSIL_OK || handle.is_null() {
-                return Err(core_refused("a workspace", ffi::NARSIL_OUT_OF_MEMORY));
-            }
-            *held = Some(Workspace { handle });
-        }
-        match held.as_ref() {
-            Some(workspace) => work(workspace.handle),
-            None => Err(core_refused("a workspace", ffi::NARSIL_OUT_OF_MEMORY)),
-        }
+        let workspace = match held.as_ref() {
+            Some(workspace) => workspace,
+            None => held.insert(CoreWorkspace::create()?),
+        };
+        work(workspace.handle())
     })
 }

@@ -14,6 +14,7 @@ mod format;
 mod geo;
 mod index;
 mod keyword;
+mod native;
 mod ordering;
 mod pattern;
 mod pins;
