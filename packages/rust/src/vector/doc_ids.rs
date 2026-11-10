@@ -139,6 +139,18 @@ impl IdTable {
         })
     }
 
+    pub(crate) fn copied(&self) -> IdTable {
+        IdTable {
+            slots: self
+                .slots
+                .iter()
+                .map(|slot| AtomicU32::new(slot.load(Ordering::Acquire)))
+                .collect(),
+            mask: self.mask,
+            hasher: self.hasher.clone(),
+        }
+    }
+
     pub(crate) fn rebuilt(&self, live: usize, names: &OrdinalNames) -> IdTable {
         let table = IdTable::for_entries(live, self.hasher.clone());
         for ordinal in self.ordinals() {
