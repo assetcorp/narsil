@@ -129,6 +129,9 @@ impl Generation {
             buffer: Arc::clone(&self.buffer),
         };
         change(&mut parts);
+        if !Arc::ptr_eq(&parts.store, &self.store) && Arc::ptr_eq(&parts.ids, &self.ids) {
+            parts.ids = Arc::new(self.ids.copied());
+        }
         Generation {
             store: parts.store,
             graph: parts.graph,
