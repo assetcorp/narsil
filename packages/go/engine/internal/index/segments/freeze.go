@@ -144,6 +144,7 @@ func keywordFrom(output *core.KeywordMergeOutput, documents uint32, fieldNames, 
 		keyword.SpellingRuns = table.runs
 	}
 	segment.RemovalIndex = buildRemovalIndex(&segment)
+	segment.ExactSlots = core.ExactTermSlots(&segment.Terms)
 	keyword.Segment = segment
 	return keyword
 }

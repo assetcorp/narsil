@@ -32,7 +32,9 @@ int expansion_dictionary(const narsil_expansion_segment *source, narsil_term_dic
                                          .frequencies = segment->terms.counts,
                                          .frequency_count = segment->terms.count,
                                          .removed = source->state->removed_documents,
-                                         .removed_count = segment->terms.count};
+                                         .removed_count = segment->terms.count,
+                                         .exact_slots = segment->exact_slots,
+                                         .exact_slot_count = segment->exact_slot_count};
   return 1;
 }
 

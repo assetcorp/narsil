@@ -110,6 +110,7 @@ func fileKeyword(file *keyword.Segment) Keyword {
 		held.PositionValues = valuesOf(file.Positions)
 	}
 	held.Segment.RemovalIndex = buildRemovalIndex(&held.Segment)
+	held.Segment.ExactSlots = core.ExactTermSlots(&held.Segment.Terms)
 	return held
 }
 

@@ -7,10 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define TERM_HASH_OFFSET UINT32_C(0x811c9dc5)
+
 enum { TERM_COUNT, TERM_LIVE_COUNT, TERM_SLOT_CAPACITY, TERM_GENERATION, TERM_UNITS_USED };
 enum { TERM_HEADER_WORDS = 8, TERM_HEAD_COUNT = 65536, TERM_TABLE_REGIONS = 8 };
 
 int term_table_regions(const narsil_term_table *table, memory_region regions[TERM_TABLE_REGIONS]);
+uint32_t term_hash_unit(uint32_t hash, uint16_t unit);
 uint32_t term_hash(const uint16_t *units, size_t length);
 int64_t term_table_find(const narsil_term_table *table, const uint16_t *units, size_t length);
 int64_t term_table_find_hashed(const narsil_term_table *table, uint32_t hash, const uint16_t *units, size_t length);

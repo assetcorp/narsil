@@ -27,6 +27,7 @@ func frozenStringsBytes(strings *core.FrozenStrings) uint64 {
 func frozenCoreBytes(segment *core.FrozenSegment) uint64 {
 	bytes := frozenStringsBytes(&segment.Terms) + frozenStringsBytes(segment.Surfaces) + frozenStringsBytes(segment.Spellings)
 	bytes += lengthBytes(segment.PayloadSlots, wordBytes) + lengthBytes(segment.PostingOffsets, wordBytes)
+	bytes += lengthBytes(segment.ExactSlots, wordBytes)
 	bytes += lengthBytes(segment.PostingDocuments, wordBytes) + lengthBytes(segment.SpellingTokens, wordBytes)
 	bytes += lengthBytes(segment.PostingFrequencies, halfWordBytes) + lengthBytes(segment.PostingFields, halfWordBytes)
 	return bytes + lengthBytes(segment.PartialFields, byteWidth)

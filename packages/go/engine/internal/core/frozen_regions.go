@@ -61,6 +61,7 @@ type FrozenSegment struct {
 	RemovalIndex       *FrozenRemovalIndex
 	PartialFields      []uint8
 	DocumentCount      uint32
+	ExactSlots         []int32
 }
 
 type FrozenSegmentState struct {
@@ -97,6 +98,7 @@ func (s *FrozenSegment) Dictionary(state *FrozenSegmentState) *TermDictionary {
 		Offsets:     s.Terms.Offsets,
 		Frequencies: s.Terms.Counts,
 		Removed:     state.RemovedDocuments,
+		ExactSlots:  s.ExactSlots,
 	}
 }
 
@@ -117,6 +119,8 @@ func (s *FrozenSegment) nativeStrings(held *pins, holder *frozenSegmentNative) b
 		return false
 	}
 	holder.segment.terms = terms
+	holder.segment.exact_slots = (*C.int32_t)(pinned(held, s.ExactSlots))
+	holder.segment.exact_slot_count = C.size_t(len(s.ExactSlots))
 	if s.Surfaces != nil {
 		if holder.surfaces, ok = s.Surfaces.native(held, surfaceStringStride); !ok {
 			return false
