@@ -193,6 +193,63 @@ fn an_index_saved_with_more_partitions_than_its_max_partitions_still_loads() {
 }
 
 #[test]
+fn an_index_without_max_partitions_rebalances_past_one_only_after_the_limit_rises() {
+    let engine = Narsil::new();
+    let mut schema = Map::new();
+    schema.insert("title", Value::String("string".into()));
+    engine
+        .create_index(
+            INDEX,
+            IndexConfig {
+                schema: Value::Object(schema),
+                ..IndexConfig::default()
+            },
+        )
+        .expect("the index is created");
+    let mut model = BTreeMap::new();
+    for number in 0..DOCUMENTS {
+        let id = format!("item-{number}");
+        let mut document = Map::new();
+        document.insert("id", Value::String(id.clone()));
+        document.insert("title", Value::String(title_of(number)));
+        engine
+            .insert(INDEX, document, None)
+            .expect("the document is stored");
+        model.insert(id, title_of(number));
+    }
+    assert_eq!(
+        rebalance_code(&engine, 2),
+        ErrorCode::PARTITION_CAPACITY_EXCEEDED
+    );
+    assert_eq!(
+        engine
+            .get_stats(INDEX)
+            .expect("the stats read")
+            .partition_count,
+        1,
+        "a refused rebalance keeps one partition"
+    );
+    require_every_document(&engine, &model, "after the refused rebalance");
+    engine
+        .update_partition_config(
+            INDEX,
+            &PartitionConfig {
+                max_partitions: Some(SMALLER_LIMIT),
+                ..PartitionConfig::default()
+            },
+        )
+        .expect("the limit rises");
+    assert_eq!(
+        rebalance_code(&engine, SMALLER_LIMIT as usize + 1),
+        ErrorCode::PARTITION_CAPACITY_EXCEEDED
+    );
+    engine
+        .rebalance(INDEX, SMALLER_LIMIT as usize)
+        .expect("a rebalance within the raised limit succeeds");
+    require_every_document(&engine, &model, "after the rebalance");
+}
+
+#[test]
 fn a_stored_max_partitions_past_the_limit_loads_as_the_limit() {
     let scratch = ScratchDirectory::new("partition-ceiling");
     let model = saved_index(scratch.path());

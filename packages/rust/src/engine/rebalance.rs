@@ -7,7 +7,7 @@ use super::changes::switch::{LayoutSwitch, switch_layout};
 use super::events::NarsilEvent;
 use super::index::IndexState;
 use super::{EngineInner, Narsil};
-use crate::config::MAX_PARTITIONS;
+use crate::config::{DEFAULT_MAX_PARTITIONS, MAX_PARTITIONS};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::Partition;
 
@@ -25,7 +25,7 @@ fn require_target(index: &IndexState, target: usize) -> Result<()> {
         .config()
         .partitions
         .and_then(|limits| limits.max_partitions)
-        .unwrap_or(MAX_PARTITIONS)
+        .unwrap_or(DEFAULT_MAX_PARTITIONS)
         .min(MAX_PARTITIONS);
     if target as u64 > ceiling {
         return Err(capacity_exceeded(format!(
