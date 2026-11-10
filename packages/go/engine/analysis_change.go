@@ -156,7 +156,11 @@ func (n *Narsil) startChange(entry *indexEntry, target analysisTarget, held bool
 		if err := entry.requireSynonymsUnder(target); err != nil {
 			return nil, err
 		}
-		if err := requireRebuildMemory(entry.name, entry.index().EstimateMemoryBytes()); err != nil {
+		termBytes, err := entry.index().EstimateMemoryBytes()
+		if err != nil {
+			return nil, err
+		}
+		if err := requireRebuildMemory(entry.name, termBytes); err != nil {
 			return nil, err
 		}
 	}

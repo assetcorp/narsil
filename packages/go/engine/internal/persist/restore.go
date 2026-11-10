@@ -149,6 +149,9 @@ func stageArchive(ctx context.Context, read *archiveRead, source io.Reader, stor
 	if err := store.Write(ctx, manifest.ManifestKey(read.name), encoded); err != nil {
 		return nil, err
 	}
+	if err := requireStagedPagedSegments(ctx, store, read.restoring.Manifest); err != nil {
+		return nil, err
+	}
 	handle, err := read.hooks.Create(ctx, read.restoring)
 	if err != nil {
 		return nil, err

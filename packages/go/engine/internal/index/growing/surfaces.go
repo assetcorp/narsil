@@ -70,6 +70,11 @@ func (t *surfaceTable) view() core.SurfaceTable {
 	return core.SurfaceTable{Strings: t.strings.view(), Token: t.token.values, Count: t.count.values}
 }
 
+func (t *surfaceTable) dictionary() *core.TermDictionary {
+	strings := t.strings.view()
+	return &core.TermDictionary{Growing: &strings, Frequencies: t.count.values, Removed: make([]uint32, t.count.len())}
+}
+
 func (t *surfaceTable) bytes() uint64 {
 	return t.strings.bytes() + t.token.bytes() + t.count.bytes()
 }

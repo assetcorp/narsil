@@ -1,263 +1,166 @@
 package partition
 
 import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fieldindex"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/geo"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partialwords"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/pattern"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/postings"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/growing"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
-type side struct {
-	postings     *postings.Index
-	documents    documentStore
-	statistics   statistics
-	surfaces     surfaceRegistry
-	fieldNames   []string
-	fieldNumbers map[string]uint16
-	numbers      map[string]*fieldindex.Numeric
-	booleans     map[string]*fieldindex.Boolean
-	enums        map[string]*fieldindex.Enum
-	geopoints    map[string]*geo.Index
-	sizes        map[string]*fieldindex.Numeric
-	touched      touchedIndexes
-	frozen       []*frozenSub
-	partial      *partialwords.GrowingTable
-	patterns     map[string]*pattern.Growing
+type generation struct {
+	documents *documentTable
 }
 
-func (s *side) successor() *side {
-	next := newSide()
-	next.partial.AdoptFields(s.partial.Fields())
-	return next
+func newGeneration() *generation {
+	return &generation{documents: newDocumentTable()}
 }
 
-func (s *side) patternIndex(path string) *pattern.Growing {
-	index := s.patterns[path]
-	if index == nil {
-		index = pattern.NewGrowing()
-		s.patterns[path] = index
+type fieldTable struct {
+	names   []string
+	numbers map[string]uint16
+	partial map[string]bool
+}
+
+func newFieldTable(partialFields []string) *fieldTable {
+	partial := make(map[string]bool, len(partialFields))
+	for _, path := range partialFields {
+		partial[path] = true
 	}
-	return index
+	return &fieldTable{numbers: map[string]uint16{}, partial: partial}
 }
 
-type touchedIndexes struct {
-	numbers   map[*fieldindex.Numeric]struct{}
-	geopoints map[*geo.Index]struct{}
-}
-
-func newSide() *side {
-	return &side{
-		postings:     postings.New(),
-		documents:    newDocumentStore(),
-		statistics:   newStatistics(),
-		surfaces:     newSurfaceRegistry(),
-		fieldNumbers: map[string]uint16{},
-		numbers:      map[string]*fieldindex.Numeric{},
-		booleans:     map[string]*fieldindex.Boolean{},
-		enums:        map[string]*fieldindex.Enum{},
-		geopoints:    map[string]*geo.Index{},
-		sizes:        map[string]*fieldindex.Numeric{},
-		touched:      touchedIndexes{numbers: map[*fieldindex.Numeric]struct{}{}, geopoints: map[*geo.Index]struct{}{}},
-		partial:      partialwords.NewGrowingTable(),
-		patterns:     map[string]*pattern.Growing{},
-	}
-}
-
-func (s *side) fieldNumber(path string) uint16 {
-	if number, found := s.fieldNumbers[path]; found {
+func (t *fieldTable) number(path string) uint16 {
+	if number, held := t.numbers[path]; held {
 		return number
 	}
-	number := uint16(len(s.fieldNames))
-	s.fieldNames = append(s.fieldNames, path)
-	s.fieldNumbers[path] = number
+	number := uint16(len(t.names))
+	t.names = append(t.names, path)
+	t.numbers[path] = number
 	return number
 }
 
-func (s *side) numericIndex(indexes map[string]*fieldindex.Numeric, path string) *fieldindex.Numeric {
-	index := indexes[path]
-	if index == nil {
-		index = fieldindex.NewNumeric()
-		indexes[path] = index
-	}
-	s.touched.numbers[index] = struct{}{}
-	return index
+type frozenSide struct {
+	segment *frozenSegment
+	state   *segments.State
+	totals  []float64
 }
 
-func (s *side) booleanIndex(path string) *fieldindex.Boolean {
-	index := s.booleans[path]
-	if index == nil {
-		index = fieldindex.NewBoolean()
-		s.booleans[path] = index
-	}
-	return index
+type side struct {
+	index      int
+	view       *query.View
+	gen        *generation
+	names      *fieldTable
+	viewFields int
+	fieldCount int
+	growing    *growing.Segment
+	fields     *fields.Set
+	ids        map[string]uint32
+	live       []uint32
+	liveCount  int
+	capacity   uint32
+	frozen     []frozenSide
 }
 
-func (s *side) enumIndex(path string) *fieldindex.Enum {
-	index := s.enums[path]
-	if index == nil {
-		index = fieldindex.NewEnum()
-		s.enums[path] = index
+func (p *Partition) newSide(index int, gen *generation) (*side, error) {
+	segment, err := growing.New(growing.Options{TrackPositions: p.settings.TrackPositions, PartialFields: len(p.names.partial) > 0})
+	if err != nil {
+		return nil, err
 	}
-	return index
+	set, err := fields.NewSet(p.settings.ValueFields, p.settings.Limits)
+	if err != nil {
+		segment.Release()
+		return nil, err
+	}
+	return &side{index: index, gen: gen, names: p.names, growing: segment, fields: set, ids: map[string]uint32{}}, nil
 }
 
-func (s *side) geoIndex(path string) *geo.Index {
-	index := s.geopoints[path]
-	if index == nil {
-		index = geo.NewIndex()
-		s.geopoints[path] = index
-	}
-	s.touched.geopoints[index] = struct{}{}
-	return index
+func (s *side) release() {
+	s.growing.Release()
+	s.fields.Release()
 }
 
-func keepsValueSize(base schema.BaseFieldType) bool {
-	return base == schema.BaseString || base == schema.BaseVerbatim || len(base) > 2 && base[len(base)-2:] == "[]"
+func (s *side) holdsLive(ordinal uint32) bool {
+	word := ordinal >> 5
+	return int(word) < len(s.live) && s.live[word]&(1<<(ordinal&31)) != 0
 }
 
-func valueSizeOf(value any) float64 {
-	if items, isList := value.([]any); isList {
-		return float64(len(items))
+func (s *side) setLive(ordinal uint32) {
+	word := int(ordinal >> 5)
+	for word >= len(s.live) {
+		s.live = append(s.live, 0)
 	}
-	if value == "" {
-		return 0
-	}
-	return 1
-}
-
-func (s *side) ensureFieldIndex(path string, base schema.BaseFieldType) {
-	switch base {
-	case schema.BaseNumber, schema.BaseNumberList:
-		s.numericIndex(s.numbers, path)
-	case schema.BaseBoolean, schema.BaseBooleanList:
-		s.booleanIndex(path)
-	case schema.BaseEnum, schema.BaseEnumList:
-		s.enumIndex(path)
-	case schema.BaseGeopoint:
-		s.geoIndex(path)
+	if s.live[word]&(1<<(ordinal&31)) == 0 {
+		s.live[word] |= 1 << (ordinal & 31)
+		s.liveCount++
 	}
 }
 
-func (s *side) indexValues(ordinal uint32, document map[string]any, fields []schema.Field) {
-	for _, field := range fields {
-		value, present := presentValue(document, field.Path)
-		if !present {
-			continue
+func (s *side) clearLive(ordinal uint32) {
+	if s.holdsLive(ordinal) {
+		s.live[ordinal>>5] &^= 1 << (ordinal & 31)
+		s.liveCount--
+	}
+}
+
+func (s *side) widenFields(count int) error {
+	if count <= s.fieldCount {
+		return nil
+	}
+	if err := s.growing.ReserveFields(s.capacity, count); err != nil {
+		return err
+	}
+	for field := s.fieldCount; field < count; field++ {
+		if err := s.growing.SetPartial(field, s.names.partial[s.names.names[field]]); err != nil {
+			return err
 		}
-		if keepsValueSize(field.Base) {
-			s.numericIndex(s.sizes, field.Path).Insert(ordinal, valueSizeOf(value))
-		}
-		s.ensureFieldIndex(field.Path, field.Base)
-		if field.Pattern {
-			s.patternIndex(field.Path).Add(ordinal, value)
-		}
-		s.applyValue(ordinal, field, value, true)
 	}
+	s.fieldCount = count
+	s.viewFields = max(s.viewFields, count)
+	return nil
 }
 
-func (s *side) removeValues(ordinal uint32, document map[string]any, fields []schema.Field) {
-	for _, field := range fields {
-		value, present := presentValue(document, field.Path)
-		if !present {
-			continue
-		}
-		if keepsValueSize(field.Base) {
-			if index := s.sizes[field.Path]; index != nil {
-				s.touched.numbers[index] = struct{}{}
-				index.Remove(ordinal, valueSizeOf(value))
-			}
-		}
-		if index := s.patterns[field.Path]; field.Pattern && index != nil {
-			index.Remove(ordinal, value)
-		}
-		s.applyValue(ordinal, field, value, false)
+func (s *side) widenOrdinals(ordinal uint32) error {
+	if err := s.growing.ReserveFields(ordinal+1, s.fieldCount); err != nil {
+		return err
 	}
+	s.capacity = max(s.capacity, ordinal+1)
+	return nil
 }
 
-func (s *side) applyValue(ordinal uint32, field schema.Field, value any, inserting bool) {
-	switch field.Base {
-	case schema.BaseNumber, schema.BaseNumberList:
-		if index := s.numbers[field.Path]; index != nil {
-			s.touched.numbers[index] = struct{}{}
-			forEachValue(value, func(item any) {
-				if number, isNumber := item.(float64); isNumber {
-					if inserting {
-						index.Insert(ordinal, number)
-					} else {
-						index.Remove(ordinal, number)
-					}
-				}
-			})
-		}
-	case schema.BaseBoolean, schema.BaseBooleanList:
-		if index := s.booleans[field.Path]; index != nil {
-			forEachValue(value, func(item any) {
-				if flag, isBool := item.(bool); isBool {
-					if inserting {
-						index.Insert(ordinal, flag)
-					} else {
-						index.Remove(ordinal, flag)
-					}
-				}
-			})
-		}
-	case schema.BaseEnum, schema.BaseEnumList:
-		if index := s.enums[field.Path]; index != nil {
-			forEachValue(value, func(item any) {
-				if written, isString := item.(string); isString {
-					if inserting {
-						index.Insert(ordinal, written)
-					} else {
-						index.Remove(ordinal, written)
-					}
-				}
-			})
-		}
-	case schema.BaseGeopoint:
-		s.applyGeopoint(ordinal, field.Path, value, inserting)
-	}
+type location struct {
+	frozen  int
+	ordinal uint32
+	found   bool
 }
 
-func (s *side) applyGeopoint(ordinal uint32, path string, value any, inserting bool) {
-	index := s.geopoints[path]
-	if index == nil {
-		return
+func (s *side) locate(id string) location {
+	if ordinal, held := s.ids[id]; held {
+		return location{frozen: -1, ordinal: ordinal, found: true}
 	}
-	s.touched.geopoints[index] = struct{}{}
-	if !inserting {
-		index.Remove(ordinal)
-		return
-	}
-	point, isObject := value.(map[string]any)
-	if !isObject {
-		return
-	}
-	lat, latFound := point["lat"].(float64)
-	lon, lonFound := point["lon"].(float64)
-	if latFound && lonFound {
-		index.Insert(ordinal, lat, lon)
-	}
-}
-
-func forEachValue(value any, visit func(item any)) {
-	if items, isList := value.([]any); isList {
-		for _, item := range items {
-			visit(item)
+	for at := len(s.frozen) - 1; at >= 0; at-- {
+		held := s.frozen[at]
+		if ordinal, found := held.segment.ordinalOf(id); found && !held.state.Tombstoned(ordinal) {
+			return location{frozen: at, ordinal: ordinal, found: true}
 		}
-		return
 	}
-	visit(value)
+	return location{}
 }
 
-func (s *side) settle() {
-	for index := range s.touched.numbers {
-		index.Settle()
+func (s *side) document(at location) (storedDocument, bool, error) {
+	if !at.found {
+		return storedDocument{}, false, nil
 	}
-	for index := range s.touched.geopoints {
-		index.Settle()
+	if at.frozen < 0 {
+		document, held := s.gen.documents.at(s.index, at.ordinal)
+		return document, held, nil
 	}
-	clear(s.touched.numbers)
-	clear(s.touched.geopoints)
+	return s.frozen[at.frozen].segment.documentAt(at.ordinal)
+}
+
+func (s *side) documentCount() int {
+	count := s.liveCount
+	for _, held := range s.frozen {
+		count += int(held.segment.documentCount()) - int(held.state.Core.TombstoneCount[0])
+	}
+	return count
 }

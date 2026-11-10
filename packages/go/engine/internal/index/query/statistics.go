@@ -74,14 +74,6 @@ func aggregateAverages(view *View, into []float64) (float64, []float64) {
 	return documents, into
 }
 
-func (s *searcher) segmentFrequency(segment *Segment, token string) (float64, error) {
-	term, found, err := s.exact(segment, token)
-	if err != nil || !found {
-		return 0, err
-	}
-	return segment.liveFrequency(term), nil
-}
-
 func (s *searcher) partitionFrequency(view *View, token string) (float64, error) {
 	total := 0.0
 	for index := range view.Segments {

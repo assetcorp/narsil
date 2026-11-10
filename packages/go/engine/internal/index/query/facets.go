@@ -63,7 +63,7 @@ func (c *facetCounter) ranges(path string, ranges []model.FacetRange) (map[strin
 	if index := c.segment.Fields.Numeric[path]; index != nil {
 		err = c.workspace.RangeFacet(index, c.matched, bounds, totals)
 	} else if stored := c.segment.Fields.Stored[path]; stored != nil {
-		err = core.StoredRangeFacet(core.StoredValuesOf(*stored), c.matched, bounds, totals)
+		err = core.StoredRangeFacet(stored.Values(), c.matched, bounds, totals)
 	}
 	if err != nil {
 		return nil, facetFailure(err)
@@ -130,7 +130,7 @@ func (c *facetCounter) storedValues(path string, counts map[string]int) (map[str
 	}
 	positions := make([]uint32, len(stored.Kinds))
 	totals := make([]uint32, len(stored.Kinds))
-	found, err := c.workspace.ValueFacet(core.StoredValuesOf(*stored), c.matched, positions, totals)
+	found, err := c.workspace.ValueFacet(stored.Values(), c.matched, positions, totals)
 	if err != nil {
 		return nil, facetFailure(err)
 	}

@@ -12,11 +12,6 @@ func Some[T any](value T) Optional[T] {
 	return model.Some(value)
 }
 
-// Document is one stored record: field names mapped to strings, numbers,
-// booleans, lists, nested documents, time.Time values, byte slices, and, for
-// a vector field, a []float32 or a list of numbers.
-type Document = model.Document
-
 // FieldType is the type that a schema gives one field, such as "string" or
 // "vector[384]".
 type FieldType = model.FieldType

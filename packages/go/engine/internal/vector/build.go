@@ -21,13 +21,14 @@ func (f *Field) placeChunk(graph *graphMemory, docIDs []string, admit admitDocum
 		if !held {
 			continue
 		}
-		next, _, err := f.insertOrdinal(graph, ordinal, false)
+		next, inserted, err := f.insertOrdinal(graph, ordinal, false)
 		graph = next
 		if err != nil {
 			return graph, placed, false, err
 		}
 		if graph == f.graph {
 			f.buffer.delete(f.store, docID)
+			f.builds.connectPending = f.builds.connectPending || inserted
 		}
 		placed++
 	}
@@ -89,7 +90,24 @@ func (f *Field) insertLocally(ctx context.Context, graph *graphMemory, docIDs []
 		return connected, false, err
 	}
 	f.revision.Add(1)
+	if published {
+		f.builds.connectPending = false
+	}
 	return connected, true, nil
+}
+
+func (f *Field) connectBeforeCopying() error {
+	if !f.builds.connectPending {
+		return nil
+	}
+	if f.graph != nil {
+		if _, err := f.connectUnreached(f.graph); err != nil {
+			return err
+		}
+		f.revision.Add(1)
+	}
+	f.builds.connectPending = false
+	return nil
 }
 
 func (f *Field) promoteToGraph(ctx context.Context) error {

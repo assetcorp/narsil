@@ -45,7 +45,6 @@ type graphMemory struct {
 }
 
 type graphLineage struct {
-	created  int64
 	alsoScan atomic.Pointer[[]int32]
 }
 
@@ -60,7 +59,7 @@ func newGraphMemory(shape graphShape, slots *Slots) (*graphMemory, error) {
 		upperStride:  shape.m + core.ListWordsOverNeighbours,
 		multiplier:   levelMultiplier(shape.m),
 		lineage:      &graphLineage{},
-		slotTable:    slots.retain(),
+		slotTable:    slots.Retain(),
 	}
 	regions := []struct {
 		target  **growable

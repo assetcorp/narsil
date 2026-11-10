@@ -52,11 +52,11 @@ func emptyOutcome() SearchOutcome {
 	return SearchOutcome{Results: []ScoredResult{}, Matched: 0, MatchedExact: true}
 }
 
-func fetchedOutcome(current *layout, results []ScoredResult, minSimilarity float64, accepted *ordinalFilter) SearchOutcome {
+func fetchedOutcome(live int, results []ScoredResult, minSimilarity float64, accepted *ordinalFilter) SearchOutcome {
 	if !math.IsInf(minSimilarity, -1) {
 		return SearchOutcome{Results: results, Matched: len(results)}
 	}
-	admitted := liveSizeOf(current)
+	admitted := live
 	if accepted != nil {
 		admitted = accepted.count
 	}
@@ -77,7 +77,13 @@ func (f *Field) Search(ctx context.Context, query []float32, k int, options Sear
 		return SearchOutcome{}, err
 	}
 	for hold := f.coldHoldNow(); hold != nil; hold = f.coldHoldNow() {
+		if failure := hold.replayFailure(); failure != nil {
+			return SearchOutcome{}, failure
+		}
 		outcome, err := f.coldSearch(ctx, hold, query, k, options)
+		if failure := hold.replayFailure(); failure != nil {
+			return SearchOutcome{}, failure
+		}
 		if f.coldHoldNow() == hold || ctx.Err() != nil {
 			return outcome, err
 		}
@@ -102,15 +108,16 @@ func (f *Field) Search(ctx context.Context, query []float32, k int, options Sear
 func (f *Field) searchLayout(ctx context.Context, current *layout, lease *Lease, query []float32, k int,
 	options SearchOptions) (SearchOutcome, error) {
 	accepted := filterOf(current, options.Filter, lease.pin)
-	if liveSizeOf(current) <= 0 || (accepted != nil && accepted.count == 0) {
+	live := liveAtPin(current, lease.pin)
+	if live <= 0 || (accepted != nil && accepted.count == 0) {
 		return emptyOutcome(), nil
 	}
 	if k <= 0 {
-		return fetchedOutcome(current, []ScoredResult{}, options.MinSimilarity, accepted), nil
+		return fetchedOutcome(live, []ScoredResult{}, options.MinSimilarity, accepted), nil
 	}
 	metric, _ := nativeMetricOf(options.Metric)
 	request := scanRequest{query: query, metric: options.Metric, nativeMetric: metric,
-		minSimilarity: options.MinSimilarity, pin: lease.pin}
+		minSimilarity: options.MinSimilarity, pin: lease.pin, liveAtPin: live}
 	scratch, err := acquireSearchScratch()
 	if err != nil {
 		return SearchOutcome{}, err
@@ -142,9 +149,9 @@ func (f *Field) searchLayout(ctx context.Context, current *layout, lease *Lease,
 		return SearchOutcome{}, err
 	}
 	if outside == nil {
-		return fetchedOutcome(current, graphResults, options.MinSimilarity, accepted), nil
+		return fetchedOutcome(live, graphResults, options.MinSimilarity, accepted), nil
 	}
-	return fetchedOutcome(current, mergeResults(graphResults, outside.results(), k), options.MinSimilarity, accepted), nil
+	return fetchedOutcome(live, mergeResults(graphResults, outside.results(), k), options.MinSimilarity, accepted), nil
 }
 
 func (f *Field) filterIsNarrow(graph *graphMemory, accepted *ordinalFilter) bool {

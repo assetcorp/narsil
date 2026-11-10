@@ -98,11 +98,3 @@ func (reader *Reader) requireEveryList() error {
 func OpenBytes(data []byte) (*Reader, error) {
 	return Open(bytes.NewReader(data), int64(len(data)))
 }
-
-func CheckBytes(data []byte) error {
-	reader, err := OpenBytes(data)
-	if err != nil {
-		return err
-	}
-	return reader.CheckFully()
-}

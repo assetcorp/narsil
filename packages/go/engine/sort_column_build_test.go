@@ -42,11 +42,11 @@ func TestSortOnNewFieldFinishesWhileAnotherSearchIsHeld(t *testing.T) {
 		t.Fatalf("the engine refused the index: %v", err)
 	}
 	years := map[string]float64{}
-	batch := make([]engine.Document, 0, shelfDocuments)
+	batch := make([]*engine.Document, 0, shelfDocuments)
 	for position := range shelfDocuments {
 		id := "volume-" + strconv.Itoa(position)
 		years[id] = shelfYear(position)
-		batch = append(batch, engine.Document{"id": id, "title": "volume " + id, "year": years[id]})
+		batch = append(batch, engine.DocumentFromMap(map[string]any{"id": id, "title": "volume " + id, "year": years[id]}))
 	}
 	if result, err := narsil.InsertBatch(ctx, shelfIndexName, batch, engine.InsertOptions{}); err != nil || len(result.Failed) > 0 {
 		t.Fatalf("loading the shelf failed: %v %+v", err, result.Failed)
@@ -70,7 +70,7 @@ func TestSortOnNewFieldFinishesWhileAnotherSearchIsHeld(t *testing.T) {
 
 	lateID := "volume-" + strconv.Itoa(shelfDocuments)
 	years[lateID] = shelfYear(shelfDocuments)
-	if _, err := narsil.Insert(ctx, shelfIndexName, engine.Document{"title": "volume " + lateID, "year": years[lateID]},
+	if _, err := narsil.Insert(ctx, shelfIndexName, engine.DocumentFromMap(map[string]any{"title": "volume " + lateID, "year": years[lateID]}),
 		lateID, engine.InsertOptions{}); err != nil {
 		t.Fatalf("inserting %s while a search is held failed: %v", lateID, err)
 	}

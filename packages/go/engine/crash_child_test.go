@@ -49,6 +49,13 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if directory := os.Getenv(growthDirectoryVariable); directory != "" {
+		if err := runGrowthCheckpointChild(directory, os.Getenv(growthReadyVariable)); err != nil {
+			fmt.Fprintln(os.Stderr, "the growth checkpoint child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
 	if directory := os.Getenv(crashDirectoryVariable); directory != "" {
 		seed, _ := strconv.ParseInt(os.Getenv(crashSeedVariable), 10, 64)
 		if err := runCrashChild(directory, os.Getenv(crashLogVariable), os.Getenv(crashModeVariable), seed); err != nil {
@@ -186,15 +193,15 @@ func applyCrashStep(ctx context.Context, narsil *engine.Narsil, step crashStep) 
 	case "remove":
 		return narsil.Remove(ctx, crashIndexName, step.ID, engine.WriteOptions{})
 	case "update":
-		return narsil.Update(ctx, crashIndexName, step.ID, engine.Document(step.Documents[step.ID]), engine.WriteOptions{})
+		return narsil.Update(ctx, crashIndexName, step.ID, engine.DocumentFromMap(step.Documents[step.ID]), engine.WriteOptions{})
 	}
-	batch := make([]engine.Document, 0, len(step.Documents))
+	batch := make([]*engine.Document, 0, len(step.Documents))
 	for id, document := range step.Documents {
-		fields := engine.Document{"id": id}
+		fields := map[string]any{"id": id}
 		for key, value := range document {
 			fields[key] = value
 		}
-		batch = append(batch, fields)
+		batch = append(batch, engine.DocumentFromMap(fields))
 	}
 	result, err := narsil.InsertBatch(ctx, crashIndexName, batch, engine.InsertOptions{})
 	if err != nil {

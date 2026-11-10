@@ -42,14 +42,14 @@ func mixedVector(slot int, version int) []float32 {
 	return []float32{float32(math.Cos(angle)), float32(math.Sin(angle)), float32(version%5) / 5, float32(slot%3+1) / 3}
 }
 
-func mixedFields(token string, slot int, version int) (engine.Document, mixedDocument) {
+func mixedFields(token string, slot int, version int) (*engine.Document, mixedDocument) {
 	held := mixedDocument{rank: float64(slot) + float64(version%997)/1000, vector: mixedVector(slot, version)}
-	return engine.Document{
+	return engine.DocumentFromMap(map[string]any{
 		"title":     token + " shelf " + strconv.Itoa(slot),
 		"owner":     token,
 		"rank":      held.rank,
 		"embedding": held.vector,
-	}, held
+	}), held
 }
 
 func mixedSchema() engine.IndexConfig {

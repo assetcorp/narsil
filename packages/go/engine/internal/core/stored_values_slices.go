@@ -1,7 +1,5 @@
 package core
 
-import "unsafe"
-
 type StoredValueSlices struct {
 	Shapes     []uint8
 	Starts     []uint32
@@ -13,22 +11,15 @@ type StoredValueSlices struct {
 	Bytes      []uint8
 }
 
-func sliceStart[T any](values []T) unsafe.Pointer {
-	if len(values) == 0 {
-		return nil
-	}
-	return unsafe.Pointer(unsafe.SliceData(values))
-}
-
-func StoredValuesOf(slices StoredValueSlices) *StoredValues {
+func (s StoredValueSlices) Values() *StoredValues {
 	return &StoredValues{
-		Shapes: sliceStart(slices.Shapes), ShapeCount: uintptr(len(slices.Shapes)),
-		Starts: sliceStart(slices.Starts), StartCount: uintptr(len(slices.Starts)),
-		Kinds: sliceStart(slices.Kinds), KindCount: uintptr(len(slices.Kinds)),
-		Numbers: sliceStart(slices.Numbers), NumberCount: uintptr(len(slices.Numbers)),
-		TextStart: sliceStart(slices.TextStart), TextStartCount: uintptr(len(slices.TextStart)),
-		TextLength: sliceStart(slices.TextLength), TextLengthCount: uintptr(len(slices.TextLength)),
-		Units: sliceStart(slices.Units), UnitCount: uintptr(len(slices.Units)),
-		Bytes: sliceStart(slices.Bytes), ByteCount: uintptr(len(slices.Bytes)),
+		Shapes: sliceStart(s.Shapes), ShapeCount: uintptr(len(s.Shapes)),
+		Starts: sliceStart(s.Starts), StartCount: uintptr(len(s.Starts)),
+		Kinds: sliceStart(s.Kinds), KindCount: uintptr(len(s.Kinds)),
+		Numbers: sliceStart(s.Numbers), NumberCount: uintptr(len(s.Numbers)),
+		TextStart: sliceStart(s.TextStart), TextStartCount: uintptr(len(s.TextStart)),
+		TextLength: sliceStart(s.TextLength), TextLengthCount: uintptr(len(s.TextLength)),
+		Units: sliceStart(s.Units), UnitCount: uintptr(len(s.Units)),
+		Bytes: sliceStart(s.Bytes), ByteCount: uintptr(len(s.Bytes)),
 	}
 }

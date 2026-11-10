@@ -1,7 +1,6 @@
 package segments
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 
@@ -15,19 +14,10 @@ type Tokens struct {
 }
 
 type State struct {
-	keyword  *Keyword
-	paged    *core.FrozenPagedRemovals
-	Core     core.FrozenSegmentState
-	entries  []uint32
-	values   []float64
-	prepared uint64
-}
-
-type Prepared struct {
-	state       *State
-	preparation uint64
-	count       int
-	header      [3]uint32
+	keyword     *Keyword
+	paged       *core.FrozenPagedRemovals
+	pageFailure func(err error) error
+	Core        core.FrozenSegmentState
 }
 
 func NewState(keyword *Keyword, paged *core.FrozenPagedRemovals) *State {
@@ -52,8 +42,6 @@ func NewState(keyword *Keyword, paged *core.FrozenPagedRemovals) *State {
 			RemovedSpellings:   make([]uint32, spellings),
 			PendingHeader:      make([]uint32, core.PendingHeaderWords),
 		},
-		entries: make([]uint32, PreparedRemovalReplacements*core.FrozenRemovalEntryWords),
-		values:  make([]float64, PreparedRemovalReplacements),
 	}
 }
 
@@ -71,7 +59,7 @@ func (s *State) Settle(w *core.Workspace) error {
 	if s.Settled() {
 		return nil
 	}
-	return w.SettleFrozenState(&s.keyword.Segment, &s.Core, s.paged)
+	return s.failure(w.SettleFrozenState(&s.keyword.Segment, &s.Core, s.paged))
 }
 
 func (s *State) fieldTokens(tokens []Tokens) ([]core.FieldTokens, error) {
@@ -109,74 +97,27 @@ func (s *State) fieldTokens(tokens []Tokens) ([]core.FieldTokens, error) {
 	return fields, nil
 }
 
-func (s *State) Prepare(w *core.Workspace, ordinal uint32, tokens []Tokens) (*Prepared, error) {
+func (s *State) Remove(w *core.Workspace, ordinal uint32, tokens []Tokens) error {
 	if ordinal >= s.keyword.Segment.DocumentCount {
-		return nil, fmt.Errorf("%w: ordinal %d is past the segment's %d documents", ErrInvalidInput, ordinal,
+		return fmt.Errorf("%w: ordinal %d is past the segment's %d documents", ErrInvalidInput, ordinal,
 			s.keyword.Segment.DocumentCount)
 	}
 	if s.Tombstoned(ordinal) {
-		return nil, ErrTombstoned
+		return ErrTombstoned
 	}
 	fields, err := s.fieldTokens(tokens)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.growPending(fields); err != nil {
-		return nil, err
-	}
-	output := &core.FrozenRemovalOutput{Entries: s.entries, Values: s.values}
-	count, err := w.PrepareFrozenRemoval(&s.keyword.Segment, &s.Core, ordinal, fields, s.paged, output)
-	var status *core.StatusError
-	if errors.As(err, &status) && status.Status == core.StatusNeedsRoom {
-		if err := s.growPending(fields); err != nil {
-			return nil, err
-		}
-		count, err = w.PrepareFrozenRemoval(&s.keyword.Segment, &s.Core, ordinal, fields, s.paged, output)
-	}
-	if err != nil {
-		return nil, err
-	}
-	s.prepared++
-	header := s.Core.PendingHeader
-	return &Prepared{
-		state:       s,
-		preparation: s.prepared,
-		count:       count,
-		header:      [3]uint32{header[core.PendingDocuments], header[core.PendingTokens], header[core.PendingUnits]},
-	}, nil
-}
-
-func (p *Prepared) Publish() error {
-	s := p.state
-	header := s.Core.PendingHeader
-	if p.preparation != s.prepared || header[core.PendingDocuments] != p.header[0] ||
-		header[core.PendingTokens] != p.header[1] || header[core.PendingUnits] != p.header[2] {
-		return ErrStalePrepare
-	}
-	s.prepared++
-	for at := range p.count {
-		var target []uint32
-		switch s.entries[at*core.FrozenRemovalEntryWords] {
-		case tombstoneWordKind:
-			target = s.Core.Tombstones
-		case tombstoneCountKind:
-			target = s.Core.TombstoneCount
-		case pendingHeaderKind:
-			target = s.Core.PendingHeader
-		}
-		entry := s.entries[at*core.FrozenRemovalEntryWords+1]
-		if uint64(entry) >= uint64(len(target)) {
-			return fmt.Errorf("%w: the core prepared a replacement outside the state", ErrInvalidInput)
-		}
-		target[entry] = uint32(s.values[at])
-	}
-	return nil
-}
-
-func (s *State) Remove(w *core.Workspace, ordinal uint32, tokens []Tokens) error {
-	prepared, err := s.Prepare(w, ordinal, tokens)
-	if err != nil {
 		return err
 	}
-	return prepared.Publish()
+	if err := s.growPending(fields); err != nil {
+		return err
+	}
+	err = w.RemoveFrozenDocument(&s.keyword.Segment, &s.Core, ordinal, fields, s.paged)
+	if core.StatusOf(err) == core.StatusNeedsRoom {
+		if err := s.growPending(fields); err != nil {
+			return err
+		}
+		err = w.RemoveFrozenDocument(&s.keyword.Segment, &s.Core, ordinal, fields, s.paged)
+	}
+	return s.failure(err)
 }

@@ -49,13 +49,11 @@ func openColdSource(ctx context.Context, store checkpoint.Store, ref manifest.Fi
 			return coldSource{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
 				`The file "`+ref.Key+`" cannot be opened`, err, map[string]any{"key": ref.Key})
 		}
-		info, err := file.Stat()
+		native, err := paged.OpenNativeFile(file, path)
 		if err != nil {
-			_ = file.Close()
-			return coldSource{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
-				`The file "`+ref.Key+`" cannot be measured`, err, map[string]any{"key": ref.Key})
+			return coldSource{}, err
 		}
-		return coldSource{reader: file, size: info.Size(), close: func() { _ = file.Close() }}, nil
+		return coldSource{reader: native, size: native.Size(), close: func() { _ = native.Close() }}, nil
 	}
 	data, err := checkpoint.ReadListed(ctx, store, ref, "file")
 	if err != nil {

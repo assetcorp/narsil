@@ -20,21 +20,6 @@ func (s *Segment) termCount() int {
 	return len(s.Frozen.Terms.Counts)
 }
 
-func (s *Segment) liveFrequency(term uint32) float64 {
-	if s.Growing != nil {
-		columns := &s.Growing.Columns
-		if int(term) >= len(columns.DocFrequency) || columns.Flags[term]&growingTermLive == 0 {
-			return 0
-		}
-		return float64(columns.DocFrequency[term]) - float64(columns.DeadDocuments[term])
-	}
-	counts := s.Frozen.Terms.Counts
-	if int(term) >= len(counts) {
-		return 0
-	}
-	return float64(counts[term]) - float64(s.State.RemovedDocuments[term])
-}
-
 func (s *Segment) termText(term uint32) string {
 	if s.Growing != nil {
 		table := &s.Growing.Terms
@@ -107,7 +92,19 @@ func (s *Segment) pool() ([]uint32, []uint16, []uint16) {
 type termFinder struct {
 	units    []uint16
 	ordinals []uint32
+	counts   []uint32
 	single   [1]uint32
+}
+
+func (f *termFinder) frequencies(segment *Segment, terms []uint32) ([]uint32, error) {
+	if cap(f.counts) < len(terms) {
+		f.counts = make([]uint32, len(terms))
+	}
+	counts := f.counts[:len(terms)]
+	if err := core.DocumentFrequencies(segment.dictionary(), terms, counts); err != nil {
+		return nil, err
+	}
+	return counts, nil
 }
 
 func (f *termFinder) encode(text string) []uint16 {

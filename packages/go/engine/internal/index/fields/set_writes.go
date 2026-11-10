@@ -1,13 +1,16 @@
 package fields
 
-import "github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+)
 
 type fieldValue struct {
 	field schema.Field
 	value any
 }
 
-func (s *Set) presentValues(document map[string]any) []fieldValue {
+func (s *Set) presentValues(document *codec.Document) []fieldValue {
 	values := make([]fieldValue, 0, len(s.fields))
 	for _, field := range s.fields {
 		value, found := nestedValue(document, field.Path)
@@ -23,7 +26,7 @@ type storedWrite struct {
 	plan    storedPlan
 }
 
-func (s *Set) planStored(removed *uint32, written *uint32, document map[string]any) ([]storedWrite, error) {
+func (s *Set) planStored(removed *uint32, written *uint32, document *codec.Document) ([]storedWrite, error) {
 	writes := make([]storedWrite, len(s.storedOrder))
 	for at, path := range s.storedOrder {
 		changes := make([]StoredChange, 0, 2)
@@ -58,7 +61,7 @@ func (s *Set) applyStored(writes []storedWrite) error {
 	return first
 }
 
-func (s *Set) Insert(ordinal, capacity uint32, document map[string]any) error {
+func (s *Set) Insert(ordinal, capacity uint32, document *codec.Document) error {
 	if err := s.limits.checkOrdinal(ordinal); err != nil {
 		return err
 	}
@@ -85,7 +88,7 @@ func (s *Set) Insert(ordinal, capacity uint32, document map[string]any) error {
 	return first
 }
 
-func (s *Set) Remove(ordinal uint32, document map[string]any) error {
+func (s *Set) Remove(ordinal uint32, document *codec.Document) error {
 	values := s.presentValues(document)
 	if err := s.validateAll(values); err != nil {
 		return err
@@ -104,7 +107,7 @@ func (s *Set) Remove(ordinal uint32, document map[string]any) error {
 	return first
 }
 
-func (s *Set) Replace(previous, ordinal, capacity uint32, before, after map[string]any) error {
+func (s *Set) Replace(previous, ordinal, capacity uint32, before, after *codec.Document) error {
 	if previous == ordinal {
 		return refuseOrdinal(ordinal)
 	}
@@ -143,7 +146,7 @@ func (s *Set) Replace(previous, ordinal, capacity uint32, before, after map[stri
 	return first
 }
 
-func (s *Set) Update(ordinal, capacity uint32, before, after map[string]any) error {
+func (s *Set) Update(ordinal, capacity uint32, before, after *codec.Document) error {
 	if err := s.limits.checkOrdinal(ordinal); err != nil {
 		return err
 	}

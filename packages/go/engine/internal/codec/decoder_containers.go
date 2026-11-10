@@ -15,16 +15,29 @@ func (decoder *Decoder) countAfterTag(tag byte, fixed byte, fixedLast byte, sixt
 	return 0, false, nil
 }
 
-func (decoder *Decoder) ReadArrayHeader() (int, error) {
+func (decoder *Decoder) readCount(fixed byte, fixedLast byte, sixteen byte, thirtyTwo byte, wanted string) (int, error) {
 	tag, err := decoder.readTag()
 	if err != nil {
 		return 0, err
 	}
-	count, isArray, err := decoder.countAfterTag(tag, tagFixarray, tagFixarrayLast, tagArray16, tagArray32)
-	if !isArray {
+	count, matched, err := decoder.countAfterTag(tag, fixed, fixedLast, sixteen, thirtyTwo)
+	if !matched {
 		decoder.position--
-		return 0, decoder.unexpected(tag, "an array")
+		return 0, decoder.unexpected(tag, wanted)
 	}
+	return count, err
+}
+
+func (decoder *Decoder) ReadArrayCount() (int, error) {
+	return decoder.readCount(tagFixarray, tagFixarrayLast, tagArray16, tagArray32, "an array")
+}
+
+func (decoder *Decoder) ReadMapCount() (int, error) {
+	return decoder.readCount(tagFixmap, tagFixmapLast, tagMap16, tagMap32, "a map")
+}
+
+func (decoder *Decoder) ReadArrayHeader() (int, error) {
+	count, err := decoder.ReadArrayCount()
 	if err != nil {
 		return 0, err
 	}
@@ -35,15 +48,7 @@ func (decoder *Decoder) ReadArrayHeader() (int, error) {
 }
 
 func (decoder *Decoder) ReadMapHeader() (int, error) {
-	tag, err := decoder.readTag()
-	if err != nil {
-		return 0, err
-	}
-	count, isMap, err := decoder.countAfterTag(tag, tagFixmap, tagFixmapLast, tagMap16, tagMap32)
-	if !isMap {
-		decoder.position--
-		return 0, decoder.unexpected(tag, "a map")
-	}
+	count, err := decoder.ReadMapCount()
 	if err != nil {
 		return 0, err
 	}
@@ -88,24 +93,4 @@ func (decoder *Decoder) readExtensionBody(size int) (int8, []byte, error) {
 		return 0, nil, err
 	}
 	return int8(header[0]), data, nil
-}
-
-func (decoder *Decoder) ReadExtension() (Extension, error) {
-	tag, err := decoder.readTag()
-	if err != nil {
-		return Extension{}, err
-	}
-	size, isExtension, err := decoder.extensionSizeAfterTag(tag)
-	if !isExtension {
-		decoder.position--
-		return Extension{}, decoder.unexpected(tag, "an extension")
-	}
-	if err != nil {
-		return Extension{}, err
-	}
-	extensionType, data, err := decoder.readExtensionBody(size)
-	if err != nil {
-		return Extension{}, err
-	}
-	return Extension{Type: extensionType, Data: decoder.ownedBytes(data)}, nil
 }

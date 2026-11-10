@@ -1,8 +1,6 @@
 package growing
 
 import (
-	"math"
-
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -68,41 +66,4 @@ func (f *fieldLengths) release() {
 	f.values.release()
 	f.totals.release()
 	f.partial.release()
-}
-
-func (s *Segment) retireTextless(ordinal uint64) bool {
-	fields := &s.fields
-	capacity := fields.ordinalCapacity
-	if ordinal >= capacity || ordinal>>5 >= s.retired.len() {
-		return false
-	}
-	retired := s.retired.values
-	bit := uint32(1) << (ordinal & 31)
-	if retired[ordinal>>5]&bit != 0 {
-		return true
-	}
-	documents := fields.documents
-	if documents[0] == 0 || uint64(documents[0]) > capacity {
-		return false
-	}
-	values := fields.values.values
-	totals := fields.totals.values
-	for field := uint64(0); field < fields.fieldCount; field++ {
-		total := totals[field]
-		if math.IsInf(total, 0) || math.IsNaN(total) || total < float64(values[field*capacity+ordinal]) {
-			return false
-		}
-	}
-	for field := uint64(0); field < fields.fieldCount; field++ {
-		at := field*capacity + ordinal
-		remaining := totals[field] - float64(values[at])
-		if remaining <= 0 {
-			remaining = 0
-		}
-		totals[field] = remaining
-		values[at] = 0
-	}
-	retired[ordinal>>5] |= bit
-	documents[0]--
-	return true
 }

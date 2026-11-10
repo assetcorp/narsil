@@ -312,14 +312,6 @@ func (s *storeMemory) forgetPartition(docID string) {
 	s.table.setPartition(ordinal, noPartition)
 }
 
-func (s *storeMemory) partitionOf(ordinal int32) (int32, bool) {
-	if ordinal < 0 || ordinal >= s.slots() {
-		return 0, false
-	}
-	partition := s.table.partition(ordinal)
-	return partition, partition >= 0
-}
-
 func (s *storeMemory) readable(ordinal int32) bool {
 	return s.table.flags(ordinal)&(ordinalHoldsDocument|ordinalReplaced) != 0
 }

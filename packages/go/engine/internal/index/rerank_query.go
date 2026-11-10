@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -15,13 +15,18 @@ func (ix *Index) QueryReranked(ctx context.Context, request model.QueryParams, m
 	if err := RequireUsableVectorSettings(&request); err != nil {
 		return model.QueryResult{}, err
 	}
+	ctx, unpin, err := ix.Pin(ctx)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer unpin()
 	binding := options.Binding
 	if binding == nil {
 		binding = cursor.LazyQueryBinding(request)
 	}
 	hybridDepth := model.Optional[int]{}
 	if rerankFusesRankings(&request) {
-		depth, set, err := results.FixedHybridDepth(request.Hybrid)
+		depth, set, err := fixedHybridDepth(request.Hybrid)
 		if err != nil {
 			return model.QueryResult{}, err
 		}
@@ -65,26 +70,38 @@ func (ix *Index) QueryReranked(ctx context.Context, request model.QueryParams, m
 		}
 	}
 	ranked := first.Hits
-	var pins []model.PinnedDocument
+	var pins []query.Pin
 	if placesPins {
-		pins = ix.storedPins(request.Pinned)
+		if pins, err = ix.storedPins(ctx, request.Pinned); err != nil {
+			return model.QueryResult{}, err
+		}
 	}
-	place := func(hits []model.Hit) []results.Hit {
+	place := func(hits []model.Hit) ([]resultHit, error) {
 		converted := toResultHits(hits)
 		if !placesPins {
-			return converted
+			return converted, nil
 		}
-		placed, _ := results.PlacePinned(converted, pins, func(id string) (results.Hit, bool) {
-			return results.Hit{ID: id, Score: model.Some(0.0)}, true
-		})
-		return placed
+		placed, _, err := placePinned(converted, pins)
+		return placed, err
 	}
 	start := cursorDepth + offset
 	windowSize := min(plan.window, len(ranked))
-	pageHoldsHits := limit > 0 && start < len(place(ranked))
+	placedRanked, err := place(ranked)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	pageHoldsHits := limit > 0 && start < len(placedRanked)
+	window := positionPage{start: start, limit: limit}
+	if placesPins {
+		window.pinnedIDs = model.Some(pinnedIDsOf(pins))
+	}
+	documents, err := ix.documentsKeptThroughRerank(ctx, rerankedPageReach(ranked, windowSize, window, pins, first.Groups))
+	if err != nil {
+		return model.QueryResult{}, err
+	}
 	ordered := ranked
 	if windowSize > 0 && pageHoldsHits {
-		scores, err := score(ctx, plan.adapter, plan.query, ix.rerankTexts(ranked[:windowSize], plan.fields))
+		scores, err := score(ctx, plan.adapter, plan.query, rerankTexts(documents, ranked[:windowSize], plan.fields))
 		if err != nil {
 			return model.QueryResult{}, err
 		}
@@ -92,30 +109,26 @@ func (ix *Index) QueryReranked(ctx context.Context, request model.QueryParams, m
 	} else if _, err := score(ctx, plan.adapter, plan.query, []string{}); err != nil {
 		return model.QueryResult{}, err
 	}
-	window := results.PositionPage{Start: start, Limit: limit}
-	if placesPins {
-		pinnedIDs := make(map[string]struct{}, len(pins))
-		for _, entry := range pins {
-			pinnedIDs[entry.DocID] = struct{}{}
-		}
-		window.PinnedIDs = model.Some(pinnedIDs)
-	}
 	organic := make([]string, len(ordered))
 	for at, hit := range ordered {
 		organic[at] = hit.ID
 	}
-	pageHits, next := results.PageByPosition(place(ordered), organic, window)
+	placedOrdered, err := place(ordered)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	pageHits, next := pageByPosition(placedOrdered, organic, window)
 	page := toModelHits(pageHits)
-	ix.fillRerankedDocuments(page, first.Groups, request.Document)
+	fillRerankedDocuments(documents, page, first.Groups, request.Document)
 	if request.Highlight != nil {
-		if err := ix.highlightReranked(page, request); err != nil {
+		if err := ix.highlightReranked(documents, page, request); err != nil {
 			return model.QueryResult{}, err
 		}
 	}
 	result := model.QueryResult{Hits: page, Count: counted.Count, CountExact: counted.CountExact, Facets: first.Facets,
 		Groups: first.Groups, Coverage: first.Coverage}
 	if next != nil {
-		result.Cursor = cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.Anchor, Score: next.Score, Depth: next.Depth,
+		result.Cursor = cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.anchor, Score: next.score, Depth: next.depth,
 			Binding: binding()})
 	}
 	result.Elapsed = time.Since(started)

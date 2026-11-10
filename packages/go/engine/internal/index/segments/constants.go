@@ -8,10 +8,6 @@ const (
 	PendingRemovalGrowthLimitBytes    = 64 << 20
 	PendingRemovalLowMemoryLimitBytes = 64 << 10
 	FrozenRemovalMaxProcessFraction   = 0.9
-	PreparedRemovalReplacements       = 5
 	CompactionSegmentTrigger          = 8
 	SegmentsPerMerge                  = 8
-	tombstoneWordKind                 = 4
-	tombstoneCountKind                = 5
-	pendingHeaderKind                 = 6
 )

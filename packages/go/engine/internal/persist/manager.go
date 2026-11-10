@@ -29,7 +29,6 @@ type Settings struct {
 	CheckpointInterval          time.Duration
 	CheckpointMutationThreshold int64
 	SegmentMaxBytes             int64
-	TargetSegmentBytes          int64
 	CompactionThreshold         int
 	OnFatal                     func(error)
 }

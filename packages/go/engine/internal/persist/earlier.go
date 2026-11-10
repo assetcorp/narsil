@@ -2,12 +2,11 @@ package persist
 
 import (
 	"context"
-	"sort"
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/earlier"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 )
@@ -80,45 +79,14 @@ func addSegmentSchema(agreed map[string]string, found map[string]string) error {
 	return nil
 }
 
-func sortedDocumentIDs(documents map[string]map[string]any) []string {
-	ids := make([]string, 0, len(documents))
-	for id := range documents {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func replaceEarlierDocuments(handle *Handle, tombstones []string, documents map[string]map[string]any) error {
-	ids := sortedDocumentIDs(documents)
-	replaced := make([]string, 0, len(tombstones))
-	for _, id := range tombstones {
-		if handle.Index.Has(id) {
-			replaced = append(replaced, id)
-		}
-	}
-	for _, id := range ids {
-		if handle.Index.Has(id) {
-			replaced = append(replaced, id)
-		}
-	}
-	for start := 0; start < len(replaced); start += RecoveryInsertBatchDocuments {
-		end := min(start+RecoveryInsertBatchDocuments, len(replaced))
-		if err := firstFailure(handle.Index.Remove(replaced[start:end])); err != nil {
-			return err
-		}
-	}
-	batch := make([]partition.Document, 0, min(len(ids), RecoveryInsertBatchDocuments))
+func replaceEarlierDocuments(ctx context.Context, handle *Handle, tombstones []string,
+	documents map[string]map[string]any) error {
+	ids := sortedKeys(documents)
+	inserted := make([]index.DocumentWrite, len(ids))
 	for at, id := range ids {
-		batch = append(batch, partition.Document{ID: id, Fields: documents[id]})
-		if len(batch) == RecoveryInsertBatchDocuments || at == len(ids)-1 {
-			if err := firstFailure(handle.Index.Insert(batch)); err != nil {
-				return err
-			}
-			batch = batch[:0]
-		}
+		inserted[at] = index.DocumentWrite{ID: id, Fields: documents[id]}
 	}
-	return nil
+	return replaceDocuments(ctx, handle.Index, tombstones, inserted, firstFailure)
 }
 
 func earlierReferencedKeys(listed earlier.Manifest) map[string]struct{} {
@@ -158,7 +126,7 @@ func loadEarlierPartition(ctx context.Context, store checkpoint.Store, handle *H
 		if err := addSegmentSchema(agreed, stored.Schema); err != nil {
 			return err
 		}
-		if err := replaceEarlierDocuments(handle, segment.Tombstones, stored.Documents); err != nil {
+		if err := replaceEarlierDocuments(ctx, handle, segment.Tombstones, stored.Documents); err != nil {
 			return err
 		}
 	}
@@ -224,7 +192,7 @@ func (manager *Manager) loadEarlierBundle(ctx context.Context, store checkpoint.
 	if err := checkpoint.ReclaimUnlisted(ctx, store, handle.Name, map[string]struct{}{}); err != nil {
 		return nil, nil, err
 	}
-	if err := insertEarlierDocuments(handle, bundle.Partitions, bundle.VectorIndexes); err != nil {
+	if err := insertEarlierDocuments(ctx, handle, bundle.Partitions, bundle.VectorIndexes); err != nil {
 		return nil, nil, err
 	}
 	upgrade := &layoutUpgrade{layout: earlierBundleLayout, prior: manifest.Manifest{Schema: bundle.Schema,

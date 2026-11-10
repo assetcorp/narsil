@@ -2,8 +2,6 @@ package model
 
 import "strconv"
 
-type Document = map[string]any
-
 type FieldType string
 
 const (

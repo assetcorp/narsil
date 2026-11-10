@@ -8,11 +8,11 @@ type DocumentRules struct {
 }
 
 type PreparedDocument struct {
-	Document model.Document
+	Document *model.Document
 	Vectors  map[string][]float32
 }
 
-func PrepareDocument(document model.Document, parsed *Parsed, rules DocumentRules) (PreparedDocument, error) {
+func PrepareDocument(document *model.Document, parsed *Parsed, rules DocumentRules) (PreparedDocument, error) {
 	if err := RequireDocumentWithinSizeLimit(document, parsed); err != nil {
 		return PreparedDocument{}, err
 	}

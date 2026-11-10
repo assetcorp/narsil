@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -45,13 +47,15 @@ func isStoredObject(value any) bool {
 }
 
 func validateGeopoint(path string, value any) error {
-	point, isMap := value.(map[string]any)
+	point, isDocument := value.(*model.Document)
 	if !isStoredObject(value) {
 		return narsilerr.New(narsilerr.CodeSchemaInvalidGeopoint, fmt.Sprintf("Field %q expected a geopoint object with lat and lon", path), map[string]any{"field": path, "received": receivedKind(value)})
 	}
-	lat, latIsNumber := point["lat"].(float64)
-	lon, lonIsNumber := point["lon"].(float64)
-	if !isMap || !latIsNumber || !lonIsNumber || math.IsNaN(lat) || math.IsNaN(lon) {
+	heldLat, _ := codec.HeldValue(point, "lat")
+	heldLon, _ := codec.HeldValue(point, "lon")
+	lat, latIsNumber := heldLat.(float64)
+	lon, lonIsNumber := heldLon.(float64)
+	if !isDocument || !latIsNumber || !lonIsNumber || math.IsNaN(lat) || math.IsNaN(lon) {
 		return narsilerr.New(narsilerr.CodeSchemaInvalidGeopoint, fmt.Sprintf("Field %q geopoint requires numeric lat and lon", path), map[string]any{"field": path})
 	}
 	if lat < -MaxLatitudeDegrees || lat > MaxLatitudeDegrees {

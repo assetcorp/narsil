@@ -134,7 +134,11 @@ func (n *Narsil) exceedsOpenLimits() bool {
 	open, bytes := 0, int64(0)
 	for _, entry := range n.sortedEntries() {
 		open++
-		bytes += entry.estimatedBytes()
+		estimated, err := entry.estimatedBytes()
+		if err != nil {
+			return false
+		}
+		bytes += estimated
 	}
 	if limit, set := lifecycle.MaxOpenIndexes.Get(); set && open > limit {
 		return true

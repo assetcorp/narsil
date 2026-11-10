@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
@@ -156,27 +155,29 @@ func (ix *Index) cursorDepthOf(prepared *preparedQuery) (int, error) {
 	return decoded.Depth, nil
 }
 
-func (ix *Index) acceptedForVectors(filter *partitionFilter) (vectorAcceptance, error) {
-	if filter == nil {
+func (ix *Index) acceptedForVectors(prepared *preparedQuery) (vectorAcceptance, error) {
+	if prepared.filters == nil {
 		return vectorAcceptance{}, nil
 	}
+	views, err := prepared.reads.views.all()
+	if err != nil {
+		return vectorAcceptance{}, err
+	}
 	accepted := vectorAcceptance{filtered: true, ids: []string{}}
-	held := ix.acquireAll(ix.allPartitionIDs())
-	defer held.release()
-	for _, view := range held.partitions {
-		ids, err := filter.matchingIDs(view)
+	for at, snapshot := range prepared.reads.reading.Snapshots {
+		matched, err := prepared.filters.evaluate(views[at])
 		if err != nil {
 			return vectorAcceptance{}, err
 		}
-		accepted.ids = append(accepted.ids, ids...)
+		accepted.ids = append(accepted.ids, matchingIDs(snapshot, matched)...)
 	}
 	return accepted, nil
 }
 
-func scoredOfVectorHits(hits []VectorHit) []partition.ScoredDocument {
-	scored := make([]partition.ScoredDocument, len(hits))
+func scoredOfVectorHits(hits []VectorHit) []scoredHit {
+	scored := make([]scoredHit, len(hits))
 	for at, hit := range hits {
-		scored[at] = partition.ScoredDocument{ID: hit.ID, Score: hit.Score}
+		scored[at] = scoredHit{ID: hit.ID, Score: hit.Score}
 	}
 	return scored
 }
@@ -197,7 +198,7 @@ func (ix *Index) vectorRanked(prepared *preparedQuery, cursorDepth int) (fanOutR
 	if _, found := ix.vectorSearcherOf(config.Field); !found {
 		return fanOutResult{}, nil
 	}
-	accepted, err := ix.acceptedForVectors(prepared.filter)
+	accepted, err := ix.acceptedForVectors(prepared)
 	if err != nil || accepted.matchesNothing() {
 		return fanOutResult{}, err
 	}

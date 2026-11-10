@@ -2,13 +2,13 @@ package persist
 
 import (
 	"context"
-	"math"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/segment"
 )
 
 type mergeWindow struct {
@@ -65,6 +65,9 @@ func compactPartition(ctx context.Context, store checkpoint.Store, handle *Handl
 	if !found {
 		return false, nil
 	}
+	if _, located := store.PathOf(entry.Segments[window.start].File.Key); pagedText && !located {
+		return false, nil
+	}
 	return true, mergeWindowOf(ctx, store, handle, prior, entry, window, pagedText)
 }
 
@@ -80,11 +83,15 @@ func (held *windowTombstones) add(id string) {
 	}
 }
 
-func (held *windowTombstones) addReplaced(opened checkpoint.StoredSegment, pagedText bool) {
-	for _, id := range opened.RemovedIDs() {
+func (held *windowTombstones) addEvery(ids []string) {
+	for _, id := range ids {
 		held.add(id)
 	}
-	if !pagedText || opened.HoldsPagedText() {
+}
+
+func (held *windowTombstones) addReplaced(opened checkpoint.StoredSegment, pagedText bool) {
+	held.addEvery(opened.RemovedIDs())
+	if !pagedText {
 		return
 	}
 	for ordinal := range opened.DocumentTotal() {
@@ -92,27 +99,53 @@ func (held *windowTombstones) addReplaced(opened checkpoint.StoredSegment, paged
 	}
 }
 
-func (held *windowTombstones) kept(detached *index.Index, pagedText bool, window mergeWindow) []string {
+type windowMerge struct {
+	store      checkpoint.Store
+	detached   *index.Index
+	pages      *core.PageCache
+	schema     map[string]string
+	pagedText  bool
+	tombstoned *windowTombstones
+}
+
+func (merge windowMerge) attach(ctx context.Context, ref manifest.FileRef) error {
+	if merge.pagedText {
+		path, held, err := checkpoint.ListedPagedPath(ctx, merge.store, ref)
+		if err != nil {
+			return err
+		}
+		if held {
+			return attachPagedFile(ctx, pagedAttachment{target: merge.detached, pages: merge.pages, key: ref.Key,
+				path: path, schema: merge.schema, replaced: merge.tombstoned.addEvery})
+		}
+	}
+	opened, err := checkpoint.OpenStoredSegment(ctx, merge.store, ref, false)
+	if err != nil {
+		return err
+	}
+	merge.tombstoned.addReplaced(opened, merge.pagedText)
+	return loadSegment(ctx, merge.detached, 0, opened)
+}
+
+func (held *windowTombstones) kept(ctx context.Context, detached *index.Index, pagedText bool,
+	window mergeWindow) ([]string, error) {
 	if pagedText {
 		if window.start == 0 {
-			return nil
+			return nil, nil
 		}
-		return held.ordered
+		return held.ordered, nil
 	}
 	retained := make([]string, 0, len(held.ordered))
 	for _, id := range held.ordered {
-		if !detached.Has(id) {
+		present, err := detached.Has(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
 			retained = append(retained, id)
 		}
 	}
-	return retained
-}
-
-func mergedTargetBytes(pagedText bool) int64 {
-	if pagedText {
-		return math.MaxInt64
-	}
-	return envelope.MaxFileBytes - SegmentFileFramingSlackBytes
+	return retained, nil
 }
 
 func mergeWindowOf(ctx context.Context, store checkpoint.Store, handle *Handle, prior map[string]struct{},
@@ -121,21 +154,27 @@ func mergeWindowOf(ctx context.Context, store checkpoint.Store, handle *Handle, 
 	if err != nil {
 		return err
 	}
+	defer detached.Release()
 	replaced := entry.Segments[window.start : window.start+window.length]
 	tombstoned := &windowTombstones{seen: map[string]struct{}{}}
-	for _, ref := range replaced {
-		opened, err := checkpoint.OpenStoredSegment(ctx, store, ref.File, pagedText)
-		if err != nil {
-			return err
-		}
-		tombstoned.addReplaced(opened, pagedText)
-		if err := loadSegment(detached, insertsEveryDocument, opened); err != nil {
+	merge := windowMerge{store: store, detached: detached, schema: flatSchema(handle), pagedText: pagedText,
+		tombstoned: tombstoned}
+	if pagedText {
+		if merge.pages, err = segments.NewMergePageCache(); err != nil {
 			return err
 		}
 	}
-	retained := tombstoned.kept(detached, pagedText, window)
-	built, err := segmentsOfDetached(detached, segment.BuildOptions{Schema: flatSchema(handle),
-		TargetBytes: mergedTargetBytes(pagedText), Tombstones: retained, KeepsEmpty: len(retained) > 0})
+	for _, ref := range replaced {
+		if err := merge.attach(ctx, ref.File); err != nil {
+			return err
+		}
+	}
+	retained, err := tombstoned.kept(ctx, detached, pagedText, window)
+	if err != nil {
+		return err
+	}
+	built, err := partitionSegmentFiles(ctx, detached, 0,
+		segmentWriteRequest{schema: merge.schema, tombstones: retained, mergesIntoOneFile: true})
 	if err != nil {
 		return err
 	}

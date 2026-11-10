@@ -29,6 +29,8 @@ type FieldIndexes struct {
 
 type PagedPostings interface {
 	ReadPostings(w *core.Workspace, term uint32, output []byte) (int, error)
+	TermTotals() ([]float64, error)
+	ReadPositions(term uint32) ([]uint32, []uint32, bool, error)
 }
 
 type Segment struct {
@@ -36,7 +38,6 @@ type Segment struct {
 	Frozen            *core.FrozenSegment
 	State             *core.FrozenSegmentState
 	Paged             PagedPostings
-	PagedTermTotals   []float64
 	Positions         FrozenPositions
 	SpellingRuns      *core.FrozenSpellingRuns
 	FrozenLengths     [][]uint32
@@ -49,10 +50,6 @@ type View struct {
 	FieldNames []string
 	Schema     map[string]schema.ParsedFieldType
 	Segments   []Segment
-}
-
-func (s *Segment) frozen() bool {
-	return s.Growing == nil
 }
 
 func (s *Segment) valid() bool {
@@ -154,13 +151,21 @@ func (s *Segment) expansionSource() core.ExpansionSegment {
 		return core.ExpansionSegment{Growing: s.Growing}
 	}
 	if s.Paged != nil {
-		return core.ExpansionSegment{Frozen: s.Frozen, State: s.State, Occurrences: s.PagedTermTotals}
+		totals, _ := s.Paged.TermTotals()
+		return core.ExpansionSegment{Frozen: s.Frozen, State: s.State, Occurrences: totals}
 	}
 	return core.ExpansionSegment{Frozen: s.Frozen, State: s.State}
 }
 
-func (s *Segment) pagedTotalsHeld() bool {
-	return s.Paged == nil || (s.Growing == nil && len(s.PagedTermTotals) == len(s.Frozen.Terms.Counts))
+func (s *Segment) pagedTotalsHeld() (bool, error) {
+	if s.Paged == nil {
+		return true, nil
+	}
+	totals, err := s.Paged.TermTotals()
+	if err != nil {
+		return false, err
+	}
+	return s.Growing == nil && len(totals) == len(s.Frozen.Terms.Counts), nil
 }
 
 func bitsetWords(capacity uint32) int {

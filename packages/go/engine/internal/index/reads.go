@@ -1,101 +1,145 @@
 package index
 
 import (
+	"context"
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
-type AggregateStats struct {
-	TotalDocuments    int
-	DocFrequencies    map[string]int
-	TotalFieldLengths map[string]float64
+type Reading struct {
+	read      *partition.Read
+	Snapshots []partition.Snapshot
 }
 
-func (ix *Index) ReadPartitions(visit func(views []partition.View) error) error {
-	held := ix.acquireAll(ix.allPartitionIDs())
-	defer held.release()
-	return visit(held.partitions)
+func (r *Reading) Release() {
+	r.read.Release()
 }
 
-func (ix *Index) ReadPartition(partitionID int, visit func(view partition.View) error) error {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return narsilerr.New(narsilerr.CodeConfigInvalid,
-			"Partition "+strconv.Itoa(partitionID)+" does not exist in an index of "+strconv.Itoa(len(ix.partitions))+" partitions",
-			map[string]any{"partitionId": partitionID, "partitionCount": len(ix.partitions)})
+func (r *Reading) Lease() *vector.Lease {
+	return r.read.Lease()
+}
+
+type pinnedReadKey struct{}
+
+func (ix *Index) pinnedRead(ctx context.Context) (*partition.Read, bool) {
+	pinned, held := ctx.Value(pinnedReadKey{}).(*partition.Read)
+	return pinned, held && pinned.Of(ix.sides)
+}
+
+func (ix *Index) read(ctx context.Context) (*partition.Read, error) {
+	if pinned, held := ix.pinnedRead(ctx); held {
+		if borrowed, reading := pinned.Borrow(); reading {
+			return borrowed, nil
+		}
 	}
-	view, release := ix.partitions[partitionID].Acquire()
-	defer release()
-	return visit(view)
+	return ix.sides.Read()
+}
+
+func (ix *Index) leaveKeywordSide(ctx context.Context) {
+	if pinned, held := ix.pinnedRead(ctx); held {
+		pinned.LeaveSide()
+	}
+}
+
+func (ix *Index) Read(ctx context.Context) (*Reading, error) {
+	read, err := ix.read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make([]partition.Snapshot, len(ix.partitions))
+	for at, held := range ix.partitions {
+		snapshots[at] = held.Snapshot(read)
+	}
+	return &Reading{read: read, Snapshots: snapshots}, nil
+}
+
+func (ix *Index) Pin(ctx context.Context) (context.Context, func(), error) {
+	if _, pinned := ix.pinnedRead(ctx); pinned {
+		return ctx, func() {}, nil
+	}
+	read, err := ix.sides.Read()
+	if err != nil {
+		return nil, nil, err
+	}
+	return context.WithValue(vector.WithLease(ctx, read.Lease()), pinnedReadKey{}, read), read.Release, nil
 }
 
 func (ix *Index) RoutePartition(id string) int {
 	return ix.partitionOf(id)
 }
 
-func (ix *Index) PartitionDocumentCount(partitionID int) int {
+func (ix *Index) checkedPartition(partitionID int) error {
 	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return 0
+		return narsilerr.New(narsilerr.CodeConfigInvalid,
+			"Partition "+strconv.Itoa(partitionID)+" does not exist in an index of "+strconv.Itoa(len(ix.partitions))+" partitions",
+			map[string]any{"partitionId": partitionID, "partitionCount": len(ix.partitions)})
 	}
-	count := 0
-	ix.partitions[partitionID].Read(func(view partition.View) { count = view.Count() })
-	return count
+	return nil
 }
 
-func (ix *Index) GetProjected(id string, requested model.DocumentProjection) (model.Document, bool) {
-	stored, found := ix.Get(id)
-	if !found {
-		return nil, false
+func (ix *Index) snapshotOf(ctx context.Context, partitionID int) (partition.Snapshot, func(), error) {
+	read, err := ix.read(ctx)
+	if err != nil {
+		return partition.Snapshot{}, nil, err
+	}
+	return ix.partitions[partitionID].Snapshot(read), read.Release, nil
+}
+
+func (ix *Index) Get(ctx context.Context, id string) (*StoredDocument, bool, error) {
+	snapshot, release, err := ix.snapshotOf(ctx, ix.partitionOf(id))
+	if err != nil {
+		return nil, false, err
+	}
+	defer release()
+	document, found, err := snapshot.Document(id)
+	if err != nil || !found {
+		return nil, false, err
+	}
+	return &StoredDocument{ID: id, Document: document}, true, nil
+}
+
+func (ix *Index) GetProjected(ctx context.Context, id string, requested model.DocumentProjection) (*model.Document, bool, error) {
+	stored, found, err := ix.Get(ctx, id)
+	if err != nil || !found {
+		return nil, false, err
 	}
 	shown := projection.Resolve(requested)
-	if shown.Kind() == model.ProjectNoFields {
-		return model.Document{}, true
+	if shown.Kind() == model.ProjectWholeDocument {
+		return stored.Document, true, nil
 	}
-	return shown.Clone(stored.Fields), true
+	if err := codec.DocumentFailure(stored.Document); err != nil {
+		return nil, false, err
+	}
+	return shown.Clone(stored.Document), true, nil
 }
 
-func (ix *Index) MatchingDocumentIDs(expression *model.FilterExpression) ([]string, error) {
-	filter, err := ix.compileFilter(expression, partition.NewWorkMeter(ix.settings.SearchWorkCap))
+func (ix *Index) Has(ctx context.Context, id string) (bool, error) {
+	snapshot, release, err := ix.snapshotOf(ctx, ix.partitionOf(id))
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	var matched []string
-	err = ix.ReadPartitions(func(views []partition.View) error {
-		for _, view := range views {
-			if filter == nil {
-				view.ForEachDocument(func(_ uint32, document *partition.StoredDocument) bool {
-					matched = append(matched, document.ID)
-					return true
-				})
-				continue
-			}
-			ids, err := filter.matchingIDs(view)
-			if err != nil {
-				return err
-			}
-			matched = append(matched, ids...)
-		}
-		return nil
-	})
-	return matched, err
+	defer release()
+	return snapshot.Has(id), nil
 }
 
-func (ix *Index) AggregateStats() AggregateStats {
-	stats := AggregateStats{DocFrequencies: map[string]int{}, TotalFieldLengths: map[string]float64{}}
-	_ = ix.ReadPartitions(func(views []partition.View) error {
-		for _, view := range views {
-			stats.TotalDocuments += view.TotalDocuments()
-			for token, frequency := range view.DocumentFrequencies() {
-				stats.DocFrequencies[token] += int(frequency)
-			}
-			for field, length := range view.TotalFieldLengths() {
-				stats.TotalFieldLengths[field] += length
-			}
-		}
-		return nil
-	})
-	return stats
+func (ix *Index) Count() int {
+	return ix.sides.DocumentCount()
+}
+
+func (ix *Index) PartitionDocumentCount(ctx context.Context, partitionID int) (int, error) {
+	if err := ix.checkedPartition(partitionID); err != nil {
+		return 0, err
+	}
+	snapshot, release, err := ix.snapshotOf(ctx, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return snapshot.Count(), nil
 }

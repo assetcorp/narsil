@@ -21,6 +21,14 @@ const (
 	DefaultCompactionThreshold           = 12
 	CompactionLargestMergedDocumentCount = 200_000
 	SegmentFileFramingSlackBytes         = 65_536
+	segmentTokenTableShareOfFile         = 0.25
+	segmentOrdinalBytes                  = 4
+	segmentPostingBytes                  = 8
+	segmentValueEntryBytes               = 12
+	segmentGeopointEntryBytes            = 20
+	segmentTokenEntryBytes               = 12
+	segmentStringHeaderBytes             = 5
+	segmentAbsentSurfaceFormsBytes       = 1
 	MergedSegmentTargetBytes             = 1_073_741_824
 	MergedSegmentGrowthAllowance         = 1.01
 	ColdLoadWaitWithoutSearch            = 400 * time.Millisecond

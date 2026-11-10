@@ -14,6 +14,7 @@ type buildControl struct {
 	retry            *time.Timer
 	waitingForMemory bool
 	rebuilding       bool
+	connectPending   bool
 }
 
 func (b *buildControl) init() {

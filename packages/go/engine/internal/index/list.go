@@ -1,14 +1,16 @@
 package index
 
 import (
+	"cmp"
+	"context"
 	"sort"
 	"time"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/bitset"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
@@ -16,39 +18,51 @@ import (
 type listedEntry struct {
 	id       string
 	key      []text.SortValue
-	document *partition.StoredDocument
+	document *codec.Document
 }
 
 type listRequest struct {
 	limit      int
 	anchor     *cursor.PageCursor
-	filter     *partitionFilter
 	sort       []model.SortField
 	sorted     bool
 	directions []text.SortDirection
 }
 
-func (ix *Index) listMatches(view partition.View, filter *partitionFilter) (bitset.Bits, int, error) {
-	if filter == nil {
-		return nil, view.Count(), nil
+type listedSet struct {
+	snapshot partition.Snapshot
+	accepted map[string]struct{}
+	filtered bool
+}
+
+func (s *listedSet) accepts(id string) bool {
+	if !s.filtered {
+		return true
 	}
-	accepted, err := filter.matches(view)
+	_, held := s.accepted[id]
+	return held
+}
+
+func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterRun) (*listedSet, int, error) {
+	set := &listedSet{snapshot: snapshot}
+	if filters == nil {
+		return set, snapshot.Count(), nil
+	}
+	matched, err := filters.evaluate(view)
 	if err != nil {
 		return nil, 0, err
 	}
-	live := view.Live()
-	count := 0
-	accepted.ForEach(func(ordinal uint32) bool {
-		if live.Has(ordinal) {
-			count++
-		}
-		return true
-	})
-	return accepted, count, nil
+	ids := matchingIDs(snapshot, matched)
+	set.filtered = true
+	set.accepted = make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set.accepted[id] = struct{}{}
+	}
+	return set, len(ids), nil
 }
 
-func (ix *Index) entriesInIDOrder(view partition.View, accepted bitset.Bits, request *listRequest) []listedEntry {
-	ids := view.SortedDocumentIDs()
+func entriesInIDOrder(set *listedSet, request *listRequest) ([]listedEntry, error) {
+	ids := set.snapshot.SortedIDs()
 	start := 0
 	if request.anchor != nil {
 		anchor := request.anchor.Anchor
@@ -56,35 +70,47 @@ func (ix *Index) entriesInIDOrder(view partition.View, accepted bitset.Bits, req
 	}
 	var entries []listedEntry
 	for at := start; at < len(ids) && len(entries) <= request.limit; at++ {
-		document, ordinal, found := view.Document(ids[at])
-		if !found || accepted != nil && !accepted.Has(ordinal) {
+		if !set.accepts(ids[at]) {
 			continue
 		}
-		entries = append(entries, listedEntry{id: ids[at], document: document})
+		document, found, err := set.snapshot.Document(ids[at])
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			entries = append(entries, listedEntry{id: ids[at], document: document})
+		}
 	}
-	return entries
+	return entries, nil
 }
 
-func (ix *Index) entriesInSortOrder(view partition.View, accepted bitset.Bits, request *listRequest) []listedEntry {
+func entriesInSortOrder(set *listedSet, request *listRequest) ([]listedEntry, error) {
 	fields := sortFieldNames(request.sort)
-	modes := results.SortModesOf(request.sort)
+	modes := sortModesOf(request.sort)
 	var entries []listedEntry
-	view.ForEachDocument(func(ordinal uint32, document *partition.StoredDocument) bool {
-		if accepted != nil && !accepted.Has(ordinal) {
+	var failure error
+	err := set.snapshot.EachDocument(func(id string, document *codec.Document) bool {
+		if !set.accepts(id) {
 			return true
 		}
-		entry := listedEntry{id: document.ID, key: ix.sortValuesOf(document, fields, modes), document: document}
+		if failure = codec.DocumentFailure(document); failure != nil {
+			return false
+		}
+		entry := listedEntry{id: id, key: readSortValues(document, fields, modes), document: document}
 		if request.anchor != nil && compareListed(entry, listedEntry{id: request.anchor.Anchor, key: request.anchor.SortKey}, request.directions) <= 0 {
 			return true
 		}
 		entries = append(entries, entry)
 		return true
 	})
+	if err = cmp.Or(err, failure); err != nil {
+		return nil, err
+	}
 	sortListed(entries, request.directions)
 	if len(entries) > request.limit+1 {
 		entries = entries[:request.limit+1]
 	}
-	return entries
+	return entries, nil
 }
 
 func compareListed(left, right listedEntry, directions []text.SortDirection) int {
@@ -98,7 +124,62 @@ func sortListed(entries []listedEntry, directions []text.SortDirection) {
 	sort.SliceStable(entries, func(left, right int) bool { return compareListed(entries[left], entries[right], directions) < 0 })
 }
 
-func (ix *Index) List(params model.ListParams) (model.ListResult, error) {
+func (ix *Index) listRequestOf(params *model.ListParams, limit int, signature model.Optional[string], binding string) (*listRequest, error) {
+	request := &listRequest{limit: limit, sort: params.Sort, sorted: params.Sort != nil && signature.IsSet()}
+	if request.sorted {
+		request.directions = sortDirectionsOf(params.Sort)
+	}
+	if encoded, set := params.Cursor.Get(); set {
+		decoded, err := cursor.DecodePageCursor(encoded)
+		if err != nil {
+			return nil, err
+		}
+		if err := cursor.RequireMatchingCursor(decoded, encoded, signature, false, binding); err != nil {
+			return nil, err
+		}
+		request.anchor = &decoded
+	}
+	return request, nil
+}
+
+func (ix *Index) listEntries(ctx context.Context, params *model.ListParams, request *listRequest) ([]listedEntry, int, error) {
+	work, closeWork, err := openWorkMeter(ctx, ix.settings.SearchWorkCap)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer closeWork()
+	prepared := &preparedQuery{params: model.QueryParams{Filters: params.Filters}, work: work, ctx: ctx}
+	if err := ix.openReads(prepared, nil); err != nil {
+		return nil, 0, err
+	}
+	defer prepared.reads.release()
+	views, err := prepared.reads.views.all()
+	if err != nil {
+		return nil, 0, err
+	}
+	total := 0
+	var entries []listedEntry
+	for at, snapshot := range prepared.reads.reading.Snapshots {
+		set, count, err := listedSetOf(snapshot, views[at], prepared.filters)
+		if err != nil {
+			return nil, 0, err
+		}
+		total += count
+		var found []listedEntry
+		if request.sorted {
+			found, err = entriesInSortOrder(set, request)
+		} else {
+			found, err = entriesInIDOrder(set, request)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		entries = append(entries, found...)
+	}
+	return entries, total, nil
+}
+
+func (ix *Index) List(ctx context.Context, params model.ListParams) (model.ListResult, error) {
 	started := time.Now()
 	limit := max(1, cursor.ClampLimit(params.Limit))
 	if err := cursor.RequireWithinResultWindow(limit, 0); err != nil {
@@ -108,49 +189,25 @@ func (ix *Index) List(params model.ListParams) (model.ListResult, error) {
 	if err != nil {
 		return model.ListResult{}, err
 	}
-	if err := results.RequireSortableFields(params.Sort, ix.settings.Schema, ix.settings.Strict); err != nil {
+	if err := requireSortableFields(params.Sort, ix.settings.Schema, ix.settings.Strict); err != nil {
 		return model.ListResult{}, err
 	}
-	filter, err := ix.compileFilter(params.Filters, partition.NewWorkMeter(ix.settings.SearchWorkCap))
-	if err != nil {
+	if err := ix.validateFilter(params.Filters); err != nil {
 		return model.ListResult{}, err
 	}
 	shown := projection.Resolve(params.Document)
 	binding := cursor.ListBindingOf(params.Filters)
-	request := &listRequest{limit: limit, filter: filter, sort: params.Sort, sorted: params.Sort != nil && signature.IsSet()}
-	if request.sorted {
-		request.directions = results.SortDirectionsOf(params.Sort)
+	request, err := ix.listRequestOf(&params, limit, signature, binding)
+	if err != nil {
+		return model.ListResult{}, err
 	}
-	if encoded, set := params.Cursor.Get(); set {
-		decoded, err := cursor.DecodePageCursor(encoded)
-		if err != nil {
-			return model.ListResult{}, err
-		}
-		if err := cursor.RequireMatchingCursor(decoded, encoded, signature, false, binding); err != nil {
-			return model.ListResult{}, err
-		}
-		request.anchor = &decoded
-	}
-	held := ix.acquireAll(ix.allPartitionIDs())
-	defer held.release()
-	total := 0
-	var entries []listedEntry
-	for _, view := range held.partitions {
-		accepted, count, err := ix.listMatches(view, filter)
-		if err != nil {
-			return model.ListResult{}, err
-		}
-		total += count
-		if request.sorted {
-			entries = append(entries, ix.entriesInSortOrder(view, accepted, request)...)
-			continue
-		}
-		entries = append(entries, ix.entriesInIDOrder(view, accepted, request)...)
+	entries, total, err := ix.listEntries(ctx, &params, request)
+	if err != nil {
+		return model.ListResult{}, stoppedSearchFailure(ctx, err)
 	}
 	sortListed(entries, request.directions)
 	result := model.ListResult{Total: total, Documents: []model.ListedDocument{}}
-	hasMore := len(entries) > limit
-	if hasMore {
+	if len(entries) > limit {
 		entries = entries[:limit]
 		last := entries[len(entries)-1]
 		next := cursor.PageCursor{Anchor: last.id, Binding: binding}
@@ -160,9 +217,12 @@ func (ix *Index) List(params model.ListParams) (model.ListResult, error) {
 		result.Cursor = cursor.EncodePageCursor(next)
 	}
 	for _, entry := range entries {
-		document := model.Document{}
-		if shown.Kind() != model.ProjectNoFields {
-			document = shown.Clone(entry.document.Fields)
+		document := entry.document
+		if shown.Kind() != model.ProjectWholeDocument {
+			if err := codec.DocumentFailure(entry.document); err != nil {
+				return model.ListResult{}, err
+			}
+			document = shown.Clone(entry.document)
 		}
 		result.Documents = append(result.Documents, model.ListedDocument{ID: entry.id, Document: document})
 	}

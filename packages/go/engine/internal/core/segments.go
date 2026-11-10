@@ -43,27 +43,28 @@ func (w *Workspace) writeDocument(operation string, segment *GrowingSegment, ord
 }
 
 func (w *Workspace) BeginBatch(segment *GrowingSegment) error {
-	var held pins
-	defer held.release()
-	holder, ok := segment.native(&held)
-	if !ok {
-		return segmentRefusal("beginBatch")
-	}
-	status := C.narsil_begin_batch(w.pointer(), &holder.segment)
-	runtime.KeepAlive(w)
-	return statusError("beginBatch", status)
+	return w.markBatch("beginBatch", segment)
 }
 
 func (w *Workspace) EndBatch(segment *GrowingSegment) error {
+	return w.markBatch("endBatch", segment)
+}
+
+func (w *Workspace) markBatch(operation string, segment *GrowingSegment) error {
 	var held pins
 	defer held.release()
 	holder, ok := segment.native(&held)
 	if !ok {
-		return segmentRefusal("endBatch")
+		return segmentRefusal(operation)
 	}
-	status := C.narsil_end_batch(w.pointer(), &holder.segment)
+	var status C.narsil_status
+	if operation == "endBatch" {
+		status = C.narsil_end_batch(w.pointer(), &holder.segment)
+	} else {
+		status = C.narsil_begin_batch(w.pointer(), &holder.segment)
+	}
 	runtime.KeepAlive(w)
-	return statusError("endBatch", status)
+	return statusError(operation, status)
 }
 
 func (s *GrowingSegment) Dictionary() *TermDictionary {

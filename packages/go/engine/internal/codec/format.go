@@ -178,23 +178,26 @@ func isSafeInteger(value float64) bool {
 	return value == math.Trunc(value) && math.Abs(value) <= maxSafeInteger
 }
 
+func AppendUnsigned(destination []byte, value uint64) []byte {
+	switch {
+	case value <= tagPositiveFixintLast:
+		return append(destination, byte(value))
+	case value < uint8Limit:
+		return append(destination, tagUint8, byte(value))
+	case value < uint16Limit:
+		return appendUint16(append(destination, tagUint16), uint16(value))
+	case value < uint32Limit:
+		return appendUint32(append(destination, tagUint32), uint32(value))
+	}
+	return appendUint64(append(destination, tagUint64), value)
+}
+
 func AppendNumber(destination []byte, value float64, forceIntegerToFloat bool) []byte {
 	if forceIntegerToFloat || !isSafeInteger(value) {
 		return AppendFloat64(destination, value)
 	}
 	if value >= 0 {
-		unsigned := uint64(value)
-		switch {
-		case unsigned <= tagPositiveFixintLast:
-			return append(destination, byte(unsigned))
-		case unsigned < uint8Limit:
-			return append(destination, tagUint8, byte(unsigned))
-		case unsigned < uint16Limit:
-			return appendUint16(append(destination, tagUint16), uint16(unsigned))
-		case unsigned < uint32Limit:
-			return appendUint32(append(destination, tagUint32), uint32(unsigned))
-		}
-		return appendUint64(append(destination, tagUint64), unsigned)
+		return AppendUnsigned(destination, uint64(value))
 	}
 	signed := int64(value)
 	switch {

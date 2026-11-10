@@ -3,8 +3,7 @@ package index
 import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -19,44 +18,46 @@ func (q *preparedQuery) textLeg(limit, offset int, dropsPlacement bool) *prepare
 	return &leg
 }
 
-func scoredForFusion(documents []partition.ScoredDocument) []results.Scored {
-	scored := make([]results.Scored, len(documents))
-	for at, document := range documents {
-		scored[at] = results.Scored{ID: document.ID, Score: document.Score}
-		if document.Components != nil {
-			scored[at].Components = *document.Components
+func resolveHybridFusion(hybrid *model.HybridConfig) (query.FusionSettings, error) {
+	if hybrid == nil {
+		return query.ResolveFusion("", nil, nil)
+	}
+	var k, alpha *float64
+	if value, set := hybrid.K.Get(); set {
+		widened := float64(value)
+		k = &widened
+	}
+	if value, set := hybrid.Alpha.Get(); set {
+		alpha = &value
+	}
+	return query.ResolveFusion(string(hybrid.Strategy), k, alpha)
+}
+
+func fuseLegs(fusion query.FusionSettings, text []scoredHit, vector []VectorHit) ([]scoredHit, error) {
+	textLeg := make([]query.RankedEntry, len(text))
+	components := make(map[string]*model.ScoreComponents, len(text))
+	for at, hit := range text {
+		textLeg[at] = query.RankedEntry{ID: hit.ID, Score: hit.Score}
+		if hit.Components != nil {
+			components[hit.ID] = hit.Components
 		}
 	}
-	return scored
-}
-
-func vectorHitsForFusion(hits []VectorHit) []results.Scored {
-	scored := make([]results.Scored, len(hits))
-	for at, hit := range hits {
-		scored[at] = results.Scored{ID: hit.ID, Score: hit.Score}
+	vectorLeg := make([]query.RankedEntry, len(vector))
+	for at, hit := range vector {
+		vectorLeg[at] = query.RankedEntry{ID: hit.ID, Score: hit.Score}
 	}
-	return scored
-}
-
-func scoredFromFusion(fused []results.Scored) []partition.ScoredDocument {
-	scored := make([]partition.ScoredDocument, len(fused))
-	for at, document := range fused {
-		scored[at] = partition.ScoredDocument{ID: document.ID, Score: document.Score}
-		if components := document.Components; components.TermFrequencies != nil || components.FieldLengths != nil || components.IDF != nil {
-			scored[at].Components = &components
-		}
+	fused, err := query.Fuse(textLeg, vectorLeg, fusion)
+	if err != nil {
+		return nil, err
 	}
-	return scored
-}
-
-func fuseLegs(fusion results.ResolvedFusion, text, vector []results.Scored) []results.Scored {
-	if fusion.Strategy == model.HybridRRF {
-		return results.ReciprocalRankFusion([][]results.Scored{text, vector}, fusion.K)
+	scored := make([]scoredHit, len(fused))
+	for at, entry := range fused {
+		scored[at] = scoredHit{ID: entry.ID, Score: entry.Score, Components: components[entry.ID]}
 	}
-	return results.LinearCombination(text, vector, fusion.Alpha)
+	return scored, nil
 }
 
-func keptAtOrAbove(fused []results.Scored, threshold float64) []results.Scored {
+func keptAtOrAbove(fused []scoredHit, threshold float64) []scoredHit {
 	kept := fused[:0:0]
 	for _, document := range fused {
 		if document.Score >= threshold {
@@ -71,11 +72,11 @@ func (ix *Index) hybridRanked(prepared *preparedQuery, pass *analysis.Pass, curs
 		return ix.fixedDepthHybrid(prepared, pass, cursorDepth)
 	}
 	params := &prepared.params
-	fusion, err := results.ResolveHybridFusion(params.Hybrid)
+	fusion, err := resolveHybridFusion(params.Hybrid)
 	if err != nil {
 		return fanOutResult{}, err
 	}
-	accepted, err := ix.acceptedForVectors(prepared.filter)
+	accepted, err := ix.acceptedForVectors(prepared)
 	if err != nil || accepted.matchesNothing() {
 		return fanOutResult{}, err
 	}
@@ -96,13 +97,16 @@ func (ix *Index) hybridRanked(prepared *preparedQuery, pass *analysis.Pass, curs
 	if err != nil {
 		return fanOutResult{}, err
 	}
-	fused := fuseLegs(fusion, scoredForFusion(textFound.scored), vectorHitsForFusion(outcome.Hits))
+	fused, err := fuseLegs(fusion, textFound.scored, outcome.Hits)
+	if err != nil {
+		return fanOutResult{}, err
+	}
 	if minimum, set := params.MinScore.Get(); set && minimum > 0 {
 		fused = keptAtOrAbove(fused, minimum)
 	}
 	textHoldsEveryMatch := len(textFound.scored) == textFound.totalMatched
 	return fanOutResult{
-		scored:       scoredFromFusion(fused),
+		scored:       fused,
 		totalMatched: len(fused),
 		inexact:      !(outcome.holdsEveryMatch() && textHoldsEveryMatch),
 		facets:       textFound.facets,
@@ -128,11 +132,11 @@ func countOfUnion(text fanOutResult, vectorHits []VectorHit) int {
 
 func (ix *Index) fusedAtDepth(prepared *preparedQuery, pass *analysis.Pass, depth int) (fanOutResult, error) {
 	params := &prepared.params
-	fusion, err := results.ResolveHybridFusion(params.Hybrid)
+	fusion, err := resolveHybridFusion(params.Hybrid)
 	if err != nil {
 		return fanOutResult{}, err
 	}
-	accepted, err := ix.acceptedForVectors(prepared.filter)
+	accepted, err := ix.acceptedForVectors(prepared)
 	if err != nil || accepted.matchesNothing() {
 		return fanOutResult{}, err
 	}
@@ -150,7 +154,10 @@ func (ix *Index) fusedAtDepth(prepared *preparedQuery, pass *analysis.Pass, dept
 		return fanOutResult{}, err
 	}
 	textScored := textFound.scored[:min(depth, len(textFound.scored))]
-	fused := fuseLegs(fusion, scoredForFusion(textScored), vectorHitsForFusion(outcome.Hits))
+	fused, err := fuseLegs(fusion, textScored, outcome.Hits)
+	if err != nil {
+		return fanOutResult{}, err
+	}
 	textHoldsEveryMatch := len(textFound.scored) == textFound.totalMatched
 	threshold := params.MinScore.Or(0)
 	filtersByScore := threshold > 0
@@ -158,7 +165,7 @@ func (ix *Index) fusedAtDepth(prepared *preparedQuery, pass *analysis.Pass, dept
 		fused = keptAtOrAbove(fused, threshold)
 	}
 	result := fanOutResult{
-		scored:  scoredFromFusion(fused[:min(depth, len(fused))]),
+		scored:  fused[:min(depth, len(fused))],
 		facets:  textFound.facets,
 		inexact: !(outcome.holdsEveryMatch() && textHoldsEveryMatch && (!filtersByScore || len(textScored) == textFound.totalMatched)),
 	}
@@ -171,11 +178,11 @@ func (ix *Index) fusedAtDepth(prepared *preparedQuery, pass *analysis.Pass, dept
 }
 
 func (ix *Index) fixedDepthHybrid(prepared *preparedQuery, pass *analysis.Pass, cursorDepth int) (fanOutResult, error) {
-	depth, _, err := results.FixedHybridDepth(prepared.params.Hybrid)
+	depth, _, err := fixedHybridDepth(prepared.params.Hybrid)
 	if err != nil {
 		return fanOutResult{}, err
 	}
-	if err := results.RequireWithinHybridDepth(cursorDepth, prepared.offset, depth); err != nil {
+	if err := requireWithinHybridDepth(cursorDepth, prepared.offset, depth); err != nil {
 		return fanOutResult{}, err
 	}
 	found, err := ix.fusedAtDepth(prepared, pass, depth)
@@ -187,8 +194,8 @@ func (ix *Index) fixedDepthHybrid(prepared *preparedQuery, pass *analysis.Pass, 
 		organic[at] = document.ID
 	}
 	start := cursorDepth + prepared.offset
-	found.paginate = func(placed []results.Hit, pinnedIDs map[string]struct{}) pageOfHits {
-		window := results.PositionPage{Start: start, Limit: prepared.limit}
+	found.paginate = func(placed []resultHit, pinnedIDs map[string]struct{}) pageOfHits {
+		window := positionPage{start: start, limit: prepared.limit}
 		order := organic
 		if pinnedIDs == nil {
 			order = make([]string, len(placed))
@@ -196,13 +203,13 @@ func (ix *Index) fixedDepthHybrid(prepared *preparedQuery, pass *analysis.Pass, 
 				order[at] = hit.ID
 			}
 		} else {
-			window.PinnedIDs = model.Some(pinnedIDs)
+			window.pinnedIDs = model.Some(pinnedIDs)
 		}
-		page, next := results.PageByPosition(placed, order, window)
+		page, next := pageByPosition(placed, order, window)
 		if next == nil {
 			return pageOfHits{hits: page}
 		}
-		encoded := cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.Anchor, Score: next.Score, Depth: next.Depth, Binding: prepared.binding()})
+		encoded := cursor.EncodePageCursor(cursor.PageCursor{Anchor: next.anchor, Score: next.score, Depth: next.depth, Binding: prepared.binding()})
 		return pageOfHits{hits: page, cursor: encoded}
 	}
 	return found, nil

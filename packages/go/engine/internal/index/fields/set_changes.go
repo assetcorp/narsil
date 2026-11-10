@@ -1,6 +1,9 @@
 package fields
 
-import "github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
+)
 
 type fieldChange struct {
 	field      schema.Field
@@ -33,7 +36,7 @@ func jsonKindOf(value any) jsonKind {
 		return jsonKindString
 	case bool:
 		return jsonKindBoolean
-	case []any, map[string]any:
+	case []any, *codec.Document:
 		return jsonKindObject
 	}
 	return jsonKindOther
@@ -107,13 +110,13 @@ func jsonEqual(left, right any) bool {
 			}
 		}
 		return true
-	case map[string]any:
-		object, isObject := right.(map[string]any)
-		if !isObject || len(object) != len(typed) {
+	case *codec.Document:
+		object, isObject := right.(*codec.Document)
+		if !isObject || object.Len() != typed.Len() {
 			return false
 		}
-		for key, value := range typed {
-			other, held := object[key]
+		for key, value := range codec.HeldEntries(typed) {
+			other, held := codec.HeldValue(object, key)
 			if !held || !jsonEqual(value, other) {
 				return false
 			}

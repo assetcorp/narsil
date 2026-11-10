@@ -10,7 +10,6 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
 type analysisSettings struct {
@@ -66,10 +65,6 @@ func (entry *indexEntry) index() *index.Index {
 		return current
 	}
 	return entry.handle.Index
-}
-
-func (entry *indexEntry) vectorFields() map[string]*vector.Field {
-	return entry.handle.Vectors
 }
 
 func (entry *indexEntry) boundEmbedder() model.EmbeddingAdapter {

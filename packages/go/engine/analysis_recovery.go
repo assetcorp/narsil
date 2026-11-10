@@ -108,8 +108,12 @@ func (n *Narsil) resumeChange(entry *indexEntry) (*changeRun, error) {
 		return running, nil
 	}
 	target, err := n.targetOfPending(entry, *pending)
+	var termBytes int64
 	if err == nil {
-		err = requireRebuildMemory(entry.name, entry.index().EstimateMemoryBytes())
+		termBytes, err = entry.index().EstimateMemoryBytes()
+	}
+	if err == nil {
+		err = requireRebuildMemory(entry.name, termBytes)
 	}
 	if err != nil {
 		n.emitRebuild(entry, model.ProgressFailed, 0, entry.index().PartitionCount(), err)

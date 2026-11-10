@@ -40,11 +40,17 @@ func (f *Field) insertLocked(docID string, values []float32, partition int32, se
 		return f.disposedError()
 	}
 	if f.cold != nil {
+		if failure := f.cold.replayFailure(); failure != nil {
+			return failure
+		}
 		f.revision.Add(1)
 		held := append([]float32(nil), values...)
-		f.cold.insert(docID, held, partition, f)
-		f.cold.writes = append(f.cold.writes, func(replayed int64) error {
-			return f.applyInsert(docID, held, partition, replayed)
+		if err := f.cold.insert(docID, held, f); err != nil {
+			return err
+		}
+		written := max(sequence, loadedWriteSequence)
+		f.cold.writes = append(f.cold.writes, func() error {
+			return f.applyInsert(docID, held, partition, written)
 		})
 		return nil
 	}
@@ -132,11 +138,16 @@ func (f *Field) removeLocked(docID string, sequence int64) error {
 		return f.disposedError()
 	}
 	if f.cold != nil {
-		if !f.cold.remove(docID, f) {
-			return nil
+		if failure := f.cold.replayFailure(); failure != nil {
+			return failure
+		}
+		removed, err := f.cold.remove(docID, f)
+		if err != nil || !removed {
+			return err
 		}
 		f.revision.Add(1)
-		f.cold.writes = append(f.cold.writes, func(replayed int64) error { return f.applyRemove(docID, replayed) })
+		written := max(sequence, loadedWriteSequence)
+		f.cold.writes = append(f.cold.writes, func() error { return f.applyRemove(docID, written) })
 		return nil
 	}
 	return f.applyRemove(docID, sequence)
@@ -159,20 +170,26 @@ func (f *Field) applyRemove(docID string, sequence int64) error {
 	return f.markTombstoneOrdinal(f.graph, ordinal)
 }
 
-func (f *Field) Has(docID string) bool {
+func (f *Field) Has(docID string) (bool, error) {
 	for hold := f.coldHoldNow(); hold != nil; hold = f.coldHoldNow() {
-		held := f.coldHas(hold, docID)
+		if failure := hold.replayFailure(); failure != nil {
+			return false, failure
+		}
+		held, err := f.coldHas(hold, docID)
+		if failure := hold.replayFailure(); failure != nil {
+			return false, failure
+		}
 		if f.coldHoldNow() == hold {
-			return held
+			return held, err
 		}
 	}
 	current := f.acquireLayout()
 	if current == nil {
-		return false
+		return false, nil
 	}
 	defer current.done()
 	ordinal, held := current.store.ordinalOf(docID)
-	return held && liveOrdinal(current.store, ordinal)
+	return held && liveOrdinal(current.store, ordinal), nil
 }
 
 func (f *Field) PartitionsKnown() bool {

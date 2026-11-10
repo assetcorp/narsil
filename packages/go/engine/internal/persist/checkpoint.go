@@ -6,10 +6,8 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/segment"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/writeahead"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
@@ -100,7 +98,7 @@ func partitionUnchanged(prior *manifest.Manifest, partitionID int, seqNo uint64)
 	return false
 }
 
-func buildPartitions(handle *Handle, seqNos []uint64, whole []bool, targetBytes int64, pagedText bool) (
+func buildPartitions(ctx context.Context, handle *Handle, seqNos []uint64, whole []bool) (
 	[]checkpoint.PartitionCapture, error) {
 	schema := flatSchema(handle)
 	captures := make([]checkpoint.PartitionCapture, len(seqNos))
@@ -111,15 +109,11 @@ func buildPartitions(handle *Handle, seqNos []uint64, whole []bool, targetBytes 
 			continue
 		}
 		captures[partitionID].Rewritten = true
-		err := handle.Index.ReadPartition(partitionID, func(view partition.View) error {
-			segments, err := segment.Build(view, segment.BuildOptions{Schema: schema, TargetBytes: targetBytes,
-				KeepsPagedWhole: pagedText})
-			captures[partitionID].Segments = segments
-			return err
-		})
+		files, err := partitionSegmentFiles(ctx, handle.Index, partitionID, segmentWriteRequest{schema: schema})
 		if err != nil {
 			return nil, err
 		}
+		captures[partitionID].Segments = files
 	}
 	return captures, nil
 }
@@ -176,8 +170,7 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 	}
 	held.vectors = vectors
 	if consistent {
-		held.partitions, err = buildPartitions(durable.handle, held.seqNos, held.whole,
-			durable.manager.settings.TargetSegmentBytes, options.pagedText)
+		held.partitions, err = buildPartitions(ctx, durable.handle, held.seqNos, held.whole)
 		if err != nil {
 			held.release()
 			return held, err
@@ -276,8 +269,7 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 	}
 	defer held.release()
 	if !options.consistent {
-		held.partitions, err = buildPartitions(durable.handle, held.seqNos, held.whole,
-			durable.manager.settings.TargetSegmentBytes, options.pagedText)
+		held.partitions, err = buildPartitions(ctx, durable.handle, held.seqNos, held.whole)
 		if err != nil {
 			return manifest.Manifest{}, 0, err
 		}

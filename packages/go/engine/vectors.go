@@ -31,24 +31,6 @@ func (source *vectorSource) VectorFieldNames() []string {
 	return append([]string(nil), source.names...)
 }
 
-func (entry *indexEntry) pinVectors(ctx context.Context, searchesVectors bool) (context.Context, func(), error) {
-	if !searchesVectors {
-		return ctx, func() {}, nil
-	}
-	for _, path := range entry.vectorPaths {
-		field, held := entry.handle.Vectors[path]
-		if !held || field == nil || field.Slots() == nil {
-			continue
-		}
-		lease, err := field.Slots().AcquireSearch()
-		if err != nil {
-			return ctx, nil, err
-		}
-		return vector.WithLease(ctx, lease), lease.Release, nil
-	}
-	return ctx, func() {}, nil
-}
-
 func (searcher vectorSearcher) SearchVectors(ctx context.Context, request index.VectorRequest) (index.VectorOutcome, error) {
 	config := request.Config
 	if config == nil {

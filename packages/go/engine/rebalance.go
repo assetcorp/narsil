@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
@@ -65,14 +66,15 @@ func (entry *indexEntry) finishRebalanceLocked(run *rebalanceRun) {
 	close(run.replayed)
 }
 
-func (entry *indexEntry) abandonRebalance(run *rebalanceRun) {
+func (entry *indexEntry) abandonRebalance(ctx context.Context, run *rebalanceRun) error {
 	entry.writeMu.Lock()
 	defer entry.writeMu.Unlock()
-	entry.replayInto(entry.index(), run.take())
+	err := entry.replayInto(ctx, entry.index(), run.take())
 	if run.buffered != nil {
 		run.buffered.Settle()
 	}
 	entry.finishRebalanceLocked(run)
+	return err
 }
 
 func (n *Narsil) proceedFor(ctx context.Context, entry *indexEntry, operation string) func() error {
@@ -106,21 +108,25 @@ func (entry *indexEntry) swapLayout(ctx context.Context, run *rebalanceRun, buil
 		built.SetSynonyms(previous.Synonyms())
 		built.SetBM25(previous.BM25())
 		queued := run.take()
-		entry.replayInto(built, queued)
+		if err := entry.replayInto(ctx, built, queued); err != nil {
+			run.queue = queued
+			return persist.IndexSwap{}, false, err
+		}
 		entry.swap.current.Store(built)
 		entry.finishRebalanceLocked(run)
 		return persist.IndexSwap{Index: built, NewDetachedIndex: detachedBuilder(settings, built), Buffered: run.buffered,
 			MetadataFirst: run.target > previous.PartitionCount(),
 			Committed:     func(listed manifest.Manifest) bool { return len(listed.Partitions) == run.target },
-			Revert: func(*index.Index) {
+			Revert: func(*index.Index) error {
 				entry.swap.current.Store(previous)
-				entry.replayInto(previous, queued)
+				err := entry.replayInto(ctx, previous, queued)
 				run.buffered.Settle()
+				return err
 			}}, true, nil
 	}
 	err := entry.installTerms(ctx, install)
 	if entry.rebalancing() == run {
-		entry.replayInto(previous, run.take())
+		err = errors.Join(err, entry.replayInto(ctx, previous, run.take()))
 		if run.buffered != nil {
 			run.buffered.Settle()
 		}
@@ -166,11 +172,10 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 	entry.writeMu.Unlock()
 	built, err := index.New(settings)
 	if err == nil {
-		err = copyDocuments(entry.handle, entry.index(), built, proceed, func(int) {})
+		err = copyDocuments(ctx, entry.handle, entry.index(), built, proceed, func(int) {})
 	}
 	if err != nil {
-		entry.abandonRebalance(run)
-		return err
+		return errors.Join(err, entry.abandonRebalance(ctx, run))
 	}
 	err = entry.swapLayout(ctx, run, built, settings, proceed)
 	if entry.index() == built {

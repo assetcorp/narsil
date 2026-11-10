@@ -205,7 +205,7 @@ func New(config Config) (*Field, error) {
 
 func (f *Field) attachSlots(shared *Slots) error {
 	if shared != nil {
-		f.slots = shared.retain()
+		f.slots = shared.Retain()
 	} else {
 		own, err := NewSlots()
 		if err != nil {

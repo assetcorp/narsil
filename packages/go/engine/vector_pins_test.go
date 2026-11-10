@@ -84,12 +84,12 @@ func openPinnedHarbour(t *testing.T, heldCapacity int, plugins ...engine.Plugin)
 	}
 	harbour := &pinnedHarbour{ctx: ctx, narsil: narsil, reranker: reranker, random: rand.New(rand.NewSource(pinnedSeed)),
 		vectors: map[string][]float32{}}
-	batch := make([]engine.Document, 0, pinnedDocuments)
+	batch := make([]*engine.Document, 0, pinnedDocuments)
 	for position := range pinnedDocuments {
 		id := "berth-" + strconv.Itoa(position)
 		vector := harbour.randomVector()
 		harbour.vectors[id] = vector
-		batch = append(batch, engine.Document{"id": id, "title": "berth " + id, "embedding": vector})
+		batch = append(batch, engine.DocumentFromMap(map[string]any{"id": id, "title": "berth " + id, "embedding": vector}))
 	}
 	if result, err := narsil.InsertBatch(ctx, pinnedIndexName, batch, engine.InsertOptions{}); err != nil || len(result.Failed) > 0 {
 		t.Fatalf("loading the harbour failed: %v %+v", err, result.Failed)
@@ -145,7 +145,7 @@ func (h *pinnedHarbour) holdQuery(ctx context.Context, query []float32, rerankQu
 
 func (h *pinnedHarbour) update(t *testing.T, id string, vector []float32) {
 	t.Helper()
-	if err := h.narsil.Update(h.ctx, pinnedIndexName, id, engine.Document{"title": "berth " + id, "embedding": vector},
+	if err := h.narsil.Update(h.ctx, pinnedIndexName, id, engine.DocumentFromMap(map[string]any{"title": "berth " + id, "embedding": vector}),
 		engine.WriteOptions{}); err != nil {
 		t.Fatalf("updating %s failed: %v", id, err)
 	}
@@ -162,7 +162,7 @@ func (h *pinnedHarbour) remove(t *testing.T, id string) {
 
 func (h *pinnedHarbour) insert(t *testing.T, id string, vector []float32) {
 	t.Helper()
-	if _, err := h.narsil.Insert(h.ctx, pinnedIndexName, engine.Document{"title": "berth " + id, "embedding": vector}, id,
+	if _, err := h.narsil.Insert(h.ctx, pinnedIndexName, engine.DocumentFromMap(map[string]any{"title": "berth " + id, "embedding": vector}), id,
 		engine.InsertOptions{}); err != nil {
 		t.Fatalf("inserting %s failed: %v", id, err)
 	}

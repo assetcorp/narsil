@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -21,6 +22,7 @@ type searcher struct {
 	combined     rowColumns
 	rowOfField   []int32
 	everyOrdinal []uint32
+	work         *core.WorkMeter
 	ownMeter     *core.WorkMeter
 	paged        pagedPool
 }
@@ -40,34 +42,41 @@ func acquireSearcher() (*searcher, error) {
 func (s *searcher) release() {
 	s.paged.reset(nil)
 	s.builder.release()
+	if s.ownMeter != nil {
+		s.ownMeter.Free()
+		s.ownMeter = nil
+	}
+	s.work = nil
 	s.workspace.Release()
 	s.workspace = nil
 	searchers.Put(s)
 }
 
-func (s *searcher) meter(query *KeywordQuery) *core.WorkMeter {
-	if query.Meter != nil {
-		return query.Meter
+func (s *searcher) meter(query *KeywordQuery) error {
+	s.work = query.Meter
+	if s.work != nil {
+		return nil
 	}
-	if s.ownMeter == nil {
-		meter, err := core.NewWorkMeter(core.NoWorkCap, 0)
-		if err != nil {
-			return nil
-		}
-		s.ownMeter = meter
+	meter, err := core.NewWorkMeter(DefaultPatternWorkCap, 0)
+	if err != nil {
+		return err
 	}
-	return s.ownMeter
+	s.ownMeter, s.work = meter, meter
+	return nil
 }
 
-func (s *searcher) live(capacity uint32) []uint32 {
-	words := bitsetWords(capacity)
+func (s *searcher) live(segment *Segment) ([]uint32, error) {
+	if segment.Growing != nil || segment.Live != nil {
+		return segment.liveBits()
+	}
+	words := bitsetWords(segment.capacity())
 	if len(s.everyOrdinal) < words {
 		s.everyOrdinal = make([]uint32, max(words, 2*len(s.everyOrdinal)))
 		for at := range s.everyOrdinal {
 			s.everyOrdinal[at] = ^uint32(0)
 		}
 	}
-	return s.everyOrdinal[:words]
+	return s.everyOrdinal[:words], nil
 }
 
 func validateView(view *View) error {
@@ -122,6 +131,9 @@ func Search(view *View, query *KeywordQuery) (*KeywordResult, error) {
 		return nil, err
 	}
 	defer s.release()
+	if err := s.meter(query); err != nil {
+		return nil, err
+	}
 	s.terms.reset()
 	s.terms.addQuery(query)
 	if single := onlyPopulated(view); single != -1 {
@@ -156,17 +168,25 @@ func Search(view *View, query *KeywordQuery) (*KeywordResult, error) {
 }
 
 func refusal(err error) error {
-	status, ok := err.(*core.StatusError)
-	if !ok {
+	if _, coded := narsilerr.As(err); coded {
 		return err
 	}
-	switch status.Status {
+	switch core.StatusOf(err) {
+	case core.StatusOK:
+		return err
 	case core.StatusWorkCapExceeded:
 		return narsilerr.Wrap(narsilerr.CodeSearchWorkCapExceeded, "The search exceeded its work cap", err, nil)
 	case core.StatusStopped:
 		return ErrStopped
 	}
 	return narsilerr.Wrap(narsilerr.CodeConfigInvalid, "The native search core refused the search", err, nil)
+}
+
+func (s *searcher) refusal(err error) error {
+	if core.StatusOf(err) == core.StatusWorkCapExceeded && s.work != nil {
+		return patternWorkCapExceeded(s.work.Cap())
+	}
+	return refusal(err)
 }
 
 var ErrStopped = errors.New("the search was stopped before it finished")
@@ -181,12 +201,9 @@ func (s *searcher) searchSegment(view *View, index int, query *KeywordQuery, sta
 	s.fields.load(view.FieldNames, query, stats.averages)
 	var phrases *phraseMatches
 	if len(query.Phrases) > 0 {
-		if segment.Paged != nil {
-			return nil, pagedPhraseRefusal()
-		}
 		matched, err := s.matchPhrases(segment, query, s.fields.searchable, filter, hasFilter)
 		if err != nil {
-			return nil, refusal(err)
+			return nil, s.refusal(err)
 		}
 		if bitsetEmpty(matched.matched) {
 			return nil, nil
@@ -197,7 +214,7 @@ func (s *searcher) searchSegment(view *View, index int, query *KeywordQuery, sta
 	request := &s.builder.request
 	s.fields.apply(request, segment)
 	if err := s.planTerms(segment, query, stats); err != nil {
-		return nil, refusal(err)
+		return nil, s.refusal(err)
 	}
 	if phrases != nil {
 		if err := s.planPhrases(segment, query, stats, phrases); err != nil {
@@ -206,7 +223,11 @@ func (s *searcher) searchSegment(view *View, index int, query *KeywordQuery, sta
 	}
 	request.PoolDocIDs, request.PoolFrequencies, request.PoolFields = s.poolOf(segment)
 	request.HasFilter, request.Filter = hasFilter, filter
-	request.Live = s.live(capacity)
+	live, err := s.live(segment)
+	if err != nil {
+		return nil, err
+	}
+	request.Live = live
 	request.Removed = segment.removed()
 	request.Terms = float64(len(query.Tokens))
 	request.Capacity = capacity
@@ -216,19 +237,24 @@ func (s *searcher) searchSegment(view *View, index int, query *KeywordQuery, sta
 	if query.HasLimit {
 		request.Limit = float64(max(0, query.Limit))
 	}
-	request.MinScore = 0
+	request.MinScore = query.MinScore
 	request.Collect = query.Collect != MatchedNone
 	output := s.builder.sizeOutput(capacity)
 	outcome, err := s.workspace.KeywordScore(request, output)
 	if err != nil {
-		return nil, refusal(err)
+		return nil, s.refusal(err)
 	}
 	count := min(int(outcome.Count), len(output.Ordinals))
+	var components map[uint32]*model.ScoreComponents
+	if query.Components {
+		components = keywordComponents(&s.builder, view.FieldNames, output.Ordinals[:count])
+	}
 	hits := make([]Hit, count)
 	for at := range count {
-		hits[at] = Hit{Segment: index, Ordinal: uint32(output.Ordinals[at]), Score: output.Scores[at]}
+		ordinal := uint32(output.Ordinals[at])
+		hits[at] = Hit{Segment: index, Ordinal: ordinal, Score: output.Scores[at], Components: components[ordinal]}
 	}
-	orderHits(hits, query.Order)
+	orderTiedHits(hits, query.Order)
 	if query.HasLimit && len(hits) > query.Limit {
 		hits = hits[:max(0, query.Limit)]
 	}

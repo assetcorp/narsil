@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -14,18 +15,19 @@ import (
 type normaliser struct {
 	vectorPaths map[string]int
 	nodes       int
+	reencoded   int
 	exhausted   bool
 }
 
-func NormalizeDocument(document model.Document, parsed *Parsed) (model.Document, error) {
+func NormalizeDocument(document *model.Document, parsed *Parsed) (*model.Document, error) {
 	if document == nil {
-		return nil, narsilerr.New(narsilerr.CodeDocValidationFailed, "Document must be a plain object", map[string]any{"received": "object"})
+		return nil, documentRequired()
 	}
 	run := &normaliser{}
 	if parsed != nil {
 		run.vectorPaths = parsed.vectors
 	}
-	normalised := run.mapValues(document, "", true, 0)
+	normalised := run.document(document, "", true, 0)
 	if run.exhausted {
 		return nil, narsilerr.New(
 			narsilerr.CodeDocValidationFailed,
@@ -52,13 +54,28 @@ func (n *normaliser) isVectorPath(path string, mapPath bool) bool {
 	return found
 }
 
-func (n *normaliser) mapValues(values map[string]any, prefix string, mapPath bool, depth int) map[string]any {
-	normalised := make(map[string]any, len(values))
-	for key, value := range values {
+func (n *normaliser) document(source *model.Document, prefix string, mapPath bool, depth int) *model.Document {
+	return codec.TransformDocument(source, func(key string, entry codec.HeldEntry) (any, bool) {
 		if n.exhausted {
-			return normalised
+			return nil, false
 		}
-		normalised[key] = n.value(value, joinPath(prefix, key), mapPath, depth+1)
+		before := n.reencoded
+		normalised := n.value(entry.Value, joinPath(prefix, key), mapPath, depth+1)
+		if entry.Stored != nil && n.reencoded == before {
+			return nil, true
+		}
+		return normalised, false
+	})
+}
+
+func (n *normaliser) sortedDocument(keys []string, valueOf func(key string) any, prefix string, mapPath bool, depth int) *model.Document {
+	codec.SortObjectKeys(keys)
+	normalised := codec.NewDocumentOfLength(len(keys))
+	for _, key := range keys {
+		if n.exhausted {
+			break
+		}
+		codec.PutHeld(normalised, key, n.value(valueOf(key), joinPath(prefix, key), mapPath, depth+1))
 	}
 	return normalised
 }
@@ -71,7 +88,11 @@ func (n *normaliser) value(value any, path string, mapPath bool, depth int) any 
 	case nil, bool, string, float64:
 		return value
 	case time.Time:
-		return typed.Truncate(time.Millisecond)
+		truncated := typed.Truncate(time.Millisecond)
+		if !truncated.Equal(typed) {
+			n.reencoded++
+		}
+		return truncated
 	case float32:
 		return float64(typed)
 	case int:
@@ -107,6 +128,14 @@ func (n *normaliser) value(value any, path string, mapPath bool, depth int) any 
 			return value
 		}
 		return n.list(len(typed), func(i int) any { return typed[i] }, path, mapPath, depth)
+	case *model.Document:
+		if typed == nil {
+			return nil
+		}
+		if depth >= MaxDocumentNestingDepth {
+			return value
+		}
+		return n.document(typed, path, mapPath, depth)
 	case map[string]any:
 		if typed == nil {
 			return nil
@@ -114,7 +143,11 @@ func (n *normaliser) value(value any, path string, mapPath bool, depth int) any 
 		if depth >= MaxDocumentNestingDepth {
 			return value
 		}
-		return n.mapValues(typed, path, mapPath, depth)
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		return n.sortedDocument(keys, func(key string) any { return typed[key] }, path, mapPath, depth)
 	}
 	return n.reflected(value, path, mapPath, depth)
 }
@@ -140,7 +173,8 @@ func (n *normaliser) reflected(value any, path string, mapPath bool, depth int) 
 	case reflect.Array:
 		return n.reflectedList(reflected, value, path, mapPath, depth)
 	case reflect.Map:
-		if reflected.Type().Key().Kind() != reflect.String {
+		keyType := reflected.Type().Key()
+		if keyType.Kind() != reflect.String {
 			return value
 		}
 		if reflected.IsNil() {
@@ -149,13 +183,13 @@ func (n *normaliser) reflected(value any, path string, mapPath bool, depth int) 
 		if depth >= MaxDocumentNestingDepth {
 			return value
 		}
-		normalised := make(map[string]any, reflected.Len())
-		entries := reflected.MapRange()
-		for entries.Next() && !n.exhausted {
-			key := entries.Key().String()
-			normalised[key] = n.value(entries.Value().Interface(), joinPath(path, key), mapPath, depth+1)
+		keys := make([]string, 0, reflected.Len())
+		for _, key := range reflected.MapKeys() {
+			keys = append(keys, key.String())
 		}
-		return normalised
+		return n.sortedDocument(keys, func(key string) any {
+			return reflected.MapIndex(reflect.ValueOf(key).Convert(keyType)).Interface()
+		}, path, mapPath, depth)
 	default:
 		return value
 	}
@@ -180,6 +214,7 @@ func (n *normaliser) list(length int, element func(int) any, path string, mapPat
 	}
 	if n.isVectorPath(path, mapPath) {
 		if vector, extractable := vectorOfNumbers(items); extractable {
+			n.reencoded++
 			return vector
 		}
 	}

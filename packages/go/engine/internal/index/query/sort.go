@@ -164,11 +164,19 @@ func (s *segmentSort) entryAfterAnchor(key []text.SortValue, id string) bool {
 	return order > 0 || (order == 0 && text.CompareCodePoints(id, s.request.AnchorID) > 0)
 }
 
-func (s *segmentSort) compare(left, right SortedEntry) int {
-	if order := text.CompareComparableKeys(left.Key, right.Key, s.directions); order != 0 {
-		return order
+func (s *segmentSort) orderSharedKeys(page []SortedEntry) {
+	for start := 0; start < len(page); {
+		end := start + 1
+		for end < len(page) && text.CompareComparableKeys(page[start].Key, page[end].Key, s.directions) == 0 {
+			end++
+		}
+		if end-start > 1 {
+			slices.SortFunc(page[start:end], func(left, right SortedEntry) int {
+				return text.CompareCodePoints(left.ID, right.ID)
+			})
+		}
+		start = end
 	}
-	return text.CompareCodePoints(left.ID, right.ID)
 }
 
 func (s *segmentSort) page(index int) ([]SortedEntry, error) {
@@ -232,7 +240,7 @@ func (s *segmentSort) page(index int) ([]SortedEntry, error) {
 				page = append(page, SortedEntry{Segment: index, Ordinal: ordinal, ID: id, Key: key})
 			}
 		}
-		slices.SortFunc(page, s.compare)
+		s.orderSharedKeys(page)
 		if len(page) >= s.request.Limit || int(count) < requested || requested == capacity {
 			return page[:min(len(page), s.request.Limit)], nil
 		}
@@ -256,16 +264,43 @@ func SortedPage(view *View, request *SortRequest) ([]SortedEntry, error) {
 	}
 	defer workspace.Release()
 	sorter := &segmentSort{view: view, request: request, directions: sortDirections(request.Fields), workspace: workspace}
-	var merged []SortedEntry
+	pages := make([][]SortedEntry, len(view.Segments))
 	for index := range view.Segments {
-		page, err := sorter.page(index)
-		if err != nil {
+		if pages[index], err = sorter.page(index); err != nil {
 			return nil, err
 		}
-		merged = append(merged, page...)
 	}
-	if len(view.Segments) > 1 {
-		slices.SortFunc(merged, sorter.compare)
+	return MergeSortedEntries(workspace, pages, sorter.directions, request.Limit)
+}
+
+func MergeSortedEntries(workspace *core.Workspace, pages [][]SortedEntry, directions []text.SortDirection, limit int) ([]SortedEntry, error) {
+	sizes := make([]int, len(pages))
+	var flat, only []SortedEntry
+	populated := 0
+	for index, page := range pages {
+		sizes[index] = len(page)
+		if len(page) > 0 {
+			only = page
+			populated++
+		}
+		flat = append(flat, page...)
 	}
-	return merged[:min(len(merged), request.Limit)], nil
+	if populated <= 1 {
+		return only[:min(len(only), max(0, limit))], nil
+	}
+	ranks := IDRanks(len(flat), func(left, right int) int {
+		if order := text.CompareComparableKeys(flat[left].Key, flat[right].Key, directions); order != 0 {
+			return order
+		}
+		return text.CompareCodePoints(flat[left].ID, flat[right].ID)
+	})
+	merged, err := MergeSorted(workspace, sizes, ranks, uint64(min(max(0, limit), len(flat))))
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]SortedEntry, len(merged))
+	for at, entry := range merged {
+		entries[at] = pages[entry.List][entry.Index]
+	}
+	return entries, nil
 }

@@ -31,17 +31,26 @@ func (s *searcher) planTerms(segment *Segment, query *KeywordQuery, stats *scori
 		if err != nil {
 			return err
 		}
+		counts, err := s.matchFrequencies(segment, token, matches)
+		if err != nil {
+			return err
+		}
 		s.builder.termSlot(term)
-		for _, match := range matches {
+		readsTermText := query.Components || len(stats.frequencies) > 0
+		for at, match := range matches {
 			list, err := s.postingsOf(segment, match)
 			if err != nil {
 				return err
 			}
-			frequency := segment.liveFrequency(match)
-			if len(stats.frequencies) > 0 {
-				frequency = stats.frequencyOf(segment.termText(match), frequency)
+			matched := ""
+			if readsTermText {
+				matched = segment.termText(match)
 			}
-			s.builder.poolList(list, frequency, 0)
+			frequency := float64(counts[at])
+			if len(stats.frequencies) > 0 {
+				frequency = stats.frequencyOf(matched, frequency)
+			}
+			s.builder.poolList(list, frequency, 0, matched)
 		}
 		if group != nil {
 			if err := s.planGroup(segment, query, stats, group, term); err != nil {
@@ -107,10 +116,10 @@ func (s *searcher) planGroup(segment *Segment, query *KeywordQuery, stats *scori
 	s.builder.groupSlot(term, documentFrequency)
 	for _, planned := range members {
 		if planned.rows != nil {
-			s.builder.rowList(planned.rows, false, planned.member.Factor, planned.member.PartialFactor)
+			s.builder.rowList(planned.rows, false, planned.member.Factor, planned.member.PartialFactor, planned.member.Token)
 			continue
 		}
-		s.builder.poolList(planned.list, planned.member.Factor, planned.member.PartialFactor)
+		s.builder.poolList(planned.list, planned.member.Factor, planned.member.PartialFactor, planned.member.Token)
 	}
 	return nil
 }
@@ -146,9 +155,13 @@ func (s *searcher) planPhrases(segment *Segment, query *KeywordQuery, stats *sco
 		phrase := &query.Phrases[rows.phrase]
 		frequencies := make([]float64, len(phrase.Tokens))
 		for at, token := range phrase.Tokens {
-			frequencies[at] = stats.frequencyOf(token, segment.liveFrequency(rows.terms[at]))
+			frequency, err := s.frequencyOf(segment, stats, token)
+			if err != nil {
+				return err
+			}
+			frequencies[at] = frequency
 		}
-		s.builder.phraseSlot(frequencies, rows.documents, rows.fields, rows.frequencies)
+		s.builder.phraseSlot(frequencies, rows.documents, rows.fields, rows.frequencies, phrase.Key)
 	}
 	return nil
 }

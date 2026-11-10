@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -244,27 +243,6 @@ func RequireValidFieldTypes(flat map[string]any) error {
 		}
 	}
 	return requireTextFieldCount(textFields)
-}
-
-func FromFlat(flat map[string]any) (*Parsed, error) {
-	if err := RequireValidFieldTypes(flat); err != nil {
-		return nil, err
-	}
-	root := map[string]any{}
-	for _, path := range sortedKeys(flat) {
-		segments := strings.Split(path, ".")
-		cursor := root
-		for _, segment := range segments[:len(segments)-1] {
-			child, isObject := cursor[segment].(map[string]any)
-			if !isObject {
-				child = map[string]any{}
-				cursor[segment] = child
-			}
-			cursor = child
-		}
-		cursor[segments[len(segments)-1]] = flat[path]
-	}
-	return FromValue(root)
 }
 
 func joinPath(prefix, name string) string {

@@ -65,7 +65,7 @@ func createPositionProbeIndex(t *testing.T, ctx context.Context, narsil *engine.
 	if err != nil {
 		t.Fatalf("create the index: %v", err)
 	}
-	if _, err := narsil.Insert(ctx, positionProbeIndex, engine.Document{"title": positionProbeKeptTitle},
+	if _, err := narsil.Insert(ctx, positionProbeIndex, engine.NewDocument().Set("title", positionProbeKeptTitle),
 		positionProbeDocumentID, engine.InsertOptions{}); err != nil {
 		t.Fatalf("insert the kept document: %v", err)
 	}
@@ -97,8 +97,11 @@ func requireOnlyKeptDocument(t *testing.T, ctx context.Context, narsil *engine.N
 		t.Fatalf("the refused document is stored: held %v (%v)", held, err)
 	}
 	document, found, err := narsil.Get(ctx, positionProbeIndex, positionProbeDocumentID)
-	if err != nil || !found || document["title"] != positionProbeKeptTitle {
-		t.Fatalf("the kept document changed: %v, found %v (%v)", document, found, err)
+	if err != nil || !found {
+		t.Fatalf("the kept document is missing: found %v (%v)", found, err)
+	}
+	if title, _ := document.Get("title"); title != positionProbeKeptTitle {
+		t.Fatalf("the kept document changed: %v", document.Map())
 	}
 	if hits := hitCount(t, ctx, narsil, positionProbeRefusedWords); hits != 0 {
 		t.Fatalf("a word of a refused document matches %d documents, want 0", hits)
@@ -118,20 +121,20 @@ func refusedTitles() []string {
 func exerciseRefusedWrites(t *testing.T, ctx context.Context, narsil *engine.Narsil) {
 	t.Helper()
 	for _, title := range refusedTitles() {
-		_, err := narsil.Insert(ctx, positionProbeIndex, engine.Document{"title": title}, positionProbeRefusedID,
+		_, err := narsil.Insert(ctx, positionProbeIndex, engine.NewDocument().Set("title", title), positionProbeRefusedID,
 			engine.InsertOptions{})
 		requireCode(t, err, engine.CodeDocValidationFailed, "insert "+title)
-		err = narsil.Update(ctx, positionProbeIndex, positionProbeDocumentID, engine.Document{"title": title},
+		err = narsil.Update(ctx, positionProbeIndex, positionProbeDocumentID, engine.NewDocument().Set("title", title),
 			engine.WriteOptions{})
 		requireCode(t, err, engine.CodeDocValidationFailed, "update "+title)
 		batch, err := narsil.InsertBatch(ctx, positionProbeIndex,
-			[]engine.Document{{"id": positionProbeRefusedID, "title": title}}, engine.InsertOptions{})
+			[]*engine.Document{engine.NewDocument().Set("id", positionProbeRefusedID).Set("title", title)}, engine.InsertOptions{})
 		if err != nil || len(batch.Succeeded) != 0 || len(batch.Failed) != 1 {
 			t.Fatalf("insert batch %q: %+v (%v)", title, batch, err)
 		}
 		requireCode(t, batch.Failed[0].Err, engine.CodeDocValidationFailed, "insert batch "+title)
 		updates, err := narsil.UpdateBatch(ctx, positionProbeIndex,
-			[]engine.DocumentUpdate{{DocID: positionProbeDocumentID, Document: engine.Document{"title": title}}},
+			[]engine.DocumentUpdate{{DocID: positionProbeDocumentID, Document: engine.NewDocument().Set("title", title)}},
 			engine.WriteOptions{})
 		if err != nil || len(updates.Succeeded) != 0 || len(updates.Failed) != 1 {
 			t.Fatalf("update batch %q: %+v (%v)", title, updates, err)
@@ -151,7 +154,7 @@ func TestTokenizerPositionsOutsideTheStoredRangeAreRefused(t *testing.T) {
 	createPositionProbeIndex(t, ctx, narsil)
 	exerciseRefusedWrites(t, ctx, narsil)
 	requireOnlyKeptDocument(t, ctx, narsil)
-	if _, err := narsil.Insert(ctx, positionProbeIndex, engine.Document{"title": "beacon " + largestPositionWord},
+	if _, err := narsil.Insert(ctx, positionProbeIndex, engine.NewDocument().Set("title", "beacon "+largestPositionWord),
 		"edge", engine.InsertOptions{}); err != nil {
 		t.Fatalf("the largest stored position is refused: %v", err)
 	}

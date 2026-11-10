@@ -4,7 +4,6 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -60,7 +59,7 @@ func (s *Slots) Close() {
 	s.resource.drop()
 }
 
-func (s *Slots) retain() *Slots {
+func (s *Slots) Retain() *Slots {
 	s.resource.retain()
 	return s
 }
@@ -85,14 +84,6 @@ func (s *Slots) Write(apply func(sequence int64) error) error {
 		s.writeMu.Unlock()
 	}()
 	return apply(sequence)
-}
-
-func (s *Slots) WaitForPinsFrom(sequence int64) {
-	delay := readerWaitFirstDelay
-	for s.oldestPin() < sequence {
-		time.Sleep(delay)
-		delay = min(delay*2, readerWaitMaxDelay)
-	}
 }
 
 func (s *Slots) raiseSequenceTo(sequence int64) {
@@ -229,7 +220,7 @@ func (s *Slots) admit(counter *atomic.Int32, limit int32, refused func() error) 
 		counter.Add(-1)
 		return nil, err
 	}
-	s.retain()
+	s.Retain()
 	return &Lease{slots: s, slot: slot, counter: counter}, nil
 }
 

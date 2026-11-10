@@ -32,7 +32,7 @@ type HighlightMatch struct {
 type Hit struct {
 	ID              string
 	Score           Optional[float64]
-	Document        Document
+	Document        *Document
 	ScoreComponents *ScoreComponents
 	Highlights      map[string]HighlightMatch
 }
@@ -153,7 +153,7 @@ type VectorMaintenanceResult struct {
 
 type ListedDocument struct {
 	ID       string
-	Document Document
+	Document *Document
 }
 
 type ListResult struct {

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"sort"
 	"sync"
 	"time"
 
@@ -262,13 +261,8 @@ func (n *Narsil) uninstall(entry *indexEntry) {
 
 func (n *Narsil) sortedEntries() []*indexEntry {
 	n.indexesMu.RLock()
-	entries := make([]*indexEntry, 0, len(n.indexes))
-	for _, entry := range n.indexes {
-		entries = append(entries, entry)
-	}
-	n.indexesMu.RUnlock()
-	sort.Slice(entries, func(left, right int) bool { return entries[left].name < entries[right].name })
-	return entries
+	defer n.indexesMu.RUnlock()
+	return valuesInNameOrder(n.indexes)
 }
 
 type nameLocks struct {

@@ -14,11 +14,11 @@ type Writer struct {
 	failure     error
 }
 
-func headerValue(header Header) codec.OrderedMap {
+func headerValue(index any) codec.OrderedMap {
 	return codec.OrderedMap{
 		{Key: headerFormatKey, Value: FormatName},
 		{Key: headerVersionKey, Value: float64(FormatVersion)},
-		{Key: headerIndexKey, Value: header.Index},
+		{Key: headerIndexKey, Value: index},
 	}
 }
 
@@ -26,8 +26,19 @@ func NewWriter(destination io.Writer, header Header) (*Writer, error) {
 	if header.Index == nil {
 		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "The document export header holds no index configuration", nil)
 	}
+	return newWriter(destination, header.Index)
+}
+
+func NewWriterInStoredOrder(destination io.Writer, index codec.OrderedMap) (*Writer, error) {
+	if index == nil {
+		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "The document export header holds no index configuration", nil)
+	}
+	return newWriter(destination, index)
+}
+
+func newWriter(destination io.Writer, index any) (*Writer, error) {
 	writer := &Writer{destination: destination}
-	line, err := codec.AppendExactJSON(nil, headerValue(header), "")
+	line, err := codec.AppendExactJSON(nil, headerValue(index), "")
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +74,25 @@ func (writer *Writer) WriteDocument(id string, document map[string]any) error {
 		}
 		withID[documentIDKey] = id
 	}
-	line, err := codec.AppendDocumentJSON(writer.line[:0], withID, id)
+	return writer.writeDocumentLine(withID, id)
+}
+
+func (writer *Writer) WriteStoredDocument(id string, stored codec.OrderedMap) error {
+	if writer.failure != nil {
+		return writer.failure
+	}
+	withID := make(codec.OrderedMap, 1, len(stored)+1)
+	withID[0] = codec.MapEntry{Key: documentIDKey, Value: id}
+	for _, entry := range stored {
+		if entry.Key != documentIDKey {
+			withID = append(withID, entry)
+		}
+	}
+	return writer.writeDocumentLine(codec.InJavaScriptPropertyOrder(withID), id)
+}
+
+func (writer *Writer) writeDocumentLine(document any, id string) error {
+	line, err := codec.AppendDocumentJSON(writer.line[:0], document, id)
 	if err != nil {
 		return err
 	}

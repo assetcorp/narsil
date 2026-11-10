@@ -149,6 +149,10 @@ func (r *CheckpointRestore) Finish() error {
 		}
 		return err
 	}
+	if f.cold != nil && f.cold.replayFailure() != nil {
+		f.cancelColdHold()
+		f.recordAdmittedLive()
+	}
 	f.scheduleBuildLocked()
 	return nil
 }

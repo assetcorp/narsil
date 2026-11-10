@@ -181,11 +181,13 @@ func canonicalArrayIndex(segment string, length int) (int, bool) {
 	return position, true
 }
 
-func ownProperty(container any, segment string) (any, bool) {
-	switch typed := container.(type) {
-	case map[string]any:
-		value, found := typed[segment]
+type ObjectProperty func(container any, key string) (value any, found bool, isObject bool)
+
+func ownProperty(container any, segment string, object ObjectProperty) (any, bool) {
+	if value, found, isObject := object(container, segment); isObject {
 		return value, found
+	}
+	switch typed := container.(type) {
 	case []any:
 		if segment == "length" {
 			return float64(len(typed)), true
@@ -205,10 +207,10 @@ func ownProperty(container any, segment string) (any, bool) {
 	return nil, false
 }
 
-func ReadSortField(document map[string]any, path string) (any, bool) {
-	var current any = document
+func ReadSortField(document any, path string, object ObjectProperty) (any, bool) {
+	current := document
 	for segment := range strings.SplitSeq(path, ".") {
-		value, found := ownProperty(current, segment)
+		value, found := ownProperty(current, segment, object)
 		if !found {
 			return nil, false
 		}

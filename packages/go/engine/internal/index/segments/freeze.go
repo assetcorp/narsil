@@ -1,7 +1,6 @@
 package segments
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -29,8 +28,7 @@ func keptCount(mapping []uint32) (uint32, error) {
 }
 
 func mergeRefusal(err error) error {
-	var status *core.StatusError
-	if errors.As(err, &status) && status.Status == core.StatusSegmentFull {
+	if core.StatusOf(err) == core.StatusSegmentFull {
 		return fmt.Errorf("%w: %w", ErrSegmentFull, err)
 	}
 	return err

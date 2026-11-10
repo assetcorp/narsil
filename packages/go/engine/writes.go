@@ -1,14 +1,17 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
 
-func (n *Narsil) resolveInsertID(document model.Document, docID string) (string, error) {
+func (n *Narsil) resolveInsertID(document *model.Document, docID string) (string, error) {
 	if docID != "" {
 		if err := schema.RequireMatchingDocID(docID, document); err != nil {
 			return "", err
@@ -22,7 +25,7 @@ func (n *Narsil) resolveInsertID(document model.Document, docID string) (string,
 	return generated, schema.ValidateDocID(generated)
 }
 
-func (n *Narsil) embedOne(ctx context.Context, entry *indexEntry, working model.Document) error {
+func (n *Narsil) embedOne(ctx context.Context, entry *indexEntry, working *model.Document) error {
 	if entry.config.Embedding == nil {
 		return nil
 	}
@@ -33,7 +36,10 @@ func (n *Narsil) embedOne(ctx context.Context, entry *indexEntry, working model.
 	return embedDocument(ctx, working, entry.config.Embedding, adapter)
 }
 
-func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working model.Document) (persist.Write, error) {
+func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working *model.Document) (persist.Write, error) {
+	if err := schema.RequireDocument(working); err != nil {
+		return persist.Write{}, err
+	}
 	if len(entry.config.Required) > 0 {
 		if err := schema.ValidateRequiredFields(working, entry.config.Required); err != nil {
 			return persist.Write{}, err
@@ -48,23 +54,29 @@ func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working mode
 // Insert adds document to the index called indexName and returns its ID.
 // The ID is docID when it is not empty, the document's own "id" string
 // otherwise, and a generated UUID version 7 when neither is set. The engine
-// copies the document before it embeds or normalises it, so the caller's map
-// keeps its contents. It returns CodeDocAlreadyExists for an ID in use,
-// CodeDocValidationFailed or a schema code for a document that the schema
-// refuses, CodePartitionCapacityExceeded for a full index, and an embedding
-// code when the embedding adapter fails.
-func (n *Narsil) Insert(ctx context.Context, indexName string, document Document, docID string, options InsertOptions) (string, error) {
+// reads the document once, before it embeds or normalises its own copy, so
+// the caller's document keeps its contents and a later Set on it changes
+// nothing that the engine stored. A plugin receives that copy and may change
+// it, and a key that a plugin adds is stored after the others. It returns
+// CodeDocAlreadyExists for an ID in use, CodeDocValidationFailed or a schema
+// code for a nil document or one that the schema refuses,
+// CodePartitionCapacityExceeded for a full index, and an embedding code when
+// the embedding adapter fails.
+func (n *Narsil) Insert(ctx context.Context, indexName string, document *Document, docID string, options InsertOptions) (string, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return "", err
 	}
 	defer release()
 	defer n.emitWrite(indexName)
-	id, err := n.resolveInsertID(document, docID)
+	working := codec.SnapshotDocument(document)
+	if err := schema.RequireDocument(working); err != nil {
+		return "", err
+	}
+	id, err := n.resolveInsertID(working, docID)
 	if err != nil {
 		return "", err
 	}
-	working := shallowCopy(document)
 	insert := &model.InsertContext{IndexName: indexName, DocID: id, Document: working}
 	if err := n.plugins.insert(ctx, hookBeforeInsert, insert); err != nil {
 		return "", err
@@ -92,13 +104,13 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document Document
 }
 
 func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {
-	if entry.holds(write.DocumentID) {
-		return entry.alreadyExists(write.DocumentID)
+	if held, err := entry.holds(ctx, write.DocumentID); err != nil || held {
+		return cmp.Or(err, entry.alreadyExists(write.DocumentID))
 	}
 	if err := entry.capacityError(0); err != nil {
 		return err
 	}
-	failures, err := entry.apply(ctx, []persist.Write{write}, writeInsert)
+	failures, err := entry.apply(ctx, []persist.Write{write}, index.WriteInsert)
 	if err != nil {
 		return err
 	}
@@ -106,10 +118,12 @@ func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write
 }
 
 // Update replaces the stored document under docID in the index called
-// indexName with document. It returns CodeDocNotFound when no document holds
-// that ID, CodeDocValidationFailed when the document's own "id" names
-// another ID, and the same validation and embedding codes as Insert.
-func (n *Narsil) Update(ctx context.Context, indexName string, docID string, document Document, options WriteOptions) error {
+// indexName with document, which it reads once as Insert does. A value that
+// came from Get and that the caller left alone keeps its stored bytes. It
+// returns CodeDocNotFound when no document holds that ID,
+// CodeDocValidationFailed when the document's own "id" names another ID, and
+// the same validation and embedding codes as Insert.
+func (n *Narsil) Update(ctx context.Context, indexName string, docID string, document *Document, options WriteOptions) error {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -119,32 +133,11 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
-	if err := schema.RequireMatchingDocID(docID, document); err != nil {
+	working := codec.SnapshotDocument(document)
+	if err := schema.RequireDocument(working); err != nil {
 		return err
 	}
-	working := shallowCopy(document)
-	update := &model.UpdateContext{IndexName: indexName, DocID: docID, NewDocument: working}
-	if n.plugins.hasUpdateHooks() {
-		previous, found := entry.storedDocument(docID)
-		if !found {
-			previous = model.Document{}
-		}
-		update.OldDocument = previous
-		if err := n.plugins.update(ctx, hookBeforeUpdate, update); err != nil {
-			return err
-		}
-	}
-	write, err := n.prepareOne(ctx, entry, update.NewDocument)
-	if err != nil {
-		return err
-	}
-	write.DocumentID = docID
-	if err := n.heap.admit(indexName); err != nil {
-		return err
-	}
-	entry.writeMu.Lock()
-	err = n.applyUpdateLocked(ctx, entry, write)
-	entry.writeMu.Unlock()
+	update, write, err := n.replaceDocument(ctx, entry, indexName, docID, working)
 	if err != nil {
 		return err
 	}
@@ -156,11 +149,47 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	return nil
 }
 
-func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {
-	if !entry.holds(write.DocumentID) {
-		return documentNotFound(write.DocumentID)
+func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, indexName string, docID string,
+	working *model.Document) (*model.UpdateContext, persist.Write, error) {
+	if err := schema.RequireMatchingDocID(docID, working); err != nil {
+		return nil, persist.Write{}, err
 	}
-	failures, err := entry.apply(ctx, []persist.Write{write}, writeUpdate)
+	update := &model.UpdateContext{IndexName: indexName, DocID: docID, NewDocument: working}
+	if n.plugins.hasUpdateHooks() {
+		previous, found, err := entry.storedDocument(ctx, docID)
+		if err != nil {
+			return nil, persist.Write{}, err
+		}
+		if !found {
+			previous = model.NewDocument()
+		}
+		update.OldDocument = previous
+		if err := n.plugins.update(ctx, hookBeforeUpdate, update); err != nil {
+			return nil, persist.Write{}, err
+		}
+	}
+	write, err := n.prepareOne(ctx, entry, update.NewDocument)
+	if err != nil {
+		return nil, persist.Write{}, err
+	}
+	write.DocumentID = docID
+	if err := n.heap.admit(indexName); err != nil {
+		return nil, persist.Write{}, err
+	}
+	entry.writeMu.Lock()
+	err = n.applyUpdateLocked(ctx, entry, write)
+	entry.writeMu.Unlock()
+	if err != nil {
+		return nil, persist.Write{}, err
+	}
+	return update, write, nil
+}
+
+func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {
+	if held, err := entry.holds(ctx, write.DocumentID); err != nil || !held {
+		return cmp.Or(err, documentNotFound(write.DocumentID))
+	}
+	failures, err := entry.apply(ctx, []persist.Write{write}, index.WriteUpdate)
 	if err != nil {
 		return err
 	}
@@ -194,10 +223,10 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 }
 
 func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID string) error {
-	if !entry.holds(docID) {
-		return documentNotFound(docID)
+	if held, err := entry.holds(ctx, docID); err != nil || !held {
+		return cmp.Or(err, documentNotFound(docID))
 	}
-	failures, err := entry.apply(ctx, []persist.Write{{DocumentID: docID}}, writeRemove)
+	failures, err := entry.apply(ctx, []persist.Write{{DocumentID: docID}}, index.WriteRemove)
 	if err != nil {
 		return err
 	}

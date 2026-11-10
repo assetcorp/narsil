@@ -120,7 +120,7 @@ func runHostilePhraseChild(output io.Writer) error {
 	}
 	documents := map[string]string{"near": "alpha beta gamma", "far": strings.Join(hostileWords(), " ")}
 	for id, body := range documents {
-		if _, err := narsil.Insert(ctx, hostileIndexName, engine.Document{"body": body}, id, engine.InsertOptions{}); err != nil {
+		if _, err := narsil.Insert(ctx, hostileIndexName, engine.NewDocument().Set("body", body), id, engine.InsertOptions{}); err != nil {
 			return err
 		}
 	}

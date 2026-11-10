@@ -27,9 +27,8 @@ const (
 type TermLookupOperation uint32
 
 const (
-	TermLookupExact  TermLookupOperation = C.NARSIL_LOOKUP_EXACT
-	TermLookupPrefix TermLookupOperation = C.NARSIL_LOOKUP_PREFIX
-	TermLookupTypo   TermLookupOperation = C.NARSIL_LOOKUP_TYPO
+	TermLookupExact TermLookupOperation = C.NARSIL_LOOKUP_EXACT
+	TermLookupTypo  TermLookupOperation = C.NARSIL_LOOKUP_TYPO
 )
 
 type TermTable struct {
@@ -132,10 +131,6 @@ func (w *Workspace) LookupExact(dictionary *TermDictionary, term []uint16, ordin
 	return w.LookupTerms(dictionary, TermLookup{Operation: TermLookupExact, Text: term}, ordinals)
 }
 
-func (w *Workspace) LookupPrefix(dictionary *TermDictionary, prefix []uint16, limit uint32, ordinals []uint32) (int, error) {
-	return w.LookupTerms(dictionary, TermLookup{Operation: TermLookupPrefix, Text: prefix, Limit: limit}, ordinals)
-}
-
 func (w *Workspace) LookupTypo(dictionary *TermDictionary, term []uint16, tolerance, prefixLength uint32, ordinals []uint32) (int, error) {
 	lookup := TermLookup{Operation: TermLookupTypo, Text: term, Tolerance: tolerance, PrefixLength: prefixLength}
 	return w.LookupTerms(dictionary, lookup, ordinals)
@@ -157,19 +152,4 @@ func (w *Workspace) LookupExactBatch(dictionary *TermDictionary, units []uint16,
 		return 0, err
 	}
 	return len(offsets) - 1, nil
-}
-
-func DocumentFrequency(dictionary *TermDictionary, token uint32) (uint32, error) {
-	if dictionary == nil {
-		return 0, &StatusError{Operation: "documentFrequency", Status: StatusInvalidArgument}
-	}
-	var held pins
-	defer held.release()
-	holder := dictionary.native(&held)
-	var frequency C.uint32_t
-	status := C.narsil_document_frequency(&holder.dictionary, C.uint32_t(token), &frequency, 1)
-	if err := statusError("documentFrequency", status); err != nil {
-		return 0, err
-	}
-	return uint32(frequency), nil
 }

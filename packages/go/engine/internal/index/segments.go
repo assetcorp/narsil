@@ -1,11 +1,11 @@
 package index
 
 import (
-	"sort"
+	"cmp"
+	"context"
+	"slices"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/frozen"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
 type CompactionPolicy uint8
@@ -16,45 +16,60 @@ const (
 )
 
 func (ix *Index) FreezeLiveTail(partitionID, minimumDocuments int) (bool, error) {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return false, unknownPartition(partitionID)
+	if err := ix.checkedPartition(partitionID); err != nil {
+		return false, err
 	}
-	return ix.partitions[partitionID].FreezeLiveTail(max(1, minimumDocuments)), nil
+	froze := false
+	err := ix.Write(func(w *Write) error {
+		var err error
+		froze, err = ix.partitions[partitionID].FreezeGrowing(w.write, minimumDocuments)
+		return err
+	})
+	return froze, err
 }
 
-func (ix *Index) FreezeLiveTails(minimumDocuments int) int {
+func (ix *Index) FreezeLiveTails(minimumDocuments int) (int, error) {
 	frozenCount := 0
-	for _, held := range ix.partitions {
-		if held.FreezeLiveTail(max(1, minimumDocuments)) {
-			frozenCount++
+	err := ix.Write(func(w *Write) error {
+		for _, held := range ix.partitions {
+			froze, err := held.FreezeGrowing(w.write, minimumDocuments)
+			if err != nil {
+				return err
+			}
+			if froze {
+				frozenCount++
+			}
 		}
-	}
-	return frozenCount
+		return nil
+	})
+	return frozenCount, err
 }
 
-func (ix *Index) FrozenSegmentSizes(partitionID int) ([]partition.SegmentSize, error) {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return nil, unknownPartition(partitionID)
+func (ix *Index) FrozenSegmentSizes(ctx context.Context, partitionID int) ([]partition.SegmentSize, error) {
+	if err := ix.checkedPartition(partitionID); err != nil {
+		return nil, err
 	}
-	var sizes []partition.SegmentSize
-	ix.partitions[partitionID].Read(func(view partition.View) { sizes = view.FrozenSegmentSizes() })
-	return sizes, nil
+	reading, err := ix.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer reading.Release()
+	return reading.Snapshots[partitionID].SegmentSizes(), nil
 }
 
-func smallestSegments(sizes []partition.SegmentSize, limit int) []*frozen.Segment {
-	ordered := append([]partition.SegmentSize(nil), sizes...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].LiveDocuments < ordered[right].LiveDocuments })
-	if len(ordered) > limit {
-		ordered = ordered[:limit]
+func smallestSegments(sizes []partition.SegmentSize, limit int) []int {
+	ordered := slices.Clone(sizes)
+	slices.SortStableFunc(ordered, func(left, right partition.SegmentSize) int {
+		return cmp.Compare(left.LiveDocuments, right.LiveDocuments)
+	})
+	positions := make([]int, 0, min(limit, len(ordered)))
+	for _, size := range ordered[:min(limit, len(ordered))] {
+		positions = append(positions, size.Position)
 	}
-	picked := make([]*frozen.Segment, len(ordered))
-	for at, size := range ordered {
-		picked[at] = size.Segment
-	}
-	return picked
+	return positions
 }
 
-func pickSegments(sizes []partition.SegmentSize, policy CompactionPolicy) []*frozen.Segment {
+func pickSegments(sizes []partition.SegmentSize, policy CompactionPolicy) []int {
 	if policy == CompactWhileIdle {
 		if len(sizes) >= 2 {
 			return smallestSegments(sizes, segmentsPerMerge)
@@ -69,13 +84,15 @@ func pickSegments(sizes []partition.SegmentSize, policy CompactionPolicy) []*fro
 
 func (ix *Index) CompactSegments(policy CompactionPolicy) (int, error) {
 	merges := 0
-	pick := func(sizes []partition.SegmentSize) []*frozen.Segment { return pickSegments(sizes, policy) }
-	for _, held := range ix.partitions {
+	pick := func(sizes []partition.SegmentSize) []int { return pickSegments(sizes, policy) }
+	for partitionID, held := range ix.partitions {
 		if policy == CompactWhileIdle {
-			held.FreezeLiveTail(liveTailFreezeFloor)
+			if _, err := ix.FreezeLiveTail(partitionID, liveTailFreezeFloor); err != nil {
+				return merges, err
+			}
 		}
-		for round := 0; round < maxCompactionRounds; round++ {
-			merged, err := held.MergePicked(pick)
+		for range maxCompactionRounds {
+			merged, err := held.Merge(ix.sides, pick)
 			if err != nil {
 				return merges, err
 			}
@@ -88,28 +105,9 @@ func (ix *Index) CompactSegments(policy CompactionPolicy) (int, error) {
 	return merges, nil
 }
 
-func (ix *Index) MergeSegments(partitionID int, segments []*frozen.Segment) (bool, error) {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return false, unknownPartition(partitionID)
+func (ix *Index) MergeSegments(partitionID int, positions []int) (bool, error) {
+	if err := ix.checkedPartition(partitionID); err != nil {
+		return false, err
 	}
-	return ix.partitions[partitionID].MergeSegments(segments)
-}
-
-func (ix *Index) AttachFrozenSegment(partitionID int, segment *frozen.Segment, tombstonedIDs []string) error {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return unknownPartition(partitionID)
-	}
-	return ix.partitions[partitionID].AttachFrozenSegment(segment, tombstonedIDs)
-}
-
-func (ix *Index) AttachStoredSegment(partitionID int, stored partition.StoredSegment) error {
-	if partitionID < 0 || partitionID >= len(ix.partitions) {
-		return unknownPartition(partitionID)
-	}
-	return ix.partitions[partitionID].AttachStoredSegment(stored)
-}
-
-func unknownPartition(partitionID int) error {
-	return narsilerr.New(narsilerr.CodePartitionCorrupted, "The index holds no partition with this identifier",
-		map[string]any{"partitionId": partitionID})
+	return ix.partitions[partitionID].Merge(ix.sides, func([]partition.SegmentSize) []int { return positions })
 }

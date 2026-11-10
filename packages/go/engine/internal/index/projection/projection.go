@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -41,18 +42,6 @@ func (p Projection) Kind() model.DocumentProjectionKind {
 	return p.kind
 }
 
-func (p Projection) HasIncludeList() bool {
-	return p.kind == model.ProjectSelectedFields && p.includeList
-}
-
-func (p Projection) IncludedPaths() [][]string {
-	paths := make([][]string, len(p.include))
-	for position, path := range p.include {
-		paths[position] = append([]string(nil), path...)
-	}
-	return paths
-}
-
 func (p Projection) KeepsField(fieldPath string) bool {
 	switch p.kind {
 	case model.ProjectNoFields:
@@ -80,40 +69,29 @@ func (p Projection) includeOverlaps(path []string) bool {
 	return false
 }
 
-func (p Projection) Clone(document model.Document) model.Document {
+func (p Projection) Clone(document *model.Document) *model.Document {
 	switch p.kind {
 	case model.ProjectNoFields:
-		return model.Document{}
+		return model.NewDocument()
 	case model.ProjectSelectedFields:
 	default:
 		return CopyDocument(document)
 	}
+	if document == nil {
+		return model.NewDocument()
+	}
 	if !p.includeList {
-		if kept, isMap := cloneExcept(map[string]any(document), nil, p.exclude).(map[string]any); isMap && kept != nil {
+		if kept, isDocument := cloneExcept(document, nil, p.exclude).(*model.Document); isDocument && kept != nil {
 			return kept
 		}
-		return model.Document{}
+		return model.NewDocument()
 	}
-	return p.projectIncludedPaths(func(_ int, path []string) PathRead { return ReadPath(document, path) })
-}
-
-func (p Projection) ProjectReader(document func() model.Document, read func(position int, path []string) PathRead) model.Document {
-	if p.HasIncludeList() {
-		return p.projectIncludedPaths(read)
-	}
-	if p.kind == model.ProjectNoFields {
-		return model.Document{}
-	}
-	return p.Clone(document())
-}
-
-func (p Projection) projectIncludedPaths(read func(position int, path []string) PathRead) model.Document {
-	projected := model.Document{}
-	for position, path := range p.include {
+	projected := model.NewDocument()
+	for _, path := range p.include {
 		if coveredByAny(p.exclude, path) {
 			continue
 		}
-		found := read(position, path)
+		found := ReadPath(document, path)
 		if !found.Found {
 			continue
 		}
@@ -122,58 +100,20 @@ func (p Projection) projectIncludedPaths(read func(position int, path []string) 
 	return projected
 }
 
-func (p Projection) CopyVectorsInto(document model.Document, fieldPaths []string, vectorOf func(fieldPath string) ([]float32, bool)) {
+func (p Projection) CopyVectorsInto(document *model.Document, fieldPaths []string,
+	vectorOf func(fieldPath string) ([]float32, bool, error)) error {
 	for _, fieldPath := range fieldPaths {
 		if !p.KeepsField(fieldPath) {
 			continue
 		}
-		vector, held := vectorOf(fieldPath)
+		vector, held, err := vectorOf(fieldPath)
+		if err != nil {
+			return err
+		}
 		if !held {
 			continue
 		}
-		writeFieldPath(document, fieldPath, append([]float32{}, vector...))
+		codec.PutHeldPath(document, fieldPath, append([]float32{}, vector...))
 	}
-}
-
-func (p Projection) Apply(document model.Document) model.Document {
-	switch p.kind {
-	case model.ProjectNoFields:
-		return model.Document{}
-	case model.ProjectSelectedFields:
-	default:
-		return document
-	}
-	projected := document
-	if p.includeList {
-		projected = model.Document{}
-		for _, path := range p.include {
-			if found := ReadPath(document, path); found.Found {
-				writePath(projected, path, found.Value)
-			}
-		}
-	}
-	for _, path := range p.exclude {
-		if omitted, isMap := omitPath(map[string]any(projected), path).(map[string]any); isMap {
-			projected = omitted
-		}
-	}
-	return projected
-}
-
-func omitPath(source any, path []string) any {
-	segment := path[0]
-	child, found := ownValue(source, segment)
-	if !found {
-		return source
-	}
-	copied := recordCopy(source)
-	if len(path) == 1 {
-		delete(copied, segment)
-		return copied
-	}
-	if !isRecord(child) {
-		return copied
-	}
-	copied[segment] = omitPath(child, path[1:])
-	return copied
+	return nil
 }

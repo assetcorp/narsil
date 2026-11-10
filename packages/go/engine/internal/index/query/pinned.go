@@ -1,15 +1,15 @@
 package query
 
 import (
-	"cmp"
 	"math"
-	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
+
+const pinPositionHalfBits = 32
 
 type Pin struct {
 	ID       string
@@ -41,6 +41,34 @@ func DedupePinned(pins []Pin) []Pin {
 		}
 	}
 	return kept
+}
+
+func pinsByPosition(workspace *core.Workspace, pins []Pin) ([]int, error) {
+	source := make([]int, len(pins))
+	for at := range source {
+		source[at] = at
+	}
+	tied := make([]float64, len(pins))
+	scores := make([][]float64, len(pins))
+	for at := range scores {
+		scores[at] = tied[at : at+1]
+	}
+	ranks := make([]uint32, len(pins))
+	for _, shift := range []uint{0, pinPositionHalfBits} {
+		for at, pin := range source {
+			ranks[at] = uint32(uint64(pins[pin].Position) >> shift)
+		}
+		merged, err := MergeRankings(workspace, scores, ranks, uint64(len(pins)))
+		if err != nil {
+			return nil, err
+		}
+		ordered := make([]int, len(merged))
+		for at, entry := range merged {
+			ordered[at] = source[entry.List]
+		}
+		source = ordered
+	}
+	return source, nil
 }
 
 func PinnedOrder(ids []string, pins []Pin, depth model.Optional[int]) ([]int32, []int32, error) {
@@ -76,25 +104,23 @@ func PinnedOrder(ids []string, pins []Pin, depth model.Optional[int]) ([]int32, 
 		}
 		request.HasDepth, request.Depth = true, uint32(limit)
 	}
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer workspace.Release()
 	ranked := request.Ranked
 	var source []int
 	if wide {
-		source = make([]int, len(pins))
-		for at := range source {
-			source[at] = at
+		if source, err = pinsByPosition(workspace, pins); err != nil {
+			return nil, nil, err
 		}
-		slices.SortStableFunc(source, func(left, right int) int { return cmp.Compare(pins[left].Position, pins[right].Position) })
 		request.Ranked, request.Positions = make([]int32, len(pins)), make([]uint32, len(pins))
 		for at, pin := range source {
 			request.Ranked[at] = ranked[pin]
 			request.Positions[at] = uint32(min(uint64(pins[pin].Position), math.MaxUint32))
 		}
 	}
-	workspace, err := core.AcquireWorkspace()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer workspace.Release()
 	order := make([]int32, len(ids)-removed+placed)
 	count, err := workspace.PlacePinned(request, order)
 	if err != nil {

@@ -1,10 +1,10 @@
 package index
 
 import (
+	"context"
 	"time"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -20,9 +20,7 @@ func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) 
 	if err := RequireUsableVectorSettings(&request); err != nil {
 		return model.PreflightResult{}, err
 	}
-	work := partition.NewWorkMeter(ix.settings.SearchWorkCap)
-	filter, err := ix.validQueryParams(&request, work)
-	if err != nil {
+	if err := ix.validQueryParams(&request); err != nil {
 		return model.PreflightResult{}, err
 	}
 	modes := searchModesOf(&request)
@@ -34,8 +32,6 @@ func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) 
 		limit:       cursor.ClampLimit(request.Limit),
 		offset:      cursor.ClampOffset(request.Offset),
 		binding:     cursor.LazyQueryBinding(request),
-		work:        work,
-		filter:      filter,
 		bm25:        mergeBM25Levels(&request.BM25, ix.BM25()),
 		vectorOnly:  modes.vectorOnly,
 		hybrid:      modes.hybrid,
@@ -48,6 +44,15 @@ func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) 
 	if err := ix.analyseQueryTerm(prepared, pass); err != nil {
 		return model.PreflightResult{}, err
 	}
+	pinned, unpin, err := ix.Pin(context.Background())
+	if err != nil {
+		return model.PreflightResult{}, err
+	}
+	defer unpin()
+	if err := ix.openQuery(pinned, prepared); err != nil {
+		return model.PreflightResult{}, err
+	}
+	defer prepared.close()
 	var found fanOutResult
 	switch {
 	case modes.vectorOnly:

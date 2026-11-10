@@ -15,6 +15,7 @@ type LateRemoval struct {
 
 func (s *State) Clone() *State {
 	copied := NewState(s.keyword, s.paged)
+	copied.pageFailure = s.pageFailure
 	copied.Core = core.FrozenSegmentState{
 		Tombstones:         slices.Clone(s.Core.Tombstones),
 		TombstoneCount:     slices.Clone(s.Core.TombstoneCount),

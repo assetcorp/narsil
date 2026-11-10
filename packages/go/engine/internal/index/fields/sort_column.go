@@ -30,7 +30,7 @@ type StoredSource interface {
 }
 
 type storedRegions struct {
-	regions *core.StoredValueRegions
+	regions *core.StoredValueSlices
 }
 
 func (r storedRegions) Values() *core.StoredValues {
@@ -41,7 +41,7 @@ func (r storedRegions) Units() []uint16 {
 	return r.regions.Units
 }
 
-func StoredRegionsSource(regions *core.StoredValueRegions) StoredSource {
+func StoredRegionsSource(regions *core.StoredValueSlices) StoredSource {
 	return storedRegions{regions: regions}
 }
 

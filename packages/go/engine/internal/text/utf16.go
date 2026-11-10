@@ -52,18 +52,6 @@ func UTF16Length(source string) int {
 	return length
 }
 
-func ForEachUTF16Unit(source string, visit func(unit uint16)) {
-	for at := 0; at < len(source); {
-		codePoint, size, _ := decodeAt(source, at)
-		first, second, count := utf16UnitsOf(codePoint)
-		visit(first)
-		if count == 2 {
-			visit(second)
-		}
-		at += size
-	}
-}
-
 func isHighSurrogate(unit uint16) bool {
 	return unit >= highSurrogateFirst && unit < lowSurrogateFirst
 }

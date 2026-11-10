@@ -62,6 +62,11 @@ func (c *termColumns) view() core.TermColumns {
 	}
 }
 
+func (c *termColumns) dictionary() *core.TermDictionary {
+	ids := c.ids.view()
+	return &core.TermDictionary{Growing: &ids, Frequencies: c.docFrequency.values, Removed: c.deadDocuments.values}
+}
+
 func (c *termColumns) reserve(terms, units uint64) error {
 	plan, err := c.ids.prepareCapacity(terms, units)
 	if err != nil {

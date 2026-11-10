@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
@@ -18,8 +19,15 @@ import (
 type coldHeld struct {
 	files  []*os.File
 	paged  []*paged.File
+	native []*core.PagedFile
 	paths  []string
 	closed bool
+}
+
+type coldOpened struct {
+	source coldSource
+	file   *paged.File
+	native *core.PagedFile
 }
 
 func (held *coldHeld) close() {
@@ -27,6 +35,9 @@ func (held *coldHeld) close() {
 		return
 	}
 	held.closed = true
+	for _, file := range held.native {
+		file.Close()
+	}
 	for _, file := range held.paged {
 		file.Close()
 	}
@@ -35,22 +46,34 @@ func (held *coldHeld) close() {
 	}
 }
 
-func (held *coldHeld) open(path string, key string) (coldSource, *paged.File, error) {
+func (opened coldOpened) pages(section paged.Section) core.PageSection {
+	return core.PageSection{File: opened.native, Offset: uint64(envelope.HeaderBytes + section.Offset),
+		Length: uint64(section.Length), PageBytes: uint32(section.PageBytes), Checksums: section.Checksums}
+}
+
+func (held *coldHeld) open(path string, key string) (coldOpened, error) {
 	file, err := storage.OpenForReading(path)
 	if err != nil {
-		return coldSource{}, nil, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
+		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
 			`The file "`+key+`" cannot be opened`, err, map[string]any{"key": key})
 	}
 	held.files = append(held.files, file)
 	held.paths = append(held.paths, path)
 	info, err := file.Stat()
 	if err != nil {
-		return coldSource{}, nil, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
+		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
 			`The file "`+key+`" cannot be measured`, err, map[string]any{"key": key})
 	}
+	native, err := core.OpenPagedFile(path)
+	if err != nil {
+		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
+			`The file "`+key+`" cannot be opened for paged reads`, err, map[string]any{"key": key})
+	}
+	held.native = append(held.native, native)
 	opened := paged.OpenFile(file, key, paged.SharedReadCache())
 	held.paged = append(held.paged, opened)
-	return coldSource{reader: file, size: info.Size(), close: func() {}}, opened, nil
+	return coldOpened{source: coldSource{reader: file, size: info.Size(), close: func() {}}, file: opened,
+		native: native}, nil
 }
 
 func holdsEveryHead(ref manifest.VectorFieldRef) bool {
@@ -109,10 +132,11 @@ func sameColdCodes(left *coldCodes, right *coldCodes) bool {
 func openColdFile(held *coldHeld, path string, ref manifest.VectorFileRef, codeBits uint32,
 	codes *coldCodes) (vector.ColdGraphFile, *coldCodes, bool, error) {
 	key := ref.File.Key
-	source, file, err := held.open(path, key)
+	opened, err := held.open(path, key)
 	if err != nil {
 		return vector.ColdGraphFile{}, nil, false, err
 	}
+	source := opened.source
 	sections, cold, err := coldSectionsOf(source, ref.File)
 	if err != nil || !cold {
 		return vector.ColdGraphFile{}, nil, false, err
@@ -131,27 +155,32 @@ func openColdFile(held *coldHeld, path string, ref manifest.VectorFileRef, codeB
 	if magnitudes.Length/float64Bytes != int64(ref.Count) {
 		return vector.ColdGraphFile{}, nil, false, coldLoadFailed(`The file "`+key+`" holds the wrong number of magnitudes`, key)
 	}
-	opened := vector.ColdGraphFile{Key: key, Count: int(ref.Count)}
+	graphFile := vector.ColdGraphFile{Key: key, Count: int(ref.Count), Path: path,
+		Magnitudes: opened.file.Section(magnitudes)}
 	if dead, marked := ref.Dead.Get(); marked {
-		opened.Dead = dead
+		graphFile.Dead = dead
 	}
 	for _, named := range []struct {
 		name   string
 		target *vector.ColdSection
-	}{{"docIds", &opened.IDs}, {"idOffsets", &opened.IDOffsets}, {"idOrder", &opened.IDOrder}, {"vectors", &opened.Vectors}} {
+	}{{"docIds", &graphFile.IDs}, {"idOffsets", &graphFile.IDOffsets}, {"idOrder", &graphFile.IDOrder}, {"vectors", &graphFile.Vectors}} {
 		section, err := requiredColdSection(sections, named.name, key)
 		if err != nil {
 			return vector.ColdGraphFile{}, nil, false, err
 		}
-		*named.target = file.Section(section)
+		*named.target = opened.file.Section(section)
+		if named.name == "vectors" {
+			graphFile.VectorPages = opened.pages(section)
+		}
 	}
 	if records, listed := sections["records"]; listed {
-		opened.Records = file.Section(records)
+		recordPages := opened.pages(records)
+		graphFile.RecordPages = &recordPages
 	}
 	if codeBits == 0 {
-		return opened, nil, true, nil
+		return graphFile, nil, true, nil
 	}
-	return opened, fileCodes, true, nil
+	return graphFile, fileCodes, true, nil
 }
 
 func openColdParts(held *coldHeld, store checkpoint.Store, ref manifest.VectorFieldRef) ([]vector.ColdGraphPart,
@@ -164,11 +193,11 @@ func openColdParts(held *coldHeld, store checkpoint.Store, ref manifest.VectorFi
 		if !located {
 			return nil, first, false, nil
 		}
-		source, file, err := held.open(path, partRef.Key)
+		opened, err := held.open(path, partRef.Key)
 		if err != nil {
 			return nil, first, false, err
 		}
-		layout, cold, err := readColdGraphLayout(source, partRef)
+		layout, cold, err := readColdGraphLayout(opened.source, partRef)
 		if err != nil || !cold {
 			return nil, first, false, err
 		}
@@ -177,7 +206,7 @@ func openColdParts(held *coldHeld, store checkpoint.Store, ref manifest.VectorFi
 		}
 		numbered = append(numbered, payload.NumberedGraph{M: first.m, Levels: layout.levels})
 		parts = append(parts, vector.ColdGraphPart{Levels: layout.levels, NodeOffsets: layout.nodeOffsets,
-			Neighbours: file.Section(layout.neighbours)})
+			NeighbourPages: opened.pages(layout.neighbours)})
 	}
 	err := payload.RequireBoundedUpperLists(payload.GraphParts{FieldName: ref.FieldPath,
 		Graphs: []payload.NumberedGraphParts{{Parts: numbered}}})

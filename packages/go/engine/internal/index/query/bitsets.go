@@ -1,8 +1,6 @@
 package query
 
 import (
-	"math/bits"
-
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -19,43 +17,6 @@ func hasBit(words []uint32, ordinal uint32) bool {
 func setBit(words []uint32, ordinal uint32) {
 	if word := int(ordinal >> 5); word < len(words) {
 		words[word] |= 1 << (ordinal & 31)
-	}
-}
-
-func andBits(left, right []uint32) []uint32 {
-	result := make([]uint32, min(len(left), len(right)))
-	for at := range result {
-		result[at] = left[at] & right[at]
-	}
-	return result
-}
-
-func notBits(words []uint32, capacity uint32) []uint32 {
-	result := make([]uint32, len(words))
-	full := int(capacity >> 5)
-	for at := 0; at < full && at < len(words); at++ {
-		result[at] = ^words[at]
-	}
-	if remainder := capacity & 31; remainder > 0 && full < len(words) {
-		result[full] = ^words[full] & (1<<remainder - 1)
-	}
-	return result
-}
-
-func countBits(words []uint32) int {
-	count := 0
-	for _, word := range words {
-		count += bits.OnesCount32(word)
-	}
-	return count
-}
-
-func eachBit(words []uint32, visit func(ordinal uint32)) {
-	for at, word := range words {
-		for word != 0 {
-			visit(uint32(at)<<5 | uint32(bits.TrailingZeros32(word)))
-			word &= word - 1
-		}
 	}
 }
 

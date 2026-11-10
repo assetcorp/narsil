@@ -4,7 +4,6 @@ import "github.com/assetcorp/narsil/packages/go/engine/internal/core"
 
 type phraseRows struct {
 	phrase      int
-	terms       []uint32
 	documents   []uint32
 	fields      []uint16
 	frequencies []uint32
@@ -70,7 +69,6 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 		Collect:      true,
 	}
 	seen := map[string]uint32{}
-	terms := []uint32{}
 	held := []bool{}
 	for phrase := range query.Phrases {
 		request.Starts[phrase] = uint32(len(request.Tokens))
@@ -84,8 +82,14 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 				if err != nil {
 					return nil, err
 				}
-				terms, held = append(terms, term), append(held, exists)
-				request.Postings = append(request.Postings, segment.phrasePostings(term, exists))
+				held = append(held, exists)
+				postings := core.PhrasePostings{}
+				if segment.Paged == nil {
+					postings = segment.phrasePostings(term, exists)
+				} else if postings, err = s.pagedPhrasePostings(segment, term, exists); err != nil {
+					return nil, err
+				}
+				request.Postings = append(request.Postings, postings)
 			}
 			request.Tokens = append(request.Tokens, at)
 			request.Offsets = append(request.Offsets, analysed.Offsets[entry])
@@ -110,20 +114,17 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 		Fields:      make([]uint16, rows),
 		Frequencies: make([]uint32, rows),
 	}
-	if _, err := s.workspace.MatchPhrases(&request, s.meter(query), &output); err != nil {
+	if _, err := s.workspace.MatchPhrases(&request, s.work, &output); err != nil {
 		return nil, err
 	}
 	matches := &phraseMatches{matched: output.Matched}
 	for phrase := range query.Phrases {
-		phraseTerms := make([]uint32, 0, len(query.Phrases[phrase].Tokens))
 		complete := true
 		for entry := request.Starts[phrase]; entry < request.Starts[phrase+1]; entry++ {
-			token := request.Tokens[entry]
-			if !held[token] {
+			if !held[request.Tokens[entry]] {
 				complete = false
 				break
 			}
-			phraseTerms = append(phraseTerms, terms[token])
 		}
 		if !complete {
 			continue
@@ -131,7 +132,6 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 		from, to := output.Starts[phrase], output.Starts[phrase+1]
 		matches.rows = append(matches.rows, phraseRows{
 			phrase:      phrase,
-			terms:       phraseTerms,
 			documents:   output.Documents[from:to],
 			fields:      output.Fields[from:to],
 			frequencies: output.Frequencies[from:to],

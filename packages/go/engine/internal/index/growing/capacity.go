@@ -97,15 +97,23 @@ func measureDocument(fields []core.FieldTokens, partial []uint8) (*documentCapac
 	return capacity, nil
 }
 
-func (s *Segment) reservePostings(capacity *documentCapacity) error {
+func (s *Segment) reservePostings(workspace *core.Workspace, capacity *documentCapacity) error {
 	columns := s.terms
+	texts := make([][]uint16, len(capacity.order))
+	for at, key := range capacity.order {
+		texts[at] = capacity.terms[key].text
+	}
+	ordinals, err := storedOrdinals(workspace, columns.dictionary(), texts)
+	if err != nil {
+		return err
+	}
 	count := columns.ids.count()
 	units := columns.ids.unitsUsed()
 	entries := s.postings.end()
-	for _, key := range capacity.order {
+	for at, key := range capacity.order {
 		need := capacity.terms[key]
-		ordinal, found := columns.ids.find(need.text)
-		if !found || ordinal >= columns.lengths.len() {
+		ordinal := uint64(ordinals[at])
+		if ordinals[at] == core.TermAbsent || ordinal >= columns.lengths.len() {
 			count++
 			units += uint64(len(need.text))
 			entries += sliceCapacity(sliceClassFor(need.added))
@@ -128,15 +136,42 @@ func (s *Segment) reservePostings(capacity *documentCapacity) error {
 	return nil
 }
 
-func reserveStrings(table *surfaceTable, texts [][]uint16, extra *column[uint32]) error {
+func reserveStrings(workspace *core.Workspace, table *surfaceTable, texts [][]uint16) error {
+	ordinals, err := storedOrdinals(workspace, table.dictionary(), texts)
+	if err != nil {
+		return err
+	}
 	count := table.strings.count()
 	units := table.strings.unitsUsed()
-	for _, text := range texts {
-		if _, found := table.strings.find(text); found {
+	for at, text := range texts {
+		if ordinals[at] != core.TermAbsent {
 			continue
 		}
 		count++
 		units += uint64(len(text))
 	}
-	return table.reserve(count, units, extra)
+	return table.reserve(count, units, nil)
+}
+
+func storedOrdinals(workspace *core.Workspace, dictionary *core.TermDictionary, texts [][]uint16) ([]uint32, error) {
+	ordinals := make([]uint32, len(texts))
+	var units []uint16
+	offsets := make([]uint32, 1, len(texts)+1)
+	for first := 0; first < len(texts); {
+		units, offsets = units[:0], offsets[:1]
+		end := first
+		for end < len(texts) && uint64(len(units))+uint64(len(texts[end])) <= maxLookupUnits {
+			units = append(units, texts[end]...)
+			offsets = append(offsets, uint32(len(units)))
+			end++
+		}
+		if end == first {
+			return nil, invalidTokens()
+		}
+		if _, err := workspace.LookupExactBatch(dictionary, units, offsets, ordinals[first:end]); err != nil {
+			return nil, refusal(err)
+		}
+		first = end
+	}
+	return ordinals, nil
 }

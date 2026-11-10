@@ -25,6 +25,7 @@ type InvalidDate struct{}
 
 type EncodeOptions struct {
 	ForceIntegerToFloat bool
+	FromValues          bool
 	MaxDepth            int
 	ErrorCode           string
 }
@@ -91,6 +92,8 @@ func (state encoder) appendValue(destination []byte, value any, depth int) ([]by
 		return state.appendMap(destination, typed, depth)
 	case OrderedMap:
 		return state.appendOrderedMap(destination, typed, depth)
+	case *Document:
+		return state.appendDocument(destination, typed, depth)
 	case time.Time:
 		return AppendTimestamp(destination, typed), nil
 	case InvalidDate:

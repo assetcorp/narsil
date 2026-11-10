@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
@@ -254,8 +253,4 @@ func (f *Field) graphPartsOf(ctx context.Context, numberOfOrdinal, ordinalOfNumb
 		parts[index] = payload.GraphPart{FieldName: f.config.fieldName, Graphs: []payload.NumberedGraph{f.withBuildHistory(graph)}}
 	}
 	return parts, nil
-}
-
-func (f *Field) storeHoldsCodeOf(ordinal int32) bool {
-	return f.quantises() && f.store.holdsCode(ordinal) && core.RecordBytes(uint32(f.config.dimension), f.config.bits) > 0
 }

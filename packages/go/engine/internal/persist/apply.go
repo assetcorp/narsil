@@ -1,12 +1,12 @@
 package persist
 
 import (
+	"context"
 	"sort"
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
@@ -20,6 +20,7 @@ type Handle struct {
 	Metadata         func(documentCount uint64) (metadata.Metadata, error)
 	NewDetachedIndex func() (*index.Index, error)
 	SyncHistoryMoved func()
+	removalPages     removalPageCache
 }
 
 func (handle *Handle) metadata(documentCount uint64) (metadata.Metadata, error) {
@@ -30,16 +31,8 @@ func (handle *Handle) metadata(documentCount uint64) (metadata.Metadata, error) 
 	return handle.Metadata(documentCount)
 }
 
-type runKind uint8
-
-const (
-	runInsert runKind = iota
-	runUpdate
-	runRemove
-)
-
 type pendingRun struct {
-	kind    runKind
+	kind    index.WriteKind
 	members []int
 	ids     map[string]struct{}
 }
@@ -68,7 +61,7 @@ func (handle *Handle) requireDimensions(write Write) error {
 	return nil
 }
 
-func (handle *Handle) namedVectorFields() []vector.NamedField {
+func (handle *Handle) NamedVectorFields() []vector.NamedField {
 	fields := make([]vector.NamedField, 0, len(handle.Vectors))
 	for path, field := range handle.Vectors {
 		fields = append(fields, vector.NamedField{Path: path, Field: field})
@@ -77,51 +70,46 @@ func (handle *Handle) namedVectorFields() []vector.NamedField {
 	return fields
 }
 
-func (handle *Handle) applyVectors(writes []Write, partitionID int, failures []error) {
-	if len(handle.Vectors) == 0 {
-		return
-	}
-	documents := make([]vector.DocumentVectors, len(writes))
+func DocumentWrites(writes []Write) []index.DocumentWrite {
+	documents := make([]index.DocumentWrite, len(writes))
 	for at, write := range writes {
-		documents[at] = vector.DocumentVectors{DocID: write.DocumentID, Vectors: write.Vectors,
-			Partition: int32(partitionID), Remove: write.deletes()}
+		documents[at] = index.DocumentWrite{ID: write.DocumentID, Fields: write.Document, Encoded: write.Encoded,
+			Vectors: write.Vectors}
 	}
-	vector.ApplyDocuments(handle.namedVectorFields(), documents, failures)
+	return documents
 }
 
-func (handle *Handle) flushRun(run *pendingRun, writes []Write, failures []error) {
+func (handle *Handle) flushRun(run *pendingRun, writes []Write, failures []error) error {
 	if len(run.members) == 0 {
-		return
+		return nil
 	}
-	var errs []error
-	switch run.kind {
-	case runRemove:
-		ids := make([]string, len(run.members))
-		for at, member := range run.members {
-			ids[at] = writes[member].DocumentID
-		}
-		errs = handle.Index.Remove(ids)
-	default:
-		documents := make([]partition.Document, len(run.members))
-		for at, member := range run.members {
-			documents[at] = partition.Document{ID: writes[member].DocumentID, Fields: writes[member].Document}
-		}
-		if run.kind == runInsert {
-			errs = handle.Index.Insert(documents)
-		} else {
-			errs = handle.Index.Update(documents)
-		}
-	}
+	selected := make([]Write, len(run.members))
 	for at, member := range run.members {
-		if at < len(errs) && errs[at] != nil {
-			failures[member] = errs[at]
+		selected[at] = writes[member]
+	}
+	refused, err := handle.Index.Apply(run.kind, DocumentWrites(selected), handle.NamedVectorFields())
+	for at, member := range run.members {
+		if at < len(refused) && refused[at] != nil {
+			failures[member] = refused[at]
 		}
 	}
 	run.members = run.members[:0]
 	clear(run.ids)
+	return err
 }
 
-func (handle *Handle) apply(writes []Write, partitionID int) []error {
+func (handle *Handle) kindOf(ctx context.Context, write Write) (index.WriteKind, error) {
+	if write.deletes() {
+		return index.WriteRemove, nil
+	}
+	held, err := handle.Index.Has(ctx, write.DocumentID)
+	if err != nil || !held {
+		return index.WriteInsert, err
+	}
+	return index.WriteUpdate, nil
+}
+
+func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error) {
 	failures := make([]error, len(writes))
 	run := &pendingRun{ids: map[string]struct{}{}}
 	for at, write := range writes {
@@ -130,24 +118,31 @@ func (handle *Handle) apply(writes []Write, partitionID int) []error {
 			continue
 		}
 		_, repeated := run.ids[write.DocumentID]
-		kind := runRemove
+		kind := index.WriteRemove
 		if !write.deletes() {
-			kind = runInsert
-			if !repeated && handle.Index.Has(write.DocumentID) {
-				kind = runUpdate
+			kind = index.WriteInsert
+		}
+		if !repeated && kind == index.WriteInsert {
+			var err error
+			if kind, err = handle.kindOf(ctx, write); err != nil {
+				return nil, err
 			}
 		}
 		if repeated || (len(run.members) > 0 && run.kind != kind) {
-			handle.flushRun(run, writes, failures)
-			if !write.deletes() && handle.Index.Has(write.DocumentID) {
-				kind = runUpdate
+			if err := handle.flushRun(run, writes, failures); err != nil {
+				return nil, err
+			}
+			var err error
+			if kind, err = handle.kindOf(ctx, write); err != nil {
+				return nil, err
 			}
 		}
 		run.kind = kind
 		run.members = append(run.members, at)
 		run.ids[write.DocumentID] = struct{}{}
 	}
-	handle.flushRun(run, writes, failures)
-	handle.applyVectors(writes, partitionID, failures)
-	return failures
+	if err := handle.flushRun(run, writes, failures); err != nil {
+		return nil, err
+	}
+	return failures, nil
 }

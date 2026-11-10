@@ -1,6 +1,9 @@
 package query
 
-import "github.com/assetcorp/narsil/packages/go/engine/internal/core"
+import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
+)
 
 type GroupMember struct {
 	Token         string
@@ -59,18 +62,21 @@ type KeywordQuery struct {
 	BM25          *BM25
 	Global        *Statistics
 	TermMatch     uint32
+	MinScore      float64
 	HasLimit      bool
 	Limit         int
 	Filters       [][]uint32
 	Collect       MatchedSet
 	Meter         *core.WorkMeter
 	Order         DocumentOrder
+	Components    bool
 }
 
 type Hit struct {
-	Segment int
-	Ordinal uint32
-	Score   float64
+	Segment    int
+	Ordinal    uint32
+	Score      float64
+	Components *model.ScoreComponents
 }
 
 type DocumentOrder func(left, right Hit) int

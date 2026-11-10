@@ -67,11 +67,11 @@ func openBillsIndex(t *testing.T, ctx context.Context, expected expectedSearches
 	}
 	for start := 0; start < len(dataset.documents); start += searchesInsertBatch {
 		end := min(start+searchesInsertBatch, len(dataset.documents))
-		batch := make([]engine.Document, 0, end-start)
+		batch := make([]*engine.Document, 0, end-start)
 		for row := start; row < end; row++ {
 			bill := dataset.documents[row]
-			batch = append(batch, engine.Document{"id": bill.ID, "title": bill.Title, "summary": bill.Summary,
-				expected.Vector.Field: dataset.vectors[row*datasetVectorDimension : (row+1)*datasetVectorDimension]})
+			batch = append(batch, engine.DocumentFromMap(map[string]any{"id": bill.ID, "title": bill.Title, "summary": bill.Summary,
+				expected.Vector.Field: dataset.vectors[row*datasetVectorDimension : (row+1)*datasetVectorDimension]}))
 		}
 		result, err := narsil.InsertBatch(ctx, searchesIndexName, batch, engine.InsertOptions{})
 		if err != nil || len(result.Failed) > 0 {

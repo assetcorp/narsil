@@ -120,15 +120,15 @@ func (f *Field) beginCheckpointRestore(ctx context.Context, shape CheckpointRest
 	}
 	f.restoring++
 	if err := f.untilBuildsIdleLocked(ctx); err != nil {
-		f.restoring--
+		f.endRestoring()
 		return nil, err
 	}
 	if f.disposed {
-		f.restoring--
+		f.endRestoring()
 		return nil, f.disposedError()
 	}
 	if err := f.emptyFieldBeforeRestore(); err != nil {
-		f.restoring--
+		f.endRestoring()
 		return nil, err
 	}
 	f.restoreGeneration++
@@ -153,7 +153,7 @@ func (r *CheckpointRestore) end() {
 		return
 	}
 	r.ended = true
-	r.field.restoring--
+	r.field.endRestoring()
 }
 
 func (r *CheckpointRestore) currentLocked() bool {

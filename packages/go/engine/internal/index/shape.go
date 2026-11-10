@@ -1,8 +1,7 @@
 package index
 
 import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/results"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
@@ -12,124 +11,63 @@ type shapedResult struct {
 	documents *documentLookup
 }
 
-type documentLookup struct {
-	index   *Index
-	held    map[string]*partition.StoredDocument
-	missing map[string]struct{}
-}
-
-func newDocumentLookup(index *Index, scored []partition.ScoredDocument) *documentLookup {
-	lookup := &documentLookup{index: index, held: make(map[string]*partition.StoredDocument, len(scored)), missing: map[string]struct{}{}}
-	for _, document := range scored {
-		if document.Document != nil {
-			lookup.held[document.ID] = document.Document
-		}
-	}
-	return lookup
-}
-
-func (l *documentLookup) stored(id string) *partition.StoredDocument {
-	if held, found := l.held[id]; found {
-		return held
-	}
-	if _, absent := l.missing[id]; absent {
-		return nil
-	}
-	found, present := l.index.Get(id)
-	if !present {
-		l.missing[id] = struct{}{}
-		return nil
-	}
-	l.held[id] = found
-	return found
-}
-
-func (l *documentLookup) FieldValues(id string, paths []string) []results.StoredValue {
-	document := l.stored(id)
-	if document == nil {
-		return nil
-	}
-	values := make([]results.StoredValue, len(paths))
-	for at, path := range paths {
-		value, present := partition.NestedValue(document.Fields, path)
-		values[at] = results.StoredValue{Value: value, Present: present}
-	}
-	return values
-}
-
-func (l *documentLookup) Document(id string) (model.Document, bool) {
-	document := l.stored(id)
-	if document == nil {
-		return nil, false
-	}
-	return document.Fields, true
-}
-
-func hitsOf(scored []partition.ScoredDocument, count int, withComponents bool) []results.Hit {
-	hits := make([]results.Hit, count)
-	for at := range hits {
-		hits[at] = results.Hit{ID: scored[at].ID, Score: model.Some(scored[at].Score)}
-		if withComponents {
-			hits[at].Components = scored[at].Components
-			if hits[at].Components == nil {
-				hits[at].Components = &model.ScoreComponents{TermFrequencies: map[string]float64{}, FieldLengths: map[string]float64{}, IDF: map[string]float64{}}
-			}
-		}
-	}
-	return hits
-}
-
-func (ix *Index) sortKeyReader(prepared *preparedQuery, documents *documentLookup) func(id string) []text.SortValue {
+func sortKeyReader(prepared *preparedQuery, documents *documentLookup) func(id string) []text.SortValue {
 	fields := sortFieldNames(prepared.params.Sort)
-	modes := results.SortModesOf(prepared.params.Sort)
+	modes := sortModesOf(prepared.params.Sort)
 	cache := map[string][]text.SortValue{}
 	return func(id string) []text.SortValue {
 		if key, cached := cache[id]; cached {
 			return key
 		}
-		key := ix.sortValuesOf(documents.stored(id), fields, modes)
+		key := readSortValues(documents.decoded(id), fields, modes)
 		cache[id] = key
 		return key
 	}
 }
 
+func pinnedParamIDs(pinned []model.PinnedDocument) map[string]struct{} {
+	ids := make(map[string]struct{}, len(pinned))
+	for _, entry := range pinned {
+		ids[entry.DocID] = struct{}{}
+	}
+	return ids
+}
+
 func (ix *Index) shapeResults(prepared *preparedQuery, found fanOutResult) (shapedResult, error) {
 	params := &prepared.params
-	documents := newDocumentLookup(ix, found.scored)
+	documents := newDocumentLookup(ix, prepared.reads.reading)
 	needsFullHits := params.Sort != nil || params.Group != nil || params.Pinned != nil || params.SearchAfter.IsSet()
 	count := len(found.scored)
 	if !needsFullHits {
 		count = min(prepared.offset+prepared.limit+1, count)
 	}
 	hits := hitsOf(found.scored, count, params.IncludeScoreComponents)
-	sortKeyOf := ix.sortKeyReader(prepared, documents)
+	sortKeyOf := sortKeyReader(prepared, documents)
 	if params.Sort != nil {
-		hits = results.ApplySorting(hits, params.Sort, sortKeyOf)
+		hits = applySorting(hits, params.Sort, sortKeyOf)
 	}
-	var groups []results.Group
+	var groups []hitGroup
 	if params.Group != nil {
-		groups = results.ApplyGrouping(hits, *params.Group, documents)
+		grouped, err := ix.applyGrouping(prepared, hits, *params.Group, documents)
+		if err != nil {
+			return shapedResult{}, err
+		}
+		groups = grouped
 	}
+	placesPins := params.Pinned != nil && !params.SearchAfter.IsSet()
 	pinsFromOutside := 0
-	if params.Pinned != nil && !params.SearchAfter.IsSet() {
-		hits, pinsFromOutside = results.PlacePinned(hits, params.Pinned, func(id string) (results.Hit, bool) {
-			document := documents.stored(id)
-			if document == nil {
-				return results.Hit{}, false
-			}
-			return results.Hit{ID: id, Score: model.Some(0.0)}, true
-		})
+	var pinnedIDs map[string]struct{}
+	if placesPins {
+		placed, fromOutside, err := placePinned(hits, storedPinsOf(params.Pinned, documents.has))
+		if err != nil {
+			return shapedResult{}, err
+		}
+		hits, pinsFromOutside = placed, fromOutside
+		pinnedIDs = pinnedParamIDs(params.Pinned)
 	}
 	var sorting *paginationSort
 	if signature, sorted := prepared.sortSignature.Get(); sorted {
-		sorting = &paginationSort{signature: signature, directions: results.SortDirectionsOf(params.Sort), sortKeyOf: sortKeyOf}
-	}
-	var pinnedIDs map[string]struct{}
-	if params.Pinned != nil && !params.SearchAfter.IsSet() {
-		pinnedIDs = make(map[string]struct{}, len(params.Pinned))
-		for _, entry := range params.Pinned {
-			pinnedIDs[entry.DocID] = struct{}{}
-		}
+		sorting = &paginationSort{signature: signature, directions: sortDirectionsOf(params.Sort), sortKeyOf: sortKeyOf}
 	}
 	var page pageOfHits
 	if found.paginate != nil {
@@ -153,14 +91,14 @@ func (ix *Index) shapeResults(prepared *preparedQuery, found fanOutResult) (shap
 		result.Groups = make([]model.GroupResult, len(groups))
 		for at, group := range groups {
 			result.Groups[at] = model.GroupResult{
-				Values:       group.Values,
-				Hits:         ix.projectedHits(group.Hits, prepared, documents, dropsScores),
-				Reduced:      group.Reduced,
-				ReducerError: group.ReducerError.Or(""),
+				Values:       group.values,
+				Hits:         ix.projectedHits(group.hits, prepared, documents, dropsScores),
+				Reduced:      group.reduced,
+				ReducerError: group.reducerError.Or(""),
 			}
 		}
 	}
-	return shapedResult{result: result, documents: documents}, nil
+	return shapedResult{result: result, documents: documents}, documents.failure()
 }
 
 func (ix *Index) omitsCursorDepth(prepared *preparedQuery) bool {
@@ -169,19 +107,36 @@ func (ix *Index) omitsCursorDepth(prepared *preparedQuery) bool {
 		!params.MinScore.IsSet() && params.Group == nil && params.Pinned == nil && !termMatchFilters(params.TermMatch)
 }
 
-func (ix *Index) projectedHits(hits []results.Hit, prepared *preparedQuery, documents *documentLookup, dropsScores bool) []model.Hit {
+func (ix *Index) projectedHits(hits []resultHit, prepared *preparedQuery, documents *documentLookup, dropsScores bool) []model.Hit {
 	projected := make([]model.Hit, len(hits))
+	whole := prepared.projection.Kind() == model.ProjectWholeDocument
 	for at, hit := range hits {
-		shown := model.Hit{ID: hit.ID, Score: hit.Score, ScoreComponents: hit.Components, Document: model.Document{}}
+		shown := model.Hit{ID: hit.ID, Score: hit.Score, ScoreComponents: hit.Components}
 		if dropsScores {
 			shown.Score = model.Optional[float64]{}
 		}
-		if prepared.projection.Kind() != model.ProjectNoFields {
-			if stored := documents.stored(hit.ID); stored != nil {
-				shown.Document = prepared.projection.Clone(stored.Fields)
-			}
-		}
+		shown.Document = documents.shown(hit.ID, prepared.projection, whole && prepared.params.Group == nil)
 		projected[at] = shown
 	}
 	return projected
+}
+
+func (l *documentLookup) shown(id string, shown projection.Projection, handsOver bool) *model.Document {
+	switch shown.Kind() {
+	case model.ProjectNoFields:
+		return model.NewDocument()
+	case model.ProjectSelectedFields:
+		if stored := l.decoded(id); stored != nil {
+			return shown.Clone(stored)
+		}
+		return model.NewDocument()
+	}
+	stored := l.stored(id)
+	if stored == nil {
+		return model.NewDocument()
+	}
+	if handsOver && l.handOver(id) {
+		return stored
+	}
+	return shown.Clone(stored)
 }

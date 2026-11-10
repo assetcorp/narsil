@@ -18,16 +18,8 @@ func isReserved(codePoint rune) bool {
 	return false
 }
 
-func classEscape(codePoint rune) (className, bool) {
-	switch codePoint {
-	case 'd':
-		return classDigit, true
-	case 'w':
-		return classWord, true
-	case 's':
-		return classSpace, true
-	}
-	return 0, false
+func isClassEscape(codePoint rune) bool {
+	return codePoint == 'd' || codePoint == 'w' || codePoint == 's'
 }
 
 func isASCIIPunctuation(codePoint rune) bool {
@@ -150,10 +142,8 @@ func (reader *regexReader) parseAtom() (*node, *parseFailure) {
 		return reader.parseEscape(start)
 	case '.':
 		return &node{kind: nodeAny}, nil
-	case '^':
-		return &node{kind: nodeAssert, mask: startMask}, nil
-	case '$':
-		return &node{kind: nodeAssert, mask: endMask}, nil
+	case '^', '$':
+		return &node{kind: nodeAssert}, nil
 	case '[':
 		return reader.parseSet(start)
 	case '(':
@@ -172,11 +162,11 @@ func (reader *regexReader) parseEscape(start int) (*node, *parseFailure) {
 	if escaped == noCodePoint {
 		return nil, &parseFailure{trailingEscape, start}
 	}
-	if class, isClass := classEscape(escaped); isClass {
-		return &node{kind: nodeClass, class: class}, nil
+	if isClassEscape(escaped) {
+		return &node{kind: nodeClass}, nil
 	}
 	if escaped == 'b' {
-		return &node{kind: nodeAssert, mask: wordEdgeMask}, nil
+		return &node{kind: nodeAssert}, nil
 	}
 	if isASCIIPunctuation(escaped) {
 		return &node{kind: nodeLiteral, codePoint: escaped}, nil

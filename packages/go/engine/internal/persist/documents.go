@@ -3,6 +3,8 @@ package persist
 import (
 	"encoding/binary"
 	"math"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
@@ -13,6 +15,7 @@ import (
 type Write struct {
 	DocumentID string
 	Document   map[string]any
+	Encoded    []byte
 	Vectors    map[string][]float32
 }
 
@@ -20,31 +23,62 @@ func (write Write) deletes() bool {
 	return write.Document == nil
 }
 
-func withVectors(document map[string]any, vectors map[string][]float32) map[string]any {
-	if len(vectors) == 0 {
-		return document
+func sortedKeys[V any](held map[string]V) []string {
+	keys := make([]string, 0, len(held))
+	for key := range held {
+		keys = append(keys, key)
 	}
-	copied := make(map[string]any, len(document)+len(vectors))
-	for key, value := range document {
-		copied[key] = value
-	}
-	for path, values := range vectors {
-		segments := strings.Split(path, ".")
-		holder := copied
-		for _, segment := range segments[:len(segments)-1] {
-			next, isMap := holder[segment].(map[string]any)
-			nested := make(map[string]any, len(next)+1)
-			if isMap {
-				for key, value := range next {
-					nested[key] = value
-				}
+	sort.Strings(keys)
+	return keys
+}
+
+func nestedHolder(document *codec.Document, segments []string, createsMissing bool) *codec.Document {
+	holder := document
+	for _, segment := range segments[:len(segments)-1] {
+		held, _ := codec.HeldValue(holder, segment)
+		nested, isDocument := held.(*codec.Document)
+		if !isDocument || nested == nil {
+			if !createsMissing {
+				return nil
 			}
-			holder[segment] = nested
-			holder = nested
+			nested = codec.NewDocument()
+			holder.Set(segment, nested)
 		}
-		holder[segments[len(segments)-1]] = values
+		holder = nested
 	}
-	return copied
+	return holder
+}
+
+func storedWithVectors(stored []byte, vectors map[string][]float32) ([]byte, error) {
+	if len(vectors) == 0 {
+		return stored, nil
+	}
+	document, err := codec.DecodeStoredDocument(stored, codec.DecodeOptions{ErrorCode: narsilerr.CodeDocValidationFailed})
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range sortedKeys(vectors) {
+		segments := strings.Split(path, ".")
+		nestedHolder(document, segments, true).Set(segments[len(segments)-1], vectors[path])
+	}
+	return codec.EncodeDocument(document)
+}
+
+func storedWithoutVectors(logged []byte, paths map[string]int) ([]byte, error) {
+	document, err := codec.DecodeStoredDocument(logged, codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceWalCorrupt})
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range sortedKeys(paths) {
+		segments := strings.Split(path, ".")
+		if holder := nestedHolder(document, segments, false); holder != nil {
+			holder.Delete(segments[len(segments)-1])
+		}
+	}
+	if stored, unchanged := codec.StoredBytes(document); unchanged {
+		return stored, nil
+	}
+	return codec.EncodeDocument(document)
 }
 
 func vectorOf(value any) ([]float32, bool) {
@@ -107,12 +141,20 @@ func entryFor(write Write, indexName string, partitionID uint32, seqNo uint64) (
 	entry := wal.Entry{SeqNo: seqNo, PrimaryTerm: SingleNodePrimaryTerm, PartitionID: partitionID,
 		IndexName: indexName, DocumentID: write.DocumentID, Operation: wal.OperationDelete}
 	if !write.deletes() {
-		encoded, err := codec.EncodeDocument(withVectors(write.Document, write.Vectors))
+		stored := write.Encoded
+		if stored == nil {
+			encoded, err := codec.EncodeDocument(write.Document)
+			if err != nil {
+				return entry, err
+			}
+			stored = encoded
+		}
+		logged, err := storedWithVectors(stored, write.Vectors)
 		if err != nil {
 			return entry, err
 		}
 		entry.Operation = wal.OperationIndex
-		entry.Document = encoded
+		entry.Document = logged
 	}
 	return wal.Build(entry), nil
 }
@@ -131,6 +173,14 @@ func writeOfEntry(entry wal.Entry, vectorPaths map[string]int) (Write, error) {
 	if err != nil {
 		return Write{}, err
 	}
+	if len(vectorPaths) == 0 {
+		return Write{DocumentID: entry.DocumentID, Document: document, Encoded: slices.Clone(entry.Document),
+			Vectors: map[string][]float32{}}, nil
+	}
+	stored, err := storedWithoutVectors(entry.Document, vectorPaths)
+	if err != nil {
+		return Write{}, err
+	}
 	stripped, vectors := stripVectors(document, vectorPaths)
-	return Write{DocumentID: entry.DocumentID, Document: stripped, Vectors: vectors}, nil
+	return Write{DocumentID: entry.DocumentID, Document: stripped, Encoded: stored, Vectors: vectors}, nil
 }

@@ -1,21 +1,37 @@
 package index
 
-import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
+import (
+	"context"
+	"math"
 
-func (ix *Index) PartitionStats() []model.PartitionStatsResult {
-	held := ix.acquireAll(ix.allPartitionIDs())
-	defer held.release()
-	stats := make([]model.PartitionStatsResult, len(held.partitions))
-	for at, view := range held.partitions {
-		stats[at] = model.PartitionStatsResult{PartitionID: at, DocumentCount: view.Count(), EstimatedMemoryBytes: int64(view.EstimateBytes())}
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
+)
+
+func (ix *Index) PartitionStats() ([]model.PartitionStatsResult, error) {
+	reading, err := ix.Read(context.Background())
+	if err != nil {
+		return nil, err
 	}
-	return stats
+	defer reading.Release()
+	stats := make([]model.PartitionStatsResult, len(reading.Snapshots))
+	for at, snapshot := range reading.Snapshots {
+		stats[at] = model.PartitionStatsResult{
+			PartitionID:          at,
+			DocumentCount:        snapshot.Count(),
+			EstimatedMemoryBytes: int64(min(snapshot.EstimatedBytes(), math.MaxInt64)),
+		}
+	}
+	return stats, nil
 }
 
-func (ix *Index) EstimateMemoryBytes() int64 {
-	var total int64
-	for _, partition := range ix.PartitionStats() {
-		total += partition.EstimatedMemoryBytes
+func (ix *Index) EstimateMemoryBytes() (int64, error) {
+	partitions, err := ix.PartitionStats()
+	if err != nil {
+		return 0, err
 	}
-	return total
+	var total int64
+	for _, partition := range partitions {
+		total = int64(min(uint64(total)+uint64(partition.EstimatedMemoryBytes), math.MaxInt64))
+	}
+	return total, nil
 }

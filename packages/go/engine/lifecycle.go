@@ -4,7 +4,6 @@ import (
 	"context"
 	"runtime"
 	"runtime/debug"
-	"sort"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
@@ -67,13 +66,8 @@ func (n *Narsil) dropClosed(ctx context.Context, name string, slot *indexSlot) e
 
 func (n *Narsil) sortedSlots() []*indexSlot {
 	n.indexesMu.RLock()
-	slots := make([]*indexSlot, 0, len(n.slots))
-	for _, slot := range n.slots {
-		slots = append(slots, slot)
-	}
-	n.indexesMu.RUnlock()
-	sort.Slice(slots, func(left, right int) bool { return slots[left].name < slots[right].name })
-	return slots
+	defer n.indexesMu.RUnlock()
+	return valuesInNameOrder(n.slots)
 }
 
 func (n *Narsil) infoOf(slot *indexSlot) model.IndexInfo {
@@ -136,12 +130,15 @@ func (n *Narsil) acquireWithoutReopen(name string) (*indexEntry, *indexSlot, fun
 	}
 }
 
-func (entry *indexEntry) estimatedBytes() int64 {
-	total := entry.index().EstimateMemoryBytes()
+func (entry *indexEntry) estimatedBytes() (int64, error) {
+	total, err := entry.index().EstimateMemoryBytes()
+	if err != nil {
+		return 0, err
+	}
 	for _, path := range entry.vectorPaths {
 		total += int64(entry.handle.Vectors[path].EstimateMemoryBytes())
 	}
-	return total
+	return total, nil
 }
 
 // GetStats returns the document count, partition count, memory estimate,
@@ -159,10 +156,14 @@ func (n *Narsil) GetStats(indexName string) (IndexStats, error) {
 		return model.IndexStats{DocumentCount: summary.documentCount, PartitionCount: summary.partitionCount,
 			Language: summary.language, Schema: summary.schema}, nil
 	}
+	estimated, err := entry.estimatedBytes()
+	if err != nil {
+		return model.IndexStats{}, err
+	}
 	return model.IndexStats{
 		DocumentCount:        entry.index().Count(),
 		PartitionCount:       entry.index().PartitionCount(),
-		EstimatedMemoryBytes: entry.estimatedBytes(),
+		EstimatedMemoryBytes: estimated,
 		Language:             entry.currentAnalysis().language,
 		Schema:               entry.parsed.Schema(),
 	}, nil
@@ -180,7 +181,7 @@ func (n *Narsil) GetPartitionStats(indexName string) ([]PartitionStatsResult, er
 	if entry == nil {
 		return []model.PartitionStatsResult{}, nil
 	}
-	return entry.index().PartitionStats(), nil
+	return entry.index().PartitionStats()
 }
 
 func processMemory() *model.ProcessMemoryReport {
@@ -214,7 +215,11 @@ func (n *Narsil) GetMemoryStats(ctx context.Context) (MemoryStats, error) {
 	stats := model.MemoryStats{Process: processMemory(), WorkerCopies: []model.WorkerCopyReport{},
 		HeldCheckpoints: []model.HeldCheckpointReport{}, Workers: n.workers.memoryReports()}
 	for _, entry := range n.sortedEntries() {
-		stats.EstimatedIndexBytes += entry.estimatedBytes()
+		estimated, err := entry.estimatedBytes()
+		if err != nil {
+			return model.MemoryStats{}, err
+		}
+		stats.EstimatedIndexBytes += estimated
 		stats.WorkerCopies = append(stats.WorkerCopies, model.WorkerCopyReport{IndexName: entry.name,
 			ScaledOut: entry.promoted.Load()})
 	}

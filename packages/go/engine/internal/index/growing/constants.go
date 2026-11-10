@@ -14,6 +14,7 @@ const (
 	termRegionGrowthFactor     = 2
 	termSlotLoadNumerator      = 1
 	termSlotLoadDenominator    = 2
+	runMemberBoundFactor       = 3
 	poolVacuumFreeFraction     = 0.25
 	termVacuumMinDeadTerms     = 1 << 10
 	poolVacuumMinFreeEntries   = 1 << 14
@@ -29,6 +30,7 @@ const (
 	lastOrdinalBound  = 0xffffffff
 	maxStringOrdinal  = 0x7fffffff
 	maxStringUnits    = 0xffffffff
+	maxLookupUnits    = 0xffffffff
 	noFreeSlice       = 0xffffffff
 	runPoints         = 3
 	runPointBytes     = 4

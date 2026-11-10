@@ -204,18 +204,29 @@ func (r *FilterRun) Evaluate(view *View, expression *model.FilterExpression) ([]
 	return matched, nil
 }
 
+func holdsTextRange(filter *model.FieldFilter) bool {
+	_, text := filter.Between.Low.Text()
+	for _, bound := range []model.RangeBound{filter.Gt, filter.Gte, filter.Lt, filter.Lte} {
+		_, isText := bound.Text()
+		text = text || isText
+	}
+	return text
+}
+
 func FilterSortFields(expression *model.FilterExpression) []string {
+	return filteredFields(expression, holdsTextRange)
+}
+
+func FilteredFields(expression *model.FilterExpression) []string {
+	return filteredFields(expression, func(*model.FieldFilter) bool { return true })
+}
+
+func filteredFields(expression *model.FilterExpression, wanted func(filter *model.FieldFilter) bool) []string {
 	var fields []string
 	var walk func(expression *model.FilterExpression)
 	walk = func(expression *model.FilterExpression) {
 		for path, filter := range expression.Fields {
-			_, low := filter.Between.Low.Text()
-			text := low
-			for _, bound := range []model.RangeBound{filter.Gt, filter.Gte, filter.Lt, filter.Lte} {
-				_, isText := bound.Text()
-				text = text || isText
-			}
-			if text && !slices.Contains(fields, path) {
+			if wanted(&filter) && !slices.Contains(fields, path) {
 				fields = append(fields, path)
 			}
 		}
