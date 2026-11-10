@@ -186,7 +186,7 @@ fn create_unannounced(
 /// plugin's `on_index_drop` hook and raises a write event, once the engine holds no lock of the index.
 pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
     engine.guard_shutdown()?;
-    if engine.open_index_named(name).is_none() && !engine.lifecycle.holds_closed(name) {
+    if !engine.holds_index(name) {
         return Err(NarsilError::new(
             ErrorCode::INDEX_NOT_FOUND,
             format!("Index \"{name}\" does not exist"),
