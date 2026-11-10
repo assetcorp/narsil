@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"context"
-	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -14,19 +13,15 @@ import (
 )
 
 const (
-	mergedNotesIndex            = "notes"
-	mergedNotesMarker           = "ledger"
-	mergedNotesDocuments        = 3_000
-	mergedNotesMaxDocuments     = 30_000
-	mergedNotesBatch            = 500
-	mergedNotesRepeats          = 2_000
-	mergedNotesWorkCap          = 1 << 40
-	mergedNotesMinimumSegments  = 3
-	mergedNotesThinnedBelow     = 2_400
-	mergedNotesKeptEvery        = 10
-	mergedNotesDeadline         = 30 * time.Second
-	mergedNotesPollInterval     = 50 * time.Millisecond
-	mergedNotesKeptGrowingEvery = 250 * time.Millisecond
+	mergedNotesIndex        = "notes"
+	mergedNotesMarker       = "ledger"
+	mergedNotesFrozenFirst  = 256
+	mergedNotesWrittenAfter = 128
+	mergedNotesRepeats      = 2_000
+	mergedNotesWorkCap      = 1 << 40
+	mergedNotesKeptEvery    = 10
+	mergedNotesDeadline     = 30 * time.Second
+	mergedNotesPollInterval = 50 * time.Millisecond
 )
 
 type mergedNotesFilter struct {
@@ -63,21 +58,20 @@ func TestAMergeKeepsEveryPatternMatchOfTheSegmentsThatItJoins(t *testing.T) {
 }
 
 func checkMergedPatternMatches(t *testing.T, searchBeforeMerge, thinOlderSegments bool) {
-	ctx := context.Background()
 	narsil := openPlainEngine(t, engine.Config{PatternWorkCap: engine.Some(int64(mergedNotesWorkCap))})
 	createSpreadIndex(t, narsil, mergedNotesIndex, engine.Schema{"title": engine.FieldString,
 		"note": engine.FieldString.WithOptions(engine.TextFieldPattern)}, 1)
 	prefix := strings.Repeat("ab", mergedNotesRepeats)
-	notes := insertNotesUntilTheyFillSegments(t, narsil, prefix)
-	stopWriting := keepTheNotesGrowing(narsil, prefix, len(notes))
+	notes := insertNotes(t, narsil, prefix, 0, mergedNotesFrozenFirst)
+	waitForOneFrozenSegment(t, narsil, "the first notes to freeze into one segment")
 	if thinOlderSegments {
 		var removed []string
-		for at := range mergedNotesThinnedBelow {
+		for at := range mergedNotesFrozenFirst {
 			if at%mergedNotesKeptEvery != 0 {
 				removed = append(removed, "note-"+strconv.Itoa(at))
 			}
 		}
-		result, err := narsil.RemoveBatch(ctx, mergedNotesIndex, removed, engine.WriteOptions{})
+		result, err := narsil.RemoveBatch(context.Background(), mergedNotesIndex, removed, engine.WriteOptions{})
 		if err != nil || len(result.Failed) != 0 {
 			t.Fatalf("removing %d notes failed: %v, with %d refused", len(removed), err, len(result.Failed))
 		}
@@ -85,88 +79,44 @@ func checkMergedPatternMatches(t *testing.T, searchBeforeMerge, thinOlderSegment
 			delete(notes, id)
 		}
 	}
-	segments, err := engine.SearchedSegmentsOf(ctx, narsil, mergedNotesIndex)
-	added, writeErr := stopWriting()
-	if writeErr != nil {
-		t.Fatalf("a note written to keep the index from going quiet failed: %v", writeErr)
-	}
-	maps.Copy(notes, added)
-	if err != nil || len(segments) != 1 || segments[0] < mergedNotesMinimumSegments {
-		t.Fatalf("before the merge a search reads %v segments with error %v, while the case needs at least %d",
-			segments, err, mergedNotesMinimumSegments)
-	}
 	if searchBeforeMerge {
 		requireMergedPatternMatches(t, narsil, notes, "before the merge")
 	}
-	deadline := time.Now().Add(mergedNotesDeadline)
-	for {
-		segments, err := engine.SearchedSegmentsOf(ctx, narsil, mergedNotesIndex)
-		if err != nil {
-			t.Fatalf("reading the searched segments failed: %v", err)
-		}
-		if len(segments) == 1 && segments[0] == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%v after the last write, a search still reads %v segments", mergedNotesDeadline, segments)
-		}
-		time.Sleep(mergedNotesPollInterval)
+	for id, note := range insertNotes(t, narsil, prefix, mergedNotesFrozenFirst, mergedNotesWrittenAfter) {
+		notes[id] = note
 	}
+	waitForOneFrozenSegment(t, narsil, "the idle merge to join the later notes with the first segment")
 	requireMergedPatternMatches(t, narsil, notes, "after the merge")
 }
 
-func insertNotesUntilTheyFillSegments(t *testing.T, narsil *engine.Narsil, prefix string) map[string]string {
+func insertNotes(t *testing.T, narsil *engine.Narsil, prefix string, first, count int) map[string]string {
 	t.Helper()
-	notes := map[string]string{}
-	for first := 0; first < mergedNotesMaxDocuments; first += mergedNotesBatch {
-		batch := make([]*engine.Document, 0, mergedNotesBatch)
-		for number := first; number < first+mergedNotesBatch; number++ {
-			batch = append(batch, engine.DocumentFromMap(map[string]any{"id": "note-" + strconv.Itoa(number),
-				"title": mergedNotesMarker, "note": prefix + strconv.Itoa(number)}))
-		}
-		insertEvery(t, narsil, mergedNotesIndex, batch)
-		for number := first; number < first+mergedNotesBatch; number++ {
-			notes["note-"+strconv.Itoa(number)] = prefix + strconv.Itoa(number)
-		}
-		segments, err := engine.SearchedSegmentsOf(context.Background(), narsil, mergedNotesIndex)
-		if err != nil || len(segments) != 1 {
-			t.Fatalf("reading the searched segments failed: %v, with %v", err, segments)
-		}
-		if len(notes) >= mergedNotesDocuments && segments[0] >= mergedNotesMinimumSegments {
-			return notes
-		}
+	notes := make(map[string]string, count)
+	batch := make([]*engine.Document, 0, count)
+	for number := first; number < first+count; number++ {
+		id, note := "note-"+strconv.Itoa(number), prefix+strconv.Itoa(number)
+		batch = append(batch, engine.DocumentFromMap(map[string]any{"id": id, "title": mergedNotesMarker, "note": note}))
+		notes[id] = note
 	}
-	t.Fatalf("%d notes never filled %d segments", len(notes), mergedNotesMinimumSegments)
-	return nil
+	insertEvery(t, narsil, mergedNotesIndex, batch)
+	return notes
 }
 
-func keepTheNotesGrowing(narsil *engine.Narsil, prefix string, first int) func() (map[string]string, error) {
-	stop, done := make(chan struct{}), make(chan struct{})
-	added := map[string]string{}
-	var failure error
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(mergedNotesKeptGrowingEvery)
-		defer ticker.Stop()
-		for number := first; ; number++ {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-			}
-			id, note := "note-"+strconv.Itoa(number), prefix+strconv.Itoa(number)
-			document := engine.DocumentFromMap(map[string]any{"title": mergedNotesMarker, "note": note})
-			if _, err := narsil.Insert(context.Background(), mergedNotesIndex, document, id, engine.InsertOptions{}); err != nil {
-				failure = err
-				return
-			}
-			added[id] = note
+func waitForOneFrozenSegment(t *testing.T, narsil *engine.Narsil, waitingFor string) {
+	t.Helper()
+	deadline := time.Now().Add(mergedNotesDeadline)
+	for {
+		segments, err := engine.PartitionSegmentsOf(context.Background(), narsil, mergedNotesIndex)
+		if err != nil {
+			t.Fatalf("reading the partition's segments failed: %v", err)
 		}
-	}()
-	return func() (map[string]string, error) {
-		close(stop)
-		<-done
-		return added, failure
+		if len(segments) == 1 && segments[0].FrozenSegments == 1 && segments[0].GrowingDocuments == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after %v of waiting for %s, the partition holds %+v", mergedNotesDeadline, waitingFor, segments)
+		}
+		time.Sleep(mergedNotesPollInterval)
 	}
 }
 
