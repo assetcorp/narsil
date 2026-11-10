@@ -137,8 +137,12 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Install the TypeScript engine's dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts --filter @delali/narsil
+      - name: Install the TypeScript engine's and the conformance tools' dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @delali/narsil --filter @delali/narsil-conformance
+
+      - name: Build the conformance tools
+        working-directory: packages/conformance
+        run: pnpm tsup
 
       - name: Download the TypeScript engine
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
