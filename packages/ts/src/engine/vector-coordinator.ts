@@ -1,13 +1,16 @@
 import { getNestedValue } from '../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../errors'
+import { FLOAT32_OVERFLOW_MAGNITUDE } from '../schema/constants'
 import type { VectorIndex } from '../vector/vector-index'
 
 export function extractVectorFromDoc(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   const value = getNestedValue(document, fieldPath)
   if (value === undefined || value === null) return null
   if (!(value instanceof Float32Array) && !Array.isArray(value)) return null
-  for (const n of value) {
-    if (typeof n !== 'number' || !Number.isFinite(Math.fround(n))) return null
+  const length = value.length
+  for (let i = 0; i < length; i++) {
+    const n = value[i]
+    if (typeof n !== 'number' || !(n < FLOAT32_OVERFLOW_MAGNITUDE && n > -FLOAT32_OVERFLOW_MAGNITUDE)) return null
   }
   return value instanceof Float32Array ? value : new Float32Array(value)
 }
