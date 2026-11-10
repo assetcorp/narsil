@@ -4,7 +4,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { FilterExpression } from '../../types/filters'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import type { FilterSubset } from '../../vector/filter-ordinals'
+import type { FilterSubset } from '../../vector/ordinal-filter'
 import { partitionsFor, type SearchContext } from './shared'
 
 export interface FilteredSearch {

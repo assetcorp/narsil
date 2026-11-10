@@ -20,10 +20,8 @@ import {
 } from '#platform/vector-host'
 import { createBoundedMaxHeap } from '../../core/heap'
 import type { SearchClock } from '../../core/search-clock'
-import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
-import type { OrdinalSpace } from '../filter-ordinals'
-import type { OrdinalFilter } from '../ordinal-filter'
+import type { OrdinalFilter, OrdinalSpace } from '../ordinal-filter'
 import { highScoreFirst, mergeResults } from '../vector-index/merge-results'
 import type {
   VectorScoredResult,
@@ -31,6 +29,7 @@ import type {
   VectorSearchOptions,
   VectorSearchOutcome,
 } from '../vector-index/shared'
+import type { OrdinalAdmission } from '../vector-store/admission'
 import type { SharedVectorStoreView } from '../vector-store/view'
 import { readStoreFlags } from './store-flags'
 import type { SharedVectorFieldView } from './view'

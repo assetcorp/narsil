@@ -1,4 +1,4 @@
-import { shareTurnsWithBackgroundWork } from '#platform/background-turn-sharing'
+import { closeIdleTurnHop, shareTurnsWithBackgroundWork } from '#platform/background-turn-sharing'
 import {
   assignStorePartitions,
   createOsqQuantizer,
@@ -150,6 +150,7 @@ export function createVectorIndex(
     compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
+    scheduledBuild: null,
     buildTimer: null,
     buildRetryDelayMs: 0,
     buildTurnWaiters: new Map(),
@@ -271,7 +272,7 @@ export function createVectorIndex(
     },
     dispose: () => {
       cancelColdHold(state)
-      disposeIndex(state)
+      return disposeIndex(state).then(closeIdleTurnHop)
     },
     search: withGraphFree(state, (query: Float32Array, k: number, options: VectorSearchOptions) =>
       state.cold === null ? searchOp(state, query, k, options) : coldSearch(state, state.cold, query, k, options),

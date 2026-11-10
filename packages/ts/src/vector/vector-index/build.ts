@@ -277,15 +277,17 @@ export function scheduleBuild(state: VectorIndexState): void {
 
   state.buildScheduled = true
   const turn = turnsAreBudgeted ? yieldBackgroundTurn() : yieldBuildTurn(state)
-  void turn.then(() => {
+  const scheduled = turn.then(() => {
     state.buildScheduled = false
+    if (state.scheduledBuild === scheduled) state.scheduledBuild = null
     triggerBuild(state)
   })
+  state.scheduledBuild = scheduled
 }
 
 export async function awaitBuilds(state: VectorIndexState): Promise<void> {
   for (;;) {
-    const running = state.pendingBuild ?? state.shuffledRebuild
+    const running = state.pendingBuild ?? state.shuffledRebuild ?? state.scheduledBuild
     if (running === null) return
     await running
   }
@@ -304,7 +306,7 @@ function releaseHeldMemory(state: VectorIndexState): void {
   releaseMemoryCharges(state)
 }
 
-export function disposeIndex(state: VectorIndexState): void {
+export function disposeIndex(state: VectorIndexState): Promise<void> {
   state.disposed = true
   if (state.rebuildWaitTimer !== null) clearTimeout(state.rebuildWaitTimer)
   state.rebuildWaitTimer = null
@@ -312,9 +314,9 @@ export function disposeIndex(state: VectorIndexState): void {
   state.buildTimer = null
   invalidateWorkerCopies(state)
   const release = (): void => releaseHeldMemory(state)
-  if (state.pendingBuild !== null || state.shuffledRebuild !== null) {
-    void awaitBuilds(state).then(release, release)
-    return
+  if (state.pendingBuild !== null || state.shuffledRebuild !== null || state.scheduledBuild !== null) {
+    return awaitBuilds(state).then(release, release)
   }
   release()
+  return Promise.resolve()
 }

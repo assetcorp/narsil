@@ -2,6 +2,7 @@ import type * as VectorCoreCode from '../core-leaf'
 
 type VectorCore2Names = Pick<
   typeof VectorCoreCode,
+  | 'coverOrdinal'
   | 'emptyFieldBeforeRestore'
   | 'ensureBlockSlots'
   | 'euclideanDistance'
@@ -75,6 +76,7 @@ type VectorCore2Names = Pick<
   | 'yieldBuildTurn'
 >
 
+export let coverOrdinal: VectorCore2Names['coverOrdinal']
 export let emptyFieldBeforeRestore: VectorCore2Names['emptyFieldBeforeRestore']
 export let ensureBlockSlots: VectorCore2Names['ensureBlockSlots']
 export let euclideanDistance: VectorCore2Names['euclideanDistance']
@@ -149,6 +151,7 @@ export let yieldBuildTurn: VectorCore2Names['yieldBuildTurn']
 
 export function bindVectorCore2Names(vectorCore: VectorCore2Names): void {
   ;({
+    coverOrdinal,
     emptyFieldBeforeRestore,
     ensureBlockSlots,
     euclideanDistance,

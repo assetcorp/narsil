@@ -2,7 +2,7 @@ import type { NativeFieldTokens } from '../../vector/native/types/segments'
 import { holdsUnpairedSurrogate } from '../ordering/code-points'
 import { storedText } from '../stored-values/text'
 import { PREPARED_ROW_WORDS, type PreparedSegmentField, packedTokens } from './prepared-tokens'
-import { checkText, type SegmentReach } from './regions'
+import { checkText } from './regions'
 import { requireSegment } from './status'
 
 const RECORD_WORDS = 8
@@ -112,16 +112,6 @@ export class PreparedSource implements TokenSource {
   surfaceKey(record: number): number {
     return this.rows[record * PREPARED_ROW_WORDS + 1]
   }
-}
-
-export function preparedRemovalReach(fields: readonly PreparedSegmentField[]): SegmentReach {
-  let surfaces = false
-  for (const { text } of fields) {
-    const end = text.count * PREPARED_ROW_WORDS
-    for (let row = 0; row < end && !surfaces; row += PREPARED_ROW_WORDS)
-      surfaces = text.rows[row + 1] !== ABSENT_TEXT && text.rows[row + 1] !== text.rows[row]
-  }
-  return { surfaces, spellings: partialFields => fields.some(({ field }) => partialFields[field] !== 0) }
 }
 
 export function preparedSources(fields: readonly PreparedSegmentField[]): TokenSource[] {

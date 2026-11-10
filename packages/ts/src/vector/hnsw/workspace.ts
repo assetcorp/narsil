@@ -44,37 +44,6 @@ export interface HNSWWorkspace {
   droppedLinks: DistanceList
 }
 
-function createList(capacity: number): DistanceList {
-  return { ords: new Int32Array(capacity), distances: new Float64Array(capacity), size: 0 }
-}
-
-function createHeap(greatestFirst: boolean): DistanceHeap {
-  return { ...createList(INITIAL_LIST_CAPACITY), greatestFirst, topOrd: -1, topDistance: 0 }
-}
-
-export function createHNSWWorkspace(): HNSWWorkspace {
-  return {
-    frontier: createHeap(false),
-    found: createHeap(true),
-    entryPoints: new Int32Array(INITIAL_LIST_CAPACITY),
-    entryPointCount: 0,
-    traversal: createList(INITIAL_LIST_CAPACITY),
-    working: createList(INITIAL_LIST_CAPACITY),
-    linkSelections: [],
-    pruneCandidates: createList(INITIAL_LIST_CAPACITY),
-    pruneSelection: createList(INITIAL_LIST_CAPACITY),
-    repairCandidates: createList(INITIAL_LIST_CAPACITY),
-    repairSelection: createList(INITIAL_LIST_CAPACITY),
-    droppedLinks: createList(INITIAL_LIST_CAPACITY),
-  }
-}
-
-export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {
-  const selections = workspace.linkSelections
-  while (selections.length < layers) selections.push(createList(INITIAL_LIST_CAPACITY))
-  return selections
-}
-
 export function ensureListCapacity(list: DistanceList, needed: number): void {
   if (needed <= list.ords.length) return
 
@@ -88,36 +57,6 @@ export function ensureListCapacity(list: DistanceList, needed: number): void {
   const distances = new Float64Array(capacity)
   distances.set(list.distances)
   list.distances = distances
-}
-
-export function appendToList(list: DistanceList, ord: number, distance: number): void {
-  ensureListCapacity(list, list.size + 1)
-  list.ords[list.size] = ord
-  list.distances[list.size] = distance
-  list.size += 1
-}
-
-export function copyList(source: DistanceList, target: DistanceList): void {
-  ensureListCapacity(target, source.size)
-  target.ords.set(source.ords.subarray(0, source.size))
-  target.distances.set(source.distances.subarray(0, source.size))
-  target.size = source.size
-}
-
-export function sortListByDistance(list: DistanceList): void {
-  const { ords, distances } = list
-  for (let i = 1; i < list.size; i++) {
-    const ord = ords[i]
-    const distance = distances[i]
-    let j = i - 1
-    while (j >= 0 && distances[j] > distance) {
-      distances[j + 1] = distances[j]
-      ords[j + 1] = ords[j]
-      j -= 1
-    }
-    distances[j + 1] = distance
-    ords[j + 1] = ord
-  }
 }
 
 function siftUpGreatestFirst(
@@ -252,6 +191,67 @@ export function drainHeapNearestFirst(heap: DistanceHeap, list: DistanceList): v
     list.ords[i] = heap.topOrd
     list.distances[i] = heap.topDistance
   }
+}
+
+export function appendToList(list: DistanceList, ord: number, distance: number): void {
+  ensureListCapacity(list, list.size + 1)
+  list.ords[list.size] = ord
+  list.distances[list.size] = distance
+  list.size += 1
+}
+
+export function copyList(source: DistanceList, target: DistanceList): void {
+  ensureListCapacity(target, source.size)
+  target.ords.set(source.ords.subarray(0, source.size))
+  target.distances.set(source.distances.subarray(0, source.size))
+  target.size = source.size
+}
+
+export function sortListByDistance(list: DistanceList): void {
+  const { ords, distances } = list
+  for (let i = 1; i < list.size; i++) {
+    const ord = ords[i]
+    const distance = distances[i]
+    let j = i - 1
+    while (j >= 0 && distances[j] > distance) {
+      distances[j + 1] = distances[j]
+      ords[j + 1] = ords[j]
+      j -= 1
+    }
+    distances[j + 1] = distance
+    ords[j + 1] = ord
+  }
+}
+
+function createList(capacity: number): DistanceList {
+  return { ords: new Int32Array(capacity), distances: new Float64Array(capacity), size: 0 }
+}
+
+function createHeap(greatestFirst: boolean): DistanceHeap {
+  return { ...createList(INITIAL_LIST_CAPACITY), greatestFirst, topOrd: -1, topDistance: 0 }
+}
+
+export function createHNSWWorkspace(): HNSWWorkspace {
+  return {
+    frontier: createHeap(false),
+    found: createHeap(true),
+    entryPoints: new Int32Array(INITIAL_LIST_CAPACITY),
+    entryPointCount: 0,
+    traversal: createList(INITIAL_LIST_CAPACITY),
+    working: createList(INITIAL_LIST_CAPACITY),
+    linkSelections: [],
+    pruneCandidates: createList(INITIAL_LIST_CAPACITY),
+    pruneSelection: createList(INITIAL_LIST_CAPACITY),
+    repairCandidates: createList(INITIAL_LIST_CAPACITY),
+    repairSelection: createList(INITIAL_LIST_CAPACITY),
+    droppedLinks: createList(INITIAL_LIST_CAPACITY),
+  }
+}
+
+export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {
+  const selections = workspace.linkSelections
+  while (selections.length < layers) selections.push(createList(INITIAL_LIST_CAPACITY))
+  return selections
 }
 
 export function setSingleEntryPoint(workspace: HNSWWorkspace, ord: number): void {

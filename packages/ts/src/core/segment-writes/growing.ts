@@ -34,7 +34,40 @@ const NONEMPTY_TERMS_UNCHANGED = 0
 const NONEMPTY_TERMS_FOLLOW_LIVE_TERMS = 1
 const NONEMPTY_TERMS_UNKNOWN = 2
 
+const SEGMENT_REFUSED = 1
+
 let regionGenerations = 0
+
+function retireTextless(fields: FieldLengths, retired: Uint32Array, ordinal: number): number {
+  const capacity = fields.ordinalCapacity
+  const fieldCount = fields.partial.length
+  if (
+    !Number.isInteger(ordinal) ||
+    ordinal < 0 ||
+    ordinal >= capacity ||
+    ordinal >>> 5 >= retired.length ||
+    fields.values.length < fieldCount * capacity ||
+    fields.totals.length < fieldCount
+  )
+    return SEGMENT_REFUSED
+  const bit = 1 << (ordinal & 31)
+  if ((retired[ordinal >>> 5] & bit) !== 0) return 0
+  const documents = fields.documents
+  if (documents[0] === 0 || documents[0] > capacity) return SEGMENT_REFUSED
+  for (let field = 0; field < fieldCount; field++) {
+    const total = fields.totals[field]
+    if (!Number.isFinite(total) || total < fields.values[field * capacity + ordinal]) return SEGMENT_REFUSED
+  }
+  for (let field = 0; field < fieldCount; field++) {
+    const at = field * capacity + ordinal
+    const remaining = fields.totals[field] - fields.values[at]
+    fields.totals[field] = remaining > 0 ? remaining : 0
+    fields.values[at] = 0
+  }
+  retired[ordinal >>> 5] |= bit
+  documents[0]--
+  return 0
+}
 
 export class GrowingSegment {
   readonly fields = new FieldLengths()
@@ -83,6 +116,11 @@ export class GrowingSegment {
     this.preparePublication()
     const counted = this.countsNonemptyTerms()
     this.accept(removeDocument(this.regions(), this.generation, ordinal, fields), counted)
+  }
+
+  removeTextless(ordinal: number): void {
+    const status = retireTextless(this.fields, this.postings.retired, ordinal)
+    if (status !== 0) this.accept(status, NONEMPTY_TERMS_UNCHANGED)
   }
 
   private countsNonemptyTerms(): number {
@@ -164,8 +202,22 @@ export class GrowingSegment {
   }
 
   batch(ending: boolean): void {
+    if (this.holdsNoKeywords()) return
     this.finishCopies()
     this.accept((ending ? endBatch : beginBatch)(this.regions(), this.generation), NONEMPTY_TERMS_UNCHANGED)
+  }
+
+  private holdsNoKeywords(): boolean {
+    const { pool, positions, terms } = this.postings
+    return (
+      terms.ids.header[0] === 0 &&
+      pool.end === 0 &&
+      pool.freeEntries === 0 &&
+      positions.end <= 1 &&
+      positions.freeValues === 0 &&
+      (this.surfaces?.strings.header[0] ?? 0) === 0 &&
+      (this.spellings?.strings.header[0] ?? 0) === 0
+    )
   }
 
   private finishCopies(): void {

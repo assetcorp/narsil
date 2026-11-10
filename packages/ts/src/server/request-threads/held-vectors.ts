@@ -3,8 +3,8 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { setNestedValue } from '../../partitioning/manager/nested-values'
 import type { StatePin } from '../../partitioning/manager/state-pins'
 import type { AnyDocument } from '../../types/schema'
-import type { OrdinalAdmission } from '../../vector/admission'
 import type { VectorSearcher } from '../../vector/vector-index'
+import type { OrdinalAdmission } from '../../vector/vector-store/admission'
 
 function admittedSearcher(searcher: VectorSearcher, admission: OrdinalAdmission | undefined): VectorSearcher {
   return {

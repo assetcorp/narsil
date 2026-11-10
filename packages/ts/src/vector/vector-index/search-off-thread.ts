@@ -17,10 +17,10 @@ import {
   yieldTurn,
 } from '#platform/vector-host'
 import { createBoundedMaxHeap } from '../../core/heap'
-import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import type { ThreadedNativeCore } from '../native/thread-slots'
 import type { OrdinalFilter } from '../ordinal-filter'
+import type { OrdinalAdmission } from '../vector-store/admission'
 import { scheduleBuild } from './build'
 import { highScoreFirst, mergeResults } from './merge-results'
 import { bufferCandidates, fetchedOutcome, filteredDocIds } from './search'

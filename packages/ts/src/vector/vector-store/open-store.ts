@@ -79,15 +79,19 @@ export function publishOrdinal(store: OpenStore, ordinal: number): void {
   Atomics.store(store.present, ordinal, 1)
 }
 
+export function placeOnDisk(store: OpenStore, ordinal: number, vectorMagnitude: number, location: DiskLocation): void {
+  store.magnitudes[ordinal] = vectorMagnitude
+  store.diskOffset[ordinal] = location.offset
+  store.diskFile[ordinal] = location.fileIndex
+}
+
 export function publishOnDisk(
   store: OpenStore,
   ordinal: number,
   vectorMagnitude: number,
   location: DiskLocation,
 ): void {
-  store.magnitudes[ordinal] = vectorMagnitude
-  store.diskOffset[ordinal] = location.offset
-  store.diskFile[ordinal] = location.fileIndex
+  placeOnDisk(store, ordinal, vectorMagnitude, location)
   publishOrdinal(store, ordinal)
 }
 

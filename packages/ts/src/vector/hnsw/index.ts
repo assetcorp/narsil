@@ -5,7 +5,6 @@ import {
   NarsilError,
 } from '#platform/vector-core-host'
 import type { VectorEntry } from '../../types/internal'
-import { withTransientAdmission, withTransientAdmissionAsync } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
@@ -29,8 +28,8 @@ import {
 } from './numbered-graph'
 import { deserializeGraph } from './persistence'
 import { searchScratchBytes } from './scratch-bytes'
-import { type GraphSearchOptions, type ResolvedHit, search as searchOp } from './search'
-import { searchOffThread as searchOffThreadOp } from './search-off-thread'
+import type { GraphSearchOptions, ResolvedHit } from './search'
+import { searchAtWriterSequence, searchOffThreadUnderPin } from './search-admission'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -262,24 +261,14 @@ export function createHNSWIndex(
       searchMetric: VectorMetric,
       minSimilarity: number,
       options: GraphSearchOptions = {},
-    ) =>
-      options.admission !== undefined
-        ? searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options)
-        : withTransientAdmission(store.view, admission =>
-            searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, { ...options, admission }),
-          ),
+    ) => searchAtWriterSequence(state, store, docIdOf, query, k, searchMetric, minSimilarity, options),
     searchOffThread: (
       query: Float32Array,
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
       options: GraphSearchOptions,
-    ) =>
-      options.admission !== undefined
-        ? searchOffThreadOp(state, docIdOf, query, k, searchMetric, minSimilarity, options)
-        : withTransientAdmissionAsync(store.view, admission =>
-            searchOffThreadOp(state, docIdOf, query, k, searchMetric, minSimilarity, { ...options, admission }),
-          ),
+    ) => searchOffThreadUnderPin(state, store, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => relinking(() => resetGraph(state)),
     retire: () => Atomics.store(shared.header, GRAPH_RETIRED, 1),
     entries: entriesIterator,

@@ -332,6 +332,16 @@
       "browser": "./src/engine/durability-config-host.browser.ts",
       "default": "./src/engine/durability-config-host.ts"
     },
+    "#platform/thread-heap-host": {
+      "react-native": "./src/runtime/thread-heap-host.ts",
+      "browser": "./src/runtime/thread-heap-host.browser.ts",
+      "default": "./src/runtime/thread-heap-host.ts"
+    },
+    "#platform/resource-limits-host": {
+      "react-native": "./src/workers/resource-limits-host.ts",
+      "browser": "./src/workers/resource-limits-host.browser.ts",
+      "default": "./src/workers/resource-limits-host.ts"
+    },
     "#platform/restore-queue-host": {
       "react-native": "./src/narsil/restore-queue-host.ts",
       "browser": "./src/narsil/restore-queue-host.browser.ts",

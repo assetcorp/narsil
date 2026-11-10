@@ -1,38 +1,42 @@
 import {
   acquireTokenPlan,
-  preparedRemovalReach,
+  holdsUnpairedSurrogate,
   preparedSources,
   prepareSpellingRemoval,
-  readRetirementRegions,
-  readSegmentRegions,
+  readSegmentView,
   releaseTokenPlan,
   removeString,
   requireSegment,
   rowRemoved,
   SegmentRefusal,
+  sharedTexts,
 } from '#platform/segment-removal-host'
 import type { NativeGrowingSegment, NativeSurfaceTable } from '../../vector/native/types/segments'
+import { DocumentRemoval } from './document-removal'
 import type { PreparedSegmentField } from './prepared-tokens'
-import type { SegmentRetirement } from './regions'
 import { RemovalPlan } from './removal'
 import type { StringPlan } from './strings'
 import type { TokenPlan } from './tokens'
+
+const removalPlan = new RemovalPlan()
+const documentRemoval = new DocumentRemoval()
 
 function nonnegative(value: number): number {
   return value > 0 ? value : 0
 }
 
-function readRequest(input: NativeGrowingSegment, ordinal: number, fields: readonly PreparedSegmentField[]) {
-  const { segment, regions } = readSegmentRegions(input, preparedRemovalReach(fields))
+function requireOrdinal(segment: NativeGrowingSegment, ordinal: number): void {
   requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
-  requireSegment(fields.length <= segment.partialFields.length)
+}
+
+function requireFields(segment: NativeGrowingSegment, fields: readonly PreparedSegmentField[]): void {
+  const fieldCount = segment.partialFields.length
+  requireSegment(fields.length <= fieldCount)
   let previous = -1
   for (const { field } of fields) {
-    requireSegment(Number.isInteger(field) && field > previous && field < segment.partialFields.length)
+    requireSegment(Number.isInteger(field) && field > previous && field < fieldCount)
     previous = field
   }
-  regions.check()
-  return { segment, sources: preparedSources(fields) }
 }
 
 function removeSurfaces(plan: StringPlan, table: NativeSurfaceTable, segment: NativeGrowingSegment): void {
@@ -47,8 +51,22 @@ function removeSurfaces(plan: StringPlan, table: NativeSurfaceTable, segment: Na
   }
 }
 
+function removeSharedTexts(
+  segment: NativeGrowingSegment,
+  ordinal: number,
+  texts: readonly string[],
+  fields: readonly PreparedSegmentField[],
+): void {
+  for (const text of texts) requireSegment(!holdsUnpairedSurrogate(text))
+  documentRemoval.collect(segment, texts, fields)
+  removalPlan.prepare(segment, ordinal, documentRemoval)
+  removalPlan.publish(segment, ordinal, documentRemoval)
+  const surfaces = documentRemoval.surfaces
+  if (surfaces !== null && segment.surfaces !== null) removeSurfaces(surfaces, segment.surfaces, segment)
+}
+
 function removeTokens(segment: NativeGrowingSegment, ordinal: number, tokens: TokenPlan): void {
-  const removal = new RemovalPlan(segment, ordinal, tokens.terms)
+  removalPlan.prepare(segment, ordinal, tokens.terms)
   const spellings = tokens.spellings
   if (spellings !== null && segment.spellings !== null) {
     for (let at = 0; at < spellings.size; at++)
@@ -56,7 +74,7 @@ function removeTokens(segment: NativeGrowingSegment, ordinal: number, tokens: To
   }
   const runs =
     spellings === null || segment.spellings === null ? null : prepareSpellingRemoval(segment.spellings.runs, spellings)
-  removal.publish()
+  removalPlan.publish(segment, ordinal, tokens.terms)
   if (tokens.surfaces !== null && segment.surfaces !== null) removeSurfaces(tokens.surfaces, segment.surfaces, segment)
   if (spellings !== null && segment.spellings !== null && runs !== null) {
     runs()
@@ -64,7 +82,7 @@ function removeTokens(segment: NativeGrowingSegment, ordinal: number, tokens: To
   }
 }
 
-function retirable(segment: SegmentRetirement, ordinal: number): boolean {
+function retirable(segment: NativeGrowingSegment, ordinal: number): boolean {
   if (rowRemoved(segment, ordinal)) return false
   requireSegment(segment.totalDocuments[0] > 0 && segment.totalDocuments[0] <= segment.ordinalCapacity)
   for (let field = 0; field < segment.totalFieldLengths.length; field++) {
@@ -74,7 +92,7 @@ function retirable(segment: SegmentRetirement, ordinal: number): boolean {
   return true
 }
 
-function retire(segment: SegmentRetirement, ordinal: number): void {
+function retire(segment: NativeGrowingSegment, ordinal: number): void {
   for (let field = 0; field < segment.partialFields.length; field++) {
     const at = field * segment.ordinalCapacity + ordinal
     segment.totalFieldLengths[field] = nonnegative(segment.totalFieldLengths[field] - segment.fieldLengths[at])
@@ -84,31 +102,35 @@ function retire(segment: SegmentRetirement, ordinal: number): void {
   segment.totalDocuments[0]--
 }
 
-function removeTextlessDocument(input: NativeGrowingSegment, ordinal: number): void {
-  const segment = readRetirementRegions(input)
-  requireSegment(Number.isInteger(ordinal) && ordinal >= 0 && ordinal < segment.ordinalCapacity)
-  if (retirable(segment, ordinal)) retire(segment, ordinal)
+function holdsText(fields: readonly PreparedSegmentField[]): boolean {
+  for (const { text } of fields) if (text.count > 0) return true
+  return false
 }
 
 export function removeDocument(
   input: NativeGrowingSegment,
-  _generation: number,
+  generation: number,
   ordinal: number,
   fields: readonly PreparedSegmentField[],
 ): number {
   try {
-    requireSegment(Array.isArray(fields) && fields.length <= 65536)
-    if (fields.every(({ text }) => text.count === 0)) {
-      removeTextlessDocument(input, ordinal)
+    const segment = readSegmentView(input, generation)
+    requireOrdinal(segment, ordinal)
+    requireFields(segment, fields)
+    if (!retirable(segment, ordinal)) return 0
+    if (!holdsText(fields)) {
+      retire(segment, ordinal)
       return 0
     }
-    const { segment, sources } = readRequest(input, ordinal, fields)
-    if (!retirable(segment, ordinal)) return 0
-    const tokens = acquireTokenPlan(segment, sources, true)
-    try {
-      removeTokens(segment, ordinal, tokens)
-    } finally {
-      releaseTokenPlan(tokens)
+    const texts = sharedTexts(fields)
+    if (texts !== null && segment.spellings === null) removeSharedTexts(segment, ordinal, texts, fields)
+    else {
+      const tokens = acquireTokenPlan(segment, preparedSources(fields), true)
+      try {
+        removeTokens(segment, ordinal, tokens)
+      } finally {
+        releaseTokenPlan(tokens)
+      }
     }
     retire(segment, ordinal)
     return 0

@@ -2,15 +2,15 @@ import { backgroundTurnIsSpent, turnsAreBudgeted, yieldBackgroundTurn } from '#p
 import type { DocIdSet } from '../../core/doc-id-tables/types'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
-import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
-import { type FilterSubset, type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
 import type { HNSWConfig, HNSWIndex } from '../hnsw'
-import { createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
+import type { FilterSubset, OrdinalFilter, OrdinalSpace } from '../ordinal-filter'
+import { createOrdinalFilter, ordinalFilterForSubsets, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { OsqQuantizer } from '../osq'
 import type { VectorSearchPool } from '../search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
+import type { OrdinalAdmission } from '../vector-store/admission'
 import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
 import type { ColdVectorHold } from './cold'
@@ -164,6 +164,7 @@ export interface VectorIndexState {
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
+  scheduledBuild: Promise<void> | null
   buildTimer: ReturnType<typeof setTimeout> | null
   buildRetryDelayMs: number
   readonly buildTurnWaiters: Map<() => void, number>

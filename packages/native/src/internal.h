@@ -211,10 +211,10 @@ static inline int32_t load_word(const int32_t *words, uint32_t index) {
 static inline int store_admits(int32_t ordinal, const narsil_store *store, int64_t pin) {
   if (ordinal < 0) { return 0; }
   if ((uint32_t)ordinal >= (uint32_t)load_word(store->header, NARSIL_STORE_WORD_SLOTS)) { return 0; }
-  int64_t born = atomic_load((const _Atomic(int64_t) *)(store->born_at + ordinal));
-  if (born > pin) { return 0; }
   int64_t retired = atomic_load((const _Atomic(int64_t) *)(store->retired_at + ordinal));
-  return retired == 0 || retired > pin;
+  if (retired != 0 && retired <= pin) { return 0; }
+  int64_t born = atomic_load((const _Atomic(int64_t) *)(store->born_at + ordinal));
+  return born != 0 && born <= pin;
 }
 
 static inline _Atomic(int32_t) *atomic_word(int32_t *words, uint32_t index) {

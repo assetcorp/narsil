@@ -94,6 +94,10 @@ class FlaggedDocuments implements UnplacedVectors {
 
   private leave(docId: string, keepsFlag: boolean): boolean {
     const held = this.members.delete(docId)
+    const store = this.store
+    if (!held && this.handles !== null && store.dimension !== 0 && store.handles === this.handles) {
+      if (!this.ordinals.has(docId)) return false
+    }
     const handles = this.openHandles()
     if (handles === null) return held
     const ordinal = this.ordinals.get(docId)
@@ -102,7 +106,7 @@ class FlaggedDocuments implements UnplacedVectors {
       if (keepsFlag) this.retired.add(ordinal)
       else this.unflag(ordinal)
     }
-    this.publishCount(handles)
+    Atomics.store(handles.header, this.layout.countWord, this.members.size + this.retired.size)
     return held
   }
 

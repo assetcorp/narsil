@@ -1,4 +1,5 @@
 import {
+  coverOrdinal,
   mayFree,
   nextSequence,
   oldestHeldPin,
@@ -14,7 +15,7 @@ import type { RetiredVectorPins } from './retired-pins'
 
 export const UNKNOWN_PARTITION = -1
 export const NO_PARTITION = -2
-export const LOADED_SEQUENCE = 0
+export const LOADED_SEQUENCE = 1
 export const RETIRED_BEFORE_LOAD = 1
 
 export interface StoreState {
@@ -26,10 +27,6 @@ export interface StoreState {
   readonly checkpointPins: RetiredVectorPins
   unknownPartitions: number
   liveCount: number
-}
-
-export function readable(state: StoreState, ordinal: number): boolean {
-  return state.ordToDoc[ordinal] !== undefined || state.replacedOrdinals.has(ordinal) || state.awaitingFree.has(ordinal)
 }
 
 export function oldestPinOf(store: OpenStore): number {
@@ -105,8 +102,8 @@ export function appendOrdinal(
   partitionId?: number,
 ): number {
   const ordinal = claimOrdinal(state, store, docId, false, partitionId)
-  stampBorn(store.sequences, ordinal, sequence)
   writeVector(store, ordinal, vector)
+  stampBorn(store.sequences, ordinal, sequence)
   publishOrdinal(store, ordinal)
   return ordinal
 }
@@ -139,12 +136,17 @@ export function endWrite(store: OpenStore, sequence: number): void {
   publishSequence(store.sequences, sequence)
 }
 
-export function retireDocument(state: StoreState, docId: string): boolean {
+export function retireStoredOrdinal(state: StoreState, ordinal: number): boolean {
   const store = state.open
-  const ordinal = state.docToOrd.get(docId)
-  if (store === null || ordinal === undefined || retiredAtOf(store.sequences, ordinal) !== 0) return false
-  const sequence = beginWrite(state, store)
-  retireInWrite(store, ordinal, sequence)
-  endWrite(store, sequence)
+  if (store === null) return false
+  if (state.awaitingFree.size > 0) freeAwaitingOrdinals(state)
+  const writes = store.sequences
+  if (ordinal >= writes.retired.length) coverOrdinal(writes, ordinal)
+  const retiredHalves = writes.retiredHalves
+  const retiredLow = ordinal * 2
+  if (retiredHalves[retiredLow] !== 0 || retiredHalves[retiredLow + 1] !== 0) return false
+  const sequence = nextSequence(writes)
+  Atomics.store(writes.retired, ordinal, BigInt(sequence))
+  publishSequence(writes, sequence)
   return true
 }

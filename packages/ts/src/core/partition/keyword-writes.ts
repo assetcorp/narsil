@@ -112,6 +112,15 @@ export function keywordFields(
   return { segment, fields }
 }
 
+export function retireTextlessDocument(state: PartitionState, ordinal: number): void {
+  const segment = segments.get(state)?.segment
+  if (segment === undefined)
+    throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The keyword segment has no prepared publication')
+  if (ordinal >= segment.fields.ordinalCapacity)
+    segment.reserveFields(Math.max(ordinal + 1, state.docStore.internalIdCapacity()), state.fieldNameTable.names.length)
+  segment.removeTextless(ordinal)
+}
+
 export function discardKeywordSegment(state: PartitionState): void {
   state.surfaceRegistry.detach()
   state.partialWords.detach()

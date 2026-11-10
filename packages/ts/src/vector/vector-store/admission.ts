@@ -1,6 +1,6 @@
-import { admitsOrdinal, type SequenceReads } from './vector-store/pins'
-import { type StorePins, storePinsOf } from './vector-store/store-pins'
-import type { SharedVectorStoreView } from './vector-store/view'
+import { admitsOrdinal, type SequenceReads } from './pins'
+import { type StorePins, storePinsOf } from './store-pins'
+import type { SharedVectorStoreView } from './view'
 
 /**
  * A search reads one pinned state of a field's store through this object,
@@ -20,6 +20,7 @@ export interface OrdinalAdmission {
 
 class PinnedOrdinals implements OrdinalAdmission {
   private readonly reads: SequenceReads
+  private readonly stamp: bigint
 
   constructor(
     private readonly view: SharedVectorStoreView,
@@ -27,12 +28,13 @@ class PinnedOrdinals implements OrdinalAdmission {
     readonly pin: number,
   ) {
     this.reads = pins.currentReads()
+    this.stamp = BigInt(pin)
   }
 
   admits(ordinal: number): boolean {
     const reads = this.reads
-    if (ordinal >= 0 && ordinal * 2 + 1 < reads.born.length) {
-      return admitsOrdinal(reads, ordinal, this.pin)
+    if (ordinal >= 0 && ordinal < reads.born.length && ordinal < reads.retired.length) {
+      return admitsOrdinal(reads, ordinal, this.stamp)
     }
     return this.pins.admits(ordinal, this.pin)
   }
@@ -41,8 +43,35 @@ class PinnedOrdinals implements OrdinalAdmission {
     this.admits(ordinal) ? this.view.docIdAt(ordinal) : undefined
 }
 
+class WriterOrdinals implements OrdinalAdmission {
+  constructor(
+    private readonly view: SharedVectorStoreView,
+    private readonly retiredHalves: Uint32Array,
+    private readonly slots: number,
+    readonly pin: number,
+  ) {}
+
+  admits(ordinal: number): boolean {
+    const halves = this.retiredHalves
+    const low = ordinal * 2
+    return ordinal >= 0 && ordinal < this.slots && low + 1 < halves.length && halves[low] === 0 && halves[low + 1] === 0
+  }
+
+  readonly docIdOf = (ordinal: number): string | undefined =>
+    this.admits(ordinal) ? this.view.docIdAt(ordinal) : undefined
+}
+
 export function admissionAt(view: SharedVectorStoreView, pin: number): OrdinalAdmission {
   return new PinnedOrdinals(view, storePinsOf(view), pin)
+}
+
+export function writerAdmissionAt(
+  view: SharedVectorStoreView,
+  retiredHalves: Uint32Array,
+  slots: number,
+  pin: number,
+): OrdinalAdmission {
+  return new WriterOrdinals(view, retiredHalves, slots, pin)
 }
 
 export interface HeldAdmission {

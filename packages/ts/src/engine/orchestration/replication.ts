@@ -251,7 +251,17 @@ function settled(queue: ReplicationQueue): Promise<void> {
   return Promise.all([...queue.inFlight, queue.tail]).then(() => undefined)
 }
 
-export async function awaitPublicationCapacity(state: OrchestratorState, indexName: string): Promise<void> {
+export function publicationCapacityWait(state: OrchestratorState, indexName: string): Promise<void> | null {
+  const waiting = replicationRoomWait(state, indexName)
+  return waiting === null ? null : awaitPublicationCapacity(state, indexName, waiting)
+}
+
+async function awaitPublicationCapacity(
+  state: OrchestratorState,
+  indexName: string,
+  first: Promise<void>,
+): Promise<void> {
+  await first
   for (;;) {
     const waiting = replicationRoomWait(state, indexName)
     if (waiting === null) return
