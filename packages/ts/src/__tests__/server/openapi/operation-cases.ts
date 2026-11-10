@@ -110,7 +110,10 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   capabilities: { valid: () => ({ statuses: [200] }), hostile: () => ignoredJunkQuery() },
   getMemoryStats: { valid: () => ({ statuses: [200] }), hostile: () => ignoredJunkQuery() },
   createIndex: {
-    valid: () => ({ json: { name: INDEX, config: { schema: INDEX_SCHEMA } }, statuses: [201] }),
+    valid: () => ({
+      json: { name: INDEX, config: { schema: INDEX_SCHEMA, partitions: { maxPartitions: 2 } } },
+      statuses: [201],
+    }),
     alsoValid: () => [{ json: { name: SUGGESTIONS_SOURCE, config: { schema: { title: 'string' } } }, statuses: [201] }],
     hostile: () => ({ json: { name: 'bad', config: { schema: { title: 'text' } } }, statuses: [400] }),
   },
