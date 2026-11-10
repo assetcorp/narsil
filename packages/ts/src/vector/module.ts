@@ -1,4 +1,10 @@
-export { bindVectorHost, holdAdmission, releaseLocksHeldBy, releasePinsHeldBy } from '#platform/vector-host'
+export {
+  bindVectorHost,
+  holdAdmission,
+  releaseLocksHeldBy,
+  releasePinsHeldBy,
+  requireUsableVectorOptions,
+} from '#platform/vector-host'
 export { filterSubsetsMatchNothing } from '../engine/query/subset-search'
 export { executeHybridSearch, executeVectorSearch, vectorLegWith } from '../engine/query/vector'
 export { compactVectors, getVectorMaintenanceStatus, optimizeVectors } from '../engine/vector-maintenance'

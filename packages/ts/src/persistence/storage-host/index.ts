@@ -155,7 +155,7 @@ export { osqDistance, osqEstimate } from '../../vector/osq/estimate'
 export { scalarQueryProducts } from '../../vector/osq/products'
 export { createOsqScratch, osqQuantize } from '../../vector/osq/quantize'
 export { osqRecordBytes, readTrailer, stageQueryLevels } from '../../vector/osq/record'
-export { defaultEfSearch, defaultRescoreDepth } from '../../vector/search-depth'
+export { defaultEfSearch, rescoreDepth } from '../../vector/search-depth'
 export { createFixedBuffer } from '../../vector/shared-buffers/growable'
 export { magnitude } from '../../vector/similarity'
 export {

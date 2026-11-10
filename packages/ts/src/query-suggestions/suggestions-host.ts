@@ -16,7 +16,7 @@ export { crc32 } from '../serialization/crc32'
 export { openChecksummedEnvelope, packEnvelopeWithChecksum } from '../serialization/envelope-file'
 export { decode } from '../serialization/msgpack'
 export { attachedRuntimeOf, attachRuntime } from './attached'
-export { banListFromInput, normaliseBan } from './bans'
+export { banListFromInput, normaliseBan, unionOfBans } from './bans'
 export {
   BUILD_LIST_PAGE,
   BUILD_WRITE_BATCH,

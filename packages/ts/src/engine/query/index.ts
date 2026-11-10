@@ -106,6 +106,7 @@ export async function executePreflight(
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (isVectorOnly || isHybridMode) requireLoadedVectorCode().requireUsableVectorOptions(params.vector)
   const loadingPhraseCode = loadPhraseCodeFor(params.term)
   const loadingFacetCode = loadFacetMergesFor(params.facets)
   if (loadingPhraseCode !== null || loadingFacetCode !== null) await Promise.all([loadingPhraseCode, loadingFacetCode])

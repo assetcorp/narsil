@@ -49,6 +49,10 @@ export interface VectorQueryConfig {
    * plus a margin, where the margin is 50 below 768 dimensions, 75 from 768
    * to 1,023 dimensions, and 0 at 1,024 dimensions and above. Under a
    * filter, the engine counts only the candidates that pass the filter.
+   * A vector or hybrid query throws a `NarsilError` with `CONFIG_INVALID`
+   * before it searches when `efSearch` is not a whole number from 1 to
+   * 10,000, whether or not the field holds a graph yet and whether or not
+   * its filter matches a document.
    */
   efSearch?: number
   /**
@@ -72,7 +76,11 @@ export interface VectorQueryConfig {
    * candidates that pass the filter. On vectors spread evenly across every
    * dimension, a one-bit or two-bit code can find fewer than 95% of the true
    * nearest neighbours at these defaults, so raise `oversample` on a query that
-   * needs more of them.
+   * needs more of them. The engine re-scores at most the larger of 10,000 and
+   * the default depth, so a larger `oversample` can't lengthen the walk past
+   * that. A vector or hybrid query throws a `NarsilError` with
+   * `CONFIG_INVALID` before it searches when `oversample` is not a finite
+   * number of at least 1.
    */
   oversample?: number
 }
