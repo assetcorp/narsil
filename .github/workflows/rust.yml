@@ -162,4 +162,4 @@ jobs:
 
       - name: Test
         working-directory: packages/rust
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
