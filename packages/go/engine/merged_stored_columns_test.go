@@ -17,6 +17,8 @@ const (
 	mergedNotesIndex            = "notes"
 	mergedNotesMarker           = "ledger"
 	mergedNotesDocuments        = 3_000
+	mergedNotesMaxDocuments     = 30_000
+	mergedNotesBatch            = 500
 	mergedNotesRepeats          = 2_000
 	mergedNotesWorkCap          = 1 << 40
 	mergedNotesMinimumSegments  = 3
@@ -65,16 +67,9 @@ func checkMergedPatternMatches(t *testing.T, searchBeforeMerge, thinOlderSegment
 	narsil := openPlainEngine(t, engine.Config{PatternWorkCap: engine.Some(int64(mergedNotesWorkCap))})
 	createSpreadIndex(t, narsil, mergedNotesIndex, engine.Schema{"title": engine.FieldString,
 		"note": engine.FieldString.WithOptions(engine.TextFieldPattern)}, 1)
-	notes := make(map[string]string, mergedNotesDocuments)
-	batch := make([]*engine.Document, mergedNotesDocuments)
 	prefix := strings.Repeat("ab", mergedNotesRepeats)
-	for at := range batch {
-		id, note := "note-"+strconv.Itoa(at), prefix+strconv.Itoa(at)
-		notes[id] = note
-		batch[at] = engine.DocumentFromMap(map[string]any{"id": id, "title": mergedNotesMarker, "note": note})
-	}
-	insertEvery(t, narsil, mergedNotesIndex, batch)
-	stopWriting := keepTheNotesGrowing(narsil, prefix)
+	notes := insertNotesUntilTheyFillSegments(t, narsil, prefix)
+	stopWriting := keepTheNotesGrowing(narsil, prefix, len(notes))
 	if thinOlderSegments {
 		var removed []string
 		for at := range mergedNotesThinnedBelow {
@@ -120,7 +115,32 @@ func checkMergedPatternMatches(t *testing.T, searchBeforeMerge, thinOlderSegment
 	requireMergedPatternMatches(t, narsil, notes, "after the merge")
 }
 
-func keepTheNotesGrowing(narsil *engine.Narsil, prefix string) func() (map[string]string, error) {
+func insertNotesUntilTheyFillSegments(t *testing.T, narsil *engine.Narsil, prefix string) map[string]string {
+	t.Helper()
+	notes := map[string]string{}
+	for first := 0; first < mergedNotesMaxDocuments; first += mergedNotesBatch {
+		batch := make([]*engine.Document, 0, mergedNotesBatch)
+		for number := first; number < first+mergedNotesBatch; number++ {
+			batch = append(batch, engine.DocumentFromMap(map[string]any{"id": "note-" + strconv.Itoa(number),
+				"title": mergedNotesMarker, "note": prefix + strconv.Itoa(number)}))
+		}
+		insertEvery(t, narsil, mergedNotesIndex, batch)
+		for number := first; number < first+mergedNotesBatch; number++ {
+			notes["note-"+strconv.Itoa(number)] = prefix + strconv.Itoa(number)
+		}
+		segments, err := engine.SearchedSegmentsOf(context.Background(), narsil, mergedNotesIndex)
+		if err != nil || len(segments) != 1 {
+			t.Fatalf("reading the searched segments failed: %v, with %v", err, segments)
+		}
+		if len(notes) >= mergedNotesDocuments && segments[0] >= mergedNotesMinimumSegments {
+			return notes
+		}
+	}
+	t.Fatalf("%d notes never filled %d segments", len(notes), mergedNotesMinimumSegments)
+	return nil
+}
+
+func keepTheNotesGrowing(narsil *engine.Narsil, prefix string, first int) func() (map[string]string, error) {
 	stop, done := make(chan struct{}), make(chan struct{})
 	added := map[string]string{}
 	var failure error
@@ -128,7 +148,7 @@ func keepTheNotesGrowing(narsil *engine.Narsil, prefix string) func() (map[strin
 		defer close(done)
 		ticker := time.NewTicker(mergedNotesKeptGrowingEvery)
 		defer ticker.Stop()
-		for number := mergedNotesDocuments; ; number++ {
+		for number := first; ; number++ {
 			select {
 			case <-stop:
 				return
