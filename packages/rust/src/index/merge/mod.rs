@@ -1,10 +1,12 @@
 mod columns;
 mod documents;
+mod enum_columns;
+mod field_regions;
+mod field_targets;
 mod inputs;
 mod keywords;
 mod paged;
 mod partial_table;
-mod pattern;
 mod sources;
 mod tail_columns;
 
@@ -65,7 +67,7 @@ pub(crate) fn merge_segments(
     for input in &inputs {
         per_input.push((input_columns(input.entry, schema)?, input));
     }
-    let columns = merge_columns(&per_input)?;
+    let columns = merge_columns(&per_input, document_count)?;
     let partial_words = partial_table(
         &keywords.spellings,
         &keywords.postings,

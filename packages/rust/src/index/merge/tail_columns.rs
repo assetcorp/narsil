@@ -1,8 +1,7 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::inputs::as_u32;
-use super::pattern::tail_pattern_column;
 use crate::error::Result;
 use crate::format::keyword_columns::{
     BooleanColumn, EnumColumn, GeopointColumn, PatternColumn, ValueColumn,
@@ -10,14 +9,10 @@ use crate::format::keyword_columns::{
 use crate::index::indexed::nested_value;
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::index::tail::TailSegment;
+use crate::pattern::text::{Run, runs_of};
 use crate::schema::CompiledSchema;
+use crate::util::case_fold::append_folded;
 use crate::value::Value;
-
-const LOCATION_CODE_BITS_PER_AXIS: u32 = 26;
-const LOCATION_AXIS_CELLS: f64 = (1u64 << LOCATION_CODE_BITS_PER_AXIS) as f64;
-const MAX_LATITUDE_DEGREES: f64 = 90.0;
-const MAX_LONGITUDE_DEGREES: f64 = 180.0;
-const FULL_TURN_DEGREES: f64 = 360.0;
 
 /// The field columns of one merge input in that input's order, borrowed from a frozen segment or built from a tail.
 pub(crate) struct InputColumns<'a> {
@@ -29,27 +24,44 @@ pub(crate) struct InputColumns<'a> {
     pub(crate) pattern: Cow<'a, [PatternColumn]>,
 }
 
-fn axis_cell(value: f64, lowest: f64, span: f64) -> u64 {
-    let cell = (((value - lowest) / span) * LOCATION_AXIS_CELLS).floor();
-    if cell.is_nan() || cell <= 0.0 {
-        return 0;
+fn tail_pattern_column(path: &str, values: &[(u32, Value)]) -> Result<PatternColumn> {
+    let mut column = PatternColumn {
+        field: path.to_string(),
+        offsets: vec![0],
+        ..PatternColumn::default()
+    };
+    let mut folded = Vec::new();
+    let mut runs: BTreeSet<Run> = BTreeSet::new();
+    for (ordinal, value) in values {
+        let texts: Vec<&str> = match value {
+            Value::String(text) => vec![text.as_str()],
+            Value::Array(elements) => elements
+                .iter()
+                .filter_map(|element| match element {
+                    Value::String(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect(),
+            _ => continue,
+        };
+        column.documents.push(*ordinal);
+        runs.clear();
+        for text in texts {
+            folded.clear();
+            for point in text.chars() {
+                append_folded(u32::from(point), &mut folded);
+            }
+            runs.extend(runs_of(&folded));
+        }
+        for run in &runs {
+            column.runs.extend_from_slice(run);
+            column.postings.push(*ordinal);
+            column
+                .offsets
+                .push(as_u32(column.postings.len(), "pattern postings")?);
+        }
     }
-    if cell >= LOCATION_AXIS_CELLS {
-        return (LOCATION_AXIS_CELLS as u64) - 1;
-    }
-    cell as u64
-}
-
-/// Returns the cell code of a geopoint, interleaving the latitude and longitude cells bit by bit, which orders the
-/// rows of a geopoint column as the reference geo index orders them.
-fn location_code(latitude: f64, longitude: f64) -> u64 {
-    let row = axis_cell(latitude, -MAX_LATITUDE_DEGREES, 2.0 * MAX_LATITUDE_DEGREES);
-    let column = axis_cell(longitude, -MAX_LONGITUDE_DEGREES, FULL_TURN_DEGREES);
-    (0..LOCATION_CODE_BITS_PER_AXIS)
-        .rev()
-        .fold(0u64, |code, bit| {
-            code * 4 + ((row >> bit) & 1) * 2 + ((column >> bit) & 1)
-        })
+    Ok(column)
 }
 
 /// Ranks each column path of a tail by the first live document that holds a value in it and then by schema order,
@@ -164,25 +176,11 @@ fn tail_columns<'a>(
     }
     let geopoint = in_first_met_order(&columns.geopoints, &ranks)
         .into_iter()
-        .map(|(path, entries)| {
-            let mut rows: Vec<(u64, u32, f64, f64)> = entries
-                .iter()
-                .map(|&(ordinal, latitude, longitude)| {
-                    (
-                        location_code(latitude, longitude),
-                        ordinal,
-                        latitude,
-                        longitude,
-                    )
-                })
-                .collect();
-            rows.sort_by_key(|&(code, ordinal, _, _)| (code, ordinal));
-            GeopointColumn {
-                field: path.clone(),
-                documents: rows.iter().map(|row| row.1).collect(),
-                latitudes: rows.iter().map(|row| row.2).collect(),
-                longitudes: rows.iter().map(|row| row.3).collect(),
-            }
+        .map(|(path, entries)| GeopointColumn {
+            field: path.clone(),
+            documents: entries.iter().map(|row| row.0).collect(),
+            latitudes: entries.iter().map(|row| row.1).collect(),
+            longitudes: entries.iter().map(|row| row.2).collect(),
         })
         .collect();
     let pattern: Result<Vec<PatternColumn>> = in_first_met_order(&columns.patterns, &ranks)

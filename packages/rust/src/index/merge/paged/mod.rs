@@ -87,7 +87,7 @@ fn resident_columns(
     for input in inputs {
         per_input.push((input_columns(input.entry, schema)?, input));
     }
-    let columns = merge_columns(&per_input)?;
+    let columns = merge_columns(&per_input, resident.document_count)?;
     resident.numeric = columns.numeric;
     resident.sizes = columns.sizes;
     resident.boolean = columns.boolean;
