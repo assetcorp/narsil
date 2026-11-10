@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use narsil::{
-    DurabilityConfig, DurabilityMode, IndexConfig, Map, Narsil, NarsilConfig, QueryParams, Value,
-    VectorPromotion, VectorQuery, parse_json,
+    DurabilityConfig, DurabilityMode, HnswSettings, IndexConfig, Map, Narsil, NarsilConfig,
+    QueryParams, Value, VectorPromotion, VectorQuery, parse_json,
 };
 use support::{ScratchDirectory, repository_root};
 
@@ -28,6 +28,13 @@ const SCORE_TOLERANCE: f64 = 1e-4;
 const RECALL_FLOOR: f64 = 0.9;
 const BUILD_SETTLE_TIMEOUT: Duration = Duration::from_secs(60);
 const BUILD_SETTLE_POLL: Duration = Duration::from_millis(10);
+const REACH_CHECKPOINTS: u64 = 30;
+const REACH_WAVE_DOCUMENTS: u64 = 3_000;
+const REACH_GRAPH_M: u32 = 4;
+const REACH_MAX_DOCUMENTS: u64 = 60_000;
+const REACH_CLUSTERS: u64 = 24;
+const REACH_CLUSTER_SEED: u64 = 90_000_000;
+const REACH_CLUSTER_SPREAD: f32 = 0.02;
 const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
 const CHILD_ROUND: &str = "NARSIL_VECTOR_BUILD_KILL_ROUND";
@@ -217,6 +224,7 @@ struct GraphCounts {
     tombstone_count: u64,
     live_nodes: Vec<String>,
     live_without_node: Vec<String>,
+    unreached_live_nodes: Vec<String>,
 }
 
 fn saved_graph_counts(root: &Path) -> GraphCounts {
@@ -255,7 +263,111 @@ fn saved_graph_counts(root: &Path) -> GraphCounts {
         tombstone_count: number("tombstoneCount"),
         live_nodes: ids("liveNodes"),
         live_without_node: ids("liveWithoutNode"),
+        unreached_live_nodes: ids("unreachedLiveNodes"),
     }
+}
+
+fn clustered_vector(number: u64) -> Vec<f32> {
+    let centre = vector_of(REACH_CLUSTER_SEED + number % REACH_CLUSTERS);
+    let offset = vector_of(number);
+    centre
+        .iter()
+        .zip(&offset)
+        .map(|(centre, offset)| centre + offset * REACH_CLUSTER_SPREAD)
+        .collect()
+}
+
+fn insert_clustered_wave(engine: &Narsil, first: u64) {
+    let batch: Vec<Map> = (first..first + REACH_WAVE_DOCUMENTS)
+        .map(|number| {
+            let mut map = Map::new();
+            map.insert("id", Value::String(id_of(number)));
+            map.insert(FIELD, as_value(&clustered_vector(number)));
+            map
+        })
+        .collect();
+    let result = engine
+        .insert_batch(INDEX, batch)
+        .expect("the batch completes");
+    assert!(result.failed.is_empty());
+}
+
+#[test]
+fn checkpoints_taken_while_vectors_arrive_save_graphs_that_reach_every_vector() {
+    let root = ScratchDirectory::new("vector-checkpoint-reach");
+    let engine =
+        Narsil::open(durable_config(root.path(), DurabilityMode::Async)).expect("the engine opens");
+    engine
+        .create_index(
+            INDEX,
+            IndexConfig {
+                vector_promotion: Some(VectorPromotion {
+                    threshold: Some(GRAPH_THRESHOLD),
+                    hnsw: Some(HnswSettings {
+                        m: Some(REACH_GRAPH_M),
+                        ..HnswSettings::default()
+                    }),
+                    ..VectorPromotion::default()
+                }),
+                ..index_config()
+            },
+        )
+        .expect("the index is created");
+    insert_clustered_wave(&engine, 0);
+    settle_build(&engine);
+    let arriving = AtomicBool::new(true);
+    let arrived = AtomicU64::new(REACH_WAVE_DOCUMENTS);
+    let mut checkpoints_begun_during_a_build = 0;
+    let mut unreached = None;
+    std::thread::scope(|scope| {
+        let engine = &engine;
+        let arriving = &arriving;
+        let arrived = &arrived;
+        scope.spawn(move || {
+            while arriving.load(Ordering::Acquire)
+                && arrived.load(Ordering::Acquire) < REACH_MAX_DOCUMENTS
+            {
+                insert_clustered_wave(engine, arrived.load(Ordering::Acquire));
+                arrived.fetch_add(REACH_WAVE_DOCUMENTS, Ordering::AcqRel);
+            }
+        });
+        for checkpoint in 0..REACH_CHECKPOINTS {
+            if building(engine) {
+                checkpoints_begun_during_a_build += 1;
+            }
+            engine.checkpoint(INDEX).expect("the checkpoint commits");
+            let counts = saved_graph_counts(root.path());
+            if !counts.unreached_live_nodes.is_empty() {
+                unreached = Some(format!(
+                    "checkpoint {checkpoint} saved a graph of {} nodes that never reaches {} live vectors, such as {:?}",
+                    counts.node_count,
+                    counts.unreached_live_nodes.len(),
+                    counts.unreached_live_nodes.first()
+                ));
+                break;
+            }
+        }
+        arriving.store(false, Ordering::Release);
+    });
+    assert_eq!(unreached, None);
+    assert!(
+        checkpoints_begun_during_a_build > 0,
+        "no checkpoint began while a build placed vectors"
+    );
+    settle_build(&engine);
+    engine.checkpoint(INDEX).expect("the checkpoint commits");
+    let settled = saved_graph_counts(root.path());
+    assert_eq!(
+        settled.live_nodes.len() as u64,
+        arrived.load(Ordering::Acquire),
+        "the settled graph holds every vector that arrived"
+    );
+    assert!(
+        settled.live_without_node.is_empty() && settled.unreached_live_nodes.is_empty(),
+        "the settled graph leaves {} vectors without a node and never reaches {}",
+        settled.live_without_node.len(),
+        settled.unreached_live_nodes.len()
+    );
 }
 
 fn require_graph_holds_live_documents(

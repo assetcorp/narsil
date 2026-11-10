@@ -118,6 +118,9 @@ fn place_later_nodes(
         graph
     };
     quantise_all(shared, writer, &wanted)?;
+    if graph.incoming_uncounted() {
+        graph.count_incoming();
+    }
     let metric = graph.metric;
     with_scratch(|scratch| {
         for &ordinal in &wanted {
