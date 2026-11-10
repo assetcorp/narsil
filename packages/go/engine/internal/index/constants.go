@@ -28,6 +28,7 @@ const (
 	InPlaceWriteChunkDocuments = 256
 	compactionSegmentTrigger   = 8
 	segmentsPerMerge           = 8
+	liveTailFreezeFloor        = 64
 	maxCompactionRounds        = 64
 	idleMergeDelay             = time.Second
 )
