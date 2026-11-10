@@ -2,6 +2,7 @@ package partition
 
 import (
 	"math"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +22,8 @@ type Sides struct {
 	documents  atomic.Int64
 	heldState  [sideCount]atomic.Int64
 	readers    [sideCount]atomic.Int64
+	gate       atomic.Pointer[chan struct{}]
+	waiting    atomic.Int64
 }
 
 func NewSides(slots *vector.Slots) *Sides {
@@ -47,30 +50,91 @@ func (s *Sides) claim(side int) {
 }
 
 func (s *Sides) Write(apply func(write *Write) error) error {
-	return s.slots.Write(func(sequence int64) error {
-		side := 1 - int(s.latest.Load()&1)
-		s.claim(side)
+	return s.write(false, apply)
+}
+
+func (s *Sides) WriteInPlace(apply func(write *Write) error) error {
+	return s.write(true, apply)
+}
+
+func (s *Sides) write(inPlace bool, apply func(write *Write) error) error {
+	var gate chan struct{}
+	err := s.slots.Write(func(sequence int64) error {
 		w, err := core.AcquireWorkspace()
 		if err != nil {
 			return err
 		}
 		defer w.Release()
-		write := &Write{Workspace: w, Sequence: sequence, side: side}
-		for _, partition := range s.partitions {
-			if err := partition.catchUp(write); err != nil {
+		published := int(s.latest.Load() & 1)
+		if inPlace && s.waiting.Load() == 0 && !s.freezesNext(published) {
+			gate = s.closeGate(published)
+		}
+		write := &Write{Workspace: w, Sequence: sequence, side: published}
+		if gate != nil {
+			s.heldState[1-published].Store(stateBeingWritten)
+		} else {
+			write.side = 1 - published
+			if err := s.catchUp(write); err != nil {
 				return err
 			}
 		}
 		err = apply(write)
-		documents := 0
-		for _, partition := range s.partitions {
-			documents += partition.sides[side].documentCount()
+		if gate != nil && s.readers[1-published].Load() == 0 {
+			for _, partition := range s.partitions {
+				partition.dropBacklog()
+			}
 		}
-		s.documents.Store(int64(documents))
-		s.heldState[side].Store(sequence)
-		s.latest.Store(sequence<<1 | int64(side))
+		s.publish(write)
 		return err
 	})
+	if gate != nil {
+		s.gate.Store(nil)
+		close(gate)
+	}
+	return err
+}
+
+func (s *Sides) freezesNext(side int) bool {
+	for _, partition := range s.partitions {
+		if partition.freezesNext(side) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Sides) closeGate(side int) chan struct{} {
+	opened := make(chan struct{})
+	s.gate.Store(&opened)
+	held := s.heldState[side].Load()
+	s.heldState[side].Store(stateBeingWritten)
+	if s.readers[side].Load() == 0 {
+		return opened
+	}
+	s.heldState[side].Store(held)
+	s.gate.Store(nil)
+	close(opened)
+	return nil
+}
+
+func (s *Sides) catchUp(write *Write) error {
+	s.claim(write.side)
+	for _, partition := range s.partitions {
+		if err := partition.catchUp(write); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Sides) publish(write *Write) {
+	documents := 0
+	for _, partition := range s.partitions {
+		documents += partition.sides[write.side].documentCount()
+	}
+	s.documents.Store(int64(documents))
+	s.heldState[write.side].Store(write.Sequence)
+	s.latest.Store(write.Sequence<<1 | int64(write.side))
 }
 
 func (s *Sides) DocumentCount() int {
@@ -103,6 +167,12 @@ type Read struct {
 }
 
 func (s *Sides) Read() (*Read, error) {
+	waited := false
+	defer func() {
+		if waited {
+			s.waiting.Add(-1)
+		}
+	}()
 	for {
 		lease, err := s.slots.AcquireSearch()
 		if err != nil {
@@ -111,7 +181,17 @@ func (s *Sides) Read() (*Read, error) {
 		if side, entered := s.enter(lease.Pin()); entered {
 			return &Read{lease: lease, side: side, hold: &sideHold{sides: s}}, nil
 		}
+		gate := s.gate.Load()
 		lease.Release()
+		if gate == nil {
+			runtime.Gosched()
+			continue
+		}
+		if !waited {
+			waited = true
+			s.waiting.Add(1)
+		}
+		<-*gate
 	}
 }
 
