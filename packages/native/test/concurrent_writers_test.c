@@ -157,7 +157,7 @@ static int race_the_first_placements(narsil_workspace *const workspaces[WRITER_T
   pthread_t threads[WRITER_THREADS];
   first_placement placements[WRITER_THREADS];
   int started = 0;
-  for (int32_t thread = 0; thread < WRITER_THREADS; thread++) {
+  for (int32_t thread = 0; thread < WRITER_THREADS && started == thread; thread++) {
     placements[thread] = (first_placement){fixture, workspaces[thread], &arrived, thread, NARSIL_INVALID_ARGUMENT};
     started += pthread_create(&threads[thread], NULL, place_at_the_start_gate, &placements[thread]) == 0;
   }
