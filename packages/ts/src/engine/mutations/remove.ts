@@ -93,7 +93,7 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
 }
 
 async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
-  const settling = ctx.orchestrator.settlePublications(indexName)
+  const settling = ctx.orchestrator.settlePublications(indexName, 'none')
   if (settling !== undefined) await settling
   const { docId } = prepared
   try {

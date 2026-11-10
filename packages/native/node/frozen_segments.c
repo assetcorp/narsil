@@ -3,6 +3,7 @@
 #include "../include/narsil_core.h"
 #include "../include/narsil_frozen_segments.h"
 #include "../include/narsil_segments.h"
+#include "../src/segments/frozen.h"
 #include "paged.h"
 #include "segments.h"
 #include "values.h"
@@ -139,33 +140,98 @@ enum { ORDINAL = FROZEN_REGION_ARGUMENTS, FIELDS, PAGED, REMOVE_ARGUMENTS };
 enum { ENTRIES = PAGED, VALUES, PREPARED_PAGED, PREPARE_ARGUMENTS };
 enum { STACK_FIELDS = 8 };
 
+static int read_removal_output(napi_env env, const napi_value *argv, narsil_frozen_removal_output *output) {
+  void *entries = NULL;
+  void *values = NULL;
+  size_t entry_words = 0;
+  size_t value_capacity = 0;
+  if (!possibly_empty_typed_data(env, argv[ENTRIES], napi_uint32_array, &entries, &entry_words) ||
+      !possibly_empty_typed_data(env, argv[VALUES], napi_float64_array, &values, &value_capacity) ||
+      entry_words % 2 != 0) {
+    return 0;
+  }
+  *output = (narsil_frozen_removal_output){entries, values, entry_words / 2, value_capacity};
+  return 1;
+}
+
+static int read_record_state(napi_env env, const napi_value *argv, narsil_frozen_segment *segment,
+                             narsil_frozen_segment_state *state) {
+  enum { POSTING_PARTIAL = 5, STATE_BITS = 0, STATE_COUNT = 1, STATE_HEADER = 6, STATE_PENDING = 7 };
+  enum { PARTIAL, BITS, COUNT, HEADER, PENDING, TOKENS, UNITS, RECORD_ARRAYS };
+  enum { WORD_BITS = 32 };
+  const napi_value handles[RECORD_ARRAYS] = {
+      argv[REGION_POSTINGS + POSTING_PARTIAL], argv[REGION_STATE + STATE_BITS],
+      argv[REGION_STATE + STATE_COUNT],        argv[REGION_STATE + STATE_HEADER],
+      argv[REGION_STATE + STATE_PENDING],      argv[REGION_STATE + STATE_PENDING + 1],
+      argv[REGION_STATE + STATE_PENDING + 2]};
+  const napi_typedarray_type types[RECORD_ARRAYS] = {napi_uint8_array,  napi_uint32_array, napi_uint32_array,
+                                                     napi_uint32_array, napi_uint32_array, napi_uint32_array,
+                                                     napi_uint16_array};
+  void *data[RECORD_ARRAYS] = {0};
+  size_t lengths[RECORD_ARRAYS] = {0};
+  uint32_t documents = 0;
+  if (!segment_uint_argument(env, argv[REGION_DOCUMENT_COUNT], &documents) ||
+      !read_segment_arrays(env, handles, types, RECORD_ARRAYS, data, lengths)) {
+    return 0;
+  }
+  size_t words = documents == 0 ? 1 : (((size_t)documents - 1) / WORD_BITS) + 1;
+  if (lengths[PARTIAL] > (size_t)UINT16_MAX + 1 || lengths[BITS] != words || lengths[COUNT] != 1 ||
+      lengths[HEADER] != NARSIL_PENDING_HEADER_WORDS || lengths[TOKENS] % NARSIL_PENDING_TOKEN_WORDS != 0) {
+    return 0;
+  }
+  *segment = (narsil_frozen_segment){
+      .partial_fields = data[PARTIAL], .field_count = (uint32_t)lengths[PARTIAL], .document_count = documents};
+  *state = (narsil_frozen_segment_state){
+      .tombstones = data[BITS],
+      .tombstone_count = data[COUNT],
+      .pending_header = data[HEADER],
+      .pending_documents = data[PENDING],
+      .pending_document_capacity = lengths[PENDING],
+      .pending_tokens = data[TOKENS],
+      .pending_token_capacity = lengths[TOKENS] / NARSIL_PENDING_TOKEN_WORDS,
+      .pending_units = data[UNITS],
+      .pending_unit_capacity = lengths[UNITS],
+  };
+  return 1;
+}
+
+static narsil_status record_prepared(napi_env env, const napi_value *argv, uint32_t ordinal,
+                                     const narsil_field_tokens *fields, uint32_t count, size_t *written) {
+  narsil_frozen_segment segment = {0};
+  narsil_frozen_segment_state state = {0};
+  narsil_frozen_removal_output output = {0};
+  if (!read_record_state(env, argv, &segment, &state) || !read_removal_output(env, argv, &output)) {
+    return NARSIL_INVALID_ARGUMENT;
+  }
+  narsil_remove_frozen_request request = {&segment, &state, ordinal, fields, count, NULL};
+  return frozen_record_prepared_removal(&request, &output, written);
+}
+
 static narsil_status apply(napi_env env, thread_state *thread, const napi_value *argv, uint32_t count,
                            field_handles *handles, narsil_field_tokens *fields, int preparing, size_t *written) {
+  uint32_t ordinal = 0;
+  if (!segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
+      !prepare_segment_fields(env, argv[FIELDS], handles, count) || !read_segment_fields(env, handles, fields, count)) {
+    return NARSIL_INVALID_ARGUMENT;
+  }
+  if (preparing) {
+    narsil_status recorded = record_prepared(env, argv, ordinal, fields, count, written);
+    if (recorded != NARSIL_NEEDS_ROOM) { return recorded; }
+  }
   frozen_handles source = {0};
   node_frozen_segment segment = {0};
   frozen_paged_handles paged_handles = {0};
   node_frozen_paged paged = {0};
   const narsil_frozen_paged_removals *removals = NULL;
-  uint32_t ordinal = 0;
-  if (!prepare_frozen_arguments(env, argv, &source) || !segment_uint_argument(env, argv[ORDINAL], &ordinal) ||
-      !prepare_segment_fields(env, argv[FIELDS], handles, count) ||
+  if (!prepare_frozen_arguments(env, argv, &source) ||
       !prepare_frozen_paged(env, argv[preparing ? PREPARED_PAGED : PAGED], &paged_handles) ||
-      !read_frozen_segment(env, &source, &segment) || !read_segment_fields(env, handles, fields, count) ||
-      !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
+      !read_frozen_segment(env, &source, &segment) || !read_frozen_paged(env, &paged_handles, &paged, &removals)) {
     return NARSIL_INVALID_ARGUMENT;
   }
   narsil_remove_frozen_request request = {&segment.segment, &segment.state, ordinal, fields, count, removals};
   if (preparing) {
-    void *entries = NULL;
-    void *values = NULL;
-    size_t entry_words = 0;
-    size_t value_capacity = 0;
-    if (!possibly_empty_typed_data(env, argv[ENTRIES], napi_uint32_array, &entries, &entry_words) ||
-        !possibly_empty_typed_data(env, argv[VALUES], napi_float64_array, &values, &value_capacity) ||
-        entry_words % 2 != 0) {
-      return NARSIL_INVALID_ARGUMENT;
-    }
-    narsil_frozen_removal_output output = {entries, values, entry_words / 2, value_capacity};
+    narsil_frozen_removal_output output = {0};
+    if (!read_removal_output(env, argv, &output)) { return NARSIL_INVALID_ARGUMENT; }
     return narsil_prepare_frozen_removal(thread->workspace, &request, &output, written);
   }
   return narsil_remove_frozen_document(thread->workspace, &request);

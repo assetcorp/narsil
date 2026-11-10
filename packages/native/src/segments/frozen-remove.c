@@ -111,13 +111,10 @@ static void update(const narsil_frozen_removal_output *output, size_t position, 
   output->values[position] = replacement.value;
 }
 
-narsil_status narsil_prepare_frozen_removal(narsil_workspace *workspace, const narsil_remove_frozen_request *request,
-                                            const narsil_frozen_removal_output *output, size_t *count) {
-  narsil_status status = frozen_removal_regions(request);
-  if (status != NARSIL_OK) { return status; }
-  status = frozen_removal_output_regions(request, output, count);
-  if (status != NARSIL_OK) { return status; }
+static narsil_status admit_prepared(const narsil_remove_frozen_request *request,
+                                    const narsil_frozen_removal_output *output, size_t *count, int *admitted) {
   const narsil_frozen_segment_state *state = request->state;
+  *admitted = 0;
   if (tombstoned(state, request->ordinal)) {
     *count = 0;
     return NARSIL_OK;
@@ -126,9 +123,13 @@ narsil_status narsil_prepare_frozen_removal(narsil_workspace *workspace, const n
   if (output->entry_capacity < PREPARED_REPLACEMENTS || output->value_capacity < PREPARED_REPLACEMENTS) {
     return NARSIL_NEEDS_ROOM;
   }
-  frozen_pending_size needed = {0};
-  status = make_room(workspace, request, &needed);
-  if (status != NARSIL_OK) { return status; }
+  *admitted = 1;
+  return NARSIL_OK;
+}
+
+static void write_prepared(const narsil_remove_frozen_request *request, const narsil_frozen_removal_output *output,
+                           frozen_pending_size needed, size_t *count) {
+  const narsil_frozen_segment_state *state = request->state;
   frozen_pending_append(request);
   const uint32_t *header = state->pending_header;
   uint32_t word = request->ordinal / FROZEN_WORD_BITS;
@@ -142,6 +143,32 @@ narsil_status narsil_prepare_frozen_removal(narsil_workspace *workspace, const n
   update(output, 3, (frozen_replacement){PENDING_HEADER, NARSIL_PENDING_TOKENS, tokens});
   update(output, 4, (frozen_replacement){PENDING_HEADER, NARSIL_PENDING_UNITS, units});
   *count = PREPARED_REPLACEMENTS;
+}
+
+narsil_status narsil_prepare_frozen_removal(narsil_workspace *workspace, const narsil_remove_frozen_request *request,
+                                            const narsil_frozen_removal_output *output, size_t *count) {
+  narsil_status status = frozen_prepared_removal_regions(request, output, count);
+  if (status != NARSIL_OK) { return status; }
+  int admitted = 0;
+  status = admit_prepared(request, output, count, &admitted);
+  if (status != NARSIL_OK || !admitted) { return status; }
+  frozen_pending_size needed = {0};
+  status = make_room(workspace, request, &needed);
+  if (status != NARSIL_OK) { return status; }
+  write_prepared(request, output, needed, count);
+  return NARSIL_OK;
+}
+
+narsil_status frozen_record_prepared_removal(const narsil_remove_frozen_request *request,
+                                             const narsil_frozen_removal_output *output, size_t *count) {
+  narsil_status status = frozen_record_regions(request, output, count);
+  if (status != NARSIL_OK) { return status; }
+  int admitted = 0;
+  status = admit_prepared(request, output, count, &admitted);
+  if (status != NARSIL_OK || !admitted) { return status; }
+  frozen_pending_size needed = frozen_pending_needed(request);
+  if (!pending_fits(request->state, needed, 0)) { return NARSIL_NEEDS_ROOM; }
+  write_prepared(request, output, needed, count);
   return NARSIL_OK;
 }
 

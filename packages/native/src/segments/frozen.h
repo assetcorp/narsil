@@ -52,8 +52,12 @@ typedef struct {
 narsil_status frozen_removal_regions(const narsil_remove_frozen_request *request);
 int frozen_read_regions(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state,
                         const segment_regions *outputs);
-narsil_status frozen_removal_output_regions(const narsil_remove_frozen_request *request,
-                                            const narsil_frozen_removal_output *output, size_t *count);
+narsil_status frozen_prepared_removal_regions(const narsil_remove_frozen_request *request,
+                                              const narsil_frozen_removal_output *output, size_t *count);
+narsil_status frozen_record_regions(const narsil_remove_frozen_request *request,
+                                    const narsil_frozen_removal_output *output, size_t *count);
+narsil_status frozen_record_prepared_removal(const narsil_remove_frozen_request *request,
+                                             const narsil_frozen_removal_output *output, size_t *count);
 narsil_status frozen_settle_regions(const narsil_frozen_segment *segment, const narsil_frozen_segment_state *state);
 narsil_status frozen_removal_add(frozen_removal_plan *plan, uint32_t kind, uint32_t entry, uint32_t documents,
                                  double amount);

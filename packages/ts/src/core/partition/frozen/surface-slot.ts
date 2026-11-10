@@ -21,6 +21,8 @@ export type { RemovedSpellings } from './removed-spellings'
 
 export type TextAnalysis = Omit<PartialWordAnalysis, 'fields'>
 
+const NO_REMOVED_SURFACES = new Uint32Array(0)
+
 export interface SurfaceTableReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   heldBytes(): number
@@ -45,7 +47,7 @@ export interface FrozenSurfaceSlot {
     ordinal: number,
     spellings: RemovedSpellings,
   ): {
-    table: NativeFrozenStrings
+    table: NativeFrozenStrings | null
     removed: Uint32Array
     publish(): void
   }
@@ -169,11 +171,10 @@ export function createFrozenSurfaceSlot(
 
     prepareCoreRemoval(ordinal, spellings) {
       const target = loaded()
-      removalState ??= createSurfaceRemovalState(target)
       const marks = uncounted ?? new Uint8Array(documents.count)
       return {
-        table: removalState.table,
-        removed: removalState.removed,
+        table: removalState?.table ?? null,
+        removed: removalState?.removed ?? NO_REMOVED_SURFACES,
         publish() {
           uncounted ??= marks
           uncounted[ordinal] = 1

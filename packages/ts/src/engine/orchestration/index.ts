@@ -48,6 +48,7 @@ import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuil
 import type {
   IndexRegistry,
   OrchestratorState,
+  PublicationGrowth,
   RequestThreadListener,
   WorkerOrchestrator,
   WorkerOrchestratorCallbacks,
@@ -63,13 +64,13 @@ function holdsCopies(state: OrchestratorState, indexName: string): boolean {
 async function settleCopiedPublications(
   state: OrchestratorState,
   indexName: string,
-  attachedSegments: boolean,
+  growth: PublicationGrowth,
   room: Promise<void> | null,
 ): Promise<void> {
   if (room !== null) await room
-  if (attachedSegments) maybeCompactSegments(state, indexName)
+  if (growth === 'segments') maybeCompactSegments(state, indexName)
   if (!holdsCopies(state, indexName)) return
-  await flushGrownTails(state, indexName)
+  if (growth === 'liveTail') await flushGrownTails(state, indexName)
   scheduleIdleMerge(state, indexName)
 }
 
@@ -306,13 +307,14 @@ export function createWorkerOrchestrator(
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
     publishToWorkers: action => publishToWorkers(state, action),
-    settlePublications(indexName, attachedSegments = false) {
+    settlePublications(indexName, growth = 'liveTail') {
       const room = publicationCapacityWait(state, indexName)
-      if (room === null && !holdsCopies(state, indexName) && !state.replicationQueues.has(indexName)) {
-        if (attachedSegments) maybeCompactSegments(state, indexName)
+      if (room === null && (growth === 'none' || !holdsCopies(state, indexName))) {
+        if (growth === 'segments') maybeCompactSegments(state, indexName)
+        if (holdsCopies(state, indexName)) scheduleIdleMerge(state, indexName)
         return undefined
       }
-      return settleCopiedPublications(state, indexName, attachedSegments, room)
+      return settleCopiedPublications(state, indexName, growth, room)
     },
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
     queueDiskAdoption: action => {

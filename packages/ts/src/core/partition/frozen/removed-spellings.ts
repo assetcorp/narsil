@@ -1,31 +1,24 @@
-import { REMOVED_SPELLINGS_START_ENTRIES, REMOVED_STRING_GROWTH_FACTOR } from './constants'
-
 export interface RemovedSpellings {
   readonly spellings: readonly string[]
-  readonly counts: Uint32Array
+  readonly counts: readonly number[]
 }
 
-export const NO_REMOVED_SPELLINGS: RemovedSpellings = { spellings: [], counts: new Uint32Array(0) }
+export const NO_REMOVED_SPELLINGS: RemovedSpellings = { spellings: [], counts: [] }
 
 const heldSpellings: string[] = []
 const heldEntries = new Map<string, number>()
-let heldCounts = new Uint32Array(REMOVED_SPELLINGS_START_ENTRIES)
+const heldCounts: number[] = []
 let indexedSpellings = 0
 
 export function beginRemovedSpellings(): void {
   heldSpellings.length = 0
+  heldCounts.length = 0
   heldEntries.clear()
   indexedSpellings = 0
 }
 
 function appendSpelling(spelling: string, count: number): void {
-  const next = heldSpellings.length
-  if (next === heldCounts.length) {
-    const grown = new Uint32Array(heldCounts.length * REMOVED_STRING_GROWTH_FACTOR)
-    grown.set(heldCounts)
-    heldCounts = grown
-  }
-  heldCounts[next] = count
+  heldCounts.push(count)
   heldSpellings.push(spelling)
 }
 
@@ -53,5 +46,5 @@ export function addDistinctRemovedSpellings(words: ReadonlyMap<string, { readonl
 export function finishRemovedSpellings(): RemovedSpellings {
   const size = heldSpellings.length
   if (size === 0) return NO_REMOVED_SPELLINGS
-  return { spellings: heldSpellings.slice(), counts: heldCounts.slice(0, size) }
+  return { spellings: heldSpellings.slice(), counts: heldCounts.slice() }
 }

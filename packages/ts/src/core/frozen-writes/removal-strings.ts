@@ -46,16 +46,19 @@ let visitedSurfaces: FrozenSurfaceSlot | null = null
 let visitedPartialWords: FrozenPartialWordSlot | null = null
 let normalizingLanguage: LanguageModule | null = null
 let normalizingStopWords: ReadonlySet<string> | null = null
+let flaggedFieldNames: readonly string[] | null = null
+let flaggedPartialFields: readonly string[] | undefined
+let heldPartialFlags = new Uint8Array(0)
 
 function normalizedOf(spelling: string): string | null {
   if (normalizingLanguage === null || normalizingStopWords?.has(spelling) === true) return null
   return transformToken(spelling, normalizingLanguage, false, false)
 }
 
-function resolveSpelling(written: string): number {
+function resolveSpelling(written: string, surfaceToken: string | undefined): number {
   const partial = visitedTag === PARTIAL_TAG
   let spelling = written
-  let token = partial ? visitedPartialWords?.tokenForSpelling(written) : undefined
+  let token = partial ? visitedPartialWords?.tokenForSpelling(written) : surfaceToken
   if (token === undefined && partial) {
     const normalized = normalizedOf(written)
     if (normalized !== null) {
@@ -77,8 +80,10 @@ function resolveSpelling(written: string): number {
 }
 
 function visitSpelling(spelling: string): void {
+  const surfaceToken = visitedTag === SURFACE_TAG ? visitedSurfaces?.tokenOf(spelling) : undefined
+  if (visitedTag === SURFACE_TAG && (surfaceToken === undefined || surfaceToken === spelling)) return
   let key = scratch.find(spelling, visitedTag)
-  if (key === NO_KEY) key = resolveSpelling(spelling)
+  if (key === NO_KEY) key = resolveSpelling(spelling, surfaceToken)
   scratch.countListed(key)
   if (scratch.recordsTokens(key)) scratch.writeRecord(visitedPosition++, key)
 }
@@ -149,6 +154,19 @@ function endVisit(): void {
   normalizingStopWords = null
 }
 
+function partialFlagsOf(fieldNames: readonly string[], partialFields: readonly string[] | undefined): Uint8Array {
+  if (fieldNames === flaggedFieldNames && partialFields === flaggedPartialFields) return heldPartialFlags
+  const flags = new Uint8Array(fieldNames.length)
+  for (const path of partialFields ?? []) {
+    const field = fieldNames.indexOf(path)
+    if (field >= 0) flags[field] = 1
+  }
+  flaggedFieldNames = fieldNames
+  flaggedPartialFields = partialFields
+  heldPartialFlags = flags
+  return flags
+}
+
 function collectRecords(
   fieldNames: readonly string[],
   textFields: readonly string[],
@@ -201,11 +219,7 @@ export function prepareFrozenStrings(
   }
   const spellings = scratch.removedSpellings()
   const surface = surfaces.prepareCoreRemoval(ordinal, spellings)
-  const partialFlags = new Uint8Array(fieldNames.length)
-  for (const path of partialFields ?? []) {
-    const field = fieldNames.indexOf(path)
-    if (field >= 0) partialFlags[field] = 1
-  }
+  const partialFlags = partialFlagsOf(fieldNames, partialFields)
   return {
     spellings,
     core: {

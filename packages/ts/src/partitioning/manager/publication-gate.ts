@@ -2,6 +2,7 @@ export interface PublicationGate {
   read<T>(read: (release: () => void) => T | Promise<T>): Promise<T>
   write<T>(write: () => T | Promise<T>): Promise<T>
   writeNow<T>(write: () => T | Promise<T>): T | Promise<T>
+  afterQueuedWrites(): Promise<void>
 }
 
 export interface PublicationSettlement {
@@ -11,8 +12,13 @@ export interface PublicationSettlement {
 
 interface Waiting {
   readonly writer: boolean
+  readonly settles: boolean
   readonly start: () => void
   next?: Waiting
+}
+
+function passesQueuedWrites(): undefined {
+  return undefined
 }
 
 export function createPublicationGate(settlement?: PublicationSettlement): PublicationGate {
@@ -22,10 +28,10 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
   let last: Waiting | undefined
   let pumping = false
 
-  function available(writer: boolean): boolean {
+  function available(writer: boolean, settles: boolean): boolean {
     if (writing) return false
     if (writer) return readers === 0
-    return readers === 0 || settlement === undefined || !settlement.pending()
+    return !settles || readers === 0 || settlement === undefined || !settlement.pending()
   }
 
   function pump(): void {
@@ -34,7 +40,7 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
     try {
       while (first !== undefined) {
         const next = first
-        if (!available(next.writer)) return
+        if (!available(next.writer, next.settles)) return
         first = next.next
         next.next = undefined
         if (first === undefined) last = undefined
@@ -45,8 +51,12 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
     }
   }
 
-  async function start<T>(writer: boolean, work: (release: () => void) => T | Promise<T>): Promise<T> {
-    if (!writer && readers === 0) settlement?.settle()
+  async function start<T>(
+    writer: boolean,
+    settles: boolean,
+    work: (release: () => void) => T | Promise<T>,
+  ): Promise<T> {
+    if (!writer && settles && readers === 0) settlement?.settle()
     if (writer) writing = true
     else readers++
     let held = true
@@ -65,10 +75,10 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
     }
   }
 
-  function enter<T>(writer: boolean, work: (release: () => void) => T | Promise<T>): Promise<T> {
-    if (first === undefined && available(writer)) return start(writer, work)
+  function enter<T>(writer: boolean, settles: boolean, work: (release: () => void) => T | Promise<T>): Promise<T> {
+    if (first === undefined && available(writer, settles)) return start(writer, settles, work)
     return new Promise((resolve, reject) => {
-      const next: Waiting = { writer, start: () => start(writer, work).then(resolve, reject) }
+      const next: Waiting = { writer, settles, start: () => start(writer, settles, work).then(resolve, reject) }
       if (last === undefined) first = next
       else last.next = next
       last = next
@@ -89,7 +99,7 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
   }
 
   function writeNow<T>(work: () => T | Promise<T>): T | Promise<T> {
-    if (first !== undefined || !available(true)) return enter(true, work)
+    if (first !== undefined || !available(true, false)) return enter(true, false, work)
     writing = true
     let result: T | Promise<T>
     try {
@@ -105,5 +115,10 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
     return finishPendingWrite(result)
   }
 
-  return { read: read => enter(false, read), write: write => enter(true, write), writeNow }
+  return {
+    read: read => enter(false, true, read),
+    write: write => enter(true, false, write),
+    writeNow,
+    afterQueuedWrites: () => enter(false, false, passesQueuedWrites),
+  }
 }

@@ -23,10 +23,8 @@ export interface FrozenRemovals {
 
 const NEEDS_ROOM = -3
 const PREPARED_REPLACEMENTS = 5
-const FIRST_PREPARED_KIND = 4
-
-const entries = new Uint32Array(PREPARED_REPLACEMENTS * 2)
-const values = new Float64Array(PREPARED_REPLACEMENTS)
+const TOMBSTONE_WORD_KIND = 4
+const TOMBSTONE_COUNT_KIND = 5
 
 function corrupted(status: number): never {
   throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The frozen segment refused a document removal', { status })
@@ -49,6 +47,20 @@ export function createFrozenRemovals(
   state: NativeFrozenSegmentState,
   paged: FrozenPagedRemovals | null,
 ): FrozenRemovals {
+  const entries = new Uint32Array(PREPARED_REPLACEMENTS * 2)
+  const values = new Float64Array(PREPARED_REPLACEMENTS)
+  let preparations = 0
+
+  function applyPrepared(count: number): void {
+    for (let at = 0; at < count; at++) {
+      const kind = entries[at * 2]
+      const entry = entries[at * 2 + 1]
+      if (kind === TOMBSTONE_WORD_KIND) state.tombstones[entry] = values[at]
+      else if (kind === TOMBSTONE_COUNT_KIND) state.tombstoneCount[entry] = values[at]
+      else state.pendingHeader[entry] = values[at]
+    }
+  }
+
   function settle(): void {
     if (pendingSettled(state)) return
     const status = settleFrozenState(segment, state, paged)
@@ -76,22 +88,21 @@ export function createFrozenRemovals(
       }
       const count = prepareCount(ordinal, fields)
       if (count < 0) corrupted(-count)
-      const kinds = entries.slice(0, count * 2)
-      const replacements = values.slice(0, count)
+      const preparation = ++preparations
       const header = state.pendingHeader
       const heldDocuments = header[PENDING_DOCUMENTS]
       const heldTokens = header[PENDING_TOKENS]
       const heldUnits = header[PENDING_UNITS]
-      const targets = [state.tombstones, state.tombstoneCount, header]
       return () => {
         if (
+          preparation !== preparations ||
+          state.pendingHeader !== header ||
           header[PENDING_DOCUMENTS] !== heldDocuments ||
           header[PENDING_TOKENS] !== heldTokens ||
           header[PENDING_UNITS] !== heldUnits
         )
           corrupted(0)
-        for (let at = 0; at < count; at++)
-          targets[kinds[at * 2] - FIRST_PREPARED_KIND][kinds[at * 2 + 1]] = replacements[at]
+        applyPrepared(count)
       }
     },
     pending: () => !pendingSettled(state),

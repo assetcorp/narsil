@@ -4,7 +4,6 @@ import {
   REMOVAL_SCRATCH_SLOTS_PER_KEY,
   REMOVAL_SCRATCH_START_KEY_UNITS,
   REMOVAL_SCRATCH_START_KEYS,
-  REMOVAL_SCRATCH_START_SPELLINGS,
   REMOVAL_SCRATCH_START_TOKEN_WORDS,
   REMOVAL_SCRATCH_START_UNITS,
 } from './constants'
@@ -65,7 +64,8 @@ export class RemovalScratch {
   private readonly terms: (string | null)[] = []
   private readonly surfaces: (string | null)[] = []
   private readonly listed: string[] = []
-  private listedCounts = new Uint32Array(REMOVAL_SCRATCH_START_SPELLINGS)
+  private listedCount = 0
+  private readonly listedCounts: number[] = []
   private slots = new Int32Array(REMOVAL_SCRATCH_START_KEYS * REMOVAL_SCRATCH_SLOTS_PER_KEY).fill(NO_KEY)
 
   reset(): void {
@@ -75,9 +75,7 @@ export class RemovalScratch {
     if (this.keyCount > 0) this.slots.fill(NO_KEY)
     this.keyCount = 0
     this.keyUnitCount = 0
-    this.terms.length = 0
-    this.surfaces.length = 0
-    this.listed.length = 0
+    this.listedCount = 0
   }
 
   beginField(): void {
@@ -161,17 +159,16 @@ export class RemovalScratch {
     this.keyTags[key] = tag
     this.keyFields[key] = NO_FIELD
     this.listedAt[key] = NO_ENTRY
-    this.terms.push(term)
-    this.surfaces.push(surface)
+    this.terms[key] = term
+    this.surfaces[key] = surface
     this.slots[this.slotOf(text, tag)] = key
     return key
   }
 
   private appendListed(spelling: string): number {
-    const entry = this.listed.length
-    if (entry === this.listedCounts.length) this.listedCounts = grownUint32(this.listedCounts, entry, entry + 1)
+    const entry = this.listedCount++
     this.listedCounts[entry] = 0
-    this.listed.push(spelling)
+    this.listed[entry] = spelling
     return entry
   }
 
@@ -228,8 +225,8 @@ export class RemovalScratch {
   }
 
   removedSpellings(): RemovedSpellings {
-    const size = this.listed.length
-    if (size === 0) return { spellings: [], counts: new Uint32Array(0) }
-    return { spellings: this.listed.slice(), counts: this.listedCounts.slice(0, size) }
+    const size = this.listedCount
+    if (size === 0) return { spellings: [], counts: [] }
+    return { spellings: this.listed.slice(0, size), counts: this.listedCounts.slice(0, size) }
   }
 }
