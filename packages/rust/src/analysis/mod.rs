@@ -9,6 +9,7 @@ pub use registry::{StopWordFunction, StopWords, Token, Tokenizer};
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::keyword::tokens::PackedTokens;
 use core::{CoreStopWords, TokenParts};
 
 /// A language that the native core analyses, with its stop words and the revision of its analysis.
@@ -127,8 +128,6 @@ impl TokenOptions {
 /// Receives each token of a text: the term, its position, the surface form where it differs, and the raw token.
 pub(crate) type TokenVisitor<'a> = dyn FnMut(&str, u32, Option<&str>, &str) + 'a;
 
-pub(crate) type UnitVisitor<'a> = dyn FnMut(&[u16], u32, Option<&[u16]>) -> Result<()> + 'a;
-
 #[derive(Clone)]
 pub(crate) struct Analyser {
     language: Language,
@@ -220,12 +219,13 @@ impl Analyser {
         )
     }
 
-    pub(crate) fn visit_units(
+    pub(crate) fn pack_text(
         &self,
         text: &str,
         options: TokenOptions,
-        visit: &mut UnitVisitor<'_>,
-    ) -> Result<()> {
+        position: u32,
+        packed: &mut PackedTokens,
+    ) -> Result<Option<u32>> {
         if let Some(tokenizer) = &self.tokenizer {
             let mut tokens = tokenizer.tokenize(text);
             if tokens
@@ -238,30 +238,27 @@ impl Analyser {
             for token in &tokens {
                 units.clear();
                 units.extend(token.token.encode_utf16());
-                visit(&units, token.position, None)?;
+                packed.push(&units, position.saturating_add(token.position), None)?;
             }
-            return Ok(());
+            return Ok(tokens.last().map(|token| token.position));
         }
         let stop_words = if options.remove_stop_words {
             self.stop_words.as_deref()
         } else {
             None
         };
-        let mut refused = None;
-        core::analyse(
+        let mut last = None;
+        core::analyse_packed(
             self.language.index,
             stop_words,
             options.flags(),
             text,
-            &mut |parts: TokenParts<'_>| {
-                if refused.is_none()
-                    && let Err(error) = visit(parts.term, parts.position, parts.surface)
-                {
-                    refused = Some(error);
-                }
+            &mut |records, units| {
+                last = packed.append(records, units, position)?;
+                Ok(())
             },
         )?;
-        refused.map_or(Ok(()), Err)
+        Ok(last)
     }
 
     pub(crate) fn transform(

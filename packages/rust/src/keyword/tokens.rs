@@ -1,6 +1,16 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 
+pub(crate) const PACKED_TOKEN_WORDS: usize = 8;
+const PACKED_POSITION: usize = 0;
+const PACKED_TERM_OFFSET: usize = 1;
+const PACKED_TERM_LENGTH: usize = 2;
+const PACKED_SURFACE_OFFSET: usize = 3;
+const PACKED_SURFACE_LENGTH: usize = 4;
+const PACKED_ORIGINAL_OFFSET: usize = 5;
+const PACKED_ORIGINAL_LENGTH: usize = 6;
+const PACKED_TERM_SLOT: usize = 7;
+
 #[derive(Clone, Default)]
 pub(crate) struct PackedTokens {
     pub(crate) records: Vec<ffi::narsil_token>,
@@ -50,6 +60,38 @@ impl PackedTokens {
             term_slot: ffi::NARSIL_NO_TERM_SLOT,
         });
         Ok(())
+    }
+
+    pub(crate) fn append(
+        &mut self,
+        records: &[u32],
+        units: &[u16],
+        position: u32,
+    ) -> Result<Option<u32>> {
+        let shift = stored_at(&mut self.units, units)?;
+        let last = records
+            .chunks_exact(PACKED_TOKEN_WORDS)
+            .last()
+            .map(|record| record[PACKED_POSITION]);
+        self.records
+            .extend(
+                records
+                    .chunks_exact(PACKED_TOKEN_WORDS)
+                    .map(|record| ffi::narsil_token {
+                        position: record[PACKED_POSITION].saturating_add(position),
+                        term_offset: record[PACKED_TERM_OFFSET] + shift,
+                        term_length: record[PACKED_TERM_LENGTH],
+                        surface_offset: match record[PACKED_SURFACE_OFFSET] {
+                            ffi::NARSIL_NO_SURFACE => ffi::NARSIL_NO_SURFACE,
+                            offset => offset + shift,
+                        },
+                        surface_length: record[PACKED_SURFACE_LENGTH],
+                        original_offset: record[PACKED_ORIGINAL_OFFSET],
+                        original_length: record[PACKED_ORIGINAL_LENGTH],
+                        term_slot: record[PACKED_TERM_SLOT],
+                    }),
+            );
+        Ok(last)
     }
 
     pub(crate) fn term(&self, record: &ffi::narsil_token) -> &[u16] {
