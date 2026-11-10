@@ -9,6 +9,7 @@ use crate::pins::IndexSequence;
 
 use super::build::BuildJob;
 use super::checkpoint::{FieldSignature, SavedVectorFile};
+use super::cold::ColdSlot;
 use super::constants::MIN_ORDINAL_CAPACITY;
 use super::doc_ids::{IdTable, OrdinalNames};
 use super::graph::GraphTables;
@@ -251,6 +252,7 @@ pub(crate) struct Shared {
     pub(crate) background_done: Condvar,
     pub(crate) disposed: AtomicBool,
     pub(crate) restoring: AtomicBool,
+    pub(crate) cold: ColdSlot,
 }
 
 pub(crate) struct VectorField {
@@ -327,6 +329,7 @@ impl VectorField {
                 background_done: Condvar::new(),
                 disposed: AtomicBool::new(false),
                 restoring: AtomicBool::new(false),
+                cold: ColdSlot::empty(),
             }),
         })
     }
@@ -340,23 +343,30 @@ impl VectorField {
         writer.generation.store.record_write_sequence(sequence);
     }
 
-    pub(crate) fn pinned_vector(&self, doc_id: &str, pin: i64) -> Option<Vec<f32>> {
-        let generation = self.shared.current();
-        let ordinal = generation.pinned_ordinal_of(doc_id, pin)?;
-        let retired = generation.store.retired_at(ordinal);
-        if retired != 0 && retired <= pin {
-            return None;
+    pub(crate) fn pinned_vector(&self, doc_id: &str, pin: i64) -> Result<Option<Vec<f32>>> {
+        if let Some(hold) = self.shared.cold_hold() {
+            return hold.pinned_vector(doc_id, pin);
         }
-        let mut vector = vec![0f32; self.dimension()];
-        generation
-            .store
-            .read_vector(ordinal, &mut vector)
-            .then_some(vector)
+        let generation = self.shared.current();
+        let visible = generation
+            .pinned_ordinal_of(doc_id, pin)
+            .filter(|&ordinal| {
+                let retired = generation.store.retired_at(ordinal);
+                retired == 0 || retired > pin
+            });
+        Ok(visible.and_then(|ordinal| self.vector_at(&generation, ordinal)))
     }
 
-    pub(crate) fn get_vector(&self, doc_id: &str) -> Option<Vec<f32>> {
+    pub(crate) fn get_vector(&self, doc_id: &str) -> Result<Option<Vec<f32>>> {
+        if let Some(hold) = self.shared.cold_hold() {
+            return hold.current_vector(doc_id);
+        }
         let generation = self.shared.current();
-        let ordinal = generation.live_ordinal_of(doc_id)?;
+        let live = generation.live_ordinal_of(doc_id);
+        Ok(live.and_then(|ordinal| self.vector_at(&generation, ordinal)))
+    }
+
+    fn vector_at(&self, generation: &Generation, ordinal: u32) -> Option<Vec<f32>> {
         let mut vector = vec![0f32; self.dimension()];
         generation
             .store
@@ -368,5 +378,6 @@ impl VectorField {
 impl Drop for VectorField {
     fn drop(&mut self) {
         self.shared.disposed.store(true, Ordering::Release);
+        self.shared.cancel_cold_hold(false);
     }
 }

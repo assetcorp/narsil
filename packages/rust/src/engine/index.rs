@@ -256,7 +256,7 @@ impl IndexState {
             return Ok(None);
         };
         let mut document = Arc::unwrap_or_clone(stored);
-        let vectors = self.vectors.pinned_vectors(id, pin.value());
+        let vectors = self.vectors.pinned_vectors(id, pin.value())?;
         self.vectors.attach(vectors, &mut document);
         Ok(Some(document))
     }

@@ -30,6 +30,7 @@ fn track_every_document(
 
 fn clear_vectors(index: &IndexState) -> Result<()> {
     for entry in index.vectors.fields() {
+        entry.field.shared.cancel_cold_hold(true);
         let generation = entry.field.shared.current();
         let ids: Vec<String> = generation
             .live_ordinals()

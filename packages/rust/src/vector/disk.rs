@@ -102,6 +102,15 @@ impl VectorField {
     }
 
     pub(crate) fn vector_files_in_use(&self) -> Vec<PathBuf> {
+        let mut paths = self
+            .shared
+            .cold_hold()
+            .map_or_else(Vec::new, |hold| hold.field.file_paths());
+        paths.extend(self.mapped_files_in_use());
+        paths
+    }
+
+    fn mapped_files_in_use(&self) -> Vec<PathBuf> {
         let generation = self.shared.current();
         let store = &generation.store;
         if store.files().len() == 0 {

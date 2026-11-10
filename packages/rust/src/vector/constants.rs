@@ -53,6 +53,10 @@ pub(crate) const REBUILD_REMOVED_RATIO: f64 = 0.2;
 pub(crate) const DRIFT_CHECK_GROWTH_FACTOR: u64 = 2;
 pub(crate) const RECALIBRATION_DRIFT_RATIO: f64 = 2.5;
 
+pub(crate) const COLD_LOAD_WAIT_WITHOUT_SEARCH_MS: u64 = 400;
+pub(crate) const COLD_REPLAY_ROUNDS_BESIDE_SEARCHES: usize = 8;
+pub(crate) const COLD_WRITES_REPLAYED_WHILE_SEARCHES_WAIT: usize = 256;
+
 pub(crate) const VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE: f64 = 0.2;
 pub(crate) const VECTOR_FILE_FIXED_OVERHEAD_BYTES: u64 = 65_536;
 pub(crate) const VECTOR_FILE_STRING_HEADER_BYTES: u64 = 5;

@@ -9,11 +9,11 @@ mod page_cache;
 mod resident;
 
 pub(crate) use cache::merge_cache_scope;
+pub(crate) use file::{PagedFile, paged_read};
 pub(crate) use lists::{PostingList, PostingPositions};
 pub(crate) use open::{PagedListing, open_paged_segment};
 
 use documents::BlockEntry;
-use file::PagedFile;
 
 use crate::format::paged_segment::head::PagedSection;
 

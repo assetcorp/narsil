@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::vector::field::VectorField;
@@ -59,7 +58,7 @@ impl IndexVectors {
     pub(crate) fn optimize(&self, index_name: &str, field: Option<&str>) -> Result<()> {
         for chosen in self.chosen(index_name, field)? {
             chosen.optimize()?;
-            chosen.wait_for_builds();
+            chosen.wait_for_builds()?;
         }
         Ok(())
     }
@@ -76,7 +75,7 @@ impl IndexVectors {
                     buffer_size: status.buffer_size,
                     building: status.building,
                     waiting_for_memory: status.waiting_for_memory,
-                    loading_from_files: entry.field.shared.restoring.load(Ordering::Acquire),
+                    loading_from_files: status.loading_from_files,
                     estimated_compact_ms: status.estimated_compact_ms,
                     estimated_optimize_ms: status.estimated_optimize_ms,
                 }

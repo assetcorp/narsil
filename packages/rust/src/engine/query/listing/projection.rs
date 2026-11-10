@@ -204,18 +204,14 @@ pub(crate) fn listed_document(
         let Some(stored) = snapshot.document(id)? else {
             return Ok(None);
         };
-        let vectors: Vec<(&str, Vec<f32>)> = index
-            .vectors
-            .fields()
-            .iter()
-            .filter(|entry| projection.keeps_field(&entry.path))
-            .filter_map(|entry| {
-                Some((
-                    entry.path.as_str(),
-                    entry.field.pinned_vector(id, pin.value())?,
-                ))
-            })
-            .collect();
+        let mut vectors: Vec<(&str, Vec<f32>)> = Vec::new();
+        for entry in index.vectors.fields() {
+            if projection.keeps_field(&entry.path)
+                && let Some(vector) = entry.field.pinned_vector(id, pin.value())?
+            {
+                vectors.push((entry.path.as_str(), vector));
+            }
+        }
         if attempt >= DOCUMENT_READ_ATTEMPTS || Arc::ptr_eq(&snapshot, &partition.snapshot()) {
             let mut document = projection.project(&stored);
             for (path, vector) in vectors {
