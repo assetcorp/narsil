@@ -29,7 +29,7 @@ fn exceeds_layout() -> NarsilError {
     )
 }
 
-fn id_ranks<T: RankedEntry>(entries: &[T]) -> Vec<u32> {
+pub(crate) fn id_ranks<T: RankedEntry>(entries: &[T]) -> Vec<u32> {
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by(|&left, &right| entries[left].ranking_id().cmp(entries[right].ranking_id()));
     let mut ranks = vec![0u32; entries.len()];

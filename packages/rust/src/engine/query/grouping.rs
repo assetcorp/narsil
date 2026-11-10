@@ -1,15 +1,16 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::constants::DEFAULT_MAX_PER_GROUP;
-use super::documents::LocatedFields;
+use super::documents::{LocatedFields, Location};
 use super::gather::QueryRun;
-use super::javascript::write_json_text;
 use super::params::{GroupConfig, GroupReducer};
 use super::ranked::{Ranked, locate_all};
-use crate::error::Result;
-use crate::search::rankings::score_then_id;
-use crate::value::{Value, number_to_text};
+use crate::error::{ErrorCode, NarsilError, Result};
+use crate::ffi;
+use crate::index::core_values::CoreStoredValues;
+use crate::keyword::workspace::with_workspace;
+use crate::search::rankings::id_ranks;
+use crate::value::Value;
 
 type GroupValues = Vec<(String, Option<Value>)>;
 
@@ -20,56 +21,153 @@ pub(crate) struct GroupDraft {
     pub(crate) reducer_error: Option<String>,
 }
 
-fn write_joined<'v>(out: &mut String, items: impl Iterator<Item = &'v Value>) {
-    for (at, item) in items.enumerate() {
-        if at > 0 {
-            out.push(',');
-        }
-        write_key_json(out, item);
-    }
+struct GroupedFields {
+    fields: Vec<Arc<CoreStoredValues>>,
+    ordinals: Vec<u32>,
 }
 
-fn write_key_json(out: &mut String, value: &Value) {
-    match value {
-        Value::Null | Value::Timestamp(_) => out.push_str("null"),
-        Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
-        Value::Number(number) if number.is_finite() => out.push_str(&number_to_text(*number)),
-        Value::Number(_) => out.push_str("null"),
-        Value::String(text) => write_json_text(out, text),
-        Value::Array(items) => {
-            out.push('[');
-            write_joined(out, items.iter());
-            out.push(']');
-        }
-        Value::Bytes(bytes) => {
-            out.push('{');
-            for (at, byte) in bytes.iter().enumerate() {
-                if at > 0 {
-                    out.push(',');
-                }
-                out.push_str(&format!("\"{at}\":{byte}"));
-            }
-            out.push('}');
-        }
-        Value::Object(map) => {
-            out.push('{');
-            for (at, (key, item)) in map.iter().enumerate() {
-                if at > 0 {
-                    out.push(',');
-                }
-                write_json_text(out, key);
-                out.push(':');
-                write_key_json(out, item);
-            }
-            out.push('}');
-        }
-    }
+struct GroupLimits {
+    max_per_group: u32,
+    limit: Option<u32>,
+}
+
+struct HitGroups {
+    heads: Vec<u32>,
+    offsets: Vec<u32>,
+    positions: Vec<u32>,
+}
+
+fn layout_exceeded() -> NarsilError {
+    NarsilError::new(
+        ErrorCode::CONFIG_INVALID,
+        "The hit count exceeds the group layout",
+    )
 }
 
 fn hits_kept_per_group(max_per_group: Option<usize>) -> usize {
     max_per_group
         .filter(|kept| *kept >= 1)
         .unwrap_or(DEFAULT_MAX_PER_GROUP)
+}
+
+fn shared_segment(hits: &[Ranked]) -> Option<Location> {
+    let first = hits.first()?.location?;
+    hits.iter()
+        .all(|hit| {
+            hit.location.is_some_and(|location| {
+                location.partition == first.partition && location.segment == first.segment
+            })
+        })
+        .then_some(first)
+}
+
+fn grouped_fields(
+    run: &QueryRun<'_>,
+    paths: &[&str],
+    located: &LocatedFields,
+    hits: &[Ranked],
+) -> Result<GroupedFields> {
+    if let Some(entry) = shared_segment(hits).and_then(|location| run.snapshots.entry(location)) {
+        return Ok(GroupedFields {
+            fields: paths
+                .iter()
+                .map(|path| entry.core_stored_values(path))
+                .collect::<Result<Vec<Arc<CoreStoredValues>>>>()?,
+            ordinals: hits
+                .iter()
+                .filter_map(|hit| hit.location)
+                .map(|location| location.ordinal)
+                .collect(),
+        });
+    }
+    let mut fields = vec![CoreStoredValues::default(); paths.len()];
+    for hit in hits {
+        let readers = hit
+            .location
+            .and_then(|location| Some((location, located.readers(location)?)));
+        for (field, column) in fields.iter_mut().enumerate() {
+            let value =
+                readers.and_then(|(location, readers)| readers.get(field)?.get(location.ordinal));
+            column.push(value.as_deref())?;
+        }
+    }
+    Ok(GroupedFields {
+        fields: fields.into_iter().map(Arc::new).collect(),
+        ordinals: (0..hits.len() as u32).collect(),
+    })
+}
+
+fn group_in_core(
+    grouped: &GroupedFields,
+    scores: &[f64],
+    id_ranks: &[u32],
+    limits: GroupLimits,
+) -> Result<HitGroups> {
+    let count = grouped.ordinals.len();
+    let views: Vec<ffi::narsil_stored_values> =
+        grouped.fields.iter().map(|field| field.view()).collect();
+    let mut heads = vec![0u32; count];
+    let mut offsets = vec![0u32; count + 1];
+    let mut positions = vec![0u32; count];
+    let mut members = vec![0u32; count];
+    let request = ffi::narsil_group_request {
+        values: views.as_ptr(),
+        value_count: views.len(),
+        ordinals: grouped.ordinals.as_ptr(),
+        ordinal_count: grouped.ordinals.len(),
+        scores: scores.as_ptr(),
+        score_count: scores.len(),
+        id_ranks: id_ranks.as_ptr(),
+        id_rank_count: id_ranks.len(),
+        max_per_group: limits.max_per_group,
+        has_limit: u32::from(limits.limit.is_some()),
+        limit: limits.limit.unwrap_or(0),
+    };
+    let mut output = ffi::narsil_group_output {
+        heads: heads.as_mut_ptr(),
+        head_capacity: heads.len(),
+        offsets: offsets.as_mut_ptr(),
+        offset_capacity: offsets.len(),
+        hits: positions.as_mut_ptr(),
+        hit_capacity: positions.len(),
+        members: members.as_mut_ptr(),
+        member_capacity: members.len(),
+        count: 0,
+    };
+    let status = with_workspace(|workspace| {
+        Ok(unsafe { ffi::narsil_group_hits(workspace, &request, &mut output) })
+    })?;
+    if status != ffi::NARSIL_OK {
+        return Err(NarsilError::new(
+            ErrorCode::CONFIG_INVALID,
+            format!("The hits cannot be grouped, as the native core returned status {status}"),
+        ));
+    }
+    let found = output.count as usize;
+    heads.truncate(found);
+    offsets.truncate(found + 1);
+    Ok(HitGroups {
+        heads,
+        offsets,
+        positions,
+    })
+}
+
+fn head_values(config: &GroupConfig, located: &LocatedFields, head: &Ranked) -> GroupValues {
+    let readers = head
+        .location
+        .and_then(|location| Some((location, located.readers(location)?)));
+    let mut record: GroupValues = Vec::with_capacity(config.fields.len());
+    for (field, path) in config.fields.iter().enumerate() {
+        if record.iter().any(|(held, _)| held == path) {
+            continue;
+        }
+        let value = readers
+            .and_then(|(location, readers)| readers.get(field)?.get(location.ordinal))
+            .map(|value| value.into_owned());
+        record.push((path.clone(), value));
+    }
+    record
 }
 
 fn fold_reducer<'h>(
@@ -90,69 +188,20 @@ fn fold_reducer<'h>(
     Ok((Some(accumulator), None))
 }
 
-fn first_score(group: &GroupDraft) -> f64 {
-    group.hits.first().map_or(0.0, |hit| hit.score)
-}
-
-fn first_id(group: &GroupDraft) -> &str {
-    group.hits.first().map_or("", |hit| hit.id.as_str())
-}
-
-fn group_order(left: &GroupDraft, right: &GroupDraft) -> Ordering {
-    score_then_id(
-        (first_score(left), first_id(left)),
-        (first_score(right), first_id(right)),
-    )
-}
-
-fn group_members(
-    run: &QueryRun<'_>,
-    config: &GroupConfig,
-    hits: &[Ranked],
-) -> Result<Vec<(GroupValues, Vec<usize>)>> {
-    let paths: Vec<&str> = config.fields.iter().map(String::as_str).collect();
-    let fields = LocatedFields::of(
-        &run.snapshots,
-        hits.iter().filter_map(|hit| hit.location),
-        &paths,
-    )?;
-    let mut slots: HashMap<String, usize> = HashMap::new();
-    let mut members: Vec<(GroupValues, Vec<usize>)> = Vec::new();
-    let mut key = String::new();
-    for (at, hit) in hits.iter().enumerate() {
-        let readers = hit
-            .location
-            .and_then(|location| Some((location, fields.readers(location)?)));
-        key.clear();
-        key.push('[');
-        let mut values: Vec<Option<Value>> = Vec::with_capacity(paths.len());
-        for field in 0..paths.len() {
-            let value =
-                readers.and_then(|(location, readers)| readers.get(field)?.get(location.ordinal));
-            if field > 0 {
-                key.push(',');
-            }
-            match &value {
-                Some(value) => write_key_json(&mut key, value),
-                None => key.push_str("null"),
-            }
-            values.push(value.map(|value| value.into_owned()));
-        }
-        key.push(']');
-        if let Some(&slot) = slots.get(&key) {
-            members[slot].1.push(at);
-            continue;
-        }
-        let mut record: GroupValues = Vec::with_capacity(paths.len());
-        for (field, value) in config.fields.iter().zip(values) {
-            if !record.iter().any(|(held, _)| held == field) {
-                record.push((field.clone(), value));
-            }
-        }
-        slots.insert(key.clone(), members.len());
-        members.push((record, vec![at]));
+fn limits_of(config: &GroupConfig, count: u32) -> GroupLimits {
+    let kept = u32::try_from(hits_kept_per_group(config.max_per_group)).unwrap_or(u32::MAX);
+    match config.reduce {
+        Some(_) => GroupLimits {
+            max_per_group: count,
+            limit: None,
+        },
+        None => GroupLimits {
+            max_per_group: kept.min(count),
+            limit: config
+                .limit
+                .map(|limit| u32::try_from(limit).unwrap_or(u32::MAX).min(count)),
+        },
     }
-    Ok(members)
 }
 
 pub(crate) fn group_hits(
@@ -168,29 +217,43 @@ pub(crate) fn group_hits(
             reducer_error: None,
         }]);
     }
+    let count = u32::try_from(hits.len()).map_err(|_| layout_exceeded())?;
     locate_all(run, hits)?;
-    let members = group_members(run, config, hits)?;
+    let paths: Vec<&str> = config.fields.iter().map(String::as_str).collect();
+    let located = LocatedFields::of(
+        &run.snapshots,
+        hits.iter().filter_map(|hit| hit.location),
+        &paths,
+    )?;
+    let grouped = grouped_fields(run, &paths, &located, hits)?;
+    let scores: Vec<f64> = hits.iter().map(|hit| hit.score).collect();
+    let groups = group_in_core(&grouped, &scores, &id_ranks(hits), limits_of(config, count))?;
     let kept = hits_kept_per_group(config.max_per_group);
-    let mut groups: Vec<GroupDraft> = Vec::with_capacity(members.len());
-    for (values, indices) in members {
+    let mut drafts: Vec<GroupDraft> = Vec::with_capacity(groups.heads.len());
+    for (at, &head) in groups.heads.iter().enumerate() {
+        let members =
+            &groups.positions[groups.offsets[at] as usize..groups.offsets[at + 1] as usize];
         let (reduced, reducer_error) = match &config.reduce {
-            Some(reduce) => fold_reducer(run, reduce, indices.iter().map(|&at| &hits[at]))?,
+            Some(reduce) => fold_reducer(
+                run,
+                reduce,
+                members.iter().map(|&position| &hits[position as usize]),
+            )?,
             None => (None, None),
         };
-        groups.push(GroupDraft {
-            values,
-            hits: indices
+        drafts.push(GroupDraft {
+            values: head_values(config, &located, &hits[head as usize]),
+            hits: members
                 .iter()
                 .take(kept)
-                .map(|&at| hits[at].clone())
+                .map(|&position| hits[position as usize].clone())
                 .collect(),
             reduced,
             reducer_error,
         });
     }
-    groups.sort_by(group_order);
     if let Some(limit) = config.limit {
-        groups.truncate(limit);
+        drafts.truncate(limit);
     }
-    Ok(groups)
+    Ok(drafts)
 }
