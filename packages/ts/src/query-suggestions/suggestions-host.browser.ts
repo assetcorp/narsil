@@ -64,6 +64,7 @@ type SuggestionStoreNames = Pick<
   | 'requireFieldsInSchema'
   | 'resolveSetting'
   | 'sameBytes'
+  | 'unionOfBans'
   | 'validateSetting'
   | 'withState'
 >
@@ -129,6 +130,7 @@ export let removeRestoreLeftovers: SuggestionStoreNames['removeRestoreLeftovers'
 export let requireFieldsInSchema: SuggestionStoreNames['requireFieldsInSchema']
 export let resolveSetting: SuggestionStoreNames['resolveSetting']
 export let sameBytes: SuggestionStoreNames['sameBytes']
+export let unionOfBans: SuggestionStoreNames['unionOfBans']
 export let validateSetting: SuggestionStoreNames['validateSetting']
 export let withState: SuggestionStoreNames['withState']
 
@@ -197,6 +199,7 @@ export function bindSuggestionsHost(
     requireFieldsInSchema,
     resolveSetting,
     sameBytes,
+    unionOfBans,
     validateSetting,
     withState,
   } = suggestionStore)

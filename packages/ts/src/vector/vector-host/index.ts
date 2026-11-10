@@ -87,6 +87,7 @@ export {
   squaredLengthsOfCentroidSums,
 } from '../osq/quantize'
 export { openSharedQuantizer } from '../osq/view'
+export { requireUsableVectorOptions } from '../search-depth'
 export {
   fixedView,
   growBufferTo,

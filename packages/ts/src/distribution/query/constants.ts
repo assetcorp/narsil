@@ -4,6 +4,7 @@ import { MAX_PARTITION_COUNT } from '../constants'
 export { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../../filters/constants'
 export { MAX_STORED_VECTOR_DIMENSION } from '../../schema/constants'
 export { MAX_PREFIX_LENGTH, MAX_TOLERANCE } from '../../search/constants'
+export { MAX_EF_SEARCH, MIN_EF_SEARCH } from '../../vector/search-depth/constants'
 
 export const MAX_PARTITION_IDS = MAX_PARTITION_COUNT
 
@@ -24,7 +25,6 @@ export const MAX_HYBRID_K = 10_000
 export const MIN_HYBRID_K = 1
 export const MAX_PINNED_ENTRIES = 1_000
 export const MAX_PINNED_POSITION = RESULT_WINDOW
-export const MAX_EF_SEARCH = 10_000
 export { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 export const MAX_OVERSAMPLE = 100
 export const MAX_GROUP_FIELDS = 64

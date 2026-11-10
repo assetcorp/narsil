@@ -590,6 +590,20 @@
       }
     },
     {
+      "name": "segment-surface-forms-out-of-order",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-surface-forms-out-of-order/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-surface-forms-out-of-order/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
       "name": "schema-unknown-base-type",
       "rule": "envelope.md#field-types",
       "open": "checkpoint",

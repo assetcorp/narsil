@@ -20,11 +20,11 @@
     "hits": [
      {"id": "train-07961", "score": 22.198059323251854},
      {"id": "train-04170", "score": 20.74172453248279},
-     {"id": "train-08546", "score": 20.18865641028845},
+     {"id": "train-08546", "score": 20.188656410288445},
      {"id": "train-03082", "score": 19.857879163797083},
      {"id": "train-01144", "score": 19.320124436941633},
-     {"id": "train-07077", "score": 19.239966675583574},
-     {"id": "train-07681", "score": 19.222418110434365},
+     {"id": "train-07077", "score": 19.23996667558358},
+     {"id": "train-07681", "score": 19.22241811043437},
      {"id": "train-00851", "score": 19.192917408196944},
      {"id": "train-00591", "score": 19.167931264747665},
      {"id": "train-04907", "score": 18.80883969844902}
@@ -37,9 +37,9 @@
      {"id": "train-02043", "score": 18.45422638025521},
      {"id": "train-01374", "score": 18.366124415217456},
      {"id": "train-06827", "score": 13.812697358879863},
-     {"id": "train-08201", "score": 13.003829482760343},
-     {"id": "train-00571", "score": 12.291210994787884},
-     {"id": "train-00752", "score": 12.291210994787884},
+     {"id": "train-08201", "score": 13.003829482760342},
+     {"id": "train-00571", "score": 12.291210994787882},
+     {"id": "train-00752", "score": 12.291210994787882},
      {"id": "train-06016", "score": 12.284350057225211},
      {"id": "train-05778", "score": 12.142995975973232},
      {"id": "train-04631", "score": 12.022527265148897},
@@ -52,11 +52,11 @@
     "hits": [
      {"id": "train-08166", "score": 94.9855155462888},
      {"id": "train-02047", "score": 65.0171958759553},
-     {"id": "train-06663", "score": 63.883678136038256},
+     {"id": "train-06663", "score": 63.88367813603826},
      {"id": "train-02334", "score": 62.20263508176998},
-     {"id": "train-06277", "score": 61.2150037868345},
-     {"id": "train-09245", "score": 60.82745489727055},
-     {"id": "train-03370", "score": 58.759815274237454},
+     {"id": "train-06277", "score": 61.215003786834494},
+     {"id": "train-09245", "score": 60.82745489727054},
+     {"id": "train-03370", "score": 58.75981527423746},
      {"id": "train-01308", "score": 58.26867895453924},
      {"id": "train-00030", "score": 50.78325566509819},
      {"id": "train-02450", "score": 50.60633922468618}
@@ -71,9 +71,9 @@
      {"id": "train-00837", "score": 31.865084590094696},
      {"id": "train-09930", "score": 30.722999126893818},
      {"id": "train-00719", "score": 29.353512824064662},
-     {"id": "train-04211", "score": 27.12924206599261},
+     {"id": "train-04211", "score": 27.129242065992607},
      {"id": "train-08181", "score": 26.992898603514},
-     {"id": "train-08299", "score": 26.6933327041521},
+     {"id": "train-08299", "score": 26.693332704152102},
      {"id": "train-00565", "score": 26.64047624787501},
      {"id": "train-01736", "score": 26.612359296940614}
     ]
@@ -90,8 +90,8 @@
      {"id": "train-06010", "score": 15.932605652893582},
      {"id": "train-06354", "score": 15.541433637997702},
      {"id": "train-01838", "score": 15.380112745603835},
-     {"id": "train-08285", "score": 15.208919938374024},
-     {"id": "train-08744", "score": 14.712906646490861}
+     {"id": "train-08285", "score": 15.208919938374025},
+     {"id": "train-08744", "score": 14.71290664649086}
     ]
    },
    {
@@ -100,8 +100,8 @@
     "hits": [
      {"id": "train-08013", "score": 30.787207172652415},
      {"id": "train-05386", "score": 27.014207258237573},
-     {"id": "train-00025", "score": 22.12633525121863},
-     {"id": "train-03097", "score": 21.814097470184873},
+     {"id": "train-00025", "score": 22.126335251218634},
+     {"id": "train-03097", "score": 21.81409747018487},
      {"id": "train-04928", "score": 21.60406894173376},
      {"id": "train-06896", "score": 21.594286520828923},
      {"id": "train-03029", "score": 21.443450209142455},
@@ -114,14 +114,14 @@
     "id": "test-00006",
     "text": "A bill to establish a Strategic Gasoline and Fuel Reserve.",
     "hits": [
-     {"id": "train-05695", "score": 25.71262982485734},
+     {"id": "train-05695", "score": 25.712629824857345},
      {"id": "train-08336", "score": 25.62771009590574},
-     {"id": "train-00713", "score": 23.007921053973323},
-     {"id": "train-01383", "score": 22.73592409885769},
+     {"id": "train-00713", "score": 23.007921053973327},
+     {"id": "train-01383", "score": 22.735924098857687},
      {"id": "train-05973", "score": 22.630384039646916},
      {"id": "train-00116", "score": 22.546328066265573},
      {"id": "train-04514", "score": 22.475905661469227},
-     {"id": "train-01962", "score": 22.381182505326432},
+     {"id": "train-01962", "score": 22.38118250532643},
      {"id": "train-08809", "score": 21.9061577061981},
      {"id": "train-01207", "score": 20.266382964515678}
     ]
@@ -131,7 +131,7 @@
     "text": "To provide increased benefits for public safety officers disabled in the line of duty, and for the spouses and children of public safety officers killed or disabled in the line of duty, and for other purposes.",
     "hits": [
      {"id": "train-06975", "score": 39.00217520431236},
-     {"id": "train-07974", "score": 38.63567097883255},
+     {"id": "train-07974", "score": 38.63567097883254},
      {"id": "train-07651", "score": 34.08982251546346},
      {"id": "train-05821", "score": 32.87465314997052},
      {"id": "train-02521", "score": 30.2174741234966},
@@ -146,11 +146,11 @@
     "id": "test-00008",
     "text": "Promoting Financial Literacy and Economic Opportunity Act of 2015",
     "hits": [
-     {"id": "train-07472", "score": 30.652593582920687},
+     {"id": "train-07472", "score": 30.65259358292069},
      {"id": "train-06407", "score": 30.363040348722166},
      {"id": "train-01181", "score": 25.422819495786403},
      {"id": "train-00910", "score": 23.405740079204588},
-     {"id": "train-07694", "score": 21.690671703058367},
+     {"id": "train-07694", "score": 21.690671703058364},
      {"id": "train-05944", "score": 21.133700285367432},
      {"id": "train-02828", "score": 17.977491349853935},
      {"id": "train-02099", "score": 17.344402743613333},
@@ -167,11 +167,11 @@
      {"id": "train-09970", "score": 31.614115079907446},
      {"id": "train-07081", "score": 31.448355638938885},
      {"id": "train-09480", "score": 30.274537879184418},
-     {"id": "train-04816", "score": 30.24775390858133},
+     {"id": "train-04816", "score": 30.247753908581327},
      {"id": "train-07893", "score": 29.52814597441383},
      {"id": "train-09794", "score": 28.459527434376298},
-     {"id": "train-07158", "score": 27.889553153976646},
-     {"id": "train-08962", "score": 27.53344703988475}
+     {"id": "train-07158", "score": 27.88955315397665},
+     {"id": "train-08962", "score": 27.533447039884745}
     ]
    },
    {
@@ -180,13 +180,13 @@
     "hits": [
      {"id": "train-03617", "score": 66.57053477827712},
      {"id": "train-06078", "score": 62.26785958450802},
-     {"id": "train-01913", "score": 58.42782484262723},
-     {"id": "train-00223", "score": 57.34617174577094},
+     {"id": "train-01913", "score": 58.42782484262724},
+     {"id": "train-00223", "score": 57.34617174577093},
      {"id": "train-05816", "score": 52.52674580622718},
-     {"id": "train-01983", "score": 51.08123378361645},
-     {"id": "train-06766", "score": 48.513963339107434},
-     {"id": "train-00508", "score": 46.69303480976712},
-     {"id": "train-08160", "score": 45.24804481143289},
+     {"id": "train-01983", "score": 51.08123378361646},
+     {"id": "train-06766", "score": 48.51396333910744},
+     {"id": "train-00508", "score": 46.693034809767106},
+     {"id": "train-08160", "score": 45.2480448114329},
      {"id": "train-08956", "score": 44.61372917177773}
     ]
    },
@@ -199,7 +199,7 @@
      {"id": "train-00810", "score": 22.197403685310015},
      {"id": "train-00064", "score": 21.85629108956663},
      {"id": "train-08154", "score": 18.45901315685918},
-     {"id": "train-07470", "score": 17.937773288978697},
+     {"id": "train-07470", "score": 17.9377732889787},
      {"id": "train-00398", "score": 17.855563469766242},
      {"id": "train-06201", "score": 17.45951894668086},
      {"id": "train-05785", "score": 16.689066081127656},
@@ -213,12 +213,12 @@
      {"id": "train-03631", "score": 34.21853480000821},
      {"id": "train-04961", "score": 26.608970854804767},
      {"id": "train-04509", "score": 26.409065678402918},
-     {"id": "train-06396", "score": 25.22942505893975},
+     {"id": "train-06396", "score": 25.229425058939746},
      {"id": "train-04084", "score": 24.44796240546995},
-     {"id": "train-08503", "score": 24.32926475493182},
+     {"id": "train-08503", "score": 24.329264754931824},
      {"id": "train-09953", "score": 24.316921607041806},
      {"id": "train-04932", "score": 24.088177037617815},
-     {"id": "train-07830", "score": 23.105184088807558},
+     {"id": "train-07830", "score": 23.10518408880756},
      {"id": "train-07921", "score": 23.09952695418346}
     ]
    },
@@ -232,7 +232,7 @@
      {"id": "train-06429", "score": 22.572197942943575},
      {"id": "train-00469", "score": 22.313377147663235},
      {"id": "train-04405", "score": 21.287016612307063},
-     {"id": "train-07287", "score": 20.905414832118794},
+     {"id": "train-07287", "score": 20.90541483211879},
      {"id": "train-02407", "score": 20.88425587730374},
      {"id": "train-08805", "score": 20.512987292171072},
      {"id": "train-05607", "score": 20.485883563606052}
@@ -247,7 +247,7 @@
      {"id": "train-00582", "score": 36.17758322440411},
      {"id": "train-01944", "score": 33.576436257126375},
      {"id": "train-05757", "score": 32.752699164173215},
-     {"id": "train-05023", "score": 32.550722258345715},
+     {"id": "train-05023", "score": 32.55072225834572},
      {"id": "train-00929", "score": 32.05473783347162},
      {"id": "train-09150", "score": 31.713969873911203},
      {"id": "train-01414", "score": 31.64253517060606},
@@ -263,8 +263,8 @@
      {"id": "train-08251", "score": 30.596218323481665},
      {"id": "train-05483", "score": 30.52155447577861},
      {"id": "train-08486", "score": 30.31361350928348},
-     {"id": "train-05013", "score": 29.996103310889904},
-     {"id": "train-05350", "score": 29.787365577342825},
+     {"id": "train-05013", "score": 29.9961033108899},
+     {"id": "train-05350", "score": 29.787365577342822},
      {"id": "train-09592", "score": 28.31652970560148},
      {"id": "train-01336", "score": 27.62756721682523},
      {"id": "train-03273", "score": 27.178873985411684}
@@ -275,11 +275,11 @@
     "text": "Health Care Fraud Prevention and Paperwork Reduction Act of 2000",
     "hits": [
      {"id": "train-01533", "score": 39.67298706903746},
-     {"id": "train-02226", "score": 35.04005475287908},
-     {"id": "train-00622", "score": 32.83079058859459},
+     {"id": "train-02226", "score": 35.04005475287907},
+     {"id": "train-00622", "score": 32.830790588594596},
      {"id": "train-01167", "score": 26.824895335852112},
      {"id": "train-06073", "score": 26.207575694606668},
-     {"id": "train-05720", "score": 25.11671965335145},
+     {"id": "train-05720", "score": 25.116719653351453},
      {"id": "train-05901", "score": 24.90042369549802},
      {"id": "train-06171", "score": 24.119971338609236},
      {"id": "train-02353", "score": 22.761163754256636},
@@ -296,9 +296,9 @@
      {"id": "train-07031", "score": 34.54779831033748},
      {"id": "train-05552", "score": 34.2338038119381},
      {"id": "train-05338", "score": 34.0712223708335},
-     {"id": "train-02068", "score": 33.40241034374357},
-     {"id": "train-06702", "score": 31.745533631721134},
-     {"id": "train-00452", "score": 31.710107033533063},
+     {"id": "train-02068", "score": 33.40241034374356},
+     {"id": "train-06702", "score": 31.745533631721138},
+     {"id": "train-00452", "score": 31.71010703353306},
      {"id": "train-09724", "score": 31.668901061088224}
     ]
    },
@@ -310,8 +310,8 @@
      {"id": "train-09095", "score": 17.799134981212436},
      {"id": "train-06413", "score": 15.47221673229344},
      {"id": "train-04980", "score": 15.053627872433578},
-     {"id": "train-00104", "score": 14.798137021461693},
-     {"id": "train-07581", "score": 14.463636990696177},
+     {"id": "train-00104", "score": 14.798137021461695},
+     {"id": "train-07581", "score": 14.46363699069618},
      {"id": "train-06235", "score": 14.020437553347936},
      {"id": "train-00905", "score": 13.428134317332763},
      {"id": "train-00244", "score": 13.194200520429654},
@@ -323,10 +323,10 @@
     "text": "A bill to amend the Internal Revenue Code of 1986 to provide that the value of qualified historic property shall not be included in determining the taxable estate of a decedent.",
     "hits": [
      {"id": "train-03767", "score": 74.01512955231672},
-     {"id": "train-06346", "score": 55.38169916612492},
+     {"id": "train-06346", "score": 55.381699166124925},
      {"id": "train-06564", "score": 50.2954696482645},
      {"id": "train-05343", "score": 49.96340693398214},
-     {"id": "train-03647", "score": 47.5535578904714},
+     {"id": "train-03647", "score": 47.55355789047139},
      {"id": "train-03563", "score": 46.34329534918332},
      {"id": "train-08587", "score": 39.75664326617138},
      {"id": "train-03950", "score": 37.53510154379339},
@@ -373,10 +373,10 @@
      {"id": "train-08493", "score": 48.69464231785561},
      {"id": "train-02716", "score": 43.99831747012643},
      {"id": "train-06734", "score": 42.170844317996625},
-     {"id": "train-08435", "score": 42.08143410231297},
-     {"id": "train-05197", "score": 39.397548746318066},
+     {"id": "train-08435", "score": 42.081434102312954},
+     {"id": "train-05197", "score": 39.39754874631806},
      {"id": "train-09562", "score": 38.215044108357354},
-     {"id": "train-00563", "score": 37.15342284634062},
+     {"id": "train-00563", "score": 37.153422846340625},
      {"id": "train-01391", "score": 37.05272513093395},
      {"id": "train-00614", "score": 35.56661050870553},
      {"id": "train-01850", "score": 34.439861497036276}
@@ -387,15 +387,15 @@
     "text": "To amend title XVIII of the Social Security Act to provide whistleblower protection to employees of clinical laboratories who furnish services under the Medicare Program, and for other purposes.",
     "hits": [
      {"id": "train-08264", "score": 50.311110872259334},
-     {"id": "train-05482", "score": 46.77064530445048},
+     {"id": "train-05482", "score": 46.770645304450476},
      {"id": "train-01767", "score": 46.05770185493692},
      {"id": "train-05900", "score": 45.74531422431946},
      {"id": "train-00249", "score": 45.013830793346884},
-     {"id": "train-01204", "score": 43.674077889048654},
+     {"id": "train-01204", "score": 43.67407788904865},
      {"id": "train-03045", "score": 43.207655936169544},
-     {"id": "train-04650", "score": 42.21825601699335},
+     {"id": "train-04650", "score": 42.218256016993365},
      {"id": "train-02634", "score": 40.84828925516203},
-     {"id": "train-06769", "score": 40.76153667815246}
+     {"id": "train-06769", "score": 40.76153667815247}
     ]
    },
    {
@@ -408,7 +408,7 @@
      {"id": "train-04079", "score": 41.32523575233191},
      {"id": "train-06953", "score": 41.29585872783736},
      {"id": "train-08837", "score": 37.840041950017905},
-     {"id": "train-04879", "score": 35.14215993549122},
+     {"id": "train-04879", "score": 35.14215993549123},
      {"id": "train-06134", "score": 35.12983487934962},
      {"id": "train-09627", "score": 35.11018258301791},
      {"id": "train-07650", "score": 35.00433850142793}
@@ -418,7 +418,7 @@
     "id": "test-00025",
     "text": "To require the President to seek to negotiate and enter into a bilateral status of forces agreement with the Government of the Islamic Republic of Afghanistan.",
     "hits": [
-     {"id": "train-08790", "score": 33.87283488815655},
+     {"id": "train-08790", "score": 33.87283488815654},
      {"id": "train-07776", "score": 28.305486651498136},
      {"id": "train-09507", "score": 28.031209553055685},
      {"id": "train-09996", "score": 27.497245314828433},
@@ -427,22 +427,22 @@
      {"id": "train-00155", "score": 25.457567670181714},
      {"id": "train-09710", "score": 24.839268692902678},
      {"id": "train-08833", "score": 24.765853750544267},
-     {"id": "train-08133", "score": 24.682762114375766}
+     {"id": "train-08133", "score": 24.682762114375763}
     ]
    },
    {
     "id": "test-00026",
     "text": "To require the Department of Veterans Affairs to provide mental health services in languages other than English, as needed, for veterans and family members with limited English proficiency, to expand the scope of mental health services provided to family members of veterans, and for other purposes.",
     "hits": [
-     {"id": "train-08178", "score": 44.00812910947946},
+     {"id": "train-08178", "score": 44.008129109479455},
      {"id": "train-08438", "score": 41.85810930319433},
      {"id": "train-03325", "score": 40.80376679896828},
      {"id": "train-00748", "score": 40.59805146031822},
-     {"id": "train-09735", "score": 39.51023832228946},
+     {"id": "train-09735", "score": 39.51023832228945},
      {"id": "train-06434", "score": 39.4728544446147},
      {"id": "train-05739", "score": 39.44071802257752},
      {"id": "train-08260", "score": 37.14825496600076},
-     {"id": "train-09696", "score": 37.084348745318785},
+     {"id": "train-09696", "score": 37.08434874531878},
      {"id": "train-03388", "score": 36.90653825783771}
     ]
    },
@@ -468,13 +468,13 @@
     "hits": [
      {"id": "train-08475", "score": 19.854554069006838},
      {"id": "train-03774", "score": 18.868461492008628},
-     {"id": "train-05334", "score": 17.946981824428935},
+     {"id": "train-05334", "score": 17.94698182442894},
      {"id": "train-04118", "score": 17.167504470876786},
      {"id": "train-05464", "score": 16.78308932991304},
      {"id": "train-05547", "score": 16.418567676373854},
      {"id": "train-09091", "score": 16.103080586932705},
      {"id": "train-03812", "score": 15.95930520512134},
-     {"id": "train-09791", "score": 15.538192992136013},
+     {"id": "train-09791", "score": 15.538192992136015},
      {"id": "train-00417", "score": 15.52064779911843}
     ]
    },
@@ -490,7 +490,7 @@
      {"id": "train-07587", "score": 27.328778112905837},
      {"id": "train-09304", "score": 26.85083955874069},
      {"id": "train-00180", "score": 26.730069008042413},
-     {"id": "train-00952", "score": 25.644569956513003},
+     {"id": "train-00952", "score": 25.644569956513006},
      {"id": "train-02436", "score": 25.374719881363074}
     ]
    },
@@ -502,9 +502,9 @@
      {"id": "train-09935", "score": 34.86310098269681},
      {"id": "train-05318", "score": 34.78502034478601},
      {"id": "train-03995", "score": 29.35522126209445},
-     {"id": "train-06902", "score": 28.035674217013607},
+     {"id": "train-06902", "score": 28.035674217013604},
      {"id": "train-07652", "score": 27.840944770077318},
-     {"id": "train-08532", "score": 26.729860512855698},
+     {"id": "train-08532", "score": 26.7298605128557},
      {"id": "train-03555", "score": 26.143565196012055},
      {"id": "train-00327", "score": 25.356630284144963},
      {"id": "train-08939", "score": 25.351715433220026}
@@ -531,12 +531,12 @@
     "text": "A bill to establish in the Department of Commerce the Minority Business Development Program to provide qualified minority businesses with technical assistance and contracting opportunities, and for other purposes.",
     "hits": [
      {"id": "train-08680", "score": 37.46632519224762},
-     {"id": "train-04354", "score": 35.97002235337217},
+     {"id": "train-04354", "score": 35.97002235337218},
      {"id": "train-06285", "score": 33.28689211859158},
      {"id": "train-06500", "score": 29.51542722624181},
      {"id": "train-07027", "score": 29.233181417064035},
      {"id": "train-07510", "score": 28.722896193344173},
-     {"id": "train-01259", "score": 26.338639638871364},
+     {"id": "train-01259", "score": 26.338639638871367},
      {"id": "train-03252", "score": 25.2510914556855},
      {"id": "train-05368", "score": 24.35027660770382},
      {"id": "train-01384", "score": 24.323994613032042}
@@ -550,11 +550,11 @@
      {"id": "train-05245", "score": 43.41083568682977},
      {"id": "train-01117", "score": 39.48692689843939},
      {"id": "train-09900", "score": 34.12491060336398},
-     {"id": "train-03074", "score": 31.525906985396535},
-     {"id": "train-06525", "score": 31.270898307810935},
+     {"id": "train-03074", "score": 31.525906985396542},
+     {"id": "train-06525", "score": 31.27089830781093},
      {"id": "train-07101", "score": 31.023719315793272},
      {"id": "train-00371", "score": 30.750469520817575},
-     {"id": "train-03427", "score": 30.428467379237933},
+     {"id": "train-03427", "score": 30.42846737923793},
      {"id": "train-05253", "score": 29.00669932157399}
     ]
    },
@@ -563,29 +563,29 @@
     "text": "A bill to amend the Internal Revenue Code of 1986 to limit the interest deduction allowed corporations and to allow a deduction for dividends paid by corporations.",
     "hits": [
      {"id": "train-01839", "score": 58.1893939078514},
-     {"id": "train-01736", "score": 57.37315860517553},
-     {"id": "train-05002", "score": 43.78114480132299},
-     {"id": "train-04851", "score": 43.136117675499996},
+     {"id": "train-01736", "score": 57.373158605175526},
+     {"id": "train-05002", "score": 43.781144801323},
+     {"id": "train-04851", "score": 43.1361176755},
      {"id": "train-08856", "score": 39.93987045314563},
-     {"id": "train-01411", "score": 39.197384200687765},
+     {"id": "train-01411", "score": 39.19738420068777},
      {"id": "train-08553", "score": 39.0794922792573},
      {"id": "train-00865", "score": 38.13033004662641},
      {"id": "train-01010", "score": 37.65209159215036},
-     {"id": "train-00837", "score": 37.40940699086069}
+     {"id": "train-00837", "score": 37.40940699086068}
     ]
    },
    {
     "id": "test-00035",
     "text": "To direct the Secretary of Labor to make a grant to a public university to establish the Center for the Study of Women and Workplace Policy.",
     "hits": [
-     {"id": "train-03593", "score": 31.58916876407383},
+     {"id": "train-03593", "score": 31.589168764073825},
      {"id": "train-09469", "score": 30.971153323119328},
      {"id": "train-04766", "score": 28.120485920698883},
      {"id": "train-07743", "score": 27.29030782332678},
-     {"id": "train-01058", "score": 26.137572873071523},
+     {"id": "train-01058", "score": 26.137572873071527},
      {"id": "train-05115", "score": 25.428054371648468},
      {"id": "train-01984", "score": 23.99016770374709},
-     {"id": "train-00557", "score": 23.92980065394933},
+     {"id": "train-00557", "score": 23.929800653949325},
      {"id": "train-06966", "score": 23.496220887386542},
      {"id": "train-02311", "score": 23.429485148698216}
     ]
@@ -595,11 +595,11 @@
     "text": "A bill to increase loan limits for small business concerns, provide for low interest refinancing for small business concerns, and for other purposes.",
     "hits": [
      {"id": "train-09989", "score": 47.414301089117345},
-     {"id": "train-04621", "score": 32.147125165106665},
+     {"id": "train-04621", "score": 32.14712516510666},
      {"id": "train-08124", "score": 31.370386796103517},
-     {"id": "train-04281", "score": 31.1145500029387},
+     {"id": "train-04281", "score": 31.114550002938692},
      {"id": "train-08113", "score": 31.03527485034758},
-     {"id": "train-07275", "score": 30.69135595054182},
+     {"id": "train-07275", "score": 30.69135595054181},
      {"id": "train-06361", "score": 30.401373138880743},
      {"id": "train-03490", "score": 29.841340192864905},
      {"id": "train-03242", "score": 29.5186706633403},
@@ -628,13 +628,13 @@
     "hits": [
      {"id": "train-08327", "score": 17.73822672393081},
      {"id": "train-04382", "score": 16.058786589908898},
-     {"id": "train-04967", "score": 15.83978989134136},
+     {"id": "train-04967", "score": 15.839789891341361},
      {"id": "train-01992", "score": 15.696820011218701},
      {"id": "train-05131", "score": 15.55941008365933},
      {"id": "train-02691", "score": 15.184844224640017},
      {"id": "train-08122", "score": 15.15047797930091},
-     {"id": "train-04411", "score": 15.062578572536301},
-     {"id": "train-03940", "score": 14.662528577166846},
+     {"id": "train-04411", "score": 15.0625785725363},
+     {"id": "train-03940", "score": 14.66252857716685},
      {"id": "train-06222", "score": 14.630218803740483}
     ]
    },
@@ -643,13 +643,13 @@
     "text": "To amend the Internal Revenue Code of 1986 to allow a refundable credit for expenditures for renewable energy property.",
     "hits": [
      {"id": "train-08511", "score": 51.433025859434785},
-     {"id": "train-06531", "score": 48.55678292623711},
+     {"id": "train-06531", "score": 48.55678292623712},
      {"id": "train-07438", "score": 46.66257679310482},
      {"id": "train-07397", "score": 46.603720285728436},
-     {"id": "train-03203", "score": 44.638371830710945},
-     {"id": "train-02217", "score": 43.41272213676724},
-     {"id": "train-02438", "score": 43.00612250605765},
-     {"id": "train-08445", "score": 42.96281153637526},
+     {"id": "train-03203", "score": 44.63837183071095},
+     {"id": "train-02217", "score": 43.41272213676725},
+     {"id": "train-02438", "score": 43.00612250605764},
+     {"id": "train-08445", "score": 42.962811536375256},
      {"id": "train-05416", "score": 41.72968043060795},
      {"id": "train-09892", "score": 41.61089895696303}
     ]
@@ -659,11 +659,11 @@
     "text": "To make organizations which have been indicted for violations of Federal or State law relating to elections for public office ineligible to participate in the Planning Partnership Program for the 2010 census of population, and for other purposes.",
     "hits": [
      {"id": "train-05101", "score": 31.613177183715848},
-     {"id": "train-05200", "score": 27.04419678446314},
+     {"id": "train-05200", "score": 27.044196784463143},
      {"id": "train-06376", "score": 26.007808400325498},
      {"id": "train-08683", "score": 24.739363027067235},
-     {"id": "train-08435", "score": 23.098104637111476},
-     {"id": "train-08715", "score": 22.91508109449041},
+     {"id": "train-08435", "score": 23.09810463711147},
+     {"id": "train-08715", "score": 22.915081094490407},
      {"id": "train-05566", "score": 22.394655313024003},
      {"id": "train-06273", "score": 21.92787689167981},
      {"id": "train-08760", "score": 21.746435377541566},
@@ -676,13 +676,13 @@
     "hits": [
      {"id": "train-04443", "score": 19.75095466080016},
      {"id": "train-07687", "score": 19.002872575066608},
-     {"id": "train-04055", "score": 18.22209835172555},
+     {"id": "train-04055", "score": 18.222098351725545},
      {"id": "train-08863", "score": 16.545883898069143},
      {"id": "train-09453", "score": 16.221712000310593},
      {"id": "train-05429", "score": 15.833434187659059},
      {"id": "train-02986", "score": 15.201481411204513},
      {"id": "train-08760", "score": 14.283945285671084},
-     {"id": "train-04797", "score": 13.535960541868887},
+     {"id": "train-04797", "score": 13.535960541868885},
      {"id": "train-03963", "score": 13.269569409496661}
     ]
    },
@@ -690,12 +690,12 @@
     "id": "test-00042",
     "text": "To provide for prices of pharmaceutical products that are fair to the producer and the consumer, and for other purposes.",
     "hits": [
-     {"id": "train-04167", "score": 24.621763533206266},
+     {"id": "train-04167", "score": 24.621763533206263},
      {"id": "train-07460", "score": 22.85321327652111},
      {"id": "train-02130", "score": 21.506706941919184},
      {"id": "train-05220", "score": 21.50143060818619},
      {"id": "train-03771", "score": 20.76125421328716},
-     {"id": "train-01245", "score": 20.49060670198609},
+     {"id": "train-01245", "score": 20.490606701986085},
      {"id": "train-02164", "score": 20.339579417940254},
      {"id": "train-06755", "score": 20.192827810511744},
      {"id": "train-05244", "score": 20.15818728647043},
@@ -706,15 +706,15 @@
     "id": "test-00043",
     "text": "A bill to amend the Electronic Fund Transfer Act to provide protection for consumers who have prepaid cards, and for other purposes.",
     "hits": [
-     {"id": "train-03195", "score": 43.31711191094137},
-     {"id": "train-02813", "score": 42.68618172477222},
+     {"id": "train-03195", "score": 43.317111910941364},
+     {"id": "train-02813", "score": 42.686181724772226},
      {"id": "train-03963", "score": 39.22673149715266},
-     {"id": "train-09667", "score": 35.247564649393674},
+     {"id": "train-09667", "score": 35.24756464939367},
      {"id": "train-05625", "score": 34.56571111576286},
      {"id": "train-08990", "score": 31.654302248451124},
      {"id": "train-04522", "score": 30.898990914854522},
      {"id": "train-09927", "score": 30.562046538762978},
-     {"id": "train-00470", "score": 29.08830783545786},
+     {"id": "train-00470", "score": 29.088307835457865},
      {"id": "train-03059", "score": 28.747913995436043}
     ]
    },
@@ -723,15 +723,15 @@
     "text": "A bill to reauthorize the Appalachian Regional Development Act of 1965, and for other purposes.",
     "hits": [
      {"id": "train-07775", "score": 48.18549560457177},
-     {"id": "train-02593", "score": 44.64456086768882},
+     {"id": "train-02593", "score": 44.644560867688824},
      {"id": "train-02756", "score": 42.01919042573311},
      {"id": "train-08695", "score": 34.845080616943356},
-     {"id": "train-03960", "score": 24.069258603204787},
+     {"id": "train-03960", "score": 24.069258603204783},
      {"id": "train-04867", "score": 16.146975693128745},
      {"id": "train-03975", "score": 14.46987033125022},
      {"id": "train-00997", "score": 14.26772991017201},
      {"id": "train-08052", "score": 14.2289523428596},
-     {"id": "train-07996", "score": 14.064170358655787}
+     {"id": "train-07996", "score": 14.064170358655785}
     ]
    },
    {
@@ -742,7 +742,7 @@
      {"id": "train-04152", "score": 27.811561897845106},
      {"id": "train-07218", "score": 26.868538582296033},
      {"id": "train-07564", "score": 25.119234151739633},
-     {"id": "train-08316", "score": 25.034705779061717},
+     {"id": "train-08316", "score": 25.03470577906172},
      {"id": "train-06126", "score": 24.35921263547662},
      {"id": "train-04562", "score": 22.681361092053063},
      {"id": "train-00124", "score": 21.705186322785092},
@@ -756,13 +756,13 @@
     "hits": [
      {"id": "train-09625", "score": 45.59257215997681},
      {"id": "train-05589", "score": 40.55942205245329},
-     {"id": "train-05391", "score": 38.23103972006303},
+     {"id": "train-05391", "score": 38.23103972006304},
      {"id": "train-06577", "score": 37.74526900023761},
      {"id": "train-04860", "score": 36.37171579163795},
      {"id": "train-04389", "score": 35.66561748775277},
      {"id": "train-07586", "score": 35.37253694082196},
      {"id": "train-06315", "score": 35.206553846480354},
-     {"id": "train-03862", "score": 33.4362295755827},
+     {"id": "train-03862", "score": 33.43622957558271},
      {"id": "train-03584", "score": 33.35079061881153}
     ]
    },
@@ -773,12 +773,12 @@
      {"id": "train-08742", "score": 40.33969052307288},
      {"id": "train-00631", "score": 39.07572344979907},
      {"id": "train-01814", "score": 34.34945444997902},
-     {"id": "train-05096", "score": 31.898330071373397},
+     {"id": "train-05096", "score": 31.8983300713734},
      {"id": "train-02013", "score": 30.78125838650054},
      {"id": "train-02831", "score": 29.080782954447866},
      {"id": "train-01371", "score": 24.724975849675364},
      {"id": "train-01084", "score": 15.537192917713762},
-     {"id": "train-06497", "score": 15.383061898590658},
+     {"id": "train-06497", "score": 15.383061898590661},
      {"id": "train-01057", "score": 15.111984493011667}
     ]
    },
@@ -790,12 +790,12 @@
      {"id": "train-04773", "score": 26.257436896066586},
      {"id": "train-09452", "score": 17.623503677937784},
      {"id": "train-03334", "score": 17.472412766315596},
-     {"id": "train-02931", "score": 15.73771629543886},
-     {"id": "train-06821", "score": 15.493032588720736},
-     {"id": "train-05605", "score": 15.442005451583327},
+     {"id": "train-02931", "score": 15.737716295438862},
+     {"id": "train-06821", "score": 15.493032588720737},
+     {"id": "train-05605", "score": 15.442005451583329},
      {"id": "train-06178", "score": 15.010732584635608},
      {"id": "train-04683", "score": 14.74195954141577},
-     {"id": "train-05579", "score": 13.954355501102917}
+     {"id": "train-05579", "score": 13.954355501102919}
     ]
    },
    {
@@ -806,11 +806,11 @@
      {"id": "train-03751", "score": 20.699598094100196},
      {"id": "train-00552", "score": 15.818493712092167},
      {"id": "train-09917", "score": 15.564252517810615},
-     {"id": "train-04519", "score": 15.34552058718865},
-     {"id": "train-00182", "score": 15.174702490371597},
+     {"id": "train-04519", "score": 15.345520587188652},
+     {"id": "train-00182", "score": 15.174702490371596},
      {"id": "train-03054", "score": 14.602376236764187},
      {"id": "train-08542", "score": 14.523257732922064},
-     {"id": "train-07922", "score": 14.281237764844189},
+     {"id": "train-07922", "score": 14.28123776484419},
      {"id": "train-02426", "score": 14.270635408782079}
     ]
    },
@@ -821,12 +821,12 @@
      {"id": "train-04924", "score": 26.93487848860931},
      {"id": "train-09674", "score": 25.445716586304528},
      {"id": "train-06171", "score": 22.817924334639994},
-     {"id": "train-06073", "score": 22.23312463457139},
+     {"id": "train-06073", "score": 22.233124634571393},
      {"id": "train-09988", "score": 21.55017687438871},
      {"id": "train-07671", "score": 21.128961420126455},
      {"id": "train-03632", "score": 20.51738694262418},
      {"id": "train-04370", "score": 20.21850824808766},
-     {"id": "train-01440", "score": 19.86830094345905},
+     {"id": "train-01440", "score": 19.868300943459047},
      {"id": "train-05680", "score": 19.271157934333694}
     ]
    },
@@ -835,13 +835,13 @@
     "text": "To provide for the establishment of a commission to review and make recommendations to Congress on the reform and simplification of the Internal Revenue Code of 1986.",
     "hits": [
      {"id": "train-06892", "score": 48.25755783712905},
-     {"id": "train-04988", "score": 27.83679137469638},
+     {"id": "train-04988", "score": 27.836791374696382},
      {"id": "train-08887", "score": 24.9451891179681},
-     {"id": "train-01025", "score": 24.83713518925763},
+     {"id": "train-01025", "score": 24.837135189257634},
      {"id": "train-06463", "score": 24.75180051816366},
      {"id": "train-00584", "score": 24.626755988383476},
-     {"id": "train-05675", "score": 24.395980723178067},
-     {"id": "train-08757", "score": 24.39417218269331},
+     {"id": "train-05675", "score": 24.395980723178063},
+     {"id": "train-08757", "score": 24.394172182693314},
      {"id": "train-07902", "score": 24.091064567372776},
      {"id": "train-01839", "score": 23.677623828864768}
     ]
@@ -850,10 +850,10 @@
     "id": "test-00052",
     "text": "A bill to amend the Foreign Assistance Act of 1961 to modify for fiscal years 2002 through 2004 the procedures relating to assistance for countries not cooperating in United States counterdrug efforts, and for other purposes.",
     "hits": [
-     {"id": "train-00954", "score": 39.70699094166907},
-     {"id": "train-01145", "score": 37.852148137837084},
+     {"id": "train-00954", "score": 39.706990941669076},
+     {"id": "train-01145", "score": 37.85214813783708},
      {"id": "train-06116", "score": 33.07287704369588},
-     {"id": "train-06546", "score": 32.057200983045234},
+     {"id": "train-06546", "score": 32.05720098304523},
      {"id": "train-06686", "score": 30.790823880925856},
      {"id": "train-02231", "score": 30.26260200604433},
      {"id": "train-08826", "score": 29.80368926254276},
@@ -866,11 +866,11 @@
     "id": "test-00053",
     "text": "To authorize certain Department of Veterans Affairs major medical facility projects and leases, to extend certain expiring provisions of law, and to modify certain authorities of the Secretary of Veterans Affairs, and for other purposes.",
     "hits": [
-     {"id": "train-06654", "score": 62.37570385743449},
+     {"id": "train-06654", "score": 62.3757038574345},
      {"id": "train-03781", "score": 56.18853911875783},
-     {"id": "train-07539", "score": 55.58974914654676},
-     {"id": "train-07624", "score": 55.35468240622826},
-     {"id": "train-07085", "score": 53.58280393239375},
+     {"id": "train-07539", "score": 55.58974914654675},
+     {"id": "train-07624", "score": 55.354682406228264},
+     {"id": "train-07085", "score": 53.58280393239376},
      {"id": "train-06693", "score": 41.376804145453086},
      {"id": "train-09935", "score": 40.38408718898942},
      {"id": "train-01974", "score": 38.44995572827648},
@@ -885,60 +885,60 @@
      {"id": "train-05206", "score": 8.594689442155628},
      {"id": "train-05711", "score": 8.582476666464348},
      {"id": "train-03864", "score": 8.478616663775878},
-     {"id": "train-04101", "score": 8.433118691380706},
+     {"id": "train-04101", "score": 8.433118691380702},
      {"id": "train-08084", "score": 8.358125206547864},
-     {"id": "train-06911", "score": 8.332573933182383},
-     {"id": "train-06584", "score": 8.315048020926273},
-     {"id": "train-01292", "score": 8.219567833708519},
-     {"id": "train-09466", "score": 8.067237777856525},
-     {"id": "train-01412", "score": 8.03097380343908}
+     {"id": "train-06911", "score": 8.332573933182381},
+     {"id": "train-06584", "score": 8.315048020926271},
+     {"id": "train-01292", "score": 8.219567833708517},
+     {"id": "train-09466", "score": 8.067237777856526},
+     {"id": "train-01412", "score": 8.030973803439078}
     ]
    },
    {
     "id": "test-00055",
     "text": "To authorize certain Department of Veterans Affairs major medical facility projects, to amend title 38, United States Code, to extend certain authorities of the Secretary of Veterans Affairs, and for other purposes.",
     "hits": [
-     {"id": "train-07539", "score": 54.37063764986543},
-     {"id": "train-06654", "score": 52.624107613410644},
+     {"id": "train-07539", "score": 54.37063764986542},
+     {"id": "train-06654", "score": 52.62410761341065},
      {"id": "train-03781", "score": 50.848498885763235},
-     {"id": "train-07624", "score": 50.3548947127659},
-     {"id": "train-07085", "score": 50.1658100557733},
+     {"id": "train-07624", "score": 50.354894712765905},
+     {"id": "train-07085", "score": 50.165810055773306},
      {"id": "train-09935", "score": 43.70106410424055},
      {"id": "train-04925", "score": 42.69870898659419},
      {"id": "train-01974", "score": 41.28516186365171},
      {"id": "train-09631", "score": 40.45375538352707},
-     {"id": "train-07823", "score": 39.71250158971164}
+     {"id": "train-07823", "score": 39.712501589711636}
     ]
    },
    {
     "id": "test-00056",
     "text": "To amend title 38, United States Code, to make permanent the authority for qualifying members of the Selected Reserve to have access to home loans guaranteed by the Secretary of Veterans Affairs and to provide for uniformity in fees charged qualifying members of the Selected Reserve and active duty veterans for such home loans.",
     "hits": [
-     {"id": "train-08104", "score": 45.666747388596136},
+     {"id": "train-08104", "score": 45.66674738859613},
      {"id": "train-04458", "score": 44.18821821482027},
      {"id": "train-09587", "score": 42.89785797783215},
      {"id": "train-08930", "score": 42.56611641488919},
-     {"id": "train-07824", "score": 42.218978000040494},
+     {"id": "train-07824", "score": 42.21897800004049},
      {"id": "train-09721", "score": 40.8595852668877},
-     {"id": "train-06486", "score": 40.694205133331145},
+     {"id": "train-06486", "score": 40.69420513333114},
      {"id": "train-08939", "score": 40.21537888452468},
      {"id": "train-09735", "score": 39.935389363765196},
-     {"id": "train-08531", "score": 39.70290869498092}
+     {"id": "train-08531", "score": 39.70290869498093}
     ]
    },
    {
     "id": "test-00057",
     "text": "A bill to require the Secretary of the Treasury to mint and issue coins in commemoration of Native Americans and the important contributions made by Indian tribes and individual Native Americans to the development of the United States and the history of the United States, and for other purposes.",
     "hits": [
-     {"id": "train-08955", "score": 58.67778465616447},
+     {"id": "train-08955", "score": 58.67778465616448},
      {"id": "train-00517", "score": 52.2868925813789},
      {"id": "train-08761", "score": 52.28210548380619},
      {"id": "train-01280", "score": 51.99540768086773},
      {"id": "train-09932", "score": 51.90362270869505},
      {"id": "train-09995", "score": 51.06220605016093},
-     {"id": "train-08909", "score": 50.90750074444928},
-     {"id": "train-00589", "score": 50.805874569333966},
-     {"id": "train-07028", "score": 50.66456027604114},
+     {"id": "train-08909", "score": 50.90750074444929},
+     {"id": "train-00589", "score": 50.80587456933397},
+     {"id": "train-07028", "score": 50.664560276041136},
      {"id": "train-00212", "score": 50.55466568020208}
     ]
    },
@@ -962,7 +962,7 @@
     "id": "test-00059",
     "text": "To promote the development of affordable, quality rental housing in rural areas for low-income households.",
     "hits": [
-     {"id": "train-04271", "score": 69.12423323029552},
+     {"id": "train-04271", "score": 69.12423323029553},
      {"id": "train-01998", "score": 42.33347021417471},
      {"id": "train-00533", "score": 42.14980722168234},
      {"id": "train-07475", "score": 41.46319140315354},
@@ -983,11 +983,11 @@
      {"id": "train-08619", "score": 16.425979274646316},
      {"id": "train-01173", "score": 16.272704702669472},
      {"id": "train-01723", "score": 16.177292061257063},
-     {"id": "train-06498", "score": 15.592432602909243},
+     {"id": "train-06498", "score": 15.592432602909245},
      {"id": "train-04603", "score": 14.984486140511336},
      {"id": "train-07629", "score": 14.924649332951171},
      {"id": "train-04233", "score": 14.829427454863644},
-     {"id": "train-07171", "score": 14.581376565291764}
+     {"id": "train-07171", "score": 14.581376565291766}
     ]
    },
    {
@@ -1001,7 +1001,7 @@
      {"id": "train-02800", "score": 34.94888254059308},
      {"id": "train-09365", "score": 34.59808602269674},
      {"id": "train-00433", "score": 34.4410280633406},
-     {"id": "train-03269", "score": 34.240592524392},
+     {"id": "train-03269", "score": 34.24059252439199},
      {"id": "train-02450", "score": 34.140815250751814},
      {"id": "train-02820", "score": 34.13786991819071}
     ]
@@ -1010,7 +1010,7 @@
     "id": "test-00062",
     "text": "Appalachian Regional Commission Reform Act",
     "hits": [
-     {"id": "train-02593", "score": 32.55489127768971},
+     {"id": "train-02593", "score": 32.554891277689705},
      {"id": "train-02756", "score": 31.480720245529955},
      {"id": "train-07775", "score": 30.558424194992902},
      {"id": "train-08695", "score": 29.875776568501802},
@@ -1018,7 +1018,7 @@
      {"id": "train-03960", "score": 17.913449653063715},
      {"id": "train-05675", "score": 16.819992790474544},
      {"id": "train-07998", "score": 16.782388371548667},
-     {"id": "train-04988", "score": 16.53119254194703},
+     {"id": "train-04988", "score": 16.531192541947032},
      {"id": "train-08142", "score": 15.157126222113549}
     ]
    },
@@ -1030,12 +1030,12 @@
      {"id": "train-05655", "score": 30.1526029626021},
      {"id": "train-07353", "score": 24.624205667135406},
      {"id": "train-06762", "score": 23.44597804865601},
-     {"id": "train-09022", "score": 21.81803994644257},
+     {"id": "train-09022", "score": 21.818039946442568},
      {"id": "train-08509", "score": 21.652161444144063},
      {"id": "train-03322", "score": 20.650298955982844},
      {"id": "train-08817", "score": 19.635243258678056},
      {"id": "train-07621", "score": 19.204380637594568},
-     {"id": "train-02733", "score": 19.1111399479337}
+     {"id": "train-02733", "score": 19.111139947933705}
     ]
    },
    {
@@ -1045,8 +1045,8 @@
      {"id": "train-06467", "score": 23.75285053960655},
      {"id": "train-01249", "score": 21.550219182626854},
      {"id": "train-02400", "score": 19.737206341063413},
-     {"id": "train-04506", "score": 19.459645085324578},
-     {"id": "train-06041", "score": 19.273222373041577},
+     {"id": "train-04506", "score": 19.459645085324574},
+     {"id": "train-06041", "score": 19.273222373041573},
      {"id": "train-04699", "score": 18.690477396906974},
      {"id": "train-02275", "score": 17.97414985422423},
      {"id": "train-06230", "score": 17.529923874593578},
@@ -1060,29 +1060,29 @@
     "hits": [
      {"id": "train-04228", "score": 41.046668921579865},
      {"id": "train-07710", "score": 40.23311633737875},
-     {"id": "train-00320", "score": 32.558936491081866},
+     {"id": "train-00320", "score": 32.55893649108186},
      {"id": "train-02901", "score": 31.495899824612184},
-     {"id": "train-00349", "score": 31.310239280777953},
+     {"id": "train-00349", "score": 31.31023928077795},
      {"id": "train-01157", "score": 31.300419899776568},
      {"id": "train-02036", "score": 30.766921068079938},
      {"id": "train-06180", "score": 30.292925632320447},
-     {"id": "train-02502", "score": 30.14916982523606},
-     {"id": "train-09272", "score": 29.90925346162631}
+     {"id": "train-02502", "score": 30.149169825236065},
+     {"id": "train-09272", "score": 29.909253461626307}
     ]
    },
    {
     "id": "test-00066",
     "text": "To repeal tax subsidies enacted by the Energy Policy Act of 2005 for oil and gas and certain other oil and gas subsidies in the Internal Revenue Code of 1986, and to establish a greenhouse gas intensity reduction investment tax credit.",
     "hits": [
-     {"id": "train-08829", "score": 60.49039833369179},
+     {"id": "train-08829", "score": 60.490398333691786},
      {"id": "train-08434", "score": 57.22514541024934},
-     {"id": "train-06460", "score": 56.436807892483394},
+     {"id": "train-06460", "score": 56.43680789248339},
      {"id": "train-06985", "score": 54.16513186462546},
      {"id": "train-06011", "score": 52.48047193732016},
-     {"id": "train-02469", "score": 52.0569854647484},
-     {"id": "train-00417", "score": 51.21618255056357},
+     {"id": "train-02469", "score": 52.056985464748394},
+     {"id": "train-00417", "score": 51.21618255056358},
      {"id": "train-06199", "score": 50.60697242003958},
-     {"id": "train-01568", "score": 49.90175459386171},
+     {"id": "train-01568", "score": 49.90175459386172},
      {"id": "train-00843", "score": 49.743346429978494}
     ]
    },
@@ -1090,10 +1090,10 @@
     "id": "test-00067",
     "text": "A bill to amend the Workforce Investment Act of 1998 to increase the hiring of firefighters, and for other purposes.",
     "hits": [
-     {"id": "train-09696", "score": 27.459226209987207},
+     {"id": "train-09696", "score": 27.45922620998721},
      {"id": "train-08577", "score": 27.25384409770259},
      {"id": "train-03826", "score": 26.86530833343471},
-     {"id": "train-04649", "score": 26.4899297159713},
+     {"id": "train-04649", "score": 26.489929715971297},
      {"id": "train-05413", "score": 25.007807634152748},
      {"id": "train-09118", "score": 24.46265783858353},
      {"id": "train-04276", "score": 24.346114422429505},
@@ -1107,12 +1107,12 @@
     "text": "Competitiveness Tax Credit Act",
     "hits": [
      {"id": "train-08437", "score": 14.775488439628853},
-     {"id": "train-09742", "score": 14.718258904672686},
+     {"id": "train-09742", "score": 14.718258904672687},
      {"id": "train-00445", "score": 14.465402838799092},
      {"id": "train-01125", "score": 13.68483820343017},
      {"id": "train-00806", "score": 13.662889558450228},
      {"id": "train-01055", "score": 13.621523263541874},
-     {"id": "train-01046", "score": 13.608454571781305},
+     {"id": "train-01046", "score": 13.608454571781307},
      {"id": "train-08556", "score": 13.463201606446946},
      {"id": "train-07894", "score": 13.312869638396508},
      {"id": "train-04157", "score": 13.229744479387817}
@@ -1128,8 +1128,8 @@
      {"id": "train-08659", "score": 26.014544649737402},
      {"id": "train-08970", "score": 24.403990123828734},
      {"id": "train-03715", "score": 24.147900208550126},
-     {"id": "train-04828", "score": 23.15168590523625},
-     {"id": "train-02563", "score": 22.396082762129193},
+     {"id": "train-04828", "score": 23.151685905236246},
+     {"id": "train-02563", "score": 22.39608276212919},
      {"id": "train-02240", "score": 21.996381015764367},
      {"id": "train-08159", "score": 21.11726385644696}
     ]
@@ -1138,7 +1138,7 @@
     "id": "test-00070",
     "text": "Prescription Drug Fairness for Seniors Act of 1998",
     "hits": [
-     {"id": "train-04085", "score": 28.452695825183678},
+     {"id": "train-04085", "score": 28.45269582518368},
      {"id": "train-03652", "score": 25.929458818887902},
      {"id": "train-05742", "score": 25.448858347153546},
      {"id": "train-00169", "score": 24.80202722685526},
@@ -1146,8 +1146,8 @@
      {"id": "train-09750", "score": 23.794233921904727},
      {"id": "train-08337", "score": 23.704242271528386},
      {"id": "train-05386", "score": 23.29371169574925},
-     {"id": "train-05361", "score": 22.627699264780475},
-     {"id": "train-00025", "score": 22.12633525121863}
+     {"id": "train-05361", "score": 22.627699264780478},
+     {"id": "train-00025", "score": 22.126335251218634}
     ]
    },
    {
@@ -1170,12 +1170,12 @@
     "id": "test-00072",
     "text": "Treatment of Children's Deformities Act of 1998",
     "hits": [
-     {"id": "train-08550", "score": 21.62668910279073},
-     {"id": "train-02055", "score": 18.137909172772893},
+     {"id": "train-08550", "score": 21.626689102790728},
+     {"id": "train-02055", "score": 18.137909172772897},
      {"id": "train-07919", "score": 17.37411691527429},
      {"id": "train-01551", "score": 16.911234340264755},
      {"id": "train-07040", "score": 16.545868393271235},
-     {"id": "train-05622", "score": 14.658860863394407},
+     {"id": "train-05622", "score": 14.658860863394409},
      {"id": "train-08324", "score": 13.78867549174925},
      {"id": "train-02769", "score": 12.859608669806398},
      {"id": "train-01784", "score": 11.889763654275033},
@@ -1186,7 +1186,7 @@
     "id": "test-00073",
     "text": "Biennial Appropriations Act",
     "hits": [
-     {"id": "train-07582", "score": 17.127840657232813},
+     {"id": "train-07582", "score": 17.12784065723281},
      {"id": "train-04602", "score": 14.788753875952706},
      {"id": "train-07235", "score": 9.933846327080078},
      {"id": "train-05472", "score": 8.181971494897063},
@@ -1202,13 +1202,13 @@
     "id": "test-00074",
     "text": "To authorize and support psoriasis and psoriatic arthritis data collection, to express the sense of the Congress to encourage and leverage public and private investment in psoriasis research with a particular focus on interdisciplinary collaborative research on the relationship between psoriasis and its comorbid conditions, and for other purposes.",
     "hits": [
-     {"id": "train-00827", "score": 43.820035706667305},
+     {"id": "train-00827", "score": 43.8200357066673},
      {"id": "train-02444", "score": 37.14749848104941},
      {"id": "train-05257", "score": 28.291363387576457},
      {"id": "train-04513", "score": 27.535609558655242},
      {"id": "train-06478", "score": 27.49785219978138},
      {"id": "train-08876", "score": 26.285538135764043},
-     {"id": "train-01183", "score": 25.726605444289504},
+     {"id": "train-01183", "score": 25.726605444289508},
      {"id": "train-03666", "score": 25.308103290649456},
      {"id": "train-04538", "score": 25.236963326139804},
      {"id": "train-07753", "score": 25.106336385534572}
@@ -1218,10 +1218,10 @@
     "id": "test-00075",
     "text": "National Commission for the New National Goal: The Advancement of Global Health Act",
     "hits": [
-     {"id": "train-00432", "score": 18.584619415938207},
+     {"id": "train-00432", "score": 18.584619415938203},
      {"id": "train-04533", "score": 18.571759138324897},
      {"id": "train-01604", "score": 18.4021814187649},
-     {"id": "train-05218", "score": 18.136954446642463},
+     {"id": "train-05218", "score": 18.136954446642466},
      {"id": "train-08732", "score": 17.31187044459933},
      {"id": "train-01142", "score": 17.10368991836034},
      {"id": "train-02421", "score": 17.049082487833626},
@@ -1251,10 +1251,10 @@
     "text": "Older and Disabled Americans Criminal Protection Act of 1998",
     "hits": [
      {"id": "train-07115", "score": 23.769315639241672},
-     {"id": "train-09056", "score": 22.925164249183595},
-     {"id": "train-06036", "score": 21.71603751174782},
+     {"id": "train-09056", "score": 22.9251642491836},
+     {"id": "train-06036", "score": 21.716037511747825},
      {"id": "train-02167", "score": 20.063170090101867},
-     {"id": "train-01224", "score": 19.412010392207016},
+     {"id": "train-01224", "score": 19.412010392207012},
      {"id": "train-06205", "score": 17.97517593339218},
      {"id": "train-05078", "score": 16.916558792896545},
      {"id": "train-03760", "score": 16.688938322022263},
@@ -1266,16 +1266,16 @@
     "id": "test-00078",
     "text": "A bill to amend chapters 83 and 84 of title 5, United States Code, to extend the civil service retirement provisions of such chapter which are applicable to law enforcement officers.",
     "hits": [
-     {"id": "train-09609", "score": 47.090731702188336},
-     {"id": "train-06888", "score": 41.10483243177362},
-     {"id": "train-08857", "score": 36.90304640128323},
+     {"id": "train-09609", "score": 47.09073170218833},
+     {"id": "train-06888", "score": 41.10483243177363},
+     {"id": "train-08857", "score": 36.903046401283234},
      {"id": "train-06306", "score": 35.45344473929763},
-     {"id": "train-01334", "score": 34.18507352663772},
+     {"id": "train-01334", "score": 34.185073526637716},
      {"id": "train-04054", "score": 34.115978876082565},
      {"id": "train-08293", "score": 33.87159454987599},
      {"id": "train-07468", "score": 32.59270486460255},
      {"id": "train-00490", "score": 32.143232749602156},
-     {"id": "train-02547", "score": 31.06575373748199}
+     {"id": "train-02547", "score": 31.065753737481998}
     ]
    },
    {
@@ -1283,8 +1283,8 @@
     "text": "Assault Weapons Prohibition Act of 1993",
     "hits": [
      {"id": "train-01730", "score": 36.55905418119859},
-     {"id": "train-00629", "score": 36.01200631246383},
-     {"id": "train-02702", "score": 31.13015263724676},
+     {"id": "train-00629", "score": 36.012006312463825},
+     {"id": "train-02702", "score": 31.130152637246752},
      {"id": "train-00663", "score": 31.05920019091578},
      {"id": "train-07798", "score": 27.38261260612068},
      {"id": "train-03497", "score": 26.686642234778482},
@@ -1302,7 +1302,7 @@
      {"id": "train-05143", "score": 22.47133107324917},
      {"id": "train-04406", "score": 21.476164241125254},
      {"id": "train-08836", "score": 21.27499676662808},
-     {"id": "train-04604", "score": 21.047495320430208},
+     {"id": "train-04604", "score": 21.04749532043021},
      {"id": "train-01984", "score": 20.84400920937657},
      {"id": "train-03737", "score": 20.655034544424943},
      {"id": "train-06222", "score": 19.64213686443971},
@@ -1323,7 +1323,7 @@
      {"id": "train-00528", "score": 13.476073906316788},
      {"id": "train-07448", "score": 13.301992018463277},
      {"id": "train-01179", "score": 13.224895658575038},
-     {"id": "train-09820", "score": 12.770855261808848}
+     {"id": "train-09820", "score": 12.770855261808846}
     ]
    },
    {
@@ -1331,7 +1331,7 @@
     "text": "Twenty-First Amendment Enforcement Act",
     "hits": [
      {"id": "train-01321", "score": 22.994749519415155},
-     {"id": "train-02206", "score": 21.247907588054108},
+     {"id": "train-02206", "score": 21.247907588054105},
      {"id": "train-00395", "score": 20.64533321262654},
      {"id": "train-00371", "score": 14.708718119322496},
      {"id": "train-05974", "score": 11.731091913461432},
@@ -1346,11 +1346,11 @@
     "id": "test-00083",
     "text": "To provide for the establishment of a Natural Gas Reserve.",
     "hits": [
-     {"id": "train-06299", "score": 22.880795281548796},
+     {"id": "train-06299", "score": 22.880795281548792},
      {"id": "train-06528", "score": 22.234688629419573},
      {"id": "train-01164", "score": 21.845524810495856},
      {"id": "train-01416", "score": 20.637349790347685},
-     {"id": "train-00664", "score": 20.046381887978832},
+     {"id": "train-00664", "score": 20.046381887978836},
      {"id": "train-05394", "score": 19.507461164771097},
      {"id": "train-08501", "score": 19.45811457238037},
      {"id": "train-06766", "score": 18.804086120170993},
@@ -1362,12 +1362,12 @@
     "id": "test-00084",
     "text": "Technology for the Classroom Act of 1993",
     "hits": [
-     {"id": "train-04261", "score": 21.01071200542435},
+     {"id": "train-04261", "score": 21.010712005424352},
      {"id": "train-08644", "score": 17.15878620204838},
      {"id": "train-06111", "score": 17.0417790147216},
      {"id": "train-05545", "score": 15.874254057964533},
      {"id": "train-04967", "score": 15.83553607188053},
-     {"id": "train-08750", "score": 15.659877155463219},
+     {"id": "train-08750", "score": 15.659877155463217},
      {"id": "train-07764", "score": 14.826747420431396},
      {"id": "train-02778", "score": 14.71469520443921},
      {"id": "train-01931", "score": 14.446772805694396},
@@ -1383,9 +1383,9 @@
      {"id": "train-01727", "score": 20.30738608997851},
      {"id": "train-08081", "score": 13.352066172605195},
      {"id": "train-05441", "score": 12.022476381904086},
-     {"id": "train-05667", "score": 12.00103296568084},
+     {"id": "train-05667", "score": 12.001032965680844},
      {"id": "train-07327", "score": 11.417804764932058},
-     {"id": "train-01340", "score": 11.372393684108314},
+     {"id": "train-01340", "score": 11.372393684108316},
      {"id": "train-01575", "score": 10.639067210195853},
      {"id": "train-09578", "score": 10.227297234566901}
     ]
@@ -1397,29 +1397,29 @@
      {"id": "train-05432", "score": 29.363629814581795},
      {"id": "train-08425", "score": 23.874745903345552},
      {"id": "train-04442", "score": 22.746531269012454},
-     {"id": "train-02017", "score": 20.756610347578583},
+     {"id": "train-02017", "score": 20.75661034757858},
      {"id": "train-05528", "score": 19.445781651920623},
      {"id": "train-06833", "score": 19.267118963486606},
-     {"id": "train-07159", "score": 18.017314282716022},
+     {"id": "train-07159", "score": 18.017314282716026},
      {"id": "train-00204", "score": 17.361438892400027},
      {"id": "train-08002", "score": 17.32802751373174},
-     {"id": "train-07453", "score": 17.249454307958306}
+     {"id": "train-07453", "score": 17.249454307958302}
     ]
    },
    {
     "id": "test-00087",
     "text": "Biodiesel Energy Development Act of 1997",
     "hits": [
-     {"id": "train-08829", "score": 22.47809943746372},
+     {"id": "train-08829", "score": 22.478099437463722},
      {"id": "train-06417", "score": 20.045144216590767},
      {"id": "train-04722", "score": 18.815131516366947},
      {"id": "train-06987", "score": 18.760396081096154},
      {"id": "train-07303", "score": 17.905548838289057},
-     {"id": "train-09558", "score": 16.056271491132527},
+     {"id": "train-09558", "score": 16.05627149113253},
      {"id": "train-05865", "score": 15.797348617192181},
      {"id": "train-08464", "score": 15.255082910291549},
-     {"id": "train-05387", "score": 14.937616537003171},
-     {"id": "train-04072", "score": 14.31847795845789}
+     {"id": "train-05387", "score": 14.937616537003173},
+     {"id": "train-04072", "score": 14.318477958457892}
     ]
    },
    {
@@ -1427,7 +1427,7 @@
     "text": "A bill to establish a national policy of basic consumer fair treatment for airline passengers, and for other purposes.",
     "hits": [
      {"id": "train-09140", "score": 37.82913695717268},
-     {"id": "train-09456", "score": 34.117337316585456},
+     {"id": "train-09456", "score": 34.11733731658545},
      {"id": "train-09771", "score": 24.933603228226836},
      {"id": "train-02576", "score": 24.041790392251887},
      {"id": "train-06805", "score": 23.785270499459738},
@@ -1444,13 +1444,13 @@
     "hits": [
      {"id": "train-09068", "score": 26.493396765572953},
      {"id": "train-08150", "score": 24.574818539359832},
-     {"id": "train-03794", "score": 20.794994854502153},
+     {"id": "train-03794", "score": 20.794994854502157},
      {"id": "train-07387", "score": 18.921930595219106},
-     {"id": "train-06479", "score": 18.803451962121397},
+     {"id": "train-06479", "score": 18.8034519621214},
      {"id": "train-06855", "score": 18.779784910655785},
      {"id": "train-01533", "score": 18.339663899121884},
      {"id": "train-05039", "score": 18.190007093291946},
-     {"id": "train-00988", "score": 18.118445781578806},
+     {"id": "train-00988", "score": 18.11844578157881},
      {"id": "train-08337", "score": 17.33185008385281}
     ]
    },
@@ -1458,16 +1458,16 @@
     "id": "test-00090",
     "text": "To amend the Internal Revenue Code of 1986 to combine the Hope and Lifetime Learning credits and to provide a uniform definition of qualifying higher education expenses.",
     "hits": [
-     {"id": "train-09566", "score": 70.2156764822495},
+     {"id": "train-09566", "score": 70.21567648224952},
      {"id": "train-04245", "score": 68.88383421174787},
      {"id": "train-05767", "score": 66.03477847631285},
      {"id": "train-05354", "score": 64.26681955779313},
-     {"id": "train-09319", "score": 61.26922025458967},
+     {"id": "train-09319", "score": 61.269220254589676},
      {"id": "train-01032", "score": 60.05604049453435},
-     {"id": "train-08973", "score": 54.739178975128944},
-     {"id": "train-01105", "score": 54.66133026883051},
+     {"id": "train-08973", "score": 54.73917897512895},
+     {"id": "train-01105", "score": 54.66133026883049},
      {"id": "train-05355", "score": 53.89069058354047},
-     {"id": "train-02050", "score": 53.49876523148714}
+     {"id": "train-02050", "score": 53.498765231487134}
     ]
    },
    {
@@ -1476,21 +1476,21 @@
     "hits": [
      {"id": "train-07983", "score": 18.618851391498442},
      {"id": "train-03083", "score": 17.97656084507012},
-     {"id": "train-08783", "score": 17.486447927842985},
+     {"id": "train-08783", "score": 17.48644792784298},
      {"id": "train-09026", "score": 17.12831340985238},
-     {"id": "train-06016", "score": 16.984517094480037},
+     {"id": "train-06016", "score": 16.98451709448004},
      {"id": "train-01486", "score": 16.820537859100344},
      {"id": "train-08412", "score": 16.799514000949145},
-     {"id": "train-06722", "score": 16.312731371772728},
+     {"id": "train-06722", "score": 16.312731371772724},
      {"id": "train-02017", "score": 16.236154524286167},
-     {"id": "train-04604", "score": 15.470338867914178}
+     {"id": "train-04604", "score": 15.47033886791418}
     ]
    },
    {
     "id": "test-00092",
     "text": "Recruit and Reward Future Math and Science Teachers of America Act of 2000",
     "hits": [
-     {"id": "train-04835", "score": 59.88975891676384},
+     {"id": "train-04835", "score": 59.889758916763846},
      {"id": "train-04278", "score": 39.448430817480606},
      {"id": "train-07868", "score": 35.27685079987961},
      {"id": "train-00475", "score": 31.115294311678724},
@@ -1509,8 +1509,8 @@
      {"id": "train-02729", "score": 17.392022927368192},
      {"id": "train-06359", "score": 16.59229593775352},
      {"id": "train-06529", "score": 16.04322435533137},
-     {"id": "train-06236", "score": 16.00502748275139},
-     {"id": "train-06497", "score": 15.383061898590658},
+     {"id": "train-06236", "score": 16.005027482751387},
+     {"id": "train-06497", "score": 15.383061898590661},
      {"id": "train-06320", "score": 14.773174229920716},
      {"id": "train-00637", "score": 14.43974704527728},
      {"id": "train-06031", "score": 14.055474522207355},
@@ -1524,9 +1524,9 @@
     "hits": [
      {"id": "train-01501", "score": 72.13538918774023},
      {"id": "train-08526", "score": 70.10271902862465},
-     {"id": "train-03091", "score": 66.9227438303103},
+     {"id": "train-03091", "score": 66.92274383031028},
      {"id": "train-09850", "score": 57.9811234846585},
-     {"id": "train-04556", "score": 55.48161494457082},
+     {"id": "train-04556", "score": 55.48161494457081},
      {"id": "train-04422", "score": 53.34518753280429},
      {"id": "train-03935", "score": 40.15217166957646},
      {"id": "train-06940", "score": 39.359052820957885},
@@ -1538,13 +1538,13 @@
     "id": "test-00095",
     "text": "To amend title XVIII of the Social Security Act to ensure access to quality home health services for all Americans, and for other purposes.",
     "hits": [
-     {"id": "train-03179", "score": 40.27403447754047},
-     {"id": "train-09726", "score": 39.780585067308884},
+     {"id": "train-03179", "score": 40.27403447754048},
+     {"id": "train-09726", "score": 39.7805850673089},
      {"id": "train-09132", "score": 38.53047165781343},
      {"id": "train-01960", "score": 37.50692025894882},
      {"id": "train-06338", "score": 34.86105055417081},
      {"id": "train-07762", "score": 34.33303900176919},
-     {"id": "train-01624", "score": 33.57604293510204},
+     {"id": "train-01624", "score": 33.576042935102045},
      {"id": "train-06397", "score": 33.33480643858272},
      {"id": "train-04510", "score": 33.2329542723182},
      {"id": "train-04650", "score": 33.183633388519496}
@@ -1554,8 +1554,8 @@
     "id": "test-00096",
     "text": "A bill to establish the Long Island Sound Stewardship System.",
     "hits": [
-     {"id": "train-02804", "score": 55.61957959370357},
-     {"id": "train-02773", "score": 54.32941594722353},
+     {"id": "train-02804", "score": 55.61957959370358},
+     {"id": "train-02773", "score": 54.32941594722354},
      {"id": "train-03845", "score": 22.298236637250042},
      {"id": "train-06451", "score": 17.95787669185097},
      {"id": "train-06313", "score": 17.67842350859543},
@@ -1573,12 +1573,12 @@
      {"id": "train-09721", "score": 27.925729715311984},
      {"id": "train-07425", "score": 27.21243597022371},
      {"id": "train-05139", "score": 27.098045149674824},
-     {"id": "train-00750", "score": 25.895211282113813},
+     {"id": "train-00750", "score": 25.895211282113817},
      {"id": "train-04040", "score": 25.85382838928202},
      {"id": "train-00549", "score": 25.35259775713932},
-     {"id": "train-02522", "score": 24.996542088683142},
-     {"id": "train-01492", "score": 24.87700388605832},
-     {"id": "train-01596", "score": 24.850711048105154},
+     {"id": "train-02522", "score": 24.996542088683146},
+     {"id": "train-01492", "score": 24.877003886058326},
+     {"id": "train-01596", "score": 24.850711048105158},
      {"id": "train-03555", "score": 24.674484630025145}
     ]
    },
@@ -1591,10 +1591,10 @@
      {"id": "train-05397", "score": 42.45933446949441},
      {"id": "train-06937", "score": 41.15661303651888},
      {"id": "train-03121", "score": 40.08627394459144},
-     {"id": "train-00437", "score": 39.79634944716264},
-     {"id": "train-01710", "score": 38.88763652590699},
-     {"id": "train-07906", "score": 38.83538405266386},
-     {"id": "train-00548", "score": 37.8762479440287},
+     {"id": "train-00437", "score": 39.79634944716263},
+     {"id": "train-01710", "score": 38.887636525906984},
+     {"id": "train-07906", "score": 38.835384052663855},
+     {"id": "train-00548", "score": 37.876247944028705},
      {"id": "train-01529", "score": 37.55721424412087}
     ]
    },
@@ -1603,13 +1603,13 @@
     "text": "To establish the Manhattan Project National Historical Park in Oak Ridge, Tennessee, Los Alamos, New Mexico, and Hanford, Washington, and for other purposes.",
     "hits": [
      {"id": "train-06964", "score": 38.77533432673369},
-     {"id": "train-09508", "score": 32.602666869147285},
+     {"id": "train-09508", "score": 32.60266686914728},
      {"id": "train-04577", "score": 31.716522677887404},
-     {"id": "train-05201", "score": 31.594113108010223},
-     {"id": "train-08066", "score": 31.375130607874812},
+     {"id": "train-05201", "score": 31.59411310801022},
+     {"id": "train-08066", "score": 31.37513060787481},
      {"id": "train-05806", "score": 31.286985413568893},
-     {"id": "train-05870", "score": 31.184981378618456},
-     {"id": "train-02148", "score": 31.106877484741645},
+     {"id": "train-05870", "score": 31.18498137861846},
+     {"id": "train-02148", "score": 31.10687748474165},
      {"id": "train-04505", "score": 30.48095564963262},
      {"id": "train-06730", "score": 30.211541985941462}
     ]
