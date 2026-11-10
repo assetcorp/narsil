@@ -67,7 +67,7 @@ impl CompiledFilter {
         meter: &WorkMeter,
         scratch: &mut PatternScratch,
     ) -> Result<Vec<u32>> {
-        let live = live_bits(entry.capacity(), &entry.tombstones);
+        let live = live_bits(entry.capacity(), entry.removed_bits());
         match &entry.data {
             SegmentData::Frozen(segment) => self.evaluate(segment.as_ref(), &live, meter, scratch),
             SegmentData::Tail(tail) => self.evaluate(tail.as_ref(), &live, meter, scratch),

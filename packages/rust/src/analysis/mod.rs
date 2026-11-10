@@ -121,6 +121,8 @@ impl TokenOptions {
 /// Receives each token of a text: the term, its position, the surface form where it differs, and the raw token.
 pub(crate) type TokenVisitor<'a> = dyn FnMut(&str, u32, Option<&str>, &str) + 'a;
 
+pub(crate) type UnitVisitor<'a> = dyn FnMut(&[u16], u32, Option<&[u16]>) -> Result<()> + 'a;
+
 #[derive(Clone)]
 pub(crate) struct Analyser {
     language: Language,
@@ -204,6 +206,50 @@ impl Analyser {
                 }
             },
         )
+    }
+
+    pub(crate) fn visit_units(
+        &self,
+        text: &str,
+        options: TokenOptions,
+        visit: &mut UnitVisitor<'_>,
+    ) -> Result<()> {
+        if let Some(tokenizer) = &self.tokenizer {
+            let mut tokens = tokenizer.tokenize(text);
+            if tokens
+                .windows(2)
+                .any(|pair| pair[1].position < pair[0].position)
+            {
+                tokens.sort_by_key(|token| token.position);
+            }
+            let mut units = Vec::new();
+            for token in &tokens {
+                units.clear();
+                units.extend(token.token.encode_utf16());
+                visit(&units, token.position, None)?;
+            }
+            return Ok(());
+        }
+        let stop_words = if options.remove_stop_words {
+            self.stop_words.as_deref()
+        } else {
+            None
+        };
+        let mut refused = None;
+        core::analyse(
+            self.language.index,
+            stop_words,
+            options.flags(),
+            text,
+            &mut |parts: TokenParts<'_>| {
+                if refused.is_none()
+                    && let Err(error) = visit(parts.term, parts.position, parts.surface)
+                {
+                    refused = Some(error);
+                }
+            },
+        )?;
+        refused.map_or(Ok(()), Err)
     }
 
     pub(crate) fn transform(

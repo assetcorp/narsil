@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
+use super::frozen::FrozenSegment;
 use super::indexed::IndexedDocument;
 use super::segment::{SegmentData, SegmentEntry};
-use super::tail::TailSegment;
+use super::tail::{Appended, TailSegment};
+
+pub(crate) type Freeze<'a> = dyn Fn(&SegmentEntry) -> Result<FrozenSegment> + 'a;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Map;
 
@@ -106,54 +109,77 @@ impl PartitionSnapshot {
         }
     }
 
-    /// Adds a document that the partition doesn't hold.
+    fn freeze_tail(&mut self, freeze: &Freeze<'_>) -> Result<()> {
+        let Some(entry) = self.segments.last_mut() else {
+            return Ok(());
+        };
+        if !matches!(entry.data, SegmentData::Tail(_)) {
+            return Ok(());
+        }
+        let frozen = freeze(entry)?;
+        *entry = SegmentEntry::new(entry.id, SegmentData::Frozen(Arc::new(frozen)));
+        Ok(())
+    }
+
     pub(crate) fn append(
         &mut self,
         id: String,
         document: Arc<Map>,
         indexed: IndexedDocument,
+        freeze: &Freeze<'_>,
     ) -> Result<()> {
         let lengths: Vec<(String, u32)> = indexed
             .text
             .iter()
             .map(|field| (field.path.clone(), field.length))
             .collect();
-        let Some(tail) = self.writable_tail() else {
-            return Err(NarsilError::new(
-                ErrorCode::PARTITION_CORRUPTED,
-                "The partition holds no writable tail segment",
-            ));
-        };
-        tail.append(id, document, indexed);
-        self.stats.add(lengths);
-        Ok(())
+        let mut pending = indexed;
+        for attempt in 0..2 {
+            let Some(tail) = self.writable_tail() else {
+                return Err(NarsilError::new(
+                    ErrorCode::PARTITION_CORRUPTED,
+                    "The partition holds no writable tail segment",
+                ));
+            };
+            match tail.append(id.clone(), Arc::clone(&document), pending)? {
+                Appended::Stored => {
+                    self.stats.add(lengths);
+                    return Ok(());
+                }
+                Appended::SegmentFull(_) if attempt == 1 => break,
+                Appended::SegmentFull(returned) => {
+                    pending = returned;
+                    self.freeze_tail(freeze)?;
+                }
+            }
+        }
+        Err(NarsilError::new(
+            ErrorCode::PARTITION_CORRUPTED,
+            "A document's surface or spelling counts do not fit even an empty keyword segment",
+        ))
     }
 
-    /// Removes the live copy of a document and returns its stored form, or `None` where the partition holds none.
-    ///
-    /// `analyse` returns the analysis of the stored document, whose words the segment then takes out of its counts.
     pub(crate) fn remove(
         &mut self,
         id: &str,
-        analyse: &dyn Fn(&Map) -> Option<IndexedDocument>,
+        analyse: &dyn Fn(&Map) -> Result<IndexedDocument>,
     ) -> Result<Option<Arc<Map>>> {
         let Some((at, ordinal)) = self.locate(id)? else {
             return Ok(None);
         };
         let entry = &mut self.segments[at];
-        let document = match &entry.data {
-            SegmentData::Frozen(segment) if segment.paged.is_some() => {
-                Some(entry.document(ordinal)?)
-            }
-            _ => entry.document(ordinal).ok(),
-        };
-        let lengths = entry.field_lengths_of(ordinal);
-        let words = document.as_deref().and_then(analyse);
-        if !entry.remove(ordinal, words.as_ref())? {
+        let document = entry.document(ordinal)?;
+        let words = analyse(&document)?;
+        if !entry.remove(ordinal, &words)? {
             return Ok(None);
         }
-        self.stats.subtract(lengths);
-        Ok(Some(document.unwrap_or_default()))
+        self.stats.subtract(
+            words
+                .text
+                .iter()
+                .map(|field| (field.path.clone(), field.length)),
+        );
+        Ok(Some(document))
     }
 
     pub(crate) fn clear(&mut self) {

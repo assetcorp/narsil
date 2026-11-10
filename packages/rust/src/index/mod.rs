@@ -7,7 +7,5 @@ pub(crate) mod merge;
 pub(crate) mod paged;
 pub(crate) mod partition;
 pub(crate) mod segment;
-pub(crate) mod spellings;
 pub(crate) mod stored_values;
 pub(crate) mod tail;
-pub(crate) mod words;

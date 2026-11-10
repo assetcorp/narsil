@@ -9,6 +9,7 @@ use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::indexed::{IndexedDocument, IndexingOptions, index_document};
 use crate::index::partition::{Partition, PartitionSnapshot};
+use crate::index::segment::SegmentEntry;
 use crate::value::Map;
 
 /// One rebuild of an index's partitions: the analysis that writes the new terms and the number of partitions
@@ -56,7 +57,6 @@ impl Rebuild<'_> {
             &self.index.schema,
             &IndexingOptions {
                 analyser: self.analyser,
-                track_positions: self.index.track_positions,
                 collect_surfaces: self.index.collect_surfaces,
             },
         )
@@ -91,7 +91,9 @@ impl Rebuild<'_> {
                     }
                     let document = entry.document(ordinal)?;
                     let indexed = self.indexed(&document)?;
-                    target.append(id, document, indexed)?;
+                    target.append(id, document, indexed, &|entry| {
+                        self.index.freeze_entry(entry)
+                    })?;
                     since_check += 1;
                     if since_check >= REBUILD_CHUNK_DOCUMENTS {
                         since_check = 0;
@@ -116,7 +118,8 @@ impl Rebuild<'_> {
         current: &[Arc<Partition>],
         ids: &[String],
     ) -> Result<()> {
-        let analyse = |document: &Map| self.indexed(document).ok();
+        let analyse = |document: &Map| self.indexed(document);
+        let freeze = |entry: &SegmentEntry| self.index.freeze_entry(entry);
         for id in ids {
             if let Some(at) = self.index.locate(built, id)?
                 && let Some(partition) = built.get(at)
@@ -137,7 +140,7 @@ impl Rebuild<'_> {
             let indexed = self.indexed(&document)?;
             let routed = self.index.route(id, built.len());
             if let Some(target) = built.get(routed) {
-                target.write(|snapshot| snapshot.append(id.clone(), document, indexed))?;
+                target.write(|snapshot| snapshot.append(id.clone(), document, indexed, &freeze))?;
             }
         }
         Ok(())

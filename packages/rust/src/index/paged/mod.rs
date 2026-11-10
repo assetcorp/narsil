@@ -5,6 +5,7 @@ mod ids;
 mod lists;
 mod materialise;
 mod open;
+mod page_cache;
 mod resident;
 
 pub(crate) use cache::merge_cache_scope;

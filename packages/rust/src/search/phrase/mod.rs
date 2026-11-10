@@ -5,8 +5,14 @@ use std::collections::HashMap;
 use super::query::PhraseRows;
 use super::request::Row;
 use crate::error::Result;
-use crate::index::segment::{SegmentEntry, bit_is_set, set_bit};
-use rows::{TokenRows, token_rows};
+use crate::ffi;
+use crate::index::segment::SegmentEntry;
+use crate::keyword::dictionary::Dictionary;
+use crate::keyword::workspace::{core_refused, with_workspace};
+use crate::pattern::WorkMeter;
+use rows::{TokenPostings, token_postings};
+
+const BITS_PER_WORD: u32 = 32;
 
 /// A quoted phrase after analysis: its tokens in position order, each with its distance from the first token.
 #[derive(Clone, Debug, PartialEq)]
@@ -16,9 +22,9 @@ pub(crate) struct AnalysedPhrase {
     pub(crate) offsets: Vec<u32>,
 }
 
-/// Counts the work of a phrase match against the query's work cap, failing once the query passes it.
+/// Gives the meter that a phrase match counts its work into, failing the query once the work passes the cap.
 pub(crate) trait PhraseWork {
-    fn add(&mut self, units: u64) -> Result<()>;
+    fn meter(&self) -> &WorkMeter;
 }
 
 /// The documents of one segment that hold every phrase, with each phrase's rows for scoring.
@@ -27,190 +33,154 @@ pub(crate) struct PhraseMatches {
     pub(crate) rows: Vec<PhraseRows>,
 }
 
-struct ResolvedPhrase<'p> {
-    phrase: &'p AnalysedPhrase,
-    distinct: Vec<usize>,
-    entries: Vec<usize>,
-    lead: usize,
-    lead_offset: u32,
+fn bitmap_words(capacity: u32) -> usize {
+    (capacity.div_ceil(BITS_PER_WORD) as usize).max(1)
 }
 
-fn count_phrase_starts(
-    resolved: &ResolvedPhrase<'_>,
-    rows: &[TokenRows<'_>],
-    lead_row: usize,
-    work: &mut dyn PhraseWork,
-) -> Result<u32> {
-    let offsets = &resolved.phrase.offsets;
-    let stores: Vec<&[u32]> = resolved
-        .entries
-        .iter()
-        .map(|&at| rows[at].source.positions(rows[at].position_row))
-        .collect();
-    let mut cursors = vec![0usize; stores.len()];
-    let lead = &rows[resolved.lead];
-    let mut starts = 0u32;
-    for &position in lead.source.positions(lead_row) {
-        let Some(anchor) = position.checked_sub(resolved.lead_offset) else {
-            continue;
-        };
-        let mut holds_every_entry = true;
-        for (entry, store) in stores.iter().enumerate() {
-            let wanted = anchor.saturating_add(offsets.get(entry).copied().unwrap_or(0));
-            let mut cursor = cursors[entry];
-            let mut compared = 1u64;
-            while cursor < store.len() && store[cursor] < wanted {
-                cursor += 1;
-                compared += 1;
-            }
-            cursors[entry] = cursor;
-            work.add(compared)?;
-            if cursor == store.len() {
-                return Ok(starts);
-            }
-            if store[cursor] != wanted {
-                holds_every_entry = false;
-                break;
-            }
-        }
-        if holds_every_entry {
-            starts += 1;
-        }
+fn sized_bits(bits: &[u32], words: usize) -> Vec<u32> {
+    let mut sized = vec![0u32; words];
+    for (target, &word) in sized.iter_mut().zip(bits) {
+        *target = word;
     }
-    Ok(starts)
+    sized
 }
 
-fn collect_phrase_rows(
-    entry: &SegmentEntry,
-    resolved: &ResolvedPhrase<'_>,
-    rows: &mut [TokenRows<'_>],
-    searchable: &[u8],
-    allowed: Option<&[u32]>,
-    work: &mut dyn PhraseWork,
-) -> Result<(Vec<u32>, PhraseRows)> {
-    let mut hits = vec![0u32; entry.capacity().div_ceil(32) as usize];
-    let mut collected = PhraseRows {
-        key: resolved.phrase.key.clone(),
-        tokens: resolved.phrase.tokens.clone(),
-        rows: Vec::new(),
+struct PhraseEntries<'a> {
+    postings: Vec<TokenPostings<'a>>,
+    starts: Vec<u32>,
+    tokens: Vec<u32>,
+    offsets: Vec<u32>,
+}
+
+fn phrase_entries<'a>(
+    entry: &'a SegmentEntry,
+    phrases: &[AnalysedPhrase],
+) -> Result<PhraseEntries<'a>> {
+    let dictionary = Dictionary::of(entry);
+    let mut entries = PhraseEntries {
+        postings: Vec::new(),
+        starts: Vec::with_capacity(phrases.len() + 1),
+        tokens: Vec::new(),
+        offsets: Vec::new(),
     };
-    for &at in &resolved.distinct {
-        rows[at].cursor = 0;
-    }
-    let lead_count = rows[resolved.lead].count();
-    for lead_row in 0..lead_count {
-        work.add(1)?;
-        let lead = &rows[resolved.lead];
-        let document = lead.source.document(lead_row);
-        let field = lead.source.field(lead_row);
-        if searchable.get(field as usize).copied().unwrap_or(0) == 0
-            || entry.is_removed(document)
-            || allowed.is_some_and(|allowed| !bit_is_set(allowed, document))
-        {
-            continue;
-        }
-        let mut holds_every_token = true;
-        for &at in &resolved.distinct {
-            if at == resolved.lead {
-                rows[at].position_row = lead_row;
-                continue;
-            }
-            match rows[at].position_row_for(document, field) {
-                Some(row) => rows[at].position_row = row,
+    let mut seen: HashMap<&str, u32> = HashMap::new();
+    for phrase in phrases {
+        entries.starts.push(entries.tokens.len() as u32);
+        for (token, &offset) in phrase.tokens.iter().zip(&phrase.offsets) {
+            let at = match seen.get(token.as_str()) {
+                Some(&at) => at,
                 None => {
-                    holds_every_token = false;
-                    break;
+                    let at = entries.postings.len() as u32;
+                    entries
+                        .postings
+                        .push(token_postings(entry, &dictionary, token)?);
+                    seen.insert(token, at);
+                    at
                 }
-            }
+            };
+            entries.tokens.push(at);
+            entries.offsets.push(offset);
         }
-        if !holds_every_token {
-            continue;
-        }
-        let starts = count_phrase_starts(resolved, rows, lead_row, work)?;
-        if starts == 0 {
-            continue;
-        }
-        set_bit(&mut hits, document);
-        collected.rows.push(Row {
-            document,
-            field,
-            frequency: f64::from(starts),
-        });
     }
-    Ok((hits, collected))
+    entries.starts.push(entries.tokens.len() as u32);
+    Ok(entries)
 }
 
-/// Finds the documents of one segment that hold every phrase in a searchable field, where `filter` allows them.
-///
-/// Returns `None` where some phrase token is missing from the segment, so that no document of it can match.
+fn row_capacity(entries: &PhraseEntries<'_>) -> usize {
+    entries
+        .starts
+        .windows(2)
+        .map(|pair| {
+            entries.tokens[pair[0] as usize..pair[1] as usize]
+                .iter()
+                .map(|&at| entries.postings[at as usize].count())
+                .min()
+                .unwrap_or(0)
+        })
+        .sum()
+}
+
+/// Finds the documents of one segment that hold every phrase in a searchable field, where `filter` allows them,
+/// through the native core, which counts the work of the match into the query's meter.
 pub(crate) fn match_phrases(
     entry: &SegmentEntry,
     phrases: &[AnalysedPhrase],
     searchable: &[u8],
     filter: Option<&[u32]>,
     work: &mut dyn PhraseWork,
-) -> Result<Option<PhraseMatches>> {
-    let mut rows: Vec<TokenRows<'_>> = Vec::new();
-    let mut shared: HashMap<&str, usize> = HashMap::new();
-    let mut resolved: Vec<ResolvedPhrase<'_>> = Vec::with_capacity(phrases.len());
-    for phrase in phrases {
-        let mut entries = Vec::with_capacity(phrase.tokens.len());
-        let mut distinct = Vec::new();
-        for token in &phrase.tokens {
-            let at = match shared.get(token.as_str()) {
-                Some(&at) => at,
-                None => {
-                    let Some(found) = token_rows(entry, token, work)? else {
-                        return Ok(None);
-                    };
-                    rows.push(found);
-                    shared.insert(token, rows.len() - 1);
-                    rows.len() - 1
-                }
-            };
-            if !distinct.contains(&at) {
-                distinct.push(at);
-            }
-            entries.push(at);
-        }
-        let mut lead_entry = 0usize;
-        for (entry_at, &at) in entries.iter().enumerate().skip(1) {
-            if rows[at].count() < rows[entries[lead_entry]].count() {
-                lead_entry = entry_at;
-            }
-        }
-        let Some(&lead) = entries.get(lead_entry) else {
-            return Ok(None);
-        };
-        resolved.push(ResolvedPhrase {
-            phrase,
-            distinct,
-            entries,
-            lead,
-            lead_offset: phrase.offsets.get(lead_entry).copied().unwrap_or(0),
-        });
+) -> Result<PhraseMatches> {
+    let entries = phrase_entries(entry, phrases)?;
+    let capacity = entry.capacity();
+    let words = bitmap_words(capacity);
+    let removed = sized_bits(entry.removed_bits(), words);
+    let filter = filter.map(|bits| sized_bits(bits, words));
+    let raw_postings: Vec<ffi::narsil_phrase_postings> =
+        entries.postings.iter().map(TokenPostings::raw).collect();
+    let meter = work.meter();
+    let request = ffi::narsil_phrase_request {
+        postings: raw_postings.as_ptr(),
+        token_count: raw_postings.len(),
+        starts: entries.starts.as_ptr(),
+        phrase_count: phrases.len(),
+        tokens: entries.tokens.as_ptr(),
+        offsets: entries.offsets.as_ptr(),
+        entry_count: entries.tokens.len(),
+        searchable: searchable.as_ptr(),
+        field_count: searchable.len() as u32,
+        filter: filter
+            .as_ref()
+            .map_or(std::ptr::null(), |bits| bits.as_ptr()),
+        filter_words: filter.as_ref().map_or(0, Vec::len),
+        removed: removed.as_ptr(),
+        removed_words: removed.len(),
+        ordinal_count: capacity,
+        collect: 1,
+        meter: meter.native(),
+    };
+    let rows = row_capacity(&entries);
+    let mut matched = vec![0u32; words];
+    let mut starts = vec![0u32; phrases.len() + 1];
+    let mut documents = vec![0u32; rows];
+    let mut fields = vec![0u16; rows];
+    let mut frequencies = vec![0u32; rows];
+    let output = ffi::narsil_phrase_output {
+        matched: matched.as_mut_ptr(),
+        matched_words: matched.len(),
+        starts: starts.as_mut_ptr(),
+        start_capacity: starts.len(),
+        documents: documents.as_mut_ptr(),
+        fields: fields.as_mut_ptr(),
+        frequencies: frequencies.as_mut_ptr(),
+        document_capacity: rows,
+        field_capacity: rows,
+        frequency_capacity: rows,
+    };
+    let mut row_count = 0u32;
+    let status = with_workspace(|workspace| {
+        Ok(unsafe { ffi::narsil_match_phrases(workspace, &request, &output, &mut row_count) })
+    })?;
+    match status {
+        ffi::NARSIL_OK => {}
+        ffi::NARSIL_WORK_CAP_EXCEEDED => return Err(meter.exceeded()),
+        status => return Err(core_refused("a phrase match", status)),
     }
-    resolved.sort_by_key(|phrase| rows[phrase.lead].count());
-    let mut allowed: Option<Vec<u32>> = filter.map(<[u32]>::to_vec);
-    let mut collected = Vec::with_capacity(resolved.len());
-    for phrase in &resolved {
-        let (hits, found) = collect_phrase_rows(
-            entry,
-            phrase,
-            &mut rows,
-            searchable,
-            allowed.as_deref(),
-            work,
-        )?;
-        let empty = hits.iter().all(|&word| word == 0);
-        allowed = Some(hits);
-        collected.push(found);
-        if empty {
-            break;
-        }
-    }
-    Ok(Some(PhraseMatches {
-        matched: allowed.unwrap_or_default(),
+    let collected = phrases
+        .iter()
+        .enumerate()
+        .map(|(at, phrase)| PhraseRows {
+            key: phrase.key.clone(),
+            tokens: phrase.tokens.clone(),
+            rows: (starts[at] as usize..starts[at + 1] as usize)
+                .map(|row| Row {
+                    document: documents[row],
+                    field: fields[row],
+                    frequency: f64::from(frequencies[row]),
+                })
+                .collect(),
+        })
+        .collect();
+    Ok(PhraseMatches {
+        matched,
         rows: collected,
-    }))
+    })
 }

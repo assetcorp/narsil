@@ -5,6 +5,7 @@ use super::core_call::{Settings, score};
 use super::phrase::{PhraseWork, match_phrases};
 use super::plan::{field_names, field_scoring, plan_segment, request_pool};
 use super::query::{KeywordQuery, PhraseRows};
+use super::rankings::{RankedEntry, merge_rankings, score_then_id};
 use super::request::RequestBuilder;
 use super::stats::QueryStats;
 use crate::error::Result;
@@ -34,13 +35,18 @@ pub(crate) struct SegmentInputs<'a> {
     pub(crate) work: &'a mut dyn PhraseWork,
 }
 
-/// Orders hits by score, best first, then by document ID in code point order.
-pub(crate) fn hit_order(left: &KeywordHit, right: &KeywordHit) -> Ordering {
-    right
-        .score
-        .partial_cmp(&left.score)
-        .unwrap_or(Ordering::Equal)
-        .then_with(|| left.id.cmp(&right.id))
+impl RankedEntry for KeywordHit {
+    fn ranking_score(&self) -> f64 {
+        self.score
+    }
+
+    fn ranking_id(&self) -> &str {
+        &self.id
+    }
+}
+
+fn hit_order(left: &KeywordHit, right: &KeywordHit) -> Ordering {
+    score_then_id((left.score, &left.id), (right.score, &right.id))
 }
 
 /// Scores every segment of a partition on the native core and merges their hits.
@@ -58,6 +64,7 @@ pub(crate) fn search_partition(
         return Ok(result);
     }
     let mut builder = RequestBuilder::default();
+    let mut pages: Vec<Vec<KeywordHit>> = Vec::with_capacity(snapshot.segments.len());
     for (at, entry) in snapshot.segments.iter().enumerate() {
         if entry.live_count() == 0 {
             continue;
@@ -76,7 +83,7 @@ pub(crate) fn search_partition(
                 filter,
                 inputs.work,
             )? {
-                Some(found) if found.matched.iter().any(|&word| word != 0) => Some(found),
+                found if found.matched.iter().any(|&word| word != 0) => Some(found),
                 _ => continue,
             },
         };
@@ -93,7 +100,7 @@ pub(crate) fn search_partition(
             limit: query.max_results,
             collect: query.collect,
             filter,
-            removed: &entry.tombstones,
+            removed: entry.removed_bits(),
         };
         let scored = score(&builder, pool, &fields, &settings)?;
         let components = query.components.then(|| {
@@ -103,7 +110,7 @@ pub(crate) fn search_partition(
                 fields: &fields,
                 names: field_names(entry),
                 filter,
-                removed: &entry.tombstones,
+                removed: entry.removed_bits(),
                 total_documents: stats.total_documents,
             }
             .components(&scored.ordinals)
@@ -122,13 +129,10 @@ pub(crate) fn search_partition(
         if let Some(limit) = query.max_results {
             page.truncate(limit);
         }
-        result.hits.extend(page);
+        pages.push(page);
         result.total_matched += u64::from(scored.total_matched);
         result.matched[at] = scored.matched;
     }
-    result.hits.sort_by(hit_order);
-    if let Some(limit) = query.max_results {
-        result.hits.truncate(limit);
-    }
+    result.hits = merge_rankings(pages, query.max_results)?;
     Ok(result)
 }

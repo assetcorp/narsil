@@ -9,6 +9,7 @@ use crate::config::validate_doc_id;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::indexed::IndexedDocument;
 use crate::index::partition::Partition;
+use crate::index::segment::SegmentEntry;
 use crate::schema::{
     require_document_within_size_limit, validate_document, validate_document_strict,
     validate_required_fields,
@@ -134,7 +135,9 @@ fn apply_insert(
     let stored = Arc::new(document);
     index.changes.track_write(id)?;
     index.vectors.insert_vectors(id, &vectors)?;
-    let appended = partition.write(|snapshot| snapshot.append(id.to_string(), stored, indexed));
+    let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
+    let appended =
+        partition.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze));
     match appended {
         Ok(()) => log.record_index(routed as u32, id, encoded),
         Err(_) => {
@@ -224,15 +227,16 @@ fn replace_document(
 ) -> Result<()> {
     let stored = Arc::new(document);
     let routed = index.route(id, partitions.len());
-    let analyse = |document: &Map| index.index_document(document).ok();
+    let analyse = |document: &Map| index.index_document(document);
+    let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
     if routed != at {
         partitions[at].write(|snapshot| snapshot.remove(id, &analyse))?;
         let target = partitions.get(routed).unwrap_or(&partitions[at]);
-        return target.write(|snapshot| snapshot.append(id.to_string(), stored, indexed));
+        return target.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze));
     }
     partitions[at].write(|snapshot| {
         snapshot.remove(id, &analyse)?;
-        snapshot.append(id.to_string(), stored, indexed)
+        snapshot.append(id.to_string(), stored, indexed, &freeze)
     })
 }
 
@@ -269,7 +273,7 @@ pub(crate) fn apply_remove(
     let Some(at) = index.locate(partitions, id)? else {
         return Err(index.not_found(id));
     };
-    let analyse = |document: &Map| index.index_document(document).ok();
+    let analyse = |document: &Map| index.index_document(document);
     index.changes.track_write(id)?;
     match partitions[at].write(|snapshot| snapshot.remove(id, &analyse))? {
         Some(_) => {

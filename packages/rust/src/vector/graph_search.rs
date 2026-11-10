@@ -7,7 +7,7 @@ use super::constants::{
     RESCORE_DEPTH_FLOOR_PER_LIMIT_OSQ4, RESCORE_DEPTH_FLOOR_PER_LIMIT_OSQ8, RESCORE_DEPTH_OSQ1,
     RESCORE_DEPTH_OSQ2, RESCORE_DEPTH_OSQ4, RESCORE_DEPTH_OSQ8, WIDE_DIMENSION_LIMIT,
 };
-use super::core::{Accepted, Scratch};
+use super::core::{GraphSearch, Scratch};
 use super::field::Generation;
 use super::filter::OrdinalFilter;
 use super::graph::GraphTables;
@@ -122,16 +122,14 @@ pub(crate) fn graph_hits(
     }
     let depths = search_depths(generation, request.k, options);
     let metric = options.metric;
-    let accepted = request.filter.map(|found| Accepted { bits: found.bits() });
-    let found = scratch.search(
-        &generation.store,
-        request.graph,
-        request.query,
-        metric_code(metric),
-        depths.ef.min((request.graph.slots() as usize).max(1)),
-        accepted,
-        request.pin,
-    )?;
+    let search = GraphSearch {
+        query: request.query,
+        metric: metric_code(metric),
+        candidates: depths.ef.min((request.graph.slots() as usize).max(1)),
+        accepted: request.filter.map(OrdinalFilter::bits),
+        pin: request.pin,
+    };
+    let found = scratch.search(&generation.store, request.graph, &search)?;
     let minimum = options.min_similarity;
     if !depths.quantised {
         admit_estimates(scratch, 0..found, request, &mut ranked);

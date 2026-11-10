@@ -8,6 +8,7 @@ use crate::util::base64;
 use crate::value::{Map, Value, number_to_text, parse_json_raw, write_exact_json_into};
 
 const CURSOR_VERSION: f64 = 4.0;
+const NON_FINITE_CURSOR_VERSION: f64 = 5.0;
 const BINDING_HEX_DIGITS: usize = 8;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
@@ -58,7 +59,13 @@ fn write_sort_value(out: &mut String, value: &Value) {
 /// Encodes a cursor as the base64 JSON text that the reference engine writes, with its members in the same order,
 /// so that both engines hand out the same cursor for the same page.
 pub(crate) fn encode_page_cursor(cursor: &PageCursor) -> String {
-    let mut json = String::from("{\"v\":4,\"a\":");
+    let non_finite = cursor.sort_key.is_none() || cursor.sort_signature.is_none();
+    let non_finite = non_finite && cursor.score.is_some_and(|score| !score.is_finite());
+    let mut json = String::from(if non_finite {
+        "{\"v\":5,\"a\":"
+    } else {
+        "{\"v\":4,\"a\":"
+    });
     write_json_string(&mut json, &cursor.anchor);
     match (&cursor.sort_key, &cursor.sort_signature) {
         (Some(key), Some(signature)) => {
@@ -75,7 +82,11 @@ pub(crate) fn encode_page_cursor(cursor: &PageCursor) -> String {
         _ => {
             if let Some(score) = cursor.score {
                 json.push_str(",\"s\":");
-                write_json_number(&mut json, score);
+                if score.is_finite() {
+                    write_json_number(&mut json, score);
+                } else {
+                    write_json_string(&mut json, &number_to_text(score));
+                }
             }
         }
     }
@@ -95,25 +106,6 @@ fn exceeds_utf16_units(text: &str, maximum: usize) -> bool {
 
 fn exceeds_code_points(text: &str, maximum: usize) -> bool {
     text.len() > maximum && text.chars().nth(maximum).is_some()
-}
-
-fn javascript_string(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::Null) => "null".to_string(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::Number(number)) => number_to_text(*number),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| match item {
-                Value::Null => String::new(),
-                other => javascript_string(Some(other)),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(_) => "[object Object]".to_string(),
-    }
 }
 
 fn is_binding(value: Option<&Value>) -> bool {
@@ -160,7 +152,38 @@ fn decoded_object(cursor: &str) -> Result<Map> {
     match parse_json_raw(&text) {
         Ok(Value::Object(object)) => Ok(object),
         Ok(_) => Err(invalid_cursor("expected an object")),
-        Err(_) => Err(invalid_cursor("invalid JSON")),
+        Err(_) => Err(invalid_cursor("invalid base64 or JSON encoding")),
+    }
+}
+
+fn non_finite_score(text: &str) -> Option<f64> {
+    match text {
+        "Infinity" => Some(f64::INFINITY),
+        "-Infinity" => Some(f64::NEG_INFINITY),
+        "NaN" => Some(f64::NAN),
+        _ => None,
+    }
+}
+
+fn versioned_score(object: &Map) -> Option<Option<f64>> {
+    let version = object.get("v");
+    let score = object.get("s");
+    if version == Some(&Value::Number(CURSOR_VERSION)) {
+        return match score {
+            None => Some(None),
+            Some(Value::Number(score)) if score.is_finite() => Some(Some(*score)),
+            Some(_) => None,
+        };
+    }
+    if version != Some(&Value::Number(NON_FINITE_CURSOR_VERSION))
+        || object.contains_key("k")
+        || object.contains_key("o")
+    {
+        return None;
+    }
+    match score {
+        Some(Value::String(text)) => non_finite_score(text).map(Some),
+        _ => None,
     }
 }
 
@@ -168,13 +191,6 @@ fn decoded_object(cursor: &str) -> Result<Map> {
 /// checks them, raising `SEARCH_INVALID_CURSOR` with the same reason where one fails.
 pub(crate) fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
     let object = decoded_object(cursor)?;
-    let version = object.get("v");
-    if version != Some(&Value::Number(CURSOR_VERSION)) {
-        return Err(invalid_cursor(&format!(
-            "unsupported cursor version {}",
-            javascript_string(version)
-        )));
-    }
     let binding = object.get("q");
     if !is_binding(binding) {
         return Err(invalid_cursor("\"q\" must be 8 lowercase hex digits"));
@@ -186,11 +202,8 @@ pub(crate) fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
     if exceeds_code_points(anchor, MAX_CURSOR_ANCHOR_CODE_POINTS) {
         return Err(invalid_cursor("\"a\" is too long to be a document id"));
     }
-    let score = match object.get("s") {
-        None => None,
-        Some(Value::Number(score)) if score.is_finite() => Some(*score),
-        Some(_) => return Err(invalid_cursor("\"s\" must be a finite number")),
-    };
+    let score = versioned_score(&object)
+        .ok_or_else(|| invalid_cursor("invalid score for the cursor version"))?;
     if score.is_some() && object.contains_key("k") {
         return Err(invalid_cursor(
             "a cursor carries \"s\" or \"k\", never both",

@@ -1,215 +1,143 @@
 use std::borrow::Cow;
-use std::sync::Arc;
 
-use super::PhraseWork;
 use crate::error::Result;
+use crate::ffi;
 use crate::index::frozen::FrozenSegment;
-use crate::index::paged::{PostingList, PostingPositions};
 use crate::index::segment::{SegmentData, SegmentEntry};
-use crate::index::tail::TailTerm;
+use crate::index::tail::TailSegment;
+use crate::keyword::dictionary::Dictionary;
+use crate::keyword::pools::{TERM_ORDERED, TERM_POSITIONS};
 
-/// Where the postings and positions of one phrase token of one segment are.
-pub(super) enum Source<'a> {
-    Frozen {
-        segment: &'a FrozenSegment,
-        start: usize,
-    },
-    Tail(&'a TailTerm),
-    Paged {
-        list: Arc<PostingList>,
-        positions: Arc<PostingPositions>,
-    },
+#[derive(Default)]
+pub(super) struct TokenPostings<'a> {
+    documents: Cow<'a, [u32]>,
+    fields: Cow<'a, [u16]>,
+    starts: Vec<u32>,
+    counts: Vec<u32>,
+    positions: Cow<'a, [u32]>,
+    ordered: bool,
 }
 
-impl Source<'_> {
-    pub(super) fn document(&self, row: usize) -> u32 {
-        match self {
-            Source::Paged { list, .. } => list.documents.get(row).copied().unwrap_or(u32::MAX),
-            Source::Frozen { segment, start } => segment
-                .payload
-                .posting_documents
-                .get(start + row)
-                .copied()
-                .unwrap_or(u32::MAX),
-            Source::Tail(term) => term
-                .postings
-                .get(row)
-                .map_or(u32::MAX, |posting| posting.document),
-        }
-    }
-
-    pub(super) fn field(&self, row: usize) -> u16 {
-        match self {
-            Source::Paged { list, .. } => list.fields.get(row).copied().unwrap_or(u16::MAX),
-            Source::Frozen { segment, start } => segment
-                .payload
-                .posting_fields
-                .get(start + row)
-                .copied()
-                .unwrap_or(u16::MAX),
-            Source::Tail(term) => term
-                .postings
-                .get(row)
-                .map_or(u16::MAX, |posting| posting.field),
-        }
-    }
-
-    pub(super) fn positions(&self, row: usize) -> &[u32] {
-        match self {
-            Source::Frozen { segment, start } => segment.positions(start + row),
-            Source::Tail(term) => term.positions.get(row).map_or(&[], Vec::as_slice),
-            Source::Paged { positions, .. } => positions.of(row),
-        }
-    }
-}
-
-/// The postings of one phrase token of one segment, with their documents in ascending order for lookups.
-pub(super) struct TokenRows<'a> {
-    pub(super) source: Source<'a>,
-    keys: Cow<'a, [u32]>,
-    order: Option<Vec<u32>>,
-    pub(super) cursor: usize,
-    pub(super) position_row: usize,
-}
-
-impl TokenRows<'_> {
+impl TokenPostings<'_> {
     pub(super) fn count(&self) -> usize {
-        self.keys.len()
+        self.documents.len()
     }
 
-    fn row_at(&self, at: usize) -> usize {
-        self.order
-            .as_ref()
-            .map_or(at, |order| order.get(at).copied().unwrap_or(0) as usize)
-    }
-
-    fn first_row_for(&mut self, document: u32) -> usize {
-        let keys = &self.keys;
-        let count = keys.len();
-        let mut low = if self.cursor < count && keys[self.cursor] <= document {
-            self.cursor
-        } else {
-            0
-        };
-        let mut high = low;
-        let mut step = 1usize;
-        while high < count && keys[high] < document {
-            low = high + 1;
-            high = high.saturating_add(step);
-            step = step.saturating_mul(2);
+    pub(super) fn raw(&self) -> ffi::narsil_phrase_postings {
+        ffi::narsil_phrase_postings {
+            documents: self.documents.as_ptr(),
+            fields: self.fields.as_ptr(),
+            position_starts: self.starts.as_ptr(),
+            position_counts: self.counts.as_ptr(),
+            count: self.documents.len(),
+            positions: self.positions.as_ptr(),
+            position_count: self.positions.len(),
+            ordered: i32::from(self.ordered),
         }
-        high = high.min(count);
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if keys[middle] < document {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        self.cursor = low;
-        low
-    }
-
-    pub(super) fn position_row_for(&mut self, document: u32, field: u16) -> Option<usize> {
-        let mut at = self.first_row_for(document);
-        while at < self.count() && self.keys[at] == document {
-            let row = self.row_at(at);
-            if self.source.field(row) == field {
-                return Some(row);
-            }
-            at += 1;
-        }
-        None
     }
 }
 
-type FoundRows<'a> = (Source<'a>, bool, Cow<'a, [u32]>);
+fn offset_runs(offsets: &[u32], from: usize, count: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut starts = Vec::with_capacity(count);
+    let mut counts = Vec::with_capacity(count);
+    for row in from..from + count {
+        let start = offsets.get(row).copied().unwrap_or(0);
+        let end = offsets.get(row + 1).copied().unwrap_or(start);
+        starts.push(start);
+        counts.push(end.saturating_sub(start));
+    }
+    (starts, counts)
+}
 
-fn frozen_source<'a>(segment: &'a FrozenSegment, at: usize) -> Result<Option<FoundRows<'a>>> {
+fn frozen_postings(segment: &FrozenSegment, token: usize) -> Result<TokenPostings<'_>> {
+    if !segment.tracks_positions() {
+        return Ok(TokenPostings::default());
+    }
     if segment.paged.is_some() {
-        let (Some(list), Some(positions)) = (segment.paged_list(at)?, segment.paged_positions(at)?)
+        let (Some(list), Some(positions)) =
+            (segment.paged_list(token)?, segment.paged_positions(token)?)
         else {
-            return Ok(None);
+            return Ok(TokenPostings::default());
         };
-        let documents = list.documents.clone();
-        return Ok(Some((
-            Source::Paged { list, positions },
-            true,
-            Cow::Owned(documents),
-        )));
+        let (starts, counts) = offset_runs(&positions.offsets, 0, list.len());
+        return Ok(TokenPostings {
+            documents: Cow::Owned(list.documents.clone()),
+            fields: Cow::Owned(list.fields.clone()),
+            starts,
+            counts,
+            positions: Cow::Owned(positions.values.clone()),
+            ordered: true,
+        });
     }
-    let range = segment.postings(at);
-    let documents = segment
-        .payload
-        .posting_documents
-        .get(range.clone())
-        .unwrap_or(&[]);
-    let source = Source::Frozen {
-        segment,
-        start: range.start,
+    let Some(stored) = &segment.payload.positions else {
+        return Ok(TokenPostings::default());
     };
-    Ok(Some((
-        source,
-        segment.postings_ordered(at),
-        Cow::Borrowed(documents),
-    )))
+    let range = segment.postings(token);
+    let payload = &segment.payload;
+    let (starts, counts) = offset_runs(&stored.offsets, range.start, range.len());
+    Ok(TokenPostings {
+        documents: Cow::Borrowed(payload.posting_documents.get(range.clone()).unwrap_or(&[])),
+        fields: Cow::Borrowed(payload.posting_fields.get(range.clone()).unwrap_or(&[])),
+        starts,
+        counts,
+        positions: Cow::Borrowed(&stored.values),
+        ordered: segment.postings_ordered(token),
+    })
 }
 
-/// Returns the postings of `token` in the segment with their positions, or `None` where the segment holds no
-/// positions for it.
-pub(super) fn token_rows<'a>(
-    entry: &'a SegmentEntry,
-    token: &str,
-    work: &mut dyn PhraseWork,
-) -> Result<Option<TokenRows<'a>>> {
-    let (source, ordered, keys): FoundRows<'a> = match &entry.data {
-        SegmentData::Frozen(segment) => {
-            let Some(at) = segment.term_index(token) else {
-                return Ok(None);
-            };
-            if !segment.tracks_positions() {
-                return Ok(None);
-            }
-            let Some(found) = frozen_source(segment, at)? else {
-                return Ok(None);
-            };
-            found
-        }
-        SegmentData::Tail(tail) => {
-            let Some(term) = tail.terms.get(token) else {
-                return Ok(None);
-            };
-            if !tail.track_positions {
-                return Ok(None);
-            }
-            let documents: Vec<u32> = term
-                .postings
-                .iter()
-                .map(|posting| posting.document)
-                .collect();
-            let ordered = documents.windows(2).all(|pair| pair[0] <= pair[1]);
-            (Source::Tail(term), ordered, Cow::Owned(documents))
-        }
+fn tail_postings(tail: &TailSegment, token: usize) -> TokenPostings<'_> {
+    let keyword = &tail.keyword;
+    let columns = &keyword.columns;
+    let flags = columns.flags.get(token).copied().unwrap_or(0);
+    let (Some(pool), Some(position_starts)) =
+        (&keyword.positions, &keyword.postings.position_starts)
+    else {
+        return TokenPostings::default();
     };
-    if ordered {
-        return Ok(Some(TokenRows {
-            source,
-            keys,
-            order: None,
-            cursor: 0,
-            position_row: 0,
-        }));
+    if !tail.track_positions || flags & TERM_POSITIONS == 0 {
+        return TokenPostings::default();
     }
-    work.add(keys.len() as u64)?;
-    let mut order: Vec<u32> = (0..keys.len() as u32).collect();
-    order.sort_by_key(|&row| keys[row as usize]);
-    let sorted: Vec<u32> = order.iter().map(|&row| keys[row as usize]).collect();
-    Ok(Some(TokenRows {
-        source,
-        keys: Cow::Owned(sorted),
-        order: Some(order),
-        cursor: 0,
-        position_row: 0,
-    }))
+    let start = columns.slice_start.get(token).copied().unwrap_or(0) as usize;
+    let length = columns.lengths.get(token).copied().unwrap_or(0) as usize;
+    let values = pool.values();
+    let mut starts = Vec::with_capacity(length);
+    let mut counts = Vec::with_capacity(length);
+    for row in start..start + length {
+        let held = position_starts.get(row).copied().unwrap_or(0) as usize;
+        let count = match held {
+            0 => 0,
+            _ => values.get(held).copied().unwrap_or(0),
+        };
+        starts.push(if held == 0 { 0 } else { held as u32 + 1 });
+        counts.push(count);
+    }
+    let postings = &keyword.postings;
+    TokenPostings {
+        documents: Cow::Borrowed(postings.doc_ids.get(start..start + length).unwrap_or(&[])),
+        fields: Cow::Borrowed(
+            postings
+                .field_indices
+                .get(start..start + length)
+                .unwrap_or(&[]),
+        ),
+        starts,
+        counts,
+        positions: Cow::Borrowed(values),
+        ordered: flags & TERM_ORDERED != 0,
+    }
+}
+
+pub(super) fn token_postings<'a>(
+    entry: &'a SegmentEntry,
+    dictionary: &Dictionary,
+    token: &str,
+) -> Result<TokenPostings<'a>> {
+    let units: Vec<u16> = token.encode_utf16().collect();
+    let Some(ordinal) = dictionary.exact(&units)? else {
+        return Ok(TokenPostings::default());
+    };
+    match &entry.data {
+        SegmentData::Frozen(segment) => frozen_postings(segment, ordinal as usize),
+        SegmentData::Tail(tail) => Ok(tail_postings(tail, ordinal as usize)),
+    }
 }

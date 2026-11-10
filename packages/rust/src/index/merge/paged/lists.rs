@@ -1,184 +1,226 @@
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, btree_map};
+use std::collections::BinaryHeap;
+use std::ptr;
+use std::sync::Arc;
 
 use super::super::inputs::{MergeInput, as_u32, damaged};
+use super::super::sources::bare_input;
 use crate::error::Result;
+use crate::ffi;
 use crate::format::paged_segment::removal_sort::RemovalWriter;
 use crate::format::paged_segment::sink::SectionSink;
 use crate::format::paged_segment::write_lists::{Row, block_summaries};
 use crate::format::paged_segment::{SMALLEST_BLOCK_POSTINGS, TokenSections};
 use crate::index::frozen::FrozenSegment;
+use crate::index::paged::{PostingList, PostingPositions};
 use crate::index::segment::SegmentData;
-use crate::index::tail::{TailSegment, TailTerm};
+use crate::keyword::workspace::{core_refused, with_workspace};
 
-/// The scratch files that the token walk of a paged merge writes its postings, totals, and positions to.
 pub(super) struct ListSinks {
     pub(super) postings: SectionSink,
     pub(super) token_totals: SectionSink,
     pub(super) positions: Option<(SectionSink, SectionSink)>,
 }
 
-/// The token table and token sections that the walk builds, which a reader of the merged segment holds in memory.
 pub(super) struct WrittenTokens {
     pub(super) tokens: Vec<u8>,
     pub(super) token_offsets: Vec<u32>,
+    pub(super) document_frequencies: Vec<u32>,
     pub(super) sections: TokenSections,
 }
 
-enum Cursor<'a> {
-    Tail(btree_map::Iter<'a, String, TailTerm>, &'a TailSegment),
-    Frozen(usize, &'a FrozenSegment),
-}
-
-enum Term<'a> {
-    Tail(&'a TailTerm, &'a TailSegment),
-    Frozen(usize, &'a FrozenSegment),
-}
-
-impl<'a> Cursor<'a> {
-    fn next(&mut self) -> Option<(&'a str, Term<'a>)> {
-        match self {
-            Cursor::Tail(terms, tail) => terms
-                .next()
-                .map(|(token, term)| (token.as_str(), Term::Tail(term, tail))),
-            Cursor::Frozen(at, segment) => {
-                let token = *at;
-                if token >= segment.token_count() {
-                    return None;
-                }
-                *at += 1;
-                Some((segment.token(token), Term::Frozen(token, segment)))
-            }
-        }
+pub(super) fn frozen_of<'a>(input: &MergeInput<'a>) -> Result<&'a FrozenSegment> {
+    match &input.entry.data {
+        SegmentData::Frozen(segment) => Ok(segment),
+        SegmentData::Tail(_) => Err(damaged("reaches a paged merge before its tail froze")),
     }
 }
 
-/// Reports whether any input of a merge stores the positions of its postings.
-pub(super) fn tracks_positions(inputs: &[MergeInput<'_>]) -> bool {
-    inputs.iter().any(|input| match &input.entry.data {
-        SegmentData::Tail(tail) => tail.track_positions && !tail.terms.is_empty(),
-        SegmentData::Frozen(segment) => segment.tracks_positions(),
-    })
+pub(super) fn tracks_positions(inputs: &[MergeInput<'_>]) -> Result<bool> {
+    for input in inputs {
+        if frozen_of(input)?.tracks_positions() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-/// Returns the number of postings that the inputs hold, kept or not, which bounds the removal entries of the
-/// merged segment.
-pub(super) fn posting_upper_bound(inputs: &[MergeInput<'_>]) -> u64 {
-    inputs
-        .iter()
-        .map(|input| match &input.entry.data {
-            SegmentData::Tail(tail) => tail
-                .terms
-                .values()
-                .map(|term| term.postings.len() as u64)
-                .sum(),
-            SegmentData::Frozen(segment) => segment
-                .payload
-                .posting_offsets
-                .last()
-                .map_or(0, |&last| u64::from(last)),
-        })
-        .fold(0, u64::saturating_add)
+pub(super) fn posting_upper_bound(inputs: &[MergeInput<'_>]) -> Result<u64> {
+    let mut total = 0u64;
+    for input in inputs {
+        let held = frozen_of(input)?.payload.posting_offsets.last().copied();
+        total = total.saturating_add(u64::from(held.unwrap_or(0)));
+    }
+    Ok(total)
+}
+
+struct Source<'i, 'a> {
+    input: &'i MergeInput<'a>,
+    segment: &'a FrozenSegment,
+    lengths: Vec<*const u32>,
+    at: usize,
 }
 
 #[derive(Default)]
 struct TokenRows {
-    rows: Vec<Row>,
+    inputs: Vec<ffi::narsil_keyword_merge_input>,
+    lists: Vec<(Arc<PostingList>, Option<Arc<PostingPositions>>)>,
+    row_capacity: usize,
+    position_capacity: usize,
+    documents: Vec<u32>,
+    frequencies: Vec<u16>,
+    fields: Vec<u16>,
     starts: Vec<u32>,
     positions: Vec<u32>,
+    totals: [f64; 2],
+    count: usize,
+    rows: Vec<Row>,
+}
+
+fn resident_rows(
+    raw: &mut ffi::narsil_keyword_merge_input,
+    segment: &FrozenSegment,
+    token: usize,
+) -> Result<usize> {
+    let payload = &segment.payload;
+    let range = segment.postings(token);
+    let outside = || damaged("holds a posting outside its posting lists");
+    raw.posting_documents = payload
+        .posting_documents
+        .get(range.clone())
+        .ok_or_else(outside)?
+        .as_ptr();
+    raw.posting_frequencies = payload
+        .posting_frequencies
+        .get(range.clone())
+        .ok_or_else(outside)?
+        .as_ptr();
+    raw.posting_fields = payload
+        .posting_fields
+        .get(range.clone())
+        .ok_or_else(outside)?
+        .as_ptr();
+    raw.posting_count = range.len();
+    let Some(positions) = &payload.positions else {
+        return Ok(0);
+    };
+    let offsets = positions
+        .offsets
+        .get(range.start..=range.end)
+        .ok_or_else(outside)?;
+    raw.position_offsets = offsets.as_ptr();
+    raw.position_values = positions.values.as_ptr();
+    raw.position_count = positions.values.len();
+    let first = offsets.first().copied().unwrap_or(0);
+    let last = offsets.last().copied().unwrap_or(0);
+    Ok(last.saturating_sub(first) as usize)
 }
 
 impl TokenRows {
     fn clear(&mut self) {
-        self.rows.clear();
-        self.positions.clear();
-        self.starts.clear();
-        self.starts.push(0);
+        self.inputs.clear();
+        self.lists.clear();
+        self.row_capacity = 0;
+        self.position_capacity = 0;
+        self.count = 0;
     }
 
-    fn push(
-        &mut self,
-        input: &MergeInput<'_>,
-        posting: (u32, u16, u16),
-        positions: &[u32],
-    ) -> Result<()> {
-        let (ordinal, frequency, field) = posting;
-        let Some(document) = input.target(ordinal) else {
-            return Ok(());
-        };
-        self.rows.push(Row {
-            document,
-            frequency,
-            field: input.field(field)?,
-            posting: self.rows.len(),
-        });
-        self.positions.extend_from_slice(positions);
-        self.starts
-            .push(as_u32(self.positions.len(), "positions of one token")?);
-        Ok(())
-    }
-
-    fn positions_of(&self, posting: usize) -> &[u32] {
-        let start = self.starts.get(posting).copied().unwrap_or(0) as usize;
-        let end = self.starts.get(posting + 1).copied().unwrap_or(0) as usize;
-        self.positions.get(start..end).unwrap_or(&[])
-    }
-
-    fn append(&mut self, input: &MergeInput<'_>, term: &Term<'_>) -> Result<()> {
-        match term {
-            Term::Tail(term, tail) => {
-                for (at, posting) in term.postings.iter().enumerate() {
-                    let positions = match tail.track_positions {
-                        true => term.positions.get(at).map_or(&[][..], Vec::as_slice),
-                        false => &[],
-                    };
-                    let row = (posting.document, posting.frequency, posting.field);
-                    self.push(input, row, positions)?;
+    fn append(&mut self, source: &Source<'_, '_>) -> Result<()> {
+        let mut raw = bare_input(source.input);
+        raw.field_mapping = source.input.field_remap.as_ptr();
+        raw.field_count = source.input.field_remap.len() as u32;
+        raw.field_lengths = source.lengths.as_ptr();
+        let token = source.at;
+        let positions = match source.segment.paged_list(token)? {
+            None => resident_rows(&mut raw, source.segment, token)?,
+            Some(list) => {
+                raw.posting_documents = list.documents.as_ptr();
+                raw.posting_frequencies = list.frequencies.as_ptr();
+                raw.posting_fields = list.fields.as_ptr();
+                raw.posting_count = list.len();
+                if list.frequencies.len() != list.len() || list.fields.len() != list.len() {
+                    return Err(damaged("holds a paged posting list with uneven columns"));
                 }
+                let held = match source.segment.tracks_positions() {
+                    true => source.segment.paged_positions(token)?,
+                    false => None,
+                };
+                let mut count = 0;
+                if let Some(held) = &held {
+                    if held.offsets.len() != list.len() + 1 {
+                        return Err(damaged("holds paged positions that miss a posting"));
+                    }
+                    raw.position_offsets = held.offsets.as_ptr();
+                    raw.position_values = held.values.as_ptr();
+                    raw.position_count = held.values.len();
+                    count = held.values.len();
+                }
+                self.lists.push((list, held));
+                count
             }
-            Term::Frozen(token, segment) => match segment.paged_list(*token)? {
-                Some(list) => {
-                    let positions = match segment.tracks_positions() {
-                        true => segment.paged_positions(*token)?,
-                        false => None,
-                    };
-                    let rows = list
-                        .documents
-                        .iter()
-                        .zip(&list.frequencies)
-                        .zip(&list.fields);
-                    for (row, ((&document, &frequency), &field)) in rows.enumerate() {
-                        let held = positions.as_ref().map_or(&[][..], |held| held.of(row));
-                        self.push(input, (document, frequency, field), held)?;
-                    }
-                }
-                None => {
-                    let payload = &segment.payload;
-                    for posting in segment.postings(*token) {
-                        let (Some(&document), Some(&frequency), Some(&field)) = (
-                            payload.posting_documents.get(posting),
-                            payload.posting_frequencies.get(posting),
-                            payload.posting_fields.get(posting),
-                        ) else {
-                            return Err(damaged("holds a posting outside its posting lists"));
-                        };
-                        let row = (document, frequency, field);
-                        self.push(input, row, segment.positions(posting))?;
-                    }
-                }
-            },
+        };
+        self.row_capacity += raw.posting_count;
+        self.position_capacity += positions;
+        self.inputs.push(raw);
+        Ok(())
+    }
+
+    fn finish(&mut self, document_count: u32, field_count: usize) -> Result<()> {
+        if self.row_capacity > self.documents.len() {
+            let capacity = self.row_capacity.max(self.documents.len() * 2);
+            self.documents.resize(capacity, 0);
+            self.frequencies.resize(capacity, 0);
+            self.fields.resize(capacity, 0);
+            self.starts.resize(capacity + 1, 0);
+        }
+        if self.starts.is_empty() {
+            self.starts.push(0);
+        }
+        if self.position_capacity > self.positions.len() {
+            let capacity = self.position_capacity.max(self.positions.len() * 2);
+            self.positions.resize(capacity, 0);
+        }
+        let request = ffi::narsil_keyword_merge_request {
+            inputs: self.inputs.as_ptr(),
+            input_count: self.inputs.len(),
+            document_count,
+            field_count: as_u32(field_count, "field names")?,
+            retained_terms: ptr::null(),
+        };
+        let output = ffi::narsil_posting_merge_output {
+            documents: self.documents.as_mut_ptr(),
+            frequencies: self.frequencies.as_mut_ptr(),
+            fields: self.fields.as_mut_ptr(),
+            row_capacity: self.documents.len(),
+            position_offsets: self.starts.as_mut_ptr(),
+            offset_capacity: self.starts.len(),
+            positions: self.positions.as_mut_ptr(),
+            position_capacity: self.positions.len(),
+            totals: self.totals.as_mut_ptr(),
+            total_capacity: self.totals.len(),
+        };
+        let mut count = 0u32;
+        let status = with_workspace(|workspace| {
+            Ok(unsafe { ffi::narsil_merge_postings(workspace, &request, &output, &mut count) })
+        })?;
+        if status != ffi::NARSIL_OK {
+            return Err(core_refused("a paged posting merge", status));
+        }
+        self.count = count as usize;
+        self.rows.clear();
+        for at in 0..self.count {
+            self.rows.push(Row {
+                document: self.documents[at],
+                frequency: self.frequencies[at],
+                field: self.fields[at],
+                posting: at,
+            });
         }
         Ok(())
     }
 
-    fn sort(&mut self) {
-        let ordered = self
-            .rows
-            .windows(2)
-            .all(|pair| (pair[0].document, pair[0].field) < (pair[1].document, pair[1].field));
-        if !ordered {
-            self.rows.sort_by_key(|row| (row.document, row.field));
-        }
+    fn position_count(&self) -> usize {
+        self.starts.get(self.count).copied().unwrap_or(0) as usize
     }
 }
 
@@ -195,47 +237,47 @@ struct Walk<'s, 'c> {
 
 impl Walk<'_, '_> {
     fn write_token(&mut self, token: &str, rows: &TokenRows) -> Result<()> {
-        let number = as_u32(self.out.sections.document_frequencies.len() / 4, "tokens")?;
+        let number = as_u32(self.out.document_frequencies.len(), "tokens")?;
+        let count = rows.count;
         self.scratch.clear();
-        let mut total = 0f64;
-        let mut distinct = 0u32;
-        let mut occurrences = 0u32;
-        let mut before: Option<u32> = None;
-        for (at, row) in rows.rows.iter().enumerate() {
-            self.scratch.extend_from_slice(&row.document.to_le_bytes());
-            total += f64::from(row.frequency);
-            if before != Some(row.document) {
-                distinct += 1;
-                occurrences = 0;
-            }
-            occurrences = occurrences.saturating_add(u32::from(row.frequency));
-            before = Some(row.document);
-            let after = rows.rows.get(at + 1).map(|after| after.document);
-            if after != Some(row.document) {
-                self.removals.add(row.document, number, occurrences)?;
-            }
+        for &document in &rows.documents[..count] {
+            self.scratch.extend_from_slice(&document.to_le_bytes());
         }
-        for row in &rows.rows {
-            self.scratch.extend_from_slice(&row.frequency.to_le_bytes());
+        for &frequency in &rows.frequencies[..count] {
+            self.scratch.extend_from_slice(&frequency.to_le_bytes());
         }
-        for row in &rows.rows {
-            self.scratch.extend_from_slice(&row.field.to_le_bytes());
+        for &field in &rows.fields[..count] {
+            self.scratch.extend_from_slice(&field.to_le_bytes());
         }
         self.sinks.postings.write(&self.scratch)?;
-        self.sinks.token_totals.write(&total.to_le_bytes())?;
+        self.sinks
+            .token_totals
+            .write(&rows.totals[1].to_le_bytes())?;
         if let Some((offsets, values)) = self.sinks.positions.as_mut() {
-            for row in &rows.rows {
-                offsets.write_u32(as_u32(self.positions_written, "positions")?)?;
-                self.scratch.clear();
-                for &position in rows.positions_of(row.posting) {
-                    self.scratch.extend_from_slice(&position.to_le_bytes());
-                }
-                values.write(&self.scratch)?;
-                self.positions_written += rows.positions_of(row.posting).len();
+            for &start in &rows.starts[..count] {
+                let written = self.positions_written + start as usize;
+                offsets.write_u32(as_u32(written, "positions")?)?;
             }
+            let held = &rows.positions[..rows.position_count()];
+            self.scratch.clear();
+            for &position in held {
+                self.scratch.extend_from_slice(&position.to_le_bytes());
+            }
+            values.write(&self.scratch)?;
+            self.positions_written += held.len();
+        }
+        let mut at = 0;
+        while at < count {
+            let document = rows.documents[at];
+            let mut occurrences = 0u32;
+            while at < count && rows.documents[at] == document {
+                occurrences = occurrences.saturating_add(u32::from(rows.frequencies[at]));
+                at += 1;
+            }
+            self.removals.add(document, number, occurrences)?;
         }
         let sections = &mut self.out.sections;
-        if rows.rows.len() > SMALLEST_BLOCK_POSTINGS {
+        if count > SMALLEST_BLOCK_POSTINGS {
             sections
                 .block_lists
                 .extend_from_slice(&number.to_le_bytes());
@@ -246,14 +288,16 @@ impl Walk<'_, '_> {
                 .block_list_offsets
                 .extend_from_slice(&blocks.to_le_bytes());
         }
-        self.postings_written += rows.rows.len();
+        self.postings_written += count;
         let postings = as_u32(self.postings_written, "postings")?;
         sections
             .posting_offsets
             .extend_from_slice(&postings.to_le_bytes());
+        let distinct = rows.totals[0] as u32;
         sections
             .document_frequencies
             .extend_from_slice(&distinct.to_le_bytes());
+        self.out.document_frequencies.push(distinct);
         self.out.tokens.extend_from_slice(token.as_bytes());
         self.out
             .token_offsets
@@ -262,12 +306,9 @@ impl Walk<'_, '_> {
     }
 }
 
-/// Walks the tokens of every input together in code point order, as the reference merge does, and writes each
-/// token's kept postings ascending by document and then field, with its total, positions, block summaries, and
-/// what each document contributes to its removal entry. `columns` gives the merged field length column of each
-/// merged field index.
 pub(super) fn write_merged_lists(
     inputs: &[MergeInput<'_>],
+    document_count: u32,
     columns: &[Option<&[u32]>],
     sinks: &mut ListSinks,
     removals: &mut RemovalWriter,
@@ -280,6 +321,7 @@ pub(super) fn write_merged_lists(
         out: WrittenTokens {
             tokens: Vec::new(),
             token_offsets: vec![0],
+            document_frequencies: Vec::new(),
             sections: TokenSections {
                 document_frequencies: Vec::new(),
                 posting_offsets: zero.clone(),
@@ -293,21 +335,20 @@ pub(super) fn write_merged_lists(
         positions_written: 0,
         blocks_written: 0,
     };
-    let mut cursors: Vec<Cursor<'_>> = inputs
-        .iter()
-        .map(|input| match &input.entry.data {
-            SegmentData::Tail(tail) => Cursor::Tail(tail.terms.iter(), tail),
-            SegmentData::Frozen(segment) => Cursor::Frozen(0, segment),
-        })
-        .collect();
-    let mut heads: Vec<Option<Term<'_>>> = Vec::with_capacity(cursors.len());
+    let mut sources = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        sources.push(Source {
+            input,
+            segment: frozen_of(input)?,
+            lengths: vec![ptr::null(); input.field_remap.len()],
+            at: 0,
+        });
+    }
     let mut heap = BinaryHeap::new();
-    for (at, cursor) in cursors.iter_mut().enumerate() {
-        let head = cursor.next();
-        if let Some((token, _)) = &head {
-            heap.push(Reverse((*token, at)));
+    for (at, source) in sources.iter().enumerate() {
+        if source.segment.token_count() > 0 {
+            heap.push(Reverse((source.segment.token(0), at)));
         }
-        heads.push(head.map(|(_, term)| term));
     }
     let mut rows = TokenRows::default();
     while let Some(Reverse((token, _))) = heap.peek().copied() {
@@ -317,26 +358,23 @@ pub(super) fn write_merged_lists(
                 break;
             }
             heap.pop();
-            let (Some(input), Some(slot), Some(cursor)) =
-                (inputs.get(at), heads.get_mut(at), cursors.get_mut(at))
-            else {
+            let Some(source) = sources.get_mut(at) else {
                 continue;
             };
-            if let Some(term) = slot.take() {
-                rows.append(input, &term)?;
-            }
-            if let Some((next, term)) = cursor.next() {
+            rows.append(source)?;
+            source.at += 1;
+            if source.at < source.segment.token_count() {
+                let next = source.segment.token(source.at);
                 if next <= token {
                     return Err(damaged("lists its tokens out of order"));
                 }
                 heap.push(Reverse((next, at)));
-                *slot = Some(term);
             }
         }
-        if rows.rows.is_empty() {
+        rows.finish(document_count, columns.len())?;
+        if rows.count == 0 {
             continue;
         }
-        rows.sort();
         walk.write_token(token, &rows)?;
     }
     if let Some((offsets, _)) = walk.sinks.positions.as_mut() {

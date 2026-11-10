@@ -1,0 +1,163 @@
+use super::GrowingSegment;
+use super::room::{grow_every_region, reserve_for};
+use crate::error::{ErrorCode, NarsilError, Result};
+use crate::ffi;
+use crate::keyword::constants::{
+    MAX_ROOM_ATTEMPTS, POOL_VACUUM_FREE_DENOMINATOR, POOL_VACUUM_FREE_NUMERATOR,
+    POOL_VACUUM_MIN_FREE_ENTRIES, POSITION_VACUUM_MIN_FREE_VALUES, TERM_VACUUM_MIN_DEAD_TERMS,
+};
+use crate::keyword::strings::SurfaceTable;
+use crate::keyword::tokens::{SegmentFieldTokens, raw_fields};
+use crate::keyword::workspace::{core_refused, with_workspace};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Indexed {
+    Stored,
+    SegmentFull,
+}
+
+fn holds_surface(fields: &[SegmentFieldTokens<'_>]) -> bool {
+    fields.iter().any(|field| {
+        field.tokens.records.iter().any(|record| {
+            record.surface_offset != ffi::NARSIL_NO_SURFACE && record.surface_length > 0
+        })
+    })
+}
+
+fn out_of_room(operation: &str) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::PARTITION_CORRUPTED,
+        format!("The keyword segment found no room for {operation} after growing every region"),
+    )
+}
+
+fn sparse_pool(free: usize, end: usize, least: usize) -> bool {
+    free >= least && free * POOL_VACUUM_FREE_DENOMINATOR > end * POOL_VACUUM_FREE_NUMERATOR
+}
+
+fn sparse_strings(table: Option<&SurfaceTable>) -> bool {
+    table.is_some_and(|table| {
+        let live = table.live_len();
+        let dead = table.len() - live;
+        dead >= TERM_VACUUM_MIN_DEAD_TERMS && dead > live
+    })
+}
+
+impl GrowingSegment {
+    fn vacuum_if_sparse(&mut self) -> Result<()> {
+        let live = self.terms.live_count();
+        let dead = self.terms.count() - live;
+        let sparse = (dead >= TERM_VACUUM_MIN_DEAD_TERMS && dead > live)
+            || sparse_pool(
+                self.postings.free_entries(),
+                self.postings.end(),
+                POOL_VACUUM_MIN_FREE_ENTRIES,
+            )
+            || self.positions.as_ref().is_some_and(|positions| {
+                sparse_pool(
+                    positions.free_values(),
+                    positions.end(),
+                    POSITION_VACUUM_MIN_FREE_VALUES,
+                )
+            })
+            || sparse_strings(self.surfaces.as_ref())
+            || sparse_strings(self.spellings.as_ref().map(|table| table.entries()));
+        if sparse {
+            self.end_batch()?;
+        }
+        Ok(())
+    }
+
+    fn require_ordinal(&mut self, ordinal: u32, fields: &[SegmentFieldTokens<'_>]) -> Result<()> {
+        let field_count = fields
+            .iter()
+            .map(|field| field.field as usize + 1)
+            .max()
+            .unwrap_or(0);
+        self.reserve_fields(ordinal as usize + 1, field_count)
+    }
+
+    pub(crate) fn index(
+        &mut self,
+        ordinal: u32,
+        fields: &[SegmentFieldTokens<'_>],
+    ) -> Result<Indexed> {
+        self.require_ordinal(ordinal, fields)?;
+        self.vacuum_if_sparse()?;
+        if self.surfaces.is_none() && holds_surface(fields) {
+            self.surfaces = Some(SurfaceTable::new());
+        }
+        let raw = raw_fields(fields);
+        let mut reserved = false;
+        for _ in 0..MAX_ROOM_ATTEMPTS {
+            let request = ffi::narsil_index_terms_request {
+                segment: self.raw(),
+                ordinal,
+                fields: raw.as_ptr(),
+                field_count: raw.len(),
+            };
+            let status = with_workspace(|workspace| {
+                Ok(unsafe { ffi::narsil_index_terms(workspace, &request) })
+            })?;
+            match status {
+                ffi::NARSIL_OK => return Ok(Indexed::Stored),
+                ffi::NARSIL_SEGMENT_FULL => return Ok(Indexed::SegmentFull),
+                ffi::NARSIL_NEEDS_ROOM if !reserved => {
+                    reserve_for(self, fields)?;
+                    reserved = true;
+                }
+                ffi::NARSIL_NEEDS_ROOM => grow_every_region(self)?,
+                status => return Err(core_refused("a document's terms", status)),
+            }
+        }
+        Err(out_of_room("a document's terms"))
+    }
+
+    pub(crate) fn remove(&mut self, ordinal: u32, fields: &[SegmentFieldTokens<'_>]) -> Result<()> {
+        self.require_ordinal(ordinal, fields)?;
+        self.vacuum_if_sparse()?;
+        let raw = raw_fields(fields);
+        for _ in 0..MAX_ROOM_ATTEMPTS {
+            let request = ffi::narsil_index_terms_request {
+                segment: self.raw(),
+                ordinal,
+                fields: raw.as_ptr(),
+                field_count: raw.len(),
+            };
+            let status = with_workspace(|workspace| {
+                Ok(unsafe { ffi::narsil_remove_document(workspace, &request) })
+            })?;
+            match status {
+                ffi::NARSIL_OK => return Ok(()),
+                ffi::NARSIL_NEEDS_ROOM => grow_every_region(self)?,
+                status => return Err(core_refused("a document's removal", status)),
+            }
+        }
+        Err(out_of_room("a document's removal"))
+    }
+
+    fn batch(&mut self, ending: bool) -> Result<()> {
+        let segment = self.raw();
+        let status = with_workspace(|workspace| {
+            Ok(unsafe {
+                if ending {
+                    ffi::narsil_end_batch(workspace, segment)
+                } else {
+                    ffi::narsil_begin_batch(workspace, segment)
+                }
+            })
+        })?;
+        if status != ffi::NARSIL_OK {
+            return Err(core_refused("a batch boundary", status));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn begin_batch(&mut self) -> Result<()> {
+        self.batch(false)
+    }
+
+    pub(crate) fn end_batch(&mut self) -> Result<()> {
+        self.batch(true)
+    }
+}

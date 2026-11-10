@@ -8,6 +8,7 @@ use super::javascript::write_json_text;
 use super::params::{GroupConfig, GroupReducer};
 use super::ranked::{Ranked, locate_all};
 use crate::error::Result;
+use crate::search::rankings::score_then_id;
 use crate::value::{Value, number_to_text};
 
 type GroupValues = Vec<(String, Option<Value>)>;
@@ -98,11 +99,10 @@ fn first_id(group: &GroupDraft) -> &str {
 }
 
 fn group_order(left: &GroupDraft, right: &GroupDraft) -> Ordering {
-    let (one, other) = (first_score(left), first_score(right));
-    if one != other {
-        return other.partial_cmp(&one).unwrap_or(Ordering::Equal);
-    }
-    first_id(left).cmp(first_id(right))
+    score_then_id(
+        (first_score(left), first_id(left)),
+        (first_score(right), first_id(right)),
+    )
 }
 
 fn group_members(

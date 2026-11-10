@@ -11,8 +11,11 @@ use super::vectors::IndexVectors;
 use crate::analysis::Analyser;
 use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::index::frozen::FrozenSegment;
 use crate::index::indexed::{IndexedDocument, IndexingOptions, index_document};
+use crate::index::merge::freeze_segment;
 use crate::index::partition::{Partition, PartitionSnapshot};
+use crate::index::segment::SegmentEntry;
 use crate::schema::CompiledSchema;
 use crate::util::hash::fnv1a;
 use crate::value::Map;
@@ -271,10 +274,13 @@ impl IndexState {
             &self.schema,
             &IndexingOptions {
                 analyser: &self.partitions().analyser,
-                track_positions: self.track_positions,
                 collect_surfaces: self.collect_surfaces,
             },
         )
+    }
+
+    pub(crate) fn freeze_entry(&self, entry: &SegmentEntry) -> Result<FrozenSegment> {
+        Ok(FrozenSegment::new(freeze_segment(entry, &self.schema)?))
     }
 
     pub(crate) fn pattern_value_limit(&self) -> usize {

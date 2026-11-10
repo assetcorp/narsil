@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 
-use super::constants::{
-    PARTIAL_WORD_MIN_CODE_POINTS, PARTIAL_WORDS_ADDED_PER_QUERY, PREFIX_MAX_EXPANSIONS,
-};
+use super::constants::{PARTIAL_WORD_MIN_CODE_POINTS, PARTIAL_WORDS_ADDED_PER_QUERY};
 use crate::analysis::{Analyser, TokenOptions};
 use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
-use crate::search::partial::{PartialWordRequest, expand_partial_word};
+use crate::keyword::expansion::{ExpansionSources, PartialWordRequest};
 use crate::search::query::{GroupMember, TermGroup};
-use crate::search::words::expand_term_prefix;
 
 /// The last word of a query, as an index token and as the query wrote it, which a prefix search completes.
 pub(crate) struct PrefixWord {
@@ -68,19 +65,11 @@ fn partial_word_requests(
             break;
         }
     }
-    let count = eligible.len();
-    if count == 0 {
-        return Vec::new();
-    }
-    let even_share = PARTIAL_WORDS_ADDED_PER_QUERY / count;
-    let remainder = PARTIAL_WORDS_ADDED_PER_QUERY % count;
     eligible
         .into_iter()
-        .enumerate()
-        .map(|(order, (token, word))| PartialWordRequest {
+        .map(|(token, word)| PartialWordRequest {
             token: token.to_string(),
             written: word.to_string(),
-            share: even_share + usize::from(order < remainder),
             tolerance: if Some(token) == prefix_token {
                 0
             } else {
@@ -150,18 +139,12 @@ fn group_for<'a>(
 
 fn add_completions(
     groups: &mut Vec<TermGroup>,
-    snapshot: &PartitionSnapshot,
+    sources: &ExpansionSources<'_>,
     word: &PrefixWord,
 ) -> Result<()> {
-    let own_length = word.token.chars().count() as f64;
-    let completions =
-        expand_term_prefix(snapshot, &word.written, &word.token, PREFIX_MAX_EXPANSIONS)?;
+    let completions = sources.complete_prefix(&word.written, &word.token)?;
     let group = group_for(groups, &word.token, false);
-    for completion in completions {
-        if completion == word.token {
-            continue;
-        }
-        let factor = (own_length / completion.chars().count() as f64).min(1.0);
+    for (completion, factor) in completions {
         group.members.push(GroupMember {
             token: completion,
             factor,
@@ -201,17 +184,23 @@ pub(crate) fn resolve_term_groups(
     expansion: &WordExpansion,
 ) -> Result<PartitionGroups> {
     let mut groups = Vec::new();
-    if let Some(word) = &expansion.prefix {
-        add_completions(&mut groups, snapshot, word)?;
-    }
-    let prefix_token = expansion.prefix.as_ref().map(|word| word.token.as_str());
-    for request in &expansion.partial {
-        let added = expand_partial_word(snapshot, request);
-        if added.is_empty() {
-            continue;
+    if expansion.prefix.is_some() || !expansion.partial.is_empty() {
+        let sources = ExpansionSources::of(snapshot)?;
+        if let Some(word) = &expansion.prefix {
+            add_completions(&mut groups, &sources, word)?;
         }
-        let typo_matches = Some(request.token.as_str()) != prefix_token;
-        add_partial_words(group_for(&mut groups, &request.token, typo_matches), added);
+        let prefix_token = expansion.prefix.as_ref().map(|word| word.token.as_str());
+        let additions = match expansion.partial.is_empty() {
+            true => Vec::new(),
+            false => sources.partial_additions(&expansion.partial)?,
+        };
+        for (request, added) in expansion.partial.iter().zip(additions) {
+            if added.is_empty() {
+                continue;
+            }
+            let typo_matches = Some(request.token.as_str()) != prefix_token;
+            add_partial_words(group_for(&mut groups, &request.token, typo_matches), added);
+        }
     }
     for (token, synonyms) in &expansion.synonyms {
         let group = group_for(&mut groups, token, true);
