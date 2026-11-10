@@ -60,6 +60,12 @@ fn with_analyser<T>(work: impl FnOnce(&mut Analyser) -> Result<T>) -> Result<T> 
     })
 }
 
+pub(crate) fn with_core_analyser<T>(
+    work: impl FnOnce(*mut ffi::narsil_analyser) -> Result<T>,
+) -> Result<T> {
+    with_analyser(|analyser| work(analyser.handle))
+}
+
 /// The stop words that the native core tests each token against.
 pub(crate) struct CoreStopWords {
     handle: *mut ffi::narsil_stop_word_set,

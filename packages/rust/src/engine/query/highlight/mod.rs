@@ -1,4 +1,5 @@
 mod field;
+mod native;
 mod snippet;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -10,17 +11,19 @@ use super::constants::{
 use super::params::{HighlightConfig, QueryParams};
 use super::phrases::analyse_query_phrases;
 use super::projection::{Projection, projection_keeps_field};
-use super::results::Hit;
+use super::results::{HighlightMatch, Hit};
 use crate::analysis::{Analyser, ResolvedAnalysis, TokenOptions};
 use crate::engine::index::IndexState;
 use crate::engine::layout::TextLayout;
 use crate::error::Result;
 use crate::util::text::javascript_trim;
 use crate::value::{Map, Value};
+use native::CoreHighlightQuery;
 
 struct PartialTagging {
     fields: HashSet<String>,
     words: Vec<String>,
+    units: Vec<Vec<u16>>,
 }
 
 struct Highlighter {
@@ -31,10 +34,13 @@ struct Highlighter {
     prefix_token: Option<String>,
     synonyms: HashSet<String>,
     partial: Option<PartialTagging>,
-    pre_tag: Vec<u16>,
-    post_tag: Vec<u16>,
+    core: CoreHighlightQuery,
     max_length: usize,
     verdicts: HashMap<String, bool>,
+}
+
+fn units_of(text: &str) -> Vec<u16> {
+    text.encode_utf16().collect()
 }
 
 fn positioned_words(analyser: &Analyser, text: &str, stem: bool) -> Result<Vec<(String, u32)>> {
@@ -100,7 +106,12 @@ fn partial_tagging(
         return None;
     }
     let words = partial_words_to_highlight(query_tokens, written);
-    (!words.is_empty()).then_some(PartialTagging { fields, words })
+    let units = words.iter().map(|word| units_of(word)).collect();
+    (!words.is_empty()).then_some(PartialTagging {
+        fields,
+        words,
+        units,
+    })
 }
 
 fn synonyms_of(layout: &TextLayout, query_tokens: &[(String, u32)]) -> HashSet<String> {
@@ -178,37 +189,72 @@ impl Highlighter {
             true => 0,
             false => params.tolerance.unwrap_or(0),
         };
-        let mut stemmed_query = Vec::with_capacity(query_tokens.len());
-        for (token, _) in &query_tokens {
-            let completed = completion
-                .as_ref()
-                .is_some_and(|(_, completed)| completed == token);
-            let stemmed = field_analyser.transform(&token.to_lowercase(), true, false)?;
-            stemmed_query.push((stemmed, if completed { 0 } else { tolerance }));
-        }
+        let stemmed_query: Vec<(String, u32)> = query_tokens
+            .iter()
+            .map(|(token, _)| {
+                let completed = completion
+                    .as_ref()
+                    .is_some_and(|(_, completed)| completed == token);
+                (token.clone(), if completed { 0 } else { tolerance })
+            })
+            .collect();
+        let prefix_length = params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH);
+        let prefix_token = completion.map(|(word, _)| word);
+        let max_length = config.max_snippet_length.unwrap_or(DEFAULT_SNIPPET_LENGTH);
+        let core = CoreHighlightQuery {
+            terms: stemmed_query
+                .iter()
+                .map(|(token, tolerance)| (units_of(token), *tolerance))
+                .collect(),
+            prefix_length,
+            prefix: prefix_token.as_deref().map(units_of),
+            synonyms: synonyms.iter().map(|word| units_of(word)).collect(),
+            pre_tag: units_of(
+                config
+                    .pre_tag
+                    .as_deref()
+                    .unwrap_or(DEFAULT_HIGHLIGHT_PRE_TAG),
+            ),
+            post_tag: units_of(
+                config
+                    .post_tag
+                    .as_deref()
+                    .unwrap_or(DEFAULT_HIGHLIGHT_POST_TAG),
+            ),
+            maximum: u32::try_from(max_length).unwrap_or(u32::MAX),
+        };
         Ok(Highlighter {
             index_analyser: analyser.clone(),
             field_analyser,
             stemmed_query,
-            prefix_length: params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH),
-            prefix_token: completion.map(|(word, _)| word),
+            prefix_length,
+            prefix_token,
             synonyms,
             partial,
-            pre_tag: config
-                .pre_tag
-                .as_deref()
-                .unwrap_or(DEFAULT_HIGHLIGHT_PRE_TAG)
-                .encode_utf16()
-                .collect(),
-            post_tag: config
-                .post_tag
-                .as_deref()
-                .unwrap_or(DEFAULT_HIGHLIGHT_POST_TAG)
-                .encode_utf16()
-                .collect(),
-            max_length: config.max_snippet_length.unwrap_or(DEFAULT_SNIPPET_LENGTH),
+            core,
+            max_length,
             verdicts: HashMap::new(),
         })
+    }
+
+    fn highlight_field(&mut self, text: &str, field: &str) -> Result<HighlightMatch> {
+        let partial = self
+            .partial
+            .as_ref()
+            .filter(|partial| partial.fields.contains(field));
+        match partial {
+            Some(_) if self.index_analyser.sets_tokenizer_or_stop_words() => {
+                self.highlight_through_index_analysis(text, field)
+            }
+            Some(partial) => self.core.highlight(
+                self.index_analyser.language().core_index(),
+                text,
+                &partial.units,
+            ),
+            None => self
+                .core
+                .highlight(self.index_analyser.language().core_index(), text, &[]),
+        }
     }
 }
 

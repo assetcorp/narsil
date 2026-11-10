@@ -80,7 +80,13 @@ impl Language {
     pub fn stop_words(&self) -> &HashSet<String> {
         &self.stop_words
     }
+
+    pub(crate) fn core_index(&self) -> u32 {
+        self.index
+    }
 }
+
+pub(crate) use core::with_core_analyser;
 
 /// What to do with each token while text is analysed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +133,7 @@ pub(crate) type UnitVisitor<'a> = dyn FnMut(&[u16], u32, Option<&[u16]>) -> Resu
 pub(crate) struct Analyser {
     language: Language,
     stop_words: Option<Arc<CoreStopWords>>,
+    sets_stop_words: bool,
     tokenizer: Option<Arc<dyn Tokenizer>>,
 }
 
@@ -150,8 +157,13 @@ impl Analyser {
         Ok(Analyser {
             language,
             stop_words,
+            sets_stop_words: resolved.stop_words.is_some(),
             tokenizer: resolved.tokenizer.clone(),
         })
+    }
+
+    pub(crate) fn sets_tokenizer_or_stop_words(&self) -> bool {
+        self.tokenizer.is_some() || self.sets_stop_words
     }
 
     pub(crate) fn language(&self) -> &Language {
