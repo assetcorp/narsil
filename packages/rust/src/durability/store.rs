@@ -38,6 +38,7 @@ impl DurabilityStore {
         writes: Vec<LogWrite>,
     ) -> Result<Appended> {
         self.inner.require_healthy()?;
+        self.inner.require_open()?;
         let count = writes.len() as u64;
         let log = self.inner.log(index_name, partition_id)?;
         let (first_seq_no, last_seq_no) = log
@@ -86,6 +87,7 @@ impl DurabilityStore {
 
     pub(crate) fn write_metadata(&self, metadata: &IndexMetadata) -> Result<()> {
         self.inner.require_healthy()?;
+        self.inner.require_open()?;
         let state = self.inner.index_state(&metadata.index_name)?;
         let _turn = state.metadata_turn.lock().map_err(|_| store_poisoned())?;
         let bytes = write_metadata_file(metadata, Compression::None)?;
@@ -96,6 +98,7 @@ impl DurabilityStore {
 
     pub(crate) fn remove_index(&self, index_name: &str) -> Result<()> {
         self.inner.require_healthy()?;
+        self.inner.require_open()?;
         require_index_name(index_name)?;
         self.inner.forget_index(index_name)?;
         let outcome = self.inner.directory.remove_tree(index_name);

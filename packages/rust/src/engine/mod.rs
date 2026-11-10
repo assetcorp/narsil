@@ -330,6 +330,12 @@ impl Narsil {
         self.inner.lifecycle.sweeper.stop();
         self.inner.lifecycle.clear();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());
+        for index in indexes.values() {
+            let writer = index.write_lock();
+            index.retire();
+            drop(writer);
+            index.residency.finish_close();
+        }
         let closed = match &self.inner.durable {
             Some(durable) => durable.close(),
             None => Ok(()),
