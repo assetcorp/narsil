@@ -17,6 +17,7 @@ pub(crate) const MAX_PATTERN_VALUE_LIMIT: u64 = 65_536;
 pub(crate) const MIN_M: u32 = 2;
 pub(crate) const MAX_M: u32 = 512;
 pub(crate) const MAX_PARTITIONS: u64 = 65_536;
+pub(crate) const DEFAULT_MAX_PARTITIONS: u64 = 1;
 
 /// Returns the `maxPartitions` that a stored index loads under: the stored count, or 65,536 where an earlier
 /// release stored more.

@@ -11,10 +11,11 @@ use super::vectors::IndexVectors;
 use super::vectors::embedding::bind_embedding;
 use crate::analysis::{Analyser, Language, ResolvedAnalysis};
 use crate::config::{
-    IndexConfig, StopWordsSetting, TokenizerSetting, require_configuration_within_size_limit,
-    require_surface_forms_for_partial_fields, validate_bm25_params, validate_index_name,
-    validate_partition_config, validate_pattern_value_limit, validate_required_fields_in_schema,
-    validate_storage, validate_vector_promotion,
+    DEFAULT_MAX_PARTITIONS, IndexConfig, StopWordsSetting, TokenizerSetting,
+    require_configuration_within_size_limit, require_surface_forms_for_partial_fields,
+    validate_bm25_params, validate_index_name, validate_partition_config,
+    validate_pattern_value_limit, validate_required_fields_in_schema, validate_storage,
+    validate_vector_promotion,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::{CompiledSchema, require_creatable_schema, schema_fields, validate_schema};
@@ -26,7 +27,9 @@ pub(crate) fn initial_partition_count(config: &IndexConfig) -> usize {
     config
         .partitions
         .and_then(|partitions| partitions.max_partitions)
-        .map_or(1, |count| usize::try_from(count).unwrap_or(usize::MAX))
+        .map_or(DEFAULT_MAX_PARTITIONS as usize, |count| {
+            usize::try_from(count).unwrap_or(usize::MAX)
+        })
 }
 
 pub(crate) fn resolved_analysis(

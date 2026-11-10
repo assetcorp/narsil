@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use narsil::{
     DurabilityConfig, DurabilityTier, IndexConfig, Map, MemoryPersistence, Narsil, NarsilConfig,
-    SyncSetting, SyncStatus, Value, parse_json, write_json,
+    PartitionConfig, SyncSetting, SyncStatus, Value, parse_json, write_json,
 };
 use support::{ScratchDirectory, repository_root};
 
@@ -418,6 +418,15 @@ fn every_change_that_a_device_reloads_whole_gives_a_new_epoch_that_restarts_keep
             .any(|window| window == seen[0].as_bytes()),
         "the snapshot configuration carries the epoch"
     );
+    narsil
+        .update_partition_config(
+            INDEX,
+            &PartitionConfig {
+                max_partitions: Some(3),
+                ..PartitionConfig::default()
+            },
+        )
+        .expect("the partition limit rises");
     narsil.clear(INDEX).expect("the clear applies");
     seen.push(epoch_of(&narsil));
     narsil.rebalance(INDEX, 3).expect("the rebalance applies");
