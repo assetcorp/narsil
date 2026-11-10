@@ -153,7 +153,27 @@ fn shaped_queries(case: &VectorQueryCase) -> Vec<Value> {
         ),
         term,
     ));
+    queries.extend(
+        pinned_shapes()
+            .iter()
+            .map(|shape| with_term(with_vector(shape, vector), term)),
+    );
     queries
+}
+
+const PINS: &str = r#""pinned": [{"docId": "train-00007", "position": 2}, {"docId": "missing-document", "position": 0}, {"docId": "train-00000", "position": 0}, {"docId": "train-00007", "position": 0}, {"docId": "train-00003", "position": 400}]"#;
+
+fn pinned_shapes() -> [String; 4] {
+    [
+        format!("{{{CLAUSE}, {PINS}, \"limit\": 12}}"),
+        format!(
+            "{{{CLAUSE}, {PINS}, \"hybrid\": {{\"strategy\": \"linear\", \"alpha\": 0.6}}, \"limit\": 8, \"offset\": 1}}"
+        ),
+        format!("{{{CLAUSE}, {PINS}, \"hybrid\": {{\"depth\": 30}}, \"limit\": 10}}"),
+        format!(
+            "{{{CLAUSE}, {PINS}, \"rerank\": {{\"adapter\": \"length\", \"fields\": [\"title\"], \"window\": 10}}, \"limit\": 9, \"offset\": 1}}"
+        ),
+    ]
 }
 
 fn hostile_queries(case: &VectorQueryCase) -> Vec<Value> {

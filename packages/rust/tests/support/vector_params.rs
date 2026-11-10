@@ -1,5 +1,6 @@
 use narsil::{
-    HybridConfig, HybridStrategy, Metric, QueryParams, RerankConfig, SearchMode, Value, VectorQuery,
+    HybridConfig, HybridStrategy, Metric, Pin, QueryParams, RerankConfig, SearchMode, Value,
+    VectorQuery,
 };
 
 fn text(value: &Value, name: &str) -> Option<String> {
@@ -54,6 +55,18 @@ fn hybrid_config(hybrid: &Value) -> HybridConfig {
     }
 }
 
+fn pins(pinned: &Value) -> Vec<Pin> {
+    pinned
+        .as_array()
+        .expect("a list of pins")
+        .iter()
+        .map(|pin| Pin {
+            doc_id: text(pin, "docId").expect("a pinned ID"),
+            position: number(pin, "position").expect("a position") as usize,
+        })
+        .collect()
+}
+
 fn rerank_config(rerank: &Value) -> RerankConfig {
     RerankConfig {
         adapter: text(rerank, "adapter").unwrap_or_default(),
@@ -83,6 +96,7 @@ pub fn vector_params(query: &Value) -> QueryParams {
         vector: query.pointer("vector").map(vector_clause),
         hybrid: query.pointer("hybrid").map(hybrid_config),
         rerank: query.pointer("rerank").map(rerank_config),
+        pinned: query.pointer("pinned").map(pins),
         ..QueryParams::default()
     }
 }

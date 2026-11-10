@@ -6,6 +6,7 @@ use super::cursor::{PageCursor, decode_page_cursor, encode_page_cursor, require_
 use super::gather::QueryRun;
 use super::page_start::{AnchorBits, page_start};
 use super::params::Pin;
+use super::pinned::{Placed, deduped_pins, place_pins};
 use super::ranked::{Ranked, owned_key};
 use super::results::Hit;
 use super::sort_keys::SortPlan;
@@ -17,52 +18,38 @@ pub(crate) struct Placement {
     pub(crate) placed_from_outside: u64,
 }
 
-pub(crate) fn deduped_pins(pins: &[Pin]) -> Vec<&Pin> {
-    let mut deduped: Vec<&Pin> = Vec::with_capacity(pins.len());
-    for pin in pins {
-        if !deduped.iter().any(|held| held.doc_id == pin.doc_id) {
-            deduped.push(pin);
-        }
-    }
-    deduped
-}
-
 pub(crate) fn place_pinned(
     run: &QueryRun<'_>,
     hits: Vec<Ranked>,
     pins: &[Pin],
 ) -> Result<Placement> {
-    let mut deduped = deduped_pins(pins);
-    let pinned_ids: HashSet<&str> = deduped.iter().map(|pin| pin.doc_id.as_str()).collect();
-    let mut listed: HashSet<String> = HashSet::new();
-    let mut result: Vec<Ranked> = Vec::with_capacity(hits.len() + deduped.len());
-    for hit in hits {
-        if pinned_ids.contains(hit.id.as_str()) {
-            listed.insert(hit.id);
-            continue;
+    let mut stored = Vec::with_capacity(pins.len());
+    let mut locations = Vec::with_capacity(pins.len());
+    for pin in deduped_pins(pins) {
+        if let Some(location) = run.locate(&pin.doc_id)? {
+            stored.push(pin);
+            locations.push(location);
         }
-        result.push(hit);
     }
-    deduped.sort_by_key(|pin| pin.position);
-    let mut placed_from_outside = 0;
-    for pin in deduped {
-        let Some(location) = run.locate(&pin.doc_id)? else {
-            continue;
-        };
-        if !listed.contains(&pin.doc_id) {
-            placed_from_outside += 1;
+    let (order, listed) = place_pins(hits.iter().map(|hit| hit.id.as_str()), hits.len(), &stored)?;
+    let placed_from_outside = listed.iter().filter(|held| !**held).count() as u64;
+    let mut ranked: Vec<Option<Ranked>> = hits.into_iter().map(Some).collect();
+    let mut result = Vec::with_capacity(order.len());
+    for entry in order {
+        match entry {
+            Placed::Ranked(place) => result.extend(ranked.get_mut(place).and_then(Option::take)),
+            Placed::Pin(pin) => {
+                if let (Some(pin), Some(&location)) = (stored.get(pin), locations.get(pin)) {
+                    result.push(Ranked {
+                        id: pin.doc_id.clone(),
+                        score: 0.0,
+                        components: None,
+                        location: Some(location),
+                        pinned: true,
+                    });
+                }
+            }
         }
-        let at = pin.position.min(result.len());
-        result.insert(
-            at,
-            Ranked {
-                id: pin.doc_id.clone(),
-                score: 0.0,
-                components: None,
-                location: Some(location),
-                pinned: true,
-            },
-        );
     }
     Ok(Placement {
         hits: result,
