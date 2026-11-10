@@ -19,6 +19,10 @@ const PageSlotBytes = C.NARSIL_PAGE_SLOT_BYTES
 
 var ErrPagedFileClosed = errors.New("the paged file was closed before the operation started")
 
+var ErrPagedFileInUse = errors.New("the paged file is in use, so it cannot be released")
+
+var ErrPagedFileChanged = errors.New("the paged file reopened with another length")
+
 type PagedFile struct {
 	mu       sync.Mutex
 	file     *C.narsil_paged_file
@@ -33,7 +37,7 @@ func closeNativePagedFile(file *C.narsil_paged_file) {
 	C.narsil_paged_file_close(file)
 }
 
-func OpenPagedFile(path string) (*PagedFile, error) {
+func openNativePagedFile(path string) (*C.narsil_paged_file, error) {
 	if path == "" || strings.IndexByte(path, 0) >= 0 {
 		return nil, &StatusError{Operation: "openPagedFile", Status: StatusInvalidArgument}
 	}
@@ -41,6 +45,14 @@ func OpenPagedFile(path string) (*PagedFile, error) {
 	defer C.free(unsafe.Pointer(text))
 	var opened *C.narsil_paged_file
 	if err := statusError("openPagedFile", C.narsil_paged_file_open(text, &opened)); err != nil {
+		return nil, err
+	}
+	return opened, nil
+}
+
+func OpenPagedFile(path string) (*PagedFile, error) {
+	opened, err := openNativePagedFile(path)
+	if err != nil {
 		return nil, err
 	}
 	file := &PagedFile{
@@ -52,7 +64,43 @@ func OpenPagedFile(path string) (*PagedFile, error) {
 	return file, nil
 }
 
+func (p *PagedFile) Suspend() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closing || p.file == nil {
+		return ErrPagedFileClosed
+	}
+	if p.users > 0 {
+		return ErrPagedFileInUse
+	}
+	p.closeNow()
+	return nil
+}
+
+func (p *PagedFile) Resume(path string) error {
+	opened, err := openNativePagedFile(path)
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closing || p.file != nil {
+		C.narsil_paged_file_close(opened)
+		return ErrPagedFileClosed
+	}
+	if length := uint64(C.narsil_paged_file_length(opened)); length != p.length {
+		C.narsil_paged_file_close(opened)
+		return ErrPagedFileChanged
+	}
+	p.file = opened
+	p.identity = uint64(C.narsil_paged_file_identity(opened))
+	p.cleanup = runtime.AddCleanup(p, closeNativePagedFile, opened)
+	return nil
+}
+
 func (p *PagedFile) Identity() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.identity
 }
 
