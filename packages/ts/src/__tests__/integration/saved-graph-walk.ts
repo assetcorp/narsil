@@ -53,7 +53,7 @@ export interface GraphWalk {
   baseListOf: Map<string, string[]>
 }
 
-export async function bytesOf(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+export async function bytesOf(stream: ReadableStream<Uint8Array>): Promise<Uint8Array<ArrayBuffer>> {
   const chunks: Uint8Array[] = []
   const reader = stream.getReader()
   for (;;) {

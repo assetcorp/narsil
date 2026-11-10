@@ -153,6 +153,7 @@ export interface VectorIndexState {
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
   freshGraph: HNSWIndex | null
+  growingCopy: HNSWIndex | null
   shuffledBuildCount: number | null
   calibratedCount: number | null
   calibratedMeanLength: number | null
@@ -172,6 +173,7 @@ export interface VectorIndexState {
   buildRetryDelayMs: number
   readonly buildTurnWaiters: Map<() => void, number>
   pendingBuild: Promise<void> | null
+  buildsKeptOut: { readonly ended: Promise<void>; readonly end: () => void } | null
   disposed: boolean
   revision: number
   workerCopyPool: VectorSearchPool | null
@@ -190,6 +192,7 @@ export interface VectorIndexState {
   /** The field answers from its files through this hold until the background load of its codes and graph ends. */
   cold: ColdVectorHold | null
   graphsHeldOffThread: GraphsHeldOffThread | null
+  readonly graphsPlacedIntoSinceConnect: WeakSet<HNSWIndex>
   readonly searchWatches: Set<SearchWatch>
   readonly writeListeners: Set<(docId: string) => void>
   readonly rollbackHolds: Map<string, RollbackHold>
