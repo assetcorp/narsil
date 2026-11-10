@@ -261,7 +261,9 @@ export function requireVectorSearchable(params: QueryParams, context: QueryConte
     )
   }
   if (vectorSearchersOf(context).has(field)) {
-    requireLoadedVectorCode().requireUsableQueryVector(params.vector?.value)
+    const vectorCode = requireLoadedVectorCode()
+    vectorCode.requireUsableQueryVector(params.vector?.value)
+    vectorCode.requireUsableVectorOptions(params.vector)
     return
   }
   throw new NarsilError(
