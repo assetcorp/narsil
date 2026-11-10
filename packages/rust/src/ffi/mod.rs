@@ -41,7 +41,7 @@ pub const NARSIL_PAGE_CORRUPT: narsil_status = 9;
 pub const NARSIL_PAGE_UNREADABLE: narsil_status = 10;
 pub const NARSIL_PAGE_INVALID: narsil_status = 11;
 
-pub const NARSIL_CORE_ABI_VERSION: i32 = 49;
+pub const NARSIL_CORE_ABI_VERSION: i32 = 50;
 
 const fn decimal(text: &str) -> i32 {
     let digits = text.as_bytes();

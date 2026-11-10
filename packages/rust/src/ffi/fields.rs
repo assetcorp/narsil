@@ -288,6 +288,13 @@ unsafe extern "C" {
         into: *mut u32,
         into_words: usize,
     ) -> narsil_status;
+    pub fn narsil_case_fold(
+        text: *const u16,
+        length: usize,
+        points: *mut u32,
+        capacity: usize,
+        count: *mut u32,
+    ) -> narsil_status;
     pub fn narsil_stored_range_facet(
         values: *const narsil_stored_values,
         matched: *const u32,

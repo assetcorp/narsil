@@ -5,6 +5,7 @@ pub(crate) const MAX_PATTERN_POSITIONS: u32 = 2_048;
 pub(crate) const DEFAULT_MATCHER_STATE_BYTES: u32 = 1_000_000;
 pub(crate) const AUTO_PATTERN_TOLERANCE: u32 = 3;
 pub(crate) const PATTERN_RUN_CODE_POINTS: usize = 3;
+pub(crate) const MAX_FOLD_CODE_POINTS: usize = 3;
 pub(crate) const MAX_PATTERN_GROUP_DEPTH: usize = 32;
 pub(crate) const MAX_PATTERN_REPEAT_COUNT: u32 = 2_048;
 pub(crate) const MAX_NUMBER_RANGE_DIGITS: usize = 15;

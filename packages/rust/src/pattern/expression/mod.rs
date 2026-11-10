@@ -58,7 +58,7 @@ pub(crate) fn check_expression(
         ExpressionOperator::Wildcard => parse_wildcard(&code_points),
     };
     let node = parsed.map_err(|failure| refused(operator, field_path, failure))?;
-    if pattern_positions(&node, case_fold) <= u64::from(MAX_PATTERN_POSITIONS) {
+    if pattern_positions(&node, case_fold)? <= u64::from(MAX_PATTERN_POSITIONS) {
         return Ok(());
     }
     let folded = if case_fold {

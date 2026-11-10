@@ -2,7 +2,7 @@ use super::checks::{FieldContext, invalid};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::constants::{MAX_PATTERN_POSITIONS, MAX_PATTERN_TEXT_CODE_POINTS};
 use crate::pattern::expression::{ExpressionOperator, check_expression};
-use crate::pattern::text::folded_code_point_count;
+use crate::pattern::text::case_fold_exceeds;
 use crate::pattern::typo_text::{distinct_typo_run_count, fold_typo_text, typo_runs_needed};
 use crate::value::{Value, number_to_text};
 
@@ -46,7 +46,7 @@ fn require_text_length(path: &str, operator: &str, text: &str) -> Result<()> {
 
 fn require_pattern_text(path: &str, operator: &str, text: &str, case_fold: bool) -> Result<()> {
     require_text_length(path, operator, text)?;
-    if case_fold && folded_code_point_count(text) > MAX_PATTERN_POSITIONS as usize {
+    if case_fold && case_fold_exceeds(text, MAX_PATTERN_POSITIONS as usize)? {
         return invalid(format!(
             "The text of \"{operator}\" on pattern field \"{path}\" has a case fold of more than {MAX_PATTERN_POSITIONS} code points, while a pattern holds at most {MAX_PATTERN_POSITIONS} positions"
         ));
@@ -83,7 +83,7 @@ fn require_tolerance(field: &FieldContext<'_>) -> Result<()> {
     if *count == 0.0 {
         return Ok(());
     }
-    let text = fold_typo_text(eq);
+    let text = fold_typo_text(eq)?;
     let required = typo_runs_needed(*count as u32, text.longest_fold);
     let distinct = distinct_typo_run_count(&text, required);
     if distinct >= required {
