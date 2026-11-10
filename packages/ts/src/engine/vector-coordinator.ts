@@ -1,6 +1,5 @@
 import { getNestedValue } from '../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../errors'
-import { FLOAT32_OVERFLOW_MAGNITUDE } from '../schema/constants'
 import type { VectorIndex } from '../vector/vector-index'
 
 export function extractVectorFromDoc(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
@@ -8,12 +7,11 @@ export function extractVectorFromDoc(document: Record<string, unknown>, fieldPat
   if (value === undefined || value === null) return null
   if (value instanceof Float32Array) return holdsOnlyFiniteFloats(value) ? value : null
   if (!Array.isArray(value)) return null
-  const length = value.length
-  for (let i = 0; i < length; i++) {
-    const n = value[i]
-    if (typeof n !== 'number' || !(n < FLOAT32_OVERFLOW_MAGNITUDE && n > -FLOAT32_OVERFLOW_MAGNITUDE)) return null
+  for (let i = 0; i < value.length; i++) {
+    if (typeof value[i] !== 'number') return null
   }
-  return new Float32Array(value)
+  const vector = new Float32Array(value)
+  return holdsOnlyFiniteFloats(vector) ? vector : null
 }
 
 function holdsOnlyFiniteFloats(vector: Float32Array): boolean {

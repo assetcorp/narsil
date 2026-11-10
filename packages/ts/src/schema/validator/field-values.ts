@@ -1,7 +1,6 @@
 import { exceedsCodePoints } from '../../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { isLatitude, isLongitude } from '../../geo/coordinates'
-import { FLOAT32_OVERFLOW_MAGNITUDE } from '../constants'
 import type { ParsedFieldType } from './field-type'
 import { isPlainObject } from './shared'
 
@@ -74,12 +73,8 @@ export function validateVector(path: string, value: unknown, expectedDimension: 
     )
   }
 
-  for (let i = 0; i < expectedDimension; i++) {
-    const element = arr[i]
-    if (
-      typeof element !== 'number' ||
-      !(element < FLOAT32_OVERFLOW_MAGNITUDE && element > -FLOAT32_OVERFLOW_MAGNITUDE)
-    ) {
+  for (let i = 0; i < arr.length; i++) {
+    if (typeof arr[i] !== 'number' || !Number.isFinite(Math.fround(arr[i] as number))) {
       throw new NarsilError(
         ErrorCodes.DOC_VALIDATION_FAILED,
         `Field "${path}" vector element at index ${i} is not a valid number`,
