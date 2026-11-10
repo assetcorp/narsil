@@ -1,12 +1,11 @@
-use std::fmt::Write;
-
 use sha2::{Digest, Sha256};
 
 use super::constants::SOURCES_DIGEST_BYTES;
 use super::types::{
     QuerySuggestionsBuild, QuerySuggestionsBuildStatus, QuerySuggestionsBuildTrigger,
 };
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::engine::ids::random_uuid;
+use crate::error::Result;
 use crate::format::envelope::{Compression, Expectation, open_checksummed, pack};
 use crate::format::fields::non_negative_safe_integer;
 use crate::value::{
@@ -16,8 +15,6 @@ use crate::value::{
 
 const BUILD_RECORD_FORMAT_VERSION: u8 = 1;
 const WHAT: &str = "query suggestions build record";
-const UUID_VERSION_FOUR: u8 = 0x40;
-const UUID_VARIANT: u8 = 0x80;
 const SINGLE_NODE_ID: &str = "";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,23 +30,7 @@ pub(crate) struct MergedSource {
 }
 
 pub(crate) fn new_build_id() -> Result<String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|error| {
-        NarsilError::new(
-            ErrorCode::INTERNAL_ERROR,
-            format!("The engine could not read random bytes for a build ID: {error}"),
-        )
-    })?;
-    bytes[6] = (bytes[6] & 0x0f) | UUID_VERSION_FOUR;
-    bytes[8] = (bytes[8] & 0x3f) | UUID_VARIANT;
-    let mut text = String::with_capacity(36);
-    for (at, byte) in bytes.iter().enumerate() {
-        if matches!(at, 4 | 6 | 8 | 10) {
-            text.push('-');
-        }
-        let _ = write!(text, "{byte:02x}");
-    }
-    Ok(text)
+    random_uuid("a build ID")
 }
 
 pub(crate) fn sources_digest_of(sources: &[MergedSource]) -> [u8; SOURCES_DIGEST_BYTES] {

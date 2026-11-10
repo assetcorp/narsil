@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use crate::analysis::{Analyser, Language};
 use crate::config::{
-    IndexConfig, Rejection, require_surface_forms_for_partial_fields, restored_config_fields,
-    restored_embedding, validate_pattern_value_limit, validate_required_fields_in_schema,
-    validate_storage, validate_vector_promotion,
+    IndexConfig, Rejection, compiled_config_schema, restored_config_fields, restored_embedding,
+    validate_required_fields_in_schema, validate_storage, validate_vector_promotion,
 };
 use crate::engine::EngineInner;
 use crate::engine::durable::metadata::created_metadata;
@@ -16,7 +15,6 @@ use crate::engine::vectors::IndexVectors;
 use crate::engine::vectors::embedding::bind_embedding;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
-use crate::schema::{CompiledSchema, schema_fields, validate_schema};
 use crate::synonyms::wire::synonym_rules_of;
 use crate::value::{MAX_SAFE_INTEGER, Map, Value};
 
@@ -97,11 +95,7 @@ pub(crate) fn prepare_restored_index(
     let language = Language::named(&language_name)?;
     config.language = Some(language_name);
     config.schema = payload.get("schema").cloned().unwrap_or(Value::Null);
-    let definition = validate_schema(&config.schema)?;
-    schema_fields(&definition)?;
-    let schema = CompiledSchema::of(definition)?;
-    validate_pattern_value_limit(config.pattern_value_limit)?;
-    require_surface_forms_for_partial_fields(&schema, config.surface_forms)?;
+    let schema = compiled_config_schema(&config)?;
     if let Some(promotion) = &config.vector_promotion {
         validate_vector_promotion(promotion)?;
     }

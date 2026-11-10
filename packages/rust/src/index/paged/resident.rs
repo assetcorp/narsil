@@ -3,10 +3,6 @@ use super::file::PagedFile;
 use super::open::required;
 use crate::error::{ErrorCode, Result, load_failed};
 use crate::format::fields::Fields;
-use crate::format::keyword_columns::{
-    decode_boolean_columns, decode_enum_columns, decode_field_lengths, decode_geopoint_columns,
-    decode_partial_words, decode_pattern_columns, decode_surface_forms, decode_value_columns,
-};
 use crate::format::keyword_segment::{KeywordSegment, MAX_SEGMENT_FIELD_NAMES};
 use crate::format::paged_segment::head::PagedHead;
 use crate::format::paged_segment::{
@@ -285,7 +281,7 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
         lists.insert("surfaceForms", value);
     }
     let columns = Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
-    let segment = KeywordSegment {
+    let mut segment = KeywordSegment {
         schema: head.schema.clone(),
         tombstones: head.tombstones.clone(),
         document_count: count,
@@ -294,17 +290,9 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
         token_offsets,
         document_frequencies,
         posting_offsets,
-        field_lengths: decode_field_lengths(&columns, count)?,
-        numeric: decode_value_columns(&columns, "numeric", count)?,
-        sizes: decode_value_columns(&columns, "sizes", count)?,
-        boolean: decode_boolean_columns(&columns, count)?,
-        enums: decode_enum_columns(&columns, count)?,
-        geopoint: decode_geopoint_columns(&columns, count)?,
-        pattern: decode_pattern_columns(&columns, count)?,
-        surface_forms: decode_surface_forms(&columns)?,
-        partial_words: decode_partial_words(&columns, token_count)?,
         ..KeywordSegment::default()
     };
+    segment.decode_columns(&columns, count, token_count)?;
     Ok(Resident {
         segment,
         document_blocks,
