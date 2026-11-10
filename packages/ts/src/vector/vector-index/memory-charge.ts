@@ -1,12 +1,23 @@
 import { admitsBackgroundBytes, noteWaitingForMemory } from '../../runtime/background-memory'
 import { chargeHeapBytes } from '../../runtime/thread-heap'
+import type { HNSWIndex } from '../hnsw'
 import type { VectorIndexState } from './shared'
+
+function waitForMemory(state: VectorIndexState): void {
+  state.waitingForMemory = true
+  noteWaitingForMemory(state, { indexName: state.indexName, fieldName: state.fieldName })
+}
+
+export function admitGrowingCopy(state: VectorIndexState, graph: HNSWIndex): boolean {
+  if (admitsBackgroundBytes(graph.graphBytes)) return true
+  waitForMemory(state)
+  return false
+}
 
 export function admitShuffledRebuild(state: VectorIndexState): boolean {
   const bytes = state.hnsw?.graphBytes ?? 0
   if (!admitsBackgroundBytes(bytes)) {
-    state.waitingForMemory = true
-    noteWaitingForMemory(state, { indexName: state.indexName, fieldName: state.fieldName })
+    waitForMemory(state)
     return false
   }
   stopWaitingForMemory(state)

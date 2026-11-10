@@ -17,7 +17,7 @@ import type { HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { releasePendingLocations } from './disk'
-import { lineageOf, placeInGrowingCopy } from './growing-copy'
+import { type GrowingCopyOutcome, lineageOf, placeInGrowingCopy } from './growing-copy'
 import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
 import { moveOutOfBuffer } from './search-writes'
 import type { VectorIndexState } from './shared'
@@ -160,7 +160,8 @@ function retryWhenMemoryAllows(state: VectorIndexState): void {
   if (state.rebuildWaitTimer !== null || state.disposed) return
   const timer = setTimeout(() => {
     state.rebuildWaitTimer = null
-    startShuffledRebuild(state)
+    if (buildDue(state)) scheduleBuild(state)
+    else startShuffledRebuild(state)
   }, SHUFFLED_REBUILD_MEMORY_RETRY_MS)
   timer.unref?.()
   state.rebuildWaitTimer = timer
@@ -203,8 +204,12 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
 
   if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
 
-  await placeInGrowingCopy(state, graph, bufferSnapshot, admit)
-  startShuffledRebuild(state)
+  continueAfterGrowth(state, await placeInGrowingCopy(state, graph, bufferSnapshot, admit))
+}
+
+export function continueAfterGrowth(state: VectorIndexState, outcome: GrowingCopyOutcome): void {
+  if (outcome === 'waitingForMemory') retryWhenMemoryAllows(state)
+  else startShuffledRebuild(state)
 }
 
 export function triggerBuild(state: VectorIndexState): void {
@@ -306,6 +311,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
 function buildDue(state: VectorIndexState): boolean {
   if (state.hnsw === null) return liveSize(state) >= state.promotionThreshold
   if (state.buffer.size === 0) return false
+  if (state.waitingForMemory && state.rebuildWaitTimer !== null) return false
   if (state.workerCopies.enabled && state.workerCopies.host !== undefined) return true
   return state.buffer.size >= state.promotionThreshold
 }
