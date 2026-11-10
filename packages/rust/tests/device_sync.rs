@@ -490,6 +490,10 @@ fn every_change_that_a_device_reloads_whole_gives_a_new_epoch_that_restarts_keep
 }
 
 #[test]
+#[cfg_attr(
+    all(windows, target_arch = "aarch64"),
+    ignore = "the reference HTTP server cannot start: uWebSockets.js ships no uws_win32_arm64 binary"
+)]
 fn a_directory_that_the_reference_synced_keeps_its_history_and_snapshot_both_ways() {
     let synced = synced_by_reference("sync-interop");
     let history_before = history_files(&synced.root);
@@ -534,6 +538,10 @@ fn a_directory_that_the_reference_synced_keeps_its_history_and_snapshot_both_way
 }
 
 #[test]
+#[cfg_attr(
+    all(windows, target_arch = "aarch64"),
+    ignore = "the reference HTTP server cannot start: uWebSockets.js ships no uws_win32_arm64 binary"
+)]
 fn history_limits_delete_old_segments_only_after_a_snapshot_covers_them() {
     let synced = synced_by_reference("sync-retention");
     let narsil = Narsil::open(log_config(&synced.root)).expect("the crate opens the directory");
@@ -582,6 +590,10 @@ fn history_limits_delete_old_segments_only_after_a_snapshot_covers_them() {
 }
 
 #[test]
+#[cfg_attr(
+    all(windows, target_arch = "aarch64"),
+    ignore = "the reference HTTP server cannot start: uWebSockets.js ships no uws_win32_arm64 binary"
+)]
 fn sync_off_releases_the_snapshot_and_history_and_keeps_every_document() {
     let synced = synced_by_reference("sync-release");
     let narsil = Narsil::open(log_config(&synced.root)).expect("the crate opens the directory");
@@ -679,6 +691,10 @@ fn segment_starts(directory: &Path, history: bool) -> Vec<u64> {
 }
 
 #[test]
+#[cfg_attr(
+    all(windows, target_arch = "aarch64"),
+    ignore = "the reference HTTP server cannot start: uWebSockets.js ships no uws_win32_arm64 binary"
+)]
 fn a_crash_while_checkpoints_move_history_loses_no_acknowledged_write() {
     let synced = synced_by_reference("sync-crash");
     let last =
