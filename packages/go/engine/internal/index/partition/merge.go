@@ -48,7 +48,7 @@ func (s *side) snapshotMerge(positions []int, limits fields.Limits) mergeSnapsho
 		held := s.frozen[position]
 		snapshot.inputs = append(snapshot.inputs, held.segment)
 		snapshot.sources = append(snapshot.sources, segments.Source{Segment: len(snapshot.sources),
-			Frozen: held.segment.frozen, State: held.state.Clone(), StoredColumn: held.segment.storedColumn(limits)})
+			Frozen: held.segment.frozen, State: held.state.Clone(), StoredColumn: held.segment.mergeStoredColumn(limits)})
 	}
 	return snapshot
 }

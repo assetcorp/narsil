@@ -14,7 +14,7 @@ type Source struct {
 	State        *State
 	Keep         func(ordinal uint32) bool
 	Tokens       func(ordinal uint32) ([]Tokens, error)
-	StoredColumn func(path string) (*core.StoredValueSlices, error)
+	StoredColumn func(path string) (*core.StoredValueSlices, func(), error)
 }
 
 type MergeResult struct {
@@ -122,14 +122,24 @@ func (s *Source) suppliesStoredColumn(path string) bool {
 	return s.heldStoredColumn(path) != nil || s.StoredColumn != nil
 }
 
-func (s *Source) storedColumn(path string) (*core.StoredValueSlices, error) {
+func noColumnToRelease() {}
+
+func (s *Source) storedColumn(path string) (*core.StoredValueSlices, func(), error) {
 	if held := s.heldStoredColumn(path); held != nil {
-		return held, nil
+		return held, noColumnToRelease, nil
 	}
 	return s.StoredColumn(path)
 }
 
-func fieldSetsWithStoredColumns(sources []Source) ([]*FrozenFields, error) {
+type builtColumns []func()
+
+func (built builtColumns) release() {
+	for _, release := range built {
+		release()
+	}
+}
+
+func fieldSetsWithStoredColumns(sources []Source) ([]*FrozenFields, builtColumns, error) {
 	sets := make([]*FrozenFields, len(sources))
 	var paths []string
 	for at := range sources {
@@ -140,19 +150,22 @@ func fieldSetsWithStoredColumns(sources []Source) ([]*FrozenFields, error) {
 		set.Stored = nil
 		sets[at] = &set
 	}
+	var built builtColumns
 	for _, path := range paths {
 		if slices.ContainsFunc(sources, func(source Source) bool { return !source.suppliesStoredColumn(path) }) {
 			continue
 		}
 		for at := range sources {
-			column, err := sources[at].storedColumn(path)
+			column, release, err := sources[at].storedColumn(path)
 			if err != nil {
-				return nil, err
+				built.release()
+				return nil, nil, err
 			}
+			built = append(built, release)
 			sets[at].Stored = append(sets[at].Stored, Field[*core.StoredValueSlices]{Path: path, Index: column})
 		}
 	}
-	return sets, nil
+	return sets, built, nil
 }
 
 func unionIndex(names *[]string, name string) int {
@@ -222,10 +235,11 @@ func Merge(w *core.Workspace, sources []Source) (*MergeResult, error) {
 		}
 	}
 	keyword := keywordFrom(output, uint32(count), fieldNames, partialNames, partial)
-	sets, err := fieldSetsWithStoredColumns(sources)
+	sets, built, err := fieldSetsWithStoredColumns(sources)
 	if err != nil {
 		return nil, err
 	}
+	defer built.release()
 	fields, err := mergeFieldSets(w, sets, frozenStored, result.Mappings, uint32(count))
 	if err != nil {
 		return nil, err
