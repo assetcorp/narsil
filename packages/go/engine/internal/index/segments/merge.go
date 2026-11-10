@@ -9,11 +9,12 @@ import (
 )
 
 type Source struct {
-	Segment int
-	Frozen  *Frozen
-	State   *State
-	Keep    func(ordinal uint32) bool
-	Tokens  func(ordinal uint32) ([]Tokens, error)
+	Segment      int
+	Frozen       *Frozen
+	State        *State
+	Keep         func(ordinal uint32) bool
+	Tokens       func(ordinal uint32) ([]Tokens, error)
+	StoredColumn func(path string) (*core.StoredValueSlices, error)
 }
 
 type MergeResult struct {
@@ -108,6 +109,52 @@ func (s *Source) mergeInput(w *core.Workspace, mapping []uint32, fieldMapping []
 	}, nil
 }
 
+func (s *Source) heldStoredColumn(path string) *core.StoredValueSlices {
+	for _, entry := range s.Frozen.Fields.Stored {
+		if entry.Path == path {
+			return entry.Index
+		}
+	}
+	return nil
+}
+
+func (s *Source) suppliesStoredColumn(path string) bool {
+	return s.heldStoredColumn(path) != nil || s.StoredColumn != nil
+}
+
+func (s *Source) storedColumn(path string) (*core.StoredValueSlices, error) {
+	if held := s.heldStoredColumn(path); held != nil {
+		return held, nil
+	}
+	return s.StoredColumn(path)
+}
+
+func fieldSetsWithStoredColumns(sources []Source) ([]*FrozenFields, error) {
+	sets := make([]*FrozenFields, len(sources))
+	var paths []string
+	for at := range sources {
+		set := sources[at].Frozen.Fields
+		for _, entry := range set.Stored {
+			unionIndex(&paths, entry.Path)
+		}
+		set.Stored = nil
+		sets[at] = &set
+	}
+	for _, path := range paths {
+		if slices.ContainsFunc(sources, func(source Source) bool { return !source.suppliesStoredColumn(path) }) {
+			continue
+		}
+		for at := range sources {
+			column, err := sources[at].storedColumn(path)
+			if err != nil {
+				return nil, err
+			}
+			sets[at].Stored = append(sets[at].Stored, Field[*core.StoredValueSlices]{Path: path, Index: column})
+		}
+	}
+	return sets, nil
+}
+
 func unionIndex(names *[]string, name string) int {
 	if at := slices.Index(*names, name); at >= 0 {
 		return at
@@ -175,9 +222,9 @@ func Merge(w *core.Workspace, sources []Source) (*MergeResult, error) {
 		}
 	}
 	keyword := keywordFrom(output, uint32(count), fieldNames, partialNames, partial)
-	sets := make([]*FrozenFields, len(sources))
-	for at := range sources {
-		sets[at] = &sources[at].Frozen.Fields
+	sets, err := fieldSetsWithStoredColumns(sources)
+	if err != nil {
+		return nil, err
 	}
 	fields, err := mergeFieldSets(w, sets, frozenStored, result.Mappings, uint32(count))
 	if err != nil {
