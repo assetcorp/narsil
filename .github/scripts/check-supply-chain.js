@@ -2,7 +2,11 @@ const { existsSync, lstatSync, readFileSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
 
 const WORKFLOW_DIR = '.github/workflows'
-const ID_TOKEN_WORKFLOWS = new Set(['.github/workflows/publish.yml', '.github/workflows/performance.yml'])
+const ID_TOKEN_WORKFLOWS = new Set([
+  '.github/workflows/publish.yml',
+  '.github/workflows/performance.yml',
+  '.github/workflows/publish-rust.yml',
+])
 const MINIMUM_RELEASE_AGE_DAYS = 4
 const MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE_DAYS * 24 * 60
 const PACKAGE_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
