@@ -3,16 +3,15 @@ use sha2::{Digest, Sha256};
 use super::constants::{
     KEY_FINGERPRINT_BYTES, KEY_FINGERPRINT_LABEL, MIN_KEY_BYTES, SCRAMBLED_ID_BYTES,
 };
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::Result;
+use crate::format::metadata_parts::config_invalid;
 
 const SHA256_BLOCK_BYTES: usize = 64;
 const INNER_PAD: u8 = 0x36;
 const OUTER_PAD: u8 = 0x5c;
 
-/// A person's ID after HMAC-SHA-256 under the engine's key, cut to its first 16 bytes.
 pub(crate) type ScrambledId = [u8; SCRAMBLED_ID_BYTES];
 
-/// Scrambles each person's ID with the engine's secret key, which never leaves this value.
 pub(crate) struct Scrambler {
     inner: Sha256,
     outer: Sha256,
@@ -30,16 +29,12 @@ fn padded(key: &[u8], pad: u8) -> Sha256 {
 }
 
 impl Scrambler {
-    /// Returns the scrambler of `key`, refusing a key of fewer than 32 bytes with `CONFIG_INVALID`.
     pub(crate) fn new(key: &[u8]) -> Result<Scrambler> {
         if key.len() < MIN_KEY_BYTES {
-            return Err(NarsilError::new(
-                ErrorCode::CONFIG_INVALID,
-                format!(
-                    "The query suggestions key must hold at least {MIN_KEY_BYTES} bytes, and it holds {}",
-                    key.len()
-                ),
-            ));
+            return Err(config_invalid(format!(
+                "The query suggestions key must hold at least {MIN_KEY_BYTES} bytes, and it holds {}",
+                key.len()
+            )));
         }
         let hashed;
         let block_key = if key.len() > SHA256_BLOCK_BYTES {
@@ -68,12 +63,10 @@ impl Scrambler {
         outer.finalize().into()
     }
 
-    /// Returns the fingerprint of the key, which every history file carries.
     pub(crate) fn fingerprint(&self) -> &[u8; KEY_FINGERPRINT_BYTES] {
         &self.fingerprint
     }
 
-    /// Returns the scrambled ID of `person`.
     pub(crate) fn scramble(&self, person: &str) -> ScrambledId {
         let mac = self.mac(person.as_bytes());
         let mut id = [0u8; SCRAMBLED_ID_BYTES];

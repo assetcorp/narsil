@@ -69,7 +69,6 @@ pub(crate) const RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT: usize = 8;
 pub(crate) const PAIR_BLOCK_SLOTS: usize = 16;
 pub(crate) const PAIR_PAGE_BLOCKS: usize = 16_384;
 pub(crate) const MIN_PHRASE_TABLE_CAPACITY: usize = 64;
-pub(crate) const MIN_PERSON_TABLE_CAPACITY: usize = 512;
 pub(crate) const MAX_MANUAL_SUGGESTION_COUNT: u64 = 4_294_967_295;
 
 pub(crate) const MS_PER_SECOND: u64 = 1_000;

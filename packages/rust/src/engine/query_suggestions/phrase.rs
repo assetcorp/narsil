@@ -5,7 +5,6 @@ use super::constants::{
     MAX_GROUP_LENGTH, MAX_PERSON_UTF16_UNITS, RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT,
 };
 
-/// The limits that a phrase must keep within, which the setting of an index or a fixed ceiling sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PhraseLimits {
     pub(crate) min_letters: u32,
@@ -18,7 +17,7 @@ const APOSTROPHE: char = '\u{27}';
 const HYPHEN: char = '\u{2d}';
 const SPACE: char = ' ';
 
-fn utf16_length(text: &str) -> usize {
+pub(crate) fn utf16_length(text: &str) -> usize {
     text.chars().map(char::len_utf16).sum()
 }
 
@@ -45,8 +44,6 @@ fn folded(character: char) -> char {
     }
 }
 
-/// Returns the normal form of a raw phrase in the five steps of the specification, or `None` for a phrase that is
-/// empty or longer than eight UTF-16 code units for each code point that `max_length` allows.
 pub(crate) fn normalise_phrase(raw: &str, max_length: u32) -> Option<String> {
     let units = utf16_length(raw);
     let ceiling = (max_length as usize).saturating_mul(RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT);
@@ -71,8 +68,6 @@ pub(crate) fn normalise_phrase(raw: &str, max_length: u32) -> Option<String> {
     Some(out)
 }
 
-/// Reports whether a normalised phrase keeps every limit of `limits` and holds only the code points that the
-/// specification allows.
 pub(crate) fn phrase_fits(phrase: &str, limits: &PhraseLimits) -> bool {
     let units = utf16_length(phrase);
     if units == 0 || units > (limits.max_length as usize).saturating_mul(2) {
@@ -104,19 +99,15 @@ pub(crate) fn phrase_fits(phrase: &str, limits: &PhraseLimits) -> bool {
         && letters >= u64::from(limits.min_letters)
 }
 
-/// Reports whether `phrase` is already in normal form and keeps `limits`.
 pub(crate) fn is_normal_phrase(phrase: &str, limits: &PhraseLimits) -> bool {
     phrase_fits(phrase, limits)
         && normalise_phrase(phrase, limits.max_length).as_deref() == Some(phrase)
 }
 
-/// Returns the normal form of a raw phrase where that form keeps `limits`.
 pub(crate) fn accepted_phrase(raw: &str, limits: &PhraseLimits) -> Option<String> {
     normalise_phrase(raw, limits.max_length).filter(|phrase| phrase_fits(phrase, limits))
 }
 
-/// Reports whether `value` is a group: 1 to 32 characters, the first a letter or a digit and the rest letters,
-/// digits, `_`, and `-`.
 pub(crate) fn is_group(value: &str) -> bool {
     let bytes = value.as_bytes();
     let Some(first) = bytes.first() else {
@@ -129,7 +120,6 @@ pub(crate) fn is_group(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-/// Reports whether `value` is a person's ID: 1 to 256 UTF-16 code units.
 pub(crate) fn is_person(value: &str) -> bool {
     let units = utf16_length(value);
     units > 0 && units <= MAX_PERSON_UTF16_UNITS

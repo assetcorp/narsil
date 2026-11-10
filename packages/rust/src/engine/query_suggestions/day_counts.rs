@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use super::constants::{
-    MIN_PERSON_TABLE_CAPACITY, MIN_PHRASE_TABLE_CAPACITY, PAIR_BLOCK_SLOTS, PAIR_PAGE_BLOCKS,
-};
+use super::constants::{MIN_PHRASE_TABLE_CAPACITY, PAIR_BLOCK_SLOTS, PAIR_PAGE_BLOCKS};
 use super::scramble::ScrambledId;
+use super::types::RecordQueryOutcome;
 
 const NO_BLOCK: u32 = u32::MAX;
 
-/// The limits of one day's counts, which the setting of the index sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DayLimits {
     pub(crate) min_people: u32,
@@ -17,18 +15,6 @@ pub(crate) struct DayLimits {
     pub(crate) max_groups: u32,
 }
 
-/// What counting one search did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CountOutcome {
-    Recorded,
-    Repeat,
-    PersonLimit,
-    PhraseLimit,
-    PeopleLimit,
-    GroupLimit,
-}
-
-/// The phrases of one group, in the order that the day first counted them.
 pub(crate) struct GroupTable {
     pub(crate) name: String,
     numbers: HashMap<Box<str>, u16>,
@@ -42,7 +28,6 @@ struct Person {
     tail: u32,
 }
 
-/// The searches of one day for one index, held in fixed-size tables that the limits of the setting bound.
 pub(crate) struct DayCounts {
     pub(crate) day: String,
     pub(crate) limits: DayLimits,
@@ -52,16 +37,19 @@ pub(crate) struct DayCounts {
     phrase_counts: Vec<u32>,
     people_lengths: Vec<u16>,
     people: Vec<ScrambledId>,
-    persons: Vec<Person>,
-    person_numbers: HashMap<ScrambledId, u32>,
+    persons: HashMap<ScrambledId, Person>,
     pair_pages: Vec<Box<[u16]>>,
     link_pages: Vec<Box<[u32]>>,
     blocks: u32,
     changed: bool,
 }
 
+fn block_place(block: u32) -> (usize, usize) {
+    let block = block as usize;
+    (block / PAIR_PAGE_BLOCKS, block % PAIR_PAGE_BLOCKS)
+}
+
 impl DayCounts {
-    /// Returns empty counts for `day` that keep within `limits`.
     pub(crate) fn new(day: String, limits: DayLimits) -> DayCounts {
         DayCounts {
             day,
@@ -72,8 +60,7 @@ impl DayCounts {
             phrase_counts: Vec::new(),
             people_lengths: Vec::new(),
             people: Vec::new(),
-            persons: Vec::new(),
-            person_numbers: HashMap::new(),
+            persons: HashMap::new(),
             pair_pages: Vec::new(),
             link_pages: Vec::new(),
             blocks: 0,
@@ -81,44 +68,28 @@ impl DayCounts {
         }
     }
 
-    /// Returns the number of distinct phrases that the day holds.
-    pub(crate) fn phrases(&self) -> usize {
-        self.phrase_texts.len()
-    }
-
-    /// Returns the number of distinct people that the day counted.
-    pub(crate) fn people(&self) -> usize {
-        self.persons.len()
-    }
-
-    /// Reports whether the day changed since its last save.
     pub(crate) fn is_changed(&self) -> bool {
         self.changed
     }
 
-    /// Records that a save wrote every count that the day holds.
     pub(crate) fn mark_saved(&mut self) {
         self.changed = false;
     }
 
-    /// Returns the groups that the day holds, in the order that it first counted them.
     pub(crate) fn groups(&self) -> &[GroupTable] {
         &self.groups
     }
 
-    /// Reports whether the day holds a phrase of `group`.
     pub(crate) fn has_group(&self, group: &str) -> bool {
         self.group_numbers.contains_key(group)
     }
 
-    /// Returns the text of the phrase numbered `number`.
     pub(crate) fn phrase_of(&self, number: u16) -> &str {
         self.phrase_texts
             .get(usize::from(number))
             .map_or("", |text| text)
     }
 
-    /// Returns the number of searches of the phrase numbered `number`.
     pub(crate) fn count_of(&self, number: u16) -> u32 {
         self.phrase_counts
             .get(usize::from(number))
@@ -126,7 +97,6 @@ impl DayCounts {
             .unwrap_or(0)
     }
 
-    /// Returns the people of the phrase numbered `number`, up to the minimum that publishing needs.
     pub(crate) fn people_of(&self, number: u16) -> &[ScrambledId] {
         let index = usize::from(number);
         let length = self
@@ -147,58 +117,53 @@ impl DayCounts {
         table.numbers.get(phrase).copied()
     }
 
-    /// Counts one search of `phrase` in `group` by the person whose scrambled ID is `person`.
+    fn has_room_for_phrase(&self) -> bool {
+        self.phrase_texts.len() < self.limits.max_phrases_per_day as usize
+    }
+
+    fn has_room_for_group(&self) -> bool {
+        self.groups.len() < self.limits.max_groups as usize
+    }
+
     pub(crate) fn count(
         &mut self,
         group: &str,
         phrase: &str,
         person: &ScrambledId,
         group_allowed: bool,
-    ) -> CountOutcome {
+    ) -> RecordQueryOutcome {
         let existing = self.phrase_number(group, phrase);
-        let known = self.person_numbers.get(person).copied();
-        if let (Some(number), Some(at)) = (existing, known)
-            && self.person_has_phrase(at, number)
+        let known = self.persons.get(person).copied();
+        if let (Some(number), Some(entry)) = (existing, &known)
+            && self.person_has_phrase(entry, number)
         {
-            return CountOutcome::Repeat;
+            return RecordQueryOutcome::Repeat;
         }
-        if let Some(at) = known
-            && self
-                .persons
-                .get(at as usize)
-                .is_some_and(|entry| u32::from(entry.pairs) >= self.limits.max_phrases_per_person)
-        {
-            return CountOutcome::PersonLimit;
+        if known.is_some_and(|entry| u32::from(entry.pairs) >= self.limits.max_phrases_per_person) {
+            return RecordQueryOutcome::PersonLimit;
         }
-        if existing.is_none() && self.phrases() >= self.limits.max_phrases_per_day as usize {
-            return CountOutcome::PhraseLimit;
+        if existing.is_none() && !self.has_room_for_phrase() {
+            return RecordQueryOutcome::PhraseLimit;
         }
-        if known.is_none() && self.people() >= self.limits.max_people_per_day as usize {
-            return CountOutcome::PeopleLimit;
+        if known.is_none() && self.persons.len() >= self.limits.max_people_per_day as usize {
+            return RecordQueryOutcome::PeopleLimit;
         }
-        if !self.has_group(group)
-            && (!group_allowed || self.groups.len() >= self.limits.max_groups as usize)
-        {
-            return CountOutcome::GroupLimit;
+        if !self.has_group(group) && (!group_allowed || !self.has_room_for_group()) {
+            return RecordQueryOutcome::GroupLimit;
         }
         let number = match existing {
             Some(number) => number,
             None => self.add_phrase(group, phrase),
         };
-        let at = match known {
-            Some(at) => at,
-            None => self.add_person(*person),
-        };
-        self.append_pair(at, number);
+        self.append_pair(person, number);
         if let Some(count) = self.phrase_counts.get_mut(usize::from(number)) {
             *count = count.saturating_add(1);
         }
         self.add_to_people(number, person);
         self.changed = true;
-        CountOutcome::Recorded
+        RecordQueryOutcome::Recorded
     }
 
-    /// Adds a phrase that a saved file holds, returning `false` where the day holds it already or has no room.
     pub(crate) fn restore_phrase(
         &mut self,
         group: &str,
@@ -207,8 +172,8 @@ impl DayCounts {
         people: &[ScrambledId],
     ) -> bool {
         if self.phrase_number(group, phrase).is_some()
-            || self.phrases() >= self.limits.max_phrases_per_day as usize
-            || (!self.has_group(group) && self.groups.len() >= self.limits.max_groups as usize)
+            || !self.has_room_for_phrase()
+            || (!self.has_group(group) && !self.has_room_for_group())
         {
             return false;
         }
@@ -283,39 +248,11 @@ impl DayCounts {
         }
     }
 
-    fn add_person(&mut self, person: ScrambledId) -> u32 {
-        if self.persons.len() == self.persons.capacity() {
-            let wanted = (self.persons.capacity() * 2)
-                .max(MIN_PERSON_TABLE_CAPACITY / 2)
-                .min(self.limits.max_people_per_day as usize)
-                .max(self.persons.len() + 1);
-            self.persons.reserve_exact(wanted - self.persons.len());
-            self.person_numbers
-                .reserve(wanted - self.person_numbers.len());
-        }
-        let at = u32::try_from(self.persons.len()).unwrap_or(u32::MAX);
-        self.persons.push(Person {
-            pairs: 0,
-            head: NO_BLOCK,
-            tail: NO_BLOCK,
-        });
-        self.person_numbers.insert(person, at);
-        at
-    }
-
-    fn block_place(block: u32) -> (usize, usize) {
-        let block = block as usize;
-        (block / PAIR_PAGE_BLOCKS, block % PAIR_PAGE_BLOCKS)
-    }
-
-    fn person_has_phrase(&self, at: u32, number: u16) -> bool {
-        let Some(person) = self.persons.get(at as usize) else {
-            return false;
-        };
+    fn person_has_phrase(&self, person: &Person, number: u16) -> bool {
         let mut remaining = usize::from(person.pairs);
         let mut block = person.head;
         while block != NO_BLOCK && remaining > 0 {
-            let (page, offset) = Self::block_place(block);
+            let (page, offset) = block_place(block);
             let used = remaining.min(PAIR_BLOCK_SLOTS);
             let start = offset * PAIR_BLOCK_SLOTS;
             let slots = self
@@ -336,19 +273,19 @@ impl DayCounts {
         false
     }
 
-    fn append_pair(&mut self, at: u32, number: u16) {
-        let Some(person) = self.persons.get(at as usize).copied() else {
-            return;
-        };
-        let slot = usize::from(person.pairs) % PAIR_BLOCK_SLOTS;
-        let mut block = person.tail;
-        let mut head = person.head;
+    fn append_pair(&mut self, person: &ScrambledId, number: u16) {
+        let mut entry = self.persons.get(person).copied().unwrap_or(Person {
+            pairs: 0,
+            head: NO_BLOCK,
+            tail: NO_BLOCK,
+        });
+        let slot = usize::from(entry.pairs) % PAIR_BLOCK_SLOTS;
         if slot == 0 {
             let fresh = self.allocate_block();
-            if block == NO_BLOCK {
-                head = fresh;
+            if entry.tail == NO_BLOCK {
+                entry.head = fresh;
             } else {
-                let (page, offset) = Self::block_place(block);
+                let (page, offset) = block_place(entry.tail);
                 if let Some(link) = self
                     .link_pages
                     .get_mut(page)
@@ -357,9 +294,9 @@ impl DayCounts {
                     *link = fresh;
                 }
             }
-            block = fresh;
+            entry.tail = fresh;
         }
-        let (page, offset) = Self::block_place(block);
+        let (page, offset) = block_place(entry.tail);
         if let Some(pair) = self
             .pair_pages
             .get_mut(page)
@@ -367,11 +304,8 @@ impl DayCounts {
         {
             *pair = number;
         }
-        if let Some(entry) = self.persons.get_mut(at as usize) {
-            entry.head = head;
-            entry.tail = block;
-            entry.pairs = entry.pairs.saturating_add(1);
-        }
+        entry.pairs = entry.pairs.saturating_add(1);
+        self.persons.insert(*person, entry);
     }
 
     fn allocate_block(&mut self) -> u32 {

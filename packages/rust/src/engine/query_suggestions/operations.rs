@@ -1,28 +1,29 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::bans::{ban_list_from_input, normalise_ban, union_of_bans};
-use super::build::{groups_to_write, meets_min_results, merge_history};
-use super::constants::{DEFAULT_PREVIEW_LIMIT, MAX_MANUAL_SUGGESTION_COUNT, MAX_PREVIEW_LIMIT};
-use super::merge::compare_utf16;
-use super::phrase::{accepted_phrase, is_group};
-use super::setting::{
-    QuerySuggestionsSetting, invalid_setting, require_fields_in_schema, validate_setting,
+use super::constants::{
+    DEFAULT_PREVIEW_LIMIT, MAX_MANUAL_SUGGESTION_COUNT, MAX_PREVIEW_LIMIT,
+    MAX_SOURCE_INDEX_NAME_LENGTH,
 };
-use super::state::SuggestionState;
-use super::stored_state::{IndexView, require_source, update_state};
-use super::timers::next_build_at;
-use super::types::{
-    ManualQuerySuggestion, QuerySuggestionPreviewEntry, QuerySuggestionsBuild,
-    QuerySuggestionsBuildTrigger, QuerySuggestionsPreview, QuerySuggestionsStatus,
-    RecordQueryResult, RecordedQuery,
-};
-use super::writer::{
+use super::host::{IndexView, update_state, wall_ms};
+use super::phrase::{accepted_phrase, is_group, utf16_length};
+use super::preview::preview_build;
+use super::setting::{require_fields_in_schema, validate_setting};
+use super::stored_state::SuggestionState;
+use super::suggestions_writer::{
     ORIGIN_MANUAL, ensure_suggestions_index, marked_suggestion_indexes, remove_suggestions,
     suggestion_document, suggestions_index_name,
 };
-use crate::durability::platform::now_ms;
+use super::timers::next_build_at;
+use super::types::{
+    ManualQuerySuggestion, QuerySuggestionsBuild, QuerySuggestionsBuildTrigger,
+    QuerySuggestionsPreview, QuerySuggestionsSetting, QuerySuggestionsStatus, RecordQueryResult,
+    RecordedQuery,
+};
 use crate::engine::Narsil;
+use crate::engine::index::IndexState;
 use crate::error::Result;
+use crate::format::metadata_parts::config_invalid;
 
 const GROUP_FORMAT: &str =
     "1 to 32 letters, digits, '_', and '-', starting with a letter or a digit";
@@ -42,6 +43,22 @@ impl Narsil {
     }
 }
 
+fn require_source(index: &IndexState) -> Result<()> {
+    if index.suggestion_state().source.is_some() {
+        return Err(config_invalid(format!(
+            "Index \"{}\" is a suggestions index, so it takes no query suggestions",
+            index.name
+        )));
+    }
+    if utf16_length(&index.name) > MAX_SOURCE_INDEX_NAME_LENGTH {
+        return Err(config_invalid(format!(
+            "Index \"{}\" has a name longer than {MAX_SOURCE_INDEX_NAME_LENGTH} characters, which leaves no room for the names of its suggestions indexes",
+            index.name
+        )));
+    }
+    Ok(())
+}
+
 fn require_acceptable(
     narsil: &Narsil,
     view: &IndexView<'_>,
@@ -53,28 +70,17 @@ fn require_acceptable(
         return Ok(());
     }
     if narsil.inner.suggestions.scrambler().is_none() {
-        return Err(invalid_setting(
+        return Err(config_invalid(
             "This engine has no query suggestions key, so it cannot turn the feature on",
         ));
     }
     if view.has_sync {
-        return Err(invalid_setting(format!(
+        return Err(config_invalid(format!(
             "Index \"{}\" has device sync on, and a device receives the whole index of one user while a suggestion comes from the searches of several people",
             view.index.name
         )));
     }
     Ok(())
-}
-
-fn preview_order(
-    left: &QuerySuggestionPreviewEntry,
-    right: &QuerySuggestionPreviewEntry,
-) -> std::cmp::Ordering {
-    right
-        .count
-        .cmp(&left.count)
-        .then_with(|| compare_utf16(&left.group, &right.group))
-        .then_with(|| compare_utf16(&left.query, &right.query))
 }
 
 impl QuerySuggestions<'_> {
@@ -126,11 +132,7 @@ impl QuerySuggestions<'_> {
             index_name: index.to_string(),
             setting: state.setting.clone(),
             last_build: engine.suggestions.builds.last_build(engine, index),
-            next_build_at: next_build_at(
-                engine,
-                index,
-                i64::try_from(now_ms()).unwrap_or(i64::MAX),
-            ),
+            next_build_at: next_build_at(engine, index, wall_ms()),
             suggestion_indexes,
         })
     }
@@ -157,66 +159,12 @@ impl QuerySuggestions<'_> {
     pub fn preview(&self, index: &str, limit: Option<u32>) -> Result<QuerySuggestionsPreview> {
         let max = limit.unwrap_or(DEFAULT_PREVIEW_LIMIT);
         if !(1..=MAX_PREVIEW_LIMIT).contains(&max) {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "The preview limit must be a whole number from 1 to {MAX_PREVIEW_LIMIT}"
             )));
         }
-        let engine = &self.narsil.inner;
-        engine.guard_shutdown()?;
-        let setting = engine.suggestions.enabled_setting(engine, index)?;
-        engine.suggestions.require_scrambler()?;
-        let now = i64::try_from(now_ms()).unwrap_or(i64::MAX);
-        let merged = merge_history(self.narsil, index, &setting, now)?;
-        let (groups, _) = groups_to_write(self.narsil, index, &setting, &merged.result);
-        let banned: HashSet<String> = engine
-            .open_index(index)?
-            .suggestion_state()
-            .banned
-            .iter()
-            .cloned()
-            .collect();
-        let mut candidates = Vec::new();
-        for group in groups {
-            for phrase in merged
-                .result
-                .groups
-                .get(&group)
-                .map_or(&[][..], Vec::as_slice)
-            {
-                if !banned.contains(&phrase.phrase) {
-                    candidates.push(QuerySuggestionPreviewEntry {
-                        group: group.clone(),
-                        query: phrase.phrase.clone(),
-                        count: phrase.count,
-                    });
-                }
-            }
-        }
-        candidates.sort_by(preview_order);
-        let mut checked: HashMap<String, bool> = HashMap::new();
-        let mut entries = Vec::new();
-        let mut next = 0;
-        while next < candidates.len() && entries.len() < max as usize {
-            let Some(candidate) = candidates.get(next) else {
-                break;
-            };
-            next += 1;
-            let passes = match checked.get(&candidate.query) {
-                Some(passes) => *passes,
-                None => {
-                    let passes = meets_min_results(self.narsil, index, &setting, &candidate.query)?;
-                    checked.insert(candidate.query.clone(), passes);
-                    passes
-                }
-            };
-            if passes {
-                entries.push(candidate.clone());
-            }
-        }
-        Ok(QuerySuggestionsPreview {
-            entries,
-            truncated: next < candidates.len(),
-        })
+        self.narsil.inner.guard_shutdown()?;
+        preview_build(self.narsil, index, max as usize)
     }
 
     /// Returns the ban list of `index`. Fails with `INDEX_NOT_FOUND` for a missing index.
@@ -275,13 +223,13 @@ impl QuerySuggestions<'_> {
         let engine = &self.narsil.inner;
         engine.guard_shutdown()?;
         if !is_group(&suggestion.group) {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "A suggestion needs a group of {GROUP_FORMAT}"
             )));
         }
         let count = suggestion.count.unwrap_or(0);
         if count > MAX_MANUAL_SUGGESTION_COUNT {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "A suggestion's count must be a whole number from 0 to {MAX_MANUAL_SUGGESTION_COUNT}"
             )));
         }
@@ -291,18 +239,18 @@ impl QuerySuggestions<'_> {
         let state = source.suggestion_state();
         let setting = state.setting.clone().unwrap_or_default().resolve();
         let Some(phrase) = accepted_phrase(&suggestion.query, &setting.phrase_limits()) else {
-            return Err(invalid_setting(
+            return Err(config_invalid(
                 "The suggestion is not a phrase that the setting of the index accepts",
             ));
         };
         if state.banned.contains(&phrase) {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "The ban list of index \"{index}\" holds this phrase"
             )));
         }
         let marked = marked_suggestion_indexes(engine, index);
         if !marked.contains_key(&suggestion.group) && marked.len() >= setting.max_groups as usize {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "Index \"{index}\" already has {} groups",
                 setting.max_groups
             )));
@@ -322,7 +270,7 @@ impl QuerySuggestions<'_> {
     /// outside its format.
     pub fn suggestions_index_name(&self, index: &str, group: &str) -> Result<String> {
         if !is_group(group) {
-            return Err(invalid_setting(format!("A group holds {GROUP_FORMAT}")));
+            return Err(config_invalid(format!("A group holds {GROUP_FORMAT}")));
         }
         Ok(suggestions_index_name(index, group))
     }
