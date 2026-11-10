@@ -2,7 +2,7 @@ use super::constants::{
     TERM_REGION_GROWTH_FACTOR, TERM_SLOT_LOAD_DENOMINATOR, TERM_SLOT_LOAD_NUMERATOR,
     TERM_UNITS_START_CAPACITY,
 };
-use super::slices::{grow_to, region_full};
+use super::slices::{grow_to, region_full, trim_to};
 use crate::error::Result;
 use crate::ffi;
 
@@ -156,6 +156,25 @@ impl TermTable {
         }
         self.rehash(capacity);
         Ok(())
+    }
+
+    pub(crate) fn generation(&self) -> u32 {
+        self.header[GENERATION]
+    }
+
+    /// Gives back the room past the terms that the table holds, keeping room for `minimum` terms.
+    pub(crate) fn trim(&mut self, minimum: usize) {
+        let count = minimum.max(self.count());
+        if let Ok(capacity) = slots_holding(count)
+            && capacity < self.slots.len()
+        {
+            self.rehash(capacity);
+        }
+        trim_to(&mut self.term_offset, count);
+        trim_to(&mut self.term_length, count);
+        trim_to(&mut self.first_unit_next, count);
+        let units = TERM_UNITS_START_CAPACITY.max(self.units_used());
+        trim_to(&mut self.units, units);
     }
 
     fn rehash(&mut self, capacity: usize) {

@@ -2,7 +2,9 @@ use super::constants::{
     RUN_MEMBER_START_CAPACITY, RUN_TABLE_START_CAPACITY, STRING_TABLE_START_CAPACITY,
     TERM_REGION_GROWTH_FACTOR,
 };
-use super::slices::{MAX_POOL_ENTRIES, SliceAllocator, grow_to, grown_capacity, region_full};
+use super::slices::{
+    MAX_POOL_ENTRIES, SliceAllocator, grow_to, grown_capacity, region_full, trim_to,
+};
 use super::term_table::{COUNT, HEADER_WORDS, SLOT_CAPACITY, TermTable, slots_holding};
 use crate::error::Result;
 use crate::ffi;
@@ -74,6 +76,13 @@ impl SurfaceTable {
         self.strings.grow()?;
         self.match_capacity();
         Ok(())
+    }
+
+    pub(crate) fn trim(&mut self) {
+        let count = STRING_TABLE_START_CAPACITY.max(self.strings.count());
+        self.strings.trim(STRING_TABLE_START_CAPACITY);
+        trim_to(&mut self.token, count);
+        trim_to(&mut self.count, count);
     }
 
     pub(crate) fn raw(&mut self) -> ffi::narsil_surface_table {
@@ -178,6 +187,23 @@ impl RunTable {
         Ok(())
     }
 
+    fn trim(&mut self) {
+        let count = RUN_TABLE_START_CAPACITY.max(self.header[COUNT] as usize);
+        let least = RUN_TABLE_START_CAPACITY * TERM_REGION_GROWTH_FACTOR;
+        if let Ok(holding) = slots_holding(count) {
+            let capacity = holding.max(least);
+            if capacity < self.slots.len() {
+                self.rehash(capacity);
+            }
+        }
+        trim_to(&mut self.runs, count * RUN_POINTS);
+        trim_to(&mut self.list_start, count);
+        trim_to(&mut self.list_length, count);
+        trim_to(&mut self.list_class, count);
+        let members = RUN_MEMBER_START_CAPACITY.max(self.allocator.end());
+        trim_to(&mut self.members, members);
+    }
+
     fn rehash(&mut self, capacity: usize) {
         let mut slots = vec![0i32; capacity];
         let mask = capacity - 1;
@@ -273,6 +299,12 @@ impl SpellingTable {
         self.entries.grow()?;
         self.match_capacity();
         self.runs.grow()
+    }
+
+    pub(crate) fn trim(&mut self) {
+        self.entries.trim();
+        trim_to(&mut self.code_points, self.entries.capacity());
+        self.runs.trim();
     }
 
     pub(crate) fn raw(&mut self) -> ffi::narsil_spelling_table {

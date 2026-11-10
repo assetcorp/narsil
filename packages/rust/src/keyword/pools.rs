@@ -1,6 +1,7 @@
 use super::constants::{POSITION_POOL_START_VALUES, POSTING_POOL_START_ENTRIES};
 use super::slices::{
     ALLOCATION_END, ALLOCATION_FREE, MAX_POOL_ENTRIES, SliceAllocator, grow_to, grown_capacity,
+    trim_to,
 };
 use crate::error::Result;
 use crate::ffi;
@@ -48,6 +49,18 @@ impl TermColumns {
         grow_to(&mut self.surface_occurrences, capacity);
         grow_to(&mut self.revision, capacity);
         grow_to(&mut self.flags, capacity);
+    }
+
+    pub(crate) fn trim(&mut self, capacity: usize) {
+        trim_to(&mut self.slice_start, capacity);
+        trim_to(&mut self.slice_class, capacity);
+        trim_to(&mut self.lengths, capacity);
+        trim_to(&mut self.doc_frequency, capacity);
+        trim_to(&mut self.dead_documents, capacity);
+        trim_to(&mut self.total_term_frequency, capacity);
+        trim_to(&mut self.surface_occurrences, capacity);
+        trim_to(&mut self.revision, capacity);
+        trim_to(&mut self.flags, capacity);
     }
 
     pub(crate) fn raw(&mut self) -> ffi::narsil_term_columns {
@@ -132,6 +145,16 @@ impl PostingPool {
         self.reserve(self.doc_ids.len() + 1)
     }
 
+    pub(crate) fn trim(&mut self) {
+        let end = POSTING_POOL_START_ENTRIES.max(self.end());
+        trim_to(&mut self.doc_ids, end);
+        trim_to(&mut self.frequencies, end);
+        trim_to(&mut self.field_indices, end);
+        if let Some(starts) = &mut self.position_starts {
+            trim_to(starts, end);
+        }
+    }
+
     pub(crate) fn raw(&mut self) -> ffi::narsil_posting_pool {
         ffi::narsil_posting_pool {
             doc_ids: self.doc_ids.as_mut_ptr(),
@@ -207,6 +230,11 @@ impl PositionPool {
 
     pub(crate) fn grow(&mut self) -> Result<()> {
         self.reserve(self.values.len() + 1)
+    }
+
+    pub(crate) fn trim(&mut self) {
+        let end = POSITION_POOL_START_VALUES.max(self.end());
+        trim_to(&mut self.values, end);
     }
 
     pub(crate) fn raw(&mut self) -> ffi::narsil_position_pool {
