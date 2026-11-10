@@ -1,13 +1,17 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
-use super::inputs::{MergeInput, as_u32};
-use super::pattern::merge_pattern_columns;
+use super::enum_columns::merge_enum_column;
+use super::field_regions::{EMPTY_OFFSETS, field_source, merge_field_regions, source_region};
+use super::field_targets::{BitTargets, GeoTargets, PatternTargets, ValueTargets};
+use super::inputs::{MergeInput, damaged};
 use super::tail_columns::InputColumns;
 use crate::error::Result;
+use crate::ffi;
+use crate::filters::source::{has_bit, set_bit};
 use crate::format::keyword_columns::{
     BooleanColumn, EnumColumn, GeopointColumn, PatternColumn, ValueColumn,
 };
+use crate::geo::location_code;
 
 /// The merged field columns of a segment, each kind in the order that the inputs first hold each field.
 pub(crate) struct MergedColumns {
@@ -19,186 +23,218 @@ pub(crate) struct MergedColumns {
     pub(crate) pattern: Vec<PatternColumn>,
 }
 
-/// Groups the columns of one kind by field across the inputs, with the fields in the order that the inputs first
-/// hold them and each field's columns in input order.
+pub(super) type MergeColumns<'c> = [(InputColumns<'c>, &'c MergeInput<'c>)];
+
 fn by_field<'c, T>(
-    inputs: &'c [(InputColumns<'c>, &'c MergeInput<'c>)],
+    inputs: &'c MergeColumns<'c>,
     columns_of: impl Fn(&'c InputColumns<'c>) -> &'c [T],
     field_of: impl Fn(&T) -> &str,
-) -> Vec<(&'c str, Vec<(&'c T, &'c MergeInput<'c>)>)> {
-    let mut groups: Vec<(&str, Vec<(&T, &MergeInput<'_>)>)> = Vec::new();
+) -> Vec<(&'c str, Vec<Option<&'c T>>)> {
+    let mut groups: Vec<(&str, Vec<Option<&T>>)> = Vec::new();
     let mut slots: HashMap<&str, usize> = HashMap::new();
-    for (columns, input) in inputs {
+    for (at, (columns, _)) in inputs.iter().enumerate() {
         for column in columns_of(columns) {
             let field = field_of(column);
-            let at = *slots.entry(field).or_insert_with(|| {
-                groups.push((field, Vec::new()));
+            let group = *slots.entry(field).or_insert_with(|| {
+                groups.push((field, vec![None; inputs.len()]));
                 groups.len() - 1
             });
-            if let Some((_, members)) = groups.get_mut(at) {
-                members.push((column, *input));
+            if let Some(slot) = groups
+                .get_mut(group)
+                .and_then(|(_, members)| members.get_mut(at))
+            {
+                *slot = Some(column);
             }
         }
     }
     groups
 }
 
-fn remapped(documents: &[u32], input: &MergeInput<'_>, out: &mut Vec<u32>) {
-    out.extend(
-        documents
+fn merge_values<'c>(
+    inputs: &'c MergeColumns<'c>,
+    document_count: u32,
+    columns_of: impl Fn(&'c InputColumns<'c>) -> &'c [ValueColumn],
+) -> Result<Vec<ValueColumn>> {
+    let mut merged = Vec::new();
+    for (field, members) in by_field(inputs, columns_of, |column| &column.field) {
+        let sources: Vec<ffi::narsil_field_merge_source> = inputs
             .iter()
-            .filter_map(|&ordinal| input.target(ordinal)),
-    );
-}
-
-fn merge_values(groups: Vec<(&str, Vec<(&ValueColumn, &MergeInput<'_>)>)>) -> Vec<ValueColumn> {
-    groups
-        .into_iter()
-        .map(|(field, members)| {
-            let mut rows: Vec<(f64, u32)> = Vec::new();
-            for (column, input) in members {
-                for (&ordinal, &value) in column.documents.iter().zip(&column.values) {
-                    if let Some(target) = input.target(ordinal) {
-                        rows.push((value, target));
-                    }
-                }
-            }
-            rows.sort_by(|left, right| {
-                match left.0.partial_cmp(&right.0).unwrap_or(Ordering::Equal) {
-                    Ordering::Equal => left.1.cmp(&right.1),
-                    order => order,
-                }
-            });
-            ValueColumn {
-                field: field.to_string(),
-                documents: rows.iter().map(|row| row.1).collect(),
-                values: rows.iter().map(|row| row.0).collect(),
-            }
-        })
-        .collect()
-}
-
-fn merge_booleans(
-    groups: Vec<(&str, Vec<(&BooleanColumn, &MergeInput<'_>)>)>,
-) -> Vec<BooleanColumn> {
-    groups
-        .into_iter()
-        .map(|(field, members)| {
-            let mut merged = BooleanColumn {
-                field: field.to_string(),
-                true_documents: Vec::new(),
-                false_documents: Vec::new(),
-            };
-            for (column, input) in members {
-                remapped(&column.true_documents, input, &mut merged.true_documents);
-                remapped(&column.false_documents, input, &mut merged.false_documents);
-            }
-            merged
-        })
-        .collect()
-}
-
-fn merge_enums(
-    groups: Vec<(&str, Vec<(&EnumColumn, &MergeInput<'_>)>)>,
-) -> Result<Vec<EnumColumn>> {
-    let mut out = Vec::with_capacity(groups.len());
-    for (field, members) in groups {
-        let values: BTreeSet<&str> = members
-            .iter()
-            .flat_map(|(column, _)| column.values.iter().map(String::as_str))
-            .collect();
-        let slots: Vec<HashMap<&str, usize>> = members
-            .iter()
-            .map(|(column, _)| {
-                column
-                    .values
-                    .iter()
-                    .enumerate()
-                    .map(|(at, value)| (value.as_str(), at))
-                    .collect()
+            .zip(&members)
+            .map(|((_, input), column)| {
+                let values = column.map_or(&[][..], |column| column.values.as_slice());
+                let documents = column.map_or(&[][..], |column| column.documents.as_slice());
+                field_source(input, &[source_region(values), source_region(documents)])
             })
             .collect();
-        let mut merged = EnumColumn {
+        let rows: ValueTargets =
+            merge_field_regions(ffi::NARSIL_MERGE_NUMERIC, &sources, document_count)?;
+        merged.push(ValueColumn {
             field: field.to_string(),
-            values: Vec::with_capacity(values.len()),
-            offsets: Vec::with_capacity(values.len() + 1),
-            documents: Vec::new(),
-        };
-        merged.offsets.push(0);
-        for value in values {
-            for ((column, input), slot) in members.iter().zip(&slots) {
-                let Some(&at) = slot.get(value) else {
-                    continue;
-                };
-                let start = column.offsets.get(at).copied().unwrap_or(0) as usize;
-                let end = column.offsets.get(at + 1).copied().unwrap_or(0) as usize;
-                remapped(
-                    column.documents.get(start..end).unwrap_or(&[]),
-                    input,
-                    &mut merged.documents,
-                );
-            }
-            merged.values.push(value.to_string());
-            merged
-                .offsets
-                .push(as_u32(merged.documents.len(), "enum entries")?);
-        }
-        out.push(merged);
+            documents: rows.documents,
+            values: rows.values,
+        });
     }
-    Ok(out)
+    Ok(merged)
 }
 
-fn merge_geopoints(
-    groups: Vec<(&str, Vec<(&GeopointColumn, &MergeInput<'_>)>)>,
-) -> Vec<GeopointColumn> {
-    groups
-        .into_iter()
-        .map(|(field, members)| {
-            let mut merged = GeopointColumn {
-                field: field.to_string(),
-                documents: Vec::new(),
-                latitudes: Vec::new(),
-                longitudes: Vec::new(),
-            };
-            for (column, input) in members {
-                let rows = column
-                    .documents
-                    .iter()
-                    .zip(column.latitudes.iter().zip(&column.longitudes));
-                for (&ordinal, (&latitude, &longitude)) in rows {
-                    if let Some(target) = input.target(ordinal) {
-                        merged.documents.push(target);
-                        merged.latitudes.push(latitude);
-                        merged.longitudes.push(longitude);
-                    }
-                }
-            }
-            merged
-        })
+fn bitset(documents: &[u32], capacity: usize) -> Result<Vec<u32>> {
+    let mut bits = vec![0u32; capacity.div_ceil(32).max(1)];
+    for &ordinal in documents {
+        if ordinal as usize >= capacity {
+            return Err(damaged("holds a boolean entry past its documents"));
+        }
+        set_bit(&mut bits, ordinal);
+    }
+    Ok(bits)
+}
+
+fn set_ordinals(bits: &[u32], document_count: u32) -> Vec<u32> {
+    (0..document_count)
+        .filter(|&ordinal| has_bit(bits, ordinal))
         .collect()
 }
 
-/// Joins the field columns of the inputs as the reference merge does: numeric and size rows sorted by value and
-/// then by document, boolean and geopoint rows in input order, enum values in code point order, and pattern runs
-/// merged in code point order.
+fn merge_booleans<'c>(
+    inputs: &'c MergeColumns<'c>,
+    document_count: u32,
+) -> Result<Vec<BooleanColumn>> {
+    let mut merged = Vec::new();
+    for (field, members) in by_field(inputs, |c| &c.boolean, |column| &column.field) {
+        let mut held = Vec::with_capacity(inputs.len());
+        for ((_, input), column) in inputs.iter().zip(&members) {
+            let capacity = input.remap.len();
+            let true_documents = column.map_or(&[][..], |column| column.true_documents.as_slice());
+            let false_documents =
+                column.map_or(&[][..], |column| column.false_documents.as_slice());
+            held.push((
+                bitset(true_documents, capacity)?,
+                bitset(false_documents, capacity)?,
+            ));
+        }
+        let sources: Vec<ffi::narsil_field_merge_source> = inputs
+            .iter()
+            .zip(&held)
+            .map(|((_, input), (true_bits, false_bits))| {
+                field_source(
+                    input,
+                    &[source_region(true_bits), source_region(false_bits)],
+                )
+            })
+            .collect();
+        let bits: BitTargets =
+            merge_field_regions(ffi::NARSIL_MERGE_BOOLEAN, &sources, document_count)?;
+        merged.push(BooleanColumn {
+            field: field.to_string(),
+            true_documents: set_ordinals(&bits.true_bits, document_count),
+            false_documents: set_ordinals(&bits.false_bits, document_count),
+        });
+    }
+    Ok(merged)
+}
+
+fn merge_geopoints<'c>(
+    inputs: &'c MergeColumns<'c>,
+    document_count: u32,
+) -> Result<Vec<GeopointColumn>> {
+    let mut merged = Vec::new();
+    for (field, members) in by_field(inputs, |c| &c.geopoint, |column| &column.field) {
+        let codes: Vec<Vec<u64>> = members
+            .iter()
+            .map(|column| {
+                column.map_or_else(Vec::new, |column| {
+                    column
+                        .latitudes
+                        .iter()
+                        .zip(&column.longitudes)
+                        .map(|(&latitude, &longitude)| location_code(latitude, longitude))
+                        .collect()
+                })
+            })
+            .collect();
+        let sources: Vec<ffi::narsil_field_merge_source> = inputs
+            .iter()
+            .zip(members.iter().zip(&codes))
+            .map(|((_, input), (column, codes))| {
+                let latitudes = column.map_or(&[][..], |column| column.latitudes.as_slice());
+                let longitudes = column.map_or(&[][..], |column| column.longitudes.as_slice());
+                let documents = column.map_or(&[][..], |column| column.documents.as_slice());
+                field_source(
+                    input,
+                    &[
+                        source_region(codes),
+                        source_region(latitudes),
+                        source_region(longitudes),
+                        source_region(documents),
+                    ],
+                )
+            })
+            .collect();
+        let rows: GeoTargets =
+            merge_field_regions(ffi::NARSIL_MERGE_GEO, &sources, document_count)?;
+        merged.push(GeopointColumn {
+            field: field.to_string(),
+            documents: rows.documents,
+            latitudes: rows.latitudes,
+            longitudes: rows.longitudes,
+        });
+    }
+    Ok(merged)
+}
+
+fn merge_patterns<'c>(
+    inputs: &'c MergeColumns<'c>,
+    document_count: u32,
+) -> Result<Vec<PatternColumn>> {
+    let mut merged = Vec::new();
+    for (field, members) in by_field(inputs, |c| &c.pattern, |column| &column.field) {
+        let sources: Vec<ffi::narsil_field_merge_source> = inputs
+            .iter()
+            .zip(&members)
+            .map(|((_, input), column)| {
+                let regions = match column {
+                    Some(column) => [
+                        source_region(&column.documents),
+                        source_region(&column.runs),
+                        source_region(&column.offsets),
+                        source_region(&column.postings),
+                    ],
+                    None => [
+                        source_region::<u32>(&[]),
+                        source_region::<u32>(&[]),
+                        source_region(&EMPTY_OFFSETS),
+                        source_region::<u32>(&[]),
+                    ],
+                };
+                field_source(input, &regions)
+            })
+            .collect();
+        let runs: PatternTargets =
+            merge_field_regions(ffi::NARSIL_MERGE_PATTERN, &sources, document_count)?;
+        merged.push(PatternColumn {
+            field: field.to_string(),
+            documents: runs.documents,
+            runs: runs.runs,
+            offsets: runs.offsets,
+            postings: runs.postings,
+        });
+    }
+    Ok(merged)
+}
+
 pub(crate) fn merge_columns<'c>(
-    inputs: &'c [(InputColumns<'c>, &'c MergeInput<'c>)],
+    inputs: &'c MergeColumns<'c>,
+    document_count: u32,
 ) -> Result<MergedColumns> {
-    let numeric = merge_values(by_field(inputs, |c| &c.numeric, |c| &c.field));
-    let sizes = merge_values(by_field(inputs, |c| &c.sizes, |c| &c.field));
-    let boolean = merge_booleans(by_field(inputs, |c| &c.boolean, |c| &c.field));
-    let enums = merge_enums(by_field(inputs, |c| &c.enums, |c| &c.field))?;
-    let geopoint = merge_geopoints(by_field(inputs, |c| &c.geopoint, |c| &c.field));
-    let mut pattern = Vec::new();
-    for (field, members) in by_field(inputs, |c| &c.pattern, |c| &c.field) {
-        pattern.push(merge_pattern_columns(field, &members)?);
+    let mut enums = Vec::new();
+    for (field, members) in by_field(inputs, |c| &c.enums, |column| &column.field) {
+        enums.push(merge_enum_column(inputs, field, &members, document_count)?);
     }
     Ok(MergedColumns {
-        numeric,
-        sizes,
-        boolean,
+        numeric: merge_values(inputs, document_count, |c| &c.numeric)?,
+        sizes: merge_values(inputs, document_count, |c| &c.sizes)?,
+        boolean: merge_booleans(inputs, document_count)?,
         enums,
-        geopoint,
-        pattern,
+        geopoint: merge_geopoints(inputs, document_count)?,
+        pattern: merge_patterns(inputs, document_count)?,
     })
 }

@@ -1,6 +1,5 @@
 pub(crate) const ARRAY_POSITION_GAP: u32 = 100;
 pub(crate) const PARTIAL_WORD_RUN_CODE_POINTS: usize = 3;
-pub(crate) const PATTERN_RUN_CODE_POINTS: usize = 3;
 pub(crate) const THREAD_READ_CACHE_BYTES: usize = 134_217_728;
 pub(crate) const LARGEST_CACHED_ENTRY_PARTS: usize = 4;
 pub(crate) const PAGE_CACHE_SHARE_PARTS: usize = 4;
