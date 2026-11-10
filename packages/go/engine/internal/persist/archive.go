@@ -76,14 +76,17 @@ func ArchiveFromMemory(ctx context.Context, handle *Handle) (*Archive, error) {
 		held.whole[at] = true
 	}
 	store := checkpoint.AdapterStore{Adapter: storage.NewMemory()}
-	if err := held.buildPartitions(ctx, handle, store, false); err != nil {
+	defer func() { held.release() }()
+	if err := held.freezeWholePartitions(ctx, handle, store, false); err != nil {
+		return nil, err
+	}
+	if err := held.writeFrozenPartitions(handle); err != nil {
 		return nil, err
 	}
 	var err error
 	if held.vectors, err = planVectors(ctx, handle, nil, true); err != nil {
 		return nil, err
 	}
-	defer func() { held.release() }()
 	meta, err := handle.metadata(uint64(handle.Index.Count()))
 	if err != nil {
 		return nil, err
