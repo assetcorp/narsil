@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use narsil::{
     DurabilityConfig, DurabilityMode, HnswSettings, IndexConfig, Map, Narsil, NarsilConfig,
-    QueryParams, Value, VectorPromotion, VectorQuery, parse_json,
+    Quantization, QueryParams, Value, VectorPromotion, VectorQuery, parse_json,
 };
 use support::{ScratchDirectory, repository_root};
 
@@ -35,6 +35,13 @@ const REACH_MAX_DOCUMENTS: u64 = 60_000;
 const REACH_CLUSTERS: u64 = 24;
 const REACH_CLUSTER_SEED: u64 = 90_000_000;
 const REACH_CLUSTER_SPREAD: f32 = 0.02;
+const GROWTH_GRAPH_M: u32 = 4;
+const GROWTH_FIRST_WAVE: u64 = 2_000;
+const GROWTH_WAVE_DOCUMENTS: u64 = 400;
+const GROWTH_MAX_DOCUMENTS: u64 = 10_000;
+const GROWTH_EXHAUSTIVE_EF: u32 = 10_000;
+const GROWTH_SETTLED_STRIDE: usize = 7;
+const GROWTH_ROUNDS: u64 = 6;
 const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
 const CHILD_ROUND: &str = "NARSIL_VECTOR_BUILD_KILL_ROUND";
@@ -278,18 +285,7 @@ fn clustered_vector(number: u64) -> Vec<f32> {
 }
 
 fn insert_clustered_wave(engine: &Narsil, first: u64) {
-    let batch: Vec<Map> = (first..first + REACH_WAVE_DOCUMENTS)
-        .map(|number| {
-            let mut map = Map::new();
-            map.insert("id", Value::String(id_of(number)));
-            map.insert(FIELD, as_value(&clustered_vector(number)));
-            map
-        })
-        .collect();
-    let result = engine
-        .insert_batch(INDEX, batch)
-        .expect("the batch completes");
-    assert!(result.failed.is_empty());
+    insert_clustered_rows(engine, first..first + REACH_WAVE_DOCUMENTS);
 }
 
 #[test]
@@ -368,6 +364,168 @@ fn checkpoints_taken_while_vectors_arrive_save_graphs_that_reach_every_vector() 
         settled.live_without_node.len(),
         settled.unreached_live_nodes.len()
     );
+}
+
+fn exhaustive_query(vector: &[f32]) -> QueryParams {
+    QueryParams {
+        vector: Some(VectorQuery {
+            field: FIELD.to_string(),
+            value: Some(vector.to_vec()),
+            ef_search: Some(GROWTH_EXHAUSTIVE_EF),
+            ..VectorQuery::default()
+        }),
+        limit: Some(LIMIT),
+        ..QueryParams::default()
+    }
+}
+
+fn nearest_by_brute_force(target: &[f32], acknowledged: u64) -> String {
+    let mut best = (f64::NEG_INFINITY, 0u64);
+    for number in 0..acknowledged {
+        let score = cosine(target, &clustered_vector(number));
+        if score > best.0 {
+            best = (score, number);
+        }
+    }
+    id_of(best.1)
+}
+
+fn growth_target(reader: u64, round: u64, acknowledged: u64) -> u64 {
+    let mixed = (reader * ROUND_ID_STRIDE + round).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 11;
+    if round.is_multiple_of(2) {
+        mixed % GROWTH_FIRST_WAVE
+    } else {
+        mixed % acknowledged
+    }
+}
+
+#[test]
+fn searches_during_a_growth_pass_find_every_acknowledged_vector() {
+    let engine = Narsil::new();
+    let mut during = 0;
+    let mut misses = Vec::new();
+    for round in 0..GROWTH_ROUNDS {
+        if round > 0 {
+            engine.drop_index(INDEX).expect("the index drops");
+        }
+        let (searches, missed) = growth_round(&engine, round);
+        during += searches;
+        misses.extend(missed);
+    }
+    let settled_misses: Vec<u64> = (0..GROWTH_MAX_DOCUMENTS)
+        .step_by(GROWTH_SETTLED_STRIDE)
+        .filter(|&number| {
+            let result = engine
+                .query(INDEX, &exhaustive_query(&clustered_vector(number)))
+                .expect("the search succeeds");
+            let nearest = nearest_by_brute_force(&clustered_vector(number), GROWTH_MAX_DOCUMENTS);
+            !result.hits.iter().any(|hit| hit.id == nearest)
+        })
+        .collect();
+    assert!(
+        settled_misses.is_empty(),
+        "with no pass running, the search misses {} vectors, such as {:?}",
+        settled_misses.len(),
+        settled_misses.first()
+    );
+    assert!(during > 0, "no search ran while a pass placed vectors");
+    assert!(
+        misses.is_empty(),
+        "{} of {during} searches during a pass missed an acknowledged vector, such as {:?}",
+        misses.len(),
+        misses.first()
+    );
+}
+
+fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
+    engine
+        .create_index(
+            INDEX,
+            IndexConfig {
+                vector_promotion: Some(VectorPromotion {
+                    threshold: Some(GRAPH_THRESHOLD),
+                    hnsw: Some(HnswSettings {
+                        m: Some(GROWTH_GRAPH_M),
+                        ..HnswSettings::default()
+                    }),
+                    quantization: Some(Quantization::None),
+                    ..VectorPromotion::default()
+                }),
+                ..index_config()
+            },
+        )
+        .expect("the index is created");
+    insert_clustered_rows(engine, 0..GROWTH_FIRST_WAVE);
+    settle_build(engine);
+    let acknowledged = AtomicU64::new(GROWTH_FIRST_WAVE);
+    let arriving = AtomicBool::new(true);
+    let searches_during_a_pass = AtomicU64::new(0);
+    let misses = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        let acknowledged = &acknowledged;
+        let arriving = &arriving;
+        let searches_during_a_pass = &searches_during_a_pass;
+        let misses = &misses;
+        scope.spawn(move || {
+            let mut first = GROWTH_FIRST_WAVE;
+            while first < GROWTH_MAX_DOCUMENTS {
+                let end = (first + GROWTH_WAVE_DOCUMENTS).min(GROWTH_MAX_DOCUMENTS);
+                insert_clustered_rows(engine, first..end);
+                acknowledged.store(end, Ordering::Release);
+                first = end;
+            }
+            settle_build(engine);
+            arriving.store(false, Ordering::Release);
+        });
+        for reader in 0..READERS {
+            scope.spawn(move || {
+                let mut round = 0u64;
+                while arriving.load(Ordering::Acquire) {
+                    let known = acknowledged.load(Ordering::Acquire);
+                    let target = clustered_vector(growth_target(
+                        round_number * READERS + reader,
+                        round,
+                        known,
+                    ));
+                    round += 1;
+                    let during = building(engine);
+                    let result = engine
+                        .query(INDEX, &exhaustive_query(&target))
+                        .expect("the search succeeds");
+                    if !(during && building(engine)) {
+                        continue;
+                    }
+                    searches_during_a_pass.fetch_add(1, Ordering::Relaxed);
+                    let nearest = nearest_by_brute_force(&target, known);
+                    if !result.hits.iter().any(|hit| hit.id == nearest) {
+                        misses
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .push(nearest);
+                    }
+                }
+            });
+        }
+    });
+    (
+        searches_during_a_pass.load(Ordering::Relaxed),
+        misses.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()),
+    )
+}
+
+fn insert_clustered_rows(engine: &Narsil, rows: std::ops::Range<u64>) {
+    let batch: Vec<Map> = rows
+        .map(|number| {
+            let mut map = Map::new();
+            map.insert("id", Value::String(id_of(number)));
+            map.insert(FIELD, as_value(&clustered_vector(number)));
+            map
+        })
+        .collect();
+    let result = engine
+        .insert_batch(INDEX, batch)
+        .expect("the batch completes");
+    assert!(result.failed.is_empty());
 }
 
 fn require_graph_holds_live_documents(
