@@ -25,5 +25,6 @@ pub(crate) const SPREAD_MIN_DOCUMENTS: u64 = 20_000;
 pub(crate) const SPREAD_CORE_SHARE_DIVISOR: usize = 2;
 pub(crate) const DEFAULT_MAX_PER_GROUP: usize = 1;
 pub(crate) const DEFAULT_SNIPPET_LENGTH: usize = 200;
+pub(crate) const NATIVE_FIRST_HIGHLIGHT_SPANS: usize = 16;
 pub(crate) const DEFAULT_HIGHLIGHT_PRE_TAG: &str = "<mark>";
 pub(crate) const DEFAULT_HIGHLIGHT_POST_TAG: &str = "</mark>";

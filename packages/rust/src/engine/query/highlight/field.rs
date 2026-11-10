@@ -112,7 +112,11 @@ impl Highlighter {
         Ok(matches)
     }
 
-    pub(super) fn highlight_field(&mut self, text: &str, field: &str) -> Result<HighlightMatch> {
+    pub(super) fn highlight_through_index_analysis(
+        &mut self,
+        text: &str,
+        field: &str,
+    ) -> Result<HighlightMatch> {
         if text.is_empty() {
             return Ok(HighlightMatch::default());
         }
@@ -154,8 +158,8 @@ impl Highlighter {
         }
         let units: Vec<u16> = text.encode_utf16().collect();
         let style = SnippetStyle {
-            pre_tag: &self.pre_tag,
-            post_tag: &self.post_tag,
+            pre_tag: &self.core.pre_tag,
+            post_tag: &self.core.post_tag,
             max_length: self.max_length,
         };
         Ok(snippet_of(&units, spans, &style))
