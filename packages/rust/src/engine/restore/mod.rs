@@ -94,7 +94,8 @@ impl Narsil {
         let restored = {
             let _name = engine.names.take(index);
             restore_index(engine, index, data)
-        };
+        }
+        .or_else(|error| engine.guard_shutdown().and(Err(error)));
         if restored.is_ok() {
             enforce_limits(engine, Some(index));
         }

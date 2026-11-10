@@ -1,10 +1,13 @@
 mod support;
 
 use std::path::PathBuf;
+use std::sync::{Arc, mpsc};
+use std::thread;
+use std::time::Duration;
 
 use narsil::{
-    ErrorCode, ManualQuerySuggestion, QuerySuggestionsBuildStatus, QuerySuggestionsSetting,
-    RecordQueryOutcome, SyncSetting,
+    ErrorCode, ManualQuerySuggestion, NarsilError, Plugin, QuerySuggestionsBuildStatus,
+    QuerySuggestionsSetting, RecordQueryOutcome, SyncSetting,
 };
 use support::ScratchDirectory;
 use support::suggestions::{
@@ -524,5 +527,120 @@ fn a_restore_under_a_free_name_deletes_the_counts_that_a_dropped_index_left_behi
     assert!(
         preview.entries.is_empty(),
         "no search of the dropped index reaches the restored one"
+    );
+}
+
+struct RemovalRefuser;
+
+impl Plugin for RemovalRefuser {
+    fn name(&self) -> &str {
+        "removal-refuser"
+    }
+
+    fn before_remove(&self, _index_name: &str, _doc_id: &str) -> narsil::Result<()> {
+        Err(NarsilError::new(
+            ErrorCode::DOC_VALIDATION_FAILED,
+            "the refuser keeps every document",
+        ))
+    }
+}
+
+#[test]
+fn a_restored_suggestions_index_never_serves_a_phrase_that_its_source_banned() {
+    let scratch = ScratchDirectory::new("suggestions-restored-bans");
+    let corpus = corpus();
+    let narsil = open(scratch.path(), Some(KEY));
+    create_with_corpus(&narsil, INDEX, &corpus);
+    let suggestions = narsil.query_suggestions();
+    suggestions
+        .update_setting(INDEX, &setting(MIN_PEOPLE, MIN_RESULTS))
+        .expect("the feature turns on");
+    let first = first_round();
+    record_all(&narsil, &first);
+    suggestions.build(INDEX).expect("the build runs");
+    let expected = due(&counted(&[&first]), &corpus, MIN_PEOPLE, MIN_RESULTS);
+    let (banned_group, banned) = expected
+        .iter()
+        .find_map(|(group, phrases)| Some((group.clone(), phrases.keys().next()?.clone())))
+        .expect("the oracle publishes a phrase");
+    let suggestions_index = suggestions
+        .suggestions_index_name(INDEX, &banned_group)
+        .expect("the group is valid");
+    let mut before_ban = Vec::new();
+    narsil
+        .snapshot(&suggestions_index, &mut before_ban)
+        .expect("the suggestions index snapshot is written");
+    suggestions
+        .update_bans(INDEX, std::slice::from_ref(&banned))
+        .expect("the ban list is stored");
+
+    narsil.add_plugin(Arc::new(RemovalRefuser));
+    narsil
+        .restore(&suggestions_index, &mut before_ban.as_slice())
+        .expect("the suggestions index from before the ban restores");
+    assert!(
+        !suggestions_of(&narsil, INDEX, &banned_group).contains_key(&banned),
+        "the restored suggestions index serves no phrase that its source bans"
+    );
+}
+
+const CLOSED_SOURCE_CALL_BOUND: Duration = Duration::from_secs(60);
+
+fn within_bound<T: Send + 'static>(
+    narsil: &Arc<narsil::Narsil>,
+    call: impl FnOnce(&narsil::Narsil) -> T + Send + 'static,
+) -> T {
+    let narsil = Arc::clone(narsil);
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || sender.send(call(&narsil)).ok());
+    receiver
+        .recv_timeout(CLOSED_SOURCE_CALL_BOUND)
+        .expect("the call on a closed index returns")
+}
+
+#[test]
+fn a_closed_index_reopens_for_a_ban_a_removed_query_and_a_setting_change() {
+    let scratch = ScratchDirectory::new("suggestions-closed-source");
+    let narsil = Arc::new(open(scratch.path(), Some(KEY)));
+    create_with_corpus(&narsil, INDEX, &corpus());
+    narsil
+        .query_suggestions()
+        .update_setting(INDEX, &setting(MIN_PEOPLE, MIN_RESULTS))
+        .expect("the feature turns on");
+
+    narsil.close_index(INDEX).expect("the index closes");
+    let bans = within_bound(&narsil, |narsil| {
+        narsil
+            .query_suggestions()
+            .update_bans(INDEX, &["amber lantern".to_string()])
+    });
+    assert_eq!(
+        bans.expect("the ban list changes"),
+        vec!["amber lantern".to_string()]
+    );
+
+    narsil.close_index(INDEX).expect("the index closes again");
+    let removed = within_bound(&narsil, |narsil| {
+        narsil
+            .query_suggestions()
+            .remove_query(INDEX, "copper meadow")
+    });
+    assert_eq!(removed.expect("the query is banned"), 0);
+
+    narsil
+        .close_index(INDEX)
+        .expect("the index closes a third time");
+    let changed = within_bound(&narsil, |narsil| {
+        narsil
+            .query_suggestions()
+            .update_setting(INDEX, &setting(MIN_PEOPLE + 1, MIN_RESULTS))
+    });
+    changed.expect("the setting changes");
+    assert_eq!(
+        narsil
+            .query_suggestions()
+            .bans(INDEX)
+            .expect("the ban list reads"),
+        vec!["amber lantern".to_string(), "copper meadow".to_string()]
     );
 }

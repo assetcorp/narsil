@@ -236,8 +236,7 @@ impl Narsil {
         self.inner.open_index(index)?;
         require_limit("historyMaxAgeMs", setting.history_max_age_ms)?;
         require_limit("historyMaxBytes", setting.history_max_bytes)?;
-        let _name = self.inner.names.take(index);
-        let state = self.inner.open_index(index)?;
+        let (_name, state) = self.inner.open_index_in_turn(index)?;
         let store = log_store_of(&state)?;
         apply_setting(&state, &store, setting)
     }

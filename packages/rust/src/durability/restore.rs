@@ -222,23 +222,25 @@ impl DurabilityStore {
         let inner = &self.inner;
         let index_name = staging.index_name().to_string();
         let state = inner.index_state(&index_name)?;
-        in_turn(&state, || {
-            let lost = |error| inner.mark_fatal(error);
-            state.mark_replaced();
-            commit_staged(staging, || inner.close_index_logs(&index_name), &lost)?;
-            for partition in checkpoint {
-                let start = LogStart {
-                    active: None,
-                    highest_seq_no: partition.last_seq_no,
-                    highest_durable_seq_no: partition.last_seq_no,
-                    primary_term: partition.primary_term.max(SINGLE_NODE_PRIMARY_TERM),
-                };
-                inner
-                    .register_log(&index_name, partition.partition_id, start)
-                    .map_err(lost)?;
-            }
-            restart_count(&state);
-            Ok(())
+        inner.commit_restore(|| {
+            in_turn(&state, || {
+                let lost = |error| inner.mark_fatal(error);
+                state.mark_replaced();
+                commit_staged(staging, || inner.close_index_logs(&index_name), &lost)?;
+                for partition in checkpoint {
+                    let start = LogStart {
+                        active: None,
+                        highest_seq_no: partition.last_seq_no,
+                        highest_durable_seq_no: partition.last_seq_no,
+                        primary_term: partition.primary_term.max(SINGLE_NODE_PRIMARY_TERM),
+                    };
+                    inner
+                        .register_log(&index_name, partition.partition_id, start)
+                        .map_err(lost)?;
+                }
+                restart_count(&state);
+                Ok(())
+            })
         })
     }
 }

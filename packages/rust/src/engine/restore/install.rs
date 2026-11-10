@@ -11,7 +11,9 @@ use crate::engine::durable::metadata::metadata_of;
 use crate::engine::index::IndexState;
 use crate::engine::memory::constants::RESTORE_PROCESS_BYTES_PER_STORED_BYTE;
 use crate::engine::memory::require_restore_memory;
-use crate::engine::query_suggestions::restore_hooks::{after_activate, before_install};
+use crate::engine::query_suggestions::restore_hooks::{
+    after_activate, before_install, before_publish,
+};
 use crate::engine::sync::carry_sync_onto;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::manifest::SegmentManifest;
@@ -117,11 +119,15 @@ pub(super) fn activate(
     before_install(engine, &index)?;
     let previous = engine.index(&index.name).ok();
     let mut metadata = metadata_of(&index, recorded);
-    if let Some(log) = previous
-        .as_ref()
-        .and_then(|old| old.log().map(|log| (old, log)))
-    {
-        carry_sync_onto(&mut metadata, &log.1.metadata(log.0))?;
+    let replaced = match (&previous, &engine.durable) {
+        (Some(old), _) => old.log().map(|log| log.metadata(old)),
+        (None, Some(durable)) if engine.lifecycle.holds_closed(&index.name) => {
+            durable.stored_metadata(&index.name)?
+        }
+        (None, _) => None,
+    };
+    if let Some(replaced) = replaced {
+        carry_sync_onto(&mut metadata, &replaced)?;
     }
     if let Staging::Stored(staged) = &*staging {
         let manifest = manifest.ok_or_else(|| missing_manifest(&index.name))?;
@@ -136,6 +142,7 @@ pub(super) fn activate(
         let log = durable.adopt_restore(staged, &manifest.checkpoint, metadata)?;
         index.attach_log(log);
     }
+    before_publish(engine, &index);
     engine
         .indexes_mut()
         .insert(index.name.clone(), Arc::clone(&index));

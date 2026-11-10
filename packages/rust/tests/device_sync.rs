@@ -463,6 +463,21 @@ fn every_change_that_a_device_reloads_whole_gives_a_new_epoch_that_restarts_keep
         .update_sync(INDEX, &limits)
         .expect("sync goes on again");
     seen.push(epoch_of(&narsil));
+    narsil.close_index(INDEX).expect("the index closes");
+    narsil
+        .restore(INDEX, &mut Cursor::new(&archive))
+        .expect("the restore applies over the closed index");
+    let over_closed = narsil.get_sync(INDEX).expect("the state reads");
+    assert_eq!(
+        (
+            over_closed.enabled,
+            over_closed.history_max_age_ms,
+            over_closed.history_max_bytes
+        ),
+        (true, limits.history_max_age_ms, limits.history_max_bytes),
+        "a restore over a closed index keeps its setting"
+    );
+    seen.push(epoch_of(&narsil));
     let mut distinct = seen.clone();
     distinct.sort();
     distinct.dedup();
