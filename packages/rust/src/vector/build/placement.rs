@@ -24,7 +24,7 @@ fn admitted_batch(writer: &Writer, plan: &Plan, ordinals: &[u32]) -> Vec<u32> {
         .collect()
 }
 
-fn ensure_graph_room(shared: &Shared, writer: &mut Writer, plan: &mut Plan, ordinals: &[u32]) {
+fn ensure_graph_room(writer: &mut Writer, plan: &mut Plan, ordinals: &[u32]) {
     let graph = &plan.graph;
     let m = graph.m;
     let slots = ordinals
@@ -44,20 +44,15 @@ fn ensure_graph_room(shared: &Shared, writer: &mut Writer, plan: &mut Plan, ordi
         slots.max(graph.slot_capacity() * 2),
         upper_wanted.max(graph.upper_capacity() * 2),
     ));
-    replace_graph(shared, writer, plan, grown);
+    replace_graph(writer, plan, grown);
 }
 
-fn replace_graph(shared: &Shared, writer: &mut Writer, plan: &mut Plan, grown: Arc<GraphTables>) {
+fn replace_graph(writer: &mut Writer, plan: &mut Plan, grown: Arc<GraphTables>) {
     plan.graph = Arc::clone(&grown);
-    if plan.fresh {
-        writer.job = Some(BuildJob {
-            graph: Some(grown),
-            fresh: true,
-        });
-        return;
-    }
-    let next = writer.generation.with(|parts| parts.graph = Some(grown));
-    shared.publish(writer, next);
+    writer.job = Some(BuildJob {
+        graph: Some(grown),
+        fresh: plan.fresh,
+    });
 }
 
 fn count_incoming_when_uncounted(writer: &Writer, graph: &GraphTables) -> Result<()> {
@@ -211,10 +206,11 @@ fn tombstone_retired(writer: &Writer, graph: &GraphTables, ordinals: &[u32]) -> 
 /// Places `ordinals` in the plan's graph with the writer lock free, so that inserts and removals go on while the
 /// core walks the graph, and returns false where the field dropped or replaced that graph meanwhile.
 ///
-/// A store that a write copies in that time lacks the codes that the placement wrote into the old one, so a graph
-/// that searches already read takes every code under the lock first, and a fresh graph takes the codes again from
-/// the current store before anything reads it. A vector that a write removes or replaces meanwhile keeps its
-/// vector and code until the placement ends, and then leaves the graph as a tombstone.
+/// The plan's graph is private to the build until the build publishes it, so searches never read a graph that a
+/// placement is changing. A store that a write copies in that time lacks the codes that the placement wrote into
+/// the old one, so the placement takes the codes again from the current store before anything reads the graph. A
+/// vector that a write removes or replaces meanwhile keeps its vector and code until the placement ends, and then
+/// leaves the graph as a tombstone.
 pub(crate) fn place_batch(
     shared: &Shared,
     plan: &mut Plan,
@@ -230,12 +226,9 @@ pub(crate) fn place_batch(
         return Ok(true);
     }
     for _ in 0..PLACEMENT_ROOM_REQUESTS {
-        ensure_graph_room(shared, &mut writer, plan, &admitted);
+        ensure_graph_room(&mut writer, plan, &admitted);
         count_incoming_when_uncounted(&writer, &plan.graph)?;
         let store = Arc::clone(&writer.generation.store);
-        if !plan.fresh {
-            quantise_missing(&store, &plan.graph, &admitted)?;
-        }
         writer.placing = Some(Placing::of(&plan.graph, &admitted));
         drop(writer);
         let placed = place_in_parallel(&store, &plan.graph, &admitted, threads);
@@ -265,26 +258,22 @@ pub(crate) fn place_batch(
             "place a vector in its graph",
         ));
     }
-    if !plan.fresh {
-        settle_placed(shared, &mut writer, &plan.graph, ordinals);
-    }
     Ok(true)
 }
 
-fn settle_placed(shared: &Shared, writer: &mut Writer, graph: &GraphTables, ordinals: &[u32]) {
+pub(crate) fn publish_grown(shared: &Shared, writer: &mut Writer, graph: &Arc<GraphTables>) {
+    writer.job = None;
     let generation = Arc::clone(&writer.generation);
-    for &ordinal in ordinals {
+    for ordinal in generation.buffer.ordinals() {
         let flags = generation.store.flags(ordinal);
         if flags & FLAG_BUFFERED != 0 && graph.holds_live_node(ordinal) {
             generation.store.set_flags(ordinal, flags & !FLAG_BUFFERED);
             Counts::add(&generation.counts.buffered, -1);
         }
     }
-    let lacking = compacted_buffer(&generation);
-    shared.publish(
-        writer,
-        generation.with(|parts| parts.buffer = Arc::new(lacking)),
-    );
+    let grown = generation.with(|parts| parts.graph = Some(Arc::clone(graph)));
+    let lacking = compacted_buffer(&grown);
+    shared.publish(writer, grown.with(|parts| parts.buffer = Arc::new(lacking)));
 }
 
 pub(crate) fn adopt(shared: &Shared, writer: &mut Writer, graph: &Arc<GraphTables>) {

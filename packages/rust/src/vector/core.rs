@@ -174,11 +174,7 @@ impl Scratch {
                 0
             },
         };
-        let _admitted = graph.placements.admit_placement();
-        let status =
-            unsafe { ffi::narsil_place(self.workspace.handle(), &raw_graph, &raw_store, &request) };
-        graph.placements.note_placement();
-        status
+        unsafe { ffi::narsil_place(self.workspace.handle(), &raw_graph, &raw_store, &request) }
     }
 
     pub(crate) fn remove(&mut self, graph: &GraphTables, ordinal: u32) -> Result<()> {
@@ -233,9 +229,7 @@ impl Scratch {
         let status = unsafe {
             ffi::narsil_connect_unreached(self.workspace.handle(), &raw_graph, &raw_store, &request)
         };
-        checked(status, "connect the unreached nodes of a vector graph")?;
-        graph.placements.note_connected();
-        Ok(())
+        checked(status, "connect the unreached nodes of a vector graph")
     }
 
     pub(crate) fn quantise(

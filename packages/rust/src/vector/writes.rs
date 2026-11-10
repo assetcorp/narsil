@@ -132,7 +132,6 @@ pub(crate) fn remove_stamped(writer: &mut Writer, doc_id: &str, sequence: i64) -
 pub(crate) fn graphs_of(writer: &Writer) -> Vec<Arc<GraphTables>> {
     let mut graphs: Vec<Arc<GraphTables>> = writer.generation.graph.iter().cloned().collect();
     if let Some(job) = &writer.job
-        && job.fresh
         && let Some(graph) = &job.graph
     {
         graphs.push(Arc::clone(graph));

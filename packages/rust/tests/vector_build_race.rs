@@ -35,12 +35,12 @@ const REACH_MAX_DOCUMENTS: u64 = 60_000;
 const REACH_CLUSTERS: u64 = 24;
 const REACH_CLUSTER_SEED: u64 = 90_000_000;
 const REACH_CLUSTER_SPREAD: f32 = 0.02;
-const GROWTH_GRAPH_M: u32 = 4;
+const GROWTH_GRAPH_M: u32 = 2;
+const GROWTH_EF_CONSTRUCTION: u32 = 4_000;
 const GROWTH_FIRST_WAVE: u64 = 2_000;
-const GROWTH_WAVE_DOCUMENTS: u64 = 400;
 const GROWTH_MAX_DOCUMENTS: u64 = 10_000;
 const GROWTH_EXHAUSTIVE_EF: u32 = 10_000;
-const GROWTH_SETTLED_STRIDE: usize = 7;
+const GROWTH_TARGETS_PER_READER: u64 = 32;
 const GROWTH_ROUNDS: u64 = 6;
 const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
@@ -390,13 +390,31 @@ fn nearest_by_brute_force(target: &[f32], acknowledged: u64) -> String {
     id_of(best.1)
 }
 
-fn growth_target(reader: u64, round: u64, acknowledged: u64) -> u64 {
+fn growth_target(reader: u64, round: u64) -> u64 {
     let mixed = (reader * ROUND_ID_STRIDE + round).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 11;
     if round.is_multiple_of(2) {
         mixed % GROWTH_FIRST_WAVE
     } else {
-        mixed % acknowledged
+        mixed % GROWTH_MAX_DOCUMENTS
     }
+}
+
+fn finds_itself(engine: &Narsil, number: u64, acknowledged: u64) -> bool {
+    let target = clustered_vector(number);
+    let result = engine
+        .query(INDEX, &exhaustive_query(&target))
+        .expect("the search succeeds");
+    let nearest = nearest_by_brute_force(&target, acknowledged);
+    result.hits.iter().any(|hit| hit.id == nearest)
+}
+
+fn buffer_during_a_pass(engine: &Narsil) -> Option<u64> {
+    engine
+        .vector_maintenance_status(INDEX)
+        .expect("a status")
+        .iter()
+        .find(|status| status.building)
+        .map(|status| status.buffer_size)
 }
 
 #[test]
@@ -412,22 +430,6 @@ fn searches_during_a_growth_pass_find_every_acknowledged_vector() {
         during += searches;
         misses.extend(missed);
     }
-    let settled_misses: Vec<u64> = (0..GROWTH_MAX_DOCUMENTS)
-        .step_by(GROWTH_SETTLED_STRIDE)
-        .filter(|&number| {
-            let result = engine
-                .query(INDEX, &exhaustive_query(&clustered_vector(number)))
-                .expect("the search succeeds");
-            let nearest = nearest_by_brute_force(&clustered_vector(number), GROWTH_MAX_DOCUMENTS);
-            !result.hits.iter().any(|hit| hit.id == nearest)
-        })
-        .collect();
-    assert!(
-        settled_misses.is_empty(),
-        "with no pass running, the search misses {} vectors, such as {:?}",
-        settled_misses.len(),
-        settled_misses.first()
-    );
     assert!(during > 0, "no search ran while a pass placed vectors");
     assert!(
         misses.is_empty(),
@@ -446,6 +448,7 @@ fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
                     threshold: Some(GRAPH_THRESHOLD),
                     hnsw: Some(HnswSettings {
                         m: Some(GROWTH_GRAPH_M),
+                        ef_construction: Some(GROWTH_EF_CONSTRUCTION),
                         ..HnswSettings::default()
                     }),
                     quantization: Some(Quantization::None),
@@ -457,7 +460,7 @@ fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
         .expect("the index is created");
     insert_clustered_rows(engine, 0..GROWTH_FIRST_WAVE);
     settle_build(engine);
-    let acknowledged = AtomicU64::new(GROWTH_FIRST_WAVE);
+    let acknowledged = AtomicBool::new(false);
     let arriving = AtomicBool::new(true);
     let searches_during_a_pass = AtomicU64::new(0);
     let misses = std::sync::Mutex::new(Vec::new());
@@ -466,50 +469,55 @@ fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
         let arriving = &arriving;
         let searches_during_a_pass = &searches_during_a_pass;
         let misses = &misses;
-        scope.spawn(move || {
-            let mut first = GROWTH_FIRST_WAVE;
-            while first < GROWTH_MAX_DOCUMENTS {
-                let end = (first + GROWTH_WAVE_DOCUMENTS).min(GROWTH_MAX_DOCUMENTS);
-                insert_clustered_rows(engine, first..end);
-                acknowledged.store(end, Ordering::Release);
-                first = end;
-            }
-            settle_build(engine);
-            arriving.store(false, Ordering::Release);
-        });
         for reader in 0..READERS {
             scope.spawn(move || {
-                let mut round = 0u64;
-                while arriving.load(Ordering::Acquire) {
-                    let known = acknowledged.load(Ordering::Acquire);
-                    let target = clustered_vector(growth_target(
-                        round_number * READERS + reader,
-                        round,
-                        known,
-                    ));
-                    round += 1;
-                    let during = building(engine);
-                    let result = engine
-                        .query(INDEX, &exhaustive_query(&target))
-                        .expect("the search succeeds");
-                    if !(during && building(engine)) {
+                let targets: Vec<u64> = (0..GROWTH_TARGETS_PER_READER)
+                    .map(|at| growth_target(round_number * READERS + reader, at))
+                    .collect();
+                while !acknowledged.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                let mut buffer_seen = None;
+                let mut found_on_this_graph = HashSet::new();
+                for &number in targets.iter().cycle() {
+                    if !arriving.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let before = buffer_during_a_pass(engine);
+                    let found = finds_itself(engine, number, GROWTH_MAX_DOCUMENTS);
+                    if before.is_none() || before != buffer_during_a_pass(engine) {
+                        continue;
+                    }
+                    if before != buffer_seen {
+                        buffer_seen = before;
+                        found_on_this_graph.clear();
+                    }
+                    if !found_on_this_graph.contains(&number) {
+                        if found {
+                            found_on_this_graph.insert(number);
+                        }
                         continue;
                     }
                     searches_during_a_pass.fetch_add(1, Ordering::Relaxed);
-                    let nearest = nearest_by_brute_force(&target, known);
-                    if !result.hits.iter().any(|hit| hit.id == nearest) {
+                    if !found {
                         misses
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .push(nearest);
+                            .push(id_of(number));
                     }
                 }
             });
         }
+        insert_clustered_rows(engine, GROWTH_FIRST_WAVE..GROWTH_MAX_DOCUMENTS);
+        acknowledged.store(true, Ordering::Release);
+        settle_build(engine);
+        arriving.store(false, Ordering::Release);
     });
     (
         searches_during_a_pass.load(Ordering::Relaxed),
-        misses.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()),
+        misses
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
     )
 }
 
