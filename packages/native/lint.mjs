@@ -43,13 +43,13 @@ function macosConfigurations(darwinHeaderDirectory) {
   ]
 }
 
-function configurations(windowsHeaderDirectory, darwinHeaderDirectory) {
+function configurations(windowsHeaderDirectory, crossLintedMacos) {
   const lintedEverywhere = [
     { name: `${process.arch} kernels`, extraArguments: [] },
     { name: 'portable kernels', extraArguments: ['-DNARSIL_PORTABLE_KERNELS'] },
     ...windowsConfigurations(windowsHeaderDirectory),
   ]
-  if (process.platform !== 'darwin') return [...lintedEverywhere, ...macosConfigurations(darwinHeaderDirectory)]
+  if (process.platform !== 'darwin') return [...lintedEverywhere, ...crossLintedMacos]
   const otherArchitectures = Object.entries(APPLE_ARCHITECTURES).filter(([arch]) => arch !== process.arch)
   return [
     ...lintedEverywhere,
@@ -106,12 +106,14 @@ function tidyJob(configuration, source) {
   }
 }
 
-const lintedConfigurations = configurations(windowsHeaderDirectory, darwinHeaderDirectory)
+const crossLintedMacos = process.platform === 'darwin' ? [] : macosConfigurations(darwinHeaderDirectory)
+const lintedConfigurations = configurations(windowsHeaderDirectory, crossLintedMacos)
 const [hostConfiguration] = lintedConfigurations
+const fuzzConfigurations = [hostConfiguration, ...crossLintedMacos.slice(0, 1)]
 const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
 const jobs = [
   ...lintedConfigurations.flatMap(configuration => sources.map(source => tidyJob(configuration, source))),
-  ...fuzzSources().map(source => tidyJob(hostConfiguration, source)),
+  ...fuzzConfigurations.flatMap(configuration => fuzzSources().map(source => tidyJob(configuration, source))),
 ]
 jobs.push({
   label: 'clang-format',

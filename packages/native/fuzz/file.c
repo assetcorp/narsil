@@ -20,7 +20,6 @@ void fuzz_page_checksums(fuzz_page_source source, uint8_t *checksums, uint64_t p
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 enum { PATH_BYTES = 64 };
