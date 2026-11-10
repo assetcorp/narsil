@@ -11,6 +11,7 @@ mod sources;
 mod tail_columns;
 
 pub(crate) use paged::merge_paged_segments;
+pub(crate) use pattern::tail_pattern_column;
 
 use std::sync::Arc;
 

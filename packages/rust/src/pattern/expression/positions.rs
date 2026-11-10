@@ -1,7 +1,8 @@
-use super::ast::Node;
-use super::code_point_tests::distinct_multi_folds;
+use std::collections::HashSet;
+
+use super::ast::{Node, SetItem};
 use crate::pattern::constants::MAX_PATTERN_POSITIONS;
-use crate::pattern::fold::fold;
+use crate::util::case_fold::append_folded;
 
 const SATURATED: u64 = MAX_PATTERN_POSITIONS as u64 + 1;
 
@@ -9,11 +10,33 @@ fn saturating(total: u64) -> u64 {
     total.min(SATURATED)
 }
 
+fn folded(code_point: u32) -> Vec<u32> {
+    let mut fold = Vec::new();
+    append_folded(code_point, &mut fold);
+    fold
+}
+
+fn distinct_multi_folds(items: &[SetItem]) -> Vec<Vec<u32>> {
+    let mut seen: HashSet<Vec<u32>> = HashSet::new();
+    let mut folds = Vec::new();
+    for item in items {
+        let SetItem::Member(code_point) = item else {
+            continue;
+        };
+        let fold = folded(*code_point);
+        if fold.len() < 2 || !seen.insert(fold.clone()) {
+            continue;
+        }
+        folds.push(fold);
+    }
+    folds
+}
+
 fn positions_of(node: &Node, case_fold: bool) -> u64 {
     match node {
         Node::Literal(code_point) => {
             if case_fold {
-                fold(*code_point).len() as u64
+                folded(*code_point).len() as u64
             } else {
                 1
             }

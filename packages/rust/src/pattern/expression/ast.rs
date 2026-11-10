@@ -35,7 +35,6 @@ pub(crate) enum Node {
 pub(crate) const START_MASK: u16 = 0b000_000_111;
 pub(crate) const END_MASK: u16 = 0b001_001_001;
 pub(crate) const WORD_EDGE_MASK: u16 = 0b010_101_010;
-pub(crate) const ANY_CONTEXT_MASK: u16 = 0b111_111_111;
 
 pub(crate) struct ParseFailure {
     pub(crate) reason: String,

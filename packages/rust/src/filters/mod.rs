@@ -1,35 +1,39 @@
 mod checks;
-mod compile;
-mod compile_values;
 pub(crate) mod constants;
-mod evaluate;
 mod expression;
 mod geo_checks;
 mod list_checks;
 mod operands;
 mod pattern_checks;
+mod plan;
+mod plan_values;
+mod program;
+mod regions;
 mod segments;
 pub(crate) mod source;
-mod stored;
+mod text_range;
+mod tree;
 mod walk;
 
 pub use self::expression::{FieldTests, Filter};
 pub use self::operands::{DistanceUnit, GeoPolygon, GeoRadius, Scalar, Tolerance};
-pub(crate) use self::source::FilterSource;
 
-use self::compile::{CompiledExpression, compile_filter};
+use self::plan::expression_plan;
+use self::program::FilterProgram;
 use self::source::{and_not_into, empty_bits};
+use self::tree::{FilterNode, filter_tree};
+use self::walk::validated_filter_of;
 use crate::error::Result;
-use crate::index::segment::{SegmentData, SegmentEntry};
-use crate::pattern::{PatternScratch, WorkMeter};
+use crate::index::segment::SegmentEntry;
+use crate::pattern::WorkMeter;
 use crate::schema::CompiledSchema;
 use crate::value::Value;
 
 pub(crate) struct CompiledFilter {
-    root: CompiledExpression,
+    root: FilterNode,
 }
 
-pub(crate) fn live_bits(capacity: u32, tombstones: &[u32]) -> Vec<u32> {
+fn live_bits(capacity: u32, tombstones: &[u32]) -> Vec<u32> {
     let mut live = empty_bits(capacity);
     for word in live.iter_mut() {
         *word = u32::MAX;
@@ -46,31 +50,24 @@ pub(crate) fn live_bits(capacity: u32, tombstones: &[u32]) -> Vec<u32> {
 
 impl CompiledFilter {
     pub(crate) fn new(filter: &Value, schema: &CompiledSchema) -> Result<CompiledFilter> {
+        let validated = validated_filter_of(filter, schema)?;
         Ok(CompiledFilter {
-            root: compile_filter(filter, schema)?,
+            root: filter_tree(&validated, schema),
         })
-    }
-
-    pub(crate) fn evaluate<S: FilterSource>(
-        &self,
-        source: &S,
-        live: &[u32],
-        meter: &WorkMeter,
-        scratch: &mut PatternScratch,
-    ) -> Result<Vec<u32>> {
-        evaluate::evaluate_filter(&self.root, source, live, meter, scratch)
     }
 
     pub(crate) fn evaluate_segment(
         &self,
         entry: &SegmentEntry,
         meter: &WorkMeter,
-        scratch: &mut PatternScratch,
     ) -> Result<Vec<u32>> {
-        let live = live_bits(entry.capacity(), entry.removed_bits());
-        match &entry.data {
-            SegmentData::Frozen(segment) => self.evaluate(segment.as_ref(), &live, meter, scratch),
-            SegmentData::Tail(tail) => self.evaluate(tail.as_ref(), &live, meter, scratch),
+        let capacity = entry.capacity();
+        if capacity == 0 {
+            return Ok(Vec::new());
         }
+        let mut program =
+            FilterProgram::new(entry, live_bits(capacity, entry.removed_bits()), meter);
+        expression_plan(&self.root, &mut program)?;
+        program.evaluate()
     }
 }

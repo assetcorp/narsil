@@ -1,11 +1,8 @@
-use std::cell::RefCell;
-
 use super::super::scope::QueryScope;
 use super::seek::SegmentMatcher;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::segment::SegmentEntry;
-use crate::pattern::PatternScratch;
 use crate::value::Value;
 
 /// Fails with `SEARCH_INVALID_FILTER` for a listing whose filter is JSON `null`, which a listing checks once the
@@ -35,9 +32,7 @@ pub(crate) fn segment_matcher<'a>(
     if !scope.filters() {
         return Ok(None);
     }
-    let scratch = RefCell::new(PatternScratch::default());
     Ok(Some(Box::new(move |entry: &SegmentEntry| {
-        let mut scratch = scratch.borrow_mut();
-        Ok(scope.segment_bits(entry, &mut scratch)?.unwrap_or_default())
+        Ok(scope.segment_bits(entry)?.unwrap_or_default())
     })))
 }
