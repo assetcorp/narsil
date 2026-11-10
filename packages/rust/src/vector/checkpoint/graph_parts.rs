@@ -1,21 +1,20 @@
 use crate::error::Result;
 use crate::format::graph_part::{GraphPart, NumberedGraph, VECTOR_GRAPH_PART_VECTORS};
 
-use super::super::build::{build_pass_under_way, connect_held_alone};
+use super::super::build::connect_unreached;
 use super::super::field::{Shared, Writer};
 use super::super::graph::GraphTables;
 use super::super::numbered::{NO_ORDINAL, Numbering, serialise_parts};
 use super::{SavedVectorFile, is_carried};
 
-fn copied_between_passes(
-    shared: &Shared,
+fn copied_with_every_placement_connected(
     writer: &Writer,
     graph: &GraphTables,
     numbering: &Numbering<'_>,
 ) -> Result<Vec<NumberedGraph>> {
-    let alone = graph.hold_alone();
-    if build_pass_under_way(shared) {
-        connect_held_alone(writer, graph, &alone)?;
+    let _no_placement = graph.placements.hold_placements_back();
+    if graph.placements.placed_since_connect() {
+        connect_unreached(writer, graph)?;
     }
     Ok(serialise_parts(graph, numbering, VECTOR_GRAPH_PART_VECTORS))
 }
@@ -58,7 +57,7 @@ pub(super) fn graph_parts_of(
         ordinal_of_number: &ordinal_of_number,
     };
     let shuffled = shared.history.shuffled_build_count();
-    let parts = copied_between_passes(shared, writer, graph, &numbering)?;
+    let parts = copied_with_every_placement_connected(writer, graph, &numbering)?;
     Ok(Some(
         parts
             .into_iter()

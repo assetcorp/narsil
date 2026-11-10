@@ -7,7 +7,7 @@ use crate::ffi;
 use super::super::constants::BUILD_CHUNK_VECTORS;
 use super::super::core::{core_failed, with_scratch};
 use super::super::field::{BufferList, Counts, Placing, Shared, Writer};
-use super::super::graph::{GraphTables, HeldAlone, upper_words_of};
+use super::super::graph::{GraphTables, upper_words_of};
 use super::super::store::{FLAG_BUFFERED, StoreTables};
 use super::super::writes::compacted_buffer;
 use super::{BuildJob, Plan, level_of, still_current};
@@ -80,15 +80,7 @@ fn connect_unlinked(writer: &Writer, graph: &GraphTables) -> Result<()> {
 }
 
 pub(crate) fn connect_unreached(writer: &Writer, graph: &GraphTables) -> Result<()> {
-    let alone = graph.hold_alone();
-    connect_held_alone(writer, graph, &alone)
-}
-
-pub(crate) fn connect_held_alone(
-    writer: &Writer,
-    graph: &GraphTables,
-    _alone: &HeldAlone<'_>,
-) -> Result<()> {
+    let _alone = graph.hold_alone();
     let store = &writer.generation.store;
     with_scratch(|scratch| scratch.connect(store, graph, graph.metric, &[]))?;
     graph.set_word(ffi::NARSIL_GRAPH_WORD_UNLINKED_NODES, 0);

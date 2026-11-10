@@ -15,7 +15,7 @@ use super::graph::{GraphTables, upper_words_of};
 use super::writes::compacted_buffer;
 use placement::{adopt, place_batch};
 
-pub(crate) use placement::{connect_held_alone, connect_unreached};
+pub(crate) use placement::connect_unreached;
 
 const GOLDEN_GAMMA: u32 = 0x9e37_79b9;
 const FIRST_MIX_MULTIPLIER: u32 = 0x21f0_aaad;
@@ -76,10 +76,6 @@ pub(crate) fn lock_gate(shared: &Shared) -> MutexGuard<'_, ()> {
         .build_gate
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-pub(crate) fn build_pass_under_way(shared: &Shared) -> bool {
-    shared.build_gate.try_lock().is_err()
 }
 
 pub(crate) fn shuffled_rebuild_due(shared: &Shared, graph: &GraphTables, held: u64) -> bool {
