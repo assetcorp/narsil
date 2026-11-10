@@ -42,7 +42,8 @@ const GROWTH_MAX_DOCUMENTS: u64 = 10_000;
 const GROWTH_EXHAUSTIVE_EF: u32 = 10_000;
 const GROWTH_TARGETS_PER_READER: u64 = 32;
 const GROWTH_ROUNDS: u64 = 6;
-const GROWTH_ROUNDS_UNTIL_A_SEARCH_OVERLAPS: u64 = 30;
+const SEARCHES_PER_TARGET_VISIT: usize = 2;
+const GROWTH_CHUNK_DOCUMENTS: u64 = 1_000;
 const CHILD_DIRECTORY: &str = "NARSIL_VECTOR_BUILD_KILL_DIRECTORY";
 const CHILD_FIRST_ID: &str = "NARSIL_VECTOR_BUILD_KILL_FIRST_ID";
 const CHILD_ROUND: &str = "NARSIL_VECTOR_BUILD_KILL_ROUND";
@@ -418,31 +419,127 @@ fn buffer_during_a_pass(engine: &Narsil) -> Option<u64> {
         .map(|status| status.buffer_size)
 }
 
+#[derive(Default)]
+struct GrowthTally {
+    rounds_with_a_pass_seen: u64,
+    searches_while_building: u64,
+    searches_on_one_graph: u64,
+    compared: u64,
+    misses: Vec<String>,
+}
+
+impl GrowthTally {
+    fn add(&mut self, other: GrowthTally) {
+        self.rounds_with_a_pass_seen += other.rounds_with_a_pass_seen;
+        self.searches_while_building += other.searches_while_building;
+        self.searches_on_one_graph += other.searches_on_one_graph;
+        self.compared += other.compared;
+        self.misses.extend(other.misses);
+    }
+}
+
 #[test]
 fn searches_during_a_growth_pass_find_every_acknowledged_vector() {
     let engine = Narsil::new();
-    let mut during = 0;
-    let mut misses = Vec::new();
-    let mut round = 0;
-    while round < GROWTH_ROUNDS || (during == 0 && round < GROWTH_ROUNDS_UNTIL_A_SEARCH_OVERLAPS) {
+    let mut tally = GrowthTally::default();
+    for round in 0..GROWTH_ROUNDS {
         if round > 0 {
             engine.drop_index(INDEX).expect("the index drops");
         }
-        let (searches, missed) = growth_round(&engine, round);
-        during += searches;
-        misses.extend(missed);
-        round += 1;
+        tally.add(growth_round(&engine, round));
     }
-    assert!(during > 0, "no search ran while a pass placed vectors");
     assert!(
-        misses.is_empty(),
-        "{} of {during} searches during a pass missed an acknowledged vector, such as {:?}",
-        misses.len(),
-        misses.first()
+        tally.compared > 0,
+        "no search ran while a pass placed vectors: readers saw a pass in {} of {} reader rounds, ran {} \
+         searches while building and {} with one graph before and after",
+        tally.rounds_with_a_pass_seen,
+        READERS * GROWTH_ROUNDS,
+        tally.searches_while_building,
+        tally.searches_on_one_graph
+    );
+    assert!(
+        tally.misses.is_empty(),
+        "{} of {} searches during a pass missed an acknowledged vector, such as {:?}",
+        tally.misses.len(),
+        tally.compared,
+        tally.misses.first()
     );
 }
 
-fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
+struct SetOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for SetOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+fn wait_until_placed(engine: &Narsil) {
+    let started = Instant::now();
+    loop {
+        let statuses = engine.vector_maintenance_status(INDEX).expect("a status");
+        if statuses
+            .iter()
+            .all(|status| !status.building && status.buffer_size == 0)
+        {
+            return;
+        }
+        assert!(
+            started.elapsed() < BUILD_SETTLE_TIMEOUT,
+            "the growth pass never placed every acknowledged vector: {statuses:?}"
+        );
+        std::thread::sleep(BUILD_SETTLE_POLL);
+    }
+}
+
+fn search_during_growth(
+    engine: &Narsil,
+    targets: &[u64],
+    acknowledged: &AtomicU64,
+    settled: &AtomicBool,
+) -> GrowthTally {
+    let mut tally = GrowthTally::default();
+    let mut pass_seen = false;
+    let mut buffer_seen = None;
+    let mut found_on_this_graph = HashSet::new();
+    for &number in targets.iter().cycle() {
+        if settled.load(Ordering::Acquire) {
+            break;
+        }
+        if number >= acknowledged.load(Ordering::Acquire) {
+            continue;
+        }
+        let before = buffer_during_a_pass(engine);
+        pass_seen |= before.is_some();
+        let found = finds_itself(engine, number, GROWTH_MAX_DOCUMENTS);
+        if before.is_none() {
+            continue;
+        }
+        tally.searches_while_building += 1;
+        if before != buffer_during_a_pass(engine) {
+            continue;
+        }
+        tally.searches_on_one_graph += 1;
+        if before != buffer_seen {
+            buffer_seen = before;
+            found_on_this_graph.clear();
+        }
+        if !found_on_this_graph.contains(&number) {
+            if found {
+                found_on_this_graph.insert(number);
+            }
+            continue;
+        }
+        tally.compared += 1;
+        if !found {
+            tally.misses.push(id_of(number));
+        }
+    }
+    tally.rounds_with_a_pass_seen = u64::from(pass_seen);
+    tally
+}
+
+fn growth_round(engine: &Narsil, round_number: u64) -> GrowthTally {
     engine
         .create_index(
             INDEX,
@@ -463,65 +560,44 @@ fn growth_round(engine: &Narsil, round_number: u64) -> (u64, Vec<String>) {
         .expect("the index is created");
     insert_clustered_rows(engine, 0..GROWTH_FIRST_WAVE);
     settle_build(engine);
-    let acknowledged = AtomicBool::new(false);
-    let arriving = AtomicBool::new(true);
-    let searches_during_a_pass = AtomicU64::new(0);
-    let misses = std::sync::Mutex::new(Vec::new());
+    let acknowledged = AtomicU64::new(GROWTH_FIRST_WAVE);
+    let settled = AtomicBool::new(false);
     std::thread::scope(|scope| {
         let acknowledged = &acknowledged;
-        let arriving = &arriving;
-        let searches_during_a_pass = &searches_during_a_pass;
-        let misses = &misses;
-        for reader in 0..READERS {
-            scope.spawn(move || {
-                let targets: Vec<u64> = (0..GROWTH_TARGETS_PER_READER)
-                    .map(|at| growth_target(round_number * READERS + reader, at))
-                    .collect();
-                while !acknowledged.load(Ordering::Acquire) {
-                    std::thread::yield_now();
-                }
-                let mut buffer_seen = None;
-                let mut found_on_this_graph = HashSet::new();
-                for &number in targets.iter().cycle() {
-                    if !arriving.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let before = buffer_during_a_pass(engine);
-                    let found = finds_itself(engine, number, GROWTH_MAX_DOCUMENTS);
-                    if before.is_none() || before != buffer_during_a_pass(engine) {
-                        continue;
-                    }
-                    if before != buffer_seen {
-                        buffer_seen = before;
-                        found_on_this_graph.clear();
-                    }
-                    if !found_on_this_graph.contains(&number) {
-                        if found {
-                            found_on_this_graph.insert(number);
-                        }
-                        continue;
-                    }
-                    searches_during_a_pass.fetch_add(1, Ordering::Relaxed);
-                    if !found {
-                        misses
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .push(id_of(number));
-                    }
-                }
-            });
+        let settled = &settled;
+        let readers: Vec<_> = (0..READERS)
+            .map(|reader| {
+                scope.spawn(move || {
+                    let targets: Vec<u64> = (0..GROWTH_TARGETS_PER_READER)
+                        .map(|at| growth_target(round_number * READERS + reader, at))
+                        .flat_map(|number| std::iter::repeat_n(number, SEARCHES_PER_TARGET_VISIT))
+                        .collect();
+                    search_during_growth(engine, &targets, acknowledged, settled)
+                })
+            })
+            .collect();
+        {
+            let _settled_on_exit = SetOnDrop(settled);
+            let mut first = GROWTH_FIRST_WAVE;
+            while first < GROWTH_MAX_DOCUMENTS {
+                let end = (first + GROWTH_CHUNK_DOCUMENTS).min(GROWTH_MAX_DOCUMENTS);
+                insert_clustered_rows(engine, first..end);
+                acknowledged.store(end, Ordering::Release);
+                wait_until_placed(engine);
+                first = end;
+            }
+            settle_build(engine);
         }
-        insert_clustered_rows(engine, GROWTH_FIRST_WAVE..GROWTH_MAX_DOCUMENTS);
-        acknowledged.store(true, Ordering::Release);
-        settle_build(engine);
-        arriving.store(false, Ordering::Release);
-    });
-    (
-        searches_during_a_pass.load(Ordering::Relaxed),
-        misses
-            .into_inner()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
-    )
+        let mut tally = GrowthTally::default();
+        for reader in readers {
+            tally.add(
+                reader
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            );
+        }
+        tally
+    })
 }
 
 fn insert_clustered_rows(engine: &Narsil, rows: std::ops::Range<u64>) {
