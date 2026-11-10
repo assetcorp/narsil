@@ -12,6 +12,7 @@ import type { HNSWIndex } from '../hnsw'
 import {
   buildExclusively,
   buildGraphFromStore,
+  continueAfterGrowth,
   promoteToGraph,
   shuffledRebuildDue,
   startShuffledRebuild,
@@ -53,8 +54,7 @@ async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
   const heldWhenTheCallStarted = [...allLiveDocIds(state)]
   const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
-  await placeInGrowingCopy(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
-  startShuffledRebuild(state)
+  continueAfterGrowth(state, await placeInGrowingCopy(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced))
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {

@@ -1,6 +1,7 @@
 import { chargeHeapBytes } from '../../runtime/thread-heap'
 import type { HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
+import { admitGrowingCopy } from './memory-charge'
 import { moveOutOfBuffer } from './search-writes'
 import type { VectorIndexState } from './shared'
 import { dropSharedGraph, noteWrite, shareGraph } from './worker-copies'
@@ -43,16 +44,19 @@ function* startingWith(first: string, rest: Iterator<string>): Generator<string>
   for (let next = rest.next(); !next.done; next = rest.next()) yield next.value
 }
 
+export type GrowingCopyOutcome = 'nothingToPlace' | 'published' | 'dropped' | 'waitingForMemory'
+
 export async function placeInGrowingCopy(
   state: VectorIndexState,
   graph: HNSWIndex,
   docIds: Iterable<string>,
   admit: (docId: string) => boolean,
-): Promise<boolean> {
+): Promise<GrowingCopyOutcome> {
   const pending = docIds[Symbol.iterator]()
   let first = pending.next()
   while (!first.done && !admit(first.value)) first = pending.next()
-  if (first.done) return true
+  if (first.done) return 'nothingToPlace'
+  if (!admitGrowingCopy(state, graph)) return 'waitingForMemory'
   const copy = graph.copy()
   const chargedBytes = copy.graphBytes
   chargeHeapBytes(chargedBytes)
@@ -61,7 +65,7 @@ export async function placeInGrowingCopy(
   try {
     const placed = await insertIntoGraph(state, copy, startingWith(first.value, pending), admit)
     published = placed && !state.disposed && state.hnsw === graph && (await publishCopy(state, graph, copy))
-    return published
+    return published ? 'published' : 'dropped'
   } finally {
     if (state.growingCopy === copy) state.growingCopy = null
     chargeHeapBytes(-chargedBytes)
