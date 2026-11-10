@@ -11,7 +11,7 @@ import type { AnyDocument } from '../../types/schema'
 import { executeRetained } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
 import { releasePublicationOf, retainPublicationOf } from './publication-code'
-import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
+import type { CopyTransition, OrchestratorState, ReplicationQueue, ReplicationRun, SegmentLedgerEntry } from './types'
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
@@ -144,15 +144,44 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
 function queueFor(state: OrchestratorState, indexName: string): ReplicationQueue {
   let queue = state.replicationQueues.get(indexName)
   if (queue === undefined) {
-    queue = { tail: Promise.resolve(), inFlight: [], pendingActions: 0, pendingDocuments: 0, drainWaiters: [] }
+    queue = {
+      tail: Promise.resolve(),
+      oldestRun: undefined,
+      newestRun: undefined,
+      runsInFlight: 0,
+      pendingActions: 0,
+      pendingDocuments: 0,
+      drainWaiters: [],
+    }
     state.replicationQueues.set(indexName, queue)
   }
   return queue
 }
 
 function dispatchGate(queue: ReplicationQueue): Promise<void> {
-  if (queue.inFlight.length < REPLICATION_WINDOW) return Promise.resolve()
-  return queue.inFlight[queue.inFlight.length - REPLICATION_WINDOW]
+  if (queue.runsInFlight < REPLICATION_WINDOW) return Promise.resolve()
+  let run = queue.newestRun
+  for (let step = 1; step < REPLICATION_WINDOW && run !== undefined; step++) run = run.older
+  return run?.done ?? Promise.resolve()
+}
+
+function appendRun(queue: ReplicationQueue, done: Promise<void>): ReplicationRun {
+  const run: ReplicationRun = { done, older: queue.newestRun, newer: undefined }
+  if (queue.newestRun === undefined) queue.oldestRun = run
+  else queue.newestRun.newer = run
+  queue.newestRun = run
+  queue.runsInFlight += 1
+  return run
+}
+
+function removeRun(queue: ReplicationQueue, run: ReplicationRun): void {
+  if (run.older === undefined) queue.oldestRun = run.newer
+  else run.older.newer = run.newer
+  if (run.newer === undefined) queue.newestRun = run.older
+  else run.newer.older = run.older
+  run.older = undefined
+  run.newer = undefined
+  queue.runsInFlight -= 1
 }
 
 export function enqueueReplication(state: OrchestratorState, indexName: string, action: WorkerAction): void {
@@ -161,11 +190,13 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   const queue = queueFor(state, indexName)
   queue.pendingActions += 1
   queue.pendingDocuments += weight
-  const run: Promise<void> = dispatchGate(queue).then(async () => {
+  const gate = dispatchGate(queue)
+  const entry = appendRun(queue, gate)
+  const run: Promise<void> = gate.then(async () => {
     try {
       if (action.publication !== undefined) {
         const manager = state.executor.getManager(indexName)
-        await manager?.publication.read(() => undefined)
+        await manager?.publication.afterQueuedWrites()
         if (state.executor.getManager(indexName) !== manager) return
       }
       await dispatchToWorkers(state, action)
@@ -173,8 +204,7 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
       console.warn('Worker replication failed:', err)
     } finally {
       releasePublicationOf(action)
-      const at = queue.inFlight.indexOf(run)
-      if (at !== -1) queue.inFlight.splice(at, 1)
+      removeRun(queue, entry)
       queue.pendingActions -= 1
       queue.pendingDocuments -= weight
       if (queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS && queue.drainWaiters.length > 0) {
@@ -185,7 +215,7 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
       }
     }
   })
-  queue.inFlight.push(run)
+  entry.done = run
   queue.tail = run
 }
 
@@ -248,7 +278,9 @@ function replicationRoomWait(state: OrchestratorState, indexName: string): Promi
 }
 
 function settled(queue: ReplicationQueue): Promise<void> {
-  return Promise.all([...queue.inFlight, queue.tail]).then(() => undefined)
+  const runs: Promise<void>[] = [queue.tail]
+  for (let run = queue.oldestRun; run !== undefined; run = run.newer) runs.push(run.done)
+  return Promise.all(runs).then(() => undefined)
 }
 
 export function publicationCapacityWait(state: OrchestratorState, indexName: string): Promise<void> | null {

@@ -1,20 +1,26 @@
 import type { NativeFrozenStrings } from '../../../vector/native/types/frozen-segments'
 import { findEntry } from '../../frozen-writes/strings'
-import { compareCodePoints } from '../../ordering'
 import type { SurfaceRegistry } from '../../surface-registry'
-import { encodeStringBlob } from './string-blob'
+import { codePointOrder, encodeStringBlob } from './string-blob'
 
 export function createSurfaceRemovalState(registry: SurfaceRegistry) {
-  const forms = registry.serialize()
-  const surfaceThenToken: string[] = []
+  const surfaces: string[] = []
+  const tokens: string[] = []
   const entryCounts: number[] = []
-  for (const surface of Object.keys(forms).sort(compareCodePoints)) {
-    const value = forms[surface]
-    if (!Array.isArray(value)) continue
-    surfaceThenToken.push(surface, value[1])
-    entryCounts.push(value[0])
+  registry.forEachForm((surface, token, count) => {
+    surfaces.push(surface)
+    tokens.push(token)
+    entryCounts.push(count)
+  })
+  const order = codePointOrder(surfaces)
+  const surfaceThenToken: string[] = new Array(order.length * 2)
+  const counts = new Uint32Array(order.length)
+  for (let entry = 0; entry < order.length; entry++) {
+    const from = order[entry]
+    surfaceThenToken[entry * 2] = surfaces[from]
+    surfaceThenToken[entry * 2 + 1] = tokens[from]
+    counts[entry] = entryCounts[from]
   }
-  const counts = Uint32Array.from(entryCounts)
   const { blob, offsets } = encodeStringBlob(surfaceThenToken)
   const table: NativeFrozenStrings = { text: blob, offsets, counts }
   const removed = new Uint32Array(counts.length)

@@ -132,7 +132,7 @@ async function recordMergedDocuments(
       return applySegment(ctx, indexName, attachment, doc, options)
     })
     const failures = await recordChunk(ctx, indexName, docs, applies)
-    await ctx.orchestrator.settlePublications(indexName, true)
+    await ctx.orchestrator.settlePublications(indexName, 'segments')
 
     for (let i = 0; i < docs.length; i++) {
       const doc = docs[i]

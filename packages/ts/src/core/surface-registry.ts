@@ -17,6 +17,7 @@ export interface SurfaceRegistry extends SurfaceRegistryReader {
   adopt(reader: SurfaceRegistryReader): void
   detach(): void
   tokenOf(surface: string): string | undefined
+  forEachForm(visit: (surface: string, token: string, count: number) => void): void
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
   clear(): void
@@ -77,6 +78,18 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     tokenOf(surface: string): string | undefined {
       if (source !== null) return source.candidatesForPrefix(surface).find(entry => entry.surface === surface)?.token
       return entries.get(surface)?.token
+    },
+
+    forEachForm(visit: (surface: string, token: string, count: number) => void): void {
+      if (source === null) {
+        for (const [surface, entry] of entries) visit(surface, entry.token, entry.count)
+        return
+      }
+      const forms = source.serialize()
+      for (const surface of Object.keys(forms)) {
+        const value = forms[surface]
+        if (Array.isArray(value)) visit(surface, value[1], value[0])
+      }
     },
 
     add(surface: string, token: string, occurrences: number): void {

@@ -128,7 +128,7 @@ export class Decoder {
   private readonly ordinary = new MessagePackDecoder()
 
   decode(bytes: Uint8Array): unknown {
-    if (holdsOnlyPlainStrings(bytes, true) || !mayHoldByteOrderMark(bytes)) return this.ordinary.decode(bytes)
+    if (!mayHoldByteOrderMark(bytes) || holdsOnlyPlainStrings(bytes, true)) return this.ordinary.decode(bytes)
     const { strings, end, affected } = stringRegions(bytes, 0)
     if (end !== bytes.length) throw new RangeError('Extra bytes after a MessagePack value')
     if (!affected) return this.ordinary.decode(bytes)
@@ -137,7 +137,7 @@ export class Decoder {
   }
 
   *decodeMulti(bytes: Uint8Array): Generator<unknown, void, unknown> {
-    if (holdsOnlyPlainStrings(bytes, false) || !mayHoldByteOrderMark(bytes)) {
+    if (!mayHoldByteOrderMark(bytes) || holdsOnlyPlainStrings(bytes, false)) {
       yield* this.ordinary.decodeMulti(bytes)
       return
     }
@@ -152,8 +152,11 @@ export class Decoder {
   }
 }
 
+let sharedDecoder: Decoder | null = null
+
 export function decode(bytes: Uint8Array): unknown {
-  return new Decoder().decode(bytes)
+  sharedDecoder ??= new Decoder()
+  return sharedDecoder.decode(bytes)
 }
 
 export function decodeMulti(bytes: Uint8Array): Generator<unknown, void, unknown> {
