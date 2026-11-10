@@ -6,7 +6,7 @@ import { osqDistance, osqEstimate } from '../../vector/osq/estimate'
 import { scalarQueryProducts } from '../../vector/osq/products'
 import { createOsqScratch, osqQuantize } from '../../vector/osq/quantize'
 import { type OsqTrailer, readTrailer, stageQueryLevels } from '../../vector/osq/record'
-import { defaultEfSearch, defaultRescoreDepth } from '../../vector/search-depth'
+import { defaultEfSearch, rescoreDepth } from '../../vector/search-depth'
 import { magnitude } from '../../vector/similarity'
 import type { VectorScoredResult } from '../../vector/vector-index/shared'
 import { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
@@ -336,12 +336,7 @@ function* walkColdGraph(
   const window = options.rescoreWindow ?? k
   const codes = data.codes
   let depth = window
-  if (codes !== null) {
-    depth =
-      options.oversample === undefined
-        ? defaultRescoreDepth(codes.bits, data.dimension, window)
-        : Math.ceil(window * options.oversample)
-  }
+  if (codes !== null) depth = rescoreDepth(codes.bits, data.dimension, window, options.oversample)
   const ef = Math.max(options.efSearch ?? defaultEfSearch(data.dimension, window), depth)
   const codeRowBytes = codes === null ? null : computeCodeBlockLayout(data.dimension, codes.bits).slotStride
   const scope: WalkScope = {

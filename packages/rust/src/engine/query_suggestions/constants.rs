@@ -1,0 +1,86 @@
+pub(crate) const QUERY_HISTORY_FOLDER: &str = "_query-counts";
+pub(crate) const RESTORED_HISTORY_FOLDER: &str = "restored";
+pub(crate) const RESTORE_STAGING_INFIX: &str = ".restoring-";
+pub(crate) const BUILD_RECORD_FILE: &str = "build.nrsl";
+pub(crate) const DEFAULT_PREVIEW_LIMIT: u32 = 100;
+pub(crate) const MAX_PREVIEW_LIMIT: u32 = 1_000;
+pub(crate) const MAX_HISTORY_FILE_BYTES: u64 = 16_777_216;
+pub(crate) const MAX_INDEX_UUID_LENGTH: usize = 255;
+pub(crate) const KEY_FINGERPRINT_LABEL: &str = "narsil.query-suggestions.key";
+pub(crate) const SUGGESTIONS_INDEX_INFIX: &str = ".suggestions.";
+
+pub(crate) const MIN_KEY_BYTES: usize = 32;
+pub(crate) const SCRAMBLED_ID_BYTES: usize = 16;
+pub(crate) const KEY_FINGERPRINT_BYTES: usize = 16;
+pub(crate) const SOURCES_DIGEST_BYTES: usize = 32;
+
+pub(crate) const DEFAULT_MIN_PEOPLE: u32 = 4;
+pub(crate) const MIN_MIN_PEOPLE: u32 = 2;
+pub(crate) const MAX_MIN_PEOPLE: u32 = 4_096;
+pub(crate) const DEFAULT_MIN_RESULTS: u32 = 5;
+pub(crate) const MIN_MIN_RESULTS: u32 = 1;
+pub(crate) const MAX_MIN_RESULTS: u32 = 10_000;
+pub(crate) const DEFAULT_RETENTION_DAYS: u32 = 30;
+pub(crate) const MIN_RETENTION_DAYS: u32 = 1;
+pub(crate) const MAX_RETENTION_DAYS: u32 = 365;
+pub(crate) const DEFAULT_MAX_PHRASES_PER_DAY: u32 = 10_000;
+pub(crate) const MAX_MAX_PHRASES_PER_DAY: u32 = 16_384;
+pub(crate) const DEFAULT_MAX_PHRASES_PER_PERSON: u32 = 100;
+pub(crate) const MAX_MAX_PHRASES_PER_PERSON: u32 = 1_000;
+pub(crate) const DEFAULT_MAX_PEOPLE_PER_DAY: u32 = 100_000;
+pub(crate) const MAX_MAX_PEOPLE_PER_DAY: u32 = 100_000;
+pub(crate) const DEFAULT_MAX_GROUPS: u32 = 100;
+pub(crate) const MAX_MAX_GROUPS: u32 = 1_000;
+pub(crate) const DEFAULT_MIN_LETTERS: u32 = 4;
+pub(crate) const DEFAULT_MAX_LENGTH: u32 = 100;
+pub(crate) const MAX_MAX_LENGTH: u32 = 150;
+pub(crate) const DEFAULT_MAX_WORDS: u32 = 8;
+pub(crate) const MAX_MAX_WORDS: u32 = 50;
+pub(crate) const DEFAULT_MAX_DIGITS: u32 = 5;
+pub(crate) const DEFAULT_MAX_MERGE_PHRASES: u32 = 100_000;
+pub(crate) const MAX_MAX_MERGE_PHRASES: u32 = 500_000;
+pub(crate) const DEFAULT_MERGE_MEMORY_BYTES: u64 = 134_217_728;
+pub(crate) const MIN_MERGE_MEMORY_BYTES: u64 = 16_777_216;
+pub(crate) const MAX_MERGE_MEMORY_BYTES: u64 = 1_073_741_824;
+pub(crate) const DEFAULT_SAVE_INTERVAL_MS: u32 = 300_000;
+pub(crate) const MIN_SAVE_INTERVAL_MS: u32 = 1_000;
+pub(crate) const MAX_SAVE_INTERVAL_MS: u32 = 3_600_000;
+pub(crate) const DEFAULT_RESULT_CHECKS_PER_SECOND: u32 = 20;
+pub(crate) const MAX_RESULT_CHECKS_PER_SECOND: u32 = 1_000;
+pub(crate) const DEFAULT_SCHEDULE: &str = "0 3 * * *";
+pub(crate) const SCHEDULE_OFF: &str = "off";
+pub(crate) const DEFAULT_TIME_ZONE: &str = "UTC";
+
+pub(crate) const MAX_PERSON_PAIRS_PER_DAY: u64 = 10_000_000;
+pub(crate) const MAX_FILE_PEOPLE_PER_DAY: u64 = 65_536;
+pub(crate) const MAX_MERGE_PEOPLE: u64 = 2_097_152;
+pub(crate) const MAX_PEOPLE_PER_PHRASE_IN_FILE: usize = 4_096;
+
+pub(crate) const MAX_FIELDS: usize = 32;
+pub(crate) const MAX_SETTING_BYTES: usize = 16_384;
+pub(crate) const MAX_BANNED_PHRASES: usize = 1_000;
+pub(crate) const MAX_BAN_LIST_BYTES: usize = 262_144;
+pub(crate) const MAX_BANNED_PHRASE_CODE_POINTS: u32 = 150;
+pub(crate) const MAX_SOURCE_INDEX_NAME_LENGTH: usize = 210;
+pub(crate) const MAX_PERSON_UTF16_UNITS: usize = 256;
+pub(crate) const MAX_GROUP_LENGTH: usize = 32;
+pub(crate) const RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT: usize = 8;
+
+pub(crate) const PAIR_BLOCK_SLOTS: usize = 16;
+pub(crate) const PAIR_PAGE_BLOCKS: usize = 16_384;
+pub(crate) const MIN_PHRASE_TABLE_CAPACITY: usize = 64;
+pub(crate) const MIN_PERSON_TABLE_CAPACITY: usize = 512;
+pub(crate) const MAX_MANUAL_SUGGESTION_COUNT: u64 = 4_294_967_295;
+
+pub(crate) const MS_PER_SECOND: u64 = 1_000;
+pub(crate) const DAY_MS: i64 = 86_400_000;
+pub(crate) const HISTORY_SWEEP_INTERVAL_MS: u64 = 3_600_000;
+pub(crate) const MAX_TIMER_WAIT_MS: u64 = 60_000;
+pub(crate) const MAX_RESTORED_FILES_PER_DAY: usize = 10_000;
+pub(crate) const SCHEDULE_LOOKAHEAD_DAYS: i64 = 2_922;
+pub(crate) const MAX_SCHEDULE_LENGTH: usize = 256;
+pub(crate) const BUILD_WRITE_BATCH: usize = 500;
+pub(crate) const BUILD_LIST_PAGE: usize = 1_000;
+
+pub(crate) const MERGE_ENTRY_OVERHEAD_BYTES: u64 = 96;
+pub(crate) const MERGE_SLOT_OVERHEAD_BYTES: u64 = 1;

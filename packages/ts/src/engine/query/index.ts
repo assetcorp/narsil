@@ -14,6 +14,7 @@ import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+import { requireLoadedVectorCode } from '../../workers/vector-code'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
 import type { PagedFanOutResult } from './hybrid-depth'
@@ -52,6 +53,7 @@ function hybridSearchOf(
   offset: number,
   cursorDepth?: number,
 ): Promise<PagedFanOutResult> {
+  requireLoadedVectorCode().requireUsableVectorOptions(params.vector)
   if ((params.hybrid?.depth ?? null) === null) return executeHybridSearch(params, context, limit, offset, cursorDepth)
   return import('../../rerank/runtime').then(runtime =>
     runtime.searchFixedDepthHybrid(params, context, { cursorDepth: cursorDepth ?? 0, offset, limit }, runtimeHost),

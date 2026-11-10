@@ -175,6 +175,24 @@ describe('popular query suggestions through the HTTP server and the published cl
     ).toEqual([])
   }, 30_000)
 
+  it('refuses a ban past 1,000 phrases and a phrase that opens with a byte order mark', async () => {
+    const { client } = await serverWithCatalogue()
+    const fullList = Array.from({ length: 1_000 }, (_, at) => `banned phrase ${at}`)
+    expect(await client.replaceQueryBans(SOURCE, fullList)).toHaveLength(1_000)
+
+    await expect(client.removeQuery(SOURCE, 'trail shoes')).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(await client.readQueryBans(SOURCE)).toEqual(fullList)
+    expect(await client.removeQuery(SOURCE, 'Banned  Phrase 7')).toBe(0)
+    expect(await client.readQueryBans(SOURCE)).toEqual(fullList)
+
+    const byteOrderMark = '﻿trail shoes'
+    await expect(client.replaceQueryBans(SOURCE, [byteOrderMark])).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    await expect(client.removeQuery(SOURCE, byteOrderMark)).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(await client.readQueryBans(SOURCE)).toEqual(fullList)
+    const recorded = await client.recordQuery(SOURCE, byteOrderMark, { headers: { 'x-person': 'person-1' } })
+    expect(recorded.outcome).toBe('invalid')
+  }, 30_000)
+
   it('keeps the counts of the day across a restart', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'narsil-popular-restart-'))
     directories.push(directory)

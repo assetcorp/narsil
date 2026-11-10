@@ -1,3 +1,7 @@
+export const MIN_EF_SEARCH = 1
+export const MAX_EF_SEARCH = 10_000
+export const OVERSAMPLED_DEPTH_CAP = 10_000
+
 export const NARROW_DIMENSION_LIMIT = 768
 export const WIDE_DIMENSION_LIMIT = 1024
 

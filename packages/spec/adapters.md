@@ -202,6 +202,7 @@ TokenResult {
 - It receives the raw field text and returns `{ token, position }` pairs.
 - `token` is the normalised, analysis-ready token, lower-cased and stemmed as the domain requires.
 - `position` is the token's position in the text, numbered from zero, which highlighting and phrase matching read.
+- Narsil must refuse a result whose `token` is not a string or whose `position` is not a whole number from 0 to 4,294,967,295. It must raise `DOC_VALIDATION_FAILED` for a document, storing nothing from that document, and `CONFIG_INVALID` for a query. A [keyword segment](envelope.md#keyword-segment-payload) stores each position in 32 bits, so a larger position can wrap when a checkpoint saves it, and a phrase can then match differently once the index opens again.
 - With a custom tokeniser configured, Narsil skips its whole standard pipeline, meaning NFC normalisation, lower-casing, splitting, stop word removal, and stemming, and calls this function instead.
 - The same tokeniser runs for indexing and for querying, so a token produced at index time must match the token produced at query time for the same input.
 
@@ -373,6 +374,7 @@ EmbeddingAdapter {
 - `purpose` says whether the input is a document being indexed or a query being searched. An asymmetric model, such as E5, BGE, Nomic, or a Cohere or Google Vertex AI model, uses it to apply the prefix or parameter that produces a different vector for a document than for a query. A symmetric model, such as MiniLM or GTE, ignores it.
 - `cancel` is an optional cancellation token for cooperative cancellation, and a cancelled call returns an abort error. Narsil passes a token during shutdown so that in-flight requests stop. Each runtime supplies its own mechanism for this.
 - A failure returns an error, which Narsil wraps in `EMBEDDING_FAILED`.
+- Narsil must also raise `EMBEDDING_FAILED` when a vector that the adapter returns holds an element that is infinite or NaN, for a document and for a query alike.
 
 ### embedBatch(inputs, purpose, cancel), optional
 

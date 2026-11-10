@@ -5,8 +5,8 @@ import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '..
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
 import type { FilterSubset } from '../../vector/filter-ordinals'
-import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 import type { VectorSearcher, VectorSearchOptions, VectorSearchOutcome } from '../../vector/vector-index'
+import { requireLoadedVectorCode } from '../../workers/vector-code'
 import { collectFilterSubsets, filterSubsetsMatchNothing, searchCurrentSubsets } from './filter-subsets'
 import {
   bm25SettingFor,
@@ -18,19 +18,6 @@ import {
   searchOptionsFor,
   vectorResultsToScored,
 } from './shared'
-
-export function oversampleOf(vectorConfig: VectorQueryConfig): number | undefined {
-  const oversample: unknown = vectorConfig.oversample
-  if (oversample === undefined) return undefined
-  if (typeof oversample !== 'number' || !Number.isFinite(oversample) || oversample < MIN_OVERSAMPLE) {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      `vector.oversample must be a finite number of at least ${MIN_OVERSAMPLE}`,
-      { oversample },
-    )
-  }
-  return oversample
-}
 
 export function vectorFetchDepth(limit: number, offset: number, cursorDepth: number): number {
   const reach = cursorDepth + offset + limit
@@ -71,7 +58,7 @@ function searchField(
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     efSearch: vectorConfig.efSearch,
-    oversample: oversampleOf(vectorConfig),
+    oversample: vectorConfig.oversample,
     ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
   }
   if (filtered !== undefined) {
@@ -95,6 +82,7 @@ export async function executeVectorSearch(
   cursorDepth = 0,
 ): Promise<FanOutResult> {
   const vectorConfig = params.vector
+  requireLoadedVectorCode().requireUsableVectorOptions(vectorConfig)
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
   }

@@ -7,7 +7,7 @@ import { noteFallback } from '../native/backend'
 import { type NativeField, nativeFieldFor } from '../native/field'
 import { nativeRescoredHits, nativeTraverse } from '../native/walk'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
-import { defaultEfSearch, defaultRescoreDepth } from '../search-depth'
+import { defaultEfSearch, rescoreDepth } from '../search-depth'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
 import { searchLayer } from './graph-ops'
@@ -57,12 +57,7 @@ export function searchDepths(state: HNSWSearchState, k: number, options: GraphSe
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
   const window = options.rescoreWindow ?? k
   let depth = window
-  if (quantizer !== undefined) {
-    depth =
-      options.oversample === undefined
-        ? defaultRescoreDepth(quantizer.bits, state.dimension, window)
-        : Math.ceil(window * options.oversample)
-  }
+  if (quantizer !== undefined) depth = rescoreDepth(quantizer.bits, state.dimension, window, options.oversample)
   const ef = Math.max(options.efSearch ?? defaultEfSearch(state.dimension, window), depth)
   return { ef, depth, useQuantized: quantizer !== undefined }
 }
