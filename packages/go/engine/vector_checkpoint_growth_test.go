@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ const (
 	growthPromotionThreshold = 1_000
 	growthBaseDocuments      = 1_500
 	growthInsertBatch        = 250
+	growthFeedLevel          = 2 * growthPromotionThreshold
 	growthRounds             = 12
 	growthVectorSeed         = 174_423
 	growthStatusPoll         = 100 * time.Microsecond
@@ -85,21 +87,54 @@ func untilGrowthStatus(narsil *engine.Narsil, reached func(status engine.VectorM
 	return engine.VectorMaintenanceResult{}, errors.New("the vector field never reached the awaited build state")
 }
 
-func checkpointInsideGrowthPass(ctx context.Context, narsil *engine.Narsil) (bool, error) {
-	before, err := untilGrowthStatus(narsil, func(status engine.VectorMaintenanceResult) bool {
-		return status.Building || status.BufferSize == 0
-	})
-	if err != nil || !before.Building || before.BufferSize == 0 {
-		return false, err
+func feedGrowth(ctx context.Context, narsil *engine.Narsil, inserted *atomic.Int64, stop *atomic.Bool) error {
+	for !stop.Load() {
+		status, err := growthStatus(narsil)
+		if err != nil {
+			return err
+		}
+		if status.BufferSize >= growthFeedLevel {
+			time.Sleep(growthStatusPoll)
+			continue
+		}
+		if err := insertGrowthSlots(ctx, narsil, int(inserted.Load()), growthPromotionThreshold); err != nil {
+			return err
+		}
+		inserted.Add(growthPromotionThreshold)
 	}
-	if err := narsil.Checkpoint(ctx, growthIndexName); err != nil {
-		return false, err
+	return nil
+}
+
+type growthCheckpoint struct {
+	acknowledged int
+	mayHold      int
+	saved        savedGraphCounts
+}
+
+func checkpointWhileTheGraphGrows(ctx context.Context, narsil *engine.Narsil, node string, directory string,
+	inserted *atomic.Int64) (growthCheckpoint, error) {
+	var stop atomic.Bool
+	fed := make(chan error, 1)
+	go func() { fed <- feedGrowth(ctx, narsil, inserted, &stop) }()
+	_, err := untilGrowthStatus(narsil, func(status engine.VectorMaintenanceResult) bool { return status.Building })
+	taken := growthCheckpoint{acknowledged: int(inserted.Load())}
+	if err == nil {
+		err = narsil.Checkpoint(ctx, growthIndexName)
 	}
-	after, err := growthStatus(narsil)
-	return after.Building && after.BufferSize > 0, err
+	stop.Store(true)
+	if err := errors.Join(err, <-fed); err != nil {
+		return taken, err
+	}
+	taken.mayHold = int(inserted.Load())
+	taken.saved, err = savedGraphOf(node, directory, growthIndexName)
+	return taken, err
 }
 
 func runGrowthCheckpointChild(directory string, readyPath string) error {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	narsil, err := growthEngine(ctx, directory)
 	if err != nil {
@@ -121,18 +156,19 @@ func runGrowthCheckpointChild(directory string, readyPath string) error {
 	if err := narsil.Checkpoint(ctx, growthIndexName); err != nil {
 		return err
 	}
-	inserted := growthBaseDocuments
-	for range growthRounds {
-		if err := insertGrowthSlots(ctx, narsil, inserted, growthPromotionThreshold); err != nil {
-			return err
-		}
-		inserted += growthPromotionThreshold
-		inside, err := checkpointInsideGrowthPass(ctx, narsil)
+	var inserted atomic.Int64
+	inserted.Store(growthBaseDocuments)
+	for round := range growthRounds {
+		taken, err := checkpointWhileTheGraphGrows(ctx, narsil, node, directory, &inserted)
 		if err != nil {
 			return err
 		}
-		if inside {
-			if err := os.WriteFile(readyPath+".partial", []byte(strconv.Itoa(inserted)), 0o644); err != nil {
+		if wrong := savedVectorsOutsideTheirBounds(round, taken.saved, taken.acknowledged, taken.mayHold); wrong != "" {
+			return errors.New(wrong)
+		}
+		if taken.saved.LiveWithoutNode > 0 {
+			counts := fmt.Sprintf("%d %d", taken.acknowledged, taken.mayHold)
+			if err := os.WriteFile(readyPath+".partial", []byte(counts), 0o644); err != nil {
 				return err
 			}
 			if err := os.Rename(readyPath+".partial", readyPath); err != nil {
@@ -146,10 +182,10 @@ func runGrowthCheckpointChild(directory string, readyPath string) error {
 			return err
 		}
 	}
-	return fmt.Errorf("no checkpoint was taken inside a growth pass in %d passes", growthRounds)
+	return fmt.Errorf("no checkpoint saved vectors waiting outside the graph in %d rounds", growthRounds)
 }
 
-func documentsHeldWhenTheChildStopped(t *testing.T, directory string) int {
+func documentsHeldWhenTheChildStopped(t *testing.T, directory string) (int, int) {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -180,17 +216,17 @@ func documentsHeldWhenTheChildStopped(t *testing.T, directory string) int {
 			if strings.Contains(stderr.String(), "DATA RACE") {
 				t.Fatalf("the race detector reported a race in the child:\n%s", stderr.String())
 			}
-			inserted, err := strconv.Atoi(string(data))
-			if err != nil {
+			var acknowledged, inserted int
+			if _, err := fmt.Sscan(string(data), &acknowledged, &inserted); err != nil {
 				t.Fatalf("the child reported %q documents: %v", data, err)
 			}
-			return inserted
+			return acknowledged, inserted
 		}
 		time.Sleep(growthReadyPoll)
 	}
 	_ = child.Process.Kill()
-	t.Fatalf("the child took no checkpoint inside a growth pass:\n%s", stderr.String())
-	return 0
+	t.Fatalf("the child took no checkpoint while the graph grew:\n%s", stderr.String())
+	return 0, 0
 }
 
 func requireEveryVectorFindsItself(t *testing.T, label string, narsil *engine.Narsil, live map[string][]float32) {
@@ -238,11 +274,13 @@ func TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGr
 	t.Parallel()
 	node := nodeForSavedGraphs(t)
 	directory := t.TempDir()
-	inserted := documentsHeldWhenTheChildStopped(t, directory)
+	acknowledged, inserted := documentsHeldWhenTheChildStopped(t, directory)
 	saved := readSavedGraph(t, node, directory, growthIndexName)
-	if saved.LiveWithoutNode == 0 || saved.UnreachedLiveNodes > 0 || saved.LiveNodes+saved.LiveWithoutNode != inserted {
-		t.Fatalf("the checkpoint taken inside a growth pass saved %d placed and %d waiting vectors of the %d acknowledged, and %d placed vectors that its graph never reaches",
-			saved.LiveNodes, saved.LiveWithoutNode, inserted, saved.UnreachedLiveNodes)
+	if wrong := savedVectorsOutsideTheirBounds(0, saved, acknowledged, inserted); wrong != "" {
+		t.Fatal(wrong)
+	}
+	if saved.LiveWithoutNode == 0 {
+		t.Fatalf("the checkpoint taken while the graph grew saved %d placed vectors and none waiting outside the graph", saved.LiveNodes)
 	}
 	live := make(map[string][]float32, inserted)
 	for slot := range inserted {
