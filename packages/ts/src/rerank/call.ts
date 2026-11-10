@@ -1,5 +1,5 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { RerankAdapter } from '../types/adapters'
+import { ErrorCodes, NarsilError } from './rerank-host-bindings'
 
 function unregistered(adapters: ReadonlyMap<string, RerankAdapter>, name: string): NarsilError {
   const registered = [...adapters.keys()].sort()
@@ -133,9 +133,18 @@ export interface RerankHost {
   readonly abortController: AbortController
 }
 
-export function rerankOnHost(host: RerankHost, name: string, query: string, documents: string[]): Promise<number[]> {
+export function rerankOnHost(
+  host: RerankHost,
+  name: string,
+  query: string,
+  documents: string[],
+  signal?: AbortSignal,
+): Promise<number[]> {
   return callRerankAdapter(host.rerankAdapters, name, query, documents, {
     timeoutMs: host.rerankSettings.timeoutMs,
-    signal: host.abortController.signal,
+    signal:
+      signal === undefined || signal === host.abortController.signal
+        ? host.abortController.signal
+        : AbortSignal.any([host.abortController.signal, signal]),
   })
 }

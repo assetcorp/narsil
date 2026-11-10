@@ -1,6 +1,8 @@
 import type { FilterExpression } from '../../types/filters'
 import type { SerializedPatternIndex } from '../../types/internal'
 import type { PatternSearch } from '../../types/pattern'
+import type { NativeStoredValues } from '../../vector/native/types/stored-values'
+import type { DocumentStoreReader } from '../document-store'
 import type { SearchClock } from '../search-clock'
 
 export interface PatternIndexArrays {
@@ -12,6 +14,7 @@ export interface PatternIndexArrays {
 }
 
 export interface PatternIndexReader {
+  regions(): PatternIndexArrays
   documents(): Uint32Array
   postings(first: number, second: number, third: number): Uint32Array
   toArrays(fieldPath: string, remap: Int32Array | null): PatternIndexArrays
@@ -49,6 +52,8 @@ export interface PatternWorkMeter {
   readonly matcherStateBytes: number
   readonly flushUnits: number
   add(units: number): void
+  nativeWork<T>(call: (counter: BigInt64Array) => T): T
+  stopFlag(): Uint32Array
   remaining(): number
   readonly preparedTypoTests: SharedArrayBuffer | null
   readonly filters: FilterExpression | undefined
@@ -70,7 +75,7 @@ export interface PatternMatchRequest {
   readonly matches: Uint32Array
   readonly meter: PatternWorkMeter
   readonly host: PatternHost
-  valueOf(ordinal: number): unknown
+  readonly values: NativeStoredValues
 }
 
 export interface PatternMergeInput {
@@ -79,6 +84,7 @@ export interface PatternMergeInput {
 }
 
 export interface PatternSearchModule extends PatternSearch {
+  storedValues(store: DocumentStoreReader, field: string): NativeStoredValues
   createIndex(host: PatternHost): PatternIndexWriter
   readArrays(arrays: PatternIndexArrays): PatternIndexReader
   mergeArrays(fieldPath: string, inputs: readonly PatternMergeInput[]): PatternIndexArrays

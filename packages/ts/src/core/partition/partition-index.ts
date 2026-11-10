@@ -4,6 +4,7 @@ import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
+import type { PrefixCompletion } from '../expansion/host'
 import type { ComparableSortValue, SortMode } from '../ordering'
 import type { PatternWorkMeter } from '../pattern-index/types'
 import type { ResolvedProjection } from '../projection'
@@ -30,7 +31,7 @@ export interface PartitionIndex {
     schema: SchemaDefinition,
     language: LanguageModule,
     options?: PartitionInsertOptions,
-  ): void
+  ): AnyDocument
   remove(
     docId: string,
     schema: SchemaDefinition,
@@ -40,7 +41,6 @@ export interface PartitionIndex {
   ): void
   beginBatch(): void
   endBatch(): void
-  mergeSegment(segment: PartitionIndex): void
   encodeSegment(): SegmentPayload
   mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   update(
@@ -50,7 +50,7 @@ export interface PartitionIndex {
     language: LanguageModule,
     options?: PartitionInsertOptions,
     removedSpellings?: RemovedSpellings,
-  ): void
+  ): AnyDocument
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
@@ -77,7 +77,7 @@ export interface PartitionIndex {
   filterMatches(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): PartitionFilterMatches
   computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
-  expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
+  expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): PrefixCompletion[]
   expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][]
   preparePartialWords(analysis: PartialWordAnalysis): void
 
@@ -89,6 +89,11 @@ export interface PartitionIndex {
     totalPartitions: number,
     language: string,
     schema: SchemaDefinition,
+    serializePartition: typeof import('./serialization').serializePartition,
   ): SerializablePartition
-  deserialize(data: SerializablePartition, schema: SchemaDefinition): void
+  deserialize(
+    data: SerializablePartition,
+    schema: SchemaDefinition,
+    deserializePartition: typeof import('./serialization').deserializePartition,
+  ): void
 }

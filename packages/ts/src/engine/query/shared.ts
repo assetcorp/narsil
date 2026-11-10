@@ -2,26 +2,27 @@ import type { PartitionIndex } from '../../core/partition'
 import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { mergeBM25Levels } from '../../core/scorer'
 import type { SearchClock } from '../../core/search-clock'
+import { signalOfSearch } from '../../core/search-stop'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { validatedFilterOf } from '../../filters/operands'
-import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
+import { validQueryFilter } from '../../filters/query'
+import { pruneStatsToTokens, queryStatTokens } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
+import type { StatePin } from '../../partitioning/manager/state-pins'
 import { partitionsIn } from '../../partitioning/partition-selection'
-import { flattenSchema } from '../../schema/validator'
 import type { CursorBinding } from '../../search/cursor-binding'
-import type { FulltextSearchOptions } from '../../search/fulltext'
+import type { FulltextSearchOptions, ScanTurns } from '../../search/fulltext'
 import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import { requireUsableQueryFields } from '../../search/query-fields'
-import { requireSortableFields } from '../../search/sorting'
+import { requireSortableFields } from '../../search/sorting-code'
 import { requireValidTypoTolerance } from '../../search/typo-tolerance'
-import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
 import type { BM25Params, IndexConfig } from '../../types/schema'
 import type { QueryParams, SearchMode } from '../../types/search'
 import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
+import type { WorkerHitReads } from '../../workers/protocol'
 
 export interface RerankRunner {
   maxWindow: number
@@ -39,10 +40,16 @@ export interface QueryContext {
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
     bm25: BM25Params | undefined,
+    reads?: WorkerHitReads,
   ) => Promise<FanOutResult | null>
+  /** The state that the search answers from, which every read of a hit's document goes through. */
+  pin?: StatePin
+  releaseRetrieval?: () => void
+  /** How a scan of the main copy shares the thread with writes while the search answers from the pinned state. */
+  turns?: ScanTurns
   indexName: string
   indexBm25?: BM25Params
-  broadcastStats?: (indexName: string) => GlobalStatistics | undefined
+  broadcastStats?: (indexName: string, tokens: ReadonlySet<string>) => GlobalStatistics | undefined
   partitionIds?: number[]
   rescoreWindow?: number
   cursorBinding: CursorBinding
@@ -58,8 +65,15 @@ export interface SearchContext extends QueryContext {
   readonly patternWork: SearchPatternWork
 }
 
+export interface PinnedQueryContext extends QueryContext {
+  pin: StatePin
+}
+
 export function withPatternWork(context: QueryContext): SearchContext {
-  return { ...context, patternWork: createPatternWorkMeter(context.patternWorkCap, context.clock) }
+  return {
+    ...context,
+    patternWork: createPatternWorkMeter(context.patternWorkCap, context.clock, signalOfSearch(context.turns)),
+  }
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
@@ -132,27 +146,35 @@ export function scoringConfigFor(params: QueryParams, context: QueryContext): Fa
   if (scoringMode !== 'broadcast') {
     return { scoringMode, partitionIds: context.partitionIds }
   }
-  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName), partitionIds: context.partitionIds }
+  const broadcastStats = context.broadcastStats
+  if (broadcastStats === undefined) {
+    return { scoringMode, globalStats: undefined, partitionIds: context.partitionIds }
+  }
+  const tokens = statTokensOf(params, context)
+  const stats = broadcastStats(context.indexName, tokens)
+  return {
+    scoringMode,
+    globalStats: stats === undefined ? undefined : pruneStatsToTokens(stats, tokens),
+    partitionIds: context.partitionIds,
+  }
 }
 
-export function broadcastStatsForWorker(
-  params: QueryParams,
-  context: QueryContext,
-  scoring: FanOutConfig,
-): GlobalStatistics | undefined {
-  if (scoring.scoringMode !== 'broadcast' || scoring.globalStats === undefined) {
-    return undefined
-  }
+function statTokensOf(params: QueryParams, context: QueryContext): Set<string> {
   const term = params.term
-  if (term === undefined || term.trim().length === 0) {
-    return undefined
-  }
+  if (term === undefined || term.trim().length === 0) return new Set()
   const { manager } = context
   const analysis = { ...manager.analysis, synonyms: manager.synonyms }
-  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, analysis, {
+  return queryStatTokens(term, context.language, analysis, {
     partitions: partitionsFor(manager, context.partitionIds),
     expansion: { options: params, schema: context.config.schema },
   })
+}
+
+export function broadcastStatsForWorker(params: QueryParams, scoring: FanOutConfig): GlobalStatistics | undefined {
+  if (scoring.scoringMode !== 'broadcast') return undefined
+  const term = params.term
+  if (term === undefined || term.trim().length === 0) return undefined
+  return scoring.globalStats
 }
 
 export function bm25SettingFor(params: QueryParams, context: QueryContext): BM25Params | undefined {
@@ -167,6 +189,7 @@ export function searchOptionsFor(params: QueryParams, context: SearchContext): F
     customTokenizer: manager.analysis.customTokenizer,
     synonyms: manager.synonyms,
     patternWork,
+    turns: context.turns,
   }
 }
 
@@ -216,14 +239,6 @@ export function validQueryParams(params: QueryParams, config: IndexConfig): Quer
   const filters = validQueryFilter(params.filters, config.schema)
   requireUsableQueryFields(params, config.schema, strict)
   return filters === params.filters ? params : { ...params, filters }
-}
-
-export function validQueryFilter(
-  filters: FilterExpression | undefined,
-  schema: IndexConfig['schema'],
-): FilterExpression | undefined {
-  if (filters === undefined || filters === null) return filters
-  return validatedFilterOf(filters, flattenSchema(schema))
 }
 
 export function requireUsablePhrases(params: QueryParams, context: QueryContext): void {

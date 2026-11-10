@@ -1,9 +1,8 @@
-import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
-import type { InsertOptions } from '../../types/schema'
-import { insertDocumentVectors } from '../vector-coordinator'
-import type { MutationContext } from './context'
+import { admitInsert, indexChangeOutsideExternalWaits, insertDocumentVectors } from '#platform/optional-writes-host'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { ApplyMutation, MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-import { admitInsert } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { recordChunk } from './record-batch'
 
@@ -13,37 +12,46 @@ export type InsertApplication =
   | { status: 'skipped' }
   | { status: 'failed'; error: unknown }
 
-interface InsertProgress {
+export interface InsertProgress {
+  appliedRef?: AnyDocument
+  preparedText?: PreparedTextChange
   inserted: boolean
   buffered: boolean
   skipped: boolean
 }
 
-function applyOf(
+export function applyInsertDocument(
   ctx: MutationContext,
   indexName: string,
   doc: AdmittedInsert,
   options: InsertOptions | undefined,
   progress: InsertProgress,
-): () => Promise<void> {
+): ApplyMutation {
   const manager = ctx.requireManager(indexName)
-  const insertIntoIndex = async (): Promise<void> => {
+  const insertIntoIndex = () => {
     if (ctx.abortController.signal.aborted) {
       progress.skipped = true
       throw ctx.abortController.signal.reason
     }
     admitInsert(ctx, indexName, manager, doc.docId)
-    if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: doc.docId, document: doc.document, indexName })) {
-      progress.buffered = true
-      return
-    }
-    await ctx.executor.execute({
-      type: 'insert',
-      indexName,
+    const queued = ctx.bufferIfRebalancing(indexName, {
+      action: 'insert',
       docId: doc.docId,
-      document: doc.partitionDoc,
-      requestId: doc.docId,
+      document: doc.document,
+      indexName,
+    })
+    if (queued !== undefined) {
+      progress.buffered = true
+      return queued
+    }
+    const stored = manager.insert(doc.docId, doc.partitionDoc, {
       skipClone: doc.extractedVectors.size > 0 ? true : options?.skipClone,
+      onPreparedText:
+        doc.extractedVectors.size > 0 || ctx.durability !== null
+          ? change => {
+              progress.preparedText = change
+            }
+          : undefined,
     })
     progress.inserted = true
     try {
@@ -55,7 +63,7 @@ function applyOf(
       )
     } catch (vecErr) {
       try {
-        await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })
+        manager.remove(doc.docId, undefined, { preparedText: { before: progress.preparedText?.after } })
         progress.inserted = false
       } catch (rollbackErr) {
         console.warn(
@@ -65,8 +73,18 @@ function applyOf(
       }
       throw vecErr
     }
+    if (ctx.durability === null) progress.preparedText = undefined
+    else progress.appliedRef = stored
+    ctx.orchestrator.publishToWorkers({
+      type: 'insert',
+      indexName,
+      docId: doc.docId,
+      document: doc.partitionDoc,
+      requestId: `replicate-insert-${doc.docId}`,
+      skipClone: options?.skipClone,
+    })
   }
-  return indexChangeOutsideExternalWaits(insertIntoIndex)
+  return () => manager.publication.write(indexChangeOutsideExternalWaits(insertIntoIndex))
 }
 
 export async function applyInsertChunk(
@@ -76,8 +94,9 @@ export async function applyInsertChunk(
   options: InsertOptions | undefined,
 ): Promise<InsertApplication[]> {
   const progress: InsertProgress[] = docs.map(() => ({ inserted: false, buffered: false, skipped: false }))
-  const applies = docs.map((doc, i) => applyOf(ctx, indexName, doc, options, progress[i]))
+  const applies = docs.map((doc, i) => applyInsertDocument(ctx, indexName, doc, options, progress[i]))
   const failures = await recordChunk(ctx, indexName, docs, applies)
+  await ctx.orchestrator.settlePublications(indexName)
 
   const applications: InsertApplication[] = []
   for (let i = 0; i < docs.length; i++) {
@@ -90,7 +109,15 @@ export async function applyInsertChunk(
       let error = failure.error
       if (ctx.durability) {
         try {
-          await rollbackInsertedDocument(ctx, indexName, docs[i].docId, progress[i].inserted, error)
+          await rollbackInsertedDocument(
+            ctx,
+            indexName,
+            docs[i].docId,
+            progress[i].inserted,
+            error,
+            progress[i].preparedText,
+            progress[i].appliedRef,
+          )
         } catch (rollbackError) {
           error = rollbackError
         }

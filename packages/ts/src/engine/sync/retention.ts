@@ -1,7 +1,7 @@
+import { emitEngineEvent } from '#platform/storage-host'
 import { unrefInterval } from '../../persistence/durability/directory-watch'
 import { DEFAULT_HISTORY_MAX_AGE_MS } from '../../persistence/durability/sync/constants'
 import type { EngineCore } from '../core'
-import { emitEngineEvent } from '../events'
 import { publishedArchiveLayout } from './archive'
 import { HISTORY_SWEEP_INTERVAL_MS } from './constants'
 import { publishedSyncSnapshot } from './snapshot'

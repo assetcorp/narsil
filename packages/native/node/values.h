@@ -23,6 +23,7 @@ typedef struct {
   napi_value *keyword_length_values;
   uint32_t keyword_length_capacity;
   int keyword_scoring;
+  struct segment_view *segment_view;
 } thread_state;
 
 napi_value throw_error(napi_env env, const char *message);

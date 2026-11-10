@@ -210,6 +210,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -311,7 +312,14 @@ export type HttpCreateIndexBody = Omit<CreateIndexRequest, 'config'> & {
 };
 
 // @public
-export type HttpGroupResult = Omit<GroupResult, 'reduced' | 'reducerError'>;
+export type HttpGroupResult = Omit<GroupResult, 'hits' | 'reduced' | 'reducerError'> & {
+    hits: HttpHit[];
+};
+
+// @public
+export type HttpHit = Omit<Hit, 'score'> & {
+    score?: HttpScore;
+};
 
 // @public
 export type HttpIndexBody = Omit<HttpIndexConfig, 'schema' | 'partitions' | 'vectorPromotion'> & {
@@ -350,9 +358,13 @@ export type HttpQueryParams = Omit<QueryParams, 'group'> & {
 };
 
 // @public
-export type HttpQueryResult = Omit<QueryResult, 'groups'> & {
+export type HttpQueryResult = Omit<QueryResult, 'hits' | 'groups'> & {
+    hits: HttpHit[];
     groups?: HttpGroupResult[];
 };
+
+// @public
+export type HttpScore = number | 'NaN' | 'Infinity' | '-Infinity';
 
 // @public
 export function httpStatusForNarsilError(code: string): number;

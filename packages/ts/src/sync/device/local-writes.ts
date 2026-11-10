@@ -1,9 +1,8 @@
-import { decode } from '@msgpack/msgpack'
 import { getNestedValue } from '../../core/partition/utils'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
-import { encodeDocument } from '../../serialization/document-encoding'
-import { restoreVectorFields, setNestedValue, vectorFieldPathsOfSchema } from '../../serialization/vector-field-bytes'
+import { extractVectorFieldsFromSchema } from '../../schema/validator/schema'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import type { AnyDocument } from '../../types/schema'
 import type { KeptEntry, QueuedWrite } from './types'
 
@@ -11,12 +10,13 @@ const NO_VECTOR_FIELDS: ReadonlySet<string> = new Set()
 
 function vectorFieldPathsOf(engine: Narsil, indexName: string): ReadonlySet<string> {
   if (!holdsIndex(engine, indexName)) return NO_VECTOR_FIELDS
-  return vectorFieldPathsOfSchema(engine.getStats(indexName).schema)
+  return new Set(extractVectorFieldsFromSchema(engine.getStats(indexName).schema).keys())
 }
 
 function decodedDocument(bytes: Uint8Array, vectorFieldPaths: ReadonlySet<string>): Record<string, unknown> {
-  const document = decode(bytes) as Record<string, unknown>
-  restoreVectorFields(document, vectorFieldPaths)
+  const code = requireLoadedMessagePack()
+  const document = code.decode(bytes) as Record<string, unknown>
+  code.restoreVectorFields(document, vectorFieldPaths)
   return document
 }
 
@@ -25,11 +25,12 @@ export function documentOfEntry(engine: Narsil, indexName: string, bytes: Uint8A
 }
 
 export function portableCopyOf(engine: Narsil, indexName: string, document: AnyDocument): AnyDocument {
+  const code = requireLoadedMessagePack()
   const vectorFieldPaths = vectorFieldPathsOf(engine, indexName)
-  const copy = decodedDocument(encodeDocument(document), vectorFieldPaths)
+  const copy = decodedDocument(code.encodeDocument(document), vectorFieldPaths)
   for (const fieldPath of vectorFieldPaths) {
     const vector = getNestedValue(copy, fieldPath)
-    if (vector instanceof Float32Array) setNestedValue(copy, fieldPath, Array.from(vector))
+    if (vector instanceof Float32Array) code.setNestedValue(copy, fieldPath, Array.from(vector))
   }
   return copy as AnyDocument
 }
@@ -75,7 +76,7 @@ async function holdsSameDocument(
 ): Promise<boolean> {
   const held = await engine.get(indexName, documentId)
   if (encoded === null || held === undefined) return encoded === null && held === undefined
-  return bytesEqual(encodeDocument(held), encoded)
+  return bytesEqual(requireLoadedMessagePack().encodeDocument(held), encoded)
 }
 
 export async function applyEntryLocally(engine: Narsil, indexName: string, entry: KeptEntry): Promise<void> {
@@ -92,7 +93,8 @@ export async function applyWriteLocally(engine: Narsil, indexName: string, write
     await removeLocally(engine, indexName, write.documentId)
     return
   }
-  if (await holdsSameDocument(engine, indexName, write.documentId, encodeDocument(write.document))) return
+  const encoded = requireLoadedMessagePack().encodeDocument(write.document)
+  if (await holdsSameDocument(engine, indexName, write.documentId, encoded)) return
   await putLocally(engine, indexName, write.documentId, write.document)
 }
 

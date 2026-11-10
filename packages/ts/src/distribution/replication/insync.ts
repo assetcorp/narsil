@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
 import { rewriteForCurrentIndex } from '../cluster/table-identity'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'

@@ -1,6 +1,4 @@
-import { requireValidFieldTypes } from '../../../schema/validator/schema'
-import { VECTOR_FILE_MAX_VECTORS } from '../../../vector/vector-index/checkpoint-payload'
-import { deadBytesFor } from '../../../vector/vector-index/dead-bits'
+import { deadBytesFor, requireValidFieldTypes, VECTOR_FILE_MAX_VECTORS } from '#platform/storage-host'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import { MAX_SEGMENTS_PER_PARTITION } from '../segment/manifest'
 import { invalidManifest, isId, isRecord, isSequenceNumber, isUint32 } from '../segment/manifest-fields'

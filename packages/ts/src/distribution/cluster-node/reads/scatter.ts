@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { AllocationTable } from '../../coordinator/types'
 import { sendToEveryPartition } from '../../query/failover'
 import { randomSelector, selectReplicasForQuery } from '../../query/selection'

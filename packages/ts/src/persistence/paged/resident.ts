@@ -1,10 +1,15 @@
-import { decode } from '@msgpack/msgpack'
-import { generateId } from '../../core/id-generator'
+import {
+  compareCodePoints,
+  crc32,
+  decode,
+  ErrorCodes,
+  generateId,
+  HEADER_SIZE,
+  NarsilError,
+  readHeader,
+  VECTOR_PATTERN,
+} from '#platform/storage-host'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { VECTOR_PATTERN } from '../../schema/validator/shared'
-import { crc32 } from '../../serialization/crc32'
-import { HEADER_SIZE, readHeader } from '../../serialization/header'
 import {
   type ColumnContext,
   decodeBooleanColumns,
@@ -17,15 +22,19 @@ import {
 } from '../../serialization/keyword-segment/decode-columns'
 import { uint32sFrom } from '../../serialization/keyword-segment/little-endian'
 import { requireEntriesAscend, requireOffsets, requireUtf8Entries } from '../../serialization/keyword-segment/validate'
+import { requireBlockSummaryList, requirePagedColumnLengths } from './column-layout'
 import {
   BLOCK_SUMMARY_BYTES,
   DOCUMENT_BLOCK_BYTES,
   decodePagedSegmentHead,
   type FileSection,
+  ID_SAMPLE_INTERVAL,
   loadFailed,
+  MAX_DOCUMENT_BLOCK_RAW_BYTES,
   PAGED_SEGMENT_ENVELOPE_VERSION,
   PAYLOAD_PREFIX_BYTES,
   type PagedSegmentHead,
+  SECTION_ALIGNMENT_BYTES,
   SMALLEST_BLOCK_POSTINGS,
   sectionNamed,
 } from './format'
@@ -106,8 +115,13 @@ export function readPagedHead(listing: PagedFileListing): { head: PagedSegmentHe
       key,
     })
   }
+  const decoded = decodePagedSegmentHead(head, opened.payloadLength, `the segment "${key}"`)
+  for (const section of decoded.sections) {
+    if (section.offset < PAYLOAD_PREFIX_BYTES + headLength || section.offset % SECTION_ALIGNMENT_BYTES !== 0)
+      loadFailed(`Section "${section.name}" of "${key}" starts inside its head or between aligned offsets`)
+  }
   return {
-    head: decodePagedSegmentHead(head, opened.payloadLength, `the segment "${key}"`),
+    head: decoded,
     payloadLength: opened.payloadLength,
   }
 }
@@ -134,19 +148,31 @@ function checkedUint32s(path: string, section: FileSection, shared: boolean): Ui
   return uint32sFrom(readWholeSectionChecked(path, section, false), shared)
 }
 
-function readIdSample(path: string, section: FileSection, shared: boolean): { ids: string[]; positions: Uint32Array } {
+function readIdSample(
+  path: string,
+  section: FileSection,
+  shared: boolean,
+  count: number,
+): { ids: string[]; positions: Uint32Array } {
   const raw = decodeResidentList(path, section)
   if (!Array.isArray(raw)) loadFailed(`Section "idSample" of "${path}" is not a list`)
+  if (raw.length !== Math.ceil(count / ID_SAMPLE_INTERVAL))
+    loadFailed(`The ID sample of "${path}" has the wrong length`)
   const ids: string[] = new Array(raw.length)
   const positions = shared ? new Uint32Array(new SharedArrayBuffer(raw.length * 4)) : new Uint32Array(raw.length)
   for (let at = 0; at < raw.length; at++) {
     const entry: unknown = raw[at]
-    if (!Array.isArray(entry) || typeof entry[0] !== 'string' || typeof entry[1] !== 'number') {
+    if (
+      !Array.isArray(entry) ||
+      entry.length !== 2 ||
+      typeof entry[0] !== 'string' ||
+      entry[1] !== at * ID_SAMPLE_INTERVAL
+    ) {
       loadFailed(`Section "idSample" of "${path}" holds an invalid entry at ${at}`, { at })
     }
     ids[at] = entry[0]
     positions[at] = entry[1]
-    if (at > 0 && positions[at] <= positions[at - 1]) {
+    if (at > 0 && compareCodePoints(ids[at - 1], ids[at]) >= 0) {
       loadFailed(`Section "idSample" of "${path}" fails to ascend at entry ${at}`, { at })
     }
   }
@@ -154,7 +180,7 @@ function readIdSample(path: string, section: FileSection, shared: boolean): { id
 }
 
 export function readIdSampleOf(path: string, head: PagedSegmentHead): { ids: string[]; positions: Uint32Array } {
-  return readIdSample(path, requireSection(head.sections, 'idSample', path), false)
+  return readIdSample(path, requireSection(head.sections, 'idSample', path), false, head.documentCount)
 }
 
 function requireBlockLayout(
@@ -175,6 +201,18 @@ function requireBlockLayout(
     if (postingOffsets[token + 1] - postingOffsets[token] <= SMALLEST_BLOCK_POSTINGS) {
       loadFailed(`blockLists of "${key}" lists token ${token}, which holds too few postings`, { token })
     }
+    requireBlockSummaryList(
+      summaries,
+      offsets[at],
+      offsets[at + 1],
+      postingOffsets[token + 1] - postingOffsets[token],
+      key,
+    )
+  }
+  let listed = 0
+  for (let token = 0; token < tokenCount; token++) {
+    if (postingOffsets[token + 1] - postingOffsets[token] <= SMALLEST_BLOCK_POSTINGS) continue
+    if (lists[listed++] !== token) loadFailed(`The block lists of "${key}" omit token ${token}`, { token })
   }
 }
 
@@ -194,6 +232,9 @@ function requireDocumentBlockLayout(
     const first = view.getUint32(place, true)
     const offset = Number(view.getBigUint64(place + 4, true))
     const length = view.getUint32(place + 12, true)
+    const rawLength = view.getUint32(place + 16, true)
+    if (rawLength > MAX_DOCUMENT_BLOCK_RAW_BYTES)
+      loadFailed(`Document block ${at} of "${key}" exceeds its raw byte limit`)
     if (first <= previousFirst || first >= documentCount) loadFailed(`Document block ${at} of "${key}" starts wrongly`)
     if (offset !== previousEnd || offset + length > sectionLength) {
       loadFailed(`Document block ${at} of "${key}" lies outside its section`, { at })
@@ -204,6 +245,7 @@ function requireDocumentBlockLayout(
   if (documentCount > 0 && (count === 0 || view.getUint32(0, true) !== 0)) {
     loadFailed(`The document blocks of "${key}" fail to cover its documents`)
   }
+  if (previousEnd !== sectionLength) loadFailed(`The document blocks of "${key}" leave bytes outside their blocks`)
 }
 
 export function vectorFieldsOfSchema(schema: Record<string, string>): string[] {
@@ -241,6 +283,7 @@ export function openPagedSnapshot(listing: PagedFileListing): PagedSegmentSnapsh
   }
   const postingBytes = requireSection(sections, 'postings', key).length
   requireOffsets(postingOffsets, postingBytes / 8, 'postingOffsets')
+  requirePagedColumnLengths(sections, documentCount, tokenCount, postingBytes / 8, key)
   for (let token = 0; token < tokenCount; token++) {
     const postings = postingOffsets[token + 1] - postingOffsets[token]
     if (documentFrequencies[token] === 0 || documentFrequencies[token] > postings) {
@@ -255,7 +298,7 @@ export function openPagedSnapshot(listing: PagedFileListing): PagedSegmentSnapsh
   requireBlockLayout(blockLists, blockListOffsets, blockSummaries, postingOffsets, tokenCount, key)
   const documentBlocks = readWholeSectionChecked(path, take('documentBlocks'), shared)
   requireDocumentBlockLayout(documentBlocks, documentCount, take('documents').length, key)
-  const idSample = readIdSample(path, take('idSample'), shared)
+  const idSample = readIdSample(path, take('idSample'), shared, documentCount)
   const lengths = decodeFieldLengths(decodeResidentList(path, take('fieldLengths')), context)
   const positionOffsetsSection = sectionNamed(sections, 'positionOffsets')
   const positionsSection = sectionNamed(sections, 'positions')

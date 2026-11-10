@@ -151,7 +151,7 @@ const stopWords = new Set([
  */
 export const maltese: LanguageModule = {
   name: 'maltese',
-  revision: '1',
+  revision: '35e65213fbceee1a',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9']+/giu },

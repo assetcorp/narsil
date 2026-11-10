@@ -1,5 +1,5 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'

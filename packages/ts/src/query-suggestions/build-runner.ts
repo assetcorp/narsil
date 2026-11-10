@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/suggestions-host'
 import type { QuerySuggestionsBuild, QuerySuggestionsBuildTrigger } from '../types/query-suggestions'
 import { runBuild } from './build'
 import { type BuildRecord, publicBuildOf, SOURCES_DIGEST_BYTES } from './build-record'

@@ -1,23 +1,26 @@
-import { type BinaryHeap, createBoundedMaxHeap } from '../../core/heap'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { VectorMetric } from '../brute-force'
-import { toScore } from '../hnsw/shared'
-import { noteFallback } from '../native/backend'
-import { nativeScoresOf } from '../native/store'
-import { type OrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
-import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
-import { scheduleBuild } from './build'
-import { highScoreFirst, mergeResults } from './merge-results'
 import {
   allLiveDocIds,
+  cosineSimilarityWithMagnitudes,
+  dotProduct,
+  ErrorCodes,
+  euclideanDistance,
   filterForOptions,
   handOverBuildTurns,
   liveSize,
-  type VectorIndexState,
-  type VectorScoredResult,
-  type VectorSearchOptions,
-  type VectorSearchOutcome,
-} from './shared'
+  magnitude,
+  NarsilError,
+  nativeScoresOf,
+  noteFallback,
+  ordinalFilterHas,
+  ordinalFilterValues,
+  toScore,
+} from '#platform/vector-host'
+import { type BinaryHeap, createBoundedMaxHeap } from '../../core/heap'
+import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { scheduleBuild } from './build'
+import { highScoreFirst, mergeResults } from './merge-results'
+import type { VectorIndexState, VectorScoredResult, VectorSearchOptions, VectorSearchOutcome } from './shared'
 
 export function* bufferCandidates(
   state: VectorIndexState,
@@ -138,7 +141,7 @@ export function scoreCandidates(
   tally: ScanTally,
 ): void {
   const count = ordinals.length
-  const distances = nativeScoresOf(state.store.handles, query, metric, ordinals)
+  const distances = nativeScoresOf(state.store.handles, query, metric, ordinals, state.store.writeSequence())
   if (distances !== null) {
     for (let i = 0; i < count; i++) {
       if (distances[i] === Number.POSITIVE_INFINITY) continue
@@ -285,9 +288,7 @@ export function graphResultsOf(
 ): VectorScoredResult[] {
   if (state.hnsw === null) return []
   const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
-  return state.hnsw
-    .search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
-    .map(r => ({ docId: r.docId, score: r.score }))
+  return state.hnsw.search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
 }
 
 export function withBufferedVectors(

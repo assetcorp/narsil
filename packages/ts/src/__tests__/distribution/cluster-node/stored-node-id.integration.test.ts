@@ -92,3 +92,47 @@ describe('a durable cluster node started without a node id', () => {
     expect((error as NarsilError).code).toBe('CONFIG_INVALID')
   }, 30_000)
 })
+
+describe('a cluster node given an explicit node id', () => {
+  let coordinator: ClusterCoordinator
+  let network: InMemoryNetwork
+  const started: ClusterNode[] = []
+
+  beforeEach(() => {
+    coordinator = createInMemoryCoordinator()
+    network = createInMemoryNetwork()
+  })
+
+  afterEach(async () => {
+    for (const node of started.splice(0)) await node.shutdown().catch(() => {})
+    await coordinator.shutdown()
+  })
+
+  it.each([
+    ['a lone high surrogate', 'node-\ud800-east'],
+    ['a lone low surrogate', 'node-\udc00-east'],
+    ['a high surrogate at the end', 'node-east-\ud83d'],
+    ['nothing at all', ''],
+  ])('refuses an id that holds %s, because the id has no UTF-8 form to hash, sort, or store', async (_, nodeId) => {
+    const error = await createClusterNode({
+      coordinator,
+      transport: createInMemoryTransport('host-a:9200', network),
+      address: 'host-a:9200',
+      nodeId,
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(NarsilError)
+    expect((error as NarsilError).code).toBe('CONFIG_INVALID')
+  })
+
+  it('starts under an id whose emoji and accented letters are whole characters', async () => {
+    const node = await createClusterNode({
+      coordinator,
+      transport: createInMemoryTransport('host-a:9200', network),
+      address: 'host-a:9200',
+      nodeId: 'nœud-🧭-東',
+    })
+    started.push(node)
+    await node.start()
+    expect(node.nodeId).toBe('nœud-🧭-東')
+  })
+})

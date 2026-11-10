@@ -1,4 +1,4 @@
-import { waitOutsideCountedWrite } from '#platform/turn-budget'
+import { waitOutsideCountedWrite } from '#platform/storage-host'
 import { WRITES_STALL_ABOVE_UNCHECKPOINTED_BYTES } from './constants'
 import type { IndexState } from './manager-state'
 

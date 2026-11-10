@@ -38,7 +38,7 @@ static const uint32_t keep_ranges[46] = {
 
 const narsil_language narsil_language_dutch = {
   .name = "dutch",
-  .revision = "eb6473f45d748c66",
+  .revision = "6f9fbfa12fb5a081",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 101,

@@ -1,4 +1,4 @@
-import { EARTH_RADIUS_METERS } from '../constants'
+import { EARTH_RADIUS_METERS } from '../geo-host-bindings'
 import {
   boundHalfChord,
   type HalfChordOrigin,

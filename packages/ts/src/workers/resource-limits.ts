@@ -1,4 +1,4 @@
-import { WORKER_YOUNG_GENERATION_MB } from './constants'
+import { WORKER_YOUNG_GENERATION_MB } from '#platform/resource-limits-host'
 
 export interface WorkerResourceLimits {
   maxYoungGenerationSizeMb?: number

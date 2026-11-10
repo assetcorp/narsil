@@ -1,4 +1,4 @@
-import { DEFAULT_EF_SEARCH } from '../hnsw/constants'
+import { DEFAULT_EF_SEARCH } from '#platform/vector-core-host'
 import {
   DEFAULT_EF_SEARCH_MARGIN_BY_BAND,
   DEFAULT_OSQ2_MIDDLE_RESCORE_DEPTH_WITHIN_WALK_PER_SQUARE_ROOT_OF_LIMIT,

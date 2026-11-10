@@ -57,6 +57,7 @@ export async function reclaimWalBeyondCount(
       await partition.walWriter.close()
     } catch (err) {
       onCloseError(err instanceof Error ? err : new Error(String(err)))
+      throw err
     }
     partitions.delete(partitionId)
   }

@@ -1,7 +1,7 @@
+import { MAX_LAYER_CAP } from '#platform/vector-core-host'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, createNode, writeNeighbors } from './adjacency'
 import { leaveIncomingUncounted } from './connect-unreached'
-import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
 import {

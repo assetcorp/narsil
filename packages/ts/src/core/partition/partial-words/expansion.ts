@@ -1,7 +1,8 @@
+import { partialAdditions } from '../../expansion/partial-host'
 import { fuzzyTermMatches } from '../../fuzzy'
 import { compareCodePoints } from '../../ordering'
+import { partitionDocumentFrequency } from '../document-frequency'
 import type { PartitionReadState } from '../read-state'
-import { partitionDocumentFrequency } from '../suggestions'
 import type { PartialWordAnalysis } from './spellings'
 import { partialWordProbe } from './text'
 import type { AddedWord, PartialWordReader, PartialWordRequest } from './types'
@@ -50,6 +51,8 @@ export function expandPartialWords(
   analysis: PartialWordAnalysis,
   requests: readonly PartialWordRequest[],
 ): AddedWord[][] {
+  const native = partialAdditions(subs, analysis, requests)
+  if (native !== null) return native
   const readers: PartialWordReader[] = []
   for (const sub of subs) {
     const reader = sub.partialWords.readerFor(analysis)

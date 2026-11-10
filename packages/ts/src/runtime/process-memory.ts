@@ -1,4 +1,4 @@
-import { readHeapStatistics } from '#platform/heap-statistics'
+import { readHeapStatistics } from '#platform/optional-writes-host'
 import type { ProcessMemoryReport } from '../types/memory'
 
 interface NodeLikeProcess {

@@ -28,6 +28,40 @@ describe('pinned documents under cursor pagination', () => {
     expect(inside.count).toBe(3)
   })
 
+  it('places equal positions in request order and resolves repeated and missing pins before placement', async () => {
+    await narsil.insert('products', { title: 'Quiet second promotion', category: 'e', price: 5 }, 'second')
+    const answer = await narsil.query('products', {
+      term: 'headphones',
+      pinned: [
+        { docId: 'beta', position: 0 },
+        { docId: 'gamma', position: 0 },
+        { docId: 'promo', position: 0 },
+        { docId: 'second', position: 2 },
+        { docId: 'beta', position: 3 },
+        { docId: 'missing', position: 0 },
+        { docId: 'alpha', position: Number.MAX_SAFE_INTEGER },
+      ],
+    })
+    expect(answer.hits.map(hit => hit.id)).toEqual(['promo', 'gamma', 'second', 'beta', 'alpha'])
+    expect(answer.hits.every(hit => hit.score === 0)).toBe(true)
+    expect(answer.count).toBe(5)
+    expect(answer.countExact).toBe(true)
+    expect(answer.cursor).toBeUndefined()
+  })
+
+  it('appends distant placements in position order without narrowing the public position', async () => {
+    const answer = await narsil.query('products', {
+      term: 'headphones',
+      pinned: [
+        { docId: 'beta', position: Number.MAX_SAFE_INTEGER },
+        { docId: 'promo', position: 2 ** 32 },
+        { docId: 'alpha', position: 2 ** 32 + 1 },
+      ],
+    })
+    expect(answer.hits.map(hit => hit.id)).toEqual(['gamma', 'promo', 'alpha', 'beta'])
+    expect(answer.count).toBe(4)
+  })
+
   it('anchors on a pinned-listed document that a cursor page returns organically', async () => {
     await narsil.insert('products', { title: 'Headphones Delta', category: 'e', price: 5 }, 'delta')
     const request = {

@@ -2,6 +2,7 @@ import type { ExpandedTermGroup, PostingListView } from '../../types/internal'
 import { bitsetHas } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
 import { compareCodePoints } from '../ordering/code-points'
+import { compareScores } from '../ordering/scores'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldRun, orderRunByFieldName } from './field-order'
 import { type FieldScoring, fieldLengthOf } from './field-scoring'
@@ -179,7 +180,7 @@ export function computeGroupContributions(
 
     for (const [internalId, contribution] of perTerm) {
       const current = best.get(internalId)
-      if (!current || contribution.score > current.score) {
+      if (!current || compareScores(contribution.score, current.score) < 0) {
         best.set(internalId, contribution)
       }
     }

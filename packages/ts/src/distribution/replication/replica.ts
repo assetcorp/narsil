@@ -1,9 +1,13 @@
-import { decode } from '@msgpack/msgpack'
+import {
+  decode,
+  ErrorCodes,
+  insertDocumentVectors,
+  prepareDocumentVectors,
+  removeDocumentVectors,
+  restoreVectorFields,
+} from '#platform/storage-host'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
-import { insertDocumentVectors, prepareDocumentVectors, removeDocumentVectors } from '../../engine/vector-coordinator'
-import { ErrorCodes } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { restoreVectorFields } from '../../serialization/vector-field-bytes'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { EntryValidation, ReplicationLog, ReplicationLogEntry } from './types'
 

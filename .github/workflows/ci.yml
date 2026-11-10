@@ -92,14 +92,14 @@ jobs:
         run: pnpm nx run narsil-certutil:test
 
   tests:
-    name: Tests ${{ matrix.shard }} of 3
+    name: Tests ${{ matrix.shard }} of 4
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -135,7 +135,7 @@ jobs:
         run: pnpm nx run narsil-ts:build:code
 
       - name: Test
-        run: pnpm nx run narsil-ts:test --shard=${{ matrix.shard }}/3
+        run: pnpm nx run narsil-ts:test --shard=${{ matrix.shard }}/4
 
       - name: Test (etcd integration)
         if: matrix.shard == 1

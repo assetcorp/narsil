@@ -1,9 +1,9 @@
-import { parseVectorDimension } from '../../core/partition/utils'
+import { parseVectorDimension, setNestedValue } from '#platform/storage-host'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFieldRef } from '../../persistence/durability/segment/manifest'
+import { openColdVectorField } from '../../persistence/paged/cold-field'
 import { countsAsLatestHolder, openPagedSegmentScan, type SegmentScan } from '../../persistence/paged/segment-scan'
 import { isPagedSegmentFile } from '../../persistence/paged/verify'
-import { setNestedValue } from '../../serialization/vector-field-bytes'
 import type { ColdVectorField } from '../../vector/vector-index/shared'
 import { encodeDocumentJson } from './json-line'
 
@@ -20,7 +20,6 @@ async function coldFieldOf(checkpoint: ArchiveCheckpoint, field: VectorFieldRef)
   const dimension = fieldType === undefined ? null : parseVectorDimension(fieldType)
   if (dimension === null) return null
   const withPath = async <Ref extends { key: string }>(ref: Ref) => ({ ref, path: await directory.pathOf(ref.key) })
-  const { openColdVectorField } = await import('../../persistence/paged/cold-module')
   return openColdVectorField({
     fieldPath: field.fieldPath,
     dimension,

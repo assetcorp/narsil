@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../cluster/partition-stores'
 import type { AllocationTable, ClusterCoordinator } from '../coordinator/types'

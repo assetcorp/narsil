@@ -1,18 +1,22 @@
-import { createWorkerFactory } from '#platform/worker-factory'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { WorkerPool } from '../../workers/pool'
-import type { WorkerAction } from '../../workers/protocol'
-import { transferIndexToPool } from '../worker-resync'
-import { scheduleIdleMerge } from './compaction'
-import { POOL_RESTART_DELAY_MS, RETIRED_THREADS_EXIT_WAIT_MS } from './constants'
 import {
+  createWorkerFactory,
+  ErrorCodes,
   eligibleIndexNames,
   isDeterministicFailure,
+  NarsilError,
+  POOL_RESTART_DELAY_MS,
+  RETIRED_THREADS_EXIT_WAIT_MS,
   reportIneligible,
   toError,
   workerIneligibility,
-} from './eligibility'
+} from '#platform/worker-copies-host'
+import { createWorkerPool, type WorkerPool } from '../../workers/pool'
+import type { WorkerAction } from '../../workers/protocol'
+import { transferIndexToPool } from '../worker-resync'
+import { scheduleIdleMerge } from './compaction'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
+import { loadPublicationCode, releasePublicationOf } from './publication-code'
+import { trackPublicationStores } from './publication-stores'
 import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
 import { enqueueReplication, markCopiesLoaded } from './replication'
 import { announceRequestThreads } from './request-threads'
@@ -50,7 +54,7 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     )
   }
   eligibleIndexNames(state)
-  const [factory, { createWorkerPool }] = await Promise.all([createWorkerFactory(), import('../../workers/pool')])
+  const factory = await createWorkerFactory()
   let started: WorkerPool | null = null
   const pool = createWorkerPool({
     count: state.keywordWorkerCount + state.longQueryWorkerCount,
@@ -84,6 +88,7 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
 }
 
 export async function ensurePool(state: OrchestratorState): Promise<WorkerPool> {
+  await loadPublicationCode()
   if (state.workerPool !== null) return state.workerPool
   if (state.poolStart === null) {
     state.poolStart = startPool(state).then(
@@ -160,13 +165,14 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   const dropReason = state.droppedCopies.get(indexName)
   const reload = state.droppedCopies.delete(indexName)
   const buffered: WorkerAction[] = []
+  let dispatched = false
   state.copyLoadBuffers.set(indexName, buffered)
   try {
-    freezeLiveTailsBeforeCopiesLoad(manager)
+    await freezeLiveTailsBeforeCopiesLoad(manager)
     const copyLoad = await transferIndexToPool(
       indexName,
       pool,
-      entry,
+      { ...entry, onPublication: publication => trackPublicationStores(state, publication) },
       manager,
       state.callbacks?.isAnalysisStale?.(indexName),
     )
@@ -178,12 +184,14 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
     for (const action of buffered) enqueueReplication(state, indexName, action)
+    dispatched = true
     markCopiesLoaded(state, indexName, copyLoad)
   } catch (err) {
     if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
     throw err
   } finally {
     state.copyLoadBuffers.delete(indexName)
+    if (!dispatched) for (const action of buffered) releasePublicationOf(action)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)
   refreshVectorCopies(state, indexName)

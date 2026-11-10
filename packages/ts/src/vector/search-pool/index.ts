@@ -1,12 +1,12 @@
 import { resolveWorkerEntryPoint } from '#platform/search-worker-entry'
-import { resolveWorkerCount } from '../../workers/worker-count'
-import type { VectorMetric } from '../brute-force'
 import {
+  resolveWorkerCount,
   VECTOR_INSERT_TIMEOUT_MS,
   VECTOR_SCRATCH_SLOTS,
   VECTOR_SEARCH_LOAD_TIMEOUT_MS,
   VECTOR_SEARCH_TIMEOUT_MS,
-} from '../constants'
+} from '#platform/vector-host'
+import type { VectorMetric } from '../brute-force'
 import type { GraphSearchOptions } from '../hnsw/search'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
@@ -21,7 +21,7 @@ import {
   createSlot,
   forgetDroppedGraphs,
   noteAnswered,
-  noteGraphOpened,
+  noteFieldOpened,
   noteWorkStarted,
   rejectPending,
   releaseSlotLocks,
@@ -196,7 +196,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     async loadShared(handle: string, handles: SharedVectorFieldHandles): Promise<boolean> {
       sharedFields.set(handle, handles)
       const loaded = await broadcast((slot, requestId) => {
-        noteGraphOpened(slot, handle, handles.graph)
+        noteFieldOpened(slot, handle, handles)
         return { type: 'loadShared', requestId, handle, scratchSlot: slot.scratchSlot, handles }
       }, VECTOR_SEARCH_LOAD_TIMEOUT_MS)
       if (loaded) return true

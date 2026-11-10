@@ -1,16 +1,19 @@
+import {
+  buildRecordKey,
+  createEngineIndex,
+  emitEngineEvent,
+  emitWriteEventAfter,
+  historyFilesOf,
+  oneSyncChangeAtATime,
+  withOpenIndex,
+} from '#platform/suggestions-host'
 import type { EngineCore } from '../engine/core'
-import { emitEngineEvent } from '../engine/events'
-import { createEngineIndex } from '../engine/index-lifecycle'
-import { withOpenIndex } from '../engine/serial-index-update'
-import { oneSyncChangeAtATime } from '../engine/sync/serial'
-import { emitWriteEventAfter } from '../engine/write-events'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import type { NarsilEventMap } from '../types/events'
 import type { StoredQuerySuggestions } from '../types/internal'
 import type { QuerySuggestionsSource } from '../types/query-suggestions'
 import { type BuildRecord, decodeBuildRecordFile, encodeBuildRecordFile } from './build-record'
-import { buildRecordKey, historyFilesOf } from './history-files'
 import type { IndexView, RemoteFile, StateChange, SuggestionsHost } from './host'
 
 export const SUGGESTIONS_SCHEMA = { query: 'string', count: 'number', origin: 'enum' } as const

@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { decodeBackupManifest, encodeBackupManifest } from '../../../ts/src/distribution/backups/manifest'
-import { decodeIndexConfiguration } from '../../../ts/src/engine/snapshot/index-configuration'
+import { decodeIndexConfiguration } from '../../../ts/src/engine/snapshot/index-configuration-decode'
 import { sourceIndexNameOf } from '../../../ts/src/persistence/archive/read'
 import {
   decodeManifestPayload,

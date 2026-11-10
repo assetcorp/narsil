@@ -339,7 +339,7 @@ function normalize(token: string): string {
  */
 export const persian: LanguageModule = {
   name: 'persian',
-  revision: '99f39d265efbf595',
+  revision: '7b8776252b3e0f5e',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

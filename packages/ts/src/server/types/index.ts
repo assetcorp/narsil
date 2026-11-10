@@ -82,9 +82,11 @@ export type {
 export type {
   HttpCreateIndexBody,
   HttpGroupResult,
+  HttpHit,
   HttpIndexBody,
   HttpQueryParams,
   HttpQueryResult,
+  HttpScore,
   HttpWireTypeName,
   HttpWireTypes,
   ImportDocumentsQuery,

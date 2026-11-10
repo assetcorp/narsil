@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { crc32 } from '../checksum'
 import type { DurableDirectory } from '../durable-filesystem'
 import {

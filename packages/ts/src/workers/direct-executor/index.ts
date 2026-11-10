@@ -1,4 +1,5 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
+import { loadSegmentMerge } from '../../core/segment-merge-code'
 import { synonymModule } from '../../core/synonyms/registry'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -11,9 +12,8 @@ import type { IndexConfig, VectorStorageMode } from '../../types/schema'
 import type { VectorIndex, VectorWorkerCopyPolicy } from '../../vector/vector-index'
 import type { Executor } from '../executor'
 import type { WorkerAction } from '../protocol'
-import { runQueryAction } from '../query-actions'
 import { loadSchemaCodeFor } from '../schema-code'
-import { growPartitionsTo, isSegmentAction, runSegmentAction } from '../segment-actions'
+import { growPartitionsTo, isSegmentAction, runSegmentAction } from '../segment-action-code'
 import { loadedVectorCode, loadVectorCode, requireLoadedVectorCode } from '../vector-code'
 import {
   closeHeldVectorCopies,
@@ -23,8 +23,9 @@ import {
   holdsVectorField,
   insertIntoHeldGraph,
   loadHeldVectorCopy,
+  pinHeldVectorField,
 } from '../vector-copies'
-import { indexEntryOf } from './entry'
+import { disposeEntry, indexEntryOf, queryContextOfEntry } from './entry'
 import type {
   DetachedIndex,
   DirectExecutorExtensions,
@@ -134,16 +135,6 @@ export function createDirectExecutor(
     return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
   }
 
-  function disposeEntry(entry: IndexEntry): void {
-    for (const vectorIndex of entry.vectorIndexes.values()) {
-      vectorIndex.dispose()
-    }
-    closeHeldVectorCopies(entry.vectorCopies)
-    for (const partition of entry.manager.getAllPartitions()) {
-      partition.clear()
-    }
-  }
-
   function dropIndex(indexName: string): void {
     disposeEntry(requireIndex(indexName))
     indexes.delete(indexName)
@@ -164,18 +155,23 @@ export function createDirectExecutor(
   }
 
   function queryContextOf(indexName: string): IndexQueryContext | undefined {
-    const entry = indexes.get(indexName)
-    if (entry === undefined || entry.awaitedCopyLoad !== null) return undefined
-    return {
-      manager: entry.manager,
-      config: entry.config,
-      language: entry.language,
-      vectorSearchers: entry.vectorCopies.searchers,
-      analysisStale: entry.analysisStale,
-    }
+    return queryContextOfEntry(indexes.get(indexName))
   }
 
-  async function execute<T>(action: WorkerAction): Promise<T> {
+  function execute<T>(action: WorkerAction): Promise<T> {
+    if (options?.publishCopyAction === undefined) return executeAction<T>(action)
+    const entry = 'indexName' in action ? indexes.get(action.indexName) : undefined
+    if (entry === undefined) return executeAction<T>(action)
+    return options.publishCopyAction(
+      action,
+      entry,
+      threadSlot,
+      () => 'indexName' in action && indexes.get(action.indexName) === entry,
+      () => executeAction<T>(action),
+    )
+  }
+
+  async function executeAction<T>(action: WorkerAction): Promise<T> {
     if (isSegmentAction(action)) {
       return runSegmentAction(requireIndex(action.indexName), action) as T
     }
@@ -210,6 +206,10 @@ export function createDirectExecutor(
         )
         try {
           manager.synonyms = lookupOf(action.config, language, action.synonyms)
+          if (action.publication !== undefined) {
+            const entry = requireIndex(action.indexName)
+            options?.initializeCopyPublication?.(entry, action.publication, threadSlot)
+          }
         } catch (err) {
           dropIndex(action.indexName)
           throw err
@@ -238,6 +238,7 @@ export function createDirectExecutor(
           action.handle,
           action.handles,
           threadSlot,
+          action.storeHandle,
         )
         return undefined as T
       }
@@ -256,27 +257,34 @@ export function createDirectExecutor(
       case 'insert': {
         const entry = requireIndex(action.indexName)
         entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
-        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 
       case 'remove': {
         const entry = requireIndex(action.indexName)
         entry.manager.remove(action.docId, action.removedSpellings)
-        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 
       case 'update': {
         const entry = requireIndex(action.indexName)
-        entry.manager.update(action.docId, action.document, undefined, action.removedSpellings)
-        options?.onDocumentWrite?.(action)
+        if (action.publication !== undefined && !entry.manager.has(action.docId))
+          entry.manager.insert(action.docId, action.document)
+        else entry.manager.update(action.docId, action.document, undefined, action.removedSpellings)
         return undefined as T
       }
 
       case 'query':
-      case 'preflight':
-        return (await runQueryAction(requireIndex(action.indexName), action)) as T
+      case 'preflight': {
+        const runQueryAction = options?.runQueryAction
+        if (runQueryAction === undefined) {
+          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Only a worker thread answers query actions', {
+            action: action.type,
+          })
+        }
+        const entry = requireIndex(action.indexName)
+        return (await runQueryAction(entry, action, () => indexes.get(action.indexName) === entry)) as T
+      }
 
       case 'replaceSynonyms': {
         const entry = indexes.get(action.indexName)
@@ -317,27 +325,27 @@ export function createDirectExecutor(
 
       case 'clear': {
         const entry = requireIndex(action.indexName)
-        const partitions = entry.manager.getAllPartitions()
-        for (const partition of partitions) {
-          partition.clear()
-        }
-        entry.manager.setPartitions(partitions)
+        entry.manager.clearPartitions()
         entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config))
         entry.vectorIndexes = entry.manager.getVectorIndexes()
-        entry.vectorCopies = createHeldVectorCopies()
-        options?.onDocumentWrite?.(action)
+        if (action.publication === undefined) {
+          closeHeldVectorCopies(entry.vectorCopies)
+          entry.vectorCopies = createHeldVectorCopies()
+        }
+
         return undefined as T
       }
 
       case 'serialize': {
-        const entry = requireIndex(action.indexName)
-        return entry.manager.serializePartition(action.partitionId) as T
+        const { serializePartition } = await loadSegmentMerge()
+        return requireIndex(action.indexName).manager.serializePartition(action.partitionId, serializePartition) as T
       }
 
       case 'deserialize': {
+        const { deserializePartition } = await loadSegmentMerge()
         const entry = requireIndex(action.indexName)
         growPartitionsTo(entry.manager, action.partitionId)
-        entry.manager.deserializePartition(action.partitionId, action.data)
+        entry.manager.deserializePartition(action.partitionId, action.data, deserializePartition)
         return undefined as T
       }
 
@@ -350,9 +358,7 @@ export function createDirectExecutor(
 
       case 'shutdown': {
         for (const [, entry] of indexes) {
-          for (const partition of entry.manager.getAllPartitions()) {
-            partition.clear()
-          }
+          await entry.manager.publication.write(() => disposeEntry(entry))
         }
         indexes.clear()
         return undefined as T
@@ -376,6 +382,10 @@ export function createDirectExecutor(
     heldVectorOf: (indexName, fieldName, docId) => {
       const entry = indexes.get(indexName)
       return entry === undefined ? undefined : heldVectorOf(entry.vectorCopies, fieldName, docId)
+    },
+    pinVectorField: (indexName, fieldName) => {
+      const entry = indexes.get(indexName)
+      return entry === undefined ? undefined : pinHeldVectorField(entry.vectorCopies, fieldName)
     },
     createIndex,
     dropIndex,

@@ -1,5 +1,4 @@
-import { VECTOR_FILE_MAX_VECTORS } from '../../../vector/vector-index/checkpoint-payload'
-import { deadBytesFor } from '../../../vector/vector-index/dead-bits'
+import { deadBytesFor, VECTOR_FILE_MAX_VECTORS } from '#platform/storage-host'
 import { graphPartKey, vectorFileKey } from './layout'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
 import { invalidManifest, isId, isRecord, readFileRef } from './manifest-fields'

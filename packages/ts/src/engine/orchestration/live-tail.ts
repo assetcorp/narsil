@@ -1,10 +1,14 @@
-import { isCompositePartition } from '../../core/partition/composite'
+import {
+  createRequestId,
+  createSharedFrozenSegment,
+  freezeSegmentShared,
+  isCompositePartition,
+  LIVE_TAIL_FLUSH_DOCUMENTS,
+  LIVE_TAIL_FREEZE_FLOOR,
+} from '#platform/worker-copies-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { createSharedFrozenSegment, freezeSegmentShared } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
-import { createRequestId } from '../../workers/protocol'
-import { LIVE_TAIL_FLUSH_DOCUMENTS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
-import { queueForCopies } from './replication'
+import { publishToWorkers } from './publication-code'
 import type { OrchestratorState } from './types'
 
 export function liveTailCount(manager: PartitionManager, partitionId: number): number {
@@ -20,10 +24,12 @@ function freezeIntoSharedSegment(manager: PartitionManager, partitionId: number)
   })
 }
 
-export function freezeLiveTailsBeforeCopiesLoad(manager: PartitionManager): void {
+export async function freezeLiveTailsBeforeCopiesLoad(manager: PartitionManager): Promise<void> {
   for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
     try {
-      if (liveTailCount(manager, partitionId) >= LIVE_TAIL_FREEZE_FLOOR) freezeIntoSharedSegment(manager, partitionId)
+      await manager.publication.write(() => {
+        if (liveTailCount(manager, partitionId) >= LIVE_TAIL_FREEZE_FLOOR) freezeIntoSharedSegment(manager, partitionId)
+      })
     } catch (err) {
       console.warn(`Freezing the live tail of partition ${partitionId} of "${manager.indexName}" failed:`, err)
     }
@@ -33,7 +39,7 @@ export function freezeLiveTailsBeforeCopiesLoad(manager: PartitionManager): void
 function freezeTail(state: OrchestratorState, indexName: string, manager: PartitionManager, partitionId: number): void {
   const segment = freezeIntoSharedSegment(manager, partitionId)
   if (segment === null || segment.sharedSnapshot === null) return
-  queueForCopies(state, {
+  publishToWorkers(state, {
     type: 'freezeLiveTail',
     indexName,
     partitionId,
@@ -42,27 +48,30 @@ function freezeTail(state: OrchestratorState, indexName: string, manager: Partit
   })
 }
 
-export function freezeLiveTail(
+export async function freezeLiveTail(
   state: OrchestratorState,
   indexName: string,
   manager: PartitionManager,
   partitionId: number,
   floor: number,
-): void {
+): Promise<void> {
   if (!state.scaledOutIndexes.has(indexName)) return
   if (liveTailCount(manager, partitionId) < floor) return
   try {
-    freezeTail(state, indexName, manager, partitionId)
+    await manager.publication.write(() => {
+      if (state.executor.getManager(indexName) !== manager || liveTailCount(manager, partitionId) < floor) return
+      freezeTail(state, indexName, manager, partitionId)
+    })
   } catch (err) {
     console.warn(`Freezing the live tail of partition ${partitionId} of "${indexName}" failed:`, err)
   }
 }
 
-export function flushGrownTails(state: OrchestratorState, indexName: string): void {
+export async function flushGrownTails(state: OrchestratorState, indexName: string): Promise<void> {
   if (!state.scaledOutIndexes.has(indexName)) return
   const manager = state.executor.getManager(indexName)
   if (manager === undefined) return
   for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
-    freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FLUSH_DOCUMENTS)
+    await freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FLUSH_DOCUMENTS)
   }
 }

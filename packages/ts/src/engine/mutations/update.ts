@@ -1,23 +1,32 @@
-import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
+import {
+  admitBufferedUpsert,
+  awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
+  deleteNestedValue,
+  ErrorCodes,
+  extractVectorFromDoc,
+  indexChangeOutsideExternalWaits,
+  loadEmbedCode,
+  NarsilError,
+  prepareDocumentVectors,
+  requireDocumentWithinSizeLimit,
+  requireMatchingDocId,
+  turnIsSpent,
+  turnsAreBudgeted,
+  updateDocumentVectors,
+  validateBatchList,
+  validateDocId,
+  validateRequiredFields,
+  validateVectorDimensions,
+  yieldTurn,
+} from '#platform/optional-writes-host'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
-import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
-import { validateBatchList, validateDocId } from '../validation'
-import {
-  deleteNestedValue,
-  extractVectorFromDoc,
-  updateDocumentVectors,
-  validateVectorDimensions,
-} from '../vector-coordinator'
-import type { MutationContext } from './context'
+import type { ApplyMutation, MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
-import { admitBufferedUpsert, requireMatchingDocId } from './insert-admission'
 import { recordChunk } from './record-batch'
-import { awaitWriteVisibility } from './write-visibility'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 
@@ -33,7 +42,25 @@ function prepareUpdatePartitionDoc(
     return { partitionDoc: document }
   }
 
-  const partitionDoc = structuredClone(document)
+  let source = document
+  const prototype: unknown = Object.getPrototypeOf(document)
+  let topLevelVectors = prototype === Object.prototype || prototype === null
+  for (const [fieldPath, vector] of extractedVectors) {
+    if (fieldPath.includes('.') || vector === null) {
+      topLevelVectors = false
+      break
+    }
+    const value = document[fieldPath]
+    if (Array.isArray(value) && Object.keys(value).length !== value.length) {
+      topLevelVectors = false
+      break
+    }
+  }
+  if (topLevelVectors) {
+    source = { ...document }
+    for (const fieldPath of extractedVectors.keys()) delete source[fieldPath]
+  }
+  const partitionDoc = structuredClone(source)
   for (const fieldPath of extractedVectors.keys()) {
     deleteNestedValue(partitionDoc, fieldPath)
   }
@@ -42,6 +69,9 @@ function prepareUpdatePartitionDoc(
 }
 
 interface PreparedUpdate {
+  rollbackRef?: AnyDocument
+  appliedRef?: AnyDocument
+  preparedText?: PreparedTextChange
   docId: string
   document: AnyDocument
   partitionDoc: AnyDocument
@@ -57,6 +87,7 @@ function asUpdateError(err: unknown): NarsilError {
 }
 
 async function settleUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): Promise<void> {
+  await ctx.orchestrator.settlePublications(indexName)
   try {
     await ctx.pluginRegistry.runHook('afterUpdate', {
       indexName,
@@ -67,9 +98,6 @@ async function settleUpdate(ctx: MutationContext, indexName: string, prepared: P
   } catch (err) {
     console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
-  if (roomForCopies !== null) await roomForCopies
 
   const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
   for (const [fieldPath, vec] of prepared.extractedVectors) {
@@ -104,6 +132,7 @@ async function prepareUpdate(
   }
 
   if (entry.config.embedding) {
+    const { assertDocumentCarriesMappedVectors, embedDocumentFields } = await loadEmbedCode()
     if (entry.embeddingAdapter) {
       await embedDocumentFields(
         document as Record<string, unknown>,
@@ -120,11 +149,8 @@ async function prepareUpdate(
     }
   }
 
-  requireDocumentWithinSizeLimit(document as Record<string, unknown>)
-  const oldDocument = manager.get(docId)
-  const oldPartitionDoc = manager.getRef(docId)
-  const rollbackDoc = oldPartitionDoc ? (structuredClone(oldPartitionDoc) as AnyDocument) : undefined
-
+  const sizing = requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+  if (sizing !== null) await sizing
   const vecIndexes = manager.getVectorIndexes()
   const extractedVectors = new Map<string, Float32Array | null>()
   if (vecIndexes.size > 0) {
@@ -146,18 +172,18 @@ async function prepareUpdate(
     docId,
     document,
     partitionDoc: partitionDoc as AnyDocument,
-    oldDocument,
-    rollbackDoc,
+    oldDocument: undefined,
+    rollbackDoc: undefined,
     extractedVectors,
-    removedSpellings: manager.removedSpellingsOf(docId),
+    removedSpellings: undefined,
     buffered: false,
   }
 }
 
-function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): () => Promise<void> {
+function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): ApplyMutation {
   const manager = ctx.requireManager(indexName)
-  const { docId, document, partitionDoc, rollbackDoc, extractedVectors, removedSpellings } = prepared
-  const updateInIndex = async (): Promise<void> => {
+  const { docId, document, partitionDoc, extractedVectors } = prepared
+  const updateInIndex = () => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
@@ -165,24 +191,39 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
         admitBufferedUpsert(ctx, indexName, manager, docId)
       }
     }
-    if (ctx.bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {
+    const queued = ctx.bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })
+    if (queued !== undefined) {
       prepared.buffered = true
-      return
+      return queued
     }
-    await ctx.executor.execute({
-      type: 'update',
-      indexName,
-      docId,
-      document: partitionDoc,
-      requestId: docId,
-      removedSpellings,
+    prepared.oldDocument =
+      extractedVectors.size > 0 || ctx.durability !== null || ctx.pluginRegistry.hasHooks('afterUpdate')
+        ? manager.get(docId)
+        : undefined
+    prepared.rollbackDoc = prepared.oldDocument
+    prepared.rollbackRef = ctx.durability === null ? undefined : manager.getRef(docId)
+    const stored = manager.update(docId, partitionDoc, {
+      onRemovedSpellings: spellings => {
+        prepared.removedSpellings = spellings
+      },
+      onPreparedText:
+        extractedVectors.size > 0 || ctx.durability !== null
+          ? change => {
+              prepared.preparedText = change
+            }
+          : undefined,
     })
     try {
       updateDocumentVectors(docId, extractedVectors, manager.getVectorIndexes(), manager.partitionIdOf(docId))
     } catch (err) {
-      if (rollbackDoc) {
+      if (prepared.rollbackDoc === undefined) {
+        manager.remove(docId, undefined, { preparedText: { before: prepared.preparedText?.after } })
+      } else {
         try {
-          await ctx.executor.execute({ type: 'update', indexName, docId, document: rollbackDoc, requestId: docId })
+          const previous = prepareDocumentVectors(prepared.rollbackDoc, ctx.requireIndex(indexName).vectorFieldPaths)
+          manager.update(docId, previous.partitionDoc, {
+            preparedText: { before: prepared.preparedText?.after, after: prepared.preparedText?.before },
+          })
         } catch (rollbackErr) {
           console.warn(
             `Rollback failed for doc "${docId}" during update atomicity:`,
@@ -192,8 +233,18 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       }
       throw err
     }
+    if (ctx.durability === null) prepared.preparedText = undefined
+    else prepared.appliedRef = stored
+    ctx.orchestrator.publishToWorkers({
+      type: 'update',
+      indexName,
+      docId,
+      document: partitionDoc,
+      requestId: `replicate-update-${docId}`,
+      removedSpellings: prepared.removedSpellings,
+    })
   }
-  return indexChangeOutsideExternalWaits(updateInIndex)
+  return () => manager.publication.write(indexChangeOutsideExternalWaits(updateInIndex))
 }
 
 export async function updateDocument(
@@ -212,7 +263,16 @@ export async function updateDocument(
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)
     } catch (err) {
-      await rollbackUpdatedDocument(ctx, indexName, docId, prepared.rollbackDoc, err)
+      await rollbackUpdatedDocument(
+        ctx,
+        indexName,
+        docId,
+        prepared.rollbackDoc,
+        err,
+        prepared.preparedText,
+        prepared.appliedRef,
+        prepared.rollbackRef,
+      )
       throw err
     }
   } else {
@@ -276,17 +336,31 @@ export async function updateDocumentBatch(
     const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
     const failures = await recordChunk(ctx, indexName, prepared, applies)
 
+    for (let i = prepared.length - 1; i >= 0; i--) {
+      const failure = failures[i]
+      if (failure === null) continue
+      const update = prepared[i]
+      try {
+        await rollbackUpdatedDocument(
+          ctx,
+          indexName,
+          update.docId,
+          update.rollbackDoc,
+          failure.error,
+          update.preparedText,
+          update.appliedRef,
+          update.rollbackRef,
+        )
+      } catch (error) {
+        failure.error = error
+      }
+    }
+
     for (let i = 0; i < prepared.length; i++) {
       const update = prepared[i]
       const failure = failures[i]
       if (failure !== null) {
-        let error = failure.error
-        try {
-          await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
-        } catch (rollbackError) {
-          error = rollbackError
-        }
-        failed.push({ docId: update.docId, error: asUpdateError(error) })
+        failed.push({ docId: update.docId, error: asUpdateError(failure.error) })
         continue
       }
       if (!update.buffered) await settleUpdate(ctx, indexName, update)

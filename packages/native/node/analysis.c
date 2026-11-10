@@ -4,6 +4,7 @@
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
+#include "../include/narsil_packed_tokens.h"
 
 #include <js_native_api.h>
 #include <js_native_api_types.h>
@@ -29,6 +30,8 @@ enum {
 };
 
 enum { ANALYSE_LANGUAGE, ANALYSE_FLAGS, ANALYSE_TEXT, ANALYSE_STOP_WORDS, ANALYSE_RECORDS, ANALYSE_ARGUMENT_COUNT };
+enum { ANALYSE_PACKED_UNITS = ANALYSE_RECORDS + 1, ANALYSE_PACKED_ARGUMENT_COUNT = ANALYSE_PACKED_UNITS + 1 };
+enum { PACKED_NEEDED_UNITS = 1, PACKED_RECORD_MIN_WORDS = PACKED_NEEDED_UNITS + 1 };
 enum { TRANSFORM_LANGUAGE, TRANSFORM_FLAGS, TRANSFORM_TEXT, TRANSFORM_ARGUMENT_COUNT };
 enum { LANGUAGE_INDEX, LANGUAGE_ARGUMENT_COUNT };
 enum { STOP_WORDS_LIST, STOP_WORDS_ARGUMENT_COUNT };
@@ -264,6 +267,50 @@ static napi_value analyse(napi_env env, napi_callback_info info) {
   return utf16_string(env, tokens.units, tokens.unit_count);
 }
 
+static napi_value packed_result(napi_env env, const narsil_tokens *tokens, uint32_t *records, size_t capacity,
+                                uint16_t *units, size_t unit_capacity) {
+  uint32_t needed = 0;
+  narsil_status status = narsil_pack_tokens(tokens, records, capacity, units, unit_capacity, &needed);
+  napi_value result = NULL;
+  if (status == NARSIL_NEEDS_ROOM) {
+    records[PACKED_NEEDED_UNITS] = needed;
+    return napi_get_null(env, &result) == napi_ok ? result : NULL;
+  }
+  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
+  return napi_create_uint32(env, needed, &result) == napi_ok ? result : NULL;
+}
+
+static napi_value analyse_packed(napi_env env, napi_callback_info info) {
+  napi_value argv[ANALYSE_PACKED_ARGUMENT_COUNT];
+  thread_state *state = thread_state_of(env);
+  if (state == NULL || !callback_arguments(env, info, ANALYSE_PACKED_ARGUMENT_COUNT, argv)) {
+    return throw_error(env,
+                       "analysePacked takes a language, flags, a text, a stop word set or null, a record array, and "
+                       "a unit array");
+  }
+  narsil_analysis_request request = {0, NULL, 0, NULL, 0};
+  void *records = NULL;
+  void *units = NULL;
+  size_t capacity = 0;
+  size_t unit_capacity = 0;
+  if (napi_get_value_uint32(env, argv[ANALYSE_LANGUAGE], &request.language) != napi_ok ||
+      napi_get_value_uint32(env, argv[ANALYSE_FLAGS], &request.flags) != napi_ok ||
+      !read_stop_words(env, argv[ANALYSE_STOP_WORDS], &request.stop_words) ||
+      !typed_data(env, argv[ANALYSE_RECORDS], napi_uint32_array, &records, &capacity) ||
+      capacity < PACKED_RECORD_MIN_WORDS ||
+      !possibly_empty_typed_data(env, argv[ANALYSE_PACKED_UNITS], napi_uint16_array, &units, &unit_capacity) ||
+      !read_text(env, state, argv[ANALYSE_TEXT], &request.length)) {
+    return throw_error(env, "an argument to analysePacked has the wrong type, or the text is too long");
+  }
+  narsil_analyser *analyser = analyser_of(state);
+  if (analyser == NULL) { return number_of(env, -(int32_t)NARSIL_OUT_OF_MEMORY); }
+  request.text = state->text_units;
+  narsil_tokens tokens;
+  narsil_status status = narsil_analyse(analyser, &request, &tokens);
+  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
+  return packed_result(env, &tokens, records, capacity, units, unit_capacity);
+}
+
 static napi_value transform(napi_env env, napi_callback_info info) {
   napi_value argv[TRANSFORM_ARGUMENT_COUNT];
   thread_state *state = thread_state_of(env);
@@ -293,6 +340,7 @@ int define_analysis(napi_env env, napi_value exports) {
       {"languageStopWords", NULL, language_stop_words, NULL, NULL, NULL, napi_default_method, NULL},
       {"createStopWordSet", NULL, create_stop_word_set, NULL, NULL, NULL, napi_default_method, NULL},
       {"analyse", NULL, analyse, NULL, NULL, NULL, napi_default_method, NULL},
+      {"analysePacked", NULL, analyse_packed, NULL, NULL, NULL, napi_default_method, NULL},
       {"transform", NULL, transform, NULL, NULL, NULL, napi_default_method, NULL},
   };
   return napi_define_properties(env, exports, sizeof properties / sizeof properties[0], properties) == napi_ok;

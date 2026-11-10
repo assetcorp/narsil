@@ -1,6 +1,5 @@
-import { isCompositePartition } from '../../core/partition/composite'
+import { ErrorCodes, isCompositePartition, NarsilError } from '#platform/storage-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
-import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { AnyDocument } from '../../types/schema'
 import type { DiskAdoptionPartition, DiskAdoptionSegment } from '../../workers/protocol'

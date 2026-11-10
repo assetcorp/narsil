@@ -31,7 +31,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_oromo = {
   .name = "oromo",
-  .revision = "1",
+  .revision = "d11676f3b88b44b0",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 66,

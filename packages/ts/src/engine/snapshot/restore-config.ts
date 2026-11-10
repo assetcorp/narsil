@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type {
   BM25FieldParams,
   BM25Params,

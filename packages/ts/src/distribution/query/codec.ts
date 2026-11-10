@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { encodeDocumentReply } from '../../serialization/document-encoding'
+import { decode } from '../../serialization/msgpack'
 import type {
   CountPayload,
   CountResultPayload,

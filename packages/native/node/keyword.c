@@ -4,6 +4,7 @@
 
 #include "../include/narsil_core.h"
 #include "../include/narsil_keyword.h"
+#include "../src/keyword/regions.h"
 
 #include <js_native_api.h>
 #include <js_native_api_types.h>
@@ -264,8 +265,15 @@ static napi_value score_keywords(napi_env env, napi_value *argv, thread_state *s
     return throw_error(env, "an argument to keywordScore has the wrong type");
   }
   request.lengths = state->keyword_lengths;
+  void *settings = NULL;
+  uint32_t settings_count = 0;
+  if (!array_of(&read, ARGUMENT_SETTINGS, napi_float64_array, &settings, &settings_count) ||
+      !keyword_binding_regions_are_disjoint(&request, &output, settings, settings_count, outcome, outcome_length)) {
+    return status_of(env, NARSIL_INVALID_ARGUMENT);
+  }
   narsil_status status = narsil_keyword_score(state->workspace, &request, &output);
   report_workspace_memory(env, state);
+  if (status != NARSIL_OK) { return status_of(env, status); }
   outcome[OUTCOME_COUNT] = (double)output.count;
   outcome[OUTCOME_TOTAL_MATCHED] = (double)output.total_matched;
   if (outcome_length > OUTCOME_SCORING_PATH) { outcome[OUTCOME_SCORING_PATH] = (double)output.scoring_path; }

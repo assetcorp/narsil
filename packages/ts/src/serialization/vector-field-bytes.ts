@@ -1,18 +1,7 @@
-import { getNestedValue } from '../core/partition/utils'
-import { flattenSchema } from '../schema/validator/schema'
-import { VECTOR_PATTERN } from '../schema/validator/shared'
-import type { SchemaDefinition } from '../types/schema'
+import { getNestedValue } from '#platform/msgpack-host'
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const FLOAT32_BYTES = 4
-
-export function vectorFieldPathsOfSchema(schema: SchemaDefinition): Set<string> {
-  const paths = new Set<string>()
-  for (const [fieldPath, fieldType] of Object.entries(flattenSchema(schema))) {
-    if (typeof fieldType === 'string' && VECTOR_PATTERN.test(fieldType)) paths.add(fieldPath)
-  }
-  return paths
-}
 
 export function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   if (!path.includes('.')) {
