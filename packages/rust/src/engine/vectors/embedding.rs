@@ -171,8 +171,7 @@ pub(crate) fn bind_embedding(
     Ok(Some(EmbeddingBinding { fields, source }))
 }
 
-/// Returns the text of a panic's payload, so that an adapter that panics reports why.
-pub(crate) fn panic_text(payload: &(dyn Any + Send)) -> String {
+fn panic_text(payload: &(dyn Any + Send)) -> String {
     if let Some(text) = payload.downcast_ref::<&str>() {
         return (*text).to_string();
     }

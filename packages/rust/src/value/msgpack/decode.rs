@@ -135,7 +135,7 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    pub(crate) fn read_bool(&mut self) -> Result<bool> {
+    fn read_bool(&mut self) -> Result<bool> {
         match self.byte()? {
             0xc2 => Ok(false),
             0xc3 => Ok(true),

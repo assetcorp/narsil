@@ -64,7 +64,7 @@ impl FrozenState {
         &self.removed_spellings
     }
 
-    pub(crate) fn is_settled(&self) -> bool {
+    fn is_settled(&self) -> bool {
         self.pending_header[ffi::NARSIL_PENDING_DOCUMENTS] == 0
             && self.pending_header[ffi::NARSIL_PENDING_TOKENS] == 0
             && self.pending_header[ffi::NARSIL_PENDING_UNITS] == 0

@@ -7,7 +7,7 @@ use super::constants::{
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 
-pub(crate) const NO_FREE_SLICE: u32 = u32::MAX;
+const NO_FREE_SLICE: u32 = u32::MAX;
 pub(crate) const ALLOCATION_END: usize = 0;
 pub(crate) const ALLOCATION_FREE: usize = 1;
 const ALLOCATION_WORDS: usize = 2;

@@ -124,9 +124,7 @@ impl TokenOptions {
     }
 }
 
-/// The analysis of one index: its language, its stop words, and its tokeniser.
-/// Receives each token of a text: the term, its position, the surface form where it differs, and the raw token.
-pub(crate) type TokenVisitor<'a> = dyn FnMut(&str, u32, Option<&str>, &str) + 'a;
+type TokenVisitor<'a> = dyn FnMut(&str, u32, Option<&str>, &str) + 'a;
 
 #[derive(Clone)]
 pub(crate) struct Analyser {

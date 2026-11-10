@@ -16,7 +16,7 @@ use crate::value::{Map, Value};
 
 const EXPRESSION_KEYS: [&str; 4] = ["fields", "and", "or", "not"];
 
-pub(crate) const FIELD_FILTER_OPERATORS: [&str; 25] = [
+const FIELD_FILTER_OPERATORS: [&str; 25] = [
     "eq",
     "ne",
     "gt",
@@ -95,7 +95,7 @@ fn invalid_shape<T>(message: impl Into<String>) -> Result<T> {
     invalid(message)
 }
 
-pub(crate) fn undeclared_filter_field(field: &str) -> NarsilError {
+fn undeclared_filter_field(field: &str) -> NarsilError {
     NarsilError::new(
         ErrorCode::SEARCH_INVALID_FIELD,
         format!(
@@ -104,7 +104,7 @@ pub(crate) fn undeclared_filter_field(field: &str) -> NarsilError {
     )
 }
 
-pub(crate) fn record_of(value: &Value) -> Option<Cow<'_, Map>> {
+fn record_of(value: &Value) -> Option<Cow<'_, Map>> {
     match value {
         Value::Object(map) => Some(Cow::Borrowed(map)),
         Value::Bytes(bytes) => Some(Cow::Owned(byte_record(bytes))),

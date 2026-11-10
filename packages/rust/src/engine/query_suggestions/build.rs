@@ -19,7 +19,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 pub(crate) struct MergedHistory {
     pub(crate) result: MergeResult,
     pub(crate) sources: Vec<MergedSource>,
-    pub(crate) oldest_day: Option<String>,
+    oldest_day: Option<String>,
 }
 
 pub(crate) struct BuildOutcome {

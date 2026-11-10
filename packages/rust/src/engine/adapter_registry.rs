@@ -7,8 +7,7 @@ use crate::adapters::{EmbeddingAdapter, RerankAdapter};
 /// The embedding adapters of an engine, keyed by the name that an index configuration gives.
 pub(crate) type EmbeddingAdapters = BTreeMap<String, Arc<dyn EmbeddingAdapter>>;
 
-/// The rerank adapters of an engine, keyed by the name that a query gives.
-pub(crate) type RerankAdapters = BTreeMap<String, Arc<dyn RerankAdapter>>;
+type RerankAdapters = BTreeMap<String, Arc<dyn RerankAdapter>>;
 
 /// The adapters that an engine holds by name, which every index of the engine shares.
 #[derive(Default)]

@@ -9,7 +9,7 @@ use crate::native::status::core_refused;
 
 const PACKED_COUNT_WORDS: usize = 1;
 
-pub(crate) type PackedTokenVisitor<'a> = dyn FnMut(&[u32], &[u16]) -> Result<()> + 'a;
+type PackedTokenVisitor<'a> = dyn FnMut(&[u32], &[u16]) -> Result<()> + 'a;
 
 pub(crate) struct TokenParts<'a> {
     pub(crate) term: &'a [u16],

@@ -106,7 +106,7 @@ fn invalid(message: &str) -> NarsilError {
     )
 }
 
-pub(crate) fn entry_from_value(value: &Value) -> Result<LogEntry> {
+fn entry_from_value(value: &Value) -> Result<LogEntry> {
     let Value::Object(map) = value else {
         return Err(invalid("missing or invalid \"entry\" field"));
     };

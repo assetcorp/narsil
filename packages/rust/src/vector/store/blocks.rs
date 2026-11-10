@@ -48,7 +48,7 @@ impl StoreTables {
         Some(made)
     }
 
-    pub(crate) fn ensure_code_block(&self, ordinal: u32) {
+    fn ensure_code_block(&self, ordinal: u32) {
         if self.bits == 0 {
             return;
         }
@@ -191,13 +191,13 @@ impl StoreTables {
         self.set_word(ffi::NARSIL_STORE_WORD_CODE_COUNT, 0);
     }
 
-    pub(crate) fn vector_block_held(&self, block: usize) -> bool {
+    fn vector_block_held(&self, block: usize) -> bool {
         self.vector_owners
             .get(block)
             .is_some_and(|owner| owner.get().is_some())
     }
 
-    pub(crate) fn block_reads_from_files(&self, block: usize) -> bool {
+    fn block_reads_from_files(&self, block: usize) -> bool {
         let start = block * VECTORS_PER_BLOCK as usize;
         let end = (start + VECTORS_PER_BLOCK as usize).min(self.slots() as usize);
         (start..end).all(|at| !self.present(at as u32) || load(&self.vector_file, at) >= 0)

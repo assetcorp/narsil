@@ -11,7 +11,7 @@ use crate::value::{
     write_number, write_string, write_uint,
 };
 
-pub(crate) const VECTOR_FILE_PAYLOAD_VERSION: u8 = 1;
+const VECTOR_FILE_PAYLOAD_VERSION: u8 = 1;
 pub(crate) const VECTOR_FILE_ENVELOPE_VERSION: u8 = 2;
 pub(crate) const VECTOR_FILE_MAX_VECTORS: usize = 65_536;
 pub(crate) const OSQ_RECORD_TAIL_BYTES: usize = 16;

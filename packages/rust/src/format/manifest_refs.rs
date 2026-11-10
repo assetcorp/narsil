@@ -4,7 +4,7 @@ use crate::format::fields::{non_negative_safe_integer, uint32_of, whole_number_u
 use crate::format::layout::{graph_part_key, vector_file_key};
 use crate::value::{Map, Value};
 
-pub(crate) const MAX_SEGMENT_ID: f64 = 281_474_976_710_655.0;
+const MAX_SEGMENT_ID: f64 = 281_474_976_710_655.0;
 pub(crate) const VECTOR_FILE_MAX_VECTORS: u64 = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

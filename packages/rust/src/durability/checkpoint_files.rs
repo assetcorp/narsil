@@ -55,10 +55,7 @@ pub(crate) fn read_current_manifest(
     })
 }
 
-pub(crate) fn published_keys(
-    store: &dyn CheckpointStore,
-    index_name: &str,
-) -> Result<BTreeSet<String>> {
+fn published_keys(store: &dyn CheckpointStore, index_name: &str) -> Result<BTreeSet<String>> {
     Ok(read_published(store, index_name)?
         .map(|published| published.keys)
         .unwrap_or_default())

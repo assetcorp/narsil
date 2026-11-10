@@ -25,7 +25,7 @@ pub(crate) struct SegmentFile {
     pub(crate) start_seq_no: u64,
 }
 
-pub(crate) fn segment_start(key: &str, prefix: &str) -> Option<u64> {
+fn segment_start(key: &str, prefix: &str) -> Option<u64> {
     let tail = key.strip_prefix(prefix)?;
     if tail.len() != 16 || !tail.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
@@ -165,7 +165,7 @@ fn make_tail_durable(
     )
 }
 
-pub(crate) fn remove_partition_log(
+fn remove_partition_log(
     directory: &DurableDirectory,
     index_name: &str,
     partition_id: u32,

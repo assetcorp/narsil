@@ -19,7 +19,7 @@ pub(crate) struct ScoredPage {
     pub(crate) facets: Option<Vec<(String, FacetResult)>>,
 }
 
-pub(crate) fn needs_full_hits(params: &QueryParams) -> bool {
+fn needs_full_hits(params: &QueryParams) -> bool {
     params.sort.is_some()
         || params.group.is_some()
         || params.pinned.is_some()

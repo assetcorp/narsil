@@ -196,7 +196,7 @@ impl GraphTables {
         self.word(ffi::NARSIL_GRAPH_WORD_TOP_LAYER)
     }
 
-    pub(crate) fn node_count(&self) -> u64 {
+    fn node_count(&self) -> u64 {
         self.word(ffi::NARSIL_GRAPH_WORD_NODE_COUNT).max(0) as u64
     }
 

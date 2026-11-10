@@ -37,7 +37,7 @@ impl OwnedSortValue {
     }
 }
 
-pub(crate) fn truncate_sort_text(text: &str) -> &str {
+fn truncate_sort_text(text: &str) -> &str {
     match text.char_indices().nth(SORT_VALUE_MAX_CODE_POINTS) {
         Some((end, _)) => &text[..end],
         None => text,

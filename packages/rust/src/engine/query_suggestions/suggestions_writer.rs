@@ -14,13 +14,13 @@ use crate::error::{ErrorCode, Result};
 use crate::format::metadata_parts::config_invalid;
 use crate::value::{Map, Value};
 
-pub(crate) const ORIGIN_POPULAR: &str = "popular";
+const ORIGIN_POPULAR: &str = "popular";
 pub(crate) const ORIGIN_MANUAL: &str = "manual";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StoredSuggestion {
     pub(crate) count: f64,
-    pub(crate) origin: String,
+    origin: String,
 }
 
 #[derive(Debug, Default, Clone, Copy)]

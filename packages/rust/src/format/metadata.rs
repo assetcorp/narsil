@@ -25,8 +25,8 @@ const SCORING_MODES: [&str; 3] = ["local", "dfs", "broadcast"];
 pub(crate) struct IndexMetadata {
     pub(crate) index_name: String,
     pub(crate) document_count: Option<u64>,
-    pub(crate) index_uuid: Option<String>,
-    pub(crate) held_partitions: Option<Vec<u64>>,
+    index_uuid: Option<String>,
+    held_partitions: Option<Vec<u64>>,
     pub(crate) schema: Map,
     pub(crate) language: String,
     pub(crate) partition_count: u32,

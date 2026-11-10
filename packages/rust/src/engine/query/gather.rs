@@ -167,7 +167,7 @@ pub(crate) fn collected_segments<'s>(
     segments
 }
 
-pub(crate) fn located_segments<'s>(
+fn located_segments<'s>(
     snapshots: &'s QuerySnapshots,
     locations: impl Iterator<Item = Location>,
 ) -> Vec<MatchedSegment<'s>> {

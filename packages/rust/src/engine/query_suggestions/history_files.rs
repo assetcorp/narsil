@@ -21,7 +21,7 @@ pub(crate) enum HistoryRead {
     Bytes(Vec<u8>),
 }
 
-pub(crate) fn history_folder_of(index_name: &str) -> String {
+fn history_folder_of(index_name: &str) -> String {
     format!("{QUERY_HISTORY_FOLDER}/{index_name}/")
 }
 
@@ -50,7 +50,7 @@ pub(crate) fn is_day_shape(text: &str) -> bool {
         })
 }
 
-pub(crate) fn history_file_of(index_name: &str, key: &str) -> Option<HistoryFileName> {
+fn history_file_of(index_name: &str, key: &str) -> Option<HistoryFileName> {
     let rest = key
         .strip_prefix(&history_folder_of(index_name))?
         .strip_suffix(DAY_FILE_SUFFIX)?;
@@ -70,10 +70,7 @@ pub(crate) fn history_file_of(index_name: &str, key: &str) -> Option<HistoryFile
     })
 }
 
-pub(crate) fn list_history_folder(
-    store: &dyn CheckpointStore,
-    index_name: &str,
-) -> Result<Vec<String>> {
+fn list_history_folder(store: &dyn CheckpointStore, index_name: &str) -> Result<Vec<String>> {
     store.list(&history_folder_of(index_name))
 }
 

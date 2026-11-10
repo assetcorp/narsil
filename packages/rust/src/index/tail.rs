@@ -32,7 +32,7 @@ pub(crate) struct TailSegment {
     pub(crate) documents: Vec<Arc<Map>>,
     pub(crate) keyword: GrowingSegment,
     pub(crate) field_names: Vec<String>,
-    pub(crate) field_slots: HashMap<String, u16>,
+    field_slots: HashMap<String, u16>,
     pub(crate) columns: TailColumns,
     pub(crate) track_positions: bool,
     pub(crate) derived: DerivedColumns,

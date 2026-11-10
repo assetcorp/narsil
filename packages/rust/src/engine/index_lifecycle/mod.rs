@@ -118,9 +118,7 @@ impl IndexLifecycle {
         u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    /// Reports whether a call on an open index records when it arrived, which only the idle timeout and the open
-    /// limits read.
-    pub(crate) fn tracks_access(&self) -> bool {
+    fn tracks_access(&self) -> bool {
         self.limits.is_some()
     }
 

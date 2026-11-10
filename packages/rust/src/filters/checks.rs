@@ -45,7 +45,7 @@ pub(crate) fn invalid<T>(message: impl Into<String>) -> Result<T> {
     Err(NarsilError::new(ErrorCode::SEARCH_INVALID_FILTER, message))
 }
 
-pub(crate) fn operand_kind_of(field_type: &FieldType) -> OperandKind {
+fn operand_kind_of(field_type: &FieldType) -> OperandKind {
     match field_type.base {
         BaseType::Number | BaseType::NumberList => OperandKind::Number,
         BaseType::Boolean | BaseType::BooleanList => OperandKind::Boolean,
@@ -88,7 +88,7 @@ pub(crate) fn base_name(base: BaseType) -> &'static str {
     }
 }
 
-pub(crate) fn require_field_kind(
+fn require_field_kind(
     field: &FieldContext<'_>,
     operator: &str,
     accepted: OperandKind,
@@ -104,7 +104,7 @@ pub(crate) fn require_field_kind(
     ))
 }
 
-pub(crate) fn require_text_range_field(field: &FieldContext<'_>, operator: &str) -> Result<()> {
+fn require_text_range_field(field: &FieldContext<'_>, operator: &str) -> Result<()> {
     let field_type = field.field_type;
     let text_base = matches!(field_type.base, BaseType::String | BaseType::Verbatim);
     if field_type.sortable && text_base {

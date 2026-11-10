@@ -5,7 +5,7 @@ use crate::value::{Map, Value, decode_value, javascript_text};
 use super::documents::{V2Documents, decode_v2_documents};
 use super::vector_parts::{EarlierVectorPart, decode_vector_parts, vector_fields_of};
 
-pub(crate) const INDEX_SNAPSHOT_ENVELOPE_VERSION: u8 = 3;
+const INDEX_SNAPSHOT_ENVELOPE_VERSION: u8 = 3;
 const EARLIER_SNAPSHOT_VERSION: f64 = 2.0;
 
 /// Opens the envelope of an index snapshot that engine 0.3.0 returned, refusing any other envelope version as

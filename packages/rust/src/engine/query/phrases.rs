@@ -10,7 +10,7 @@ const MAX_QUERY_PHRASES: usize = 32;
 pub(crate) struct QueryPhrases {
     pub(crate) words: String,
     pub(crate) phrases: Vec<AnalysedPhrase>,
-    pub(crate) kept_phrase_count: usize,
+    kept_phrase_count: usize,
     largest_phrase_size: u32,
     largest_token_count: u32,
     pub(crate) ends_with_phrase: bool,
@@ -20,8 +20,7 @@ fn is_quote(character: char) -> bool {
     matches!(character, '"' | '\u{201C}' | '\u{201D}' | '\u{201E}')
 }
 
-/// Reports whether `term` holds a quote character, so that a query needs phrase analysis.
-pub(crate) fn holds_quote(term: &str) -> bool {
+fn holds_quote(term: &str) -> bool {
     term.chars().any(is_quote)
 }
 
@@ -129,11 +128,7 @@ pub(crate) fn require_usable_phrases(
     }
 }
 
-/// Refuses a query whose phrases pass a limit, or whose index stores no word positions.
-pub(crate) fn require_phrases_within_limits(
-    phrases: &QueryPhrases,
-    track_positions: bool,
-) -> Result<()> {
+fn require_phrases_within_limits(phrases: &QueryPhrases, track_positions: bool) -> Result<()> {
     if phrases.kept_phrase_count == 0 {
         return Ok(());
     }

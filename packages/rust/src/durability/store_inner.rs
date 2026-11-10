@@ -323,7 +323,7 @@ impl StoreInner {
         Ok(())
     }
 
-    pub(crate) fn every_log(&self) -> Result<Vec<Arc<PartitionLog>>> {
+    fn every_log(&self) -> Result<Vec<Arc<PartitionLog>>> {
         let logs = self.logs.read().map_err(|_| store_poisoned())?;
         Ok(logs.values().flat_map(HashMap::values).cloned().collect())
     }

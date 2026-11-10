@@ -7,7 +7,7 @@ use super::indexed::IndexedDocument;
 use super::segment::{SegmentData, SegmentEntry};
 use super::tail::{Appended, TailSegment};
 
-pub(crate) type Freeze<'a> = dyn Fn(&SegmentEntry) -> Result<FrozenSegment> + 'a;
+type Freeze<'a> = dyn Fn(&SegmentEntry) -> Result<FrozenSegment> + 'a;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Map;
 
@@ -26,7 +26,7 @@ impl PartitionStats {
         }
     }
 
-    pub(crate) fn subtract(&mut self, field_lengths: impl IntoIterator<Item = (String, u32)>) {
+    fn subtract(&mut self, field_lengths: impl IntoIterator<Item = (String, u32)>) {
         if self.documents == 0 {
             return;
         }
@@ -49,7 +49,7 @@ pub(crate) struct PartitionSnapshot {
     pub(crate) stats: PartitionStats,
     pub(crate) next_segment_id: u64,
     pub(crate) track_positions: bool,
-    pub(crate) kept_columns: KeptColumns,
+    kept_columns: KeptColumns,
 }
 
 impl PartitionSnapshot {

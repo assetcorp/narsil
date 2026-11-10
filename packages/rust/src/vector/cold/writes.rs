@@ -116,7 +116,7 @@ impl ColdHold {
         }
     }
 
-    pub(crate) fn visible_number(&self, doc_id: &str, pin: i64) -> Result<Option<u32>> {
+    fn visible_number(&self, doc_id: &str, pin: i64) -> Result<Option<u32>> {
         let Some(number) = self.field.number_of(doc_id)? else {
             return Ok(None);
         };

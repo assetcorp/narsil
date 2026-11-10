@@ -8,13 +8,13 @@ use crate::value::number_to_text;
 
 pub(crate) const MAX_INDEX_NAME_LENGTH: usize = 255;
 pub(crate) const MAX_DOC_ID_LENGTH: usize = 512;
-pub(crate) const MAX_BM25_K1: f64 = 1000.0;
-pub(crate) const MAX_BM25_B: f64 = 1.0;
+const MAX_BM25_K1: f64 = 1000.0;
+const MAX_BM25_B: f64 = 1.0;
 pub(crate) const DEFAULT_BM25_K1: f64 = 1.2;
 pub(crate) const DEFAULT_BM25_B: f64 = 0.75;
-pub(crate) const BM25_DISPLAYED_NAME_LENGTH: usize = 64;
-pub(crate) const MIN_PATTERN_VALUE_LIMIT: u64 = 1;
-pub(crate) const MAX_PATTERN_VALUE_LIMIT: u64 = 65_536;
+const BM25_DISPLAYED_NAME_LENGTH: usize = 64;
+const MIN_PATTERN_VALUE_LIMIT: u64 = 1;
+const MAX_PATTERN_VALUE_LIMIT: u64 = 65_536;
 pub(crate) const MIN_M: u32 = 2;
 pub(crate) const MAX_M: u32 = 512;
 pub(crate) const MAX_PARTITIONS: u64 = 65_536;

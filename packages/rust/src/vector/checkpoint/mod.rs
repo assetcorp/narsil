@@ -29,7 +29,7 @@ pub(crate) struct SavedVectorFile {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FieldSignature {
     pub(crate) revision: u64,
-    pub(crate) graph_size: i64,
+    graph_size: i64,
     pub(crate) calibration: Option<i32>,
 }
 
@@ -72,7 +72,7 @@ pub(crate) struct VectorCheckpointPlan {
     vanished: Vec<bool>,
 }
 
-pub(crate) fn vectors_per_file(dimension: usize, bits: u8) -> usize {
+fn vectors_per_file(dimension: usize, bits: u8) -> usize {
     let record_bytes = if matches!(bits, 1 | 2 | 4 | 8) {
         osq_record_bytes(dimension, bits) as u64
     } else {
