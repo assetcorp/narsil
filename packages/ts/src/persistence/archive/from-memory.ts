@@ -11,6 +11,7 @@ import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-inde
 import type { VectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import type { NewVectorFile } from '../../vector/vector-index/checkpoint-plan'
 import type { ArchiveCheckpoint } from '../durability/archive-checkpoint'
+import { whileGraphsStayComplete } from '../durability/complete-graphs'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../durability/constants'
 import type { PartitionCheckpoint } from '../durability/partition-checkpoint'
 import { partitionContentsOf } from '../durability/segment/captured-partition'
@@ -121,10 +122,10 @@ function capture(input: MemoryArchiveInput): CapturedArchive {
 }
 
 export async function buildArchiveFromMemory(input: MemoryArchiveInput): Promise<ArchiveCheckpoint> {
-  if (input.partitionId === null) {
-    for (const vectorIndex of input.vectorIndexes.values()) await vectorIndex.completeGraph()
-  }
-  const captured = capture(input)
+  const captured =
+    input.partitionId === null
+      ? await whileGraphsStayComplete(input.vectorIndexes, () => capture(input))
+      : capture(input)
   const store = memoryCheckpointStore()
   const written = await writeCheckpointSegments({
     store,

@@ -215,13 +215,11 @@ function withBuildHistory(state: VectorIndexState, graph: NumberedHnswGraph): Nu
 }
 
 function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGraphPartPayload[] | null {
-  const graph = state.hnsw
-  if (graph === null || numbers.ordinalOfNumber.length === 0) return null
-  const parts = graph.serializeNumbered(
+  if (state.hnsw === null || numbers.ordinalOfNumber.length === 0) return null
+  const parts = state.hnsw.serializeNumbered(
     numbers.numberOfOrdinal,
     numbers.ordinalOfNumber,
     VECTOR_GRAPH_PART_VECTORS,
-    state.graphsPlacedIntoSinceConnect.has(graph),
   )
   return parts.map(graph => ({
     v: VECTOR_GRAPH_PART_PAYLOAD_VERSION,

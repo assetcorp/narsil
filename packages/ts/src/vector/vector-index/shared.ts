@@ -169,6 +169,7 @@ export interface VectorIndexState {
   buildRetryDelayMs: number
   readonly buildTurnWaiters: Map<() => void, number>
   pendingBuild: Promise<void> | null
+  buildsKeptOut: { readonly ended: Promise<void>; readonly end: () => void } | null
   disposed: boolean
   revision: number
   workerCopyPool: VectorSearchPool | null
