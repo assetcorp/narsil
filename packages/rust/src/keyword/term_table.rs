@@ -5,6 +5,7 @@ use super::constants::{
 use super::slices::{grow_to, region_full, trim_to};
 use crate::error::Result;
 use crate::ffi;
+use crate::util::hash::fnv1a_of;
 
 pub(crate) const HEADER_WORDS: usize = 8;
 pub(crate) const COUNT: usize = 0;
@@ -16,16 +17,29 @@ const FIRST_UNIT_COUNT: usize = 0x10000;
 const LAST_SLOT_ORDINAL: usize = 0x7fff_fffe;
 const LAST_SLOT_CAPACITY: usize = 0x8000_0000;
 const LAST_OFFSET: usize = u32::MAX as usize;
-const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
-const FNV_PRIME: u32 = 16_777_619;
 
 pub(crate) fn term_hash(units: &[u16]) -> u32 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for &unit in units {
-        hash = (hash ^ u32::from(unit & 0xff)).wrapping_mul(FNV_PRIME);
-        hash = (hash ^ u32::from(unit >> 8)).wrapping_mul(FNV_PRIME);
+    fnv1a_of(units.iter().flat_map(|unit| unit.to_le_bytes()))
+}
+
+pub(crate) fn rehashed_slots(
+    held: &[i32],
+    capacity: usize,
+    hash_of_entry: impl Fn(usize) -> u32,
+) -> Vec<i32> {
+    let mut slots = vec![0i32; capacity];
+    let mask = capacity - 1;
+    for &entry in held {
+        if entry <= 0 {
+            continue;
+        }
+        let mut slot = hash_of_entry(entry as usize - 1) as usize & mask;
+        while slots[slot] != 0 {
+            slot = (slot + 1) & mask;
+        }
+        slots[slot] = entry;
     }
-    hash
+    slots
 }
 
 pub(crate) fn slots_holding(entries: usize) -> Result<usize> {
@@ -178,19 +192,9 @@ impl TermTable {
     }
 
     fn rehash(&mut self, capacity: usize) {
-        let mut slots = vec![0i32; capacity];
-        let mask = capacity - 1;
-        for &entry in &self.slots {
-            if entry <= 0 {
-                continue;
-            }
-            let mut slot = term_hash(self.text(entry as usize - 1)) as usize & mask;
-            while slots[slot] != 0 {
-                slot = (slot + 1) & mask;
-            }
-            slots[slot] = entry;
-        }
-        self.slots = slots;
+        self.slots = rehashed_slots(&self.slots, capacity, |ordinal| {
+            term_hash(self.text(ordinal))
+        });
         self.header[SLOT_CAPACITY] = capacity as u32;
         self.occupied = self.live_count();
         self.accounted_count = self.count();

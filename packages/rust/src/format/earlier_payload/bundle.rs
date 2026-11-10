@@ -1,13 +1,12 @@
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::fields::{non_negative_safe_integer, uint32_of};
 use crate::format::manifest::PartitionCheckpoint;
 use crate::schema::require_valid_field_types;
-use crate::value::{Map, Value, decode_value};
+use crate::value::{Map, Value, decode_value, javascript_text};
 
-use super::shown_as_text;
-use super::vector_parts::{EarlierVectorField, decode_vector_field};
+use super::vector_parts::{EarlierVectorField, decode_vector_field, vector_fields_of};
 
 const SNAPSHOT_BUNDLE_VERSION: f64 = 2.0;
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 /// The snapshot bundle that engine 0.3.0 saved under `<indexName>/snapshot` on the snapshot-only tier.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,28 +31,14 @@ fn invalid(message: &str) -> NarsilError {
     )
 }
 
-fn whole_number_up_to(value: Option<&Value>, highest: f64) -> Option<f64> {
-    match value {
-        Some(Value::Number(number))
-            if number.fract() == 0.0 && (0.0..=highest).contains(number) =>
-        {
-            Some(*number)
-        }
-        _ => None,
-    }
-}
-
 fn checkpoint_entry(entry: &Value) -> Option<PartitionCheckpoint> {
     let Value::Object(entry) = entry else {
         return None;
     };
-    let partition_id = whole_number_up_to(entry.get("partitionId"), f64::from(u32::MAX))?;
-    let last_seq_no = whole_number_up_to(entry.get("lastSeqNo"), MAX_SAFE_INTEGER)?;
-    let primary_term = whole_number_up_to(entry.get("primaryTerm"), MAX_SAFE_INTEGER)?;
     Some(PartitionCheckpoint {
-        partition_id: partition_id as u32,
-        last_seq_no: last_seq_no as u64,
-        primary_term: primary_term as u64,
+        partition_id: uint32_of(entry.get("partitionId"))?,
+        last_seq_no: non_negative_safe_integer(entry.get("lastSeqNo"))?,
+        primary_term: non_negative_safe_integer(entry.get("primaryTerm"))?,
         term_history: None,
     })
 }
@@ -69,17 +54,6 @@ fn partitions_of(raw: Option<Value>) -> Result<Vec<Vec<u8>>> {
             _ => Err(invalid("missing partitions")),
         })
         .collect()
-}
-
-fn vector_indexes_of(raw: Option<&Value>) -> Result<Vec<(String, EarlierVectorField)>> {
-    match raw {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Object(fields)) => fields
-            .iter()
-            .map(|(path, parts)| Ok((path.clone(), decode_vector_field(parts)?)))
-            .collect(),
-        Some(_) => Err(invalid("vectorIndexes must be a map")),
-    }
 }
 
 /// Reads the payload of a snapshot bundle that engine 0.3.0 wrote, after the caller has opened its envelope,
@@ -100,7 +74,7 @@ pub(crate) fn decode_snapshot_bundle(payload: &[u8]) -> Result<SnapshotBundle> {
             ErrorCode::ENVELOPE_VERSION_MISMATCH,
             format!(
                 "The snapshot bundle holds layout {}, which this release cannot open. Export the index with the release that wrote it and import the export",
-                shown_as_text(version)
+                javascript_text(version)
             ),
         ));
     }
@@ -112,7 +86,9 @@ pub(crate) fn decode_snapshot_bundle(payload: &[u8]) -> Result<SnapshotBundle> {
         return Err(invalid("missing language"));
     };
     let partitions = partitions_of(map.remove("partitions"))?;
-    let vector_indexes = vector_indexes_of(map.get("vectorIndexes"))?;
+    let vector_indexes = vector_fields_of(map.get("vectorIndexes"), decode_vector_field, || {
+        invalid("vectorIndexes must be a map")
+    })?;
     let checkpoint = match map.get("checkpoint") {
         Some(Value::Array(entries)) => entries.iter().filter_map(checkpoint_entry).collect(),
         _ => Vec::new(),

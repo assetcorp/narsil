@@ -4,9 +4,10 @@ use super::{
     TermStart,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::fields::{non_negative_safe_integer, uint32_of};
 use crate::format::layout::segment_key;
 use crate::format::manifest_refs::{
-    id_of, invalid_manifest, normalize_vector_fields, read_file_ref, sequence_of, uint32_of,
+    id_of, invalid_manifest, normalize_vector_fields, read_file_ref,
 };
 use crate::schema::require_valid_field_types;
 use crate::value::{Map, Value};
@@ -19,8 +20,8 @@ fn normalize_term_history(raw: &Value, last_seq_no: u64) -> Result<Vec<TermStart
     for start in starts {
         let map = start.as_object();
         let (Some(primary_term), Some(first_seq_no)) = (
-            map.and_then(|map| sequence_of(map.get("primaryTerm"))),
-            map.and_then(|map| sequence_of(map.get("firstSeqNo"))),
+            map.and_then(|map| non_negative_safe_integer(map.get("primaryTerm"))),
+            map.and_then(|map| non_negative_safe_integer(map.get("firstSeqNo"))),
         ) else {
             return Err(invalid_manifest("has an invalid term history entry"));
         };
@@ -44,6 +45,16 @@ fn normalize_term_history(raw: &Value, last_seq_no: u64) -> Result<Vec<TermStart
     Ok(out)
 }
 
+fn unseen_partition<'a>(entry: &'a Value, seen: &mut Vec<u32>) -> Option<(&'a Map, u32)> {
+    let map = entry.as_object()?;
+    let partition_id = uint32_of(map.get("partitionId"))?;
+    if seen.contains(&partition_id) {
+        return None;
+    }
+    seen.push(partition_id);
+    Some((map, partition_id))
+}
+
 pub(crate) fn normalize_checkpoint(raw: Option<&Value>) -> Result<Vec<PartitionCheckpoint>> {
     let Some(Value::Array(entries)) = raw else {
         return Err(invalid_manifest("is missing its checkpoint list"));
@@ -51,19 +62,14 @@ pub(crate) fn normalize_checkpoint(raw: Option<&Value>) -> Result<Vec<PartitionC
     let mut seen: Vec<u32> = Vec::new();
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
-        let map = entry.as_object();
-        let partition_id = map.and_then(|map| uint32_of(map.get("partitionId")));
-        let last_seq_no = map.and_then(|map| sequence_of(map.get("lastSeqNo")));
-        let primary_term = map.and_then(|map| sequence_of(map.get("primaryTerm")));
-        let (Some(map), Some(partition_id), Some(last_seq_no), Some(primary_term)) =
-            (map, partition_id, last_seq_no, primary_term)
-        else {
+        let read = unseen_partition(entry, &mut seen).and_then(|(map, partition_id)| {
+            let last_seq_no = non_negative_safe_integer(map.get("lastSeqNo"))?;
+            let primary_term = non_negative_safe_integer(map.get("primaryTerm"))?;
+            Some((map, partition_id, last_seq_no, primary_term))
+        });
+        let Some((map, partition_id, last_seq_no, primary_term)) = read else {
             return Err(invalid_manifest("has an invalid partition checkpoint"));
         };
-        if seen.contains(&partition_id) {
-            return Err(invalid_manifest("has an invalid partition checkpoint"));
-        }
-        seen.push(partition_id);
         let term_history = match map.get("termHistory") {
             None => None,
             Some(history) => Some(normalize_term_history(history, last_seq_no)?),
@@ -128,16 +134,9 @@ fn normalize_partitions(raw: Option<&Value>, index_name: &str) -> Result<Vec<Par
     let mut seen: Vec<u32> = Vec::new();
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
-        let map = entry.as_object();
-        let Some((map, partition_id)) =
-            map.and_then(|map| uint32_of(map.get("partitionId")).map(|id| (map, id)))
-        else {
+        let Some((map, partition_id)) = unseen_partition(entry, &mut seen) else {
             return Err(invalid_manifest("has a partition without a valid id"));
         };
-        if seen.contains(&partition_id) {
-            return Err(invalid_manifest("has a partition without a valid id"));
-        }
-        seen.push(partition_id);
         let segments = normalize_segments(map.get("segments"), index_name, partition_id)?;
         let next_segment_id = id_of(map.get("nextSegmentId"))
             .ok_or_else(|| invalid_manifest("has an invalid next segment id"))?;
@@ -157,6 +156,17 @@ fn normalize_partitions(raw: Option<&Value>, index_name: &str) -> Result<Vec<Par
         });
     }
     Ok(out)
+}
+
+pub(crate) fn schema_and_language(raw: &Map) -> Result<(Map, String)> {
+    let Some(Value::Object(schema)) = raw.get("schema") else {
+        return Err(invalid_manifest("is missing its schema"));
+    };
+    require_valid_field_types(schema)?;
+    let Some(Value::String(language)) = raw.get("language") else {
+        return Err(invalid_manifest("is missing its language"));
+    };
+    Ok((schema.clone(), language.clone()))
 }
 
 fn describe_version(value: Option<&Value>) -> String {
@@ -180,23 +190,17 @@ pub(crate) fn decode_manifest_payload(raw: &Map, index_name: &str) -> Result<Dec
             ),
         ));
     }
-    let Some(Value::Object(schema)) = raw.get("schema") else {
-        return Err(invalid_manifest("is missing its schema"));
-    };
-    require_valid_field_types(schema)?;
-    let Some(Value::String(language)) = raw.get("language") else {
-        return Err(invalid_manifest("is missing its language"));
-    };
+    let (schema, language) = schema_and_language(raw)?;
     let analysis_generation = match raw.get("analysisGeneration") {
         None => None,
         Some(value) => Some(
-            sequence_of(Some(value))
+            non_negative_safe_integer(Some(value))
                 .ok_or_else(|| invalid_manifest("has an invalid analysis generation"))?,
         ),
     };
     Ok(DecodedManifest::Current(SegmentManifest {
-        schema: schema.clone(),
-        language: language.clone(),
+        schema,
+        language,
         analysis_generation: analysis_generation.filter(|generation| *generation > 0),
         checkpoint: normalize_checkpoint(raw.get("checkpoint"))?,
         partitions: normalize_partitions(raw.get("partitions"), index_name)?,

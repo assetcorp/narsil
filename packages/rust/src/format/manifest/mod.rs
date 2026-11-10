@@ -7,7 +7,7 @@ use crate::format::layout::SEGMENTS_MARKER;
 use crate::format::manifest_refs::{FileRef, VectorFieldRef, invalid_manifest};
 use crate::value::{Map, Value, decode_value};
 
-pub(crate) use decode::decode_manifest_payload;
+pub(crate) use decode::{decode_manifest_payload, schema_and_language};
 pub(crate) use encode::{encode_manifest, manifest_to_wire};
 
 pub(crate) const SEGMENT_MANIFEST_VERSION: u8 = 7;
@@ -131,7 +131,6 @@ pub(crate) fn listed_keys(raw: &Map) -> Vec<String> {
     }
     keys
 }
-
 /// Returns the index name that the first listed key starts with, as a reader of an archive or a manifest file does.
 pub(crate) fn source_index_name(keys: &[String]) -> Result<String> {
     let Some(first) = keys.first() else {

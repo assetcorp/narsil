@@ -6,10 +6,6 @@ use crate::conformance::forms::{header_form, numbers_form, strings_form, texts_f
 use crate::error::{ErrorCode, Result};
 use crate::format::envelope::{Expectation, open_checksummed};
 use crate::format::fields::Fields;
-use crate::format::keyword_columns::{
-    decode_boolean_columns, decode_enum_columns, decode_field_lengths, decode_geopoint_columns,
-    decode_partial_words, decode_pattern_columns, decode_surface_forms, decode_value_columns,
-};
 use crate::format::keyword_segment::KeywordSegment;
 use crate::format::paged_segment::head::{PagedHead, PagedSection};
 use crate::format::paged_segment::{PAGED_SEGMENT_ENVELOPE_VERSION, PAGED_SEGMENT_HEAD_VERSION};
@@ -56,20 +52,9 @@ fn column_forms(sections: &Sections<'_>, token_count: usize) -> Result<Map> {
             lists.insert(name, decode_value(sections.bytes(section)?)?);
         }
     }
-    let count = sections.head.document_count;
     let columns = Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, "");
-    let segment = KeywordSegment {
-        field_lengths: decode_field_lengths(&columns, count)?,
-        numeric: decode_value_columns(&columns, "numeric", count)?,
-        sizes: decode_value_columns(&columns, "sizes", count)?,
-        boolean: decode_boolean_columns(&columns, count)?,
-        enums: decode_enum_columns(&columns, count)?,
-        geopoint: decode_geopoint_columns(&columns, count)?,
-        pattern: decode_pattern_columns(&columns, count)?,
-        surface_forms: decode_surface_forms(&columns)?,
-        partial_words: decode_partial_words(&columns, token_count)?,
-        ..KeywordSegment::default()
-    };
+    let mut segment = KeywordSegment::default();
+    segment.decode_columns(&columns, sections.head.document_count, token_count)?;
     let mut forms = Map::new();
     insert_column_forms(&mut forms, &segment)?;
     Ok(forms)

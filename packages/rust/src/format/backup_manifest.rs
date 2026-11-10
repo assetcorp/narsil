@@ -1,5 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Compression, Expectation, MAX_FILE_BYTES, open_checksummed, pack};
+use crate::format::fields::whole_number;
 use crate::format::metadata_parts::is_sync_epoch;
 use crate::value::{Map, Value, decode_value, encode_value};
 
@@ -63,15 +64,8 @@ fn damaged(backup_name: &str, reason: &str) -> NarsilError {
     )
 }
 
-fn integer(value: Option<&Value>) -> Option<f64> {
-    match value {
-        Some(Value::Number(number)) if number.is_finite() && number.fract() == 0.0 => Some(*number),
-        _ => None,
-    }
-}
-
 fn count(value: Option<&Value>) -> Option<f64> {
-    integer(value).filter(|number| *number >= 0.0)
+    whole_number(value).filter(|number| *number >= 0.0)
 }
 
 fn is_sha256_hex(value: &str) -> bool {
@@ -175,7 +169,7 @@ fn constraints_of(value: Option<&Value>) -> Option<AllocationConstraints> {
         .filter(|attribute| !attribute.is_empty())?;
     let max_shards_per_node = match map.get("maxShardsPerNode") {
         Some(Value::Null) => None,
-        other => Some(integer(other).filter(|shards| *shards > 0.0)?),
+        other => Some(whole_number(other).filter(|shards| *shards > 0.0)?),
     };
     Some(AllocationConstraints {
         zone_awareness,
@@ -200,7 +194,7 @@ pub(crate) fn backup_manifest_from_wire(raw: &Value, backup_name: &str) -> Resul
         .ok_or_else(header)?;
     let started_at = count(map.get("startedAt")).ok_or_else(header)?;
     let completed_at = count(map.get("completedAt")).ok_or_else(header)?;
-    let partition_count = integer(map.get("partitionCount"))
+    let partition_count = whole_number(map.get("partitionCount"))
         .filter(|n| *n >= 1.0 && *n <= MAX_PARTITION_COUNT)
         .ok_or_else(header)?;
     let replication_factor = count(map.get("replicationFactor"))

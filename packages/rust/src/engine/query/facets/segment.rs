@@ -12,7 +12,6 @@ use crate::filters::source::{
 };
 use crate::index::derived::SortedNumbers;
 use crate::index::segment::{SegmentData, SegmentEntry};
-use crate::index::tail::TailSegment;
 use crate::schema::BaseType;
 use crate::value::number_to_text;
 
@@ -36,29 +35,6 @@ impl Numbers<'_> {
     }
 }
 
-fn tail_numbers(
-    entry: &SegmentEntry,
-    tail: &TailSegment,
-    field: &str,
-) -> Result<Arc<SortedNumbers>> {
-    let entries = tail
-        .columns
-        .numeric
-        .get(field)
-        .map_or(&[][..], Vec::as_slice);
-    entry.derived().sorted_numbers.column(
-        |held| held == field,
-        || field.to_string(),
-        tail.len(),
-        |sorted, range| {
-            let start = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.start);
-            let end = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.end);
-            sorted.add(&entries[start..end], range.end);
-            Ok(())
-        },
-    )
-}
-
 fn numbers_of<'a>(entry: &'a SegmentEntry, field: &str) -> Result<Option<Numbers<'a>>> {
     Ok(match &entry.data {
         SegmentData::Frozen(segment) => match segment.numeric(field) {
@@ -69,7 +45,7 @@ fn numbers_of<'a>(entry: &'a SegmentEntry, field: &str) -> Result<Option<Numbers
             _ => None,
         },
         SegmentData::Tail(tail) => match tail.columns.numeric.contains_key(field) {
-            true => Some(Numbers::Tail(tail_numbers(entry, tail, field)?)),
+            true => Some(Numbers::Tail(tail.sorted_numbers(field)?)),
             false => None,
         },
     })

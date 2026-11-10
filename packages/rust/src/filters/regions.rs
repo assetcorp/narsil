@@ -7,7 +7,6 @@ use crate::ffi;
 use crate::geo::location_code;
 use crate::index::derived::SortedNumbers;
 use crate::index::segment::{SegmentData, SegmentEntry};
-use crate::index::tail::TailSegment;
 use crate::schema::BaseType;
 
 pub(super) enum Numbers<'s> {
@@ -165,29 +164,6 @@ pub(super) fn present_bits(entry: &SegmentEntry, path: &str, base: BaseType) -> 
     bits
 }
 
-fn tail_numbers(
-    entry: &SegmentEntry,
-    tail: &TailSegment,
-    path: &str,
-) -> Result<Arc<SortedNumbers>> {
-    let entries = tail
-        .columns
-        .numeric
-        .get(path)
-        .map_or(&[][..], Vec::as_slice);
-    entry.derived().sorted_numbers.column(
-        |held| held == path,
-        || path.to_string(),
-        tail.len(),
-        |sorted, range| {
-            let start = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.start);
-            let end = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.end);
-            sorted.add(&entries[start..end], range.end);
-            Ok(())
-        },
-    )
-}
-
 fn sorted_numbers(view: Option<NumericView<'_>>) -> Numbers<'_> {
     match view {
         Some(NumericView::Sorted { documents, values }) => Numbers::Borrowed {
@@ -212,7 +188,7 @@ fn sorted_numbers(view: Option<NumericView<'_>>) -> Numbers<'_> {
 fn numeric_index<'s>(entry: &'s SegmentEntry, path: &str) -> Result<Numbers<'s>> {
     match &entry.data {
         SegmentData::Tail(tail) if tail.columns.numeric.contains_key(path) => {
-            Ok(Numbers::Shared(tail_numbers(entry, tail, path)?))
+            Ok(Numbers::Shared(tail.sorted_numbers(path)?))
         }
         _ => Ok(sorted_numbers(source_of(entry).numeric(path))),
     }

@@ -10,6 +10,7 @@ use crate::format::keyword_segment::Positions;
 use crate::index::segment::SegmentData;
 use crate::native::status::core_refused;
 use crate::native::workspace::with_workspace;
+use crate::util::bytes::offset_entry;
 
 #[derive(Default)]
 pub(crate) struct MergedPostings {
@@ -30,10 +31,7 @@ impl MergedPostings {
         let mut high = count;
         while low < high {
             let middle = low + (high - low) / 2;
-            let start = self.token_offsets.get(middle).copied().unwrap_or(0) as usize;
-            let end = self.token_offsets.get(middle + 1).copied().unwrap_or(0) as usize;
-            let held = self.tokens.get(start..end).unwrap_or(&[]);
-            match held.cmp(token) {
+            match offset_entry(&self.tokens, &self.token_offsets, middle).cmp(token) {
                 std::cmp::Ordering::Less => low = middle + 1,
                 std::cmp::Ordering::Greater => high = middle,
                 std::cmp::Ordering::Equal => return u32::try_from(middle).ok(),

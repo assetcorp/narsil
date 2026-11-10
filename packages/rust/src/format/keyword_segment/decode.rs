@@ -248,15 +248,28 @@ pub(crate) fn decode_keyword_segment(payload: &[u8]) -> Result<KeywordSegment> {
     decode_ids(&segment, &mut out)?;
     decode_documents(&segment, &mut out)?;
     let count = out.document_count;
-    out.field_lengths = decode_field_lengths(&segment, count)?;
-    out.numeric = decode_value_columns(&segment, "numeric", count)?;
-    out.sizes = decode_value_columns(&segment, "sizes", count)?;
-    out.boolean = decode_boolean_columns(&segment, count)?;
-    out.enums = decode_enum_columns(&segment, count)?;
-    out.geopoint = decode_geopoint_columns(&segment, count)?;
-    out.pattern = decode_pattern_columns(&segment, count)?;
-    out.surface_forms = decode_surface_forms(&segment)?;
-    out.partial_words = decode_partial_words(&segment, out.token_count())?;
+    let token_count = out.token_count();
+    out.decode_columns(&segment, count, token_count)?;
     out.write_records = decode_write_records(&segment, count)?;
     Ok(out)
+}
+
+impl KeywordSegment {
+    pub(crate) fn decode_columns(
+        &mut self,
+        columns: &Fields<'_>,
+        document_count: u32,
+        token_count: usize,
+    ) -> Result<()> {
+        self.field_lengths = decode_field_lengths(columns, document_count)?;
+        self.numeric = decode_value_columns(columns, "numeric", document_count)?;
+        self.sizes = decode_value_columns(columns, "sizes", document_count)?;
+        self.boolean = decode_boolean_columns(columns, document_count)?;
+        self.enums = decode_enum_columns(columns, document_count)?;
+        self.geopoint = decode_geopoint_columns(columns, document_count)?;
+        self.pattern = decode_pattern_columns(columns, document_count)?;
+        self.surface_forms = decode_surface_forms(columns)?;
+        self.partial_words = decode_partial_words(columns, token_count)?;
+        Ok(())
+    }
 }

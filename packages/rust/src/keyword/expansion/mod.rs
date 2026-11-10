@@ -4,11 +4,14 @@ mod suggestions;
 
 use std::ptr;
 
+use super::constants::{EXPANSION_START_CAPACITY, MAX_ROOM_ATTEMPTS};
 use super::growing::GrowingRead;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::{SegmentData, SegmentEntry};
+use crate::native::status::core_refused;
+use crate::native::workspace::with_workspace;
 use crate::search::lookup::token_text;
 
 pub(crate) use partial::PartialWordRequest;
@@ -57,6 +60,51 @@ fn utf8_entry(text: &[u8], offsets: &[u32], at: usize) -> Option<String> {
     let end = *offsets.get(at + 1)? as usize;
     let bytes = text.get(start..end)?;
     std::str::from_utf8(bytes).ok().map(str::to_string)
+}
+
+struct ExpansionRows {
+    segments: Vec<u32>,
+    tokens: Vec<u32>,
+    factors: Vec<f64>,
+    count: usize,
+}
+
+fn expansion_rows(
+    operation: &str,
+    mut expand: impl FnMut(
+        *mut ffi::narsil_workspace,
+        ffi::narsil_expansion_output,
+        &mut u32,
+    ) -> ffi::narsil_status,
+) -> Result<ExpansionRows> {
+    let mut capacity = EXPANSION_START_CAPACITY;
+    for _ in 0..MAX_ROOM_ATTEMPTS {
+        let mut rows = ExpansionRows {
+            segments: vec![0; capacity],
+            tokens: vec![0; capacity],
+            factors: vec![0.0; capacity],
+            count: 0,
+        };
+        let output = ffi::narsil_expansion_output {
+            segments: rows.segments.as_mut_ptr(),
+            segment_capacity: capacity,
+            tokens: rows.tokens.as_mut_ptr(),
+            token_capacity: capacity,
+            factors: rows.factors.as_mut_ptr(),
+            factor_capacity: capacity,
+        };
+        let mut count = 0u32;
+        let status = with_workspace(|workspace| Ok(expand(workspace, output, &mut count)))?;
+        match status {
+            ffi::NARSIL_OK => {
+                rows.count = count as usize;
+                return Ok(rows);
+            }
+            ffi::NARSIL_NEEDS_ROOM => capacity *= 2,
+            status => return Err(core_refused(operation, status)),
+        }
+    }
+    Err(core_refused(operation, ffi::NARSIL_NEEDS_ROOM))
 }
 
 fn held_view(entry: &SegmentEntry) -> Result<HeldView> {
@@ -134,6 +182,11 @@ impl<'a> ExpansionSources<'a> {
 
     pub(crate) fn token(&self, segment: u32, token: u32) -> Result<String> {
         Ok(token_text(self.entry(segment)?, token).into_owned())
+    }
+
+    fn expansion(&self, rows: &ExpansionRows, at: usize) -> Result<(String, f64)> {
+        let token = self.token(rows.segments[at], rows.tokens[at])?;
+        Ok((token, rows.factors[at]))
     }
 
     pub(crate) fn surface(&self, segment: u32, surface: u32) -> Result<String> {

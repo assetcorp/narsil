@@ -1,5 +1,6 @@
 pub(crate) mod adapter_registry;
 mod analysis_change;
+mod background_thread;
 pub(crate) mod changes;
 mod clear;
 mod constants;

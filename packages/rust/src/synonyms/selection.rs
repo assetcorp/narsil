@@ -5,6 +5,7 @@ use super::constants::{SYNONYM_EXPANSION_CACHE_ENTRIES, SYNONYMS_ADDED_PER_QUERY
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::native::status::query_accepted;
+use crate::util::bytes::offset_entry;
 
 type Selected = Arc<[(String, Vec<String>)]>;
 
@@ -51,10 +52,8 @@ impl SynonymSelection {
     }
 
     fn token(&self, rank: u32) -> String {
-        let offsets = &self.table.offsets;
-        let start = offsets.get(rank as usize).copied().unwrap_or(0) as usize;
-        let end = offsets.get(rank as usize + 1).copied().unwrap_or(0) as usize;
-        String::from_utf8_lossy(self.table.tokens.get(start..end).unwrap_or_default()).into_owned()
+        let token = offset_entry(&self.table.tokens, &self.table.offsets, rank as usize);
+        String::from_utf8_lossy(token).into_owned()
     }
 
     fn expand(&self, tokens: &[&str]) -> Result<Expanded> {

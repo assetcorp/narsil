@@ -1,8 +1,8 @@
-use super::checks::{FieldContext, finite_number, invalid, js_string, require_list_length};
+use super::checks::{FieldContext, finite_number, invalid, require_list_length};
 use crate::error::Result;
 use crate::geo::constants::{MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POLYGON_POINTS};
 use crate::geo::{is_latitude, is_longitude};
-use crate::value::{Value, number_to_text};
+use crate::value::{Value, javascript_text, number_to_text};
 
 pub(crate) const GEO_UNITS: [(&str, f64); 3] = [
     ("km", crate::geo::constants::METRES_PER_KILOMETRE),
@@ -51,7 +51,7 @@ fn require_radius(path: &str, circle: &Value) -> Result<()> {
         return invalid(format!(
             "\"radius.unit\" on field \"{path}\" must be one of {}, and this filter sets {}",
             names.join(", "),
-            js_string(unit)
+            javascript_text(unit)
         ));
     }
     require_flag(path, "radius", "inside", property(circle, "inside"))?;

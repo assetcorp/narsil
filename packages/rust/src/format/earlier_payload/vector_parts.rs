@@ -1,4 +1,5 @@
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::fields::whole_number;
 use crate::format::graph_part::GraphParts;
 use crate::format::vector_file::{VectorCodes, osq_record_bytes, require_payload_version};
 use crate::util::bytes::f32_list;
@@ -46,10 +47,7 @@ pub(super) fn invalid(message: impl AsRef<str>) -> NarsilError {
 }
 
 fn non_negative_integer(value: Option<&Value>) -> Option<f64> {
-    match value {
-        Some(Value::Number(number)) if number.fract() == 0.0 && *number >= 0.0 => Some(*number),
-        _ => None,
-    }
+    whole_number(value).filter(|number| *number >= 0.0)
 }
 
 fn is_graph(value: &Value) -> bool {
@@ -182,6 +180,21 @@ fn decoded_parts(raw: &Value) -> Result<Vec<(EarlierVectorPart, &[Value])>> {
 
 /// Reads the list of vector index parts that engine 0.3.0 wrote for one field of a snapshot, with the checks
 /// of the reference reader in its order, and leaves their graphs out.
+pub(crate) fn vector_fields_of<T>(
+    raw: Option<&Value>,
+    decode: impl Fn(&Value) -> Result<T>,
+    not_a_map: impl FnOnce() -> NarsilError,
+) -> Result<Vec<(String, T)>> {
+    match raw {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Object(fields)) => fields
+            .iter()
+            .map(|(path, parts)| Ok((path.clone(), decode(parts)?)))
+            .collect(),
+        Some(_) => Err(not_a_map()),
+    }
+}
+
 pub(crate) fn decode_vector_parts(raw: &Value) -> Result<Vec<EarlierVectorPart>> {
     Ok(decoded_parts(raw)?
         .into_iter()

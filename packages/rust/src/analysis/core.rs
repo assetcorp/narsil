@@ -199,6 +199,32 @@ fn span(units: &[u16], offset: u32, length: u32) -> &[u16] {
     units.get(start..end).unwrap_or(&[])
 }
 
+fn analysed_tokens(
+    analyser: &mut Analyser,
+    language: u32,
+    stop_words: Option<&CoreStopWords>,
+    flags: u32,
+    text: &str,
+) -> Result<Option<ffi::narsil_tokens>> {
+    analyser.units.clear();
+    analyser.units.extend(text.encode_utf16());
+    let request = request_of(language, stop_words, flags, &analyser.units)?;
+    let mut tokens = ffi::narsil_tokens {
+        tokens: ptr::null(),
+        token_count: 0,
+        units: ptr::null(),
+        unit_count: 0,
+    };
+    let status = unsafe { ffi::narsil_analyse(analyser.handle, &request, &mut tokens) };
+    if status != ffi::NARSIL_OK {
+        return Err(text_too_long());
+    }
+    if tokens.token_count == 0 || tokens.tokens.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(tokens))
+}
+
 pub(crate) fn analyse(
     language: u32,
     stop_words: Option<&CoreStopWords>,
@@ -207,22 +233,9 @@ pub(crate) fn analyse(
     visit: &mut dyn FnMut(TokenParts<'_>),
 ) -> Result<()> {
     with_analyser(|analyser| {
-        analyser.units.clear();
-        analyser.units.extend(text.encode_utf16());
-        let request = request_of(language, stop_words, flags, &analyser.units)?;
-        let mut tokens = ffi::narsil_tokens {
-            tokens: ptr::null(),
-            token_count: 0,
-            units: ptr::null(),
-            unit_count: 0,
-        };
-        let status = unsafe { ffi::narsil_analyse(analyser.handle, &request, &mut tokens) };
-        if status != ffi::NARSIL_OK {
-            return Err(text_too_long());
-        }
-        if tokens.token_count == 0 || tokens.tokens.is_null() {
+        let Some(tokens) = analysed_tokens(analyser, language, stop_words, flags, text)? else {
             return Ok(());
-        }
+        };
         let records =
             unsafe { std::slice::from_raw_parts(tokens.tokens, tokens.token_count as usize) };
         let units = if tokens.unit_count == 0 || tokens.units.is_null() {
@@ -252,22 +265,9 @@ pub(crate) fn analyse_packed(
     packed: &mut PackedTokenVisitor<'_>,
 ) -> Result<()> {
     with_analyser(|analyser| {
-        analyser.units.clear();
-        analyser.units.extend(text.encode_utf16());
-        let request = request_of(language, stop_words, flags, &analyser.units)?;
-        let mut tokens = ffi::narsil_tokens {
-            tokens: ptr::null(),
-            token_count: 0,
-            units: ptr::null(),
-            unit_count: 0,
-        };
-        let status = unsafe { ffi::narsil_analyse(analyser.handle, &request, &mut tokens) };
-        if status != ffi::NARSIL_OK {
-            return Err(text_too_long());
-        }
-        if tokens.token_count == 0 || tokens.tokens.is_null() {
+        let Some(tokens) = analysed_tokens(analyser, language, stop_words, flags, text)? else {
             return Ok(());
-        }
+        };
         let words = (tokens.token_count as usize)
             .checked_mul(PACKED_TOKEN_WORDS)
             .and_then(|words| words.checked_add(PACKED_COUNT_WORDS))

@@ -7,11 +7,12 @@ use super::inputs::{MergeInput, damaged};
 use super::tail_columns::InputColumns;
 use crate::error::Result;
 use crate::ffi;
-use crate::filters::source::{has_bit, set_bit};
+use crate::filters::source::set_bit;
 use crate::format::keyword_columns::{
     BooleanColumn, EnumColumn, GeopointColumn, PatternColumn, ValueColumn,
 };
 use crate::geo::location_code;
+use crate::index::segment::bit_is_set;
 
 /// The merged field columns of a segment, each kind in the order that the inputs first hold each field.
 pub(crate) struct MergedColumns {
@@ -90,7 +91,7 @@ fn bitset(documents: &[u32], capacity: usize) -> Result<Vec<u32>> {
 
 fn set_ordinals(bits: &[u32], document_count: u32) -> Vec<u32> {
     (0..document_count)
-        .filter(|&ordinal| has_bit(bits, ordinal))
+        .filter(|&ordinal| bit_is_set(bits, ordinal))
         .collect()
 }
 

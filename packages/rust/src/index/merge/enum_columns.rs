@@ -5,17 +5,12 @@ use super::inputs::{as_u32, damaged};
 use crate::error::Result;
 use crate::ffi;
 use crate::format::keyword_columns::EnumColumn;
+use crate::util::bytes::offset_entry;
 
 struct EnumText {
     units: Vec<u16>,
     offsets: Vec<u32>,
     suffixes: Vec<u32>,
-}
-
-fn units_at<'u>(units: &'u [u16], offsets: &[u32], at: usize) -> &'u [u16] {
-    let start = offsets.get(at).copied().unwrap_or(0) as usize;
-    let end = offsets.get(at + 1).copied().unwrap_or(0) as usize;
-    units.get(start..end).unwrap_or(&[])
 }
 
 fn enum_text(values: &[String]) -> Result<EnumText> {
@@ -28,8 +23,8 @@ fn enum_text(values: &[String]) -> Result<EnumText> {
     }
     let mut suffixes: Vec<u32> = (0..as_u32(values.len(), "enum values")?).collect();
     suffixes.sort_by(|&left, &right| {
-        let left = units_at(&units, &offsets, left as usize);
-        let right = units_at(&units, &offsets, right as usize);
+        let left = offset_entry(&units, &offsets, left as usize);
+        let right = offset_entry(&units, &offsets, right as usize);
         left.iter().rev().cmp(right.iter().rev())
     });
     Ok(EnumText {
@@ -43,7 +38,7 @@ fn merged_values(merged: &EnumTargets) -> Result<Vec<String>> {
     let count = merged.text_offsets.len().saturating_sub(1);
     (0..count)
         .map(|at| {
-            String::from_utf16(units_at(&merged.units, &merged.text_offsets, at))
+            String::from_utf16(offset_entry(&merged.units, &merged.text_offsets, at))
                 .map_err(|_| damaged("holds an enum value that is not valid text"))
         })
         .collect()

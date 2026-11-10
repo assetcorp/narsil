@@ -2,6 +2,7 @@ use super::{
     PAGED_SEGMENT_HEAD_VERSION, PAYLOAD_PREFIX_BYTES, SECTION_ALIGNMENT_BYTES, SEGMENT_PAGE_BYTES,
 };
 use crate::error::{ErrorCode, NarsilError, Result, load_failed};
+use crate::format::fields::{non_negative_safe_integer, string_list};
 use crate::format::file_sections::page_checksums;
 use crate::util::hash::crc32;
 use crate::value::{
@@ -9,7 +10,6 @@ use crate::value::{
     write_uint,
 };
 
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const MAX_UINT32: f64 = 4_294_967_295.0;
 const HEAD_KEYS: usize = 6;
 const SECTION_KEYS: usize = 5;
@@ -54,17 +54,6 @@ impl PagedHead {
     }
 }
 
-fn byte_count(value: Option<&Value>) -> Option<u64> {
-    match value {
-        Some(Value::Number(number))
-            if number.fract() == 0.0 && *number >= 0.0 && *number <= MAX_SAFE_INTEGER =>
-        {
-            Some(*number as u64)
-        }
-        _ => None,
-    }
-}
-
 fn decode_section(raw: &Value, what: &str, allowed_page_bytes: &[u64]) -> Result<PagedSection> {
     let Value::Object(entry) = raw else {
         return load_failed(format!("The {what} lists a section that is not a map"));
@@ -74,8 +63,8 @@ fn decode_section(raw: &Value, what: &str, allowed_page_bytes: &[u64]) -> Result
         _ => return load_failed(format!("The {what} lists a section without a name")),
     };
     let (Some(offset), Some(length)) = (
-        byte_count(entry.get("offset")),
-        byte_count(entry.get("length")),
+        non_negative_safe_integer(entry.get("offset")),
+        non_negative_safe_integer(entry.get("length")),
     ) else {
         return load_failed(format!(
             "The {what} gives section \"{name}\" an invalid place"
@@ -153,19 +142,6 @@ pub(crate) fn decode_sections(
         }
     }
     Ok(sections)
-}
-
-fn string_list(value: Option<&Value>) -> Option<Vec<String>> {
-    let Some(Value::Array(items)) = value else {
-        return None;
-    };
-    items
-        .iter()
-        .map(|item| match item {
-            Value::String(text) => Some(text.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Decodes the head of a paged keyword segment whose payload holds `payload_length` bytes, checking every section

@@ -63,20 +63,6 @@ fn frozen_entries(entries: &[SegmentEntry], schema: &CompiledSchema) -> Result<V
     Ok(frozen)
 }
 
-fn length_columns(segment: &KeywordSegment) -> Vec<Option<&[u32]>> {
-    segment
-        .field_names
-        .iter()
-        .map(|name| {
-            segment
-                .field_lengths
-                .iter()
-                .find(|column| &column.field == name)
-                .map(|column| column.lengths.as_slice())
-        })
-        .collect()
-}
-
 fn resident_columns(
     inputs: &[MergeInput<'_>],
     schema: &CompiledSchema,
@@ -139,7 +125,7 @@ pub(crate) fn merge_paged_segments(
     let written = write_merged_lists(
         &inputs,
         document_count,
-        &length_columns(&resident),
+        &resident.length_columns(),
         &mut lists,
         &mut removals,
     )?;

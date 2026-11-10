@@ -62,4 +62,22 @@ impl KeywordSegment {
     pub(crate) fn token_count(&self) -> usize {
         self.token_offsets.len().saturating_sub(1)
     }
+
+    pub(crate) fn length_column_places(&self) -> Vec<Option<usize>> {
+        self.field_names
+            .iter()
+            .map(|name| {
+                self.field_lengths
+                    .iter()
+                    .position(|column| &column.field == name)
+            })
+            .collect()
+    }
+
+    pub(crate) fn length_columns(&self) -> Vec<Option<&[u32]>> {
+        self.length_column_places()
+            .into_iter()
+            .map(|place| Some(self.field_lengths.get(place?)?.lengths.as_slice()))
+            .collect()
+    }
 }

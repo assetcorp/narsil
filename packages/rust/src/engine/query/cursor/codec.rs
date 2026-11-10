@@ -5,7 +5,7 @@ use super::constants::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::base64;
-use crate::value::{Map, Value, number_to_text, parse_json_raw, write_exact_json_into};
+use crate::value::{Map, Value, number_to_text, parse_json_raw, write_json_string};
 
 const CURSOR_VERSION: f64 = 4.0;
 const NON_FINITE_CURSOR_VERSION: f64 = 5.0;
@@ -40,10 +40,6 @@ fn write_json_number(out: &mut String, number: f64) {
     } else {
         out.push_str(&number_to_text(number));
     }
-}
-
-fn write_json_string(out: &mut String, text: &str) {
-    write_exact_json_into(out, &Value::String(text.to_string()));
 }
 
 fn write_sort_value(out: &mut String, value: &Value) {
