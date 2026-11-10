@@ -94,19 +94,12 @@ fn index_text_field(
         ..TokenOptions::INDEXING
     };
     let mut tokens = PackedTokens::default();
-    let mut length: u32 = 0;
     let mut offset: u32 = 0;
     for text in texts_of(value) {
-        let mut last_position: Option<u32> = None;
-        options
+        if let Some(last) = options
             .analyser
-            .visit_units(text, token_options, &mut |term, position, surface| {
-                tokens.push(term, offset.saturating_add(position), surface)?;
-                length = length.saturating_add(1);
-                last_position = Some(position);
-                Ok(())
-            })?;
-        if let Some(last) = last_position {
+            .pack_text(text, token_options, offset, &mut tokens)?
+        {
             offset = offset
                 .saturating_add(last)
                 .saturating_add(1)
@@ -116,7 +109,7 @@ fn index_text_field(
     Ok(IndexedField {
         path: field.path.clone(),
         partial: field.field_type.partial,
-        length,
+        length: u32::try_from(tokens.len()).unwrap_or(u32::MAX),
         tokens,
     })
 }

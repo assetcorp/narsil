@@ -4,6 +4,12 @@ use std::ptr;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::keyword::tokens::PACKED_TOKEN_WORDS;
+use crate::keyword::workspace::core_refused;
+
+const PACKED_COUNT_WORDS: usize = 1;
+
+pub(crate) type PackedTokenVisitor<'a> = dyn FnMut(&[u32], &[u16]) -> Result<()> + 'a;
 
 pub(crate) struct TokenParts<'a> {
     pub(crate) term: &'a [u16],
@@ -15,6 +21,8 @@ pub(crate) struct TokenParts<'a> {
 struct Analyser {
     handle: *mut ffi::narsil_analyser,
     units: Vec<u16>,
+    packed_records: Vec<u32>,
+    packed_units: Vec<u16>,
 }
 
 impl Drop for Analyser {
@@ -35,6 +43,8 @@ fn created_analyser() -> Result<Analyser> {
     Ok(Analyser {
         handle,
         units: Vec::new(),
+        packed_records: Vec::new(),
+        packed_units: Vec::new(),
     })
 }
 
@@ -231,6 +241,64 @@ pub(crate) fn analyse(
             });
         }
         Ok(())
+    })
+}
+
+pub(crate) fn analyse_packed(
+    language: u32,
+    stop_words: Option<&CoreStopWords>,
+    flags: u32,
+    text: &str,
+    packed: &mut PackedTokenVisitor<'_>,
+) -> Result<()> {
+    with_analyser(|analyser| {
+        analyser.units.clear();
+        analyser.units.extend(text.encode_utf16());
+        let request = request_of(language, stop_words, flags, &analyser.units)?;
+        let mut tokens = ffi::narsil_tokens {
+            tokens: ptr::null(),
+            token_count: 0,
+            units: ptr::null(),
+            unit_count: 0,
+        };
+        let status = unsafe { ffi::narsil_analyse(analyser.handle, &request, &mut tokens) };
+        if status != ffi::NARSIL_OK {
+            return Err(text_too_long());
+        }
+        if tokens.token_count == 0 || tokens.tokens.is_null() {
+            return Ok(());
+        }
+        let words = (tokens.token_count as usize)
+            .checked_mul(PACKED_TOKEN_WORDS)
+            .and_then(|words| words.checked_add(PACKED_COUNT_WORDS))
+            .ok_or_else(text_too_long)?;
+        analyser.packed_records.clear();
+        analyser.packed_records.resize(words, 0);
+        analyser.packed_units.clear();
+        analyser.packed_units.resize(tokens.unit_count as usize, 0);
+        let mut unit_count = 0u32;
+        let status = unsafe {
+            ffi::narsil_pack_tokens(
+                &tokens,
+                analyser.packed_records.as_mut_ptr(),
+                analyser.packed_records.len(),
+                analyser.packed_units.as_mut_ptr(),
+                analyser.packed_units.len(),
+                &mut unit_count,
+            )
+        };
+        if status != ffi::NARSIL_OK {
+            return Err(core_refused("a token packing", status));
+        }
+        let records = analyser
+            .packed_records
+            .get(PACKED_COUNT_WORDS..)
+            .unwrap_or_default();
+        let units = analyser
+            .packed_units
+            .get(..unit_count as usize)
+            .unwrap_or_default();
+        packed(records, units)
     })
 }
 
