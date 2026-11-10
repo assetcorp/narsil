@@ -13,10 +13,6 @@ use crate::engine::{EngineInner, Narsil};
 use crate::error::Result;
 use crate::format::metadata_parts::config_invalid;
 
-fn in_play(engine: &EngineInner, states: &[&SuggestionState]) -> bool {
-    engine.suggestions.scrambler().is_some() || states.iter().any(|state| !state.is_empty())
-}
-
 pub(crate) fn before_install(engine: &EngineInner, index: &IndexState) -> Result<()> {
     let restored = index.suggestion_state();
     let previous_open = engine.open_index_named(&index.name);
@@ -29,13 +25,6 @@ pub(crate) fn before_install(engine: &EngineInner, index: &IndexState) -> Result
         (None, Some(closed)) => Some(Arc::clone(&closed.suggestions)),
         (None, None) => None,
     };
-    let mut states = vec![&*restored];
-    if let Some(state) = &previous_state {
-        states.push(state);
-    }
-    if !in_play(engine, &states) {
-        return Ok(());
-    }
     let Some(previous_state) = previous_state else {
         return clear_leftovers_of_name(engine, &index.name);
     };
@@ -92,12 +81,6 @@ fn apply_bans(narsil: &Narsil, index_name: &str) -> Result<()> {
 }
 
 pub(crate) fn after_activate(engine: &EngineInner, index_name: &str) {
-    let Ok(index) = engine.index(index_name) else {
-        return;
-    };
-    if !in_play(engine, &[&index.suggestion_state()]) {
-        return;
-    }
     let Some(inner) = engine.self_ref.upgrade() else {
         return;
     };
@@ -116,9 +99,6 @@ pub(crate) fn after_install(
         .index(index_name)
         .map(|index| index.suggestion_state())
         .unwrap_or_default();
-    if !in_play(engine, &[&state]) && history.is_none() {
-        return;
-    }
     let runtime = &engine.suggestions;
     let settled = if !state.enabled() {
         runtime.discard_history(engine, index_name)
