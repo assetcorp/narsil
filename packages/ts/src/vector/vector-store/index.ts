@@ -6,6 +6,7 @@ import {
   STORE_LIVE_COUNT,
   STORE_ORDINAL_LAYOUT_GENERATION,
   STORE_RELEASED_VECTORS_TO_DISK,
+  STORE_SLOTS,
   sharedVectorStoreBytes,
   VECTOR_MEMORY_LIMITS,
   writeSequenceOf,
@@ -36,10 +37,9 @@ import {
   freeRetired,
   NO_PARTITION,
   oldestPinOf,
-  readable,
-  retireDocument,
   retireInWrite,
   retireOrdinal,
+  retireStoredOrdinal,
   type StoreState,
   settleReplacement,
   UNKNOWN_PARTITION,
@@ -78,7 +78,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     unknownPartitions: 0,
     liveCount: 0,
   }
-  const { docToOrd, ordToDoc, replacedOrdinals } = state
+  const { docToOrd, ordToDoc, replacedOrdinals, awaitingFree } = state
   let readBackVector: Float32Array | null = null
 
   function forgetDocuments(): void {
@@ -91,7 +91,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     state.liveCount = 0
   }
 
-  const isReadable = (ordinal: number): boolean => readable(state, ordinal)
+  function heldAfterRemoval(ordinal: number): boolean {
+    return replacedOrdinals.has(ordinal) || awaitingFree.has(ordinal)
+  }
+
+  function isReadable(ordinal: number): boolean {
+    return ordToDoc[ordinal] !== undefined || heldAfterRemoval(ordinal)
+  }
 
   function requireOpen(): OpenStore {
     if (state.open === null) {
@@ -154,8 +160,8 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return ordinal
     },
 
-    retire(docId: string): void {
-      retireDocument(state, docId)
+    retire(ordinal: number): void {
+      retireStoredOrdinal(state, ordinal)
     },
 
     freeRetiredVectors(): void {
@@ -168,6 +174,14 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     writeSequence(): number {
       return state.open === null ? 0 : writeSequenceOf(state.open.sequences.header)
+    },
+
+    retiredStampHalves(): Uint32Array {
+      return requireOpen().sequences.retiredHalves
+    },
+
+    claimedSlots(): number {
+      return state.open === null ? 0 : state.open.handles.header[STORE_SLOTS]
     },
 
     mayFreeOrdinal(ordinal: number, oldestPin: number): boolean {
@@ -273,7 +287,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const ordinal = docToOrd.get(docId)
       const store = state.open
       if (ordinal === undefined || store === null) return
-      const retiredNow = retireDocument(state, docId)
+      const retiredNow = retireStoredOrdinal(state, ordinal)
       docToOrd.delete(docId)
       retireOrdinal(state, store, ordinal, retiredNow || oldestPin === undefined ? oldestPinOf(store) : oldestPin)
       state.liveCount--

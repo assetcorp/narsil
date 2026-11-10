@@ -1,15 +1,16 @@
 import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { SearchClock } from '../../core/search-clock'
-import type { OrdinalAdmission } from '../admission'
 import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'
 import { type NativeField, nativeFieldFor } from '../native/field'
 import { nativeRescoredHits, nativeTraverse } from '../native/walk'
-import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { ordinalFilterHas } from '../ordinal-membership'
 import { defaultEfSearch, defaultRescoreDepth } from '../search-depth'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
-import { searchLayer } from './graph-ops'
+import type { OrdinalAdmission } from '../vector-store/admission'
+import { searchAdmittedBaseLayer, searchLayer } from './graph-ops'
 import { lockGraphShared, unlockGraphShared } from './locks'
 import {
   activeQuantizer,
@@ -131,7 +132,22 @@ function traverse(
       }
     }
 
-    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter, options.clock, admission)
+    if (admission === undefined) {
+      searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter, options.clock)
+    } else {
+      searchAdmittedBaseLayer(
+        state,
+        query,
+        qMag,
+        ef,
+        searchMetric,
+        distFn,
+        candidates,
+        admission,
+        filter,
+        options.clock,
+      )
+    }
   } finally {
     unlockGraphShared(state.locks)
   }

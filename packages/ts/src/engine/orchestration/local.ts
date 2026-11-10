@@ -13,7 +13,7 @@ export function createLocalOrchestrator(config: NarsilConfig | undefined, indexe
     scaleOutBeforeBatch: settled,
     replicateToWorkers: settled,
     publishToWorkers: () => undefined,
-    settlePublications: settled,
+    settlePublications: () => undefined,
     awaitReplication: settled,
     queueDiskAdoption: unchanged,
     awaitWrites: settled,

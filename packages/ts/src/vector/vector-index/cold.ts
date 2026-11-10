@@ -1,7 +1,7 @@
 import { magnitude, toDistance, toScore } from '#platform/vector-host'
 import { createBoundedMaxHeap } from '../../core/heap'
 import type { VectorMetric } from '../brute-force'
-import type { FilterSubset } from '../filter-ordinals'
+import type { FilterSubset } from '../ordinal-filter'
 import { beginCheckpointRestore, type CheckpointRestoreShape, type VectorCheckpointRestore } from './checkpoint-restore'
 import { highScoreFirst, mergeResults } from './merge-results'
 import type {

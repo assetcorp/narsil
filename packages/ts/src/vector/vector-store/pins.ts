@@ -1,44 +1,74 @@
+import { fixedView, type GrowableBuffer } from '../shared-buffers/growable'
 import { type SharedVectorStoreHandles, STORE_WRITE_SEQUENCE_INT64, writeSequenceWords } from './handles'
 
 const TWO_TO_THE_32 = 4_294_967_296
 const NO_PIN = 0n
 const NOT_RETIRED = 0n
+const UNSTAMPED = 0n
 
 export interface SequenceWrites {
   readonly header: BigInt64Array
-  readonly born: BigInt64Array
-  readonly retired: BigInt64Array
+  readonly headerHalves: Uint32Array
+  readonly bornBuffer: GrowableBuffer
+  readonly retiredBuffer: GrowableBuffer
+  born: BigInt64Array
+  retired: BigInt64Array
+  retiredHalves: Uint32Array
 }
 
 export function sequenceWritesOf(handles: SharedVectorStoreHandles): SequenceWrites {
+  const header = handles.header
   return {
-    header: writeSequenceWords(handles.header),
-    born: new BigInt64Array(handles.bornAt),
-    retired: new BigInt64Array(handles.retiredAt),
+    header: writeSequenceWords(header),
+    headerHalves: new Uint32Array(header.buffer, header.byteOffset, header.length),
+    bornBuffer: handles.bornAt,
+    retiredBuffer: handles.retiredAt,
+    born: fixedView(handles.bornAt, BigInt64Array),
+    retired: fixedView(handles.retiredAt, BigInt64Array),
+    retiredHalves: fixedView(handles.retiredAt, Uint32Array),
   }
+}
+
+export function coverOrdinal(writes: SequenceWrites, ordinal: number): void {
+  if (ordinal < writes.born.length && ordinal < writes.retired.length) return
+  writes.born = fixedView(writes.bornBuffer, BigInt64Array)
+  writes.retired = fixedView(writes.retiredBuffer, BigInt64Array)
+  writes.retiredHalves = fixedView(writes.retiredBuffer, Uint32Array)
+}
+
+function writtenSequence(halves: Uint32Array, at: number): number {
+  const high = halves[at * 2 + 1]
+  return high === 0 ? halves[at * 2] : high * TWO_TO_THE_32 + halves[at * 2]
 }
 
 export function writeSequenceOf(header: BigInt64Array): number {
   return Number(Atomics.load(header, STORE_WRITE_SEQUENCE_INT64))
 }
 
+export function publishedSequence(writes: SequenceWrites): number {
+  return writtenSequence(writes.headerHalves, STORE_WRITE_SEQUENCE_INT64)
+}
+
 export function nextSequence(writes: SequenceWrites): number {
-  return writeSequenceOf(writes.header) + 1
+  return publishedSequence(writes) + 1
 }
 
 export function stampBorn(writes: SequenceWrites, ordinal: number, sequence: number): void {
+  coverOrdinal(writes, ordinal)
   Atomics.store(writes.born, ordinal, BigInt(sequence))
-  if (Atomics.load(writes.retired, ordinal) !== NOT_RETIRED) Atomics.store(writes.retired, ordinal, NOT_RETIRED)
+  if (writtenSequence(writes.retiredHalves, ordinal) !== 0) Atomics.store(writes.retired, ordinal, NOT_RETIRED)
 }
 
 export function stampRetired(writes: SequenceWrites, ordinal: number, sequence: number): boolean {
-  if (Atomics.load(writes.retired, ordinal) !== NOT_RETIRED) return false
+  coverOrdinal(writes, ordinal)
+  if (writtenSequence(writes.retiredHalves, ordinal) !== 0) return false
   Atomics.store(writes.retired, ordinal, BigInt(sequence))
   return true
 }
 
 export function retiredAtOf(writes: SequenceWrites, ordinal: number): number {
-  return Number(Atomics.load(writes.retired, ordinal))
+  coverOrdinal(writes, ordinal)
+  return writtenSequence(writes.retiredHalves, ordinal)
 }
 
 export function publishSequence(writes: SequenceWrites, sequence: number): void {
@@ -65,19 +95,15 @@ export function mayFree(retiredAt: number, oldestPin: number): boolean {
 }
 
 export interface SequenceReads {
-  born: Uint32Array
-  retired: Uint32Array
-  retiredExact: BigInt64Array
+  born: BigInt64Array
+  retired: BigInt64Array
 }
 
-export function admitsOrdinal(reads: SequenceReads, ordinal: number, pin: number): boolean {
-  const low = ordinal * 2
-  const bornHigh = reads.born[low + 1]
-  const born = bornHigh === 0 ? reads.born[low] : bornHigh * TWO_TO_THE_32 + reads.born[low]
-  if (born > pin) return false
-  if (reads.retired[low] === 0 && reads.retired[low + 1] === 0) return true
-  const retired = Number(Atomics.load(reads.retiredExact, ordinal))
-  return retired === 0 || retired > pin
+export function admitsOrdinal(reads: SequenceReads, ordinal: number, pin: bigint): boolean {
+  const retired = Atomics.load(reads.retired, ordinal)
+  if (retired !== NOT_RETIRED && retired <= pin) return false
+  const born = Atomics.load(reads.born, ordinal)
+  return born !== UNSTAMPED && born <= pin
 }
 
 export interface ThreadPins {

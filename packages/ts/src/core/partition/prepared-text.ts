@@ -128,12 +128,13 @@ export function prepareDocumentText(
   const fieldLengths: Record<string, number> = {}
   const partialSpellings: SpellingCounts | null = holdsPartialField(schemaFields) ? new Map() : null
   const fields = new Map<string, PreparedTextField>()
-  const texts = new DocumentTexts()
+  let texts: DocumentTexts | null = null
   try {
     for (const field of schemaFields) {
       if (field.base !== 'string' && field.base !== 'string[]') continue
       const value = getNestedValue(document, field.path)
       if (value === undefined || value === null) continue
+      texts ??= new DocumentTexts()
       const prepared = prepareField(
         value as string | string[],
         language,
@@ -145,7 +146,7 @@ export function prepareDocumentText(
       fields.set(field.path, prepared)
     }
   } finally {
-    texts.release()
+    texts?.release()
   }
   return { fieldLengths, partialSpellings, fields }
 }

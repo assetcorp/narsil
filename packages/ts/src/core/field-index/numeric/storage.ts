@@ -46,9 +46,18 @@ export function lowerBound(values: Float64Array, value: number, length = values.
   return low
 }
 
+function markedOrdinals(ordinals: readonly number[]): Uint8Array {
+  let highest = 0
+  for (const ordinal of ordinals) if (ordinal > highest) highest = ordinal
+  const marked = new Uint8Array(highest + 1)
+  for (const ordinal of ordinals) marked[ordinal] = 1
+  return marked
+}
+
 function removeEntries(
   entries: Entries,
   from: number,
+  marked: Uint8Array,
   removals: ReadonlyMap<number, Removal[]>,
   pending: boolean,
 ): void {
@@ -56,7 +65,7 @@ function removeEntries(
   for (let read = from; read < entries.length; read++) {
     const ordinal = entries.ordinals[read]
     const value = entries.values[read]
-    const removal = removals.get(ordinal)?.find(entry => entry.value === value)
+    const removal = marked[ordinal] === 1 ? removals.get(ordinal)?.find(entry => entry.value === value) : undefined
     if (removal !== undefined) {
       if (pending) {
         while (removal.next < removal.limits.length && removal.limits[removal.next] <= read) removal.next++
@@ -101,8 +110,9 @@ export function createNumericStorage() {
         else held.push(removal)
       }
     }
-    removeEntries(entries, lowerBound(entries.values, lowest, entries.length), removals, false)
-    removeEntries(pending, 0, removals, true)
+    const marked = markedOrdinals(removedOrdinals)
+    removeEntries(entries, lowerBound(entries.values, lowest, entries.length), marked, removals, false)
+    if (pending.length > 0) removeEntries(pending, 0, marked, removals, true)
     discardRemovals()
   }
 

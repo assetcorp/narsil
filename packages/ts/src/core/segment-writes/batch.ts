@@ -1,14 +1,14 @@
 import type { NativeGrowingSegment } from '../../vector/native/types/segments'
 import { acquirePostingPlan, releasePostingPlan } from './postings'
-import { readBatch } from './regions'
+import { readSegmentView } from './regions'
 import { preparePostingRepack } from './repack'
 import { SegmentRefusal } from './status'
 import { acquireTokenPlan, releaseTokenPlan } from './tokens'
 import { prepareVacuum } from './vacuum'
 
-export function beginBatch(input: NativeGrowingSegment, _generation: number): number {
+export function beginBatch(input: NativeGrowingSegment, generation: number): number {
   try {
-    const segment = readBatch(input)
+    const segment = readSegmentView(input, generation)
     const tokens = acquireTokenPlan(segment, [], true)
     try {
       const postings = acquirePostingPlan(segment, 0, tokens, true)

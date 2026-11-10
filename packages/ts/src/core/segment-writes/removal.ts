@@ -8,17 +8,16 @@ import {
   trimSlice,
 } from '#platform/segment-removal-host'
 import type { NativeGrowingSegment } from '../../vector/native/types/segments'
-import type { StringPlan } from './strings'
 
-interface RemovalChange {
-  ordinal: number
-  kept: number
-  last: number
-  sliceClass: number
-  removedFrequency: number
-  found: boolean
-  compact: boolean
-  ordered: boolean
+const NO_SLICE_CLASS = 255
+const ORDERED_FLAG = 2
+const POSITIONS_FLAG = 4
+
+export interface RemovedTerms {
+  readonly size: number
+  readonly ordinals: Uint32Array
+  readonly texts: readonly string[]
+  readonly hashes: Uint32Array
 }
 
 function firstRow(docIds: Uint32Array, start: number, length: number, ordered: boolean, document: number): number {
@@ -34,18 +33,21 @@ function firstRow(docIds: Uint32Array, start: number, length: number, ordered: b
 }
 
 export class RemovalPlan {
-  private readonly changes: RemovalChange[] = []
+  private found = new Uint8Array(0)
+  private compacts = new Uint8Array(0)
+  private ordered = new Uint8Array(0)
+  private sliceClasses = new Uint8Array(0)
+  private kept = new Uint32Array(0)
+  private removedFrequencies = new Float64Array(0)
   private freedPositions = 0
-  private freedRows: number
+  private freedRows = 0
 
-  constructor(
-    private readonly segment: NativeGrowingSegment,
-    private readonly document: number,
-    private readonly terms: StringPlan,
-  ) {
+  prepare(segment: NativeGrowingSegment, document: number, terms: RemovedTerms): void {
+    this.reserve(terms.size)
     const allocation = segment.postings.allocation
     requireSegment(allocation[0] <= segment.postings.docIds.length && allocation[1] <= allocation[0])
     this.freedRows = allocation[1]
+    this.freedPositions = 0
     const positions = segment.positions
     if (positions !== null)
       requireSegment(
@@ -53,84 +55,102 @@ export class RemovalPlan {
           positions.allocation[0] <= positions.values.length &&
           positions.allocation[1] < positions.allocation[0],
       )
-    for (let at = 0; at < terms.size; at++) this.prepare(terms.ordinals[at])
+    for (let at = 0; at < terms.size; at++) this.prepareTerm(segment, document, at, terms.ordinals[at])
     if (positions !== null) requireSegment(this.freedPositions <= positions.allocation[0] - positions.allocation[1])
   }
 
-  private prepare(token: number): void {
-    const segment = this.segment
+  private prepareTerm(segment: NativeGrowingSegment, document: number, at: number, token: number): void {
     const { columns, postings } = segment
     const start = columns.sliceStart[token]
     const length = columns.lengths[token]
     const kind = columns.sliceClass[token]
     const end = postings.allocation[0]
-    const change: RemovalChange = {
-      ordinal: token,
-      kept: 0,
-      last: 0,
-      sliceClass: kind,
-      removedFrequency: 0,
-      found: false,
-      compact: false,
-      ordered: true,
-    }
-    this.changes.push(change)
+    this.found[at] = 0
+    this.compacts[at] = 0
+    this.removedFrequencies[at] = 0
+    const docFrequency = columns.docFrequency[token]
+    const totalTermFrequency = columns.totalTermFrequency[token]
+    const surfaceOccurrences = columns.surfaceOccurrences[token]
     requireSegment(
-      columns.docFrequency[token] >= columns.deadDocuments[token] &&
-        columns.docFrequency[token] <= length &&
-        Number.isFinite(columns.totalTermFrequency[token]) &&
-        columns.totalTermFrequency[token] >= 0 &&
-        Number.isFinite(columns.surfaceOccurrences[token]) &&
-        columns.surfaceOccurrences[token] >= 0 &&
+      docFrequency >= columns.deadDocuments[token] &&
+        docFrequency <= length &&
+        Number.isFinite(totalTermFrequency) &&
+        totalTermFrequency >= 0 &&
+        Number.isFinite(surfaceOccurrences) &&
+        surfaceOccurrences >= 0 &&
         start <= end,
     )
-    if (kind === 255 && length === 0) return
+    if (kind === NO_SLICE_CLASS && length === 0) return
     requireSegment(
       kind < postings.sliceCapacities.length &&
         postings.sliceCapacities[kind] <= end - start &&
         length <= postings.sliceCapacities[kind],
     )
-    const ordered = (columns.flags[token] & 2) !== 0
-    const { docIds, fieldIndices } = postings
-    const document = this.document
+    const ordered = (columns.flags[token] & ORDERED_FLAG) !== 0
+    const { docIds, fieldIndices, frequencies } = postings
     const ordinalCapacity = segment.ordinalCapacity
     const fieldCount = segment.partialFields.length
-    for (let at = firstRow(docIds, start, length, ordered, document); at < start + length; at++) {
-      const doc = docIds[at]
+    let removedFrequency = 0
+    let found = false
+    for (let row = firstRow(docIds, start, length, ordered, document); row < start + length; row++) {
+      const doc = docIds[row]
       if (ordered && doc > document) break
-      requireSegment(doc < ordinalCapacity && fieldIndices[at] < fieldCount)
+      requireSegment(doc < ordinalCapacity && fieldIndices[row] < fieldCount)
       if (doc === document) {
-        change.found = true
-        change.removedFrequency += postings.frequencies[at]
+        found = true
+        removedFrequency += frequencies[row]
       }
     }
-    if (!change.found) return
-    const live = columns.docFrequency[token] - columns.deadDocuments[token]
+    if (!found) return
+    this.found[at] = 1
+    this.removedFrequencies[at] = removedFrequency
+    const dead = columns.deadDocuments[token]
+    const live = docFrequency - dead
     requireSegment(live > 0)
-    change.compact = live === 1 || (columns.deadDocuments[token] + 1) / length > POSTING_LIST_COMPACTION_THRESHOLD
-    if (!change.compact) return
-    for (let at = start; at < start + length; at++) {
-      const doc = postings.docIds[at]
-      requireSegment(doc < segment.ordinalCapacity && postings.fieldIndices[at] < segment.partialFields.length)
-      if (doc === this.document || rowRemoved(segment, doc)) this.preparePositions(token, at)
-      else {
-        if (change.kept > 0 && doc < change.last) change.ordered = false
-        change.last = doc
-        change.kept++
-      }
-    }
-    requireSegment((live === 1) === (change.kept === 0) && live - 1 <= change.kept)
-    const capacities = postings.sliceCapacities
-    if (change.kept > 0) change.sliceClass = trimClass(capacities, kind, change.kept)
-    const retained = change.kept === 0 ? 0 : capacities[change.sliceClass]
-    const released = capacities[kind] - retained
-    requireSegment(released <= end - this.freedRows)
-    this.freedRows += released
+    if (live !== 1 && (dead + 1) / length <= POSTING_LIST_COMPACTION_THRESHOLD) return
+    this.compacts[at] = 1
+    this.prepareCompaction(segment, document, at, token, live)
   }
 
-  private preparePositions(token: number, row: number): void {
-    const { positions, postings, columns } = this.segment
-    if (positions === null || postings.positionStarts === null || (columns.flags[token] & 4) === 0) return
+  private prepareCompaction(
+    segment: NativeGrowingSegment,
+    document: number,
+    at: number,
+    token: number,
+    live: number,
+  ): void {
+    const { columns, postings } = segment
+    const start = columns.sliceStart[token]
+    const length = columns.lengths[token]
+    const kind = columns.sliceClass[token]
+    let kept = 0
+    let last = 0
+    let ordered = 1
+    for (let row = start; row < start + length; row++) {
+      const doc = postings.docIds[row]
+      requireSegment(doc < segment.ordinalCapacity && postings.fieldIndices[row] < segment.partialFields.length)
+      if (doc === document || rowRemoved(segment, doc)) this.preparePositions(segment, token, row)
+      else {
+        if (kept > 0 && doc < last) ordered = 0
+        last = doc
+        kept++
+      }
+    }
+    requireSegment((live === 1) === (kept === 0) && live - 1 <= kept)
+    const capacities = postings.sliceCapacities
+    const sliceClass = kept > 0 ? trimClass(capacities, kind, kept) : kind
+    const retained = kept === 0 ? 0 : capacities[sliceClass]
+    const released = capacities[kind] - retained
+    requireSegment(released <= postings.allocation[0] - this.freedRows)
+    this.freedRows += released
+    this.kept[at] = kept
+    this.ordered[at] = ordered
+    this.sliceClasses[at] = sliceClass
+  }
+
+  private preparePositions(segment: NativeGrowingSegment, token: number, row: number): void {
+    const { positions, postings, columns } = segment
+    if (positions === null || postings.positionStarts === null || (columns.flags[token] & POSITIONS_FLAG) === 0) return
     const start = postings.positionStarts[row]
     if (start === 0) return
     const end = positions.allocation[0]
@@ -140,57 +160,77 @@ export class RemovalPlan {
     this.freedPositions += count
   }
 
-  publish(): void {
-    const segment = this.segment
-    const { columns, postings, positions } = segment
-    const pool = { ...postings, values: postings.docIds }
-    for (let at = 0; at < this.changes.length; at++) {
-      const change = this.changes[at]
-      if (!change.found) continue
-      const token = change.ordinal
+  publish(segment: NativeGrowingSegment, document: number, terms: RemovedTerms): void {
+    const columns = segment.columns
+    for (let at = 0; at < terms.size; at++) {
+      if (this.found[at] === 0) continue
+      const token = terms.ordinals[at]
       columns.revision[token]++
       columns.deadDocuments[token]++
-      columns.totalTermFrequency[token] = Math.max(0, columns.totalTermFrequency[token] - change.removedFrequency)
-      if (!change.compact) continue
-      this.compact(change)
-      if (change.kept > 0 && columns.sliceClass[token] > change.sliceClass) {
-        const kind = columns.sliceClass[token]
-        trimSlice(
-          pool,
-          { start: columns.sliceStart[token], length: pool.sliceCapacities[kind], sliceClass: kind },
-          change.sliceClass,
-        )
-        columns.sliceClass[token] = change.sliceClass
-      }
-      if (change.kept === 0) {
-        const kind = columns.sliceClass[token]
-        releaseSlice(pool, { start: columns.sliceStart[token], length: pool.sliceCapacities[kind], sliceClass: kind })
-        removeString(segment.terms, this.terms.texts[at], token, this.terms.hashes[at])
-        columns.sliceClass[token] = 255
-        columns.flags[token] = 0
-        columns.totalTermFrequency[token] = 0
-      }
+      columns.totalTermFrequency[token] = Math.max(0, columns.totalTermFrequency[token] - this.removedFrequencies[at])
+      if (this.compacts[at] === 1) this.publishCompaction(segment, document, terms, at, token)
     }
-    if (positions !== null) positions.allocation[1] += this.freedPositions
+    if (segment.positions !== null) segment.positions.allocation[1] += this.freedPositions
   }
 
-  private compact(change: RemovalChange): void {
-    const { columns, postings } = this.segment
-    const token = change.ordinal
+  private publishCompaction(
+    segment: NativeGrowingSegment,
+    document: number,
+    terms: RemovedTerms,
+    at: number,
+    token: number,
+  ): void {
+    const { columns, postings } = segment
+    this.compactRows(segment, document, at, token)
+    const kept = this.kept[at]
+    const sliceClass = this.sliceClasses[at]
+    const kind = columns.sliceClass[token]
+    if (kept > 0 && kind > sliceClass) {
+      const pool = { ...postings, values: postings.docIds }
+      trimSlice(
+        pool,
+        { start: columns.sliceStart[token], length: pool.sliceCapacities[kind], sliceClass: kind },
+        sliceClass,
+      )
+      columns.sliceClass[token] = sliceClass
+    }
+    if (kept > 0) return
+    const pool = { ...postings, values: postings.docIds }
+    releaseSlice(pool, { start: columns.sliceStart[token], length: pool.sliceCapacities[kind], sliceClass: kind })
+    removeString(segment.terms, terms.texts[at], token, terms.hashes[at])
+    columns.sliceClass[token] = NO_SLICE_CLASS
+    columns.flags[token] = 0
+    columns.totalTermFrequency[token] = 0
+  }
+
+  private compactRows(segment: NativeGrowingSegment, document: number, at: number, token: number): void {
+    const { columns, postings } = segment
     const start = columns.sliceStart[token]
     let into = start
-    for (let at = start; at < start + columns.lengths[token]; at++) {
-      const doc = postings.docIds[at]
-      if (doc === this.document || rowRemoved(this.segment, doc)) continue
+    for (let row = start; row < start + columns.lengths[token]; row++) {
+      const doc = postings.docIds[row]
+      if (doc === document || rowRemoved(segment, doc)) continue
       postings.docIds[into] = doc
-      postings.frequencies[into] = postings.frequencies[at]
-      postings.fieldIndices[into] = postings.fieldIndices[at]
-      if (postings.positionStarts !== null) postings.positionStarts[into] = postings.positionStarts[at]
+      postings.frequencies[into] = postings.frequencies[row]
+      postings.fieldIndices[into] = postings.fieldIndices[row]
+      if (postings.positionStarts !== null) postings.positionStarts[into] = postings.positionStarts[row]
       into++
     }
-    columns.lengths[token] = change.kept
+    columns.lengths[token] = this.kept[at]
     columns.docFrequency[token] -= columns.deadDocuments[token]
     columns.deadDocuments[token] = 0
-    columns.flags[token] = change.ordered ? columns.flags[token] | 2 : columns.flags[token] & ~2
+    columns.flags[token] =
+      this.ordered[at] === 1 ? columns.flags[token] | ORDERED_FLAG : columns.flags[token] & ~ORDERED_FLAG
+  }
+
+  private reserve(size: number): void {
+    if (size <= this.found.length) return
+    const capacity = Math.max(size, this.found.length * 2)
+    this.found = new Uint8Array(capacity)
+    this.compacts = new Uint8Array(capacity)
+    this.ordered = new Uint8Array(capacity)
+    this.sliceClasses = new Uint8Array(capacity)
+    this.kept = new Uint32Array(capacity)
+    this.removedFrequencies = new Float64Array(capacity)
   }
 }

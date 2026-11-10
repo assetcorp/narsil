@@ -39,7 +39,6 @@ export { WORKER_YOUNG_GENERATION_MB } from '../../workers/constants'
 export { resolveWorkerEntry } from '../../workers/entry-point'
 export { noteThreadSlotGone, noteThreadSlotLive } from '../../workers/thread-slot'
 export { resolveWorkerCount } from '../../workers/worker-count'
-export { admissionAt, holdAdmission, withTransientAdmission } from '../admission'
 export {
   DISK_STORAGE_BLOCK_BYTES,
   GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER,
@@ -52,7 +51,6 @@ export {
   VECTOR_SEARCH_LOAD_TIMEOUT_MS,
   VECTOR_SEARCH_TIMEOUT_MS,
 } from '../constants'
-export { ordinalFilterForSubsets } from '../filter-ordinals'
 export { createHNSWIndex } from '../hnsw'
 export { GRAPH_RETIRED } from '../hnsw/handles'
 export { shuffleInPlace, shuffleStep } from '../hnsw/insertion-order'
@@ -72,7 +70,13 @@ export {
 } from '../native/store'
 export { threadedNativeCore, withNativeThreadSlot } from '../native/thread-slots'
 export { NATIVE_OK } from '../native/types'
-export { addToOrdinalFilter, createOrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
+export {
+  addToOrdinalFilter,
+  createOrdinalFilter,
+  ordinalFilterForSubsets,
+  ordinalFilterValues,
+} from '../ordinal-filter'
+export { ordinalFilterHas } from '../ordinal-membership'
 export { createOsqQuantizer, osqBitsOf } from '../osq'
 export { MIN_OVERSAMPLE } from '../osq/constants'
 export {
@@ -130,6 +134,7 @@ export {
   VECTOR_WORKER_COPIES_ALLOWED,
   yieldBuildTurn,
 } from '../vector-index/shared'
+export { admissionAt, holdAdmission, withTransientAdmission } from '../vector-store/admission'
 export {
   blocksGrowthBytes,
   createVectorBlock,
@@ -155,11 +160,13 @@ export {
   STORE_REMOVED_COUNT,
   STORE_SLOTS,
   STORE_UNPLACED_COUNT,
+  STORE_WRITE_SEQUENCE_INT64,
   sharedVectorStoreBytes,
   unplacedChunkCount,
   writeSequenceWords,
 } from '../vector-store/handles'
 export {
+  coverOrdinal,
   mayFree,
   nextSequence,
   oldestHeldPin,

@@ -28,10 +28,10 @@ import { trackPublicationStores } from './publication-stores'
 import { type CopyReleaseSteps, endCopyRelease, releaseIndexCopies } from './release'
 import { cancelRepair } from './repair'
 import {
-  awaitPublicationCapacity,
   awaitReplicationIdle,
   awaitWritesApplied,
   markCopiesLoaded,
+  publicationCapacityWait,
   replicateToWorkers,
 } from './replication'
 
@@ -55,6 +55,23 @@ import type {
 import { refreshVectorCopies } from './vector-copies'
 
 export type { RequestThreadListener, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
+
+function holdsCopies(state: OrchestratorState, indexName: string): boolean {
+  return state.scaledOutIndexes.has(indexName) || state.copyLoadBuffers.has(indexName)
+}
+
+async function settleCopiedPublications(
+  state: OrchestratorState,
+  indexName: string,
+  attachedSegments: boolean,
+  room: Promise<void> | null,
+): Promise<void> {
+  if (room !== null) await room
+  if (attachedSegments) maybeCompactSegments(state, indexName)
+  if (!holdsCopies(state, indexName)) return
+  await flushGrownTails(state, indexName)
+  scheduleIdleMerge(state, indexName)
+}
 
 function copyIdleTimeoutBeforeClose(closeAfterMs: number | undefined): number {
   return closeAfterMs === undefined
@@ -289,12 +306,13 @@ export function createWorkerOrchestrator(
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
     publishToWorkers: action => publishToWorkers(state, action),
-    async settlePublications(indexName, attachedSegments = false) {
-      await awaitPublicationCapacity(state, indexName)
-      if (attachedSegments) maybeCompactSegments(state, indexName)
-      if (!state.scaledOutIndexes.has(indexName) && !state.copyLoadBuffers.has(indexName)) return
-      await flushGrownTails(state, indexName)
-      scheduleIdleMerge(state, indexName)
+    settlePublications(indexName, attachedSegments = false) {
+      const room = publicationCapacityWait(state, indexName)
+      if (room === null && !holdsCopies(state, indexName) && !state.replicationQueues.has(indexName)) {
+        if (attachedSegments) maybeCompactSegments(state, indexName)
+        return undefined
+      }
+      return settleCopiedPublications(state, indexName, attachedSegments, room)
     },
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
     queueDiskAdoption: action => {

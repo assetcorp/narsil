@@ -1,5 +1,5 @@
 import { ErrorCodes, MAX_RENUMBERED_SEARCH_ATTEMPTS, NarsilError } from '#platform/vector-host'
-import type { FilterSubset } from '../../vector/filter-ordinals'
+import type { FilterSubset } from '../../vector/ordinal-filter'
 
 export function filterSubsetsMatchNothing(subsets: readonly FilterSubset[]): boolean {
   for (const subset of subsets) {

@@ -89,11 +89,12 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
       removedSpellings: prepared.removedSpellings,
     })
   }
-  return () => manager.publication.write(indexChangeOutsideExternalWaits(removeFromIndex))
+  return () => manager.publication.writeNow(indexChangeOutsideExternalWaits(removeFromIndex))
 }
 
 async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
-  await ctx.orchestrator.settlePublications(indexName)
+  const settling = ctx.orchestrator.settlePublications(indexName)
+  if (settling !== undefined) await settling
   const { docId } = prepared
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })

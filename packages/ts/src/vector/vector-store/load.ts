@@ -7,7 +7,15 @@ import {
   stampBorn,
   stampRetired,
 } from '#platform/vector-host'
-import { claimSlot, ensureOrdinal, type OpenStore, publishOnDisk, publishOrdinal, writeVector } from './open-store'
+import {
+  claimSlot,
+  ensureOrdinal,
+  type OpenStore,
+  placeOnDisk,
+  publishOnDisk,
+  publishOrdinal,
+  writeVector,
+} from './open-store'
 import {
   appendOrdinal,
   claimOrdinal,
@@ -20,7 +28,6 @@ import {
 import type { DiskLocation, VectorStoreSnapshot } from './types'
 
 function retiredBeforeLoad(store: OpenStore, ordinal: number): void {
-  stampBorn(store.sequences, ordinal, LOADED_SEQUENCE)
   stampRetired(store.sequences, ordinal, RETIRED_BEFORE_LOAD)
 }
 
@@ -45,8 +52,9 @@ export function loadColdVector(
   const previous = state.docToOrd.get(docId)
   Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
   const ordinal = claimOrdinal(state, store, docId, true, partitionId)
+  placeOnDisk(store, ordinal, vectorMagnitude, location)
   stampBorn(store.sequences, ordinal, LOADED_SEQUENCE)
-  publishOnDisk(store, ordinal, vectorMagnitude, location)
+  publishOrdinal(store, ordinal)
   settleLoadedReplacement(state, store, previous)
   return ordinal
 }

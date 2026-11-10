@@ -31,7 +31,7 @@ export interface WorkerOrchestrator {
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   publishToWorkers(action: WorkerAction): Promise<void> | undefined
-  settlePublications(indexName: string, attachedSegments?: boolean): Promise<void>
+  settlePublications(indexName: string, attachedSegments?: boolean): Promise<void> | undefined
   awaitReplication(indexName?: string): Promise<void>
   queueDiskAdoption(action: DiskAdoptionAction): void
   awaitWrites(indexName: string): Promise<void>

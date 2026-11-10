@@ -10,13 +10,6 @@ import { requireSegment } from './status'
 
 type RegionKind = Parameters<typeof typedRegion>[1]
 
-export interface SegmentReach {
-  readonly surfaces: boolean
-  spellings(partialFields: Uint8Array): boolean
-}
-
-const WHOLE_SEGMENT: SegmentReach = { surfaces: true, spellings: () => true }
-
 function copy<T extends object>(input: T): T {
   requireSegment(typeof input === 'object' && input !== null)
   return { ...input }
@@ -150,11 +143,7 @@ function runs(input: NativeRunTable, regions: Regions): NativeRunTable {
   }
 }
 
-function readSegment(
-  input: NativeGrowingSegment,
-  regions: Regions,
-  reach: SegmentReach = WHOLE_SEGMENT,
-): NativeGrowingSegment {
+function readSegment(input: NativeGrowingSegment, regions: Regions): NativeGrowingSegment {
   requireSegment(
     Number.isInteger(input.ordinalCapacity) && input.ordinalCapacity >= 0 && input.ordinalCapacity <= 0xffffffff,
   )
@@ -194,9 +183,8 @@ function readSegment(
   const partialFields = regions.read(input.partialFields, 'Uint8Array', undefined, false)
   requireSegment(partialFields.length <= 65536)
   for (const flag of partialFields) requireSegment(flag <= 1 && (flag === 0 || input.spellings !== null))
-  const surfaces = input.surfaces === null || !reach.surfaces ? null : surface(input.surfaces, regions)
-  const spellingStrings =
-    input.spellings === null || !reach.spellings(partialFields) ? null : surface(input.spellings, regions)
+  const surfaces = input.surfaces === null ? null : surface(input.surfaces, regions)
+  const spellingStrings = input.spellings === null ? null : surface(input.spellings, regions)
   const spellings =
     input.spellings === null || spellingStrings === null
       ? null
@@ -233,40 +221,15 @@ export function checkText(units: Uint16Array, start: number, length: number): vo
   }
 }
 
-export type SegmentRetirement = Pick<
-  NativeGrowingSegment,
-  'ordinalCapacity' | 'partialFields' | 'retired' | 'fieldLengths' | 'totalDocuments' | 'totalFieldLengths'
->
+const checkedViews = new WeakMap<NativeGrowingSegment, { generation: number; segment: NativeGrowingSegment }>()
 
-export function readRetirementRegions(input: NativeGrowingSegment): SegmentRetirement {
-  requireSegment(typeof input === 'object' && input !== null)
-  const ordinalCapacity = input.ordinalCapacity
-  requireSegment(Number.isInteger(ordinalCapacity) && ordinalCapacity >= 0 && ordinalCapacity <= 0xffffffff)
+export function readSegmentView(input: NativeGrowingSegment, generation: number): NativeGrowingSegment {
+  const held = typeof input === 'object' && input !== null ? checkedViews.get(input) : undefined
+  if (held !== undefined && held.generation === generation) return held.segment
   const regions = new Regions()
-  const partialFields = regions.read(input.partialFields, 'Uint8Array', undefined, false)
-  requireSegment(partialFields.length <= 65536)
-  const segment = {
-    ordinalCapacity,
-    partialFields,
-    retired: regions.read(input.retired, 'Uint32Array', Math.max(1, Math.ceil(ordinalCapacity / 32))),
-    fieldLengths: regions.read(input.fieldLengths, 'Uint32Array', ordinalCapacity * partialFields.length),
-    totalDocuments: regions.read(input.totalDocuments, 'Uint32Array', 1),
-    totalFieldLengths: regions.read(input.totalFieldLengths, 'Float64Array', partialFields.length),
-  }
+  const segment = readSegment(captureSegment(input), regions)
   regions.check()
-  return segment
-}
-
-export function readSegmentRegions(input: NativeGrowingSegment, reach: SegmentReach = WHOLE_SEGMENT) {
-  const captured = captureSegment(input)
-  const regions = new Regions()
-  const segment = readSegment(captured, regions, reach)
-  return { segment, regions }
-}
-
-export function readBatch(input: NativeGrowingSegment): NativeGrowingSegment {
-  const { segment, regions } = readSegmentRegions(input)
-  regions.check()
+  if (Number.isSafeInteger(generation) && generation >= 1) checkedViews.set(input, { generation, segment })
   return segment
 }
 

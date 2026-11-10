@@ -14,10 +14,6 @@ export function moveOutOfBuffer(state: VectorIndexState, docId: string): void {
   for (const watch of state.searchWatches) watch.leftBuffer.add(docId)
 }
 
-export function noteBeforeWrite(state: VectorIndexState, docId: string): void {
-  for (const listener of state.writeListeners) listener(docId)
-}
-
 export function writeWatchesOf(state: VectorIndexState): {
   watchWrites(listener: (docId: string) => void): () => void
 } {

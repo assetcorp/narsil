@@ -29,9 +29,8 @@ const pinsByView = new WeakMap<SharedVectorStoreView, StorePins>()
 function readsOf(view: SharedVectorStoreView): SequenceReads {
   const { bornAt, retiredAt } = view.handles
   return {
-    born: fixedView(bornAt, Uint32Array),
-    retired: fixedView(retiredAt, Uint32Array),
-    retiredExact: fixedView(retiredAt, BigInt64Array),
+    born: fixedView(bornAt, BigInt64Array),
+    retired: fixedView(retiredAt, BigInt64Array),
   }
 }
 
@@ -53,11 +52,11 @@ function createStorePins(view: SharedVectorStoreView): StorePins {
   )
 
   function covers(ordinal: number): boolean {
-    if (boundTo !== view.handles || ordinal * 2 + 1 >= reads.born.length) {
+    if (boundTo !== view.handles || ordinal >= reads.born.length || ordinal >= reads.retired.length) {
       boundTo = view.handles
       reads = readsOf(view)
     }
-    return ordinal >= 0 && ordinal * 2 + 1 < reads.born.length
+    return ordinal >= 0 && ordinal < reads.born.length && ordinal < reads.retired.length
   }
 
   return {
@@ -65,7 +64,7 @@ function createStorePins(view: SharedVectorStoreView): StorePins {
     retain: sequence => thread.retain(sequence),
     release: pin => thread.release(pin),
     admits(ordinal, pin) {
-      return covers(ordinal) && admitsOrdinal(reads, ordinal, pin)
+      return covers(ordinal) && admitsOrdinal(reads, ordinal, BigInt(pin))
     },
     currentReads() {
       if (boundTo !== view.handles) {

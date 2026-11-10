@@ -18,7 +18,7 @@ export interface VectorIndex extends VectorPublicationSource {
   awaitPendingBuild(): Promise<void>
   /** Places every live vector in the graph, building one where the field holds none and enough vectors for one, and resolves once every vector is in. A checkpoint calls this so that the parts it writes carry the graph. */
   completeGraph(): Promise<void>
-  dispose(): void
+  dispose(): Promise<void>
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorSearchOutcome
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorSearchOutcome>
   /** Calls `listener` with the document ID of every vector write, before the write changes the field, until the returned function runs. */

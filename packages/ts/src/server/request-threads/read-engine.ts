@@ -14,7 +14,7 @@ import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
-import type { OrdinalAdmission } from '../../vector/admission'
+import type { OrdinalAdmission } from '../../vector/vector-store/admission'
 import type { DirectExecutorExtensions, IndexQueryContext } from '../../workers/direct-executor'
 import type { HeldFieldPin } from '../../workers/vector-copies'
 import type { ReadEngine } from '../handlers/document-reads'

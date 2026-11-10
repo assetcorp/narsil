@@ -1,8 +1,8 @@
 import type { PartitionManager } from '../partitioning/manager'
-import type { HeldAdmission } from '../vector/admission'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../vector/shared-field/types'
 import type { SharedVectorFieldView } from '../vector/shared-field/view'
 import type { VectorSearcher } from '../vector/vector-index/shared'
+import type { HeldAdmission } from '../vector/vector-store/admission'
 import type { CopyPublication } from './copy-publication'
 import { requireLoadedVectorCode } from './vector-code'
 

@@ -31,11 +31,12 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
     await durability.manager.shutdown()
   }
 
+  const vectorDisposals: Promise<void>[] = []
   for (const [name] of indexRegistry) {
     const manager = executor.getManager(name)
     if (manager) {
       for (const [, vectorIndex] of manager.getVectorIndexes()) {
-        vectorIndex.dispose()
+        vectorDisposals.push(vectorIndex.dispose())
       }
     }
   }
@@ -62,6 +63,7 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
 
   await orchestrator.shutdown()
   await executor.shutdown()
+  await Promise.all(vectorDisposals)
   eventHandlers.clear()
   indexRegistry.clear()
 }

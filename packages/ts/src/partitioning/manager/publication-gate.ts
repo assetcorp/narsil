@@ -1,6 +1,7 @@
 export interface PublicationGate {
   read<T>(read: (release: () => void) => T | Promise<T>): Promise<T>
   write<T>(write: () => T | Promise<T>): Promise<T>
+  writeNow<T>(write: () => T | Promise<T>): T | Promise<T>
 }
 
 export interface PublicationSettlement {
@@ -74,5 +75,35 @@ export function createPublicationGate(settlement?: PublicationSettlement): Publi
     })
   }
 
-  return { read: read => enter(false, read), write: write => enter(true, write) }
+  function finishWrite(): void {
+    writing = false
+    pump()
+  }
+
+  async function finishPendingWrite<T>(pending: Promise<T>): Promise<T> {
+    try {
+      return await pending
+    } finally {
+      finishWrite()
+    }
+  }
+
+  function writeNow<T>(work: () => T | Promise<T>): T | Promise<T> {
+    if (first !== undefined || !available(true)) return enter(true, work)
+    writing = true
+    let result: T | Promise<T>
+    try {
+      result = work()
+    } catch (error) {
+      finishWrite()
+      throw error
+    }
+    if (!(result instanceof Promise)) {
+      finishWrite()
+      return result
+    }
+    return finishPendingWrite(result)
+  }
+
+  return { read: read => enter(false, read), write: write => enter(true, write), writeNow }
 }

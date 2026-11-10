@@ -7,7 +7,7 @@ export {
   turnsAreBudgeted,
   yieldBackgroundTurn,
 } from '#platform/shared-turns'
-export { bindVectorCoreHost } from '#platform/vector-core-host'
+export * from '#platform/vector-core-host'
 export { createVectorFileReader } from '#platform/vector-file'
 export { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 export {
@@ -18,8 +18,6 @@ export {
   UI_THREAD_HOP_BEFORE_TURN_WITHIN_MS,
   UI_THREAD_TURN_BUDGET_MS,
 } from '../runtime/constants'
-export { admissionAt, holdAdmission, withTransientAdmission } from './admission'
-export { ordinalFilterForSubsets } from './filter-ordinals'
 export { createHNSWIndex } from './hnsw'
 export { GRAPH_RETIRED } from './hnsw/handles'
 export { shuffleInPlace, shuffleStep } from './hnsw/insertion-order'
@@ -39,7 +37,8 @@ export {
 } from './native/store'
 export { threadedNativeCore, withNativeThreadSlot } from './native/thread-slots'
 export { NATIVE_OK } from './native/types'
-export { addToOrdinalFilter, createOrdinalFilter, ordinalFilterHas, ordinalFilterValues } from './ordinal-filter'
+export { addToOrdinalFilter, createOrdinalFilter, ordinalFilterForSubsets, ordinalFilterValues } from './ordinal-filter'
+export { ordinalFilterHas } from './ordinal-membership'
 export { createOsqQuantizer, osqBitsOf } from './osq'
 export { MIN_OVERSAMPLE } from './osq/constants'
 export { osqDistance, osqEstimate } from './osq/estimate'
@@ -118,6 +117,7 @@ export {
   VECTOR_WORKER_COPIES_ALLOWED,
   yieldBuildTurn,
 } from './vector-index/shared'
+export { admissionAt, holdAdmission, withTransientAdmission } from './vector-store/admission'
 export {
   blocksGrowthBytes,
   createVectorBlock,
@@ -144,11 +144,13 @@ export {
   STORE_REMOVED_COUNT,
   STORE_SLOTS,
   STORE_UNPLACED_COUNT,
+  STORE_WRITE_SEQUENCE_INT64,
   sharedVectorStoreBytes,
   unplacedChunkCount,
   writeSequenceWords,
 } from './vector-store/handles'
 export {
+  coverOrdinal,
   mayFree,
   nextSequence,
   oldestHeldPin,
