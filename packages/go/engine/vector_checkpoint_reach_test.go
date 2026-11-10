@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os/exec"
@@ -109,8 +110,7 @@ func nodeForSavedGraphs(t *testing.T) string {
 	return node
 }
 
-func readSavedGraph(t *testing.T, node string, directory string, indexName string) savedGraphCounts {
-	t.Helper()
+func savedGraphOf(node string, directory string, indexName string) (savedGraphCounts, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), reachReaderDeadline)
 	defer cancel()
 	command := exec.CommandContext(ctx, node, filepath.Join("testdata", "saved-graph-reach.mjs"), directory, indexName)
@@ -118,16 +118,26 @@ func readSavedGraph(t *testing.T, node string, directory string, indexName strin
 	command.Stdout = &report
 	command.Stderr = &complaint
 	if err := command.Run(); err != nil {
-		t.Fatalf("the checkpoint reader failed, which needs the dependencies of packages/ts installed: %v\n%s", err, complaint.String())
+		return savedGraphCounts{}, fmt.Errorf("the checkpoint reader failed, which needs the dependencies of packages/ts installed: %w\n%s",
+			err, complaint.String())
 	}
 	var fields []savedGraphCounts
 	if err := json.Unmarshal(report.Bytes(), &fields); err != nil || len(fields) != 1 {
-		t.Fatalf("the checkpoint reader reported %d fields: %v\n%s", len(fields), err, report.String())
+		return savedGraphCounts{}, fmt.Errorf("the checkpoint reader reported %d fields: %v\n%s", len(fields), err, report.String())
 	}
 	if fields[0].GraphParts == 0 {
-		t.Fatal("the checkpoint holds no graph")
+		return savedGraphCounts{}, errors.New("the checkpoint holds no graph")
 	}
-	return fields[0]
+	return fields[0], nil
+}
+
+func readSavedGraph(t *testing.T, node string, directory string, indexName string) savedGraphCounts {
+	t.Helper()
+	saved, err := savedGraphOf(node, directory, indexName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
 }
 
 func savedVectorsOutsideTheirBounds(checkpoint int, saved savedGraphCounts, acknowledged int, mayHold int) string {
