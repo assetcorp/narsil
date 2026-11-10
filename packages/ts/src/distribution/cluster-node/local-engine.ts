@@ -142,7 +142,8 @@ export interface ClusterLocalEngine extends Narsil {
  * Builds the engine one cluster node uses for its local partitions.
  *
  * @param config - Settings for this node's engine.
- * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
+ * @param hooks - Node-local callbacks the engine runs after an index reopens, after it closes, and after this node
+ * drops its copy of an index.
  * @returns The local engine, including partition-scoped cluster operations.
  */
 export async function createClusterLocalEngine(
@@ -150,6 +151,7 @@ export async function createClusterLocalEngine(
   hooks?: {
     onIndexOpen?(indexName: string): void | Promise<void>
     onIndexClose?(indexName: string): void | Promise<void>
+    onIndexDrop?(indexName: string): void
   },
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
@@ -188,6 +190,7 @@ export async function createClusterLocalEngine(
     dropIndex: async (name: string) => {
       await dropIndex(name)
       writeRecords.dropIndex(name)
+      hooks?.onIndexDrop?.(name)
     },
     restore: async (name: string, data: ByteSource) => {
       try {
