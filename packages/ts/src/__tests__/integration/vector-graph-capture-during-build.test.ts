@@ -17,6 +17,7 @@ const ARRIVING_BATCH = 128
 const FRAMES_KEPT_WAITING = 1_000
 const WRITER_POLL_MS = 1
 const CAPTURES = 8
+const CAPTURES_AT_ONCE = 2
 const SETTLE_TIMEOUT_MS = 120_000
 const TEST_TIMEOUT_MS = 300_000
 const INDEX = 'frames'
@@ -89,7 +90,7 @@ function framesWaitingForAGraph(opened: Narsil): number {
 
 type Archive = Uint8Array<ArrayBuffer>
 
-async function captureWhileFramesArrive(opened: Narsil): Promise<Archive[]> {
+async function captureWhileFramesArrive(opened: Narsil, capturesAtOnce = 1): Promise<Archive[]> {
   let capturing = true
   let arrived = SETTLED_FRAMES
   const writer = (async () => {
@@ -102,17 +103,46 @@ async function captureWhileFramesArrive(opened: Narsil): Promise<Archive[]> {
       await pause(WRITER_POLL_MS)
     }
   })()
+  writer.catch(() => undefined)
   const archives: Archive[] = []
-  try {
-    while (archives.length < CAPTURES) {
+  let started = 0
+  const takeCaptures = async (): Promise<void> => {
+    while (started < CAPTURES) {
+      started += 1
       await waitFor(async () => framesWaitingForAGraph(opened) > 0, SETTLE_TIMEOUT_MS)
       archives.push(await bytesOf(await opened.snapshot(INDEX)))
     }
+  }
+  try {
+    await Promise.all(Array.from({ length: capturesAtOnce }, takeCaptures))
   } finally {
     capturing = false
     await writer
   }
   return archives
+}
+
+async function whileGraphsAreOptimised<T>(opened: Narsil, work: () => Promise<T>): Promise<T> {
+  let optimising = true
+  const optimiser = (async () => {
+    while (optimising) {
+      await opened.optimizeVectors(INDEX)
+      await pause(WRITER_POLL_MS)
+    }
+  })()
+  try {
+    return await work()
+  } finally {
+    optimising = false
+    await optimiser
+  }
+}
+
+async function untilEveryFrameHasAPlace(opened: Narsil): Promise<void> {
+  await waitFor(
+    async () => opened.vectorMaintenanceStatus(INDEX).every(field => field.bufferSize === 0 && !field.building),
+    SETTLE_TIMEOUT_MS,
+  )
 }
 
 async function reachOfEverySavedGraph(archives: readonly Archive[]): Promise<SavedGraphReach[]> {
@@ -185,6 +215,37 @@ describe.skipIf(!built)('a vector graph saved while worker threads place arrivin
       engine = opened
 
       await expectEverySavedGraphToReachItsVectors(await captureWhileFramesArrive(opened))
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'finishes two snapshots at a time beside optimise calls, and places every vector that arrived once they end',
+    async () => {
+      const opened = await openSettledFrames({})
+      engine = opened
+
+      const archives = await whileGraphsAreOptimised(opened, () => captureWhileFramesArrive(opened, CAPTURES_AT_ONCE))
+      await untilEveryFrameHasAPlace(opened)
+
+      await expectEverySavedGraphToReachItsVectors(archives)
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'settles every snapshot when the engine shuts down while snapshots are under way',
+    async () => {
+      const opened = await openSettledFrames({})
+
+      const captures = captureWhileFramesArrive(opened, CAPTURES_AT_ONCE).then(
+        () => 'captured',
+        () => 'refused',
+      )
+      await waitFor(async () => framesWaitingForAGraph(opened) > 0, SETTLE_TIMEOUT_MS)
+      await opened.shutdown()
+
+      expect(['captured', 'refused']).toContain(await captures)
     },
     TEST_TIMEOUT_MS,
   )
