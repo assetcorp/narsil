@@ -22,7 +22,14 @@ import {
 import type { VectorIndexConfig, VectorStorageMode } from '../../types/schema'
 import type { HNSWConfig } from '../hnsw'
 import { createVectorStore } from '../vector-store'
-import { awaitBuilds, disposeIndex, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'
+import {
+  awaitBuilds,
+  connectWhereAPassStoppedEarly,
+  disposeIndex,
+  keepBuildsOut,
+  scheduleBuild as scheduleBuildOp,
+  startShuffledRebuild,
+} from './build'
 import type { VectorCheckpointPlan, WrittenVectorFile } from './checkpoint-plan'
 import { beginCheckpointRestore, type CheckpointRestoreShape } from './checkpoint-restore'
 import {
@@ -142,6 +149,7 @@ export function createVectorIndex(
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
+    growingCopy: null,
     ...noBuildHistory(),
     rebuildChargeBytes: 0,
     waitingForMemory: false,
@@ -155,6 +163,7 @@ export function createVectorIndex(
     buildRetryDelayMs: 0,
     buildTurnWaiters: new Map(),
     pendingBuild: null,
+    buildsKeptOut: null,
     disposed: false,
     revision: 0,
     workerCopyPool: null,
@@ -169,6 +178,7 @@ export function createVectorIndex(
     releaseToFilesInFlight: Promise.resolve(),
     cold: null,
     graphsHeldOffThread: null,
+    graphsPlacedIntoSinceConnect: new WeakSet(),
     searchWatches: new Set(),
     writeListeners: new Set(),
   }
@@ -266,9 +276,16 @@ export function createVectorIndex(
       await whenLoaded()
       await awaitBuilds(state)
     },
-    completeGraph: async () => {
+    holdGraphComplete: async () => {
       await whenLoaded()
-      await completeGraphOp(state)
+      const letBuildsIn = await keepBuildsOut(state)
+      try {
+        await completeGraphOp(state)
+        return letBuildsIn
+      } catch (error) {
+        letBuildsIn()
+        throw error
+      }
     },
     dispose: () => {
       cancelColdHold(state)
@@ -304,8 +321,10 @@ export function createVectorIndex(
     }),
     planCheckpoint: withGraphFree(
       state,
-      (listedKeys: readonly string[] | null, rewritesGraph?: boolean, pinsRetiredVectors?: boolean) =>
-        planCheckpointOp(state, listedKeys, rewritesGraph, pinsRetiredVectors),
+      (listedKeys: readonly string[] | null, rewritesGraph?: boolean, pinsRetiredVectors?: boolean) => {
+        connectWhereAPassStoppedEarly(state)
+        return planCheckpointOp(state, listedKeys, rewritesGraph, pinsRetiredVectors)
+      },
     ),
     recordCheckpoint: (plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]) =>
       recordCheckpointOp(state, plan, written),

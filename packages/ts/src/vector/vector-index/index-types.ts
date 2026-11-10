@@ -16,8 +16,8 @@ export interface VectorIndex extends VectorPublicationSource {
   assignPartitions(resolve: (docId: string) => number | undefined): void
   scheduleBuild(): void
   awaitPendingBuild(): Promise<void>
-  /** Places every live vector in the graph, building one where the field holds none and enough vectors for one, and resolves once every vector is in. A checkpoint calls this so that the parts it writes carry the graph. */
-  completeGraph(): Promise<void>
+  /** Places every live vector in the graph, building one where the field holds none and enough vectors for one, and keeps every later build pass out of the field until the returned function runs. A checkpoint calls this so that the parts it writes carry the graph, and so that no thread writes to the graph while the checkpoint copies it. The call first waits for any other checkpoint that keeps the passes out of this field. A vector that arrives in the meantime waits in the buffer, and the returned function schedules the pass that places it. */
+  holdGraphComplete(): Promise<() => void>
   dispose(): Promise<void>
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorSearchOutcome
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorSearchOutcome>
