@@ -46,6 +46,7 @@ typedef struct {
 narsil_status narsil_pattern_match(narsil_workspace *workspace, const narsil_pattern_index *index,
                                    const narsil_stored_values *values, const narsil_pattern_test *test,
                                    const narsil_work_meter *meter, uint32_t *into, size_t into_words);
+narsil_status narsil_case_fold(const uint16_t *text, size_t length, uint32_t *points, size_t capacity, uint32_t *count);
 
 #ifdef __cplusplus
 }
