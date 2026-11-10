@@ -1,22 +1,21 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
 use super::build_record::new_build_id;
 use super::constants::{MAX_HISTORY_FILE_BYTES, MAX_RESTORED_FILES_PER_DAY};
 use super::counts_file::{OpenedCountsFile, open_counts_file};
-use super::days::cutoff_day;
-use super::history::{HistoryRead, read_history_file, restore_staging_prefix, restored_file_key};
-use super::state::SuggestionState;
+use super::day_store::cutoff_day;
+use super::history_files::{
+    HistoryRead, read_history_file, restore_staging_prefix, restored_file_key,
+};
+use super::host::{wall_ms, warn};
+use super::stored_state::SuggestionState;
 use super::types::QuerySuggestionsWarningReason;
-use super::warnings::warn;
-use crate::durability::platform::now_ms;
 use crate::engine::EngineInner;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::QUERY_HISTORY_ARCHIVE_PREFIX;
 
-/// The history files that a snapshot archive carries for one restore, which the engine stages under a folder of
-/// their own until the restored index is in place, and removes again where the restore stops first.
 pub(crate) struct RestoredHistory {
     engine: Arc<EngineInner>,
     index_name: String,
@@ -34,8 +33,6 @@ fn read_failed(error: std::io::Error) -> NarsilError {
 }
 
 impl RestoredHistory {
-    /// Returns the sink of a restore of `index_name`, or `None` where the restored state turns the feature off or
-    /// the engine has no key, since the engine then keeps no history of the index.
     pub(crate) fn open(
         engine: &EngineInner,
         index_name: &str,
@@ -50,19 +47,16 @@ impl RestoredHistory {
         let Some(engine) = engine.self_ref.upgrade() else {
             return Ok(None);
         };
-        let now = i64::try_from(now_ms()).unwrap_or(i64::MAX);
         Ok(Some(RestoredHistory {
             engine,
             index_name: index_name.to_string(),
-            cutoff: cutoff_day(now, setting.resolve().retention_days),
+            cutoff: cutoff_day(wall_ms(), setting.resolve().retention_days),
             prefix: restore_staging_prefix(&new_build_id()?),
             staged: Vec::new(),
             received: 0,
         }))
     }
 
-    /// Stages the history file at `position` of the archive, skipping a day that the setting no longer keeps and
-    /// warning about a file that is damaged or that another key scrambled.
     pub(crate) fn add(&mut self, body: &mut dyn Read) -> Result<()> {
         let position = self.received;
         self.received += 1;
@@ -74,28 +68,17 @@ impl RestoredHistory {
         let Some(scrambler) = runtime.scrambler() else {
             return Ok(());
         };
-        let entry = || Some(format!("{QUERY_HISTORY_ARCHIVE_PREFIX}{position}"));
         let opened = match open_counts_file(&bytes, None, scrambler.fingerprint()) {
             OpenedCountsFile::Counts(opened) => opened,
-            OpenedCountsFile::OtherKey => {
-                warn(
-                    &self.engine,
-                    &self.index_name,
-                    QuerySuggestionsWarningReason::OtherKey,
-                    entry(),
-                    None,
-                );
-                return Ok(());
-            }
-            OpenedCountsFile::Damaged(reason) => {
-                let reason = Some(reason);
-                warn(
-                    &self.engine,
-                    &self.index_name,
-                    QuerySuggestionsWarningReason::DamagedFile,
-                    entry(),
-                    reason,
-                );
+            unreadable => {
+                let (reason, message) = match unreadable {
+                    OpenedCountsFile::Damaged(message) => {
+                        (QuerySuggestionsWarningReason::DamagedFile, Some(message))
+                    }
+                    _ => (QuerySuggestionsWarningReason::OtherKey, None),
+                };
+                let entry = format!("{QUERY_HISTORY_ARCHIVE_PREFIX}{position}");
+                warn(&self.engine, &self.index_name, reason, Some(entry), message);
                 return Ok(());
             }
         };
@@ -103,14 +86,12 @@ impl RestoredHistory {
             return Ok(());
         }
         let key = format!("{}{position}.nrsl", self.prefix);
-        let rewritten = opened.with_index_uuid(None, opened.saved_at)?;
+        let rewritten = opened.without_index_uuid()?;
         runtime.files(&self.engine).write_commit(&key, &rewritten)?;
-        self.staged.push((key, opened.day.clone()));
+        self.staged.push((key, opened.day));
         Ok(())
     }
 
-    /// Replaces the history of the index with the staged files, in day order, then has the next count read the
-    /// groups of the history again. An archive that carried no history leaves the history as it was.
     pub(crate) fn commit(&mut self) -> Result<()> {
         if self.received == 0 {
             return Ok(());
@@ -118,15 +99,12 @@ impl RestoredHistory {
         let runtime = &self.engine.suggestions;
         runtime.discard_history(&self.engine, &self.index_name)?;
         let files = runtime.files(&self.engine);
-        let mut ordered = std::mem::take(&mut self.staged);
-        ordered.sort_by(|left, right| left.1.cmp(&right.1));
-        let mut pending: VecDeque<(String, String)> = ordered.into();
+        self.staged.sort_by(|left, right| left.1.cmp(&right.1));
+        self.staged.reverse();
         let mut sequences: HashMap<String, usize> = HashMap::new();
-        while let Some((key, day)) = pending.pop_front() {
-            let moved = self.move_staged(&key, &day, &mut sequences);
-            if let Err(error) = moved {
+        while let Some((key, day)) = self.staged.pop() {
+            if let Err(error) = self.move_staged(&key, &day, &mut sequences) {
                 self.staged.push((key, day));
-                self.staged.extend(pending);
                 return Err(error);
             }
             let _ = files.remove(&key);

@@ -8,6 +8,7 @@ use super::types::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Compression, Expectation, open_checksummed, pack};
+use crate::format::metadata_parts::non_negative_safe_integer;
 use crate::value::{
     Value, decode_value, write_array_header, write_binary, write_map_header, write_string,
     write_uint,
@@ -15,26 +16,22 @@ use crate::value::{
 
 const BUILD_RECORD_FORMAT_VERSION: u8 = 1;
 const WHAT: &str = "query suggestions build record";
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const UUID_VERSION_FOUR: u8 = 0x40;
 const UUID_VARIANT: u8 = 0x80;
+const SINGLE_NODE_ID: &str = "";
 
-/// The record of the last build of an index, which `_query-counts/<index>/build.nrsl` holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BuildRecord {
     pub(crate) build: QuerySuggestionsBuild,
     pub(crate) sources_digest: [u8; SOURCES_DIGEST_BYTES],
 }
 
-/// One history file that a build merged, as the digest of the merged files lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MergedSource {
-    pub(crate) node_id: String,
     pub(crate) key: String,
     pub(crate) saved_at: u64,
 }
 
-/// Returns a new random UUID of version 4, which names one build.
 pub(crate) fn new_build_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|error| {
@@ -55,27 +52,20 @@ pub(crate) fn new_build_id() -> Result<String> {
     Ok(text)
 }
 
-/// Returns the SHA-256 digest of the MessagePack list of `[nodeId, key, savedAt]` of every merged file, sorted by
-/// node ID and then by key.
 pub(crate) fn sources_digest_of(sources: &[MergedSource]) -> [u8; SOURCES_DIGEST_BYTES] {
     let mut sorted: Vec<&MergedSource> = sources.iter().collect();
-    sorted.sort_by(|left, right| {
-        left.node_id
-            .cmp(&right.node_id)
-            .then_with(|| left.key.cmp(&right.key))
-    });
+    sorted.sort_by(|left, right| left.key.cmp(&right.key));
     let mut encoded = Vec::new();
     write_array_header(&mut encoded, sorted.len());
     for source in sorted {
         write_array_header(&mut encoded, 3);
-        write_string(&mut encoded, &source.node_id);
+        write_string(&mut encoded, SINGLE_NODE_ID);
         write_string(&mut encoded, &source.key);
         write_uint(&mut encoded, source.saved_at);
     }
     Sha256::digest(&encoded).into()
 }
 
-/// Encodes a build record as the file that holds it.
 pub(crate) fn encode_build_record(record: &BuildRecord) -> Result<Vec<u8>> {
     let build = &record.build;
     let keys = 8 + usize::from(build.ended_at.is_some()) + usize::from(build.error_code.is_some());
@@ -115,13 +105,6 @@ pub(crate) fn encode_build_record(record: &BuildRecord) -> Result<Vec<u8>> {
     )
 }
 
-fn count_of(value: Option<&Value>) -> Option<u64> {
-    let number = value?.as_f64()?;
-    (number.is_finite() && number.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER).contains(&number))
-        .then_some(number as u64)
-}
-
-/// Reads a build record, returning `None` for a file that breaks any rule of its format.
 pub(crate) fn decode_build_record(bytes: &[u8]) -> Option<BuildRecord> {
     let expectation = Expectation {
         version: BUILD_RECORD_FORMAT_VERSION,
@@ -138,9 +121,10 @@ pub(crate) fn decode_build_record(bytes: &[u8]) -> Option<BuildRecord> {
     };
     let trigger = QuerySuggestionsBuildTrigger::named(&text("trigger")?)?;
     let status = QuerySuggestionsBuildStatus::named(&text("status")?)?;
+    let count_of = |key: &str| non_negative_safe_integer(wire.get(key));
     let ended_at = match wire.get("endedAt") {
         None => None,
-        present => Some(count_of(present)?),
+        Some(_) => Some(count_of("endedAt")?),
     };
     let error_code = match wire.get("errorCode") {
         None => None,
@@ -158,11 +142,11 @@ pub(crate) fn decode_build_record(bytes: &[u8]) -> Option<BuildRecord> {
             build_id: text("buildId")?,
             trigger,
             status,
-            started_at: count_of(wire.get("startedAt"))?,
+            started_at: count_of("startedAt")?,
             ended_at,
-            published: count_of(wire.get("published"))?,
-            removed: count_of(wire.get("removed"))?,
-            discarded: count_of(wire.get("discarded"))?,
+            published: count_of("published")?,
+            removed: count_of("removed")?,
+            discarded: count_of("discarded")?,
             error_code,
         },
         sources_digest,

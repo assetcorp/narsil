@@ -4,15 +4,14 @@ use jiff::tz::{AmbiguousOffset, TimeZone};
 
 use super::constants::{DEFAULT_TIME_ZONE, MAX_SCHEDULE_LENGTH, SCHEDULE_LOOKAHEAD_DAYS};
 
-const FIELD_COUNT: usize = 5;
 const MINUTES: (u32, u32) = (0, 59);
 const HOURS: (u32, u32) = (0, 23);
 const DAYS_OF_MONTH: (u32, u32) = (1, 31);
 const MONTHS: (u32, u32) = (1, 12);
 const DAYS_OF_WEEK: (u32, u32) = (0, 6);
+const STEPS: (u32, u32) = (1, 99);
 const MAX_NUMBER_DIGITS: usize = 2;
 
-/// A cron expression of five fields, as the set of values that each field matches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Schedule {
     minutes: [bool; 60],
@@ -46,7 +45,7 @@ fn parse_field<const N: usize>(text: &str, range: (u32, u32)) -> Option<[bool; N
         }
         let step = match step_text {
             None => 1,
-            Some(step) => parse_number(step, (1, 99))?,
+            Some(step) => parse_number(step, STEPS)?,
         };
         let (start, end) = if base == "*" {
             range
@@ -78,27 +77,25 @@ fn parse_field<const N: usize>(text: &str, range: (u32, u32)) -> Option<[bool; N
     Some(allowed)
 }
 
-/// Parses a cron expression of five fields separated by white space, or returns `None` for any other text.
 pub(crate) fn parse_schedule(expression: &str) -> Option<Schedule> {
     if expression.len() > MAX_SCHEDULE_LENGTH {
         return None;
     }
     let fields: Vec<&str> = expression.split_whitespace().collect();
-    if fields.len() != FIELD_COUNT {
+    let [minutes, hours, days_of_month, months, days_of_week] = fields[..] else {
         return None;
-    }
+    };
     Some(Schedule {
-        minutes: parse_field(fields[0], MINUTES)?,
-        hours: parse_field(fields[1], HOURS)?,
-        days_of_month: parse_field(fields[2], DAYS_OF_MONTH)?,
-        months: parse_field(fields[3], MONTHS)?,
-        days_of_week: parse_field(fields[4], DAYS_OF_WEEK)?,
-        day_of_month_any: fields[2] == "*",
-        day_of_week_any: fields[4] == "*",
+        minutes: parse_field(minutes, MINUTES)?,
+        hours: parse_field(hours, HOURS)?,
+        days_of_month: parse_field(days_of_month, DAYS_OF_MONTH)?,
+        months: parse_field(months, MONTHS)?,
+        days_of_week: parse_field(days_of_week, DAYS_OF_WEEK)?,
+        day_of_month_any: days_of_month == "*",
+        day_of_week_any: days_of_week == "*",
     })
 }
 
-/// Returns the time zone that `name` names in the time zone database, or `None` where it names none.
 pub(crate) fn time_zone_named(name: &str) -> Option<TimeZone> {
     if name == DEFAULT_TIME_ZONE {
         return Some(TimeZone::UTC);
@@ -152,44 +149,50 @@ fn matches_of_day(schedule: &Schedule, date: Date, zone: &TimeZone) -> Vec<i64> 
     instants
 }
 
-fn local_date(instant_ms: i64, zone: &TimeZone) -> Option<Date> {
+fn nearest_match(
+    schedule: &Schedule,
+    zone: &TimeZone,
+    instant_ms: i64,
+    forwards: bool,
+) -> Option<i64> {
+    let later = |date: Date| date.tomorrow().ok();
+    let earlier = |date: Date| date.yesterday().ok();
     let timestamp = Timestamp::from_millisecond(instant_ms).ok()?;
-    Some(zone.to_datetime(timestamp).date())
-}
-
-/// Returns the first time after `after_ms` at which the schedule matches in `zone`, within eight years.
-pub(crate) fn next_match_after(schedule: &Schedule, zone: &TimeZone, after_ms: i64) -> Option<i64> {
-    let mut date = local_date(after_ms, zone)?.yesterday().ok()?;
+    let local = zone.to_datetime(timestamp).date();
+    let mut date = if forwards {
+        earlier(local)?
+    } else {
+        later(local)?
+    };
     for _ in 0..=SCHEDULE_LOOKAHEAD_DAYS + 1 {
-        if day_matches(schedule, date)
-            && let Some(instant) = matches_of_day(schedule, date, zone)
-                .into_iter()
-                .find(|instant| *instant > after_ms)
-        {
-            return Some(instant);
+        if day_matches(schedule, date) {
+            let mut instants = matches_of_day(schedule, date, zone).into_iter();
+            let found = if forwards {
+                instants.find(|instant| *instant > instant_ms)
+            } else {
+                instants.rfind(|instant| *instant <= instant_ms)
+            };
+            if found.is_some() {
+                return found;
+            }
         }
-        date = date.tomorrow().ok()?;
+        date = if forwards {
+            later(date)?
+        } else {
+            earlier(date)?
+        };
     }
     None
 }
 
-/// Returns the latest time at or before `at_ms` at which the schedule matched in `zone`, within eight years.
+pub(crate) fn next_match_after(schedule: &Schedule, zone: &TimeZone, after_ms: i64) -> Option<i64> {
+    nearest_match(schedule, zone, after_ms, true)
+}
+
 pub(crate) fn latest_match_at_or_before(
     schedule: &Schedule,
     zone: &TimeZone,
     at_ms: i64,
 ) -> Option<i64> {
-    let mut date = local_date(at_ms, zone)?.tomorrow().ok()?;
-    for _ in 0..=SCHEDULE_LOOKAHEAD_DAYS + 1 {
-        if day_matches(schedule, date)
-            && let Some(instant) = matches_of_day(schedule, date, zone)
-                .into_iter()
-                .rev()
-                .find(|instant| *instant <= at_ms)
-        {
-            return Some(instant);
-        }
-        date = date.yesterday().ok()?;
-    }
-    None
+    nearest_match(schedule, zone, at_ms, false)
 }

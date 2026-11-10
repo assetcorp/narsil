@@ -1,50 +1,44 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::constants::{BUILD_LIST_PAGE, BUILD_WRITE_BATCH, SUGGESTIONS_INDEX_INFIX};
-use super::known::suggestion_states;
-use super::setting_wire::QuerySuggestionsSource;
-use super::state::SuggestionState;
+use super::host::suggestion_states;
+use super::stored_state::SuggestionState;
+use super::types::QuerySuggestionsSource;
 use crate::analysis::StopWords;
 use crate::config::{IndexConfig, PartitionConfig, StopWordsSetting};
 use crate::engine::changes::analysis::{AnalysisChange, AnalysisSetting};
 use crate::engine::query::listing::ListParams;
 use crate::engine::writes::BatchResult;
 use crate::engine::{EngineInner, Narsil, lifecycle};
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::{ErrorCode, Result};
+use crate::format::metadata_parts::config_invalid;
 use crate::value::{Map, Value};
 
-/// The origin of a suggestion that a build published from the searches.
 pub(crate) const ORIGIN_POPULAR: &str = "popular";
-/// The origin of a suggestion that a caller added by hand.
 pub(crate) const ORIGIN_MANUAL: &str = "manual";
 
-/// One suggestion that a suggestions index holds.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StoredSuggestion {
     pub(crate) count: f64,
     pub(crate) origin: String,
 }
 
-/// What a build changed in one suggestions index.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct GroupChanges {
     pub(crate) published: u64,
     pub(crate) removed: u64,
 }
 
-/// What undoes the writes of a build to one suggestions index.
 pub(crate) struct UndoStep {
     name: String,
     remove: Vec<String>,
     restore: Vec<(String, StoredSuggestion)>,
 }
 
-/// Returns the name of the suggestions index of `group` for `index_name`.
 pub(crate) fn suggestions_index_name(index_name: &str, group: &str) -> String {
     format!("{index_name}{SUGGESTIONS_INDEX_INFIX}{group}")
 }
 
-/// Returns the document of one suggestion, whose ID is its phrase.
 pub(crate) fn suggestion_document(phrase: &str, count: f64, origin: &str) -> Map {
     let mut document = Map::new();
     document.insert("id", Value::String(phrase.to_string()));
@@ -54,7 +48,6 @@ pub(crate) fn suggestion_document(phrase: &str, count: f64, origin: &str) -> Map
     document
 }
 
-/// Returns the suggestions index of each group whose marker names `index_name`, keyed by group.
 pub(crate) fn marked_suggestion_indexes(
     engine: &EngineInner,
     index_name: &str,
@@ -87,8 +80,6 @@ fn suggestions_config(language: &str) -> IndexConfig {
     }
 }
 
-/// Returns the suggestions index of `group` for `index_name`, creating it with the language of the source index
-/// where it is missing, and refusing with `CONFIG_INVALID` an index of that name without the right marker.
 pub(crate) fn ensure_suggestions_index(
     narsil: &Narsil,
     index_name: &str,
@@ -99,21 +90,21 @@ pub(crate) fn ensure_suggestions_index(
     let source = narsil.inner.reach_index(index_name)?;
     let language = source.analyser().language().name().to_string();
     let existing = match narsil.inner.reach_index(&name) {
-        Ok(existing) => Some(existing),
-        Err(error) if error.code() == ErrorCode::INDEX_NOT_FOUND => None,
+        Ok(existing) => existing,
+        Err(error) if error.code() == ErrorCode::INDEX_NOT_FOUND => {
+            let state = SuggestionState {
+                source: Some(QuerySuggestionsSource {
+                    index: index_name.to_string(),
+                    group: group.to_string(),
+                }),
+                ..SuggestionState::default()
+            };
+            let config = suggestions_config(&language);
+            lifecycle::create_marked_index(&narsil.inner, &name, config, state)?;
+            created.push(name.clone());
+            return Ok(name);
+        }
         Err(error) => return Err(error),
-    };
-    let Some(existing) = existing else {
-        let state = SuggestionState {
-            source: Some(QuerySuggestionsSource {
-                index: index_name.to_string(),
-                group: group.to_string(),
-            }),
-            ..SuggestionState::default()
-        };
-        lifecycle::create_marked_index(&narsil.inner, &name, suggestions_config(&language), state)?;
-        created.push(name.clone());
-        return Ok(name);
     };
     let marked = existing
         .suggestion_state()
@@ -121,12 +112,9 @@ pub(crate) fn ensure_suggestions_index(
         .as_ref()
         .is_some_and(|source| source.index == index_name && source.group == group);
     if !marked {
-        return Err(NarsilError::new(
-            ErrorCode::CONFIG_INVALID,
-            format!(
-                "Index \"{name}\" exists without the marker of a suggestions index for \"{index_name}\", so the build leaves it alone"
-            ),
-        ));
+        return Err(config_invalid(format!(
+            "Index \"{name}\" exists without the marker of a suggestions index for \"{index_name}\", so the build leaves it alone"
+        )));
     }
     if existing.analyser().language().name() != language {
         narsil.change_analysis(
@@ -141,7 +129,6 @@ pub(crate) fn ensure_suggestions_index(
     Ok(name)
 }
 
-/// Returns every suggestion that the suggestions index `name` holds, keyed by phrase.
 pub(crate) fn read_suggestions(
     narsil: &Narsil,
     name: &str,
@@ -195,8 +182,6 @@ fn remove_batch_of(narsil: &Narsil, name: &str, ids: &[String]) -> Result<Vec<St
     Ok(result.succeeded)
 }
 
-/// Removes the suggestions `ids` from the suggestions index `name`, skipping each that it lacks, and returns how
-/// many it removed.
 pub(crate) fn remove_suggestions(narsil: &Narsil, name: &str, ids: &[String]) -> Result<u64> {
     let mut removed = 0;
     for batch in ids.chunks(BUILD_WRITE_BATCH) {
@@ -205,7 +190,6 @@ pub(crate) fn remove_suggestions(narsil: &Narsil, name: &str, ids: &[String]) ->
     Ok(removed)
 }
 
-/// Undoes the writes of a build, newest first, leaving out each banned phrase that a write removed.
 pub(crate) fn undo_writes(
     narsil: &Narsil,
     steps: &[UndoStep],
@@ -231,9 +215,6 @@ pub(crate) fn undo_writes(
     Ok(())
 }
 
-/// Brings the suggestions index `name` to the phrases that are `due`, keeping each manual suggestion, removing
-/// each banned phrase, and removing each stale popular one unless `only_add` holds. It records in `undo` what
-/// undoes each write that succeeded.
 pub(crate) fn write_group(
     narsil: &Narsil,
     name: &str,
@@ -243,6 +224,25 @@ pub(crate) fn write_group(
     undo: &mut Vec<UndoStep>,
 ) -> Result<GroupChanges> {
     let stored = read_suggestions(narsil, name)?;
+    let mut step = UndoStep {
+        name: name.to_string(),
+        remove: Vec::new(),
+        restore: Vec::new(),
+    };
+    let changes = write_changes(narsil, &stored, due, banned, only_add, &mut step);
+    undo.push(step);
+    changes
+}
+
+fn write_changes(
+    narsil: &Narsil,
+    stored: &HashMap<String, StoredSuggestion>,
+    due: &[(String, u64)],
+    banned: &HashSet<String>,
+    only_add: bool,
+    step: &mut UndoStep,
+) -> Result<GroupChanges> {
+    let name = step.name.clone();
     let due_phrases: HashSet<&str> = due.iter().map(|(phrase, _)| phrase.as_str()).collect();
     let mut inserts = Vec::new();
     let mut updates = Vec::new();
@@ -260,7 +260,7 @@ pub(crate) fn write_group(
     }
     let mut stale = Vec::new();
     let mut banned_held = Vec::new();
-    for (phrase, current) in &stored {
+    for (phrase, current) in stored {
         if banned.contains(phrase) {
             banned_held.push(phrase.clone());
         } else if !only_add
@@ -271,23 +271,15 @@ pub(crate) fn write_group(
         }
     }
     stale.sort_by(|left, right| left.0.cmp(&right.0));
-    undo.push(UndoStep {
-        name: name.to_string(),
-        remove: Vec::new(),
-        restore: Vec::new(),
-    });
     let published = (inserts.len() + updates.len()) as u64;
-    let mut removed = 0;
     let mut documents = inserts.into_iter();
     loop {
         let batch: Vec<Map> = documents.by_ref().take(BUILD_WRITE_BATCH).collect();
         if batch.is_empty() {
             break;
         }
-        let result = narsil.insert_batch(name, batch)?;
-        if let Some(step) = undo.last_mut() {
-            step.remove.extend(result.succeeded.iter().cloned());
-        }
+        let result = narsil.insert_batch(&name, batch)?;
+        step.remove.extend(result.succeeded.iter().cloned());
         require_written(&result)?;
     }
     for batch in updates.chunks(BUILD_WRITE_BATCH) {
@@ -300,32 +292,29 @@ pub(crate) fn write_group(
                 )
             })
             .collect();
-        let result = narsil.update_batch(name, changes)?;
+        let result = narsil.update_batch(&name, changes)?;
         let succeeded: HashSet<&String> = result.succeeded.iter().collect();
-        if let Some(step) = undo.last_mut() {
-            for (phrase, _, previous) in batch {
-                if succeeded.contains(phrase) {
-                    step.restore.push((phrase.clone(), previous.clone()));
-                }
+        for (phrase, _, previous) in batch {
+            if succeeded.contains(phrase) {
+                step.restore.push((phrase.clone(), previous.clone()));
             }
         }
         require_written(&result)?;
     }
+    let mut removed = 0;
     for batch in stale.chunks(BUILD_WRITE_BATCH) {
         let phrases: Vec<String> = batch.iter().map(|(phrase, _)| phrase.clone()).collect();
-        let succeeded: HashSet<String> = remove_batch_of(narsil, name, &phrases)?
+        let succeeded: HashSet<String> = remove_batch_of(narsil, &name, &phrases)?
             .into_iter()
             .collect();
         removed += succeeded.len() as u64;
-        if let Some(step) = undo.last_mut() {
-            step.restore.extend(
-                batch
-                    .iter()
-                    .filter(|(phrase, _)| succeeded.contains(phrase))
-                    .cloned(),
-            );
-        }
+        step.restore.extend(
+            batch
+                .iter()
+                .filter(|(phrase, _)| succeeded.contains(phrase))
+                .cloned(),
+        );
     }
-    removed += remove_suggestions(narsil, name, &banned_held)?;
+    removed += remove_suggestions(narsil, &name, &banned_held)?;
     Ok(GroupChanges { published, removed })
 }

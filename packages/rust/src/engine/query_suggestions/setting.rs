@@ -1,55 +1,13 @@
 use super::constants as limits;
-use super::phrase::PhraseLimits;
+use super::phrase::{PhraseLimits, is_group, utf16_length};
 use super::schedule::{parse_schedule, time_zone_named};
-use crate::error::{ErrorCode, NarsilError, Result};
-use crate::schema::BaseType;
+use super::types::{QuerySuggestionsSetting, QuerySuggestionsSource};
+use crate::engine::index_lifecycle::constants::MAX_SAFE_INTEGER;
+use crate::error::Result;
+use crate::format::metadata_parts::{config_invalid, whole_number};
+use crate::schema::{BaseType, CompiledSchema};
+use crate::value::{Map, Value, encode_value};
 
-/// The popular query suggestions setting of one index. Only `enabled` and `fields` are required, and each limit
-/// left at `None` takes its default.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct QuerySuggestionsSetting {
-    /// Set this to true to count searches for the index and build its suggestions.
-    pub enabled: bool,
-    /// The `string` and `string[]` fields whose text a phrase must match before the engine publishes it.
-    pub fields: Vec<String>,
-    /// The number of people, from 2 to 4,096, who must search a phrase before the engine publishes it. Defaults
-    /// to 4.
-    pub min_people: Option<u32>,
-    /// The number of documents, from 1 to 10,000, that a phrase must match with every word. Defaults to 5.
-    pub min_results: Option<u32>,
-    /// The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to 30.
-    pub retention_days: Option<u32>,
-    /// The number of phrases, up to 16,384, that the engine counts for the index each day. Defaults to 10,000.
-    pub max_phrases_per_day: Option<u32>,
-    /// The number of phrases, up to 1,000, that the engine counts for one person each day. Defaults to 100.
-    pub max_phrases_per_person: Option<u32>,
-    /// The number of people, up to 100,000, that the engine counts for the index each day. Defaults to 100,000.
-    pub max_people_per_day: Option<u32>,
-    /// The number of groups, up to 1,000, that the index counts. Defaults to 100.
-    pub max_groups: Option<u32>,
-    /// The number of letters that a phrase must hold. Defaults to 4.
-    pub min_letters: Option<u32>,
-    /// The number of characters, up to 150, that a phrase may hold. Defaults to 100.
-    pub max_length: Option<u32>,
-    /// The number of words, up to 50, that a phrase may hold. Defaults to 8.
-    pub max_words: Option<u32>,
-    /// The number of digits that a phrase may hold in total. Defaults to 5.
-    pub max_digits: Option<u32>,
-    /// The number of phrases, up to 500,000, that one build merges. Defaults to 100,000.
-    pub max_merge_phrases: Option<u32>,
-    /// The memory, from 16 MiB to 1 GiB, that a build's merge may hold. Defaults to 128 MiB.
-    pub merge_memory_bytes: Option<u64>,
-    /// How often, from 1 second to 1 hour, the engine saves the counts of the day. Defaults to 5 minutes.
-    pub save_interval_ms: Option<u32>,
-    /// The number of result checks, up to 1,000, that a build runs each second. Defaults to 20.
-    pub result_checks_per_second: Option<u32>,
-    /// A cron expression of five fields, or `off`. Defaults to `0 3 * * *`.
-    pub schedule: Option<String>,
-    /// The IANA time zone of `schedule`. Defaults to `UTC`.
-    pub time_zone: Option<String>,
-}
-
-/// A setting with every limit at its value or its default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedSetting {
     pub(crate) enabled: bool,
@@ -73,56 +31,104 @@ pub(crate) struct ResolvedSetting {
     pub(crate) time_zone: String,
 }
 
-pub(crate) use super::setting_ranges::{Bound, RANGES, Range};
-
-/// Returns the refusal of a setting, a ban list, or a marker that breaks a rule.
-pub(crate) fn invalid_setting(message: impl Into<String>) -> NarsilError {
-    NarsilError::new(ErrorCode::CONFIG_INVALID, message)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KeyCase {
+    Snake,
+    Camel,
 }
 
-fn value_of(setting: &QuerySuggestionsSetting, range: &Range) -> u64 {
-    (range.get)(setting).unwrap_or(range.fallback)
-}
-
-fn narrow(value: u64) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
-
-impl QuerySuggestionsSetting {
-    pub(crate) fn resolve(&self) -> ResolvedSetting {
-        let at = |index: usize| RANGES.get(index).map_or(0, |range| value_of(self, range));
-        ResolvedSetting {
-            enabled: self.enabled,
-            fields: self.fields.clone(),
-            min_people: narrow(at(0)),
-            min_results: narrow(at(1)),
-            retention_days: narrow(at(2)),
-            max_phrases_per_day: narrow(at(3)),
-            max_phrases_per_person: narrow(at(4)),
-            max_people_per_day: narrow(at(5)),
-            max_groups: narrow(at(6)),
-            max_length: narrow(at(7)),
-            min_letters: narrow(at(8)),
-            max_words: narrow(at(9)),
-            max_digits: narrow(at(10)),
-            max_merge_phrases: narrow(at(11)),
-            merge_memory_bytes: at(12),
-            save_interval_ms: narrow(at(13)),
-            result_checks_per_second: narrow(at(14)),
-            schedule: self
-                .schedule
-                .clone()
-                .unwrap_or_else(|| limits::DEFAULT_SCHEDULE.to_string()),
-            time_zone: self
-                .time_zone
-                .clone()
-                .unwrap_or_else(|| limits::DEFAULT_TIME_ZONE.to_string()),
+impl KeyCase {
+    fn time_zone_key(self) -> &'static str {
+        match self {
+            KeyCase::Snake => "time_zone",
+            KeyCase::Camel => "timeZone",
         }
     }
 }
 
+enum Bound {
+    Fixed(u64),
+    MaxLength,
+}
+
+struct Range {
+    key: &'static str,
+    wire: &'static str,
+    get: fn(&QuerySuggestionsSetting) -> Option<u64>,
+    set: fn(&mut QuerySuggestionsSetting, u64) -> Option<()>,
+    fallback: u64,
+    min: u64,
+    max: Bound,
+}
+
+impl Range {
+    fn name(&self, case: KeyCase) -> &'static str {
+        match case {
+            KeyCase::Snake => self.wire,
+            KeyCase::Camel => self.key,
+        }
+    }
+
+    fn value_of(&self, setting: &QuerySuggestionsSetting) -> u64 {
+        (self.get)(setting).unwrap_or(self.fallback)
+    }
+}
+
+macro_rules! numeric_limits {
+    (@min $min:literal) => { $min };
+    (@min $min:ident) => { limits::$min as u64 };
+    (@max max_length) => { Bound::MaxLength };
+    (@max $max:ident) => { Bound::Fixed(limits::$max as u64) };
+    ($($field:ident $key:literal: $fallback:ident, $min:tt..=$max:ident;)+) => {
+        const RANGES: &[Range] = &[$(Range {
+            key: $key,
+            wire: stringify!($field),
+            get: |setting| setting.$field.map(u64::from),
+            set: |setting, value| {
+                setting.$field = Some(value.try_into().ok()?);
+                Some(())
+            },
+            fallback: limits::$fallback as u64,
+            min: numeric_limits!(@min $min),
+            max: numeric_limits!(@max $max),
+        },)+];
+
+        impl QuerySuggestionsSetting {
+            pub(crate) fn resolve(&self) -> ResolvedSetting {
+                let text = |given: &Option<String>, fallback: &str| {
+                    given.clone().unwrap_or_else(|| fallback.to_string())
+                };
+                ResolvedSetting {
+                    enabled: self.enabled,
+                    fields: self.fields.clone(),
+                    schedule: text(&self.schedule, limits::DEFAULT_SCHEDULE),
+                    time_zone: text(&self.time_zone, limits::DEFAULT_TIME_ZONE),
+                    $($field: self.$field.unwrap_or(limits::$fallback),)+
+                }
+            }
+        }
+    };
+}
+
+numeric_limits! {
+    min_people "minPeople": DEFAULT_MIN_PEOPLE, MIN_MIN_PEOPLE..=MAX_MIN_PEOPLE;
+    min_results "minResults": DEFAULT_MIN_RESULTS, MIN_MIN_RESULTS..=MAX_MIN_RESULTS;
+    retention_days "retentionDays": DEFAULT_RETENTION_DAYS, MIN_RETENTION_DAYS..=MAX_RETENTION_DAYS;
+    max_phrases_per_day "maxPhrasesPerDay": DEFAULT_MAX_PHRASES_PER_DAY, 1..=MAX_MAX_PHRASES_PER_DAY;
+    max_phrases_per_person "maxPhrasesPerPerson": DEFAULT_MAX_PHRASES_PER_PERSON, 1..=MAX_MAX_PHRASES_PER_PERSON;
+    max_people_per_day "maxPeoplePerDay": DEFAULT_MAX_PEOPLE_PER_DAY, 1..=MAX_MAX_PEOPLE_PER_DAY;
+    max_groups "maxGroups": DEFAULT_MAX_GROUPS, 1..=MAX_MAX_GROUPS;
+    max_length "maxLength": DEFAULT_MAX_LENGTH, 1..=MAX_MAX_LENGTH;
+    min_letters "minLetters": DEFAULT_MIN_LETTERS, 1..=max_length;
+    max_words "maxWords": DEFAULT_MAX_WORDS, 1..=MAX_MAX_WORDS;
+    max_digits "maxDigits": DEFAULT_MAX_DIGITS, 0..=max_length;
+    max_merge_phrases "maxMergePhrases": DEFAULT_MAX_MERGE_PHRASES, 1..=MAX_MAX_MERGE_PHRASES;
+    merge_memory_bytes "mergeMemoryBytes": DEFAULT_MERGE_MEMORY_BYTES, MIN_MERGE_MEMORY_BYTES..=MAX_MERGE_MEMORY_BYTES;
+    save_interval_ms "saveIntervalMs": DEFAULT_SAVE_INTERVAL_MS, MIN_SAVE_INTERVAL_MS..=MAX_SAVE_INTERVAL_MS;
+    result_checks_per_second "resultChecksPerSecond": DEFAULT_RESULT_CHECKS_PER_SECOND, 1..=MAX_RESULT_CHECKS_PER_SECOND;
+}
+
 impl ResolvedSetting {
-    /// Returns the limits that a phrase must keep within before the engine counts it.
     pub(crate) fn phrase_limits(&self) -> PhraseLimits {
         PhraseLimits {
             min_letters: self.min_letters,
@@ -134,41 +140,46 @@ impl ResolvedSetting {
 }
 
 fn require_products(resolved: &ResolvedSetting) -> Result<()> {
-    let product = |left: u32, right: u32| u64::from(left) * u64::from(right);
-    if product(resolved.max_people_per_day, resolved.max_phrases_per_person)
-        > limits::MAX_PERSON_PAIRS_PER_DAY
-    {
-        return Err(invalid_setting(format!(
-            "maxPeoplePerDay times maxPhrasesPerPerson must stay at or below {}",
-            limits::MAX_PERSON_PAIRS_PER_DAY
-        )));
-    }
-    if product(resolved.max_phrases_per_day, resolved.min_people) > limits::MAX_FILE_PEOPLE_PER_DAY
-    {
-        return Err(invalid_setting(format!(
-            "maxPhrasesPerDay times minPeople must stay at or below {}",
-            limits::MAX_FILE_PEOPLE_PER_DAY
-        )));
-    }
-    if product(resolved.max_merge_phrases, resolved.min_people) > limits::MAX_MERGE_PEOPLE {
-        return Err(invalid_setting(format!(
-            "maxMergePhrases times minPeople must stay at or below {}",
-            limits::MAX_MERGE_PEOPLE
-        )));
+    let products = [
+        (
+            "maxPeoplePerDay times maxPhrasesPerPerson",
+            resolved.max_people_per_day,
+            resolved.max_phrases_per_person,
+            limits::MAX_PERSON_PAIRS_PER_DAY,
+        ),
+        (
+            "maxPhrasesPerDay times minPeople",
+            resolved.max_phrases_per_day,
+            resolved.min_people,
+            limits::MAX_FILE_PEOPLE_PER_DAY,
+        ),
+        (
+            "maxMergePhrases times minPeople",
+            resolved.max_merge_phrases,
+            resolved.min_people,
+            limits::MAX_MERGE_PEOPLE,
+        ),
+    ];
+    for (product, left, right, ceiling) in products {
+        if u64::from(left) * u64::from(right) > ceiling {
+            return Err(config_invalid(format!(
+                "{product} must stay at or below {ceiling}"
+            )));
+        }
     }
     Ok(())
 }
 
 fn require_fields(fields: &[String]) -> Result<()> {
     if fields.is_empty() || fields.len() > limits::MAX_FIELDS {
-        return Err(invalid_setting(format!(
+        return Err(config_invalid(format!(
             "The query suggestions setting needs from 1 to {} fields",
             limits::MAX_FIELDS
         )));
     }
     for (at, field) in fields.iter().enumerate() {
         if field.is_empty() || fields[..at].contains(field) {
-            return Err(invalid_setting(
+            return Err(config_invalid(
                 "Each field of the query suggestions setting must be a distinct, non-empty path",
             ));
         }
@@ -176,28 +187,28 @@ fn require_fields(fields: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Checks a setting against every rule of the specification that holds without the index's schema.
 pub(crate) fn validate_setting(setting: &QuerySuggestionsSetting) -> Result<()> {
     require_fields(&setting.fields)?;
-    for range in &RANGES {
-        let value = value_of(setting, range);
+    let resolved = setting.resolve();
+    for range in RANGES {
+        let value = range.value_of(setting);
         let max = match range.max {
             Bound::Fixed(max) => max,
-            Bound::MaxLength => RANGES.get(7).map_or(0, |length| value_of(setting, length)),
+            Bound::MaxLength => u64::from(resolved.max_length),
         };
         if value < range.min || value > max {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "{} must be from {} to {max}, got {value}",
                 range.key, range.min
             )));
         }
     }
-    require_products(&setting.resolve())?;
+    require_products(&resolved)?;
     if let Some(schedule) = &setting.schedule
         && schedule != limits::SCHEDULE_OFF
         && parse_schedule(schedule).is_none()
     {
-        return Err(invalid_setting(format!(
+        return Err(config_invalid(format!(
             "schedule must be \"off\" or a cron expression of five fields, got \"{}\"",
             schedule.escape_debug()
         )));
@@ -205,14 +216,14 @@ pub(crate) fn validate_setting(setting: &QuerySuggestionsSetting) -> Result<()> 
     if let Some(time_zone) = &setting.time_zone
         && time_zone_named(time_zone).is_none()
     {
-        return Err(invalid_setting(format!(
+        return Err(config_invalid(format!(
             "timeZone must name an IANA time zone, got \"{}\"",
             time_zone.escape_debug()
         )));
     }
-    let encoded = super::setting_wire::setting_wire_bytes(setting);
-    if encoded > limits::MAX_SETTING_BYTES {
-        return Err(invalid_setting(format!(
+    let encoded = encode_value(&setting_to_wire(setting, KeyCase::Snake));
+    if encoded.map_or(usize::MAX, |bytes| bytes.len()) > limits::MAX_SETTING_BYTES {
+        return Err(config_invalid(format!(
             "The query suggestions setting must encode to at most {} bytes",
             limits::MAX_SETTING_BYTES
         )));
@@ -220,10 +231,9 @@ pub(crate) fn validate_setting(setting: &QuerySuggestionsSetting) -> Result<()> 
     Ok(())
 }
 
-/// Refuses a setting whose fields are not `string` or `string[]` fields of `schema`.
 pub(crate) fn require_fields_in_schema(
     setting: &QuerySuggestionsSetting,
-    schema: &crate::schema::CompiledSchema,
+    schema: &CompiledSchema,
 ) -> Result<()> {
     for field in &setting.fields {
         let base = schema
@@ -232,10 +242,146 @@ pub(crate) fn require_fields_in_schema(
             .find(|candidate| candidate.path == *field)
             .map(|found| found.field_type.base);
         if !matches!(base, Some(BaseType::String | BaseType::StringList)) {
-            return Err(invalid_setting(format!(
+            return Err(config_invalid(format!(
                 "Field \"{field}\" must be a string or string[] field of the schema"
             )));
         }
     }
     Ok(())
+}
+
+pub(crate) fn setting_to_wire(setting: &QuerySuggestionsSetting, case: KeyCase) -> Value {
+    let mut wire = Map::new();
+    wire.insert("enabled", Value::Bool(setting.enabled));
+    wire.insert(
+        "fields",
+        Value::Array(setting.fields.iter().cloned().map(Value::String).collect()),
+    );
+    for range in RANGES {
+        if let Some(value) = (range.get)(setting) {
+            wire.insert(range.name(case), Value::Number(value as f64));
+        }
+    }
+    if let Some(schedule) = &setting.schedule {
+        wire.insert("schedule", Value::String(schedule.clone()));
+    }
+    if let Some(time_zone) = &setting.time_zone {
+        wire.insert(case.time_zone_key(), Value::String(time_zone.clone()));
+    }
+    Value::Object(wire)
+}
+
+fn limit_of(value: &Value, key: &str) -> Result<u64> {
+    let number = whole_number(Some(value))
+        .filter(|number| number.abs() <= MAX_SAFE_INTEGER as f64)
+        .ok_or_else(|| config_invalid(format!("{key} must be a whole number")))?;
+    if number < 0.0 {
+        return Err(config_invalid(format!(
+            "{key} must not be negative, got {number}"
+        )));
+    }
+    Ok(number as u64)
+}
+
+fn fields_of(value: Option<&Value>) -> Result<Vec<String>> {
+    let Some(Value::Array(items)) = value else {
+        return Err(config_invalid(
+            "The query suggestions setting needs an array of fields",
+        ));
+    };
+    items
+        .iter()
+        .map(|item| match item {
+            Value::String(text) => Ok(text.clone()),
+            _ => Err(config_invalid(
+                "Each field of the query suggestions setting must be a distinct, non-empty path",
+            )),
+        })
+        .collect()
+}
+
+fn text_of(value: &Value, key: &str) -> Result<String> {
+    match value {
+        Value::String(text) => Ok(text.clone()),
+        _ => Err(config_invalid(format!("{key} must be a string"))),
+    }
+}
+
+pub(crate) fn setting_from_wire(raw: &Value, case: KeyCase) -> Result<QuerySuggestionsSetting> {
+    let Value::Object(wire) = raw else {
+        return Err(config_invalid(
+            "The stored query suggestions setting is not a map",
+        ));
+    };
+    let mut setting = QuerySuggestionsSetting::default();
+    for (key, value) in wire.iter() {
+        if key == "enabled" || key == "fields" {
+            continue;
+        }
+        if key == "schedule" {
+            setting.schedule = Some(text_of(value, "schedule")?);
+        } else if key == case.time_zone_key() {
+            setting.time_zone = Some(text_of(value, "timeZone")?);
+        } else if let Some(range) = RANGES.iter().find(|range| range.name(case) == key) {
+            let number = limit_of(value, range.key)?;
+            (range.set)(&mut setting, number).ok_or_else(|| {
+                config_invalid(format!("{} is out of range, got {number}", range.key))
+            })?;
+        } else {
+            return Err(config_invalid(format!(
+                "The stored query suggestions setting holds an unknown key \"{}\"",
+                key.escape_debug()
+            )));
+        }
+    }
+    setting.enabled = match wire.get("enabled") {
+        Some(Value::Bool(enabled)) => *enabled,
+        _ => {
+            return Err(config_invalid(
+                "The query suggestions setting needs a boolean \"enabled\"",
+            ));
+        }
+    };
+    setting.fields = fields_of(wire.get("fields"))?;
+    validate_setting(&setting)?;
+    Ok(setting)
+}
+
+pub(crate) fn source_to_wire(source: &QuerySuggestionsSource) -> Value {
+    let mut wire = Map::new();
+    wire.insert("index", Value::String(source.index.clone()));
+    wire.insert("group", Value::String(source.group.clone()));
+    Value::Object(wire)
+}
+
+pub(crate) fn source_from_wire(raw: &Value) -> Result<QuerySuggestionsSource> {
+    let Value::Object(wire) = raw else {
+        return Err(config_invalid("The suggestions index marker must be a map"));
+    };
+    if wire.keys().any(|key| key != "index" && key != "group") {
+        return Err(config_invalid(
+            "The suggestions index marker holds an unknown key",
+        ));
+    }
+    let index = match wire.get("index") {
+        Some(Value::String(index))
+            if !index.is_empty() && utf16_length(index) <= limits::MAX_SOURCE_INDEX_NAME_LENGTH =>
+        {
+            index.clone()
+        }
+        _ => {
+            return Err(config_invalid(
+                "The suggestions index marker needs the name of its source index",
+            ));
+        }
+    };
+    let group = match wire.get("group") {
+        Some(Value::String(group)) if is_group(group) => group.clone(),
+        _ => {
+            return Err(config_invalid(
+                "The suggestions index marker needs a valid group",
+            ));
+        }
+    };
+    Ok(QuerySuggestionsSource { index, group })
 }

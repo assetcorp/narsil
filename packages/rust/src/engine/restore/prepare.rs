@@ -10,7 +10,7 @@ use crate::engine::EngineInner;
 use crate::engine::durable::metadata::created_metadata;
 use crate::engine::index::IndexState;
 use crate::engine::lifecycle::{initial_partition_count, resolved_analysis};
-use crate::engine::query_suggestions::state::SuggestionState;
+use crate::engine::query_suggestions::stored_state::SuggestionState;
 use crate::engine::synonyms::{SynonymSet, prepare_synonyms};
 use crate::engine::vectors::IndexVectors;
 use crate::engine::vectors::embedding::bind_embedding;
