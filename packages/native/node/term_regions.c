@@ -79,6 +79,8 @@ int read_term_dictionary(napi_env env, const term_handles *handles, narsil_term_
                                          data[FREQUENCIES],
                                          counts[FREQUENCIES],
                                          data[REMOVED],
-                                         counts[REMOVED]};
+                                         counts[REMOVED],
+                                         NULL,
+                                         0};
   return 1;
 }

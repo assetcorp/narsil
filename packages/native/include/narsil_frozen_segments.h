@@ -41,6 +41,8 @@ typedef struct {
   const uint8_t *partial_fields;
   uint32_t field_count;
   uint32_t document_count;
+  const int32_t *exact_slots;
+  size_t exact_slot_count;
 } narsil_frozen_segment;
 
 enum {
