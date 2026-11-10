@@ -18,6 +18,7 @@ mod page_start;
 mod pagination;
 pub(crate) mod params;
 mod phrases;
+mod pinned;
 pub(crate) mod preflight;
 mod projection;
 mod ranked;

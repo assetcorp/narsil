@@ -21,7 +21,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::Partition;
 use crate::value::Value;
 use call::score_documents;
-use order::{Reordered, place_pins, reorder_by_rerank, unordered};
+use order::{Reordered, placed_hits, reorder_by_rerank, unordered};
 use plan::resolve_rerank;
 
 pub(crate) use plan::rerank_query_text;
@@ -228,9 +228,9 @@ pub(crate) fn reranked_query(
         count_exact: first_exact,
         ..
     } = first;
-    let page_holds_hits = limit > 0 && start < place_pins(&ranked, pins.as_deref()).len();
+    let page_holds_hits = limit > 0 && start < placed_hits(&ranked, pins.as_deref())?.len();
     let ordered = ordered_hits(index, &plan, ranked, page_holds_hits)?;
-    let placed = place_pins(&ordered.hits, pins.as_deref());
+    let placed = placed_hits(&ordered.hits, pins.as_deref())?;
     let pinned_ids: Option<HashSet<&str>> = pins
         .as_ref()
         .map(|pins| pins.iter().map(|pin| pin.doc_id.as_str()).collect());

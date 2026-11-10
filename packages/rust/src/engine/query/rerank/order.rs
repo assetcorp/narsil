@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
-use crate::engine::query::pagination::deduped_pins;
 use crate::engine::query::params::Pin;
+use crate::engine::query::pinned::{Placed, deduped_pins, place_pins};
 use crate::engine::query::results::Hit;
+use crate::error::Result;
 
 pub(crate) struct Reordered {
     pub(crate) hits: Vec<Hit>,
@@ -82,25 +83,22 @@ pub(crate) fn reorder_by_rerank(
     }
 }
 
-pub(crate) fn place_pins(hits: &[Hit], pins: Option<&[Pin]>) -> Vec<Hit> {
-    let mut placed = hits.to_vec();
+pub(crate) fn placed_hits(hits: &[Hit], pins: Option<&[Pin]>) -> Result<Vec<Hit>> {
     let Some(pins) = pins else {
-        return placed;
+        return Ok(hits.to_vec());
     };
-    let mut deduped = deduped_pins(pins);
-    let pinned_ids: HashSet<&str> = deduped.iter().map(|pin| pin.doc_id.as_str()).collect();
-    placed.retain(|hit| !pinned_ids.contains(hit.id.as_str()));
-    deduped.sort_by_key(|pin| pin.position);
-    for pin in deduped {
-        let at = pin.position.min(placed.len());
-        placed.insert(
-            at,
-            Hit {
+    let deduped = deduped_pins(pins);
+    let (order, _) = place_pins(hits.iter().map(|hit| hit.id.as_str()), hits.len(), &deduped)?;
+    let mut placed = Vec::with_capacity(order.len());
+    for entry in order {
+        match entry {
+            Placed::Ranked(place) => placed.extend(hits.get(place).cloned()),
+            Placed::Pin(pin) => placed.extend(deduped.get(pin).map(|pin| Hit {
                 id: pin.doc_id.clone(),
                 score: Some(0.0),
                 ..Hit::default()
-            },
-        );
+            })),
+        }
     }
-    placed
+    Ok(placed)
 }
