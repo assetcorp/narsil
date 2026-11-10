@@ -16,6 +16,7 @@ import type { DocumentImportResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import { requireConfigurationShape } from '../snapshot/index-configuration-decode'
 import { restoredConfigFields, restoredEmbedding } from '../snapshot/restore-config'
+import { isRecord, nestedSchemaOf } from '../snapshot/stored-schema'
 import { type ExportLine, exportLines } from './lines'
 import { untagDocumentLine } from './tags'
 
@@ -41,10 +42,6 @@ function invalidHeader(message: string): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, `The document export header ${message}`)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function configOfHeader(line: ExportLine | undefined): IndexConfig {
   if (line === undefined) invalidHeader('is missing')
   if (!('text' in line)) {
@@ -65,7 +62,7 @@ function configOfHeader(line: ExportLine | undefined): IndexConfig {
   const fields = restoredConfigFields(configuration, message => invalidHeader(message))
   const embedding = restoredEmbedding(configuration.embedding, message => invalidHeader(message))
   return {
-    schema: configuration.schema as SchemaDefinition,
+    schema: nestedSchemaOf(configuration.schema),
     language: configuration.language,
     ...fields,
     ...(embedding === undefined

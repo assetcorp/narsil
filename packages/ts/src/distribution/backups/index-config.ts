@@ -2,6 +2,7 @@ import { bm25SetsValue } from '../../core/scorer'
 import { decodeIndexConfiguration } from '../../engine/snapshot/index-configuration-decode'
 import { requireConfigurationWithinSizeLimit } from '../../engine/snapshot/index-configuration-limit'
 import { restoredConfigFields, restoredEmbedding } from '../../engine/snapshot/restore-config'
+import { nestedSchemaOf } from '../../engine/snapshot/stored-schema'
 import { prepareConfiguredSynonyms } from '../../engine/synonym-sets'
 import { requireSurfaceFormsForPartialFields } from '../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -10,7 +11,7 @@ import { storedStateOf } from '../../query-suggestions/stored-state'
 import { requireCreatableSchema, validateSchema } from '../../schema/validator'
 import { validateBM25Params } from '../../search/bm25-params'
 import type { StoredQuerySuggestions } from '../../types/internal'
-import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { IndexConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { type IndexMetadata, putIndexMetadata } from '../cluster/index-metadata'
 import { indexSettingsOf, withPartitionCount } from '../cluster/index-settings'
@@ -46,7 +47,7 @@ export async function decodeBackupIndexConfig(bytes: Uint8Array, backupName: str
     const embedding = restoredEmbedding(envelope.embedding, reject)
     if (envelope.synonyms !== undefined && !Array.isArray(envelope.synonyms)) reject('synonyms must be a list')
     const config: IndexConfig = {
-      schema: validateSchema(envelope.schema as SchemaDefinition),
+      schema: validateSchema(nestedSchemaOf(envelope.schema)),
       language: envelope.language,
       ...fields,
       ...(embedding === undefined ? {} : { embedding }),
