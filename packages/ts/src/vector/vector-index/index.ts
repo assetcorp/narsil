@@ -149,6 +149,7 @@ export function createVectorIndex(
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
+    growingCopy: null,
     ...noBuildHistory(),
     rebuildChargeBytes: 0,
     waitingForMemory: false,

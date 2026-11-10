@@ -17,6 +17,7 @@ import type { HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { releasePendingLocations } from './disk'
+import { lineageOf, placeInGrowingCopy } from './growing-copy'
 import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
 import { moveOutOfBuffer } from './search-writes'
 import type { VectorIndexState } from './shared'
@@ -39,9 +40,9 @@ async function bufferWhatTheGraphLacksInTurns(state: VectorIndexState, graph: HN
 }
 
 export async function buildGraphFromStore(state: VectorIndexState): Promise<boolean> {
-  const previous = state.hnsw
+  const lineage = lineageOf(state.hnsw)
   const order = turnsAreBudgeted ? await shuffledLiveDocIdsInTurns(state) : shuffleInPlace([...allLiveDocIds(state)])
-  if (order === null || state.hnsw !== previous) return false
+  if (order === null || lineageOf(state.hnsw) !== lineage) return false
   const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.osq ?? undefined)
   state.freshGraph = graph
   let completed = false
@@ -50,16 +51,17 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<bool
   } finally {
     state.freshGraph = null
   }
-  if (!completed || state.hnsw !== previous) {
+  if (!completed || lineageOf(state.hnsw) !== lineage) {
     dropSharedGraph(state, graph)
     return false
   }
+  const replaced = state.hnsw
   adoptGraph(state, graph)
   state.shuffledBuildCount = graph.size
   noteWrite(state)
   if (turnsAreBudgeted) await bufferWhatTheGraphLacksInTurns(state, graph)
   else bufferWhatTheGraphLacks(state, graph)
-  if (previous !== null) dropSharedGraph(state, previous)
+  if (replaced !== null) dropSharedGraph(state, replaced)
   await releasePendingLocations(state)
   return true
 }
@@ -133,7 +135,10 @@ export async function buildExclusively(
 
 async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
   await yieldBuildTurn(state)
-  const replacing: { graph: HNSWIndex | null; loadedWithoutCount: boolean } = { graph: null, loadedWithoutCount: false }
+  const replacing: { lineage: object | null; loadedWithoutCount: boolean } = {
+    lineage: null,
+    loadedWithoutCount: false,
+  }
   await buildExclusively(
     state,
     async () => {
@@ -141,12 +146,12 @@ async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
       if (graph === null || !shuffledRebuildDue(state)) return
       const loadedWithoutCount = state.shuffledBuildCount === null
       if (!(await recalibratesForRebuild(state, graph)) || state.hnsw !== graph) return
-      replacing.graph = graph
+      replacing.lineage = lineageOf(graph)
       replacing.loadedWithoutCount = loadedWithoutCount
     },
     false,
   )
-  if (replacing.graph === null || state.hnsw !== replacing.graph) return
+  if (replacing.lineage === null || lineageOf(state.hnsw) !== replacing.lineage) return
   const adopted = await buildGraphFromStore(state)
   if (adopted && replacing.loadedWithoutCount) state.onLoadedGraphRepaired()
 }
@@ -198,7 +203,7 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
 
   if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
 
-  await insertIntoGraph(state, graph, bufferSnapshot, admit)
+  await placeInGrowingCopy(state, graph, bufferSnapshot, admit)
   startShuffledRebuild(state)
 }
 
@@ -331,6 +336,7 @@ function releaseHeldMemory(state: VectorIndexState): void {
   state.store.release()
   state.hnsw = null
   state.freshGraph = null
+  state.growingCopy = null
   state.osq = null
   state.tombstones.clear()
   state.buffer.clear()

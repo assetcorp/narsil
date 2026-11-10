@@ -16,8 +16,8 @@ import {
   shuffledRebuildDue,
   startShuffledRebuild,
 } from './build'
-import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
+import { placeInGrowingCopy } from './growing-copy'
 import type { MaintenanceStatus, VectorIndexState } from './shared'
 import { dropSharedGraph } from './worker-copies'
 
@@ -33,6 +33,7 @@ export function compact(state: VectorIndexState): void {
     state.compactedNodeCount += before - state.hnsw.tombstoneCount
   }
   state.freshGraph?.compactTombstones(oldestPin)
+  state.growingCopy?.compactTombstones(oldestPin)
 
   for (const docId of state.tombstones) {
     const ordinal = state.store.getOrdinal(docId)
@@ -52,7 +53,7 @@ async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
   const heldWhenTheCallStarted = [...allLiveDocIds(state)]
   const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
-  await insertIntoGraph(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
+  await placeInGrowingCopy(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
   startShuffledRebuild(state)
 }
 
@@ -134,6 +135,6 @@ function flatScanScratchBytes(state: VectorIndexState): number {
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
   if (state.hnsw === null) return state.store.memoryBytes() + flatScanScratchBytes(state)
-  const freshGraphBytes = state.freshGraph?.graphBytes ?? 0
-  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes + freshGraphBytes
+  const passGraphBytes = (state.freshGraph?.graphBytes ?? 0) + (state.growingCopy?.graphBytes ?? 0)
+  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes + passGraphBytes
 }
