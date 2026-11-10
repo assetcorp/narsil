@@ -16,8 +16,9 @@ on:
           - '@delali/narsil-certutil'
           - 'narsil-client'
           - 'github.com/assetcorp/narsil/packages/go'
+          - 'github.com/assetcorp/narsil/packages/go/engine'
       version:
-        description: 'Version bump (patch, minor, major, or explicit like 1.2.3). The Python and Go clients take only the explicit version, and the Python one must equal packages/python/pyproject.toml'
+        description: 'Version bump (patch, minor, major, or explicit like 1.2.3). The Python client and both Go modules take only the explicit version, and the Python one must equal packages/python/pyproject.toml'
         required: true
         type: string
       dry-run:
@@ -33,7 +34,7 @@ permissions:
 jobs:
   native:
     name: Native search core
-    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go')
+    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine')
     uses: ./.github/workflows/native-core.yml
 
   plan:
@@ -148,7 +149,7 @@ jobs:
   publish:
     name: Publish to npm
     needs: native
-    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go'
+    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -395,3 +396,55 @@ jobs:
           git tag "packages/go/v$VERSION"
           git push origin "packages/go/v$VERSION"
           curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/@v/v$VERSION.info"
+
+  go-engine-checks:
+    name: Check the Go engine
+    if: github.event_name == 'workflow_dispatch' && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/go-engine.yml
+
+  go-engine:
+    name: Tag the Go engine module
+    needs: go-engine-checks
+    if: inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: tag-go-engine-module
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main, the version, and a free tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
+            exit 1
+          fi
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::The Go engine module takes an explicit version such as 0.1.0, and the run asks for '$VERSION'."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/packages/go/engine/v$VERSION" >/dev/null; then
+            echo "::error::The tag packages/go/engine/v$VERSION already exists."
+            exit 1
+          fi
+
+      - name: Push the tag and ask the Go module proxy to fetch it
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag "packages/go/engine/v$VERSION"
+          git push origin "packages/go/engine/v$VERSION"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/engine/@v/v$VERSION.info"
