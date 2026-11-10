@@ -57,5 +57,5 @@ process.stdout.write(
     nearest,
     count: await narsil.countDocuments(plan.index),
   }),
+  () => process.exit(0),
 )
-process.exit(0)

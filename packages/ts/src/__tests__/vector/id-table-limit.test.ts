@@ -319,10 +319,17 @@ function writeUnderTheFileSizeLimit(planPath: string): Promise<WriterReport> {
       errors += chunk
     })
     child.on('error', reject)
-    child.on('exit', code => {
+    child.on('close', code => {
       const report = output.slice(output.lastIndexOf('\n{') + 1)
-      if (code !== 0 || !report.startsWith('{')) reject(new Error(`the writer exited with ${code}: ${errors}`))
-      else resolve(JSON.parse(report) as WriterReport)
+      if (code !== 0 || !report.startsWith('{')) {
+        reject(new Error(`the writer exited with ${code}: ${errors}`))
+        return
+      }
+      try {
+        resolve(JSON.parse(report) as WriterReport)
+      } catch (error) {
+        reject(new Error(`the writer printed an unreadable report: ${String(error)}`))
+      }
     })
   })
 }
