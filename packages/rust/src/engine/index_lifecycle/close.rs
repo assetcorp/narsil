@@ -78,6 +78,9 @@ pub(crate) fn close_index(engine: &EngineInner, name: &str, automatic: bool) -> 
             if engine.lifecycle.holds_closed(name) {
                 return Ok(true);
             }
+            if engine.holds_index(name) {
+                continue;
+            }
             return Err(index_not_found(name));
         };
         let durable = engine.durable.as_ref().ok_or_else(needs_durability)?;

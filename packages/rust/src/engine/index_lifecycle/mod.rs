@@ -44,6 +44,20 @@ pub(crate) struct ClosedIndex {
     pub(crate) sync_on: bool,
 }
 
+/// An index that the engine holds: the open one, or the facts of the closed one.
+pub(crate) enum HeldIndex {
+    Open(Arc<IndexState>),
+    Closed(ClosedIndex),
+}
+
+/// One closed index of a listing, with its state and the number of times that the engine reopened it.
+pub(crate) struct ClosedListing {
+    pub(crate) name: String,
+    pub(crate) closed: ClosedIndex,
+    pub(crate) state: IndexResidencyState,
+    pub(crate) reopen_count: u64,
+}
+
 /// The closed indexes of an engine, with the number of calls that wait behind the reopen of each name.
 #[derive(Default)]
 pub(crate) struct ClosedRegistry {
@@ -158,26 +172,6 @@ impl IndexLifecycle {
         removed
     }
 
-    /// Returns each closed index with its state and its reopen count, in no set order.
-    pub(crate) fn closed_listing(&self) -> Vec<(String, ClosedIndex, IndexResidencyState, u64)> {
-        self.registry()
-            .entries
-            .iter()
-            .map(|(name, entry)| {
-                let state = match entry.reopen_failed {
-                    true => IndexResidencyState::ReopenFailed,
-                    false => IndexResidencyState::Closed,
-                };
-                (
-                    name.clone(),
-                    entry.closed.clone(),
-                    state,
-                    entry.reopen_count,
-                )
-            })
-            .collect()
-    }
-
     pub(crate) fn clear(&self) {
         self.registry().entries.clear();
         self.changed.notify_all();
@@ -199,10 +193,53 @@ impl EngineInner {
             return Ok(());
         };
         self.guard_shutdown()?;
-        if self.open_index_named(name).is_none() && !self.lifecycle.holds_closed(name) {
+        if !self.holds_index(name) {
             return Err(index_not_found(name));
         }
         Err(refusal)
+    }
+
+    /// Returns the open index called `name`, or the facts of the closed one, or `None` where the engine holds
+    /// no index of that name.
+    ///
+    /// A reopen moves a name from the registry of closed indexes to the map of open ones under the registry's
+    /// lock, so a call that misses the name in the map reads the map again under that lock.
+    pub(crate) fn held_index(&self, name: &str) -> Option<HeldIndex> {
+        if let Some(index) = self.open_index_named(name) {
+            return Some(HeldIndex::Open(index));
+        }
+        let registry = self.lifecycle.registry();
+        if let Some(entry) = registry.entries.get(name) {
+            return Some(HeldIndex::Closed(entry.closed.clone()));
+        }
+        self.open_index_named(name).map(HeldIndex::Open)
+    }
+
+    /// Reports whether the engine holds an index called `name`, open or closed.
+    pub(crate) fn holds_index(&self, name: &str) -> bool {
+        self.held_index(name).is_some()
+    }
+
+    /// Returns every open index and every closed one as they stand at one moment, each name once and in no
+    /// set order, reading both under the registry's lock so that a close or a reopen hides no name.
+    pub(crate) fn held_indexes(&self) -> (Vec<Arc<IndexState>>, Vec<ClosedListing>) {
+        let registry = self.lifecycle.registry();
+        let open = self.index_list();
+        let closed = registry
+            .entries
+            .iter()
+            .filter(|(name, _)| !open.iter().any(|index| index.name == **name))
+            .map(|(name, entry)| ClosedListing {
+                name: name.clone(),
+                closed: entry.closed.clone(),
+                state: match entry.reopen_failed {
+                    true => IndexResidencyState::ReopenFailed,
+                    false => IndexResidencyState::Closed,
+                },
+                reopen_count: entry.reopen_count,
+            })
+            .collect();
+        (open, closed)
     }
 
     /// Returns the index called `name`, opening it again from its files where a close left it there.
@@ -211,7 +248,7 @@ impl EngineInner {
             self.lifecycle.touch(&index);
             return Ok(index);
         }
-        if !self.lifecycle.holds_closed(name) {
+        if !self.holds_index(name) {
             return Err(index_not_found(name));
         }
         reopen_index(self, name, false)
@@ -264,7 +301,7 @@ impl Narsil {
     pub fn open_index(&self, name: &str) -> Result<()> {
         let engine = &*self.inner;
         engine.guard_shutdown()?;
-        if engine.open_index_named(name).is_none() && !engine.lifecycle.holds_closed(name) {
+        if !engine.holds_index(name) {
             return Err(index_not_found(name));
         }
         let index = reopen_index(engine, name, true)?;

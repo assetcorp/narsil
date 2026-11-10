@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use narsil::{
@@ -124,13 +124,23 @@ fn closes_and_reopens_racing_writers_and_searches_lose_no_acknowledged_write() {
     engine.create_index(INDEX, index_config()).expect("created");
     let written = Mutex::new(BTreeSet::new());
     let writers_done = AtomicBool::new(false);
+    let closes = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         let writers: Vec<_> = (0..WRITER_THREADS)
             .map(|thread| {
                 let engine = &engine;
                 let written = &written;
+                let closes = &closes;
                 scope.spawn(move || {
                     for n in 0..WRITES_PER_THREAD {
+                        let waited = Instant::now();
+                        while n + 1 == WRITES_PER_THREAD && closes.load(Ordering::Acquire) == 0 {
+                            assert!(
+                                waited.elapsed() < STATE_WAIT,
+                                "the closer never closed the index"
+                            );
+                            std::thread::yield_now();
+                        }
                         let id = format!("t{thread}-{n}");
                         engine
                             .insert(INDEX, ticket(&id), Some(&id))
@@ -144,15 +154,12 @@ fn closes_and_reopens_racing_writers_and_searches_lose_no_acknowledged_write() {
             })
             .collect();
         let closer = scope.spawn(|| {
-            let mut closes = 0;
             while !writers_done.load(Ordering::Acquire) {
                 engine.close_index(INDEX).expect("the close succeeds");
-                closes += 1;
-                if closes % 2 == 0 {
+                if closes.fetch_add(1, Ordering::AcqRel) % 2 == 1 {
                     engine.open_index(INDEX).expect("the open succeeds");
                 }
             }
-            closes
         });
         let searcher = scope.spawn(|| {
             while !writers_done.load(Ordering::Acquire) {
@@ -161,12 +168,12 @@ fn closes_and_reopens_racing_writers_and_searches_lose_no_acknowledged_write() {
                 }
             }
         });
-        for writer in writers {
-            writer.join().expect("a writer finishes");
-        }
+        let finished: Vec<_> = writers.into_iter().map(|writer| writer.join()).collect();
         writers_done.store(true, Ordering::Release);
-        let closes = closer.join().expect("the closer finishes");
-        assert!(closes > 0, "the closer never closed the index");
+        for writer in finished {
+            writer.expect("a writer finishes");
+        }
+        closer.join().expect("the closer finishes");
         searcher.join().expect("the searcher finishes");
     });
     let written = written

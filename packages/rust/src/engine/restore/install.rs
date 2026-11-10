@@ -80,8 +80,7 @@ pub(super) fn install(
     staging: &mut Staging<'_>,
 ) -> Result<()> {
     let PreparedIndex { index, recorded } = prepared;
-    let replaces_index = engine.open_index_named(&index.name).is_some()
-        || engine.lifecycle.holds_closed(&index.name);
+    let replaces_index = engine.holds_index(&index.name);
     let stored_bytes = manifest
         .file_refs()
         .iter()

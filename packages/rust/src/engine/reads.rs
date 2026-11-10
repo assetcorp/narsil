@@ -27,9 +27,9 @@ pub struct IndexInfo {
 }
 
 pub(crate) fn list_indexes(engine: &EngineInner) -> Vec<IndexInfo> {
-    let mut listed: Vec<IndexInfo> = engine
-        .indexes()
-        .values()
+    let (open, closed) = engine.held_indexes();
+    let mut listed: Vec<IndexInfo> = open
+        .iter()
         .map(|index| IndexInfo {
             name: index.name.clone(),
             document_count: index.document_count(),
@@ -40,20 +40,15 @@ pub(crate) fn list_indexes(engine: &EngineInner) -> Vec<IndexInfo> {
             reopen_count: index.residency.reopen_count(),
         })
         .collect();
-    for (name, closed, state, reopen_count) in engine.lifecycle.closed_listing() {
-        if listed.iter().any(|info| info.name == name) {
-            continue;
-        }
-        listed.push(IndexInfo {
-            name,
-            document_count: closed.document_count,
-            partition_count: closed.partition_count,
-            language: closed.language,
-            analysis_stale: false,
-            state,
-            reopen_count,
-        });
-    }
+    listed.extend(closed.into_iter().map(|listing| IndexInfo {
+        name: listing.name,
+        document_count: listing.closed.document_count,
+        partition_count: listing.closed.partition_count,
+        language: listing.closed.language,
+        analysis_stale: false,
+        state: listing.state,
+        reopen_count: listing.reopen_count,
+    }));
     listed.sort_by(|left, right| left.name.cmp(&right.name));
     listed
 }
