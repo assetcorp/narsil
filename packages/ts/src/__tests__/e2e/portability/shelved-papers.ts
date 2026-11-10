@@ -13,6 +13,7 @@ export const INDEX = 'shelves'
 export const shelvesConfig: HttpIndexConfig = {
   schema: { shelf: 'number', embedding: `vector[${DIMENSION}]` },
   vectorPromotion: { threshold: PROMOTION_THRESHOLD, quantization: 'none' },
+  partitions: { maxPartitions: 3 },
 }
 
 export type ShelvedPaper = AnyDocument & {

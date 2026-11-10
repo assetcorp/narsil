@@ -37,7 +37,7 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
     })
 
     it('rejects concurrent rebalance on same index', async () => {
-      await narsil.createIndex('products', indexConfig)
+      await narsil.createIndex('products', { ...indexConfig, partitions: { maxPartitions: 5 } })
       const rebalancePromise = narsil.rebalance('products', 3)
       await expect(narsil.rebalance('products', 5)).rejects.toThrow(NarsilError)
       await rebalancePromise

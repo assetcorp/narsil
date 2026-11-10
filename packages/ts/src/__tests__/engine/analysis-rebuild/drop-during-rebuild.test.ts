@@ -32,7 +32,7 @@ describe('a drop that meets a rebuild that the engine started', () => {
       durability: { tier: 'snapshot' },
       workers: { enabled: false },
     })
-    await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
+    await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE, partitions: { maxPartitions: PARTITIONS } })
     const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
     await writer.insertBatch('prose', documents)
     for (const document of documents) corpus.write(document.id, document.title, FIRST_REVISION)
