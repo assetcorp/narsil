@@ -1,6 +1,7 @@
 #include "scratch.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/normalise.h"
 #include "../analysis/split.h"
 #include "../analysis/text.h"
@@ -17,7 +18,7 @@ static narsil_status append_origin(highlight_scratch *scratch, uint32_t point, u
     if (scratch->origin_capacity > SIZE_MAX / 2) { return NARSIL_OUT_OF_MEMORY; }
     size_t capacity = scratch->origin_capacity == 0 ? FIRST_ORIGINS : scratch->origin_capacity * 2;
     if (capacity > SIZE_MAX / sizeof *scratch->origins) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(scratch->origins, capacity * sizeof *scratch->origins);
+    void *grown = core_reallocate(scratch->origins, capacity * sizeof *scratch->origins);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->origins = grown;
     scratch->origin_capacity = capacity;

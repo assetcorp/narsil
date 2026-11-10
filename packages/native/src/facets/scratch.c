@@ -1,6 +1,7 @@
 #include "scratch.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../internal.h"
 
 #include <stddef.h>
@@ -18,7 +19,7 @@ narsil_status reserve_facet_scratch(facet_scratch *scratch, uint32_t count, size
     return NARSIL_INVALID_ARGUMENT;
   }
   size_t bytes = (capacity * entry_bytes) + (held_words * sizeof(uint32_t));
-  void *allocation = malloc(bytes);
+  void *allocation = core_allocate(bytes);
   if (allocation == NULL) { return NARSIL_OUT_OF_MEMORY; }
   free(scratch->allocation);
   scratch->allocation = allocation;

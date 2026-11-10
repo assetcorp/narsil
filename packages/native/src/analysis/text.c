@@ -1,6 +1,7 @@
 #include "text.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -30,7 +31,7 @@ int narsil_text_reserve(narsil_text *text, size_t capacity) {
   growth request = {text->capacity, capacity, sizeof(uint16_t)};
   size_t grown = grown_capacity(request);
   if (grown == 0) { return NARSIL_OUT_OF_MEMORY; }
-  uint16_t *units = realloc(text->units, grown * sizeof(uint16_t));
+  uint16_t *units = core_reallocate(text->units, grown * sizeof(uint16_t));
   if (units == NULL) { return NARSIL_OUT_OF_MEMORY; }
   text->units = units;
   text->capacity = grown;
@@ -82,7 +83,7 @@ int narsil_code_points_reserve(narsil_code_points *points, size_t capacity) {
   growth request = {points->capacity, capacity, sizeof(uint32_t)};
   size_t grown = grown_capacity(request);
   if (grown == 0) { return NARSIL_OUT_OF_MEMORY; }
-  uint32_t *values = realloc(points->values, grown * sizeof(uint32_t));
+  uint32_t *values = core_reallocate(points->values, grown * sizeof(uint32_t));
   if (values == NULL) { return NARSIL_OUT_OF_MEMORY; }
   points->values = values;
   points->capacity = grown;

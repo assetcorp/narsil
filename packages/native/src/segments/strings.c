@@ -2,6 +2,7 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_terms.h"
+#include "../allocation.h"
 #include "../terms/table.h"
 
 #include <stdint.h>
@@ -30,9 +31,9 @@ narsil_status segment_strings_reserve(segment_strings *strings, size_t capacity)
       slots > (SIZE_MAX - (held * sizeof(segment_string))) / (2 * sizeof(uint32_t))) {
     return NARSIL_OUT_OF_MEMORY;
   }
-  segment_string *entries = malloc(held * sizeof *entries);
-  uint32_t *table = calloc(slots, sizeof *table);
-  uint32_t *placements = malloc(slots * sizeof *placements);
+  segment_string *entries = core_allocate(held * sizeof *entries);
+  uint32_t *table = core_allocate_zeroed(slots, sizeof *table);
+  uint32_t *placements = core_allocate(slots * sizeof *placements);
   if (entries == NULL || table == NULL || placements == NULL) {
     free(entries);
     free(table);

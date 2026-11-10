@@ -3,6 +3,7 @@
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_pattern.h"
 #include "../../include/narsil_work.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "../work/tally.h"
 #include "constants.h"
@@ -13,12 +14,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 narsil_status pattern_reserve_branches(pattern_scratch *scratch, size_t count) {
   if (count <= scratch->branch_capacity) { return NARSIL_OK; }
   if (count > SIZE_MAX / sizeof *scratch->branches) { return NARSIL_OUT_OF_MEMORY; }
-  pattern_runs *branches = realloc(scratch->branches, count * sizeof *branches);
+  pattern_runs *branches = core_reallocate(scratch->branches, count * sizeof *branches);
   if (branches == NULL) { return NARSIL_OUT_OF_MEMORY; }
   scratch->branches = branches;
   scratch->branch_capacity = count;

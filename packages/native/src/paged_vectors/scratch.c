@@ -1,6 +1,7 @@
 #include "scratch.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,7 +22,7 @@ narsil_status paged_heap_push(paged_heap *heap, paged_candidate candidate) {
   if (heap->size == heap->capacity) {
     size_t capacity = heap->capacity == 0 ? FIRST_HEAP_CAPACITY : heap->capacity * 2;
     if (capacity < heap->capacity || capacity > SIZE_MAX / sizeof *heap->entries) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(heap->entries, capacity * sizeof *heap->entries);
+    void *grown = core_reallocate(heap->entries, capacity * sizeof *heap->entries);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     heap->entries = grown;
     heap->capacity = capacity;
@@ -57,13 +58,13 @@ paged_candidate paged_heap_pop(paged_heap *heap) {
 narsil_status paged_vector_reserve(size_t candidates, paged_vector_scratch *scratch, size_t record_bytes) {
   if (candidates > SIZE_MAX / sizeof *scratch->ranked) { return NARSIL_OUT_OF_MEMORY; }
   if (candidates > scratch->ranked_capacity) {
-    void *grown = realloc(scratch->ranked, candidates * sizeof *scratch->ranked);
+    void *grown = core_reallocate(scratch->ranked, candidates * sizeof *scratch->ranked);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->ranked = grown;
     scratch->ranked_capacity = candidates;
   }
   if (record_bytes > scratch->record_capacity) {
-    void *grown = realloc(scratch->record, record_bytes);
+    void *grown = core_reallocate(scratch->record, record_bytes);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->record = grown;
     scratch->record_capacity = record_bytes;

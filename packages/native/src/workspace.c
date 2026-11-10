@@ -1,3 +1,4 @@
+#include "allocation.h"
 #include "expansion/internal.h"
 #include "facets/scratch.h"
 #include "filters/internal.h"
@@ -52,7 +53,7 @@ uint32_t grown_capacity(uint32_t first, uint32_t needed) {
 
 narsil_status narsil_workspace_create(narsil_workspace **workspace) {
   if (workspace == NULL) { return NARSIL_INVALID_ARGUMENT; }
-  narsil_workspace *created = calloc(1, sizeof *created);
+  narsil_workspace *created = core_allocate_zeroed(1, sizeof *created);
   if (created == NULL) { return NARSIL_OUT_OF_MEMORY; }
   created->found.greatest_first = 1;
   *workspace = created;
@@ -133,8 +134,8 @@ narsil_status workspace_reserve_links(narsil_workspace *workspace, const narsil_
   if (layers <= workspace->selection_layers && stride <= workspace->selection_stride) { return NARSIL_OK; }
   uint32_t held_layers = layers > workspace->selection_layers ? layers : workspace->selection_layers;
   uint32_t held_stride = stride > workspace->selection_stride ? stride : workspace->selection_stride;
-  int32_t *selections = calloc((size_t)held_layers * held_stride, sizeof *selections);
-  uint32_t *counts = calloc(held_layers, sizeof *counts);
+  int32_t *selections = core_allocate_zeroed((size_t)held_layers * held_stride, sizeof *selections);
+  uint32_t *counts = core_allocate_zeroed(held_layers, sizeof *counts);
   if (selections == NULL || counts == NULL) {
     free(selections);
     free(counts);
@@ -171,15 +172,15 @@ narsil_status workspace_reserve_dimension(narsil_workspace *workspace, uint32_t 
   release_dimension_scratch(workspace);
   size_t pairs = ((size_t)dimension + 1) / 2;
   size_t planes = (size_t)QUERY_PLANES * code_bytes_of(dimension, WIDEST_PLANE_CODE_BITS);
-  workspace->normalised = calloc(dimension, sizeof(double));
-  workspace->centred = calloc(dimension, sizeof(double));
-  workspace->placed_vector = calloc(dimension, sizeof(float));
-  workspace->stored_vector = calloc(dimension, sizeof(float));
-  workspace->other_vector = calloc(dimension, sizeof(float));
-  workspace->code.levels = calloc(dimension, 1);
-  workspace->code.low_levels = calloc(pairs, 1);
-  workspace->code.high_levels = calloc(pairs, 1);
-  workspace->code.planes = calloc(planes, 1);
+  workspace->normalised = core_allocate_zeroed(dimension, sizeof(double));
+  workspace->centred = core_allocate_zeroed(dimension, sizeof(double));
+  workspace->placed_vector = core_allocate_zeroed(dimension, sizeof(float));
+  workspace->stored_vector = core_allocate_zeroed(dimension, sizeof(float));
+  workspace->other_vector = core_allocate_zeroed(dimension, sizeof(float));
+  workspace->code.levels = core_allocate_zeroed(dimension, 1);
+  workspace->code.low_levels = core_allocate_zeroed(pairs, 1);
+  workspace->code.high_levels = core_allocate_zeroed(pairs, 1);
+  workspace->code.planes = core_allocate_zeroed(planes, 1);
   if (workspace->normalised == NULL || workspace->centred == NULL || workspace->placed_vector == NULL ||
       workspace->stored_vector == NULL || workspace->other_vector == NULL || workspace->code.levels == NULL ||
       workspace->code.low_levels == NULL || workspace->code.high_levels == NULL || workspace->code.planes == NULL) {
@@ -197,7 +198,7 @@ narsil_status workspace_reserve_visited(narsil_workspace *workspace, uint32_t sl
   if (slots <= workspace->visited_capacity) { return NARSIL_OK; }
   uint32_t held = workspace->visited_capacity == 0 ? INITIAL_VISITED_CAPACITY : workspace->visited_capacity;
   uint32_t capacity = grown_capacity(held, slots);
-  uint32_t *visited = calloc(capacity, sizeof *visited);
+  uint32_t *visited = core_allocate_zeroed(capacity, sizeof *visited);
   if (visited == NULL) { return NARSIL_OUT_OF_MEMORY; }
   if (workspace->visited != NULL) {
     memcpy(visited, workspace->visited, (size_t)workspace->visited_capacity * sizeof *visited);
@@ -212,7 +213,7 @@ narsil_status workspace_reserve_entry_points(narsil_workspace *workspace, uint32
   if (count <= workspace->entry_point_capacity) { return NARSIL_OK; }
   uint32_t held = workspace->entry_point_capacity == 0 ? INITIAL_ENTRY_POINT_CAPACITY : workspace->entry_point_capacity;
   uint32_t capacity = grown_capacity(held, count);
-  int32_t *entry_points = realloc(workspace->entry_points, (size_t)capacity * sizeof *entry_points);
+  int32_t *entry_points = core_reallocate(workspace->entry_points, (size_t)capacity * sizeof *entry_points);
   if (entry_points == NULL) { return NARSIL_OUT_OF_MEMORY; }
   workspace->entry_points = entry_points;
   workspace->entry_point_capacity = capacity;

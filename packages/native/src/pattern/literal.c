@@ -1,19 +1,19 @@
 #include "literal.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../work/tally.h"
 #include "text.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 narsil_status pattern_literal_prepare(pattern_literal *literal, const uint32_t *points, uint32_t length) {
   size_t slots = (size_t)length + 1;
   if (slots <= length || slots > SIZE_MAX / (2 * sizeof(uint32_t))) { return NARSIL_OUT_OF_MEMORY; }
   if (slots > literal->capacity) {
-    uint32_t *allocation = realloc(literal->allocation, slots * 2 * sizeof *allocation);
+    uint32_t *allocation = core_reallocate(literal->allocation, slots * 2 * sizeof *allocation);
     if (allocation == NULL) { return NARSIL_OUT_OF_MEMORY; }
     literal->allocation = allocation;
     literal->capacity = slots;

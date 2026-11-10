@@ -1,10 +1,13 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
 #include "../include/narsil_sort.h"
 #include "../include/narsil_stored_values.h"
 
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -112,6 +115,28 @@ static void refusals(narsil_workspace *workspace, sort_fixture *fixture) {
   fixture->output.number = fixture->number;
   fixture->output.text = (uint32_t *)fixture->number;
   refusal(workspace, fixture, 0, 0, NARSIL_INVALID_ARGUMENT);
+}
+
+static void *prepare_refused_sort_value(void) {
+  sort_fixture *fixture = calloc(1, sizeof *fixture);
+  if (fixture != NULL) { prepare(fixture); }
+  return fixture;
+}
+
+static narsil_status refused_median(narsil_workspace *workspace, void *opaque) {
+  sort_fixture *fixture = opaque;
+  return narsil_sort_value(workspace, &fixture->values, 0, NARSIL_SORT_MEDIAN, &fixture->output);
+}
+
+static uint64_t digest_refused_sort_value(const void *opaque) {
+  const sort_fixture *fixture = opaque;
+  return digest_word(digest_bytes(DIGEST_START, fixture, offsetof(sort_fixture, values)), fixture->output.kind);
+}
+
+void sort_value_allocation_failures(void) {
+  const failing_call call = {"a median sort value", prepare_refused_sort_value, refused_median,
+                             digest_refused_sort_value, free};
+  refuse_each_allocation(&call);
 }
 
 void sort_value_checks(narsil_workspace *workspace) {

@@ -1,6 +1,7 @@
 #include "cache.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "program.h"
 #include "simulation.h"
 
@@ -31,7 +32,7 @@ narsil_status pattern_cache_prepare(const pattern_program *program, const patter
   size_t target = words / (CACHE_STATE_WORDS + CACHE_EDGE_WORDS + 2);
   if (target > 0) {
     if (words > cache->capacity) {
-      uint32_t *allocation = realloc(cache->words, words * sizeof *allocation);
+      uint32_t *allocation = core_reallocate(cache->words, words * sizeof *allocation);
       if (allocation == NULL) { return NARSIL_OUT_OF_MEMORY; }
       cache->words = allocation;
       cache->capacity = words;

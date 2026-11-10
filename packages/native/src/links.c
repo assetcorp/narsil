@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include "../include/narsil_core.h"
+#include "allocation.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -15,10 +16,10 @@ narsil_status list_reserve(scored_list *list, uint32_t capacity) {
   if (capacity <= list->capacity) { return NARSIL_OK; }
   uint32_t held = list->capacity == 0 ? INITIAL_LIST_CAPACITY : list->capacity;
   uint32_t next = grown_capacity(held, capacity);
-  int32_t *ordinals = realloc(list->ordinals, (size_t)next * sizeof *ordinals);
+  int32_t *ordinals = core_reallocate(list->ordinals, (size_t)next * sizeof *ordinals);
   if (ordinals == NULL) { return NARSIL_OUT_OF_MEMORY; }
   list->ordinals = ordinals;
-  double *distances = realloc(list->distances, (size_t)next * sizeof *distances);
+  double *distances = core_reallocate(list->distances, (size_t)next * sizeof *distances);
   if (distances == NULL) { return NARSIL_OUT_OF_MEMORY; }
   list->distances = distances;
   list->capacity = next;

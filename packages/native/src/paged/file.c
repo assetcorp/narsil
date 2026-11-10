@@ -2,6 +2,7 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_paged.h"
+#include "../allocation.h"
 
 #include <stdatomic.h>
 #include <stddef.h>
@@ -23,7 +24,7 @@ static uint64_t take_identity(void) {
 
 narsil_status narsil_paged_file_open(const char *path, narsil_paged_file **file) {
   if (path == NULL || file == NULL) { return NARSIL_INVALID_ARGUMENT; }
-  narsil_paged_file *created = calloc(1, sizeof *created);
+  narsil_paged_file *created = core_allocate_zeroed(1, sizeof *created);
   if (created == NULL) { return NARSIL_OUT_OF_MEMORY; }
   created->identity = take_identity();
   narsil_status status = created->identity == 0 ? NARSIL_OUT_OF_MEMORY : paged_open(created, path);
