@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use super::engine_config::LifecycleLimits;
 use super::index::IndexState;
+use super::name_turns::NameTurn;
 use super::query_suggestions::stored_state::SuggestionState;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
@@ -262,6 +263,19 @@ impl EngineInner {
                 Err(closing) => closing
                     .residency
                     .wait_for_close(&closing, self.lifecycle.waiter_limit())?,
+            }
+        }
+    }
+
+    pub(crate) fn open_index_in_turn(&self, name: &str) -> Result<(NameTurn<'_>, Arc<IndexState>)> {
+        loop {
+            let index = self.open_index(name)?;
+            let turn = self.names.take(name);
+            if self
+                .open_index_named(name)
+                .is_some_and(|current| Arc::ptr_eq(&current, &index))
+            {
+                return Ok((turn, index));
             }
         }
     }

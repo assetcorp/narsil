@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::bans::union_of_bans;
+use super::constants::BUILD_WRITE_BATCH;
 use super::engine_hooks::clear_leftovers_of_name;
 use super::host::{suggestion_state_of, suggestion_states, warn, warn_of_failure};
 use super::restored_history::RestoredHistory;
@@ -9,8 +10,9 @@ use super::suggestions_writer::remove_suggestions;
 use super::types::QuerySuggestionsWarningReason;
 use crate::engine::index::IndexState;
 use crate::engine::sync::sync_is_on;
+use crate::engine::writes::remove_batch;
 use crate::engine::{EngineInner, Narsil};
-use crate::error::Result;
+use crate::error::{ErrorCode, Result};
 use crate::format::metadata_parts::config_invalid;
 
 pub(crate) fn before_install(engine: &EngineInner, index: &IndexState) -> Result<()> {
@@ -64,20 +66,39 @@ fn apply_bans(narsil: &Narsil, index_name: &str) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn remove_source_bans_from(engine: &EngineInner, restored: &IndexState) -> Result<()> {
+    let state = restored.suggestion_state();
     let Some(source) = state
         .source
         .as_ref()
-        .filter(|source| source.index != index_name)
+        .filter(|source| source.index != restored.name)
     else {
         return Ok(());
     };
     let source_bans = suggestion_state_of(engine, &source.index)
         .map(|source| source.banned.clone())
         .unwrap_or_default();
-    if !source_bans.is_empty() {
-        remove_suggestions(narsil, index_name, &source_bans)?;
+    for batch in source_bans.chunks(BUILD_WRITE_BATCH) {
+        let result = remove_batch(restored, batch.to_vec())?;
+        if let Some(failure) = result
+            .failed
+            .iter()
+            .find(|failure| failure.error.code() != ErrorCode::DOC_NOT_FOUND)
+        {
+            return Err(failure.error.clone());
+        }
     }
     Ok(())
+}
+
+pub(crate) fn before_publish(engine: &EngineInner, restored: &IndexState) {
+    if let Err(error) = remove_source_bans_from(engine, restored) {
+        let reason = QuerySuggestionsWarningReason::BanRemovalFailed;
+        warn_of_failure(engine, &restored.name, reason, &error);
+    }
 }
 
 pub(crate) fn after_activate(engine: &EngineInner, index_name: &str) {

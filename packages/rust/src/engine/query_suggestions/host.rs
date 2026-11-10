@@ -55,8 +55,7 @@ pub(crate) fn update_state(
     index_name: &str,
     change: impl FnOnce(&IndexView<'_>, &SuggestionState) -> Result<SuggestionState>,
 ) -> Result<SuggestionState> {
-    let _name = engine.names.take(index_name);
-    let index: Arc<IndexState> = engine.open_index(index_name)?;
+    let (_name, index) = engine.open_index_in_turn(index_name)?;
     let _writer = index.lock_writes()?;
     let metadata = index.log().map(|log| log.metadata(&index));
     let view = IndexView {

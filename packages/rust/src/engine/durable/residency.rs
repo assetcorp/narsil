@@ -14,7 +14,7 @@ use crate::engine::query_suggestions::stored_state::SuggestionState;
 use crate::engine::sync::sync_is_on;
 use crate::error::Result;
 use crate::format::envelope::MAX_FILE_BYTES;
-use crate::format::metadata::read_metadata_file;
+use crate::format::metadata::{IndexMetadata, read_metadata_file};
 
 impl Durable {
     /// Loads the stored index `name` from its newest checkpoint and the log records that follow it, as recovery
@@ -44,15 +44,21 @@ impl Durable {
         }
     }
 
+    pub(crate) fn stored_metadata(&self, name: &str) -> Result<Option<IndexMetadata>> {
+        let files = self.backing.files();
+        let Some(bytes) = files.read_within(&metadata_key(name), MAX_FILE_BYTES)? else {
+            return Ok(None);
+        };
+        Ok(Some(read_metadata_file(&bytes)?.1))
+    }
+
     /// Records every stored index as closed from its metadata file alone, without loading its documents, then
     /// starts the checkpoint thread; the first call that reaches an index loads it.
     pub(crate) fn recover_closed(&self, engine: &Arc<EngineInner>) -> Result<()> {
-        let files = self.backing.files();
         for name in self.backing.index_names()? {
-            let Some(bytes) = files.read_within(&metadata_key(&name), MAX_FILE_BYTES)? else {
+            let Some(metadata) = self.stored_metadata(&name)? else {
                 continue;
             };
-            let (_, metadata) = read_metadata_file(&bytes)?;
             let config = config_of(&metadata)?;
             let closed = ClosedIndex {
                 config: Arc::new(config),

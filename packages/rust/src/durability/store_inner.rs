@@ -29,6 +29,7 @@ pub(crate) struct StoreInner {
     indexes: Mutex<HashMap<String, Arc<IndexState>>>,
     stopping: Mutex<bool>,
     wake: Condvar,
+    restore_commits: RwLock<()>,
 }
 
 pub(crate) fn store_poisoned() -> NarsilError {
@@ -64,6 +65,7 @@ impl StoreInner {
             indexes: Mutex::new(HashMap::new()),
             stopping: Mutex::new(false),
             wake: Condvar::new(),
+            restore_commits: RwLock::new(()),
         });
         let worker = inner.clone();
         let thread = std::thread::Builder::new()
@@ -121,6 +123,12 @@ impl StoreInner {
             return Err(store_shut_down(&self.directory));
         }
         Ok(())
+    }
+
+    pub(crate) fn commit_restore<T>(&self, commit: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _open = self.restore_commits.read().map_err(|_| store_poisoned())?;
+        self.require_open()?;
+        commit()
     }
 
     pub(crate) fn require_healthy(&self) -> Result<()> {
@@ -336,6 +344,10 @@ impl StoreInner {
         if let Some(thread) = thread {
             let _ = thread.join();
         }
+        let _no_restore_commits = self
+            .restore_commits
+            .write()
+            .unwrap_or_else(|poison| poison.into_inner());
         let outcome = self.close_logs(self.every_log()?);
         if let Some(mut lock) = self.lock.lock().ok().and_then(|mut lock| lock.take()) {
             lock.release();
