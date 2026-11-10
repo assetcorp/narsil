@@ -10,7 +10,7 @@ use crate::durability::checkpoint_files::metadata_key;
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::engine::index_lifecycle::{ClosedEntry, ClosedIndex};
-use crate::engine::query_suggestions::state::SuggestionState;
+use crate::engine::query_suggestions::stored_state::SuggestionState;
 use crate::engine::sync::sync_is_on;
 use crate::error::Result;
 use crate::format::envelope::MAX_FILE_BYTES;

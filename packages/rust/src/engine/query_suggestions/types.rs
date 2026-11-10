@@ -1,4 +1,56 @@
-use super::setting::QuerySuggestionsSetting;
+/// The popular query suggestions setting of one index. Only `enabled` and `fields` are required, and each limit
+/// left at `None` takes its default.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuerySuggestionsSetting {
+    /// Set this to true to count searches for the index and build its suggestions.
+    pub enabled: bool,
+    /// The `string` and `string[]` fields whose text a phrase must match before the engine publishes it.
+    pub fields: Vec<String>,
+    /// The number of people, from 2 to 4,096, who must search a phrase before the engine publishes it. Defaults
+    /// to 4.
+    pub min_people: Option<u32>,
+    /// The number of documents, from 1 to 10,000, that a phrase must match with every word. Defaults to 5.
+    pub min_results: Option<u32>,
+    /// The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to 30.
+    pub retention_days: Option<u32>,
+    /// The number of phrases, up to 16,384, that the engine counts for the index each day. Defaults to 10,000.
+    pub max_phrases_per_day: Option<u32>,
+    /// The number of phrases, up to 1,000, that the engine counts for one person each day. Defaults to 100.
+    pub max_phrases_per_person: Option<u32>,
+    /// The number of people, up to 100,000, that the engine counts for the index each day. Defaults to 100,000.
+    pub max_people_per_day: Option<u32>,
+    /// The number of groups, up to 1,000, that the index counts. Defaults to 100.
+    pub max_groups: Option<u32>,
+    /// The number of letters that a phrase must hold. Defaults to 4.
+    pub min_letters: Option<u32>,
+    /// The number of characters, up to 150, that a phrase may hold. Defaults to 100.
+    pub max_length: Option<u32>,
+    /// The number of words, up to 50, that a phrase may hold. Defaults to 8.
+    pub max_words: Option<u32>,
+    /// The number of digits that a phrase may hold in total. Defaults to 5.
+    pub max_digits: Option<u32>,
+    /// The number of phrases, up to 500,000, that one build merges. Defaults to 100,000.
+    pub max_merge_phrases: Option<u32>,
+    /// The memory, from 16 MiB to 1 GiB, that a build's merge may hold. Defaults to 128 MiB.
+    pub merge_memory_bytes: Option<u64>,
+    /// How often, from 1 second to 1 hour, the engine saves the counts of the day. Defaults to 5 minutes.
+    pub save_interval_ms: Option<u32>,
+    /// The number of result checks, up to 1,000, that a build runs each second. Defaults to 20.
+    pub result_checks_per_second: Option<u32>,
+    /// A cron expression of five fields, or `off`. Defaults to `0 3 * * *`.
+    pub schedule: Option<String>,
+    /// The IANA time zone of `schedule`. Defaults to `UTC`.
+    pub time_zone: Option<String>,
+}
+
+/// The index and the group that a suggestions index serves.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct QuerySuggestionsSource {
+    /// The index whose searches the suggestions come from.
+    pub index: String,
+    /// The group whose searches the suggestions come from.
+    pub group: String,
+}
 
 /// The engine-wide setting of popular query suggestions, which [`crate::NarsilConfig`] carries.
 #[derive(Clone, Default, PartialEq, Eq)]
