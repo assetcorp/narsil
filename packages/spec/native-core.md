@@ -623,6 +623,12 @@ Before it builds a plan, the implementation must raise `SEARCH_INVALID_FILTER` f
 
 ### Pattern Index
 
+```text
+caseFold(text: List<uint16>) -> List<uint32>
+```
+
+`caseFold` must give the code points of `text` in order, each replaced by its [case fold](algorithms.md#case-folding). The operation counts no work. An implementation may hold the fold table only where it operates on a platform that has no build of the core, and it must then write that table and the core's from one source. Every other implementation must take each fold from `caseFold`.
+
 A growing segment holds the [pattern index](algorithms.md#pattern-index) of a pattern field in a [run table](#partial-words) whose members are ordinals, plus a list of the ordinals that hold a value in the field, ascending. A frozen or a paged segment holds it in its `pattern` column. A writer must take the runs from the [case fold](algorithms.md#case-folding) of each value, and it must list an ordinal once in each run that any of its values holds. A reader takes a run's list as the ordinals that it holds, ascending, so a growing segment must drop the ordinals of removed documents from a list before the core reads it, while a frozen segment keeps the ordinals of its tombstoned documents.
 
 ### Pattern Tests

@@ -58,14 +58,18 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     state.tombstones.delete(docId)
     const graphHoldsPrevious =
       previous !== undefined &&
-      ((state.hnsw?.holdsNode(previous) ?? false) || (state.freshGraph?.holdsNode(previous) ?? false))
+      ((state.hnsw?.holdsNode(previous) ?? false) ||
+        (state.freshGraph?.holdsNode(previous) ?? false) ||
+        (state.growingCopy?.holdsNode(previous) ?? false))
     state.store.insert(docId, vector, partitionId, graphHoldsPrevious)
     if (previous !== undefined) {
       const graph = state.hnsw
       const freshGraph = state.freshGraph
+      const growingCopy = state.growingCopy
       afterGraphPass(state, () => {
         graph?.markTombstoneOrdinal(previous)
         freshGraph?.markTombstoneOrdinal(previous)
+        growingCopy?.markTombstoneOrdinal(previous)
       })
       if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
@@ -87,7 +91,11 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     if (state.buffer.retiredCount !== 0) forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     const graph = state.hnsw
-    if (graph !== null) afterGraphPass(state, () => graph.markTombstoneOrdinal(ordinal))
+    const growingCopy = state.growingCopy
+    afterGraphPass(state, () => {
+      graph?.markTombstoneOrdinal(ordinal)
+      growingCopy?.markTombstoneOrdinal(ordinal)
+    })
   }
 
   return {

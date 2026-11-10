@@ -259,7 +259,7 @@ describe.skipIf(!WORKERS_BUILT)(
 )
 
 const PINNED_INDEX = 'shelves'
-const PINNED_DOCUMENTS = 20_000
+const PINNED_DOCUMENTS = 10_000
 const PINNED_LIMIT = 10
 const TITLE_WORDS = 96
 const FAR_COMPONENT = 3

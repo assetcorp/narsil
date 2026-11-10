@@ -124,6 +124,34 @@ static void refusal_checks(narsil_workspace *workspace) {
         "corrupt stored text spans cannot read beyond their region");
 }
 
+static void case_fold_checks(void) {
+  const uint16_t text[] = {u'S', 0x00DF, 0x0149, 0x0390, 0xD801, 0xDC00, 0xD800, u'Z'};
+  const uint32_t expected[] = {u's', u's', u's', 0x02BC, u'n', 0x03B9, 0x0308, 0x0301, 0x10428, 0xD800, u'z'};
+  enum { UNITS = sizeof text / sizeof text[0], POINTS = sizeof expected / sizeof expected[0] };
+  uint32_t folded[POINTS + 1];
+  uint32_t count = 0;
+  folded[POINTS] = EXTRA_OUTPUT_WORD;
+  check(narsil_case_fold(text, UNITS, folded, POINTS, &count) == NARSIL_OK && count == POINTS &&
+            memcmp(folded, expected, sizeof expected) == 0 && folded[POINTS] == EXTRA_OUTPUT_WORD,
+        "a case fold expands each mapping, pairs surrogates, and keeps an unpaired surrogate");
+  uint32_t short_output[2] = {0, EXTRA_OUTPUT_WORD};
+  count = 0;
+  check(narsil_case_fold(text, UNITS, short_output, 1, &count) == NARSIL_NEEDS_ROOM && count == POINTS &&
+            short_output[0] == u's' && short_output[1] == EXTRA_OUTPUT_WORD,
+        "a case fold reports the room that it needs and writes within the room that it has");
+  count = EXTRA_OUTPUT_WORD;
+  check(narsil_case_fold(NULL, 0, NULL, 0, &count) == NARSIL_OK && count == 0, "an empty text folds to no code point");
+  uint32_t shared[UNITS];
+  memcpy(shared, text, sizeof text);
+  count = EXTRA_OUTPUT_WORD;
+  check(narsil_case_fold((const uint16_t *)shared, UNITS, shared, UNITS, &count) == NARSIL_INVALID_ARGUMENT &&
+            narsil_case_fold(text, UNITS, folded, POINTS, NULL) == NARSIL_INVALID_ARGUMENT &&
+            narsil_case_fold(NULL, UNITS, folded, POINTS, &count) == NARSIL_INVALID_ARGUMENT &&
+            narsil_case_fold(text, UNITS, folded, POINTS, folded) == NARSIL_INVALID_ARGUMENT &&
+            count == EXTRA_OUTPUT_WORD,
+        "a case fold refuses a missing region and an output that overlaps its text or its count");
+}
+
 static const uint16_t REFUSED_TEXT[] = u"Abc cde cdf abcde CDEF xyz";
 
 static pattern_case folded_case(const uint16_t *query, uint32_t operator_kind) {
@@ -175,4 +203,5 @@ void pattern_allocation_failures(void) {
 void pattern_checks(narsil_workspace *workspace) {
   matching_checks(workspace);
   refusal_checks(workspace);
+  case_fold_checks();
 }

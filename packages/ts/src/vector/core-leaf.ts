@@ -54,7 +54,7 @@ export {
 } from './osq/quantize'
 export { osqRecordBytes, readTrailer, stageQueryLevels } from './osq/record'
 export { openSharedQuantizer } from './osq/view'
-export { defaultEfSearch, defaultRescoreDepth } from './search-depth'
+export { defaultEfSearch, requireUsableVectorOptions, rescoreDepth } from './search-depth'
 export {
   createFixedBuffer,
   fixedView,

@@ -21,7 +21,6 @@ type VectorCoreNames = Pick<
   | 'decodeVectorIndexParts'
   | 'defaultEfSearch'
   | 'defaultQuantizationFor'
-  | 'defaultRescoreDepth'
   | 'graphPartsOfEarlierPayload'
   | 'isDead'
   | 'loadNativeCore'
@@ -33,6 +32,7 @@ type VectorCoreNames = Pick<
   | 'osqQuantize'
   | 'osqRecordBytes'
   | 'readTrailer'
+  | 'rescoreDepth'
   | 'scalarQueryProducts'
   | 'stageQueryLevels'
   | 'toDistance'
@@ -60,7 +60,6 @@ export let decodeVectorGraphPayload: VectorCoreNames['decodeVectorGraphPayload']
 export let decodeVectorIndexParts: VectorCoreNames['decodeVectorIndexParts']
 export let defaultEfSearch: VectorCoreNames['defaultEfSearch']
 export let defaultQuantizationFor: VectorCoreNames['defaultQuantizationFor']
-export let defaultRescoreDepth: VectorCoreNames['defaultRescoreDepth']
 export let graphPartsOfEarlierPayload: VectorCoreNames['graphPartsOfEarlierPayload']
 export let isDead: VectorCoreNames['isDead']
 export let loadNativeCore: VectorCoreNames['loadNativeCore']
@@ -72,6 +71,7 @@ export let osqEstimate: VectorCoreNames['osqEstimate']
 export let osqQuantize: VectorCoreNames['osqQuantize']
 export let osqRecordBytes: VectorCoreNames['osqRecordBytes']
 export let readTrailer: VectorCoreNames['readTrailer']
+export let rescoreDepth: VectorCoreNames['rescoreDepth']
 export let scalarQueryProducts: VectorCoreNames['scalarQueryProducts']
 export let stageQueryLevels: VectorCoreNames['stageQueryLevels']
 export let toDistance: VectorCoreNames['toDistance']
@@ -100,7 +100,6 @@ export function bindVectorCoreNames(vectorCore: VectorCoreNames): void {
     decodeVectorIndexParts,
     defaultEfSearch,
     defaultQuantizationFor,
-    defaultRescoreDepth,
     graphPartsOfEarlierPayload,
     isDead,
     loadNativeCore,
@@ -112,6 +111,7 @@ export function bindVectorCoreNames(vectorCore: VectorCoreNames): void {
     osqQuantize,
     osqRecordBytes,
     readTrailer,
+    rescoreDepth,
     scalarQueryProducts,
     stageQueryLevels,
     toDistance,

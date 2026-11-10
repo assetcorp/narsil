@@ -17,6 +17,7 @@ import type { HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { releasePendingLocations } from './disk'
+import { type GrowingCopyOutcome, lineageOf, placeInGrowingCopy } from './growing-copy'
 import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
 import { moveOutOfBuffer } from './search-writes'
 import type { VectorIndexState } from './shared'
@@ -39,9 +40,9 @@ async function bufferWhatTheGraphLacksInTurns(state: VectorIndexState, graph: HN
 }
 
 export async function buildGraphFromStore(state: VectorIndexState): Promise<boolean> {
-  const previous = state.hnsw
+  const lineage = lineageOf(state.hnsw)
   const order = turnsAreBudgeted ? await shuffledLiveDocIdsInTurns(state) : shuffleInPlace([...allLiveDocIds(state)])
-  if (order === null || state.hnsw !== previous) return false
+  if (order === null || lineageOf(state.hnsw) !== lineage) return false
   const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.osq ?? undefined)
   state.freshGraph = graph
   let completed = false
@@ -50,16 +51,17 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<bool
   } finally {
     state.freshGraph = null
   }
-  if (!completed || state.hnsw !== previous) {
+  if (!completed || lineageOf(state.hnsw) !== lineage) {
     dropSharedGraph(state, graph)
     return false
   }
+  const replaced = state.hnsw
   adoptGraph(state, graph)
   state.shuffledBuildCount = graph.size
   noteWrite(state)
   if (turnsAreBudgeted) await bufferWhatTheGraphLacksInTurns(state, graph)
   else bufferWhatTheGraphLacks(state, graph)
-  if (previous !== null) dropSharedGraph(state, previous)
+  if (replaced !== null) dropSharedGraph(state, replaced)
   await releasePendingLocations(state)
   return true
 }
@@ -80,14 +82,38 @@ async function recalibratesForRebuild(state: VectorIndexState, graph: HNSWIndex)
   return recalibrateWhenDrifted(state, graph.size)
 }
 
+export async function keepBuildsOut(state: VectorIndexState): Promise<() => void> {
+  while (state.buildsKeptOut !== null) await state.buildsKeptOut.ended
+  if (state.disposed) return () => undefined
+  let end: () => void = () => undefined
+  const ended = new Promise<void>(resolve => {
+    end = resolve
+  })
+  const kept = { ended, end }
+  state.buildsKeptOut = kept
+  return () => {
+    if (state.buildsKeptOut !== kept) return
+    letBuildsIn(state)
+    scheduleBuild(state)
+  }
+}
+
+function letBuildsIn(state: VectorIndexState): void {
+  const kept = state.buildsKeptOut
+  state.buildsKeptOut = null
+  kept?.end()
+}
+
 export async function buildExclusively(
   state: VectorIndexState,
   work: () => Promise<void>,
   waitsForShuffledRebuild = true,
+  keepsBuildsOut = false,
 ): Promise<void> {
   for (;;) {
     if (state.pendingBuild !== null) await state.pendingBuild
     else if (waitsForShuffledRebuild && state.shuffledRebuild !== null) await state.shuffledRebuild
+    else if (!keepsBuildsOut && state.buildsKeptOut !== null) await state.buildsKeptOut.ended
     else break
   }
   if (state.disposed) return
@@ -109,7 +135,10 @@ export async function buildExclusively(
 
 async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
   await yieldBuildTurn(state)
-  const replacing: { graph: HNSWIndex | null; loadedWithoutCount: boolean } = { graph: null, loadedWithoutCount: false }
+  const replacing: { lineage: object | null; loadedWithoutCount: boolean } = {
+    lineage: null,
+    loadedWithoutCount: false,
+  }
   await buildExclusively(
     state,
     async () => {
@@ -117,12 +146,12 @@ async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
       if (graph === null || !shuffledRebuildDue(state)) return
       const loadedWithoutCount = state.shuffledBuildCount === null
       if (!(await recalibratesForRebuild(state, graph)) || state.hnsw !== graph) return
-      replacing.graph = graph
+      replacing.lineage = lineageOf(graph)
       replacing.loadedWithoutCount = loadedWithoutCount
     },
     false,
   )
-  if (replacing.graph === null || state.hnsw !== replacing.graph) return
+  if (replacing.lineage === null || lineageOf(state.hnsw) !== replacing.lineage) return
   const adopted = await buildGraphFromStore(state)
   if (adopted && replacing.loadedWithoutCount) state.onLoadedGraphRepaired()
 }
@@ -131,10 +160,16 @@ function retryWhenMemoryAllows(state: VectorIndexState): void {
   if (state.rebuildWaitTimer !== null || state.disposed) return
   const timer = setTimeout(() => {
     state.rebuildWaitTimer = null
-    startShuffledRebuild(state)
+    if (state.hnsw !== null && state.buffer.size > 0) placeWhatWaitedForMemory(state)
+    else startShuffledRebuild(state)
   }, SHUFFLED_REBUILD_MEMORY_RETRY_MS)
   timer.unref?.()
   state.rebuildWaitTimer = timer
+}
+
+function placeWhatWaitedForMemory(state: VectorIndexState): void {
+  if (state.building || state.buildsKeptOut !== null) retryWhenMemoryAllows(state)
+  else triggerBuild(state)
 }
 
 export function startShuffledRebuild(state: VectorIndexState): void {
@@ -174,12 +209,16 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
 
   if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
 
-  await insertIntoGraph(state, graph, bufferSnapshot, admit)
-  startShuffledRebuild(state)
+  continueAfterGrowth(state, await placeInGrowingCopy(state, graph, bufferSnapshot, admit))
+}
+
+export function continueAfterGrowth(state: VectorIndexState, outcome: GrowingCopyOutcome): void {
+  if (outcome === 'waitingForMemory') retryWhenMemoryAllows(state)
+  else startShuffledRebuild(state)
 }
 
 export function triggerBuild(state: VectorIndexState): void {
-  if (state.building) return
+  if (state.building || state.buildsKeptOut !== null) return
   state.building = true
 
   const bufferSnapshot = turnsAreBudgeted ? null : new Set(state.buffer)
@@ -237,6 +276,17 @@ function armBuildTimer(state: VectorIndexState, delayMs: number, run: () => void
   state.buildTimer = timer
 }
 
+function connectAfterUnfinishedPass(state: VectorIndexState, graph: HNSWIndex): void {
+  graph.connectUnreached()
+  state.graphsPlacedIntoSinceConnect.delete(graph)
+  noteWrite(state)
+}
+
+export function connectWhereAPassStoppedEarly(state: VectorIndexState): void {
+  const graph = state.hnsw
+  if (graph !== null && state.graphsPlacedIntoSinceConnect.has(graph)) connectAfterUnfinishedPass(state, graph)
+}
+
 function retryAfterBackoff(state: VectorIndexState): void {
   const delayMs = Math.min(BUILD_RETRY_MAX_DELAY_MS, Math.max(BUILD_RETRY_FIRST_DELAY_MS, state.buildRetryDelayMs * 2))
   state.buildRetryDelayMs = delayMs
@@ -244,7 +294,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
   state.buildTimer = null
   armBuildTimer(state, delayMs, () => {
     const graph = state.hnsw
-    if (state.building) {
+    if (state.building || state.buildsKeptOut !== null) {
       retryAfterBackoff(state)
       return
     }
@@ -253,8 +303,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
       return
     }
     try {
-      graph.connectUnreached()
-      noteWrite(state)
+      connectAfterUnfinishedPass(state, graph)
       state.buildRetryDelayMs = 0
       scheduleWorkerCopyLoad(state)
     } catch (error) {
@@ -267,12 +316,13 @@ function retryAfterBackoff(state: VectorIndexState): void {
 function buildDue(state: VectorIndexState): boolean {
   if (state.hnsw === null) return liveSize(state) >= state.promotionThreshold
   if (state.buffer.size === 0) return false
+  if (state.waitingForMemory && state.rebuildWaitTimer !== null) return false
   if (state.workerCopies.enabled && state.workerCopies.host !== undefined) return true
   return state.buffer.size >= state.promotionThreshold
 }
 
 export function scheduleBuild(state: VectorIndexState): void {
-  if (state.building || state.buildScheduled || state.disposed) return
+  if (state.building || state.buildScheduled || state.disposed || state.buildsKeptOut !== null) return
   if (!buildDue(state)) return
 
   state.buildScheduled = true
@@ -297,6 +347,7 @@ function releaseHeldMemory(state: VectorIndexState): void {
   state.store.release()
   state.hnsw = null
   state.freshGraph = null
+  state.growingCopy = null
   state.osq = null
   state.tombstones.clear()
   state.buffer.clear()
@@ -308,6 +359,7 @@ function releaseHeldMemory(state: VectorIndexState): void {
 
 export function disposeIndex(state: VectorIndexState): Promise<void> {
   state.disposed = true
+  letBuildsIn(state)
   if (state.rebuildWaitTimer !== null) clearTimeout(state.rebuildWaitTimer)
   state.rebuildWaitTimer = null
   if (state.buildTimer !== null) clearTimeout(state.buildTimer)

@@ -131,6 +131,8 @@ An implementation must raise `DOC_VALIDATION_FAILED` for a document whose ID, fi
 
 An implementation must raise `DOC_VALIDATION_FAILED` when a caller writes a document whose MessagePack encoding, vector values included, is longer than 16,777,216 bytes, so that a [keyword segment](#keyword-segment-payload) that holds the document alone stays inside the [file size](#file-size) limit.
 
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose vector value holds an element that is not a number, or an element whose nearest float32, rounding to nearest with ties to even, is infinite or NaN. A [vector file](#vector-file-payload) stores each element as a float32, so a value such as 1e39, which a float64 holds, can otherwise become an infinite element that makes every distance to that vector infinite or NaN.
+
 An implementation must raise `DOC_VALIDATION_FAILED` for a document ID that is empty or longer than 512 UTF-16 code units, so that every line of a [document export](durability.md#document-export) stays inside the length that a reader must accept.
 
 ### Surface Forms
@@ -453,6 +455,8 @@ Byte `i` of `levels` in part `p` describes vector `p * 16384 + i`, and it must h
 `calibratedMeanLength` is the length of the plain mean of the unit vectors that the quantiser of a quantised cosine field last calibrated from, as [Calibration Drift](vector-index.md#calibration-drift) defines. A writer must write it only beside `shuffledBuildCount`, and only for a quantised cosine field. A reader must reject a value that is negative or not finite with `PERSISTENCE_LOAD_FAILED`.
 
 At the largest `m` of 512 and the highest top layer of 32 that [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world) allows, the lists of one node fill at most 69,765 bytes, so a part of 16,384 vectors holds at most about 1.14 GB and stays inside the [file size](#file-size) limit.
+
+A reader must count the upper-layer lists of each graph across all of its parts, which is the sum of every node's top layer, and it must reject the field with `PERSISTENCE_LOAD_FAILED` when that count passes `4 * n / (m - 1) + 64`, where `n` is the number of nodes in the graph. Each upper-layer list takes `(m + 2) * 4` bytes once a reader loads it into [shared memory](vector-index.md#shared-memory), while the file stores an empty list in 4 bytes, so without this bound a part of a few megabytes can make a reader commit gigabytes. [Layer assignment](algorithms.md#graph-structure) gives a node at most `1 / (m - 1)` upper-layer lists on average, so a graph that the distribution built stays far inside the bound. A reader must reject with `PERSISTENCE_LOAD_FAILED` a graph whose `m` is not a whole number from 2 to 512, and that includes the graph file of an [earlier release](durability.md#earlier-layouts), because engine 0.3.0 accepted an `m` of 1, and the bound above divides by `m - 1`.
 
 A reader must skip a neighbour that is a vector with no node or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
 

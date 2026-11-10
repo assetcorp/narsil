@@ -13,6 +13,7 @@ import {
   normaliseBan,
   requireFieldsInSchema,
   resolveSetting,
+  unionOfBans,
   validateSetting,
   withState,
 } from '#platform/suggestions-host'
@@ -167,7 +168,7 @@ function updateBans(runtime: QuerySuggestionsRuntime, indexName: string, raw: un
 function removeQuery(runtime: QuerySuggestionsRuntime, indexName: string, raw: unknown): Promise<number> {
   const phrase = normaliseBan(raw)
   return runtime.withWriteLock(indexName, async () => {
-    await banPhrases(runtime, indexName, current => (current.includes(phrase) ? [...current] : [...current, phrase]))
+    await banPhrases(runtime, indexName, current => unionOfBans(current, [phrase]))
     return removeFromSuggestions(runtime, indexName, [phrase])
   })
 }

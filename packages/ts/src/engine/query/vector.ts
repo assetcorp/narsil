@@ -1,7 +1,6 @@
 import {
   bindSearchSignal,
   ErrorCodes,
-  MIN_OVERSAMPLE,
   NarsilError,
   RESULT_WINDOW,
   requirePinnedState,
@@ -17,19 +16,6 @@ import type { FilteredSearch } from './filter-subsets'
 import type { SearchContext } from './shared'
 import { filterSubsetsMatchNothing, searchCurrentSubsets } from './subset-search'
 import type { VectorQueryHost } from './vector-query-host'
-
-export function oversampleOf(vectorConfig: VectorQueryConfig): number | undefined {
-  const oversample: unknown = vectorConfig.oversample
-  if (oversample === undefined) return undefined
-  if (typeof oversample !== 'number' || !Number.isFinite(oversample) || oversample < MIN_OVERSAMPLE) {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      `vector.oversample must be a finite number of at least ${MIN_OVERSAMPLE}`,
-      { oversample },
-    )
-  }
-  return oversample
-}
 
 export function vectorFetchDepth(limit: number, offset: number, cursorDepth: number): number {
   const reach = cursorDepth + offset + limit
@@ -79,7 +65,7 @@ async function searchField(search: FieldSearch, k: number, host: VectorQueryHost
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     efSearch: vectorConfig.efSearch,
-    oversample: oversampleOf(vectorConfig),
+    oversample: vectorConfig.oversample,
     ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
   }
   if (filtered !== undefined) {
