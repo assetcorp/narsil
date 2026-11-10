@@ -4,6 +4,7 @@
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_expansion.h"
 #include "../../include/narsil_terms.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "../terms/dictionary.h"
 #include "../terms/scratch.h"
@@ -51,7 +52,7 @@ narsil_status expansion_add(expansion_scratch *scratch, const narsil_expansion_s
     if (scratch->capacity > SIZE_MAX / 2) { return NARSIL_OUT_OF_MEMORY; }
     size_t capacity = scratch->capacity == 0 ? FIRST_CANDIDATES : scratch->capacity * 2;
     if (capacity > SIZE_MAX / sizeof *scratch->candidates) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(scratch->candidates, capacity * sizeof *scratch->candidates);
+    void *grown = core_reallocate(scratch->candidates, capacity * sizeof *scratch->candidates);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->candidates = grown;
     scratch->capacity = capacity;

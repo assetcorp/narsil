@@ -5,7 +5,6 @@
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #define NEAREST_LINK_FALLBACK_HOSTS 4U
 #define NEAREST_NOT_YET_FOUND (-2)
@@ -125,15 +124,9 @@ static int link_from(const nearest_pass *pass, back_link link) {
   return linked;
 }
 
-narsil_status link_from_nearest(const walk_context *context) {
+void link_from_nearest(const walk_context *context, int32_t *nearest_of, int32_t *anchored_by) {
   size_t slots = context->slots;
-  size_t allocated = (slots == 0 ? 1 : slots) * sizeof(int32_t);
-  nearest_pass pass = {context, malloc(allocated), malloc(allocated)};
-  if (pass.nearest == NULL || pass.anchored_by == NULL) {
-    free(pass.nearest);
-    free(pass.anchored_by);
-    return NARSIL_OUT_OF_MEMORY;
-  }
+  nearest_pass pass = {context, nearest_of, anchored_by};
   for (size_t i = 0; i < slots; i++) {
     pass.nearest[i] = NEAREST_NOT_YET_FOUND;
     pass.anchored_by[i] = NO_NODE;
@@ -155,7 +148,4 @@ narsil_status link_from_nearest(const walk_context *context) {
       if (link_from(&pass, link)) { break; }
     }
   }
-  free(pass.nearest);
-  free(pass.anchored_by);
-  return NARSIL_OK;
 }

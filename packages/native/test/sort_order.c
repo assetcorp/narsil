@@ -1,10 +1,13 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
 #include "../include/narsil_sort_order.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -64,6 +67,27 @@ static void prepare(order_fixture *fixture) {
                                                1,
                                                fixture->counts,
                                                SORT_COUNTS};
+}
+
+static void *prepare_refused_sort_order(void) {
+  order_fixture *fixture = calloc(1, sizeof *fixture);
+  if (fixture != NULL) { prepare(fixture); }
+  return fixture;
+}
+
+static narsil_status refused_sort_order(narsil_workspace *workspace, void *opaque) {
+  order_fixture *fixture = opaque;
+  return narsil_build_sort_order(workspace, &fixture->current, fixture->live, 1, &fixture->output);
+}
+
+static uint64_t digest_refused_sort_order(const void *opaque) {
+  return digest_bytes(DIGEST_START, opaque, offsetof(order_fixture, current));
+}
+
+void sort_order_allocation_failures(void) {
+  const failing_call call = {"a sort order", prepare_refused_sort_order, refused_sort_order, digest_refused_sort_order,
+                             free};
+  refuse_each_allocation(&call);
 }
 
 static void refusal(narsil_workspace *workspace, order_fixture *fixture, narsil_status expected) {
