@@ -18,7 +18,7 @@
         "embedding": "vector[8]"
       },
       "language": "english",
-      "analysisRevision": "ebae3448ae674b59",
+      "analysisRevision": "4026533016c7f4b1",
       "arrayPositionGap": 100,
       "bm25": {
         "k1": 1.4,
