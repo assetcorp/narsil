@@ -73,9 +73,7 @@ fn orders_after_anchor(
             let key = owned_key(run, plan, hit.location)?;
             let theirs: Vec<OwnedSortValue> =
                 anchor_key.iter().map(OwnedSortValue::of_cursor).collect();
-            let own: Vec<_> = key.iter().map(OwnedSortValue::borrowed).collect();
-            let theirs: Vec<_> = theirs.iter().map(OwnedSortValue::borrowed).collect();
-            plan.compare(&own, &theirs)
+            plan.compare(&key, &theirs)?
         }
         _ => Ordering::Equal,
     };

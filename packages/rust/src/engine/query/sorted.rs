@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use super::cursor::{PageCursor, decode_page_cursor, encode_page_cursor, require_matching_cursor};
 use super::documents::Location;
 use super::facets::count_facets;
 use super::gather::{QueryRun, collected_segments, search_text};
 use super::params::{QueryParams, TermMatch};
 use super::results::FacetResult;
-use super::sort_candidates::{Candidate, Gathered, SortAnchor, gather_segment, key_columns};
+use super::sort_candidates::{SortAnchor, select_segment};
 use super::sort_keys::SortPlan;
 use crate::error::Result;
-use crate::ordering::{KeyColumn, OwnedSortValue, SortValue};
+use crate::ordering::{KeyBatch, OwnedSortValue};
 
 pub(crate) struct SortedPage {
     pub(crate) hits: Vec<(String, Location)>,
@@ -29,40 +27,33 @@ pub(crate) fn sorts_without_scores(params: &QueryParams) -> bool {
             .is_none_or(|policy| policy == TermMatch::Any)
 }
 
-struct Anchor {
-    id: String,
-    key: Vec<OwnedSortValue>,
-}
-
-fn anchor_of(run: &QueryRun<'_>, signature: &str) -> Result<Option<Anchor>> {
+fn anchor_of(
+    run: &QueryRun<'_>,
+    plan: &SortPlan<'_>,
+    signature: &str,
+) -> Result<Option<SortAnchor>> {
     let Some(text) = run.params.search_after.as_deref() else {
         return Ok(None);
     };
     let decoded = decode_page_cursor(text)?;
     require_matching_cursor(&decoded, Some(signature), true, run.binding())?;
-    Ok(Some(Anchor {
-        id: decoded.anchor,
-        key: decoded
-            .sort_key
-            .unwrap_or_default()
-            .iter()
-            .map(OwnedSortValue::of_cursor)
-            .collect(),
-    }))
+    let key = decoded
+        .sort_key
+        .unwrap_or_default()
+        .iter()
+        .map(OwnedSortValue::of_cursor)
+        .collect();
+    SortAnchor::of(decoded.anchor, key, plan.width()).map(Some)
 }
 
-fn cursor_after(
-    run: &QueryRun<'_>,
-    last: &Candidate<'_>,
-    key: &[SortValue<'_>],
-    signature: &str,
-) -> String {
+fn cursor_after(run: &QueryRun<'_>, id: &str, key: &[OwnedSortValue], signature: &str) -> String {
     encode_page_cursor(&PageCursor {
-        anchor: last.id.to_string(),
+        anchor: id.to_string(),
         score: None,
         sort_key: Some(
             key.iter()
-                .map(|value| value.owned().cursor_value())
+                .cloned()
+                .map(OwnedSortValue::cursor_value)
                 .collect(),
         ),
         sort_signature: Some(signature.to_string()),
@@ -76,12 +67,7 @@ pub(crate) fn sorted_query_page(
     plan: &SortPlan<'_>,
     signature: &str,
 ) -> Result<SortedPage> {
-    let anchor = anchor_of(run, signature)?;
-    let width = plan.width();
-    let sort_anchor = anchor.as_ref().map(|anchor| {
-        let values: Vec<SortValue<'_>> = anchor.key.iter().map(OwnedSortValue::borrowed).collect();
-        SortAnchor::of(anchor.id.as_str(), &values, width)
-    });
+    let anchor = anchor_of(run, plan, signature)?;
     let outcome = search_text(run, run.params, true, true)?;
     let segments = collected_segments(&run.snapshots, &outcome.matched);
     let count: u64 = segments
@@ -98,48 +84,30 @@ pub(crate) fn sorted_query_page(
         Some(_) => Some(count_facets(run.index, run.params, &segments)?),
         None => None,
     };
-    let columns = segments
-        .iter()
-        .map(|segment| key_columns(segment.entry, plan))
-        .collect::<Result<Vec<Vec<Arc<KeyColumn>>>>>()?;
     let wanted = run.offset.saturating_add(run.limit).saturating_add(1);
-    let mut gathered = Gathered {
-        keys: Vec::new(),
-        candidates: Vec::new(),
-    };
-    for (segment, columns) in segments.iter().zip(&columns) {
-        gather_segment(
-            &mut gathered,
-            segment,
-            columns,
-            plan,
-            sort_anchor.as_ref(),
-            wanted,
-        )?;
+    let mut selected = Vec::new();
+    for segment in &segments {
+        selected.extend(select_segment(segment, plan, anchor.as_ref(), wanted)?);
     }
-    let Gathered {
-        keys,
-        mut candidates,
-    } = gathered;
-    let order = |left: &Candidate<'_>, right: &Candidate<'_>| {
-        plan.compare(
-            &keys[left.key_at..left.key_at + width],
-            &keys[right.key_at..right.key_at + width],
-        )
-        .then_with(|| left.id.cmp(&right.id))
-    };
-    if candidates.len() > wanted {
-        candidates.select_nth_unstable_by(wanted - 1, order);
-        candidates.truncate(wanted);
+    let mut batch = KeyBatch::new(plan.width());
+    for candidate in &selected {
+        batch.push_key(&candidate.key)?;
     }
-    candidates.sort_unstable_by(order);
-    let has_more = candidates.len() > run.offset.saturating_add(run.limit);
-    let page: Vec<&Candidate<'_>> = candidates.iter().skip(run.offset).take(run.limit).collect();
+    let ranked = batch.ranked()?;
+    let mut order: Vec<usize> = (0..selected.len()).collect();
+    order.sort_unstable_by(|&left, &right| {
+        ranked
+            .compare(left, right, &plan.directions)
+            .then_with(|| selected[left].id.cmp(&selected[right].id))
+    });
+    order.truncate(wanted);
+    let has_more = order.len() > run.offset.saturating_add(run.limit);
+    let page: Vec<usize> = order.into_iter().skip(run.offset).take(run.limit).collect();
     let cursor = match (has_more, page.last()) {
-        (true, Some(last)) => Some(cursor_after(
+        (true, Some(&last)) => Some(cursor_after(
             run,
-            last,
-            &keys[last.key_at..last.key_at + width],
+            &selected[last].id,
+            &selected[last].key,
             signature,
         )),
         _ => None,
@@ -147,7 +115,7 @@ pub(crate) fn sorted_query_page(
     Ok(SortedPage {
         hits: page
             .iter()
-            .map(|candidate| (candidate.id.to_string(), candidate.location))
+            .map(|&at| (selected[at].id.clone(), selected[at].location))
             .collect(),
         count,
         cursor,
