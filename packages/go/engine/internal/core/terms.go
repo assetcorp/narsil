@@ -66,6 +66,7 @@ type TermDictionary struct {
 	Offsets     []uint32
 	Frequencies []uint32
 	Removed     []uint32
+	ExactSlots  []int32
 }
 
 type termDictionaryNative struct {
@@ -77,14 +78,16 @@ func (d *TermDictionary) native(held *pins) *termDictionaryNative {
 	holder := new(termDictionaryNative)
 	held.pinner.Pin(holder)
 	holder.dictionary = C.narsil_term_dictionary{
-		tokens:          (*C.uint8_t)(pinned(held, d.Tokens)),
-		token_bytes:     C.size_t(len(d.Tokens)),
-		offsets:         (*C.uint32_t)(pinned(held, d.Offsets)),
-		offset_count:    C.size_t(len(d.Offsets)),
-		frequencies:     (*C.uint32_t)(pinned(held, d.Frequencies)),
-		frequency_count: C.size_t(len(d.Frequencies)),
-		removed:         (*C.uint32_t)(pinned(held, d.Removed)),
-		removed_count:   C.size_t(len(d.Removed)),
+		tokens:           (*C.uint8_t)(pinned(held, d.Tokens)),
+		token_bytes:      C.size_t(len(d.Tokens)),
+		offsets:          (*C.uint32_t)(pinned(held, d.Offsets)),
+		offset_count:     C.size_t(len(d.Offsets)),
+		frequencies:      (*C.uint32_t)(pinned(held, d.Frequencies)),
+		frequency_count:  C.size_t(len(d.Frequencies)),
+		removed:          (*C.uint32_t)(pinned(held, d.Removed)),
+		removed_count:    C.size_t(len(d.Removed)),
+		exact_slots:      (*C.int32_t)(pinned(held, d.ExactSlots)),
+		exact_slot_count: C.size_t(len(d.ExactSlots)),
 	}
 	if d.Growing != nil {
 		holder.growing = d.Growing.native(held)
