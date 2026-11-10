@@ -36,9 +36,13 @@ impl SegmentEntry {
         words
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn text_range(&self, path: &str, bounds: &TextRangeBounds<'_>) -> Result<Vec<u32>> {
+    pub(crate) fn text_range(
+        &self,
+        path: &str,
+        bounds: &TextRangeBounds<'_>,
+        live: &[u32],
+    ) -> Result<Vec<u32>> {
         let column = self.sort_column(path, SortMode::Min)?;
-        text_range(&column.view(), bounds, &self.live_bits())
+        text_range(&column.view(), bounds, live)
     }
 }

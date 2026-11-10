@@ -1,10 +1,10 @@
 use super::geo_checks::metres_per_unit;
 use super::plan_values::{element_plan, pattern_plan, size_plan, value_plan};
 use super::program::FilterProgram;
-use super::text_range::{TextBound, text_range_bits};
 use super::tree::{FieldNode, FilterNode};
 use crate::error::Result;
 use crate::ffi;
+use crate::ordering::TextRangeBounds;
 use crate::schema::BaseType;
 use crate::value::{Map, Value};
 
@@ -184,18 +184,13 @@ fn location_plan(
 
 fn text_range(
     node: &FieldNode,
-    lower: Option<TextBound<'_>>,
-    upper: Option<TextBound<'_>>,
+    bounds: &TextRangeBounds<'_>,
     program: &mut FilterProgram<'_>,
     joined: &mut Conjunction,
 ) -> Result<()> {
-    let bits = text_range_bits(
-        program.entry(),
-        &node.path,
-        lower.as_ref(),
-        upper.as_ref(),
-        program.live(),
-    )?;
+    let bits = program
+        .entry()
+        .text_range(&node.path, bounds, program.live())?;
     program.bitset(bits);
     joined.append(program);
     Ok(())
@@ -210,27 +205,33 @@ fn text_range_plan(
         let Some(bound) = text(&node.tests, operator) else {
             continue;
         };
-        let bound = Some(TextBound {
-            text: bound,
-            inclusive: matches!(operator, "gte" | "lte"),
-        });
-        match operator {
-            "gt" | "gte" => text_range(node, bound, None, program, joined)?,
-            _ => text_range(node, None, bound, program, joined)?,
-        }
+        let inclusive = matches!(operator, "gte" | "lte");
+        let bounds = match operator {
+            "gt" | "gte" => TextRangeBounds {
+                lower: Some(bound),
+                lower_inclusive: inclusive,
+                upper: None,
+                upper_inclusive: false,
+            },
+            _ => TextRangeBounds {
+                lower: None,
+                lower_inclusive: false,
+                upper: Some(bound),
+                upper_inclusive: inclusive,
+            },
+        };
+        text_range(node, &bounds, program, joined)?;
     }
-    if let Some(Value::Array(bounds)) = node.tests.get("between") {
-        if let [Value::String(low), Value::String(high)] = bounds.as_slice() {
-            let lower = TextBound {
-                text: low,
-                inclusive: true,
-            };
-            let upper = TextBound {
-                text: high,
-                inclusive: true,
-            };
-            text_range(node, Some(lower), Some(upper), program, joined)?;
-        }
+    if let Some(Value::Array(bounds)) = node.tests.get("between")
+        && let [Value::String(low), Value::String(high)] = bounds.as_slice()
+    {
+        let bounds = TextRangeBounds {
+            lower: Some(low),
+            lower_inclusive: true,
+            upper: Some(high),
+            upper_inclusive: true,
+        };
+        text_range(node, &bounds, program, joined)?;
     }
     Ok(())
 }
