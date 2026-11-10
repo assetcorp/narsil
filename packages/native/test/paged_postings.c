@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
@@ -274,19 +275,14 @@ static void position_checks(narsil_workspace *workspace, const narsil_paged_file
         "position output regions cannot overlap");
 }
 
-void paged_posting_checks(narsil_workspace *workspace) {
-  char path[] = "/tmp/narsil-paged-postings-XXXXXX";
+static int write_posting_file(char *path) {
   int descriptor = mkstemp(path);
-  if (descriptor < 0) {
-    check(0, "the paged posting fixture opens its file");
-    return;
-  }
+  if (descriptor < 0) { return 0; }
   FILE *stream = fdopen(descriptor, "wb");
   if (stream == NULL) {
     (void)close(descriptor);
     (void)unlink(path);
-    check(0, "the paged posting fixture opens its stream");
-    return;
+    return 0;
   }
   int written = fwrite(POSTINGS, 1, sizeof POSTINGS, stream) == sizeof POSTINGS &&
                 fwrite(POSITIONS, 1, sizeof POSITIONS, stream) == sizeof POSITIONS &&
@@ -295,8 +291,96 @@ void paged_posting_checks(narsil_workspace *workspace) {
                 fwrite(WRITE_RECORDS, 1, sizeof WRITE_RECORDS, stream) == sizeof WRITE_RECORDS &&
                 fwrite(TOTALS, 1, sizeof TOTALS, stream) == sizeof TOTALS;
   int closed = fclose(stream) == 0;
+  if (!written || !closed) {
+    (void)unlink(path);
+    return 0;
+  }
+  return 1;
+}
+
+enum { POSITION_WORDS = 3, POSITION_ROWS = 2, PAGED_PATH_BYTES = 64 };
+
+static const char PAGED_POSTING_PATH[] = "/tmp/narsil-paged-postings-XXXXXX";
+
+typedef struct {
+  char path[PAGED_PATH_BYTES];
+  narsil_paged_file *file;
+  narsil_paged_file *opened;
+  uint64_t opened_length;
+  uint32_t offsets[POSITION_WORDS];
+  uint32_t values[POSITION_WORDS];
+  narsil_page_fault fault;
+} paged_posting_inputs;
+
+static void release_paged_postings(void *opaque) {
+  paged_posting_inputs *inputs = opaque;
+  narsil_paged_file_close(inputs->opened);
+  narsil_paged_file_close(inputs->file);
+  (void)unlink(inputs->path);
+  free(inputs);
+}
+
+static void *prepare_paged_postings(void) {
+  paged_posting_inputs *inputs = calloc(1, sizeof *inputs);
+  if (inputs == NULL) { return NULL; }
+  memcpy(inputs->path, PAGED_POSTING_PATH, sizeof PAGED_POSTING_PATH);
+  if (!write_posting_file(inputs->path)) {
+    free(inputs);
+    return NULL;
+  }
+  if (narsil_paged_file_open(inputs->path, &inputs->file) != NARSIL_OK) {
+    release_paged_postings(inputs);
+    return NULL;
+  }
+  return inputs;
+}
+
+static narsil_status open_refused_file(narsil_workspace *workspace, void *opaque) {
+  (void)workspace;
+  paged_posting_inputs *inputs = opaque;
+  narsil_status status = narsil_paged_file_open(inputs->path, &inputs->opened);
+  inputs->opened_length = narsil_paged_file_length(inputs->opened);
+  return status;
+}
+
+static narsil_status read_refused_positions(narsil_workspace *workspace, void *opaque) {
+  paged_posting_inputs *inputs = opaque;
+  narsil_page_section offsets = {inputs->file,           sizeof POSTINGS, POSITION_WORDS * sizeof(uint32_t),
+                                 NARSIL_PAGE_SLOT_BYTES, OFFSET_CHECKSUM, sizeof OFFSET_CHECKSUM};
+  narsil_page_section values = {inputs->file,
+                                sizeof POSTINGS + offsets.length,
+                                POSITION_WORDS * sizeof(uint32_t),
+                                NARSIL_PAGE_SLOT_BYTES,
+                                VALUE_CHECKSUM,
+                                sizeof VALUE_CHECKSUM};
+  narsil_paged_position_list list = {&offsets, &values, 0, POSITION_ROWS};
+  narsil_paged_position_output output = {inputs->offsets, POSITION_WORDS, inputs->values, POSITION_WORDS};
+  return narsil_read_paged_positions(workspace, NULL, list, output, &inputs->fault);
+}
+
+static uint64_t digest_paged_postings(const void *opaque) {
+  const paged_posting_inputs *inputs = opaque;
+  uint64_t digest = digest_word(DIGEST_START, inputs->opened_length);
+  digest = digest_bytes(digest, inputs->offsets, sizeof inputs->offsets);
+  digest = digest_bytes(digest, inputs->values, sizeof inputs->values);
+  return digest_word(digest_word(digest, inputs->fault.section), inputs->fault.page);
+}
+
+void paged_posting_allocation_failures(void) {
+  const failing_call calls[] = {
+      {"a paged file opening", prepare_paged_postings, open_refused_file, digest_paged_postings,
+       release_paged_postings},
+      {"a paged position read", prepare_paged_postings, read_refused_positions, digest_paged_postings,
+       release_paged_postings},
+  };
+  for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
+}
+
+void paged_posting_checks(narsil_workspace *workspace) {
+  char path[] = "/tmp/narsil-paged-postings-XXXXXX";
+  int written = write_posting_file(path);
   narsil_paged_file *file = NULL;
-  check(written && closed && narsil_paged_file_open(path, &file) == NARSIL_OK, "the posting fixture is readable");
+  check(written && narsil_paged_file_open(path, &file) == NARSIL_OK, "the posting fixture is readable");
   if (file == NULL) {
     (void)unlink(path);
     return;
@@ -335,6 +419,8 @@ void paged_posting_checks(narsil_workspace *workspace) {
 }
 
 #else
+
+void paged_posting_allocation_failures(void) {}
 
 void paged_posting_checks(narsil_workspace *workspace) { (void)workspace; }
 

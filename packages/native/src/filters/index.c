@@ -1,5 +1,6 @@
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_filters.h"
+#include "../allocation.h"
 #include "../regions.h"
 #include "constants.h"
 #include "geo.h"
@@ -7,7 +8,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 narsil_status reserve_filter_scratch(filter_scratch *scratch, size_t words) {
@@ -21,7 +21,7 @@ narsil_status reserve_filter_scratch(filter_scratch *scratch, size_t words) {
     }
     capacity *= 2;
   }
-  uint32_t *held = realloc(scratch->words, capacity * sizeof *held);
+  uint32_t *held = core_reallocate(scratch->words, capacity * sizeof *held);
   if (held == NULL) { return NARSIL_OUT_OF_MEMORY; }
   scratch->words = held;
   scratch->capacity = capacity;
@@ -109,7 +109,7 @@ narsil_status narsil_evaluate_filter(narsil_workspace *workspace, const narsil_f
   }
   if (edges > scratch->geo.capacity) {
     if (edges > SIZE_MAX / sizeof *scratch->geo.edges) { return NARSIL_OUT_OF_MEMORY; }
-    filter_geo_edge *held = realloc(scratch->geo.edges, edges * sizeof *held);
+    filter_geo_edge *held = core_reallocate(scratch->geo.edges, edges * sizeof *held);
     if (held == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->geo.edges = held;
     scratch->geo.capacity = edges;

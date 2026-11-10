@@ -2,6 +2,9 @@
  * Copied from runtime/api.c by the Snowball compiler 3.1.1, with each symbol widened to a
  * UTF-16 code unit so that the stemmer reads the same units as the TypeScript stemmer.
  *
+ * Each malloc and realloc call goes through core_allocate and core_reallocate in src/allocation.h, so that the
+ * allocation-failure test in packages/native/test can refuse it.
+ *
  * Snowball is BSD-3-Clause, copyright (c) 2001, Dr Martin Porter and contributors. The NOTICE file at the root
  * of the repository carries the licence. Source from https://github.com/snowballstem/snowball.git at
  * 6772636350acfd63797e8cd24ff86c70fd2df6fc, verified against https://github.com/snowballstem/snowball-data.git at
@@ -15,6 +18,8 @@
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #endif
 
+#include "../../allocation.h"
+
 
 #include <stdlib.h> /* for malloc, free */
 #include <string.h> /* for memset */
@@ -22,7 +27,7 @@
 
 extern struct SN_env * SN_new_env(int alloc_size)
 {
-    struct SN_env * z = (struct SN_env *) malloc(alloc_size);
+    struct SN_env * z = (struct SN_env *) core_allocate(alloc_size);
     if (z == NULL) return NULL;
     /* This memset() will initialise z->p to all-bits-zero which (at least
      * theoretically) may not be the NULL pointer representation, but that's OK

@@ -1,6 +1,7 @@
 #include "runs.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "pools.h"
 #include "strings.h"
@@ -51,9 +52,9 @@ static narsil_status reserve_runs(segment_run_plan *plan, size_t count) {
   if (held > SIZE_MAX / width || slots > (SIZE_MAX - (held * width)) / sizeof(uint32_t)) {
     return NARSIL_OUT_OF_MEMORY;
   }
-  segment_run_member *members = malloc(held * sizeof *members);
-  segment_run_change *changes = malloc(held * sizeof *changes);
-  uint32_t *positions = malloc(slots * sizeof *positions);
+  segment_run_member *members = core_allocate(held * sizeof *members);
+  segment_run_change *changes = core_allocate(held * sizeof *changes);
+  uint32_t *positions = core_allocate(slots * sizeof *positions);
   if (members == NULL || changes == NULL || positions == NULL) {
     free(members);
     free(changes);

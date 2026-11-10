@@ -1,6 +1,7 @@
 #include "unicode.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../thread_yield.h"
 
 #include <stdatomic.h>
@@ -64,7 +65,7 @@ static int build_property_index(void) {
   }
   supplementary_run_count = narsil_unicode_property_runs_length - first_supplementary;
   if (supplementary_run_count == 0) { return NARSIL_OK; }
-  supplementary_starts = malloc((size_t)supplementary_run_count * sizeof(uint32_t));
+  supplementary_starts = core_allocate((size_t)supplementary_run_count * sizeof(uint32_t));
   if (supplementary_starts == NULL) { return NARSIL_OUT_OF_MEMORY; }
   supplementary_runs = &narsil_unicode_property_runs[first_supplementary];
   start = 0;
@@ -79,7 +80,7 @@ static int build_compositions(void) {
   uint32_t entries = narsil_unicode_decompositions_length / DECOMPOSITION_STRIDE;
   composition_count = 0;
   if (entries == 0) { return NARSIL_OK; }
-  compositions = malloc((size_t)entries * sizeof(composition_entry));
+  compositions = core_allocate((size_t)entries * sizeof(composition_entry));
   if (compositions == NULL) { return NARSIL_OUT_OF_MEMORY; }
   for (uint32_t entry = 0; entry < entries; entry++) {
     const uint32_t *row = &narsil_unicode_decompositions[(size_t)entry * DECOMPOSITION_STRIDE];
