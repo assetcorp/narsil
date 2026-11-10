@@ -36,6 +36,7 @@ import {
   restoredEmbedding,
   type SnapshotEnvelope,
 } from './restore-config'
+import { nestedSchemaOf } from './stored-schema'
 
 export interface RestoreDeps {
   executor: Executor & DirectExecutorExtensions & IndexReplacement
@@ -91,7 +92,7 @@ export function prepareRestoredIndex(
   const embedding = restoredEmbedding(configuration.embedding, reject)
   const languageName = configuration.language ?? ''
   const language = getLanguage(languageName)
-  const schema = validateSchema(configuration.schema as SchemaDefinition)
+  const schema = validateSchema(nestedSchemaOf(configuration.schema))
   validatePatternValueLimit(configFields.patternValueLimit)
   requireSurfaceFormsForPartialFields(schema, configFields.surfaceForms)
   validateVectorPromotion(configFields.vectorPromotion)
