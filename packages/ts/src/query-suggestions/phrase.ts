@@ -10,6 +10,7 @@ export interface PhraseLimits {
 const APOSTROPHE_VARIANTS = /[\u2018\u2019\u02bc]/g
 const HYPHEN_VARIANTS = /[\u2010\u2011]/g
 const WHITE_SPACE_RUNS = /\p{White_Space}+/gu
+const EDGE_SPACES = /^ | $/g
 const ALLOWED_PHRASE = /^[\p{L}\p{M}\p{Nd} '-]+$/u
 const LETTER = /\p{L}/gu
 const DIGIT = /\p{Nd}/gu
@@ -41,12 +42,12 @@ export function normalisePhrase(raw: string, maxLength: number): string | null {
     .replace(APOSTROPHE_VARIANTS, "'")
     .replace(HYPHEN_VARIANTS, '-')
     .replace(WHITE_SPACE_RUNS, ' ')
-    .trim()
+    .replace(EDGE_SPACES, '')
 }
 
 export function phraseFits(phrase: string, limits: PhraseLimits): boolean {
   if (phrase.length === 0 || phrase.length > limits.maxLength * 2) return false
-  if (phrase !== phrase.trim() || phrase.includes('  ')) return false
+  if (phrase.startsWith(' ') || phrase.endsWith(' ') || phrase.includes('  ')) return false
   if (!ALLOWED_PHRASE.test(phrase)) return false
   if (codePointCount(phrase, limits.maxLength) > limits.maxLength) return false
   if (phrase.split(' ').length > limits.maxWords) return false
