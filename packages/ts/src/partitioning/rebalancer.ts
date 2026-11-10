@@ -19,8 +19,15 @@ export interface Rebalancer {
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
     spill?: RewriteSpill | null,
+    swapPartitions?: SwapPartitions,
   ): Promise<void>
   isRebalancing(): boolean
+}
+
+export type SwapPartitions = (manager: PartitionManager, partitions: PartitionIndex[]) => Promise<void>
+
+async function setPartitionsAtOnce(manager: PartitionManager, partitions: PartitionIndex[]): Promise<void> {
+  manager.setPartitions(partitions)
 }
 
 export function createRebalancer(): Rebalancer {
@@ -33,6 +40,7 @@ export function createRebalancer(): Rebalancer {
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
     spill: RewriteSpill | null = null,
+    swapPartitions: SwapPartitions = setPartitionsAtOnce,
   ): Promise<void> {
     if (activeManagers.has(manager)) {
       throw new NarsilError(
@@ -132,7 +140,7 @@ export function createRebalancer(): Rebalancer {
         documentsTotal,
       })
 
-      manager.setPartitions(newPartitions)
+      await swapPartitions(manager, newPartitions)
 
       onProgress?.({
         phase: 'complete',

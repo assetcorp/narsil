@@ -129,7 +129,7 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
     ])
   })
 
-  it('opens an index whose graph keeps one neighbour per node, and rebuilds that graph', async () => {
+  it('refuses an index whose graph file gives an m of 1, which no release ever saved', async () => {
     const directory = await roots.make('narsil-upgrade-single-neighbour-')
     await copyReleaseFixture('wal', directory)
     const metaPath = join(directory, 'products', 'meta')
@@ -149,20 +149,10 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
         graphs: (raw.graphs as Array<Record<string, unknown>>).map(graph => ({ ...graph, m: 1 })),
       })),
     )
-    const config = { workers: { enabled: false }, durability: { directory } }
-    const products = await expectedFixtureDocuments('wal-expected.json')
-    const target = products['doc-0002'].embedding as number[]
-
-    const engine = track(await createNarsil(config))
-    await expectFixtureDocuments(engine, 'products', products, 'embedding')
-    const nearest = await engine.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })
-    expect(nearest.hits[0]?.id).toBe('doc-0002')
-    await engine.shutdown()
-
-    const reopened = track(await createNarsil(config))
-    await expectFixtureDocuments(reopened, 'products', products, 'embedding')
-    const again = await reopened.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })
-    expect(again.hits[0]?.id).toBe('doc-0002')
+    await expect(createNarsil({ workers: { enabled: false }, durability: { directory } })).rejects.toMatchObject({
+      code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      message: expect.stringMatching(/m must be a whole number from 2 to 512/),
+    })
   })
 
   it('reports each upgrade during start-up to the listeners that the engine settings name', async () => {

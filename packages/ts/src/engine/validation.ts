@@ -1,5 +1,6 @@
 import { holdsUnpairedSurrogate } from '../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_PARTITIONS } from '../partitioning/constants'
 import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/constants'
 import { partialFieldsOf } from '../schema/validator'
 import { clampRowCount } from '../search/pagination'
@@ -107,6 +108,12 @@ export function validatePartitionConfig(partitions: {
   if (maxPartitions !== undefined && (!Number.isInteger(maxPartitions) || maxPartitions < 1)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.maxPartitions must be a positive integer', {
       maxPartitions,
+    })
+  }
+  if (maxPartitions !== undefined && maxPartitions > MAX_PARTITIONS) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `partitions.maxPartitions must be at most ${MAX_PARTITIONS}`, {
+      maxPartitions,
+      limit: MAX_PARTITIONS,
     })
   }
   if (watermark !== undefined && (typeof watermark !== 'number' || !(watermark > 0) || watermark > 1)) {

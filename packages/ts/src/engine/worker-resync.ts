@@ -207,6 +207,7 @@ export async function loadIndexOntoWorkers(
         requestId: `resync-create-${indexName}`,
         analysisStale,
         copyLoad,
+        partitionCount: captured.length,
         ...(source.synonyms !== null ? { synonyms: source.synonyms } : {}),
       }),
     ),

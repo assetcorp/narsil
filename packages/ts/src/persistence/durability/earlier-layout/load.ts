@@ -5,9 +5,9 @@ import { buildSegmentPayload } from '../../../core/partition/segment-builder'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
 import type { PartitionManager } from '../../../partitioning/manager'
+import { highestPartitionIdOf, requireSavedPartitionCount } from '../../../partitioning/saved-partitions'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
-import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndex } from '../../../vector/vector-index'
 import {
   decodeVectorFilePayload,
@@ -113,9 +113,7 @@ async function readGraph(store: CheckpointStore, ref: EarlierVectorFieldRef): Pr
     what: `graph file "${ref.graphKey}"`,
     allowsCompression: true,
   })
-  const graph = decodeVectorGraphPayload(decode(payload))
-  if (graph.graphs.some(numbered => numbered.m < MIN_M)) return null
-  return graphPartsOfEarlierPayload(graph)
+  return graphPartsOfEarlierPayload(decodeVectorGraphPayload(decode(payload)))
 }
 
 async function loadVectorField(
@@ -175,21 +173,10 @@ export async function loadEarlierLayout(
   manifest: EarlierManifest,
   deps: EarlierLoadDeps,
 ): Promise<EarlierLayoutLoaded> {
-  let highestPartitionId = manifest.partitions.length - 1
-  for (const partition of manifest.partitions) {
-    if (partition.partitionId > highestPartitionId) highestPartitionId = partition.partitionId
-  }
+  const highestPartitionId = highestPartitionIdOf(manifest.partitions)
+  requireSavedPartitionCount(highestPartitionId + 1, 'earlier segment manifest', indexName)
   growPartitionsTo(deps.manager, highestPartitionId)
-  for (const partition of manifest.partitions) {
-    if (partition.partitionId >= deps.manager.partitionCount) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest references partition ${partition.partitionId} beyond the partition count ${deps.manager.partitionCount}`,
-        { indexName, partitionId: partition.partitionId },
-      )
-    }
-    await loadPartition(store, indexName, partition, deps)
-  }
+  for (const partition of manifest.partitions) await loadPartition(store, indexName, partition, deps)
   const vectorFileRefs = new Map<string, FileRef>()
   for (const vector of manifest.vectors) {
     const vectorIndex = deps.vectorIndexes.get(vector.fieldPath)

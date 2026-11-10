@@ -1,25 +1,19 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { DEFAULT_MAX_PARTITIONS } from '../partitioning/constants'
 import type { PartitionManager } from '../partitioning/manager'
-import { createRebalancer } from '../partitioning/rebalancer'
+import { createRebalancer, type SwapPartitions } from '../partitioning/rebalancer'
 import { rewriteSpillOf } from '../partitioning/rewrite-spill-of'
 import type { PartitionRouter } from '../partitioning/router'
-import { createWriteAheadQueue, type WAQEntry, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
+import { createWriteAheadQueue, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
 import type { PluginRegistry } from '../plugins/registry'
 import type { PendingAnalysisMetadata } from '../types/internal'
-import type { AnyDocument, IndexConfig } from '../types/schema'
+import type { IndexConfig } from '../types/schema'
 import type { DurableAnalysis, EventHandler } from './core'
 import { emitEngineEvent } from './events'
 import type { WorkerOrchestrator } from './orchestration'
-import {
-  deleteNestedValue,
-  extractVectorFromDoc,
-  insertDocumentVectors,
-  prepareDocumentVectors,
-  removeDocumentVectors,
-  vectorsEqual,
-} from './vector-coordinator'
+import { applyEveryQueuedWrite, type QueuedFollowUp, replayQueued, runFollowUps } from './rebalance-replay'
 
 export interface RebalanceContext {
   router: PartitionRouter
@@ -30,6 +24,7 @@ export interface RebalanceContext {
   pluginRegistry: PluginRegistry
   orchestrator: WorkerOrchestrator
   durabilityManager: DurabilityManager | null
+  holdDurableWrites: ((indexName: string) => Promise<() => void>) | null
   checkWatermark: (indexName: string) => void
   requireIndex: (name: string) => {
     config: IndexConfig
@@ -39,168 +34,61 @@ export interface RebalanceContext {
   }
 }
 
-function warnHookError(hook: string, err: unknown): void {
-  console.warn(`${hook} plugin hook error:`, err instanceof Error ? err.message : String(err))
+interface LoggedLayoutSwitch {
+  durable: DurabilityManager
+  holdWrites: (indexName: string) => Promise<() => void>
+  switchLayout: NonNullable<DurabilityManager['checkpointAfterSwitch']>
+  holdCoverage: NonNullable<DurabilityManager['holdCheckpointCoverage']>
 }
 
-function applyReplayUpdateVectors(
-  entry: WAQEntry,
-  vectorFieldPaths: Set<string>,
-): { updateDoc: AnyDocument; updateVectors: Map<string, Float32Array | null> } {
-  const updateVectors = new Map<string, Float32Array | null>()
-  for (const fieldPath of vectorFieldPaths) {
-    updateVectors.set(fieldPath, extractVectorFromDoc(entry.document as Record<string, unknown>, fieldPath))
-  }
-  let updateDoc = entry.document as AnyDocument
-  if (updateVectors.size > 0) {
-    updateDoc = structuredClone(entry.document) as AnyDocument
-    for (const fieldPath of updateVectors.keys()) {
-      deleteNestedValue(updateDoc as Record<string, unknown>, fieldPath)
-    }
-  }
-  return { updateDoc, updateVectors }
+function loggedLayoutSwitchOf(ctx: RebalanceContext): LoggedLayoutSwitch | null {
+  const durable = ctx.durabilityManager
+  const holdWrites = ctx.holdDurableWrites
+  if (durable === null || holdWrites === null) return null
+  const switchLayout = durable.checkpointAfterSwitch?.bind(durable)
+  const holdCoverage = durable.holdCheckpointCoverage?.bind(durable)
+  if (switchLayout === undefined || holdCoverage === undefined) return null
+  return { durable, holdWrites, switchLayout, holdCoverage }
 }
 
-async function replayEntry(
-  manager: PartitionManager,
+function swapWithCheckpoint(
   indexName: string,
-  entry: WAQEntry,
-  ctx: RebalanceContext,
-): Promise<void> {
-  const vecIndexes = manager.getVectorIndexes()
-  const vectorFieldPaths = ctx.requireIndex(indexName).vectorFieldPaths
-
-  if (entry.action === 'insert' && entry.document) {
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(
-      entry.document as Record<string, unknown>,
-      vectorFieldPaths,
-    )
-    const overwrote = manager.has(entry.docId)
-    const removedSpellings = overwrote ? manager.removedSpellingsOf(entry.docId) : undefined
-    if (overwrote) {
-      removeDocumentVectors(entry.docId, vecIndexes)
-      manager.remove(entry.docId, removedSpellings)
-    }
-    manager.insert(entry.docId, partitionDoc as AnyDocument)
-    if (extractedVectors.size > 0) {
-      insertDocumentVectors(entry.docId, extractedVectors, vecIndexes, manager.partitionIdOf(entry.docId))
-      for (const fieldPath of extractedVectors.keys()) {
-        vecIndexes.get(fieldPath)?.scheduleBuild()
-      }
-    }
-    try {
-      await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: entry.docId, document: entry.document })
-    } catch (err) {
-      warnHookError('afterInsert', err)
-    }
-    const replicated = {
-      indexName,
-      docId: entry.docId,
-      document: entry.document,
-      requestId: `replicate-insert-${entry.docId}`,
-    }
-    await ctx.orchestrator.replicateToWorkers(
-      overwrote ? { type: 'update', ...replicated, removedSpellings } : { type: 'insert', ...replicated },
-    )
-    return
-  }
-
-  if (entry.action === 'remove') {
-    const removedSpellings = manager.removedSpellingsOf(entry.docId)
-    manager.remove(entry.docId, removedSpellings)
-    removeDocumentVectors(entry.docId, vecIndexes)
-    try {
-      await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId: entry.docId })
-    } catch (err) {
-      warnHookError('afterRemove', err)
-    }
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'remove',
-      indexName,
-      docId: entry.docId,
-      requestId: `replicate-remove-${entry.docId}`,
-      removedSpellings,
-    })
-    return
-  }
-
-  if (entry.action === 'update' && entry.document) {
-    const oldDocument = manager.get(entry.docId)
-    const { updateDoc, updateVectors } = applyReplayUpdateVectors(entry, vectorFieldPaths)
-    const removedSpellings = manager.removedSpellingsOf(entry.docId)
-    if (manager.has(entry.docId)) {
-      manager.update(entry.docId, updateDoc, undefined, removedSpellings)
-    } else {
-      manager.insert(entry.docId, updateDoc)
-    }
-    for (const [fieldPath, newVec] of updateVectors) {
-      const vecIndex = vecIndexes.get(fieldPath)
-      if (!vecIndex) continue
-      if (newVec === null) {
-        if (vecIndex.has(entry.docId)) {
-          vecIndex.remove(entry.docId)
-        }
-      } else {
-        const oldVec = vecIndex.getVector(entry.docId)
-        if (!vectorsEqual(oldVec, newVec)) {
-          if (vecIndex.has(entry.docId)) {
-            vecIndex.remove(entry.docId)
-          }
-          vecIndex.insert(entry.docId, newVec)
-          vecIndex.scheduleBuild()
-        }
-      }
-    }
-    try {
-      await ctx.pluginRegistry.runHook('afterUpdate', {
-        indexName,
-        docId: entry.docId,
-        oldDocument: oldDocument ?? ({} as AnyDocument),
-        newDocument: entry.document,
-      })
-    } catch (err) {
-      warnHookError('afterUpdate', err)
-    }
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'update',
-      indexName,
-      docId: entry.docId,
-      document: entry.document,
-      requestId: `replicate-update-${entry.docId}`,
-      removedSpellings,
-    })
-  }
-}
-
-async function replayQueued(
-  manager: PartitionManager,
-  indexName: string,
+  oldCount: number,
   waq: WriteAheadQueue,
   ctx: RebalanceContext,
-): Promise<void> {
-  while (true) {
-    const entries = waq.drain()
-    if (entries.length === 0) break
-
-    for (const entry of entries) {
-      try {
-        await replayEntry(manager, indexName, entry, ctx)
-      } catch (replayErr) {
-        const isMissing = replayErr instanceof NarsilError && replayErr.code === ErrorCodes.DOC_NOT_FOUND
-        if (!isMissing) {
-          console.warn(`WAQ replay failed for ${entry.action} on doc "${entry.docId}":`, replayErr)
-        }
+  logged: LoggedLayoutSwitch,
+): SwapPartitions {
+  return async (manager, partitions) => {
+    const release = await logged.holdWrites(indexName)
+    let followUps: QueuedFollowUp[] = []
+    try {
+      const shrinks = partitions.length < oldCount
+      const swapped = await logged.switchLayout(
+        indexName,
+        () => {
+          manager.setPartitions(partitions)
+          followUps = applyEveryQueuedWrite(manager, indexName, waq, ctx)
+          logged.holdCoverage(indexName, false)
+          return true
+        },
+        shrinks,
+      )
+      if (!swapped) {
+        throw new NarsilError(
+          ErrorCodes.INSTANCE_SHUT_DOWN,
+          `The engine stopped before it saved the new partition layout of index "${indexName}"`,
+          { indexName },
+        )
       }
+      logged.holdCoverage(indexName, true)
+    } finally {
+      release()
     }
+    await runFollowUps(followUps)
   }
 }
 
-export async function executeRebalance(
-  manager: PartitionManager,
-  indexName: string,
-  targetPartitionCount: number,
-  ctx: RebalanceContext,
-): Promise<void> {
+function requireRebalanceTarget(indexName: string, targetPartitionCount: number, ctx: RebalanceContext): void {
   if (targetPartitionCount <= 0 || !Number.isInteger(targetPartitionCount)) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
@@ -210,8 +98,8 @@ export async function executeRebalance(
   }
 
   const entry = ctx.requireIndex(indexName)
-  const maxPartitions = entry.config.partitions?.maxPartitions
-  if (maxPartitions !== undefined && targetPartitionCount > maxPartitions) {
+  const maxPartitions = entry.config.partitions?.maxPartitions ?? DEFAULT_MAX_PARTITIONS
+  if (targetPartitionCount > maxPartitions) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
       `Target partition count (${targetPartitionCount}) is above the maximum of ${maxPartitions} partitions`,
@@ -226,23 +114,45 @@ export async function executeRebalance(
     )
   }
 
-  const registered = ctx.requireIndex(indexName)
-  if (registered.pendingAnalysis !== null || registered.durableAnalysis !== null) {
+  if (entry.pendingAnalysis !== null || entry.durableAnalysis !== null) {
     throw new NarsilError(
       ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
       `Index "${indexName}" is changing its analysis settings, so try the rebalance again once the change ends`,
       { indexName },
     )
   }
+}
 
+async function drainQueue(
+  manager: PartitionManager,
+  indexName: string,
+  waq: WriteAheadQueue,
+  ctx: RebalanceContext,
+  wasPromoted: boolean,
+): Promise<void> {
+  await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
+  do {
+    await replayQueued(manager, indexName, waq, ctx)
+  } while (waq.size > 0)
+}
+
+export async function executeRebalance(
+  manager: PartitionManager,
+  indexName: string,
+  targetPartitionCount: number,
+  ctx: RebalanceContext,
+): Promise<void> {
+  requireRebalanceTarget(indexName, targetPartitionCount, ctx)
   if (targetPartitionCount === manager.partitionCount) {
     return
   }
 
+  const logged = loggedLayoutSwitchOf(ctx)
   const waq = createWriteAheadQueue()
   ctx.waqMap.set(indexName, waq)
   ctx.rebalancingIndexes.add(indexName)
   ctx.rebalanceTargets.set(indexName, targetPartitionCount)
+  logged?.holdCoverage(indexName, true)
   const wasPromoted = ctx.orchestrator.desyncIndex(indexName)
 
   let spill: RewriteSpill | null = null
@@ -263,6 +173,7 @@ export async function executeRebalance(
         }
       },
       spill,
+      logged === null ? undefined : swapWithCheckpoint(indexName, oldCount, waq, ctx, logged),
     )
 
     try {
@@ -277,25 +188,21 @@ export async function executeRebalance(
 
     await replayQueued(manager, indexName, waq, ctx)
 
-    if (ctx.durabilityManager) {
+    if (ctx.durabilityManager !== null && logged === null) {
       await ctx.durabilityManager.persistMetadata(indexName)
       await (ctx.durabilityManager.checkpointFromMemory?.(indexName) ?? ctx.durabilityManager.checkpoint(indexName))
+    }
+    if (ctx.durabilityManager !== null) {
       await spill?.removeUnread(manager)
       await replayQueued(manager, indexName, waq, ctx)
     }
 
-    await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
-    do {
-      await replayQueued(manager, indexName, waq, ctx)
-    } while (waq.size > 0)
+    await drainQueue(manager, indexName, waq, ctx, wasPromoted)
   } catch (err) {
     await spill?.removeUnread(manager).catch(() => undefined)
     try {
       await replayQueued(manager, indexName, waq, ctx)
-      await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
-      do {
-        await replayQueued(manager, indexName, waq, ctx)
-      } while (waq.size > 0)
+      await drainQueue(manager, indexName, waq, ctx, wasPromoted)
     } catch (recoveryErr) {
       console.warn(
         `Rebalance failure recovery for index "${indexName}" did not complete:`,
@@ -307,6 +214,7 @@ export async function executeRebalance(
     ctx.rebalancingIndexes.delete(indexName)
     ctx.rebalanceTargets.delete(indexName)
     ctx.waqMap.delete(indexName)
+    logged?.holdCoverage(indexName, false)
     waq.markReplayed()
   }
 

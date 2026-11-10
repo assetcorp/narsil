@@ -13,7 +13,7 @@ import {
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { createHeldCheckpoints } from './held-checkpoints'
-import { closePartitionWriter, type IndexState } from './manager-state'
+import { closePartitionWriter, freezeCoverage, type IndexState, thawCoverage } from './manager-state'
 import { createIndexStorageAccess } from './manager-storage'
 import { createMetadataWriteQueue } from './metadata-write-queue'
 import {
@@ -259,6 +259,16 @@ export function createDurabilityManager(
     syncStorage,
   }
 
+  function persistMetadata(indexName: string): Promise<void> {
+    return queueMetadataWrite(indexName, async () => {
+      const metadata = hooks.buildMetadata(indexName)
+      if (metadata === undefined) return
+      const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
+      await directory.atomicWrite(`${indexName}/meta`, bytes)
+      getOrCreateIndexState(indexName)
+    })
+  }
+
   function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
     return loads.track(indexName, recoverPersistedIndex(recoveryDeps, indexName, metadataOnly), startsGraphRepairs)
   }
@@ -320,17 +330,7 @@ export function createDurabilityManager(
 
     recordMutations,
 
-    persistMetadata(indexName: string): Promise<void> {
-      return queueMetadataWrite(indexName, async () => {
-        const metadata = hooks.buildMetadata(indexName)
-        if (metadata === undefined) {
-          return
-        }
-        const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
-        await directory.atomicWrite(`${indexName}/meta`, bytes)
-        getOrCreateIndexState(indexName)
-      })
-    },
+    persistMetadata,
 
     checkpoint(indexName: string): Promise<void> {
       return requestedCheckpoint(indexName)
@@ -340,15 +340,24 @@ export function createDurabilityManager(
       return requestedCheckpoint(indexName, true)
     },
 
-    async checkpointAfterSwitch(indexName: string, swap: () => boolean): Promise<boolean> {
+    async checkpointAfterSwitch(indexName: string, swap: () => boolean, writesMetadataFirst = false): Promise<boolean> {
       const indexState = getOrCreateIndexState(indexName)
       heldCheckpoints.refuse(indexName, indexState)
       return switchInTurn(indexState, {
         mayStart: () => !indexState.unloading && !shuttingDown,
         swap,
-        checkpoint: () => performCheckpoint(indexName, indexState, true),
+        checkpoint: async () => {
+          if (writesMetadataFirst) await persistMetadata(indexName)
+          await performCheckpoint(indexName, indexState, true)
+        },
         afterSettling: () => releaseStalledWrites(indexState),
       })
+    },
+
+    holdCheckpointCoverage(indexName: string, held: boolean): void {
+      const indexState = getOrCreateIndexState(indexName)
+      if (held) freezeCoverage(indexState)
+      else thawCoverage(indexState)
     },
 
     async checkpointAfterInFlight(indexName: string): Promise<void> {

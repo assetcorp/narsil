@@ -1,0 +1,72 @@
+package export
+
+import (
+	"io"
+	"strconv"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
+)
+
+type Writer struct {
+	destination io.Writer
+	line        []byte
+	failure     error
+}
+
+func headerValue(header Header) codec.OrderedMap {
+	return codec.OrderedMap{
+		{Key: headerFormatKey, Value: FormatName},
+		{Key: headerVersionKey, Value: float64(FormatVersion)},
+		{Key: headerIndexKey, Value: header.Index},
+	}
+}
+
+func NewWriter(destination io.Writer, header Header) (*Writer, error) {
+	if header.Index == nil {
+		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "The document export header holds no index configuration", nil)
+	}
+	writer := &Writer{destination: destination}
+	line, err := codec.AppendExactJSON(nil, headerValue(header), "")
+	if err != nil {
+		return nil, err
+	}
+	if err := writer.writeLine(line); err != nil {
+		return nil, err
+	}
+	return writer, nil
+}
+
+func (writer *Writer) writeLine(line []byte) error {
+	if len(line) > MaxLineBytes {
+		return narsilerr.New(narsilerr.CodeDocValidationFailed,
+			"The export line takes "+strconv.Itoa(len(line))+" bytes, above the line limit of "+strconv.Itoa(MaxLineBytes),
+			map[string]any{"bytes": len(line), "maximum": MaxLineBytes})
+	}
+	line = append(line, '\n')
+	if _, err := writer.destination.Write(line); err != nil {
+		writer.failure = narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The document export fails to write", err, nil)
+		return writer.failure
+	}
+	return nil
+}
+
+func (writer *Writer) WriteDocument(id string, document map[string]any) error {
+	if writer.failure != nil {
+		return writer.failure
+	}
+	withID := document
+	if existing, ok := document[documentIDKey].(string); !ok || existing != id {
+		withID = make(map[string]any, len(document)+1)
+		for key, value := range document {
+			withID[key] = value
+		}
+		withID[documentIDKey] = id
+	}
+	line, err := codec.AppendDocumentJSON(writer.line[:0], withID, id)
+	if err != nil {
+		return err
+	}
+	writer.line = line
+	return writer.writeLine(line)
+}

@@ -224,6 +224,8 @@ const SCHEMA_CHANGES: Record<string, [string, string, string]> = {
   'schema-option-twice': ['title', 'string:pattern:pattern', 'SCHEMA_INVALID_TYPE'],
   'schema-vector-dimension-zero': ['embedding', 'vector[0]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
   'schema-vector-dimension-too-wide': ['embedding', 'vector[65536]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
+  'schema-vector-dimension-fraction': ['embedding', 'vector[1.5]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
+  'schema-vector-dimension-negative': ['embedding', 'vector[-1]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
 }
 
 export async function keywordSegmentCases(): Promise<CaseBuild[]> {

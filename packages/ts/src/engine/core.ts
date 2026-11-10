@@ -355,6 +355,7 @@ export async function createEngineCore(
     pluginRegistry,
     orchestrator,
     durabilityManager: durability?.manager ?? null,
+    holdDurableWrites: durability?.holdWrites ?? null,
     checkWatermark: watermarkNotifier.check,
     requireIndex,
   }

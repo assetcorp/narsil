@@ -18,6 +18,7 @@ import type { PatternWorkMeter } from '../pattern-index/types'
 import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
+import { withCheckedDocumentTokens } from './custom-tokens'
 import { computeFacets, type FacetMatchSet } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
 import {
@@ -143,14 +144,16 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         }
       }
 
+      const fields = schemaFieldsOf(schema)
+      const indexing = withCheckedDocumentTokens(document as Record<string, unknown>, fields, options)
       const internalId = state.docStore.ensureInternalId(docId)
       const { fieldLengths, tokensByField, partialSpellings } = indexDocument(
         state,
         docId,
         document as Record<string, unknown>,
-        schemaFieldsOf(schema),
+        fields,
         language,
-        options,
+        indexing,
       )
       if (options?.skipClone) {
         state.docStore.storeRef(docId, document, fieldLengths)
@@ -235,6 +238,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, fields)
 
       if (needsTextReindex) {
+        const indexing = withCheckedDocumentTokens(document as Record<string, unknown>, fields, options)
         const previous = removeFromIndexes(state, docId, stored, fields, language, options)
         state.stats.removeDocument(previous.fieldLengths, previous.tokensByField)
         const previousInternalId = state.docStore.getInternalId(docId)
@@ -245,7 +249,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         forgetSortValues(state, previousInternalId)
         const internalId = state.docStore.ensureInternalId(docId)
 
-        const next = indexDocument(state, docId, document as Record<string, unknown>, fields, language, options)
+        const next = indexDocument(state, docId, document as Record<string, unknown>, fields, language, indexing)
         state.docStore.store(docId, document, next.fieldLengths)
         state.stats.addDocument(next.fieldLengths, next.tokensByField)
         state.partialWords.afterDocument(partialFieldsOf(schema), internalId, next.partialSpellings, 1)

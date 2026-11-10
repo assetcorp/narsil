@@ -14,6 +14,7 @@ import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+import { loadVectorCode } from '../../workers/vector-code'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
 import type { PagedFanOutResult } from './hybrid-depth'
@@ -98,6 +99,7 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (hasVector) (await loadVectorCode()).requireUsableQueryVector(params.vector?.value)
   if (!isVectorOnly) requireUsablePhrases(params, context)
   const projection = resolveProjection(params.document)
 
@@ -313,6 +315,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (hasVector) (await loadVectorCode()).requireUsableQueryVector(params.vector?.value)
   const loadingPhraseCode = loadPhraseCodeFor(params.term)
   if (loadingPhraseCode !== null) await loadingPhraseCode
   if (!isVectorOnly) requireUsablePhrases(params, context)

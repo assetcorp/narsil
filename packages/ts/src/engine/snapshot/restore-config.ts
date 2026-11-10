@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { MAX_PARTITIONS } from '../../partitioning/constants'
 import type {
   BM25FieldParams,
   BM25Params,
@@ -164,7 +165,7 @@ export function restoredPartitionConfig(
   }
   return {
     ...(typeof maxDocsPerPartition === 'number' ? { maxDocsPerPartition } : {}),
-    ...(typeof maxPartitions === 'number' ? { maxPartitions } : {}),
+    ...(typeof maxPartitions === 'number' ? { maxPartitions: Math.min(maxPartitions, MAX_PARTITIONS) } : {}),
     ...(typeof watermark === 'number' ? { watermark } : {}),
   }
 }

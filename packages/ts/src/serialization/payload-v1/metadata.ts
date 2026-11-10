@@ -1,6 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { MAX_PARTITIONS } from '../../partitioning/constants'
 import { storedStateFromWire, storedStateToWire } from '../../query-suggestions/stored-state'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
@@ -240,7 +241,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
         ? { maxDocsPerPartition: raw.partition_limits.max_docs_per_partition }
         : {}),
       ...(isPositiveInteger(raw.partition_limits.max_partitions)
-        ? { maxPartitions: raw.partition_limits.max_partitions }
+        ? { maxPartitions: Math.min(raw.partition_limits.max_partitions, MAX_PARTITIONS) }
         : {}),
       ...(isWatermarkFraction(raw.partition_limits.watermark) ? { watermark: raw.partition_limits.watermark } : {}),
     }

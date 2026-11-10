@@ -1,0 +1,50 @@
+{
+  "name": "narsil-go-engine",
+  "targets": {
+    "corecopy": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go run ./internal/corecopy",
+        "cwd": "packages/go/engine"
+      }
+    },
+    "corecopy:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go run ./internal/corecopy -write",
+        "cwd": "packages/go/engine"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }",
+          "go vet ./..."
+        ],
+        "parallel": false,
+        "cwd": "packages/go/engine"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": ["go build ./...", "go vet ./..."],
+        "parallel": false,
+        "cwd": "packages/go/engine"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code"],
+      "options": {
+        "command": "go test -count=1 -race ./...",
+        "cwd": "packages/go/engine"
+      }
+    }
+  }
+}

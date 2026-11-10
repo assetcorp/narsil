@@ -1,5 +1,7 @@
 export { compactVectors, getVectorMaintenanceStatus, optimizeVectors } from '../engine/vector-maintenance'
 export { releaseLocksHeldBy } from './hnsw/locks'
+export { embedQueryText } from './query-embedding'
+export { requireUsableQueryVector } from './query-values'
 export { createSharedVectorSearcher } from './shared-field/searcher'
 export { openSharedVectorField } from './shared-field/view'
 export { createVectorIndex } from './vector-index'

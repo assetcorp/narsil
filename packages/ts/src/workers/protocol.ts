@@ -42,6 +42,7 @@ export type WorkerAction =
       analysisStale?: boolean
       copyLoad?: string
       synonyms?: Uint8Array
+      partitionCount?: number
     }
   | { type: 'replaceSynonyms'; indexName: string; synonyms?: Uint8Array; requestId: string }
   | { type: 'replaceBm25'; indexName: string; bm25?: BM25Params; requestId: string }
