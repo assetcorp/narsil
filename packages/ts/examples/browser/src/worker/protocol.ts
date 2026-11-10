@@ -86,7 +86,7 @@ export interface WorkerRequest<K extends WorkerMethod = WorkerMethod> {
 
 export type WorkerReply =
   | { kind: 'result'; id: string; result: unknown }
-  | { kind: 'failure'; id: string; code: string; message: string }
+  | { kind: 'failure'; id: string; code: string; message: string; details: Record<string, unknown> }
 
 export interface WorkerProgressEvent {
   kind: 'progress'
