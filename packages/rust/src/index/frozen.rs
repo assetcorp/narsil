@@ -11,6 +11,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::format::keyword_segment::KeywordSegment;
 use crate::keyword::frozen::FrozenView;
+use crate::util::bytes::{offset_entry, offset_range};
 use crate::value::{Map, decode_document};
 
 /// An immutable segment: a decoded keyword segment payload with the lookups that a search needs.
@@ -30,42 +31,28 @@ pub(crate) struct FrozenSegment {
 }
 
 fn term_totals(payload: &KeywordSegment) -> Vec<f64> {
-    let offsets = &payload.posting_offsets;
     (0..payload.token_count())
         .map(|token| {
-            let start = offsets.get(token).copied().unwrap_or(0) as usize;
-            let end = offsets.get(token + 1).copied().unwrap_or(0) as usize;
-            payload
-                .posting_frequencies
-                .get(start..end)
-                .map_or(0.0, |frequencies| {
-                    frequencies
-                        .iter()
-                        .map(|&frequency| f64::from(frequency))
-                        .sum()
-                })
+            offset_entry(
+                &payload.posting_frequencies,
+                &payload.posting_offsets,
+                token,
+            )
+            .iter()
+            .map(|&frequency| f64::from(frequency))
+            .sum()
         })
         .collect()
 }
 
 fn ordered_postings(payload: &KeywordSegment) -> Vec<bool> {
-    let offsets = &payload.posting_offsets;
     (0..payload.token_count())
         .map(|token| {
-            let start = offsets.get(token).copied().unwrap_or(0) as usize;
-            let end = offsets.get(token + 1).copied().unwrap_or(0) as usize;
-            payload
-                .posting_documents
-                .get(start..end)
-                .is_none_or(|documents| documents.windows(2).all(|pair| pair[0] <= pair[1]))
+            offset_entry(&payload.posting_documents, &payload.posting_offsets, token)
+                .windows(2)
+                .all(|pair| pair[0] <= pair[1])
         })
         .collect()
-}
-
-fn entry<'a>(blob: &'a [u8], offsets: &[u32], at: usize) -> &'a [u8] {
-    let start = offsets.get(at).copied().unwrap_or(0) as usize;
-    let end = offsets.get(at + 1).copied().unwrap_or(0) as usize;
-    blob.get(start..end).unwrap_or(&[])
 }
 
 fn text(bytes: &[u8]) -> &str {
@@ -75,16 +62,7 @@ fn text(bytes: &[u8]) -> &str {
 impl FrozenSegment {
     pub(crate) fn new(payload: KeywordSegment) -> FrozenSegment {
         let name_ranks = name_ranks(&payload.field_names);
-        let length_columns = payload
-            .field_names
-            .iter()
-            .map(|name| {
-                payload
-                    .field_lengths
-                    .iter()
-                    .position(|column| &column.field == name)
-            })
-            .collect();
+        let length_columns = payload.length_column_places();
         let ordered_postings = ordered_postings(&payload);
         let term_totals = term_totals(&payload);
         let view = FrozenView::new(&payload, true);
@@ -151,7 +129,7 @@ impl FrozenSegment {
     pub(crate) fn id(&self, ordinal: u32) -> Result<Cow<'_, str>> {
         match &self.paged {
             Some(paged) => paged.id(ordinal).map(Cow::Owned),
-            None => Ok(Cow::Borrowed(text(entry(
+            None => Ok(Cow::Borrowed(text(offset_entry(
                 &self.payload.ids,
                 &self.payload.id_offsets,
                 ordinal as usize,
@@ -166,7 +144,7 @@ impl FrozenSegment {
         let order = &self.payload.id_order;
         let wanted = id.as_bytes();
         let found = order.binary_search_by(|&ordinal| {
-            entry(
+            offset_entry(
                 &self.payload.ids,
                 &self.payload.id_offsets,
                 ordinal as usize,
@@ -180,7 +158,7 @@ impl FrozenSegment {
     /// file, returns none.
     pub(crate) fn ids_in_order(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
         self.payload.id_order.iter().map(|&ordinal| {
-            let id = entry(
+            let id = offset_entry(
                 &self.payload.ids,
                 &self.payload.id_offsets,
                 ordinal as usize,
@@ -192,7 +170,7 @@ impl FrozenSegment {
     pub(crate) fn document_bytes(&self, ordinal: u32) -> Result<Cow<'_, [u8]>> {
         match &self.paged {
             Some(paged) => paged.document_bytes(ordinal).map(Cow::Owned),
-            None => Ok(Cow::Borrowed(entry(
+            None => Ok(Cow::Borrowed(offset_entry(
                 &self.payload.documents,
                 &self.payload.document_offsets,
                 ordinal as usize,
@@ -209,14 +187,16 @@ impl FrozenSegment {
     }
 
     pub(crate) fn token(&self, at: usize) -> &str {
-        text(entry(&self.payload.tokens, &self.payload.token_offsets, at))
+        text(offset_entry(
+            &self.payload.tokens,
+            &self.payload.token_offsets,
+            at,
+        ))
     }
 
     pub(crate) fn postings(&self, token: usize) -> Range<usize> {
-        let offsets = &self.payload.posting_offsets;
-        let start = offsets.get(token).copied().unwrap_or(0) as usize;
-        let end = offsets.get(token + 1).copied().unwrap_or(0) as usize;
-        start..end.max(start)
+        let range = offset_range(&self.payload.posting_offsets, token);
+        range.start..range.end.max(range.start)
     }
 
     /// Returns the postings of the token at `token` of a paged segment, read from its file, or `None` for a

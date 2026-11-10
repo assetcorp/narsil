@@ -1,10 +1,10 @@
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::backing::Backing;
 use super::checkpoint::write_checkpoint;
 use crate::engine::EngineInner;
+use crate::engine::background_thread::BackgroundThread;
 use crate::engine::events::NarsilEvent;
 use crate::engine::index::IndexState;
 use crate::engine::sync::constants::HISTORY_SWEEP_INTERVAL_MS;
@@ -19,7 +19,7 @@ struct Signal {
 /// The thread that writes each durable index's checkpoints, so that a write never waits for one.
 pub(crate) struct CheckpointSchedule {
     signal: Arc<(Mutex<Signal>, Condvar)>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: BackgroundThread,
     interval: Option<Duration>,
     mutation_threshold: u64,
 }
@@ -58,7 +58,7 @@ impl CheckpointSchedule {
     pub(crate) fn new(interval_ms: u64, mutation_threshold: u64) -> CheckpointSchedule {
         CheckpointSchedule {
             signal: Arc::new((Mutex::new(Signal::default()), Condvar::new())),
-            thread: Mutex::new(None),
+            thread: BackgroundThread::default(),
             interval: (interval_ms > 0).then(|| Duration::from_millis(interval_ms)),
             mutation_threshold: mutation_threshold.max(1),
         }
@@ -110,9 +110,7 @@ impl CheckpointSchedule {
                     enforce_history_limits(&engine, sweep_elapsed);
                 }
             });
-        if let (Ok(handle), Ok(mut thread)) = (spawned, self.thread.lock()) {
-            *thread = Some(handle);
-        }
+        self.thread.hold(spawned);
     }
 
     /// Wakes the thread once a write has taken an index's unsaved writes to the threshold.
@@ -143,11 +141,6 @@ impl CheckpointSchedule {
             state.stopped = true;
             wake.notify_all();
         }
-        let handle = self.thread.lock().ok().and_then(|mut thread| thread.take());
-        if let Some(handle) = handle
-            && handle.thread().id() != std::thread::current().id()
-        {
-            let _ = handle.join();
-        }
+        self.thread.join();
     }
 }

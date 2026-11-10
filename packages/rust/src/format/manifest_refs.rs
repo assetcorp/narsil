@@ -1,11 +1,11 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{HEADER_BYTES, MAX_FILE_BYTES};
+use crate::format::fields::{non_negative_safe_integer, uint32_of, whole_number_up_to};
 use crate::format::layout::{graph_part_key, vector_file_key};
 use crate::value::{Map, Value};
 
 pub(crate) const MAX_SEGMENT_ID: f64 = 281_474_976_710_655.0;
 pub(crate) const VECTOR_FILE_MAX_VECTORS: u64 = 65_536;
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Head {
@@ -46,29 +46,8 @@ pub(crate) fn invalid_manifest(message: impl AsRef<str>) -> NarsilError {
     )
 }
 
-fn integer(value: Option<&Value>) -> Option<f64> {
-    match value {
-        Some(Value::Number(number)) if number.is_finite() && number.fract() == 0.0 => Some(*number),
-        _ => None,
-    }
-}
-
 pub(crate) fn id_of(value: Option<&Value>) -> Option<u64> {
-    integer(value)
-        .filter(|number| *number >= 0.0 && *number <= MAX_SEGMENT_ID)
-        .map(|number| number as u64)
-}
-
-pub(crate) fn uint32_of(value: Option<&Value>) -> Option<u32> {
-    integer(value)
-        .filter(|number| *number >= 0.0 && *number <= u32::MAX as f64)
-        .map(|number| number as u32)
-}
-
-pub(crate) fn sequence_of(value: Option<&Value>) -> Option<u64> {
-    integer(value)
-        .filter(|number| *number >= 0.0 && *number <= MAX_SAFE_INTEGER)
-        .map(|number| number as u64)
+    whole_number_up_to(value, MAX_SEGMENT_ID).map(|number| number as u64)
 }
 
 pub(crate) fn read_file_ref(raw: &Map, expected_key: &str, what: &str) -> Result<FileRef> {
@@ -82,8 +61,8 @@ pub(crate) fn read_file_ref(raw: &Map, expected_key: &str, what: &str) -> Result
             "lists the {what} under the key \"{shown}\" where it belongs at \"{expected_key}\""
         )));
     }
-    let bytes = integer(raw.get("bytes"))
-        .filter(|bytes| *bytes >= HEADER_BYTES as f64 && *bytes <= MAX_FILE_BYTES as f64)
+    let bytes = whole_number_up_to(raw.get("bytes"), MAX_FILE_BYTES as f64)
+        .filter(|bytes| *bytes >= HEADER_BYTES as f64)
         .ok_or_else(|| {
             invalid_manifest(format!(
                 "gives the {what} \"{expected_key}\" an invalid length"
@@ -103,7 +82,7 @@ pub(crate) fn read_file_ref(raw: &Map, expected_key: &str, what: &str) -> Result
         });
     }
     let (Some(offset), Some(length), Some(head_checksum)) = (
-        sequence_of(raw.get("headOffset")),
+        non_negative_safe_integer(raw.get("headOffset")),
         uint32_of(raw.get("headLength")),
         uint32_of(raw.get("headChecksum")),
     ) else {
@@ -164,9 +143,8 @@ fn normalize_file(
         )));
     }
     seen.push(id);
-    let count = integer(map.get("count"))
-        .filter(|count| *count >= 0.0 && *count <= VECTOR_FILE_MAX_VECTORS as f64)
-        .ok_or_else(|| {
+    let count =
+        whole_number_up_to(map.get("count"), VECTOR_FILE_MAX_VECTORS as f64).ok_or_else(|| {
             invalid_manifest(format!(
                 "gives vector file {id} of \"{field_path}\" an invalid count"
             ))

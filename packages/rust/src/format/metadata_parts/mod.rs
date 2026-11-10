@@ -5,6 +5,7 @@ mod sync;
 mod vectors;
 
 use crate::error::{ErrorCode, NarsilError};
+use crate::format::fields::non_negative_safe_integer;
 use crate::value::Value;
 
 pub(crate) use analysis::{
@@ -21,7 +22,6 @@ pub(crate) use vectors::{
     vector_fields_from_wire, vector_fields_to_wire,
 };
 
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const QUANTIZATION_MODES: [&str; 5] = ["osq8", "osq4", "osq2", "osq1", "none"];
 const STORAGE_MODES: [&str; 2] = ["memory", "disk"];
 const SYNC_EPOCH_HEX_DIGITS: usize = 32;
@@ -30,33 +30,8 @@ pub(crate) fn config_invalid(message: impl Into<String>) -> NarsilError {
     NarsilError::new(ErrorCode::CONFIG_INVALID, message.into())
 }
 
-pub(crate) fn whole_number(value: Option<&Value>) -> Option<f64> {
-    match value {
-        Some(Value::Number(number)) if number.is_finite() && number.fract() == 0.0 => Some(*number),
-        _ => None,
-    }
-}
-
 pub(crate) fn positive_integer(value: Option<&Value>) -> Option<u64> {
-    whole_number(value)
-        .filter(|number| *number >= 1.0 && *number <= MAX_SAFE_INTEGER)
-        .map(|number| number as u64)
-}
-
-pub(crate) fn non_negative_safe_integer(value: Option<&Value>) -> Option<u64> {
-    whole_number(value)
-        .filter(|number| *number >= 0.0 && *number <= MAX_SAFE_INTEGER)
-        .map(|number| number as u64)
-}
-
-pub(crate) fn string_list(value: Option<&Value>) -> Option<Vec<String>> {
-    let Some(Value::Array(items)) = value else {
-        return None;
-    };
-    items
-        .iter()
-        .map(|item| item.as_str().map(str::to_string))
-        .collect()
+    non_negative_safe_integer(value).filter(|number| *number >= 1)
 }
 
 pub(crate) fn is_quantization_mode(value: &str) -> bool {

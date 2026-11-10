@@ -2,7 +2,8 @@ use super::index::IndexState;
 use super::plugins::{PluginRegistry, WriteHook};
 use super::reads;
 use super::writes::{
-    BatchFailure, BatchResult, NextDocumentId, provided_doc_id, require_matching_doc_id,
+    BatchFailure, BatchResult, NextDocumentId, insert_doc_id, provided_doc_id,
+    require_matching_doc_id,
 };
 use crate::config::validate_doc_id;
 use crate::error::Result;
@@ -16,14 +17,7 @@ pub(crate) fn before_insert(
     doc_id: Option<&str>,
     next_id: &NextDocumentId<'_>,
 ) -> Result<String> {
-    if let Some(doc_id) = doc_id {
-        require_matching_doc_id(doc_id, document)?;
-    }
-    let id = match doc_id.or_else(|| provided_doc_id(document)) {
-        Some(id) => id.to_string(),
-        None => next_id()?,
-    };
-    validate_doc_id(&id)?;
+    let id = insert_doc_id(doc_id, document, next_id)?;
     plugins.before_write(WriteHook::Insert, |plugin| {
         plugin.before_insert(index_name, &id, document)
     })?;

@@ -59,6 +59,24 @@ pub(crate) fn require_matching_doc_id(doc_id: &str, document: &Map) -> Result<()
     }
 }
 
+/// Gives the ID that an insert stores the document under, which is the one that the call gives, then the document's
+/// own `id` field, then a generated one.
+pub(crate) fn insert_doc_id(
+    doc_id: Option<&str>,
+    document: &Map,
+    next_id: &NextDocumentId<'_>,
+) -> Result<String> {
+    if let Some(doc_id) = doc_id {
+        require_matching_doc_id(doc_id, document)?;
+    }
+    let id = match doc_id.or_else(|| provided_doc_id(document)) {
+        Some(id) => id.to_string(),
+        None => next_id()?,
+    };
+    validate_doc_id(&id)?;
+    Ok(id)
+}
+
 fn require_required_fields(index: &IndexState, document: &Map) -> Result<()> {
     match &index.config().required {
         Some(required) if !required.is_empty() => validate_required_fields(document, required),
@@ -167,14 +185,7 @@ pub(crate) fn insert(
     next_id: &NextDocumentId<'_>,
 ) -> Result<String> {
     let document = held_document(held)?;
-    if let Some(doc_id) = doc_id {
-        require_matching_doc_id(doc_id, document)?;
-    }
-    let id = match doc_id.or_else(|| provided_doc_id(document)) {
-        Some(id) => id.to_string(),
-        None => next_id()?,
-    };
-    validate_doc_id(&id)?;
+    let id = insert_doc_id(doc_id, document, next_id)?;
     require_required_fields(index, document)?;
     index.vectors.embed_for_write(document)?;
     require_document_within_size_limit(document)?;

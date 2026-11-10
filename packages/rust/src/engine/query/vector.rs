@@ -261,10 +261,7 @@ pub(crate) fn vector_leg(
 
 /// Returns the snapshot of every partition of the index where the search carries a filter, which a filtered vector
 /// search reads its matches from, and no snapshot otherwise.
-pub(crate) fn filter_snapshots(
-    index: &IndexState,
-    scope: &QueryScope,
-) -> Vec<Arc<PartitionSnapshot>> {
+fn filter_snapshots(index: &IndexState, scope: &QueryScope) -> Vec<Arc<PartitionSnapshot>> {
     if !scope.filters() {
         return Vec::new();
     }
@@ -273,6 +270,27 @@ pub(crate) fn filter_snapshots(
         .iter()
         .map(|partition| partition.snapshot())
         .collect()
+}
+
+/// Runs `search` on the IDs that the filter of `scope` accepts, which are `None` without a filter, and returns
+/// `None` without running it where the filter accepts no live document.
+pub(crate) fn within_filter<T>(
+    index: &IndexState,
+    scope: &QueryScope,
+    search: impl FnOnce(&Option<Vec<Cow<'_, str>>>) -> Result<T>,
+) -> Result<Option<T>> {
+    let snapshots = filter_snapshots(index, scope);
+    let matched = scope.matched_ids(&snapshots)?;
+    if matched.as_ref().is_some_and(Vec::is_empty) {
+        return Ok(None);
+    }
+    search(&matched).map(Some)
+}
+
+/// Returns the vector clause of a query with the vector that it searches for, where the query gives one.
+pub(crate) fn clause_with_vector(params: &QueryParams) -> Option<(&VectorQuery, &[f32])> {
+    let clause = params.vector.as_ref()?;
+    Some((clause, clause.value.as_deref()?))
 }
 
 /// Returns the IDs that `ids` holds, borrowed, in the form that a vector search takes.
@@ -307,23 +325,20 @@ pub(crate) fn vector_hits(
     pin: &Pin,
 ) -> Result<RankedHits> {
     require_usable_vector_options(params.vector.as_ref())?;
-    let Some(clause) = &params.vector else {
-        return Ok(RankedHits::empty());
-    };
-    let Some(query) = &clause.value else {
+    let Some((clause, query)) = clause_with_vector(params) else {
         return Ok(RankedHits::empty());
     };
     if index.vectors.field(&clause.field).is_none() {
         return Ok(RankedHits::empty());
     }
-    let snapshots = filter_snapshots(index, scope);
-    let matched = scope.matched_ids(&snapshots)?;
-    if matched.as_ref().is_some_and(Vec::is_empty) {
+    let leg = within_filter(index, scope, |matched| {
+        let matching = id_slices(matched);
+        let k = vector_fetch_depth(limit, offset, cursor_depth)?;
+        vector_leg(index, clause, query, k, None, matching.as_deref(), pin)
+    })?;
+    let Some(leg) = leg else {
         return Ok(RankedHits::empty());
-    }
-    let matching = id_slices(&matched);
-    let k = vector_fetch_depth(limit, offset, cursor_depth)?;
-    let leg = vector_leg(index, clause, query, k, None, matching.as_deref(), pin)?;
+    };
     Ok(RankedHits {
         hits: leg.hits,
         total_matched: leg.matched,

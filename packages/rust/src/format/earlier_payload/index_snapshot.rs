@@ -1,10 +1,9 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::open_lenient_envelope;
-use crate::value::{Map, Value, decode_value};
+use crate::value::{Map, Value, decode_value, javascript_text};
 
 use super::documents::{V2Documents, decode_v2_documents};
-use super::shown_as_text;
-use super::vector_parts::{EarlierVectorPart, decode_vector_parts};
+use super::vector_parts::{EarlierVectorPart, decode_vector_parts, vector_fields_of};
 
 pub(crate) const INDEX_SNAPSHOT_ENVELOPE_VERSION: u8 = 3;
 const EARLIER_SNAPSHOT_VERSION: f64 = 2.0;
@@ -55,19 +54,8 @@ fn require_earlier_version(version: Option<&Value>) -> Result<()> {
         )),
         other => Err(rejected(format!(
             "Unsupported snapshot version: {}. Expected version 2",
-            shown_as_text(other)
+            javascript_text(other)
         ))),
-    }
-}
-
-fn vector_indexes_of(raw: Option<&Value>) -> Result<Vec<(String, Vec<EarlierVectorPart>)>> {
-    match raw {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Object(fields)) => fields
-            .iter()
-            .map(|(path, parts)| Ok((path.clone(), decode_vector_parts(parts)?)))
-            .collect(),
-        Some(_) => Err(rejected("Invalid snapshot: vectorIndexes must be a map")),
     }
 }
 
@@ -106,7 +94,10 @@ pub(crate) fn decode_index_snapshot(payload: &[u8]) -> Result<EarlierIndexSnapsh
             _ => Err(rejected("Invalid snapshot: missing partitions")),
         })
         .collect::<Result<Vec<_>>>()?;
-    let vector_indexes = vector_indexes_of(settings.get("vectorIndexes"))?;
+    let vector_indexes =
+        vector_fields_of(settings.get("vectorIndexes"), decode_vector_parts, || {
+            rejected("Invalid snapshot: vectorIndexes must be a map")
+        })?;
     settings.remove("vectorIndexes");
     let partitions = payloads
         .iter()

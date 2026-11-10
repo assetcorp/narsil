@@ -10,6 +10,19 @@ use crate::error::Result;
 use crate::value::Map;
 
 impl Narsil {
+    fn attempt_write<T>(
+        &self,
+        index: &str,
+        write: impl FnOnce(&IndexState) -> Result<T>,
+    ) -> Result<(Arc<IndexState>, Result<T>)> {
+        let writable = self.inner.writable_index(index)?;
+        let state = Arc::clone(writable.index());
+        let outcome = write(&state);
+        self.inner.after_write(&state);
+        drop(writable);
+        Ok((state, outcome))
+    }
+
     /// Runs one document write against the index, which a close of the index waits for, and runs it again against
     /// the index that took its name where a restore or a close retired the index while the write waited.
     fn write_one<T>(
@@ -19,11 +32,7 @@ impl Narsil {
     ) -> Result<T> {
         let mut attempt = 1;
         loop {
-            let writable = self.inner.writable_index(index)?;
-            let state = Arc::clone(writable.index());
-            let outcome = write(&state);
-            self.inner.after_write(&state);
-            drop(writable);
+            let (state, outcome) = self.attempt_write(index, &mut write)?;
             if outcome.is_err() && state.is_retired() && attempt < MAX_REPLACED_WRITE_ATTEMPTS {
                 attempt += 1;
                 continue;
@@ -43,11 +52,7 @@ impl Narsil {
         index: &str,
         write: impl FnOnce(&IndexState) -> Result<BatchResult>,
     ) -> Result<BatchResult> {
-        let writable = self.inner.writable_index(index)?;
-        let state = Arc::clone(writable.index());
-        let outcome = write(&state);
-        self.inner.after_write(&state);
-        drop(writable);
+        let (state, outcome) = self.attempt_write(index, write)?;
         self.wrote(&state);
         outcome
     }

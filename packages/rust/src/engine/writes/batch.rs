@@ -15,13 +15,23 @@ use crate::value::Map;
 /// Moves each document whose log record failed from the batch's successes to its failures.
 fn settle_logged(result: &mut BatchResult, failures: Vec<LogFailure>) {
     for failure in failures {
-        for doc_id in failure.doc_ids {
-            if let Some(at) = result.succeeded.iter().position(|held| *held == doc_id) {
+        for doc_id in &failure.doc_ids {
+            if let Some(at) = result.succeeded.iter().position(|held| held == doc_id) {
                 result.succeeded.remove(at);
             }
-            let error = failure.error.clone();
-            result.failed.push(BatchFailure { doc_id, error });
         }
+        refuse_each(result, failure.doc_ids, &failure.error);
+    }
+}
+
+fn refuse_each(
+    result: &mut BatchResult,
+    doc_ids: impl IntoIterator<Item = String>,
+    error: &NarsilError,
+) {
+    for doc_id in doc_ids {
+        let error = error.clone();
+        result.failed.push(BatchFailure { doc_id, error });
     }
 }
 
@@ -167,10 +177,7 @@ pub(crate) fn update_batch(index: &IndexState, updates: Vec<(String, Map)>) -> R
                         .into_iter()
                         .map(|(doc_id, _)| doc_id)
                         .chain(pending.map(|(doc_id, _)| doc_id));
-                    for doc_id in unwritten {
-                        let error = error.clone();
-                        result.failed.push(BatchFailure { doc_id, error });
-                    }
+                    refuse_each(&mut result, unwritten, &error);
                     return Ok(result);
                 }
             };
@@ -195,10 +202,7 @@ pub(crate) fn remove_batch(index: &IndexState, doc_ids: Vec<String>) -> Result<B
         let _writer = match index.lock_writes() {
             Ok(writer) => writer,
             Err(error) => {
-                for doc_id in doc_ids {
-                    let error = error.clone();
-                    result.failed.push(BatchFailure { doc_id, error });
-                }
+                refuse_each(&mut result, doc_ids, &error);
                 return Ok(result);
             }
         };

@@ -1,6 +1,7 @@
 use super::SMALLEST_BLOCK_POSTINGS;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::keyword_segment::KeywordSegment;
+use crate::util::bytes::{offset_entry, offset_range};
 
 const TARGET_BLOCK_ENTRIES: usize = 128;
 const ABSENT_FIELD_LENGTH_BOUND: f64 = 0.0;
@@ -108,9 +109,7 @@ pub(crate) fn block_summaries(
 }
 
 fn rows_of(segment: &KeywordSegment, token: usize) -> Vec<Row> {
-    let start = segment.posting_offsets.get(token).copied().unwrap_or(0) as usize;
-    let end = segment.posting_offsets.get(token + 1).copied().unwrap_or(0) as usize;
-    let mut rows: Vec<Row> = (start..end.max(start))
+    let mut rows: Vec<Row> = offset_range(&segment.posting_offsets, token)
         .filter_map(|posting| {
             Some(Row {
                 document: *segment.posting_documents.get(posting)?,
@@ -128,26 +127,14 @@ fn positions_of(segment: &KeywordSegment, posting: usize) -> &[u32] {
     let Some(positions) = &segment.positions else {
         return &[];
     };
-    let start = positions.offsets.get(posting).copied().unwrap_or(0) as usize;
-    let end = positions.offsets.get(posting + 1).copied().unwrap_or(0) as usize;
-    positions.values.get(start..end).unwrap_or(&[])
+    offset_entry(&positions.values, &positions.offsets, posting)
 }
 
 /// Writes every token's postings in ascending order of document and then field, with its block summaries, its
 /// positions, and what each document contributes to it, as a paged segment lays them out.
 pub(super) fn write_lists(segment: &KeywordSegment) -> Result<WrittenLists> {
     let mut out = WrittenLists::default();
-    let columns: Vec<Option<&[u32]>> = segment
-        .field_names
-        .iter()
-        .map(|name| {
-            segment
-                .field_lengths
-                .iter()
-                .find(|column| &column.field == name)
-                .map(|column| column.lengths.as_slice())
-        })
-        .collect();
+    let columns = segment.length_columns();
     let tracks_positions = segment.positions.is_some();
     let mut removals: Vec<Vec<(u32, u32)>> = vec![Vec::new(); segment.document_count as usize];
     let mut postings_written = 0usize;

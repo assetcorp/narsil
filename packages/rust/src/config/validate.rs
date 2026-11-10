@@ -3,6 +3,7 @@ use super::types::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::CompiledSchema;
+use crate::util::text::utf16_length;
 use crate::value::number_to_text;
 
 pub(crate) const MAX_INDEX_NAME_LENGTH: usize = 255;
@@ -27,10 +28,6 @@ pub(crate) fn stored_max_partitions(count: Option<u64>) -> Option<u64> {
 
 fn invalid(message: impl Into<String>) -> NarsilError {
     NarsilError::new(ErrorCode::CONFIG_INVALID, message.into())
-}
-
-fn utf16_length(text: &str) -> usize {
-    text.encode_utf16().count()
 }
 
 /// Raises `CONFIG_INVALID` for an index name outside the characters and length that every Narsil engine accepts.

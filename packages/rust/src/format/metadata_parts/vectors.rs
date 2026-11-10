@@ -1,8 +1,8 @@
 use super::{
     config_invalid, describe, is_quantization_mode, is_storage_mode, number, positive_integer,
-    string_list,
 };
 use crate::error::Result;
+use crate::format::fields::string_list;
 use crate::value::{Map, Value};
 
 const METRICS: [&str; 3] = ["cosine", "dotProduct", "euclidean"];

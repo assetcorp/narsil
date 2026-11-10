@@ -1,16 +1,16 @@
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::constants::{MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS};
 use super::{close_index, enforce_limits};
 use crate::engine::EngineInner;
+use crate::engine::background_thread::BackgroundThread;
 
 /// The thread that closes idle indexes and keeps the open indexes within the lifecycle limits.
 #[derive(Default)]
 pub(crate) struct Sweeper {
     stopped: Arc<(Mutex<bool>, Condvar)>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: BackgroundThread,
 }
 
 fn sweep(engine: &EngineInner, idle_timeout_ms: Option<u64>) {
@@ -67,9 +67,7 @@ impl Sweeper {
                     sweep(&engine, limits.idle_timeout_ms);
                 }
             });
-        if let (Ok(handle), Ok(mut thread)) = (spawned, self.thread.lock()) {
-            *thread = Some(handle);
-        }
+        self.thread.hold(spawned);
     }
 
     /// Stops the thread and waits for a sweep that runs to finish.
@@ -80,12 +78,7 @@ impl Sweeper {
             *stopped = true;
             wake.notify_all();
         }
-        let handle = self.thread.lock().ok().and_then(|mut thread| thread.take());
-        if let Some(handle) = handle
-            && handle.thread().id() != std::thread::current().id()
-        {
-            let _ = handle.join();
-        }
+        self.thread.join();
     }
 }
 

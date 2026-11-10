@@ -173,17 +173,24 @@ pub(crate) fn texts_form(blob: &[u8], offsets: &[u32]) -> Result<Value> {
     texts(blob, offsets).map(Value::Array)
 }
 
+fn table_entries<'a>(
+    blob: &'a [u8],
+    offsets: &'a [u32],
+) -> impl Iterator<Item = Result<&'a [u8]>> + 'a {
+    offsets.windows(2).map(|pair| {
+        blob.get(pair[0] as usize..pair[1] as usize)
+            .ok_or_else(|| form_error("an entry lies outside its table"))
+    })
+}
+
 pub(crate) fn texts(blob: &[u8], offsets: &[u32]) -> Result<Vec<Value>> {
-    let mut out = Vec::with_capacity(offsets.len().saturating_sub(1));
-    for pair in offsets.windows(2) {
-        let bytes = blob
-            .get(pair[0] as usize..pair[1] as usize)
-            .ok_or_else(|| form_error("an entry lies outside its table"))?;
-        let text =
-            std::str::from_utf8(bytes).map_err(|_| form_error("an entry is not valid UTF-8"))?;
-        out.push(Value::String(text.to_string()));
-    }
-    Ok(out)
+    table_entries(blob, offsets)
+        .map(|bytes| {
+            let text = std::str::from_utf8(bytes?)
+                .map_err(|_| form_error("an entry is not valid UTF-8"))?;
+            Ok(Value::String(text.to_string()))
+        })
+        .collect()
 }
 
 pub(crate) fn joined(parts: impl IntoIterator<Item = Vec<u8>>) -> (Vec<u8>, Vec<u32>) {
@@ -202,14 +209,10 @@ pub(crate) fn texts_from_form(value: Option<&Value>, what: &str) -> Result<(Vec<
 }
 
 pub(crate) fn packed_form(blob: &[u8], offsets: &[u32]) -> Result<Value> {
-    let mut out = Vec::with_capacity(offsets.len().saturating_sub(1));
-    for pair in offsets.windows(2) {
-        let bytes = blob
-            .get(pair[0] as usize..pair[1] as usize)
-            .ok_or_else(|| form_error("an entry lies outside its table"))?;
-        out.push(decode_value(bytes)?);
-    }
-    Ok(Value::Array(out))
+    table_entries(blob, offsets)
+        .map(|bytes| decode_value(bytes?))
+        .collect::<Result<Vec<Value>>>()
+        .map(Value::Array)
 }
 
 pub(crate) fn packed_from_form(value: Option<&Value>, what: &str) -> Result<(Vec<u8>, Vec<u32>)> {

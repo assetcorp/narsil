@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use super::inputs::{MergeInput, as_u32, damaged};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::segment::SegmentData;
+use crate::util::bytes::offset_entry;
 use crate::value::{Map, Value, decode_document, encode_document};
 
 /// The IDs and stored documents of a merged segment, in ordinal order, with the ordinals in ascending ID order.
@@ -82,12 +83,6 @@ pub(super) fn append_document(
     Ok(())
 }
 
-fn entry<'b>(blob: &'b [u8], offsets: &[u32], at: u32) -> &'b [u8] {
-    let start = offsets.get(at as usize).copied().unwrap_or(0) as usize;
-    let end = offsets.get(at as usize + 1).copied().unwrap_or(0) as usize;
-    blob.get(start..end).unwrap_or(&[])
-}
-
 /// Copies the IDs and documents that the inputs keep, removing every vector value that the schema declares, and
 /// raises `PARTITION_CORRUPTED` where two kept documents share an ID.
 pub(crate) fn merge_documents(
@@ -120,15 +115,14 @@ pub(crate) fn merge_documents(
                 .push(as_u32(table.documents.len(), "document bytes")?);
         }
     }
+    let id_of = |ordinal: u32| offset_entry(&table.ids, &table.id_offsets, ordinal as usize);
     let mut order: Vec<u32> = (0..document_count).collect();
-    order.sort_unstable_by(|&left, &right| {
-        entry(&table.ids, &table.id_offsets, left).cmp(entry(&table.ids, &table.id_offsets, right))
-    });
-    if let Some(pair) = order.windows(2).find(|pair| {
-        entry(&table.ids, &table.id_offsets, pair[0])
-            == entry(&table.ids, &table.id_offsets, pair[1])
-    }) {
-        let id = String::from_utf8_lossy(entry(&table.ids, &table.id_offsets, pair[0]));
+    order.sort_unstable_by(|&left, &right| id_of(left).cmp(id_of(right)));
+    if let Some(pair) = order
+        .windows(2)
+        .find(|pair| id_of(pair[0]) == id_of(pair[1]))
+    {
+        let id = String::from_utf8_lossy(id_of(pair[0]));
         return Err(NarsilError::new(
             ErrorCode::PARTITION_CORRUPTED,
             format!("The segments of the partition hold document \"{id}\" more than once"),

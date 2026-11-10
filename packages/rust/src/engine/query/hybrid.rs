@@ -5,8 +5,8 @@ use super::fusion::{fixed_hybrid_depth, fuse, require_within_hybrid_depth, resol
 use super::gather::{QueryRun, text_ranked};
 use super::params::QueryParams;
 use super::vector::{
-    RankedHits, VectorLeg, filter_snapshots, id_slices, require_usable_vector_options,
-    vector_fetch_depth, vector_leg,
+    RankedHits, VectorLeg, clause_with_vector, id_slices, require_usable_vector_options,
+    vector_fetch_depth, vector_leg, within_filter,
 };
 use crate::error::Result;
 
@@ -36,42 +36,36 @@ pub(crate) fn hybrid_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<Ran
 fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
     let (index, params, scope) = (run.index, run.params, run.scope);
     let fusion = resolve_fusion(params.hybrid.as_ref())?;
-    let snapshots = filter_snapshots(index, scope);
-    let matched = scope.matched_ids(&snapshots)?;
-    if matched.as_ref().is_some_and(Vec::is_empty) {
-        return Ok(RankedHits::empty());
-    }
-    let Some((clause, query)) = params
-        .vector
-        .as_ref()
-        .and_then(|clause| clause.value.as_ref().map(|query| (clause, query)))
-    else {
-        return Ok(text_only(text_ranked(run, params)?));
-    };
-    let k = vector_fetch_depth(run.limit, run.offset, cursor_depth)?;
-    let text = text_ranked(run, params)?;
-    let matching = id_slices(&matched);
-    let vector = vector_leg(
-        index,
-        clause,
-        query,
-        k,
-        None,
-        matching.as_deref(),
-        &run.snapshots.pin,
-    )?;
-    let mut hits = fuse(fusion, &text.hits, &vector.hits)?;
-    if let Some(threshold) = score_floor(params) {
-        hits.retain(|hit| hit.score >= threshold);
-    }
-    let text_holds_every_match = text.hits.len() as u64 == text.total_matched;
-    Ok(RankedHits {
-        total_matched: hits.len() as u64,
-        hits,
-        exact: vector.holds_every_match && text_holds_every_match,
-        facets: text.facets,
-        ..RankedHits::empty()
-    })
+    let ranked = within_filter(index, scope, |matched| {
+        let Some((clause, query)) = clause_with_vector(params) else {
+            return Ok(text_only(text_ranked(run, params)?));
+        };
+        let k = vector_fetch_depth(run.limit, run.offset, cursor_depth)?;
+        let text = text_ranked(run, params)?;
+        let matching = id_slices(matched);
+        let vector = vector_leg(
+            index,
+            clause,
+            query,
+            k,
+            None,
+            matching.as_deref(),
+            &run.snapshots.pin,
+        )?;
+        let mut hits = fuse(fusion, &text.hits, &vector.hits)?;
+        if let Some(threshold) = score_floor(params) {
+            hits.retain(|hit| hit.score >= threshold);
+        }
+        let text_holds_every_match = text.hits.len() as u64 == text.total_matched;
+        Ok(RankedHits {
+            total_matched: hits.len() as u64,
+            hits,
+            exact: vector.holds_every_match && text_holds_every_match,
+            facets: text.facets,
+            ..RankedHits::empty()
+        })
+    })?;
+    Ok(ranked.unwrap_or_else(RankedHits::empty))
 }
 
 fn count_of_union(text: &RankedHits, vector: &VectorLeg) -> u64 {
@@ -93,63 +87,53 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
     require_within_hybrid_depth(cursor_depth, run.offset, depth)?;
     let fusion = resolve_fusion(params.hybrid.as_ref())?;
     let position_depth = Some(cursor_depth);
-    let snapshots = filter_snapshots(index, scope);
-    let matched = scope.matched_ids(&snapshots)?;
-    if matched.as_ref().is_some_and(Vec::is_empty) {
-        return Ok(RankedHits {
-            position_depth,
+    let ranked = within_filter(index, scope, |matched| {
+        let mut text_params = params.clone();
+        text_params.limit = Some(depth);
+        text_params.offset = Some(0);
+        text_params.search_after = None;
+        text_params.pinned = None;
+        let Some((clause, query)) = clause_with_vector(params) else {
+            return Ok(text_only(text_ranked(run, &text_params)?));
+        };
+        let text = text_ranked(run, &text_params)?;
+        let matching = id_slices(matched);
+        let vector = vector_leg(
+            index,
+            clause,
+            query,
+            depth,
+            Some(HYBRID_RESCORE_WINDOW),
+            matching.as_deref(),
+            &run.snapshots.pin,
+        )?;
+        let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];
+        let mut hits = fuse(fusion, text_ranked_hits, &vector.hits)?;
+        let threshold = score_floor(params);
+        if let Some(threshold) = threshold {
+            hits.retain(|hit| hit.score >= threshold);
+        }
+        let filters_by_score = threshold.is_some();
+        let fused_count = hits.len() as u64;
+        hits.truncate(depth);
+        let text_holds_every_match = text.hits.len() as u64 == text.total_matched;
+        let exact = vector.holds_every_match
+            && text_holds_every_match
+            && (!filters_by_score || text_ranked_hits.len() as u64 == text.total_matched);
+        Ok(RankedHits {
+            hits,
+            total_matched: if filters_by_score {
+                fused_count
+            } else {
+                count_of_union(&text, &vector)
+            },
+            exact,
+            facets: text.facets,
             ..RankedHits::empty()
-        });
-    }
-    let mut text_params = params.clone();
-    text_params.limit = Some(depth);
-    text_params.offset = Some(0);
-    text_params.search_after = None;
-    text_params.pinned = None;
-    let Some((clause, query)) = params
-        .vector
-        .as_ref()
-        .and_then(|clause| clause.value.as_ref().map(|query| (clause, query)))
-    else {
-        return Ok(RankedHits {
-            position_depth,
-            ..text_only(text_ranked(run, &text_params)?)
-        });
-    };
-    let text = text_ranked(run, &text_params)?;
-    let matching = id_slices(&matched);
-    let vector = vector_leg(
-        index,
-        clause,
-        query,
-        depth,
-        Some(HYBRID_RESCORE_WINDOW),
-        matching.as_deref(),
-        &run.snapshots.pin,
-    )?;
-    let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];
-    let mut hits = fuse(fusion, text_ranked_hits, &vector.hits)?;
-    let threshold = score_floor(params);
-    if let Some(threshold) = threshold {
-        hits.retain(|hit| hit.score >= threshold);
-    }
-    let filters_by_score = threshold.is_some();
-    let fused_count = hits.len() as u64;
-    hits.truncate(depth);
-    let text_holds_every_match = text.hits.len() as u64 == text.total_matched;
-    let exact = vector.holds_every_match
-        && text_holds_every_match
-        && (!filters_by_score || text_ranked_hits.len() as u64 == text.total_matched);
+        })
+    })?;
     Ok(RankedHits {
-        hits,
-        total_matched: if filters_by_score {
-            fused_count
-        } else {
-            count_of_union(&text, &vector)
-        },
-        exact,
-        facets: text.facets,
-        locations: Vec::new(),
         position_depth,
+        ..ranked.unwrap_or_else(RankedHits::empty)
     })
 }

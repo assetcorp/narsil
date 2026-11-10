@@ -8,7 +8,7 @@ use crate::format::keyword_columns::{
     write_partial_words, write_pattern_columns, write_surface_forms, write_value_columns,
 };
 use crate::format::keyword_segment::KeywordSegment;
-use crate::util::bytes::{u32_bytes, u64_bytes};
+use crate::util::bytes::{offset_entry, u32_bytes, u64_bytes};
 use crate::value::{write_array_header, write_string, write_uint};
 
 /// A paged keyword segment ready to write: the head and every section in the order of the payload.
@@ -47,12 +47,6 @@ impl PagedSegmentFile {
     }
 }
 
-fn entry<'a>(blob: &'a [u8], offsets: &[u32], at: usize) -> &'a [u8] {
-    let start = offsets.get(at).copied().unwrap_or(0) as usize;
-    let end = offsets.get(at + 1).copied().unwrap_or(0) as usize;
-    blob.get(start..end).unwrap_or(&[])
-}
-
 /// Encodes the `idSample` section: every `ID_SAMPLE_INTERVAL`th ID of the ascending ID order with its position.
 pub(crate) fn encode_id_sample(sampled: &[(u64, String)]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -72,7 +66,7 @@ fn id_sample(segment: &KeywordSegment) -> Vec<u8> {
         .enumerate()
         .step_by(ID_SAMPLE_INTERVAL)
         .map(|(position, &ordinal)| {
-            let id = entry(&segment.ids, &segment.id_offsets, ordinal as usize);
+            let id = offset_entry(&segment.ids, &segment.id_offsets, ordinal as usize);
             (
                 position as u64,
                 std::str::from_utf8(id).unwrap_or("").to_string(),
@@ -191,7 +185,7 @@ pub(crate) fn encode_paged_segment(
         Ok(())
     };
     for ordinal in 0..segment.document_count {
-        let stored = entry(
+        let stored = offset_entry(
             &segment.documents,
             &segment.document_offsets,
             ordinal as usize,

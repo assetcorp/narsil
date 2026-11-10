@@ -1,7 +1,7 @@
 use crate::util::base64;
 use crate::value::{Value, number_to_text};
 
-fn write_string_json(out: &mut String, text: &str) {
+pub(crate) fn write_json_string(out: &mut String, text: &str) {
     out.push('"');
     for character in text.chars() {
         match character {
@@ -42,7 +42,7 @@ fn write_value_json(out: &mut String, value: &Value, tagged: bool) {
         Value::Null => out.push_str("null"),
         Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
         Value::Number(number) => write_number_json(out, *number, tagged),
-        Value::String(text) => write_string_json(out, text),
+        Value::String(text) => write_json_string(out, text),
         Value::Bytes(bytes) => {
             out.push_str("{\"$bytes\":\"");
             out.push_str(&base64::encode(bytes));
@@ -73,7 +73,7 @@ fn write_value_json(out: &mut String, value: &Value, tagged: bool) {
                 if at > 0 {
                     out.push(',');
                 }
-                write_string_json(out, key);
+                write_json_string(out, key);
                 out.push(':');
                 write_value_json(out, entry, tagged);
             }

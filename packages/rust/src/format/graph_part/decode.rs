@@ -3,21 +3,10 @@ use super::{
     VECTOR_GRAPH_PART_PAYLOAD_VERSION, VECTOR_GRAPH_PAYLOAD_VERSION,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::fields::Fields;
+use crate::format::fields::{Fields, whole_number_up_to};
 use crate::format::vector_file::require_payload_version;
 use crate::util::bytes::u32_list;
 use crate::value::{Value, decode_value};
-
-fn whole_number_up_to(value: Option<&Value>, highest: f64) -> Option<f64> {
-    match value {
-        Some(Value::Number(number))
-            if number.fract() == 0.0 && (0.0..=highest).contains(number) =>
-        {
-            Some(*number)
-        }
-        _ => None,
-    }
-}
 
 fn ends_inside_a_list() -> NarsilError {
     NarsilError::new(

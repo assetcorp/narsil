@@ -12,7 +12,7 @@ pub struct Map {
     entries: Vec<(String, Value)>,
 }
 
-fn array_index_of(key: &str) -> Option<u64> {
+pub(crate) fn array_index_of(key: &str) -> Option<u64> {
     let bytes = key.as_bytes();
     if bytes.is_empty() || bytes.len() > 10 || !bytes.iter().all(u8::is_ascii_digit) {
         return None;

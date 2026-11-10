@@ -18,6 +18,11 @@ pub(crate) enum Indexed {
     SegmentFull,
 }
 
+type TermsWrite = unsafe extern "C" fn(
+    *mut ffi::narsil_workspace,
+    *const ffi::narsil_index_terms_request,
+) -> ffi::narsil_status;
+
 fn holds_surface(fields: &[SegmentFieldTokens<'_>]) -> bool {
     fields.iter().any(|field| {
         field.tokens.records.iter().any(|record| {
@@ -79,6 +84,21 @@ impl GrowingSegment {
         self.reserve_fields(ordinal as usize + 1, field_count)
     }
 
+    fn write_terms(
+        &mut self,
+        ordinal: u32,
+        fields: &[ffi::narsil_field_tokens],
+        write: TermsWrite,
+    ) -> Result<ffi::narsil_status> {
+        let request = ffi::narsil_index_terms_request {
+            segment: self.raw(),
+            ordinal,
+            fields: fields.as_ptr(),
+            field_count: fields.len(),
+        };
+        with_workspace(|workspace| Ok(unsafe { write(workspace, &request) }))
+    }
+
     pub(crate) fn index(
         &mut self,
         ordinal: u32,
@@ -92,16 +112,7 @@ impl GrowingSegment {
         let raw = raw_fields(fields);
         let mut reserved = false;
         for _ in 0..MAX_ROOM_ATTEMPTS {
-            let request = ffi::narsil_index_terms_request {
-                segment: self.raw(),
-                ordinal,
-                fields: raw.as_ptr(),
-                field_count: raw.len(),
-            };
-            let status = with_workspace(|workspace| {
-                Ok(unsafe { ffi::narsil_index_terms(workspace, &request) })
-            })?;
-            match status {
+            match self.write_terms(ordinal, &raw, ffi::narsil_index_terms)? {
                 ffi::NARSIL_OK => return Ok(Indexed::Stored),
                 ffi::NARSIL_SEGMENT_FULL => return Ok(Indexed::SegmentFull),
                 ffi::NARSIL_NEEDS_ROOM if !reserved => {
@@ -120,16 +131,7 @@ impl GrowingSegment {
         self.vacuum_if_sparse()?;
         let raw = raw_fields(fields);
         for _ in 0..MAX_ROOM_ATTEMPTS {
-            let request = ffi::narsil_index_terms_request {
-                segment: self.raw(),
-                ordinal,
-                fields: raw.as_ptr(),
-                field_count: raw.len(),
-            };
-            let status = with_workspace(|workspace| {
-                Ok(unsafe { ffi::narsil_remove_document(workspace, &request) })
-            })?;
-            match status {
+            match self.write_terms(ordinal, &raw, ffi::narsil_remove_document)? {
                 ffi::NARSIL_OK => return Ok(()),
                 ffi::NARSIL_NEEDS_ROOM => grow_every_region(self)?,
                 status => return Err(core_refused("a document's removal", status)),

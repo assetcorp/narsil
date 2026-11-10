@@ -23,3 +23,7 @@ pub(crate) fn is_javascript_whitespace(character: char) -> bool {
 pub(crate) fn javascript_trim(text: &str) -> &str {
     text.trim_matches(is_javascript_whitespace)
 }
+
+pub(crate) fn utf16_length(text: &str) -> usize {
+    text.chars().map(char::len_utf16).sum()
+}
