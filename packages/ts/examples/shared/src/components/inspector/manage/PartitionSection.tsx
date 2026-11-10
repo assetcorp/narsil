@@ -17,11 +17,17 @@ function wholeNumber(raw: string, low: number, high: number, label: string): num
   return parsed
 }
 
+function refusedAboveLimit(err: unknown, count: number): boolean {
+  if (!isNarsilError(err) || err.code !== ErrorCodes.PARTITION_CAPACITY_EXCEEDED) return false
+  const limit = err.details.maxPartitions
+  return typeof limit === 'number' && limit < count
+}
+
 async function rebalanceRaisingLimit(actions: EngineActions, indexName: string, count: number): Promise<void> {
   try {
     await actions.rebalance(indexName, count)
   } catch (err) {
-    if (!isNarsilError(err) || err.code !== ErrorCodes.PARTITION_CAPACITY_EXCEEDED) throw err
+    if (!refusedAboveLimit(err, count)) throw err
     await actions.updatePartitionConfig(indexName, { maxPartitions: count })
     await actions.rebalance(indexName, count)
   }
