@@ -56,6 +56,7 @@ impl PinTable {
 
 pub(crate) struct IndexSequence {
     word: AtomicI64,
+    highest_stamp: AtomicI64,
     pins: Arc<PinTable>,
 }
 
@@ -63,6 +64,7 @@ impl Default for IndexSequence {
     fn default() -> IndexSequence {
         IndexSequence {
             word: AtomicI64::new(FIRST_WRITE_SEQUENCE),
+            highest_stamp: AtomicI64::new(FIRST_WRITE_SEQUENCE),
             pins: Arc::new(PinTable::new()),
         }
     }
@@ -71,6 +73,14 @@ impl Default for IndexSequence {
 impl IndexSequence {
     pub(crate) fn current(&self) -> i64 {
         self.word.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn record_stamp(&self, sequence: i64) {
+        self.highest_stamp.fetch_max(sequence, Ordering::SeqCst);
+    }
+
+    pub(crate) fn stamped_after(&self, pin: i64) -> bool {
+        self.highest_stamp.load(Ordering::SeqCst) > pin
     }
 
     pub(crate) fn next(&self) -> i64 {

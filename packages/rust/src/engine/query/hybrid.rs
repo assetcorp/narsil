@@ -5,8 +5,8 @@ use super::fusion::{fixed_hybrid_depth, fuse, require_within_hybrid_depth, resol
 use super::gather::{QueryRun, text_ranked};
 use super::params::QueryParams;
 use super::vector::{
-    RankedHits, VectorLeg, filter_snapshots, id_slices, require_usable_vector_options,
-    vector_fetch_depth, vector_leg,
+    RankedHits, VectorLeg, VectorLegRequest, filter_snapshots, id_slices,
+    require_usable_vector_options, vector_fetch_depth, vector_leg,
 };
 use crate::error::Result;
 
@@ -36,7 +36,7 @@ pub(crate) fn hybrid_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<Ran
 fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
     let (index, params, scope) = (run.index, run.params, run.scope);
     let fusion = resolve_fusion(params.hybrid.as_ref())?;
-    let snapshots = filter_snapshots(index, scope);
+    let snapshots = filter_snapshots(&run.snapshots, scope);
     let matched = scope.matched_ids(&snapshots)?;
     if matched.as_ref().is_some_and(Vec::is_empty) {
         return Ok(RankedHits::empty());
@@ -53,12 +53,14 @@ fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
     let matching = id_slices(&matched);
     let vector = vector_leg(
         index,
-        clause,
-        query,
-        k,
-        None,
-        matching.as_deref(),
-        &run.snapshots.pin,
+        &VectorLegRequest {
+            clause,
+            query,
+            k,
+            rescore_window: None,
+            matching: matching.as_deref(),
+            snapshots: &run.snapshots,
+        },
     )?;
     let mut hits = fuse(fusion, &text.hits, &vector.hits)?;
     if let Some(threshold) = score_floor(params) {
@@ -93,7 +95,7 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
     require_within_hybrid_depth(cursor_depth, run.offset, depth)?;
     let fusion = resolve_fusion(params.hybrid.as_ref())?;
     let position_depth = Some(cursor_depth);
-    let snapshots = filter_snapshots(index, scope);
+    let snapshots = filter_snapshots(&run.snapshots, scope);
     let matched = scope.matched_ids(&snapshots)?;
     if matched.as_ref().is_some_and(Vec::is_empty) {
         return Ok(RankedHits {
@@ -120,12 +122,14 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
     let matching = id_slices(&matched);
     let vector = vector_leg(
         index,
-        clause,
-        query,
-        depth,
-        Some(HYBRID_RESCORE_WINDOW),
-        matching.as_deref(),
-        &run.snapshots.pin,
+        &VectorLegRequest {
+            clause,
+            query,
+            k: depth,
+            rescore_window: Some(HYBRID_RESCORE_WINDOW),
+            matching: matching.as_deref(),
+            snapshots: &run.snapshots,
+        },
     )?;
     let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];
     let mut hits = fuse(fusion, text_ranked_hits, &vector.hits)?;

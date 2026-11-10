@@ -59,7 +59,6 @@ pub(crate) struct StoreTables {
     born_at: Box<[AtomicI64]>,
     retired_at: Box<[AtomicI64]>,
     earlier_ordinal: Box<[AtomicI32]>,
-    write_sequence: AtomicI64,
     sequence: Option<Arc<IndexSequence>>,
 }
 
@@ -107,9 +106,6 @@ impl StoreTables {
         sequence: Option<Arc<IndexSequence>>,
     ) -> StoreTables {
         let blocks = block_count(capacity);
-        let write_sequence = sequence
-            .as_ref()
-            .map_or(crate::pins::FIRST_WRITE_SEQUENCE, |found| found.current());
         StoreTables {
             dimension,
             bits,
@@ -132,7 +128,6 @@ impl StoreTables {
             born_at: sequences(capacity),
             retired_at: sequences(capacity),
             earlier_ordinal: words(capacity, NO_EARLIER_ORDINAL),
-            write_sequence: AtomicI64::new(write_sequence),
             sequence,
         }
     }
@@ -199,7 +194,6 @@ impl StoreTables {
             born_at: copied_sequences(&self.born_at, capacity),
             retired_at: copied_sequences(&self.retired_at, capacity),
             earlier_ordinal: copied_words(&self.earlier_ordinal, capacity, NO_EARLIER_ORDINAL),
-            write_sequence: AtomicI64::new(self.write_sequence.load(Ordering::SeqCst)),
             sequence: self.sequence.clone(),
         }
     }

@@ -1,5 +1,4 @@
 pub(crate) const BATCH_CHUNK_DOCUMENTS: usize = 1_000;
-pub(crate) const DOCUMENT_READ_ATTEMPTS: usize = 8;
 pub(crate) const EXPORT_CHUNK_BYTES: usize = 1_048_576;
 pub(crate) const IMPORT_BATCH_DOCUMENTS: usize = 1_000;
 pub(crate) const MAX_IMPORT_REFUSALS_REPORTED: usize = 1_000;

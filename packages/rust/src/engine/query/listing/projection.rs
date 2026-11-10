@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::engine::constants::DOCUMENT_READ_ATTEMPTS;
 use crate::engine::index::IndexState;
 use crate::engine::query::params::DocumentProjection;
 use crate::engine::vectors::paths::set_value_at;
@@ -191,34 +190,17 @@ pub(crate) fn listed_document(
         Projection::Full => return index.full_document(partitions, id),
         Projection::Fields { .. } => {}
     }
-    let pin = index.vectors.sequence().pin()?;
-    let mut attempt = 1;
-    loop {
-        let Some(at) = index.locate(partitions, id)? else {
-            return Ok(None);
-        };
-        let Some(partition) = partitions.get(at) else {
-            return Ok(None);
-        };
-        let snapshot = partition.snapshot();
-        let Some(stored) = snapshot.document(id)? else {
-            return Ok(None);
-        };
-        let mut vectors: Vec<(&str, Vec<f32>)> = Vec::new();
-        for entry in index.vectors.fields() {
-            if projection.keeps_field(&entry.path)
-                && let Some(vector) = entry.field.pinned_vector(id, pin.value())?
-            {
-                vectors.push((entry.path.as_str(), vector));
-            }
+    let (snapshots, pin) = index.published_snapshots(partitions)?;
+    let Some(stored) = index.stored_document(&snapshots, id)? else {
+        return Ok(None);
+    };
+    let mut document = projection.project(&stored);
+    for entry in index.vectors.fields() {
+        if projection.keeps_field(&entry.path)
+            && let Some(vector) = entry.field.pinned_vector(id, pin.value())?
+        {
+            set_value_at(&mut document, &entry.path, vector_value(vector));
         }
-        if attempt >= DOCUMENT_READ_ATTEMPTS || Arc::ptr_eq(&snapshot, &partition.snapshot()) {
-            let mut document = projection.project(&stored);
-            for (path, vector) in vectors {
-                set_value_at(&mut document, path, vector_value(vector));
-            }
-            return Ok(Some(document));
-        }
-        attempt += 1;
     }
+    Ok(Some(document))
 }

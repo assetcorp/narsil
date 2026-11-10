@@ -102,14 +102,23 @@ fn empty(exact_count: u64) -> VectorSearchOutcome {
     }
 }
 
+fn admitted_at(generation: &Generation, pin: i64) -> u64 {
+    let live = generation.counts.live();
+    match generation.store.stamped_after(pin) {
+        true => generation.store.admitted_count(pin),
+        false => live,
+    }
+}
+
 fn fetched(
     generation: &Generation,
     results: Vec<VectorHit>,
     options: &VectorSearchOptions,
     filter: Option<&OrdinalFilter>,
+    pin: i64,
 ) -> VectorSearchOutcome {
     if options.min_similarity == f64::NEG_INFINITY {
-        let admitted = filter.map_or_else(|| generation.counts.live(), OrdinalFilter::count);
+        let admitted = filter.map_or_else(|| admitted_at(generation, pin), OrdinalFilter::count);
         return VectorSearchOutcome {
             results,
             matched: admitted,
@@ -223,7 +232,7 @@ impl VectorField {
             return Ok(empty(0));
         }
         if k == 0 {
-            return Ok(fetched(&generation, Vec::new(), options, filter));
+            return Ok(fetched(&generation, Vec::new(), options, filter, pin));
         }
         if generation.buffer.len() > 0 {
             schedule_build(&self.shared);
@@ -264,7 +273,7 @@ impl VectorField {
                 },
             )?;
             if generation.buffer.len() == 0 {
-                return Ok(fetched(&generation, hits, options, filter));
+                return Ok(fetched(&generation, hits, options, filter, pin));
             }
             let buffered = generation
                 .buffer
@@ -276,6 +285,7 @@ impl VectorField {
                 merge_results(hits, from_buffer, k),
                 options,
                 filter,
+                pin,
             ))
         })
     }

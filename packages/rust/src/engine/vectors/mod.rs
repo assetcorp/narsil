@@ -93,11 +93,7 @@ impl IndexVectors {
     }
 
     pub(crate) fn publish_writes(&self) {
-        let sequence = self.sequence.next();
-        for entry in &self.fields {
-            entry.field.record_write_sequence(sequence);
-        }
-        self.sequence.publish(sequence);
+        self.sequence.publish(self.sequence.next());
     }
 
     pub(crate) fn embedding(&self) -> Option<&EmbeddingBinding> {

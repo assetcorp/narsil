@@ -2,7 +2,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use super::constants::RESULT_WINDOW;
-use super::documents::Location;
+use super::documents::{Location, QuerySnapshots};
+use super::gather::QueryRun;
 use super::params::{QueryParams, SearchMode, VectorQuery};
 use super::results::FacetResult;
 use super::scope::QueryScope;
@@ -11,8 +12,7 @@ use crate::config::Metric;
 use crate::engine::index::IndexState;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::index::partition::{Partition, PartitionSnapshot};
-use crate::pins::Pin;
+use crate::index::partition::PartitionSnapshot;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::util::text::javascript_trim;
@@ -207,22 +207,27 @@ pub(crate) struct VectorLeg {
     pub(crate) holds_every_match: bool,
 }
 
-fn stored(partitions: &[Arc<Partition>], index: &IndexState, id: &str) -> Result<bool> {
-    Ok(index.locate(partitions, id)?.is_some())
+pub(crate) struct VectorLegRequest<'a> {
+    pub(crate) clause: &'a VectorQuery,
+    pub(crate) query: &'a [f32],
+    pub(crate) k: usize,
+    pub(crate) rescore_window: Option<usize>,
+    pub(crate) matching: Option<&'a [&'a str]>,
+    pub(crate) snapshots: &'a QuerySnapshots,
 }
 
-/// Searches the vector field of a clause that holds a value, keeping only the hits whose document the partitions
-/// hold, so that a search running beside a write never returns half a document. Where `matching` lists the IDs
-/// that a filter accepts, the search admits those documents alone.
-pub(crate) fn vector_leg(
-    index: &IndexState,
-    clause: &VectorQuery,
-    query: &[f32],
-    k: usize,
-    rescore_window: Option<usize>,
-    matching: Option<&[&str]>,
-    pin: &Pin,
-) -> Result<VectorLeg> {
+/// Searches the vector field of a clause that holds a value, keeping only the hits whose document the query's
+/// partition snapshots hold, so that every hit carries the text and the vector of one write. Where `matching` lists
+/// the IDs that a filter accepts, the search admits those documents alone.
+pub(crate) fn vector_leg(index: &IndexState, request: &VectorLegRequest<'_>) -> Result<VectorLeg> {
+    let VectorLegRequest {
+        clause,
+        query,
+        k,
+        rescore_window,
+        matching,
+        snapshots,
+    } = *request;
     let Some(field) = index.vectors.field(&clause.field) else {
         return Ok(VectorLeg {
             hits: Vec::new(),
@@ -238,12 +243,11 @@ pub(crate) fn vector_leg(
         oversample: clause.oversample,
         rescore_window,
     };
-    let outcome = field.search(query, k, &options, matching, pin)?;
+    let outcome = field.search(query, k, &options, matching, &snapshots.pin)?;
     let returned = outcome.results.len() as u64;
-    let partitions = index.partitions();
     let mut hits = Vec::with_capacity(outcome.results.len());
     for hit in outcome.results {
-        if stored(&partitions, index, &hit.doc_id)? {
+        if snapshots.locate(index, &hit.doc_id)?.is_some() {
             hits.push(KeywordHit {
                 id: hit.doc_id,
                 score: hit.score,
@@ -259,20 +263,16 @@ pub(crate) fn vector_leg(
     })
 }
 
-/// Returns the snapshot of every partition of the index where the search carries a filter, which a filtered vector
+/// Returns the query's snapshot of every partition where the search carries a filter, which a filtered vector
 /// search reads its matches from, and no snapshot otherwise.
 pub(crate) fn filter_snapshots(
-    index: &IndexState,
+    snapshots: &QuerySnapshots,
     scope: &QueryScope,
 ) -> Vec<Arc<PartitionSnapshot>> {
     if !scope.filters() {
         return Vec::new();
     }
-    index
-        .partitions()
-        .iter()
-        .map(|partition| partition.snapshot())
-        .collect()
+    snapshots.partitions.clone()
 }
 
 /// Returns the IDs that `ids` holds, borrowed, in the form that a vector search takes.
@@ -297,15 +297,8 @@ pub(crate) fn require_usable_vector_options(clause: Option<&VectorQuery>) -> Res
 
 /// Runs a vector-only query to the depth that its page needs, past the `cursor_depth` results that earlier pages
 /// returned.
-pub(crate) fn vector_hits(
-    index: &IndexState,
-    params: &QueryParams,
-    limit: usize,
-    offset: usize,
-    cursor_depth: usize,
-    scope: &QueryScope,
-    pin: &Pin,
-) -> Result<RankedHits> {
+pub(crate) fn vector_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
+    let (index, params, scope) = (run.index, run.params, run.scope);
     require_usable_vector_options(params.vector.as_ref())?;
     let Some(clause) = &params.vector else {
         return Ok(RankedHits::empty());
@@ -316,14 +309,23 @@ pub(crate) fn vector_hits(
     if index.vectors.field(&clause.field).is_none() {
         return Ok(RankedHits::empty());
     }
-    let snapshots = filter_snapshots(index, scope);
+    let snapshots = filter_snapshots(&run.snapshots, scope);
     let matched = scope.matched_ids(&snapshots)?;
     if matched.as_ref().is_some_and(Vec::is_empty) {
         return Ok(RankedHits::empty());
     }
     let matching = id_slices(&matched);
-    let k = vector_fetch_depth(limit, offset, cursor_depth)?;
-    let leg = vector_leg(index, clause, query, k, None, matching.as_deref(), pin)?;
+    let leg = vector_leg(
+        index,
+        &VectorLegRequest {
+            clause,
+            query,
+            k: vector_fetch_depth(run.limit, run.offset, cursor_depth)?,
+            rescore_window: None,
+            matching: matching.as_deref(),
+            snapshots: &run.snapshots,
+        },
+    )?;
     Ok(RankedHits {
         hits: leg.hits,
         total_matched: leg.matched,
