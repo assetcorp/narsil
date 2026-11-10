@@ -3,6 +3,7 @@
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
+#include "../include/narsil_work.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -17,6 +18,8 @@
 #define MAX_REFUSED_SITES 512U
 #define MESSAGE_BYTES 512U
 #define UNICODE_TABLE_ALLOCATIONS 2U
+#define NANOSECONDS_PER_MILLISECOND UINT64_C(1000000)
+#define DECIMAL 10
 
 typedef struct {
   uint64_t seen;
@@ -40,7 +43,7 @@ static void note_refused_site(const char *site) {
   if (refused_site_count < MAX_REFUSED_SITES) {
     refused_sites[refused_site_count++] = site;
   } else {
-    report("the allocation-failure test refused more distinct allocation sites than it records");
+    check(0, "the allocation-failure test refused more distinct allocation sites than it records");
   }
 }
 
@@ -146,7 +149,37 @@ static int record_digest(recorded_digests *digests, const attempt_outcome *outco
   return 1;
 }
 
+typedef struct {
+  uint64_t part;
+  uint64_t parts;
+  uint64_t calls;
+} process_share;
+
+static process_share share = {0, 1, 0};
+
+static uint64_t count_from(const char *text) {
+  if (text == NULL || *text < '0' || *text > '9') { return UINT64_MAX; }
+  char *end = NULL;
+  unsigned long long count = strtoull(text, &end, DECIMAL);
+  return *end == '\0' ? count : UINT64_MAX;
+}
+
+static void report_start(const failing_call *call) {
+  if (printf("%s: ", call->name) < 0 || fflush(stdout) == EOF) {
+    report("the name of an allocation-failure call cannot print");
+  }
+}
+
+static void report_duration(const recorded_digests *digests, uint64_t started) {
+  uint64_t elapsed = (narsil_clock_now() - started) / NANOSECONDS_PER_MILLISECOND;
+  int printed = printf("%zu refused calls in %llu ms\n", digests->count, (unsigned long long)elapsed);
+  if (printed < 0 || fflush(stdout) == EOF) { report("the duration of an allocation-failure call cannot print"); }
+}
+
 void refuse_each_allocation(const failing_call *call) {
+  if (share.calls++ % share.parts != share.part) { return; }
+  report_start(call);
+  uint64_t started = narsil_clock_now();
   recorded_digests digests = {NULL, 0, 0};
   uint64_t expected = 0;
   int completed = 0;
@@ -177,6 +210,7 @@ void refuse_each_allocation(const failing_call *call) {
                   "the outputs after a refused allocation differ from a clean call", NARSIL_OK);
     }
   }
+  report_duration(&digests, started);
   free(digests.outcomes);
 }
 
@@ -208,13 +242,21 @@ static void report_refused_sites(void) {
   }
 }
 
-void allocation_failure_checks(void) {
+void allocation_failure_checks(const char *part, const char *parts) {
   if (!ALLOCATION_FAILURES_BUILT) {
-    report("the allocation-failure checks need a build with NARSIL_ALLOCATION_FAILURE_TESTS defined");
+    check(0, "the allocation-failure checks need a build with NARSIL_ALLOCATION_FAILURE_TESTS defined");
     return;
   }
-  unicode_table_refusals();
-  workspace_refusal();
+  process_share chosen = {count_from(part), count_from(parts), 0};
+  if (chosen.parts == UINT64_MAX || chosen.part >= chosen.parts) {
+    check(0, "the allocation-failure checks need a part number below a count of parts");
+    return;
+  }
+  share = chosen;
+  if (share.part == 0) {
+    unicode_table_refusals();
+    workspace_refusal();
+  }
   analysis_allocation_failures();
   graph_allocation_failures();
   query_allocation_failures();

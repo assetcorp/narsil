@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -22,6 +22,10 @@ const ALLOCATION_FAILURES_ONLY = 'allocation-failures'
 const ALLOCATION_FAILURE_FLAGS = ['-DNARSIL_ALLOCATION_FAILURE_TESTS']
 const ALLOCATION_SITE = /"([^"]+)" ":" "(\d+)"/g
 const REFUSED_SITE_PREFIX = 'refused allocation site '
+const REFUSED_CALL = /^(.+): \d+ refused calls in (\d+) ms$/gm
+const ALLOCATION_PROCESSES = 4
+const ALLOCATION_OUTPUT_BYTES = 16 * 1024 * 1024
+const MILLISECONDS_PER_SECOND = 1000
 const PREPROCESSED_SOURCE_BYTES = 256 * 1024 * 1024
 const sanitisers = process.platform === 'linux' ? MEMORY_SANITISERS : 'undefined'
 
@@ -70,21 +74,52 @@ function allocationSites(flags) {
   return sites
 }
 
-function refuseEveryAllocation() {
+function runAllocationPart(binary, part) {
+  return new Promise(resolve => {
+    execFile(
+      binary,
+      [ALLOCATION_FAILURES_ONLY, String(part), String(ALLOCATION_PROCESSES)],
+      { encoding: 'utf8', timeout: TEST_TIMEOUT_MS, maxBuffer: ALLOCATION_OUTPUT_BYTES },
+      (error, stdout, stderr) => resolve({ part, error, stdout, stderr }),
+    )
+  })
+}
+
+function slowestCall(outputs) {
+  let slowest = { name: 'no call', milliseconds: -1 }
+  for (const output of outputs) {
+    for (const match of output.matchAll(REFUSED_CALL)) {
+      const milliseconds = Number(match[2])
+      if (milliseconds > slowest.milliseconds) slowest = { name: match[1], milliseconds }
+    }
+  }
+  return slowest
+}
+
+async function refuseEveryAllocation() {
   const binary = compileTest(ALLOCATION_FAILURES_ONLY, [
     `-fsanitize=${MEMORY_SANITISERS}`,
     ...SANITISER_FLAGS,
     ...ALLOCATION_FAILURE_FLAGS,
   ])
-  const output = execFileSync(binary, [ALLOCATION_FAILURES_ONLY], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit'],
-    timeout: TEST_TIMEOUT_MS,
-  })
+  const started = performance.now()
+  const parts = await Promise.all(
+    Array.from({ length: ALLOCATION_PROCESSES }, (_, part) => runAllocationPart(binary, part)),
+  )
+  const seconds = ((performance.now() - started) / MILLISECONDS_PER_SECOND).toFixed(1)
+  const stopped = parts.filter(({ error }) => error !== null)
+  for (const { part, error, stdout, stderr } of parts) {
+    if (error !== null) {
+      const reason = error.killed ? `ran past ${TEST_TIMEOUT_MS} ms` : error.message
+      console.error(`Process ${part + 1} of ${ALLOCATION_PROCESSES} ${reason}, after printing:\n${stdout}`)
+    }
+    process.stderr.write(stderr)
+  }
+  if (stopped.length > 0) throw new Error(`The allocation-failure test stopped after ${seconds} seconds`)
+  const outputs = parts.map(({ stdout }) => stdout)
   const refused = new Set()
-  for (const line of output.split('\n')) {
+  for (const line of outputs.join('\n').split('\n')) {
     if (line.startsWith(REFUSED_SITE_PREFIX)) refused.add(line.slice(REFUSED_SITE_PREFIX.length))
-    else if (line.length > 0) console.log(line)
   }
   const sites = allocationSites(ALLOCATION_FAILURE_FLAGS)
   const unrefused = [...sites].filter(site => !refused.has(site)).sort()
@@ -93,13 +128,14 @@ function refuseEveryAllocation() {
       `No allocation-failure test refuses these core allocation sites:\n${unrefused.join('\n') || 'none were found'}`,
     )
   }
+  const slowest = slowestCall(outputs)
   console.log(
-    `Every one of the ${sites.size} core allocation sites failed in turn under -fsanitize=${MEMORY_SANITISERS}`,
+    `Every one of the ${sites.size} core allocation sites failed in turn under -fsanitize=${MEMORY_SANITISERS}, in ${seconds} seconds across ${ALLOCATION_PROCESSES} processes, where ${slowest.name} took the longest at ${slowest.milliseconds} ms`,
   )
 }
 
 if (process.platform === 'linux') {
-  refuseEveryAllocation()
+  await refuseEveryAllocation()
   const binary = compileTest(ANALYSIS_THREADS_ONLY, ['-fsanitize=thread', '-fno-omit-frame-pointer'])
   execFileSync(binary, [ANALYSIS_THREADS_ONLY], {
     stdio: 'inherit',

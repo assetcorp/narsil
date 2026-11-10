@@ -58,6 +58,7 @@ uint32_t fixture_vector_stride_floats(void);
 uint32_t fixture_record_bytes(uint32_t bits);
 test_fixture *build_fixture(uint32_t bits);
 test_fixture *build_fixture_without_a_graph(uint32_t bits);
+test_fixture *copy_fixture(const test_fixture *source);
 int32_t fixture_top_layer(int32_t node);
 void release_fixture(test_fixture *fixture);
 void concurrent_checks(void);
