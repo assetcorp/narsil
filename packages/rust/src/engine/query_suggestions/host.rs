@@ -67,6 +67,7 @@ pub(crate) fn update_state(
         next.write_metadata(&mut metadata);
         log.write_recorded(metadata)?;
     }
+    let _bans = locked(&engine.suggestions.ban_publication);
     index.replace_suggestion_state(next.clone());
     Ok(next)
 }

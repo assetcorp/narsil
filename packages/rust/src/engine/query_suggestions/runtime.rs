@@ -29,6 +29,7 @@ pub(crate) struct SuggestionsRuntime {
     pub(crate) write_turns: NameTurns,
     stopping: AtomicBool,
     stop_turn: Mutex<()>,
+    pub(crate) ban_publication: Mutex<()>,
 }
 
 fn not_enabled(index_name: &str) -> NarsilError {
@@ -56,6 +57,7 @@ impl SuggestionsRuntime {
             write_turns: NameTurns::default(),
             stopping: AtomicBool::new(false),
             stop_turn: Mutex::new(()),
+            ban_publication: Mutex::new(()),
         }
     }
 
