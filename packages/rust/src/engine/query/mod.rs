@@ -39,6 +39,7 @@ use std::time::{Duration, Instant};
 
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
 use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
 use cursor::sort_signature_of;
@@ -90,7 +91,7 @@ fn shaped_query(
     index: &IndexState,
     params: &QueryParams,
     requested: &QueryParams,
-    work_cap: i64,
+    limits: &SearchLimits,
 ) -> Result<QueryResult> {
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let offset = params.offset.unwrap_or(0);
@@ -100,7 +101,7 @@ fn shaped_query(
     require_integer_up_to("tolerance", params.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", params.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, params.sort.as_deref())?;
-    let scope = QueryScope::new(index, params.filters.as_ref(), work_cap)?;
+    let scope = QueryScope::new(index, params.filters.as_ref(), limits)?;
     require_usable_query_fields(index, params)?;
     require_vector_searchable(index, params, search)?;
     let shape = RunShape {
@@ -139,11 +140,12 @@ fn shaped_query(
 }
 
 /// Runs a query against one index, embedding its vector clause's text first and reranking its best hits where it
-/// asks for that. Each search of the query may spend `work_cap` units on its pattern tests and phrases.
+/// asks for that. Each search of the query may spend the work cap of `limits` on its pattern tests and phrases,
+/// and stops once the engine shuts down.
 pub(crate) fn run_query(
     index: &IndexState,
     params: &QueryParams,
-    work_cap: i64,
+    limits: &SearchLimits,
 ) -> Result<QueryResult> {
     spread::counted(|| {
         let started = Instant::now();
@@ -159,11 +161,11 @@ pub(crate) fn run_query(
                     requested: params,
                     rerank,
                     query_text: rerank_text,
-                    work_cap,
+                    limits,
                 };
                 reranked_query(index, request)?
             }
-            None => shaped_query(index, &resolved, params, work_cap)?,
+            None => shaped_query(index, &resolved, params, limits)?,
         };
         result.elapsed = started.elapsed();
         Ok(result)

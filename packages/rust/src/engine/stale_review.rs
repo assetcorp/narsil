@@ -6,7 +6,7 @@ use super::analysis_change::{has_pending_change, rebuild_named};
 use super::engine_config::{AnalysisRebuildMode, StaleAnalysis};
 use super::events::{NarsilEvent, WorkStatus};
 use super::index::IndexState;
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::{ErrorCode, NarsilError, Result, instance_shut_down};
 
 /// Rebuilds the stale terms of one index when the program runs it, from any thread and at any later time.
 #[derive(Clone)]
@@ -37,10 +37,7 @@ impl StaleRebuild {
     /// [`crate::Narsil::rebuild_analysis`] does.
     pub fn run(&self) -> Result<()> {
         let Some(engine) = self.engine.upgrade() else {
-            return Err(NarsilError::new(
-                ErrorCode::INSTANCE_SHUT_DOWN,
-                "This Narsil instance has been shut down",
-            ));
+            return Err(instance_shut_down());
         };
         rebuild_named(&engine, &self.index_name)
     }

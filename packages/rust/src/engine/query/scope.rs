@@ -7,7 +7,7 @@ use crate::filters::CompiledFilter;
 use crate::filters::source::is_empty_bits;
 use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::SegmentEntry;
-use crate::pattern::WorkMeter;
+use crate::pattern::{SearchLimits, SearchStop, WorkMeter};
 use crate::value::Value;
 
 /// What one search carries into every partition that it reads: its filter, checked against the schema and compiled
@@ -42,11 +42,12 @@ fn for_each_ordinal(bits: &[u32], mut visit: impl FnMut(u32) -> Result<()>) -> R
 
 impl QueryScope {
     /// Checks `filters` against the index schema and compiles it, raising the filter error codes of every Narsil
-    /// engine for a malformed filter, and starts a meter that allows `work_cap` units.
+    /// engine for a malformed filter, and starts a meter that allows the work cap of `limits` and stops when the
+    /// engine shuts down.
     pub(crate) fn new(
         index: &IndexState,
         filters: Option<&Value>,
-        work_cap: i64,
+        limits: &SearchLimits,
     ) -> Result<QueryScope> {
         let filter = match filters {
             None | Some(Value::Null) => None,
@@ -54,8 +55,13 @@ impl QueryScope {
         };
         Ok(QueryScope {
             filter,
-            meter: WorkMeter::new(work_cap),
+            meter: WorkMeter::within(limits),
         })
+    }
+
+    /// Returns the word that the engine sets to stop every search in flight.
+    pub(crate) fn stop(&self) -> &SearchStop {
+        self.meter.stop()
     }
 
     /// Returns true where the search carries a filter.

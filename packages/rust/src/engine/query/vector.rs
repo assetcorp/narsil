@@ -13,6 +13,7 @@ use crate::engine::index::IndexState;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::PartitionSnapshot;
+use crate::pattern::SearchStop;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::util::text::javascript_trim;
@@ -214,6 +215,7 @@ pub(crate) struct VectorLegRequest<'a> {
     pub(crate) rescore_window: Option<usize>,
     pub(crate) matching: Option<&'a [&'a str]>,
     pub(crate) snapshots: &'a QuerySnapshots,
+    pub(crate) stop: &'a SearchStop,
 }
 
 /// Searches the vector field of a clause that holds a value, keeping only the hits whose document the query's
@@ -227,6 +229,7 @@ pub(crate) fn vector_leg(index: &IndexState, request: &VectorLegRequest<'_>) -> 
         rescore_window,
         matching,
         snapshots,
+        stop,
     } = *request;
     let Some(field) = index.vectors.field(&clause.field) else {
         return Ok(VectorLeg {
@@ -243,7 +246,7 @@ pub(crate) fn vector_leg(index: &IndexState, request: &VectorLegRequest<'_>) -> 
         oversample: clause.oversample,
         rescore_window,
     };
-    let outcome = field.search(query, k, &options, matching, &snapshots.pin)?;
+    let outcome = field.search(query, k, &options, matching, &snapshots.pin, stop)?;
     let returned = outcome.results.len() as u64;
     let mut hits = Vec::with_capacity(outcome.results.len());
     for hit in outcome.results {
@@ -335,6 +338,7 @@ pub(crate) fn vector_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<Ran
                 rescore_window: None,
                 matching: matching.as_deref(),
                 snapshots: &run.snapshots,
+                stop: scope.stop(),
             },
         )
     })?;

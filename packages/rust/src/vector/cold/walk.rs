@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::ffi;
 use crate::index::paged::paged_read;
 use crate::native::status::{core_failed, core_refused};
-use crate::pattern::WorkMeter;
+use crate::pattern::{SearchStop, WorkMeter};
 
 use super::super::graph_search::depths_for;
 use super::super::ranking::VectorHit;
@@ -22,6 +22,7 @@ pub(super) struct GraphWalk<'a> {
     pub(super) k: usize,
     pub(super) accepted: Option<&'a [u32]>,
     pub(super) excluded: &'a [u32],
+    pub(super) stop: &'a SearchStop,
 }
 
 fn mask_of(total: u32, numbers: &[u32]) -> Vec<u32> {
@@ -72,7 +73,7 @@ pub(super) fn walk_graph(walk: &GraphWalk<'_>) -> Result<Vec<VectorHit>> {
     let excluded = (!walk.excluded.is_empty()).then(|| mask_of(field.total(), walk.excluded));
     let (accepted_words, accepted_count) = words_of(accepted.as_ref());
     let (excluded_words, excluded_count) = words_of(excluded.as_ref());
-    let meter = WorkMeter::new(i64::MAX);
+    let meter = WorkMeter::new(i64::MAX, walk.stop.clone());
     let request = ffi::narsil_paged_vector_request {
         query: walk.query.as_ptr(),
         query_count: walk.query.len(),
@@ -102,7 +103,9 @@ pub(super) fn walk_graph(walk: &GraphWalk<'_>) -> Result<Vec<VectorHit>> {
         })
     })?;
     if status != ffi::NARSIL_OK {
-        return Err(walk_failed(field, status, &fault));
+        return Err(meter
+            .refusal(status)
+            .unwrap_or_else(|| walk_failed(field, status, &fault)));
     }
     let found = (found as usize).min(capacity);
     let scored = scores[..found]

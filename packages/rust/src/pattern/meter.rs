@@ -1,15 +1,40 @@
 use std::collections::HashSet;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicI64, AtomicU32};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
-use super::constants::DEFAULT_PATTERN_WORK_CAP;
-use crate::error::{ErrorCode, NarsilError};
+use crate::error::{ErrorCode, NarsilError, instance_shut_down};
 use crate::ffi;
+
+const SEARCHES_STOPPED: u32 = 1;
+
+#[derive(Clone, Default)]
+pub(crate) struct SearchStop(Arc<AtomicU32>);
+
+impl SearchStop {
+    pub(crate) fn stop_every_search(&self) {
+        self.0.store(SEARCHES_STOPPED, Ordering::Release);
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SearchLimits {
+    pub(crate) work_cap: i64,
+    pub(crate) stop: SearchStop,
+}
+
+impl SearchLimits {
+    pub(crate) fn new(work_cap: i64) -> SearchLimits {
+        SearchLimits {
+            work_cap,
+            stop: SearchStop::default(),
+        }
+    }
+}
 
 pub(crate) struct WorkMeter {
     cap: i64,
     spent: AtomicI64,
-    stop: AtomicU32,
+    stop: SearchStop,
     prepared_typo_tests: Mutex<HashSet<String>>,
 }
 
@@ -22,33 +47,39 @@ fn cap_exceeded(cap: i64) -> NarsilError {
     )
 }
 
-impl Default for WorkMeter {
-    fn default() -> WorkMeter {
-        WorkMeter::new(DEFAULT_PATTERN_WORK_CAP)
-    }
-}
-
 impl WorkMeter {
-    pub(crate) fn new(cap: i64) -> WorkMeter {
+    pub(crate) fn new(cap: i64, stop: SearchStop) -> WorkMeter {
         WorkMeter {
             cap,
             spent: AtomicI64::new(0),
-            stop: AtomicU32::new(0),
+            stop,
             prepared_typo_tests: Mutex::new(HashSet::new()),
         }
+    }
+
+    pub(crate) fn within(limits: &SearchLimits) -> WorkMeter {
+        WorkMeter::new(limits.work_cap, limits.stop.clone())
+    }
+
+    pub(crate) fn stop(&self) -> &SearchStop {
+        &self.stop
     }
 
     pub(crate) fn native(&self) -> ffi::narsil_work_meter {
         ffi::narsil_work_meter {
             spent: self.spent.as_ptr(),
             cap: self.cap,
-            stop: self.stop.as_ptr(),
+            stop: self.stop.0.as_ptr(),
             deadline: 0,
         }
     }
 
-    pub(crate) fn exceeded(&self) -> NarsilError {
-        cap_exceeded(self.cap)
+    pub(crate) fn refusal(&self, status: ffi::narsil_status) -> Option<NarsilError> {
+        match status {
+            ffi::NARSIL_WORK_CAP_EXCEEDED => Some(cap_exceeded(self.cap)),
+            ffi::NARSIL_STOPPED => Some(instance_shut_down()),
+            _ => None,
+        }
     }
 
     pub(crate) fn claim_typo_preparation(&self, key: &str) -> bool {

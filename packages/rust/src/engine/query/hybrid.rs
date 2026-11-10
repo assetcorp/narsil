@@ -52,6 +52,7 @@ fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
                 rescore_window: None,
                 matching: matching.as_deref(),
                 snapshots: &run.snapshots,
+                stop: scope.stop(),
             },
         )?;
         let mut hits = fuse(fusion, &text.hits, &vector.hits)?;
@@ -109,6 +110,7 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
                 rescore_window: Some(HYBRID_RESCORE_WINDOW),
                 matching: matching.as_deref(),
                 snapshots: &run.snapshots,
+                stop: scope.stop(),
             },
         )?;
         let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];

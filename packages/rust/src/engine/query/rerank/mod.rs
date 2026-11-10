@@ -20,6 +20,7 @@ use crate::engine::index::IndexState;
 use crate::engine::vectors::paths::value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::Partition;
+use crate::pattern::SearchLimits;
 use crate::value::Value;
 use call::score_documents;
 use order::{Reordered, placed_hits, reorder_by_rerank, unordered};
@@ -32,7 +33,7 @@ pub(crate) struct RerankRequest<'a> {
     pub(crate) requested: &'a QueryParams,
     pub(crate) rerank: &'a RerankConfig,
     pub(crate) query_text: Option<String>,
-    pub(crate) work_cap: i64,
+    pub(crate) limits: &'a SearchLimits,
 }
 
 fn fuses_rankings(params: &QueryParams) -> bool {
@@ -189,7 +190,7 @@ pub(crate) fn reranked_query(
     first_params.document = Some(DocumentProjection::None);
     let places_pins = params.search_after.is_none() && params.pinned.is_some();
     let counts_apart = places_pins || (params.vector.is_some() && !fuses);
-    let first = shaped_query(index, &first_params, request.requested, request.work_cap)?;
+    let first = shaped_query(index, &first_params, request.requested, request.limits)?;
     let plain = match counts_apart {
         true => {
             let mut plain_params = first_params.clone();
@@ -204,7 +205,7 @@ pub(crate) fn reranked_query(
                 index,
                 &plain_params,
                 request.requested,
-                request.work_cap,
+                request.limits,
             )?)
         }
         false => None,

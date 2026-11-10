@@ -160,10 +160,10 @@ pub(crate) fn match_phrases(
     let status = with_workspace(|workspace| {
         Ok(unsafe { ffi::narsil_match_phrases(workspace, &request, &output, &mut row_count) })
     })?;
-    match status {
-        ffi::NARSIL_OK => {}
-        ffi::NARSIL_WORK_CAP_EXCEEDED => return Err(meter.exceeded()),
-        status => return Err(core_refused("a phrase match", status)),
+    if status != ffi::NARSIL_OK {
+        return Err(meter
+            .refusal(status)
+            .unwrap_or_else(|| core_refused("a phrase match", status)));
     }
     let collected = phrases
         .iter()

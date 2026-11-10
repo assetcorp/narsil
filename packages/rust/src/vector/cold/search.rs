@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::error::Result;
+use crate::pattern::SearchStop;
 
 use super::super::core::with_scratch;
 use super::super::field::Generation;
@@ -19,6 +20,7 @@ pub(crate) struct ColdQuery<'a> {
     pub(crate) matching: Option<&'a [&'a str]>,
     pub(crate) pin: i64,
     pub(crate) filter_threshold: f64,
+    pub(crate) stop: &'a SearchStop,
 }
 
 struct Admitted {
@@ -154,6 +156,7 @@ pub(crate) fn search_cold(hold: &ColdHold, request: &ColdQuery<'_>) -> Result<Ve
         k: request.k,
         accepted: admitted.as_ref().map(|found| found.numbers.as_slice()),
         excluded: &view.excluded,
+        stop: request.stop,
     })?;
     let (from_held, _) = scan_held(&held, request, admitted.as_ref().map(|found| &found.held))?;
     let results = merge_results(from_graph, from_held, request.k);
