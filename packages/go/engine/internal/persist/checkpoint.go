@@ -22,6 +22,7 @@ type capture struct {
 	vectors    []checkpoint.VectorCapture
 	partitions []checkpoint.PartitionCapture
 	selections []*heldSelections
+	frozen     []*index.Reading
 	changes    []*partition.ChangeLog
 	tracked    *index.Index
 }
@@ -33,6 +34,16 @@ func (held capture) release() {
 	}
 	for _, selections := range held.selections {
 		selections.release()
+	}
+	for partitionID := range held.frozen {
+		held.releaseFrozen(partitionID)
+	}
+}
+
+func (held capture) releaseFrozen(partitionID int) {
+	if reading := held.frozen[partitionID]; reading != nil {
+		held.frozen[partitionID] = nil
+		reading.Release()
 	}
 }
 
@@ -107,10 +118,31 @@ func partitionUnchanged(prior *manifest.Manifest, partitionID int, seqNo uint64)
 	return false
 }
 
-func (held *capture) buildPartitions(ctx context.Context, handle *Handle, store checkpoint.Store,
+func segmentWriteRequestOf(handle *Handle) segmentWriteRequest {
+	return segmentWriteRequest{schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle)}
+}
+
+func (held *capture) writeFrozenPartitions(handle *Handle) error {
+	request := segmentWriteRequestOf(handle)
+	for partitionID, reading := range held.frozen {
+		if reading == nil {
+			continue
+		}
+		files, err := writeSegmentsOf(reading.Snapshots[partitionID].Selections(), request)
+		held.releaseFrozen(partitionID)
+		if err != nil {
+			return err
+		}
+		held.partitions[partitionID].Segments = files
+	}
+	return nil
+}
+
+func (held *capture) freezeWholePartitions(ctx context.Context, handle *Handle, store checkpoint.Store,
 	pagedText bool) error {
-	request := segmentWriteRequest{schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle)}
+	request := segmentWriteRequestOf(handle)
 	held.partitions = make([]checkpoint.PartitionCapture, len(held.seqNos))
+	held.frozen = make([]*index.Reading, len(held.seqNos))
 	for partitionID, seqNo := range held.seqNos {
 		partition := &held.partitions[partitionID]
 		partition.Checkpoint = manifest.PartitionCheckpoint{PartitionID: uint32(partitionID), LastSeqNo: seqNo,
@@ -120,11 +152,11 @@ func (held *capture) buildPartitions(ctx context.Context, handle *Handle, store 
 		}
 		partition.Rewritten = true
 		if !pagedText {
-			files, err := partitionSegmentFiles(ctx, handle.Index, partitionID, request)
+			reading, err := freezePartition(ctx, handle.Index, partitionID)
 			if err != nil {
 				return err
 			}
-			partition.Segments = files
+			held.frozen[partitionID] = reading
 			continue
 		}
 		selections, err := holdPartitionSelections(ctx, handle.Index, partitionID)
@@ -207,8 +239,12 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 		return held, err
 	}
 	held.vectors = vectors
+	if err := held.freezeWholePartitions(ctx, durable.handle, durable.manager.store, options.pagedText); err != nil {
+		held.release()
+		return held, err
+	}
 	if consistent {
-		if err := held.buildPartitions(ctx, durable.handle, durable.manager.store, options.pagedText); err != nil {
+		if err := held.writeFrozenPartitions(durable.handle); err != nil {
 			held.release()
 			return held, err
 		}
@@ -306,7 +342,7 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 	}
 	defer func() { held.release() }()
 	if !options.consistent {
-		if err := held.buildPartitions(ctx, durable.handle, store, options.pagedText); err != nil {
+		if err := held.writeFrozenPartitions(durable.handle); err != nil {
 			return manifest.Manifest{}, 0, err
 		}
 	}
