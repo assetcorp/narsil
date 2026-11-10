@@ -80,10 +80,14 @@ func (f *frozenSegment) storedSource(path string, limits fields.Limits) (fields.
 	}
 }
 
-func (f *frozenSegment) storedColumn(limits fields.Limits) func(path string) (*core.StoredValueSlices, error) {
-	return func(path string) (*core.StoredValueSlices, error) {
-		_, slices, err := f.storedSource(path, limits)
-		return slices, err
+func (f *frozenSegment) mergeStoredColumn(limits fields.Limits) func(path string) (*core.StoredValueSlices, func(), error) {
+	return func(path string) (*core.StoredValueSlices, func(), error) {
+		built, err := buildStored(path, limits, f.documentCount(), f.documentAt)
+		if err != nil {
+			return nil, nil, err
+		}
+		slices := built.Slices()
+		return &slices, built.Release, nil
 	}
 }
 
