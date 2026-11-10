@@ -4,6 +4,7 @@ use std::ptr;
 use super::request::RequestBuilder;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::native::status::refused_as;
 use crate::native::workspace::CoreWorkspace;
 
 /// The posting arrays that a request's pool lists point into.
@@ -189,10 +190,12 @@ fn scored_by_the_core(
     };
     let status =
         unsafe { ffi::narsil_keyword_score(workspace.core.handle(), &request, &mut output) };
-    match status {
-        ffi::NARSIL_OK => {}
-        ffi::NARSIL_OUT_OF_MEMORY => return Err(core_failed("it ran out of memory")),
-        _ => return Err(core_failed("it refused the request")),
+    if status != ffi::NARSIL_OK {
+        return Err(refused_as(
+            ErrorCode::INTERNAL_ERROR,
+            "a keyword score",
+            status,
+        ));
     }
     let count = (output.count as usize).min(workspace.ordinals.len());
     let mut ordinals = Vec::with_capacity(count);
