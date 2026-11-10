@@ -124,7 +124,7 @@ export interface QuerySuggestionsConfig {
  * updates.
  *
  * The engine measures its process memory and its heap before a write whenever
- * its latest measurement is more than one second old. It counts as full once
+ * its latest measurement is more than 10 milliseconds old. It counts as full once
  * either figure passes `blockWritesAbove` of its limit, and as clear again once
  * both fall below `resumeWritesBelow`, so that an engine near the threshold
  * does not switch writes on and off. While the engine is full, it refuses every

@@ -1,13 +1,16 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  ErrorCodes,
+  emitSyncChange,
+  NarsilError,
+  newSyncEpoch,
+  oneSyncChangeAtATime,
+  withOpenIndex,
+} from '#platform/storage-host'
 import type { SyncStorage } from '../../persistence/durability/sync/storage'
-import { newSyncEpoch } from '../../sync/epoch'
 import type { StoredQuerySuggestions } from '../../types/internal'
 import type { SyncSetting } from '../../types/sync'
 import type { EngineCore } from '../core'
 import type { IndexSyncState } from '../registry-entry'
-import { withOpenIndex } from '../serial-index-update'
-import { emitSyncChange } from '../sync-notify'
-import { oneSyncChangeAtATime } from './serial'
 
 type SyncCore = Pick<EngineCore, 'durability' | 'indexRegistry' | 'requireIndex'>
 type RenewingCore = SyncCore & Pick<EngineCore, 'mutationCtx'>

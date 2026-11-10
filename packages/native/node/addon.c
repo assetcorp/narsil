@@ -1,10 +1,28 @@
 #include "values.h"
 
 #include "analysis.h"
+#include "expansion.h"
+#include "facet_merge.h"
 #include "field.h"
+#include "filters.h"
+#include "fusion.h"
+#include "group_merge.h"
+#include "groups.h"
+#include "highlight.h"
 #include "host_api.h"
 #include "keyword.h"
 #include "math_batch.h"
+#include "merges.h"
+#include "paged.h"
+#include "paged_vectors.h"
+#include "pages.h"
+#include "pattern.h"
+#include "phrases.h"
+#include "pinned.h"
+#include "segments.h"
+#include "sort.h"
+#include "synonyms.h"
+#include "terms.h"
 #include "writes.h"
 
 #include "../include/narsil_analysis.h"
@@ -25,6 +43,7 @@ enum {
   SEARCH_QUERY,
   SEARCH_METRIC,
   SEARCH_CANDIDATE_COUNT,
+  SEARCH_PIN,
   SEARCH_THREAD_SLOT,
   SEARCH_ORDINALS,
   SEARCH_DISTANCES,
@@ -50,7 +69,20 @@ static int read_accepted_ordinals(napi_env env, napi_value value, narsil_ordinal
   return 1;
 }
 
-enum { SCORE_STORE, SCORE_QUERY, SCORE_METRIC, SCORE_ORDINALS, SCORE_COUNT, SCORE_DISTANCES, SCORE_ARGUMENT_COUNT };
+enum {
+  SCORE_STORE,
+  SCORE_QUERY,
+  SCORE_METRIC,
+  SCORE_ORDINALS,
+  SCORE_COUNT,
+  SCORE_PIN,
+  SCORE_DISTANCES,
+  SCORE_ARGUMENT_COUNT
+};
+
+static int read_pin(napi_env env, napi_value value, int64_t *pin) {
+  return napi_get_value_int64(env, value, pin) == napi_ok && *pin >= 0;
+}
 
 static napi_value attach_graph(napi_env env, napi_callback_info info) {
   napi_value argv[ATTACH_ARGUMENT_COUNT];
@@ -95,7 +127,7 @@ static napi_value detach_store_handle(napi_env env, napi_callback_info info) {
 static napi_value search(napi_env env, napi_callback_info info) {
   napi_value argv[SEARCH_ARGUMENT_COUNT];
   if (!callback_arguments(env, info, SEARCH_ARGUMENT_COUNT, argv)) {
-    return throw_error(env, "search takes a graph, a store, and seven more arguments");
+    return throw_error(env, "search takes a graph, a store, and eight more arguments");
   }
   attached_graph *graph = graph_of(env, argv[SEARCH_GRAPH]);
   attached_store *store = store_of(env, argv[SEARCH_STORE]);
@@ -109,11 +141,12 @@ static napi_value search(napi_env env, napi_callback_info info) {
   size_t query_length = 0;
   size_t ordinal_capacity = 0;
   size_t distance_capacity = 0;
-  narsil_search_request request = {NULL, NARSIL_METRIC_COSINE, 0, 0, {NULL, 0}};
+  narsil_search_request request = {NULL, NARSIL_METRIC_COSINE, 0, 0, {NULL, 0}, 0};
   if (!typed_data(env, argv[SEARCH_QUERY], napi_float32_array, &query, &query_length) ||
       !read_accepted_ordinals(env, argv[SEARCH_ACCEPTED], &request.accepted) ||
       napi_get_value_uint32(env, argv[SEARCH_METRIC], &request.metric) != napi_ok ||
       napi_get_value_uint32(env, argv[SEARCH_CANDIDATE_COUNT], &request.candidate_count) != napi_ok ||
+      !read_pin(env, argv[SEARCH_PIN], &request.pin) ||
       napi_get_value_uint32(env, argv[SEARCH_THREAD_SLOT], &request.thread_slot) != napi_ok ||
       !typed_data(env, argv[SEARCH_ORDINALS], napi_int32_array, &ordinals, &ordinal_capacity) ||
       !typed_data(env, argv[SEARCH_DISTANCES], napi_float64_array, &distances, &distance_capacity)) {
@@ -137,18 +170,19 @@ static napi_value score(napi_env env, napi_callback_info info) {
   attached_store *store =
       callback_arguments(env, info, SCORE_ARGUMENT_COUNT, argv) ? store_of(env, argv[SCORE_STORE]) : NULL;
   thread_state *state = thread_state_of(env);
-  if (store == NULL || state == NULL) { return throw_error(env, "score takes an attached store and five arguments"); }
+  if (store == NULL || state == NULL) { return throw_error(env, "score takes an attached store and six arguments"); }
   void *query = NULL;
   void *ordinals = NULL;
   void *distances = NULL;
   size_t query_length = 0;
   size_t ordinal_length = 0;
   size_t distance_length = 0;
-  narsil_score_request request = {NULL, NARSIL_METRIC_COSINE, NULL, 0};
+  narsil_score_request request = {NULL, NARSIL_METRIC_COSINE, NULL, 0, 0};
   if (!typed_data(env, argv[SCORE_QUERY], napi_float32_array, &query, &query_length) ||
       napi_get_value_uint32(env, argv[SCORE_METRIC], &request.metric) != napi_ok ||
       !typed_data(env, argv[SCORE_ORDINALS], napi_int32_array, &ordinals, &ordinal_length) ||
       napi_get_value_uint32(env, argv[SCORE_COUNT], &request.count) != napi_ok ||
+      !read_pin(env, argv[SCORE_PIN], &request.pin) ||
       !typed_data(env, argv[SCORE_DISTANCES], napi_float64_array, &distances, &distance_length)) {
     return throw_error(env, "an argument to score has the wrong type");
   }
@@ -186,6 +220,7 @@ static void release_thread_state(napi_env env, void *finalize_data, void *finali
   free(state->text_units);
   free(state->keyword_lengths);
   free((void *)state->keyword_length_values);
+  free(state->segment_view);
   free(state);
 }
 
@@ -216,7 +251,14 @@ static napi_value initialise(napi_env env, napi_value exports) {
       {"workspaceBytes", NULL, workspace_bytes, NULL, NULL, NULL, napi_default_method, NULL},
   };
   if (napi_define_properties(env, exports, sizeof properties / sizeof properties[0], properties) != napi_ok ||
-      !define_analysis(env, exports) || !define_keyword(env, exports) || !define_math(env, exports)) {
+      !define_analysis(env, exports) || !define_keyword(env, exports) || !define_math(env, exports) ||
+      !define_pages(env, exports) || !define_fusion(env, exports) || !define_merges(env, exports) ||
+      !define_pinned(env, exports) || !define_facet_merge(env, exports) || !define_group_merge(env, exports) ||
+      !define_groups(env, exports) || !define_sort(env, exports) || !define_filters(env, exports) ||
+      !define_pattern(env, exports) || !define_terms(env, exports) || !define_segments(env, exports) ||
+      !define_synonyms(env, exports) || !define_phrases(env, exports) || !define_expansion(env, exports) ||
+      !define_highlight(env, exports) || !define_paged_files(env, exports) || !define_paged_reads(env, exports) ||
+      !define_paged_vectors(env, exports)) {
     return throw_error(env, "the native search core cannot define its functions");
   }
   return exports;

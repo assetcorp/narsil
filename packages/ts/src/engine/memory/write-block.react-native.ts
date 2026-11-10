@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { ENGINE_MEMORY_FIGURES_MAX_AGE_MS } from './constants'
+import { WRITE_MEMORY_FIGURES_MAX_AGE_MS } from './constants'
 import { applyInGroups, type GroupedWriteProjection, reserveForDocument } from './grouped-writes'
 import { readRecentEngineMemoryFigures } from './measure'
 import { createMeasuredWriteBlock } from './measured-block'
@@ -30,7 +30,7 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
       details: {},
     },
     fractions: measured.fractions,
-    measure: () => readRecentEngineMemoryFigures(ENGINE_MEMORY_FIGURES_MAX_AGE_MS),
+    measure: () => readRecentEngineMemoryFigures(WRITE_MEMORY_FIGURES_MAX_AGE_MS),
     measureWithoutGarbage: () => monitor.measureWithoutGarbage(),
     collections: () => monitor.collections(),
     refusedAfterCollection: figures => monitor.refusedAfterCollection(figures),

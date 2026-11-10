@@ -1,25 +1,26 @@
+import { prepareFrozenStrings } from '#platform/frozen-writes'
 import { createLoadedGeoIndex } from '../../../geo/geo-code'
 import type { GeoIndexReader } from '../../../geo/geo-index'
 import type { FieldNameTable, SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
+import { registerExpansionSource } from '../../expansion/sources'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
+import type { FrozenRemovalAnalysis } from '../../frozen-writes/removal-strings'
 import { generateId } from '../../id-generator'
 import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
+import { registerFrozenMergeSource } from '../../segment-merges/frozen-source'
 import type { PartitionStatsView } from '../../statistics'
+import { installStoredFields } from '../../stored-values/columns'
 import { buildPartialWordTableFrom, createFrozenPartialWords } from '../partial-words/registry'
 import type { FrozenPartialWordSlot, PartialWordTableData } from '../partial-words/types'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
 import { createFrozenDocTable } from './doc-table'
-import {
-  type EncodedDocumentTableData,
-  type FrozenDocumentSource,
-  wrapDocumentArray,
-  wrapEncodedDocumentTable,
-} from './document-source'
-import { buildExternalIdTable, type ExternalIdTable, wrapExternalIdTable } from './external-ids'
+import { wrapDocumentArray } from './document-array'
+import type { EncodedDocumentTableData, FrozenDocumentSource } from './document-source'
+import { buildExternalIdTable, type ExternalIdTable } from './external-ids'
 import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericReader } from './field-indexes'
 import { createFrozenInvertedReader } from './inverted-reader'
 import { createFrozenLiveCounts, type FrozenLiveCounts } from './live-counts'
@@ -33,15 +34,19 @@ import {
   type RemovedSpellings,
   type SurfaceTableReader,
 } from './surface-slot'
-import { decodeSurfaceTable } from './surface-table'
-import { buildFrozenTokenTable, type FrozenTokenTable, wrapFrozenTokenTable } from './token-table'
+import { buildFrozenTokenTable, type FrozenTokenTable } from './token-table'
 import { createFrozenTombstones, type FrozenTombstones } from './tombstones'
 
+export type { FrozenRemovalAnalysis } from '../../frozen-writes/removal-strings'
 export type { PagedSegmentSnapshot } from './paged-snapshot'
 export type { SharedSegmentSnapshot } from './shared-snapshot'
-export { freezeSegmentShared, shareSegmentArrays } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
 export { buildFrozenTokenTable } from './token-table'
+
+export interface FrozenTombstone {
+  readonly spellings: RemovedSpellings | undefined
+  publish(): boolean
+}
 
 export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
@@ -58,9 +63,16 @@ export interface FrozenSegment extends PartitionReadState {
   hasDocument(docId: string): boolean
   isTombstoned(ordinal: number): boolean
   removedSpellingsOf(docId: string): RemovedSpellings | undefined
+  prepareTombstone(
+    docId: string,
+    removedSpellings?: RemovedSpellings,
+    analysis?: FrozenRemovalAnalysis,
+  ): FrozenTombstone | undefined
   tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
   tombstonedDocIds(): string[]
   removalBytes(): number
+  pendingRemovals(): boolean
+  settleRemovals(): void
 }
 
 export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'> {
@@ -98,6 +110,7 @@ export interface PagedSegmentAccess {
   readonly key: string
   readonly snapshot: PagedSegmentSnapshot
   readonly writeRecordsHeld: boolean
+  payloadChecked: boolean
   listAt(sortedIndex: number): PagedPostingList
   positionsAt(sortedIndex: number): PagedPositions | null
   encodedDocumentAt(ordinal: number): Uint8Array
@@ -129,6 +142,18 @@ function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
     get docFrequencies(): Readonly<Record<string, number>> {
       return counts.docFrequencies()
     },
+    addDocumentFrequencies(into: Record<string, number>): number {
+      const frequencies = counts.docFrequencies()
+      let added = 0
+      for (const term in frequencies) {
+        const held = into[term]
+        if (held === undefined) {
+          into[term] = frequencies[term]
+          added++
+        } else into[term] = held + frequencies[term]
+      }
+      return added
+    },
   }
 }
 
@@ -152,7 +177,7 @@ function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexRe
   return readers
 }
 
-function assembleFrozenSegment(
+export function assembleFrozenSegment(
   segmentId: string,
   source: FrozenSegmentSource,
   documentSource: FrozenDocumentSource,
@@ -161,7 +186,7 @@ function assembleFrozenSegment(
   survivingSurfaceForms?: SerializedSurfaceForms,
   pagedParts?: PagedSegmentParts,
 ): FrozenSegment {
-  const tombstones = createFrozenTombstones()
+  const tombstones = createFrozenTombstones(source.documentCount)
   const counts =
     pagedParts?.createCounts(tombstones) ??
     createFrozenLiveCounts(source, source.tokenTable, tombstones, storedFrequenciesOf(source))
@@ -172,10 +197,12 @@ function assembleFrozenSegment(
     lengthColumns.set(source.fieldLengthNames[i], source.fieldLengthColumns[i])
   }
   const docStore = createFrozenDocTable(source.idTable, lengthColumns, documentSource, tombstones)
+  installStoredFields(docStore, source.storedFields ?? [])
   const partialWords = createFrozenPartialWords(partialWordTable, source.tokenTable, {
     count: documentSource.count,
     documentAt: ordinal => documentSource.readAt(ordinal),
     isTombstoned: ordinal => tombstones.has(ordinal),
+    settleRemovals: counts.settleRemovals,
   })
   const textDocuments = {
     count: documentSource.count,
@@ -254,18 +281,45 @@ function assembleFrozenSegment(
       return removals.spellingsOf(ordinal)
     },
 
-    tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean {
+    prepareTombstone(
+      docId: string,
+      removedSpellings?: RemovedSpellings,
+      analysis?: FrozenRemovalAnalysis,
+    ): FrozenTombstone | undefined {
       const ordinal = docStore.getInternalId(docId)
-      if (ordinal === undefined) return false
-      const added = tombstones.add(ordinal)
-      if (added) {
-        counts.subtractRemoved(ordinal)
-        partialWords.afterRemoval(ordinal)
-        removals.afterRemoval(ordinal, removedSpellings)
-        docStore.releaseSortedDocIds()
-        segment.sortColumns?.forget(ordinal)
+      if (ordinal === undefined || tombstones.has(ordinal)) return undefined
+      const publishTombstone = tombstones.prepare(ordinal)
+      const strings =
+        analysis === undefined
+          ? null
+          : prepareFrozenStrings(
+              source.fieldNames,
+              source.fieldLengthNames,
+              ordinal,
+              documentSource.readAt(ordinal),
+              analysis,
+              surfaces,
+              partialWords,
+            )
+      const subtractCounts = counts.prepareRemoval(ordinal, strings?.core)
+      const subtractSpellings = strings?.publish ?? removals.prepareRemoval(ordinal, removedSpellings)
+      const subtractPartial = strings === null ? partialWords.prepareRemoval(ordinal) : null
+      return {
+        spellings: strings?.spellings ?? removedSpellings,
+        publish: () => {
+          if (!publishTombstone()) return false
+          subtractCounts()
+          subtractPartial?.()
+          subtractSpellings()
+          docStore.releaseSortedDocIds()
+          segment.sortColumns?.forget(ordinal)
+          return true
+        },
       }
-      return added
+    },
+
+    tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean {
+      return segment.prepareTombstone(docId, removedSpellings)?.publish() ?? false
     },
 
     tombstonedDocIds(): string[] {
@@ -275,10 +329,27 @@ function assembleFrozenSegment(
     },
 
     removalBytes(): number {
-      return counts.bytes()
+      return counts.bytes() + tombstones.bytes()
     },
+
+    pendingRemovals: counts.pendingRemovals,
+    settleRemovals: counts.settleRemovals,
   }
 
+  registerFrozenMergeSource(segment)
+  const expansionSource = counts.expansionSource
+  if (expansionSource !== undefined)
+    registerExpansionSource(segment, () => {
+      const source = expansionSource()
+      const surface = surfaces.coreRegions()
+      if (source.frozen === null || source.state === null) return source
+      return {
+        ...source,
+        growing: null,
+        frozen: { ...source.frozen, surfaces: surface.table },
+        state: { ...source.state, removedSurfaces: surface.removed },
+      }
+    })
   return segment
 }
 
@@ -311,33 +382,5 @@ export function createFrozenSegment(
     wrapDocumentArray(documents),
     null,
     payload.partialSpellings === null ? null : buildPartialWordTableFrom(payload.partialSpellings, tokenTable),
-  )
-}
-
-export function createSharedFrozenSegment(
-  snapshot: SharedSegmentSnapshot,
-  survivingSurfaceForms?: SerializedSurfaceForms,
-): FrozenSegment {
-  const tokenTable = wrapFrozenTokenTable(snapshot.tokenTable)
-  return assembleFrozenSegment(
-    snapshot.segmentId,
-    {
-      ...snapshot,
-      tokenTable,
-      idTable: wrapExternalIdTable(snapshot.idTable),
-      documentTable: snapshot.documentTable,
-      readSurfaceForms: () => (snapshot.surfaceTable === null ? null : decodeSurfaceTable(snapshot.surfaceTable)),
-      docFrequencies: () => {
-        const frequencies: Record<string, number> = Object.create(null)
-        for (let at = 0; at < tokenTable.size; at++) {
-          frequencies[tokenTable.tokenAt(at)] = tokenTable.documentFrequencyAt(at)
-        }
-        return frequencies
-      },
-    },
-    wrapEncodedDocumentTable(snapshot.documentTable),
-    snapshot,
-    snapshot.partialWords,
-    survivingSurfaceForms,
   )
 }

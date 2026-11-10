@@ -1,8 +1,9 @@
-import { compareCodePoints, compareSortValues, type SortDirection, toComparableSortValue } from '../core/ordering'
+import { type SortDirection, toComparableSortValue } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
 import { RESULT_WINDOW } from './constants'
-import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
+import { decodePageCursor, encodePageCursor, requireMatchingCursor } from './cursor'
 import type { CursorBinding } from './cursor-binding'
+import { startAfterAnchor } from './cursor-page-code'
 
 export function clampRowCount(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
@@ -21,7 +22,7 @@ export function requireWithinResultWindow(limit: number, offset: number): void {
 
 function lastOrganicResult<T extends { id: string }>(sliced: T[], pinnedIds?: ReadonlySet<string>): T | undefined {
   for (let i = sliced.length - 1; i >= 0; i--) {
-    if (pinnedIds === undefined || !pinnedIds.has(sliced[i].id)) return sliced[i]
+    if (!pinnedIds?.has(sliced[i].id)) return sliced[i]
   }
   return undefined
 }
@@ -30,23 +31,6 @@ export interface PaginationSortContext {
   signature: string
   directions: readonly SortDirection[]
   sortKeyOf(docId: string): readonly unknown[]
-}
-
-function ordersAfterAnchor<T extends { id: string; score?: number }>(
-  result: T,
-  anchor: PageCursor,
-  sort: PaginationSortContext | undefined,
-): boolean {
-  if (sort !== undefined && anchor.sortKey !== null) {
-    const comparison =
-      compareSortValues(sort.sortKeyOf(result.id), anchor.sortKey, sort.directions) ||
-      compareCodePoints(result.id, anchor.anchor)
-    return comparison > 0
-  }
-  if (anchor.score === null) return true
-  if (result.score === undefined) return true
-  if (result.score < anchor.score) return true
-  return result.score === anchor.score && compareCodePoints(result.id, anchor.anchor) > 0
 }
 
 /**
@@ -86,13 +70,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
   let startIndex = 0
 
   if (decoded !== null) {
-    startIndex = results.length
-    for (let i = 0; i < results.length; i++) {
-      if (ordersAfterAnchor(results[i], decoded, sort)) {
-        startIndex = i
-        break
-      }
-    }
+    startIndex = startAfterAnchor(results, decoded, sort)
   }
 
   const afterOffset = startIndex + offset
@@ -104,24 +82,14 @@ export function applyPagination<T extends { id: string; score?: number }>(
   const lastResult = lastOrganicResult(sliced, pinnedIds)
   const depth = afterOffset + sliced.length
   if (hasMore && lastResult !== undefined) {
-    nextCursor =
-      sort !== undefined
-        ? encodePageCursor({
-            anchor: lastResult.id,
-            score: null,
-            sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
-            sortSignature: sort.signature,
-            depth,
-            binding: binding(),
-          })
-        : encodePageCursor({
-            anchor: lastResult.id,
-            score: lastResult.score ?? null,
-            sortKey: null,
-            sortSignature: null,
-            depth,
-            binding: binding(),
-          })
+    nextCursor = encodePageCursor({
+      anchor: lastResult.id,
+      score: sort === undefined ? (lastResult.score ?? null) : null,
+      sortKey: sort === undefined ? null : sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
+      sortSignature: sort?.signature ?? null,
+      depth,
+      binding: binding(),
+    })
   }
 
   return { paginated: sliced, nextCursor }

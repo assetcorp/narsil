@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { compositeSortedPage } from '../../../search/sorting-code'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
 import type { FacetResult } from '../../../types/results'
@@ -21,7 +22,8 @@ import type { AddedWord, PartialWordRequest } from '../partial-words/types'
 import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
-import { expandTermPrefix, type PartitionSuggestion } from '../suggestions'
+import { compositeSuggestTerms, expandTermPrefix } from '../suggestion-code'
+import type { PartitionSuggestion } from '../suggestions'
 import {
   freezeLiveTailInto,
   type LiveTailFreezer,
@@ -38,30 +40,14 @@ import {
   computeOrdinalLayout,
   type OrdinalLayout,
 } from './filters'
+import { prepareOwnerRemoval } from './frozen-removal'
+import { withPreviousText } from './prepared-text'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
-import { compositeSortedPage, compositeSortValues, prepareCompositeSortColumns } from './sorting'
+import { compositeSortValues, prepareCompositeSortColumns } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
-import { compositeSuggestTerms } from './suggest'
+import type { CompositePartition } from './types'
 
-export interface CompositePartition extends PartitionIndex {
-  readonly live: PartitionIndex
-  frozenSegmentCount(): number
-  frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }>
-  frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
-  /** Adds a frozen segment whose documents the partition manager has already checked against every partition. */
-  attachFrozenSegment(segment: FrozenSegment): void
-  swapFrozenSegments(
-    dropSegmentIds: readonly string[],
-    replacement: FrozenSegment,
-    removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
-  ): Map<string, RemovedSpellings>
-  freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
-  replaceLiveTail(segment: FrozenSegment): void
-  removedSpellingsOf(docId: string): RemovedSpellings | undefined
-  frozenSegments(): readonly FrozenSegment[]
-  replaceFrozenSegments(segments: readonly FrozenSegment[]): void
-  documentIdsHeldInMemory(): IterableIterator<string>
-}
+export type { CompositePartition } from './types'
 
 export function isCompositePartition(partition: PartitionIndex): partition is CompositePartition {
   return 'attachFrozenSegment' in partition
@@ -75,7 +61,7 @@ export function createCompositePartition(
 ): CompositePartition {
   const live = existingLive ?? createPartitionIndex(partitionId, trackPositions)
   const liveState = partitionStateOf(live)
-  const frozen: FrozenSegment[] = []
+  let frozen: FrozenSegment[] = []
   let docFrequenciesCache: Readonly<Record<string, number>> | null = null
 
   function invalidateDocFrequencies(): void {
@@ -155,11 +141,15 @@ export function createCompositePartition(
 
     swapFrozenSegments(
       dropSegmentIds: readonly string[],
-      replacement: FrozenSegment,
+      replacement: FrozenSegment | readonly FrozenSegment[],
       removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
     ): Map<string, RemovedSpellings> {
-      if (textAnalysis !== undefined) replacement.removals.bind(textAnalysis)
-      const applied = swapFrozenSegmentList(frozen, dropSegmentIds, replacement, removedSpellings)
+      const replacements: readonly FrozenSegment[] = 'segmentId' in replacement ? [replacement] : replacement
+      if (textAnalysis !== undefined) {
+        for (const segment of replacements) segment.removals.bind(textAnalysis)
+      }
+      const { segments, applied } = swapFrozenSegmentList(frozen, dropSegmentIds, replacements, removedSpellings)
+      frozen = segments
       bindSegments()
       return applied
     },
@@ -171,12 +161,14 @@ export function createCompositePartition(
     },
 
     replaceLiveTail(segment: FrozenSegment): void {
+      if (textAnalysis !== undefined) segment.removals.bind(textAnalysis)
       live.clear()
       frozen.push(segment)
       bindSegments()
     },
 
     attachFrozenSegment(segment: FrozenSegment): void {
+      if (textAnalysis !== undefined) segment.removals.bind(textAnalysis)
       frozen.push(segment)
       bindSegments()
     },
@@ -186,8 +178,10 @@ export function createCompositePartition(
     },
 
     replaceFrozenSegments(segments: readonly FrozenSegment[]): void {
-      frozen.length = 0
-      frozen.push(...segments)
+      if (textAnalysis !== undefined) {
+        for (const segment of segments) segment.removals.bind(textAnalysis)
+      }
+      frozen = [...segments]
       bindSegments()
     },
 
@@ -196,11 +190,6 @@ export function createCompositePartition(
         frozen.filter(segment => segment.paged === null),
         live,
       )
-    },
-
-    mergeSegment(segment: PartitionIndex): void {
-      invalidateDocFrequencies()
-      live.mergeSegment(segment)
     },
 
     mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
@@ -213,15 +202,15 @@ export function createCompositePartition(
       return composedScratch().encodeSegment()
     },
 
-    serialize(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition) {
-      if (frozen.length === 0) return live.serialize(indexName, totalPartitions, language, schema)
-      return composedScratch().serialize(indexName, totalPartitions, language, schema)
+    serialize(indexName, totalPartitions, language, schema, serializePartition) {
+      if (frozen.length === 0) return live.serialize(indexName, totalPartitions, language, schema, serializePartition)
+      return composedScratch().serialize(indexName, totalPartitions, language, schema, serializePartition)
     },
 
-    deserialize(data, schema): void {
+    deserialize(data, schema, deserializePartition): void {
       frozen.length = 0
       invalidateDocFrequencies()
-      live.deserialize(data, schema)
+      live.deserialize(data, schema, deserializePartition)
     },
 
     clear(): void {
@@ -231,7 +220,7 @@ export function createCompositePartition(
       live.clear()
     },
 
-    insert(docId, document, schema, language, options): void {
+    insert(docId, document, schema, language, options): AnyDocument {
       if (frozenOwner(docId) !== undefined) {
         throw new NarsilError(
           ErrorCodes.DOC_ALREADY_EXISTS,
@@ -239,25 +228,29 @@ export function createCompositePartition(
           { docId, partitionId },
         )
       }
+      const stored = live.insert(docId, document, schema, language, options)
       invalidateDocFrequencies()
-      live.insert(docId, document, schema, language, options)
+      return stored
     },
 
-    update(docId, document, schema, language, options, removedSpellings): void {
-      invalidateDocFrequencies()
+    update(docId, document, schema, language, options, removedSpellings): AnyDocument {
       const owner = frozenOwner(docId)
       if (owner === undefined) {
-        live.update(docId, document, schema, language, options)
-        return
+        const stored = live.update(docId, document, schema, language, options)
+        invalidateDocFrequencies()
+        return stored
       }
-      live.insert(docId, document, schema, language, options)
-      owner.tombstoneDocument(docId, removedSpellings)
+      const removal = prepareOwnerRemoval(owner, docId, schema, language, options, removedSpellings)
+      const stored = live.insert(docId, document, schema, language, withPreviousText(options, removal.before))
+      invalidateDocFrequencies()
+      removal.tombstone?.publish()
+      return stored
     },
 
     remove(docId, schema, language, options, removedSpellings): void {
       if (live.has(docId)) {
-        invalidateDocFrequencies()
         live.remove(docId, schema, language, options)
+        invalidateDocFrequencies()
         return
       }
       const owner = frozenOwner(docId)
@@ -267,8 +260,9 @@ export function createCompositePartition(
           partitionId,
         })
       }
+      const removal = prepareOwnerRemoval(owner, docId, schema, language, options, removedSpellings)
       invalidateDocFrequencies()
-      owner.tombstoneDocument(docId, removedSpellings)
+      removal.tombstone?.publish()
     },
 
     removedSpellingsOf(docId: string): RemovedSpellings | undefined {
@@ -331,7 +325,7 @@ export function createCompositePartition(
       return compositeSuggestTerms(subs(), surfacePrefix, stemmedPrefix, limit)
     },
 
-    expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
+    expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number) {
       return expandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
     },
 

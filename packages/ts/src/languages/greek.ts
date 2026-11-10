@@ -625,7 +625,7 @@ function normalize(token: string): string {
  */
 export const greek: LanguageModule = {
   name: 'greek',
-  revision: '4f02e255d00e5848',
+  revision: 'da4de4dbdfb62cf7',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

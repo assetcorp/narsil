@@ -1,7 +1,11 @@
+import {
+  dropEngineIndex,
+  ErrorCodes,
+  emitWriteEventAfter,
+  loadSuggestionsCode,
+  NarsilError,
+} from '#platform/suggestion-store-host'
 import type { EngineCore, QuerySuggestionHooks } from '../engine/core'
-import { dropEngineIndex } from '../engine/index-lifecycle'
-import { emitWriteEventAfter } from '../engine/write-events'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import { attachedRuntimeOf } from './attached'
@@ -67,7 +71,7 @@ export async function startQuerySuggestions(
   installSuggestionHooks(core)
   if (config?.querySuggestions === undefined && !holdsEnabledSetting(core)) return
   try {
-    const { localRuntimeOf } = await import('./start')
+    const { localRuntimeOf } = await loadSuggestionsCode()
     await localRuntimeOf(core, engine, config)
   } catch (error) {
     await engine.shutdown().catch(() => undefined)

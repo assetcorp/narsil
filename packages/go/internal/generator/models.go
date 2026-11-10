@@ -39,6 +39,9 @@ func (p *planner) renderModel(def *definition) chunk {
 		fmt.Fprintf(&out, "\t%s %s `json:%s`\n", fieldName, shape.goType, quoteGo(field.jsonName+shape.tag))
 	}
 	out.WriteString("}\n")
+	if def.name == "Hit" {
+		out.WriteString(scoredHitMethods())
+	}
 	return chunk{text: out.String()}
 }
 

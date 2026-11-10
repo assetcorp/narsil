@@ -1,23 +1,21 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
-import { RESULT_WINDOW } from '../../search/constants'
+import {
+  bindSearchSignal,
+  ErrorCodes,
+  NarsilError,
+  RESULT_WINDOW,
+  requirePinnedState,
+  signalOfSearch,
+} from '#platform/vector-host'
+import type { SearchClock } from '../../core/search-clock'
+import type { FanOutResult } from '../../partitioning/fan-out'
 import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
-import type { FilterSubset } from '../../vector/filter-ordinals'
 import type { VectorSearcher, VectorSearchOptions, VectorSearchOutcome } from '../../vector/vector-index'
-import { requireLoadedVectorCode } from '../../workers/vector-code'
-import { collectFilterSubsets, filterSubsetsMatchNothing, searchCurrentSubsets } from './filter-subsets'
-import {
-  bm25SettingFor,
-  broadcastStatsForWorker,
-  partitionsForVectorSearch,
-  resolveVectorIndex,
-  type SearchContext,
-  scoringConfigFor,
-  searchOptionsFor,
-  vectorResultsToScored,
-} from './shared'
+import type { FilteredSearch } from './filter-subsets'
+import type { SearchContext } from './shared'
+import { filterSubsetsMatchNothing, searchCurrentSubsets } from './subset-search'
+import type { VectorQueryHost } from './vector-query-host'
 
 export function vectorFetchDepth(limit: number, offset: number, cursorDepth: number): number {
   const reach = cursorDepth + offset + limit
@@ -31,30 +29,39 @@ export function vectorFetchDepth(limit: number, offset: number, cursorDepth: num
   return Math.min(reach + 1, RESULT_WINDOW)
 }
 
-export interface FilteredSearch {
-  readonly first: FilterSubset[]
-  readonly collectAgain: () => FilterSubset[]
+interface FieldSearch {
+  readonly vecIndex: VectorSearcher
+  readonly vectorConfig: VectorQueryConfig
+  readonly queryVector: Float32Array
+  readonly context: SearchContext
+  readonly filtered: FilteredSearch | undefined
+  readonly rescoreWindow: number | undefined
 }
 
-export function filteredSearchOf(params: QueryParams, context: SearchContext): FilteredSearch | undefined {
-  const filters = params.filters
-  if (!filters) return undefined
-  const { manager, config, partitionIds, patternWork } = context
-  const collectAgain = () => collectFilterSubsets(manager, filters, config.schema, partitionIds, patternWork)
-  return { first: collectAgain(), collectAgain }
+function vectorClock(context: SearchContext): SearchClock | undefined {
+  const signal = signalOfSearch(context.turns)
+  const clock = context.patternWork.clock
+  if (signal === undefined) return clock
+  const nativeWindow = clock?.nativeWindow
+  const bound: SearchClock = {
+    check() {
+      signal.throwIfAborted()
+      clock?.check()
+    },
+    tick(units) {
+      signal.throwIfAborted()
+      clock?.tick(units)
+    },
+    ...(nativeWindow === undefined ? {} : { nativeWindow: () => nativeWindow.call(clock) }),
+  }
+  bindSearchSignal(bound, signal)
+  return bound
 }
 
-function searchField(
-  vecIndex: VectorSearcher,
-  vectorConfig: VectorQueryConfig,
-  queryVector: Float32Array,
-  k: number,
-  context: SearchContext,
-  filtered: FilteredSearch | undefined,
-  rescoreWindow: number | undefined,
-): Promise<VectorSearchOutcome> {
+async function searchField(search: FieldSearch, k: number, host: VectorQueryHost): Promise<VectorSearchOutcome> {
+  const { vecIndex, vectorConfig, queryVector, context, filtered, rescoreWindow } = search
   const options: VectorSearchOptions = {
-    clock: context.patternWork.clock,
+    clock: vectorClock(context),
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     efSearch: vectorConfig.efSearch,
@@ -62,19 +69,27 @@ function searchField(
     ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
   }
   if (filtered !== undefined) {
-    return searchCurrentSubsets(vecIndex.fieldName, filtered.first, filtered.collectAgain, filterSubsets =>
-      vecIndex.searchParallel(queryVector, k, { ...options, filterSubsets }),
+    const outcome = await searchCurrentSubsets(
+      vecIndex.fieldName,
+      filtered.first,
+      filtered.collectAgain,
+      filterSubsets => vecIndex.searchParallel(queryVector, k, { ...options, filterSubsets }),
     )
+    requirePinnedState(context.pin)
+    return outcome
   }
-  const filterPartitions = partitionsForVectorSearch(context.manager, vecIndex, context.partitionIds)
-  return vecIndex.searchParallel(
+  const filterPartitions = host.partitionsForVectorSearch(context.manager, vecIndex, context.partitionIds)
+  const outcome = await vecIndex.searchParallel(
     queryVector,
     k,
     filterPartitions === undefined ? options : { ...options, filterPartitions },
   )
+  requirePinnedState(context.pin)
+  return outcome
 }
 
 export async function executeVectorSearch(
+  host: VectorQueryHost,
   params: QueryParams,
   context: SearchContext,
   limit: number,
@@ -82,54 +97,35 @@ export async function executeVectorSearch(
   cursorDepth = 0,
 ): Promise<FanOutResult> {
   const vectorConfig = params.vector
-  requireLoadedVectorCode().requireUsableVectorOptions(vectorConfig)
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
   }
 
-  const vecIndex = resolveVectorIndex(context, vectorConfig.field)
+  const vecIndex = host.resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) {
     return { scored: [], totalMatched: 0 }
   }
 
-  const filtered = filteredSearchOf(params, context)
+  const filtered = host.filteredSearchOf(params, context)
   if (filtered !== undefined && filterSubsetsMatchNothing(filtered.first)) {
     return { scored: [], totalMatched: 0 }
   }
 
-  const queryVec = new Float32Array(vectorConfig.value)
-  const k = vectorFetchDepth(limit, offset, cursorDepth)
-  const outcome = await searchField(vecIndex, vectorConfig, queryVec, k, context, filtered, context.rescoreWindow)
-
-  const scored = vectorResultsToScored(outcome.results)
+  const search: FieldSearch = {
+    vecIndex,
+    vectorConfig,
+    queryVector: new Float32Array(vectorConfig.value),
+    context,
+    filtered,
+    rescoreWindow: context.rescoreWindow,
+  }
+  const outcome = await searchField(search, vectorFetchDepth(limit, offset, cursorDepth), host)
+  const scored = host.vectorResultsToScored(outcome.results)
   return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
 }
 
-export async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
-  const { manager, language, config, workerSearch, indexName } = context
-  const scoring = scoringConfigFor(textOnlyParams, context)
-  if (workerSearch) {
-    const viaWorker = await workerSearch(
-      indexName,
-      textOnlyParams,
-      broadcastStatsForWorker(textOnlyParams, context, scoring),
-      context.partitionIds,
-      context.patternWork,
-      bm25SettingFor(textOnlyParams, context),
-    )
-    if (viaWorker) return viaWorker
-  }
-  return fanOutQuery(
-    manager,
-    textOnlyParams,
-    language,
-    config.schema,
-    scoring,
-    searchOptionsFor(textOnlyParams, context),
-  )
-}
-
-export async function vectorLeg(
+export async function vectorLegWith(
+  host: VectorQueryHost,
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
   context: SearchContext,
@@ -137,16 +133,18 @@ export async function vectorLeg(
   k: number,
   rescoreWindow?: number,
 ): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
-  const vecIndex = resolveVectorIndex(context, vectorConfig.field)
+  const vecIndex = host.resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) return { scored: [], holdsEveryMatch: true }
-  const outcome = await searchField(vecIndex, vectorConfig, queryVector, k, context, filtered, rescoreWindow)
+  const search: FieldSearch = { vecIndex, vectorConfig, queryVector, context, filtered, rescoreWindow }
+  const outcome = await searchField(search, k, host)
   return {
-    scored: vectorResultsToScored(outcome.results),
+    scored: host.vectorResultsToScored(outcome.results),
     holdsEveryMatch: outcome.matchedExact && outcome.results.length === outcome.matched,
   }
 }
 
 export async function executeHybridSearch(
+  host: VectorQueryHost,
   params: QueryParams,
   context: SearchContext,
   limit: number,
@@ -156,24 +154,30 @@ export async function executeHybridSearch(
   const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
   const fusion = resolveHybridFusion(params.hybrid)
 
-  const filtered = filteredSearchOf(params, context)
+  const filtered = host.filteredSearchOf(params, context)
   if (filtered !== undefined && filterSubsetsMatchNothing(filtered.first)) {
     return { scored: [], totalMatched: 0 }
   }
 
   if (!vectorConfig || !vectorConfig.value) {
-    const textOnly = await textLeg(textOnlyParams, context)
-    return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
+    const textOnly = await host.textLeg(textOnlyParams, context)
+    return {
+      scored: textOnly.scored,
+      totalMatched: textOnly.totalMatched,
+      facets: textOnly.facets,
+      ...(textOnly.documents !== undefined ? { documents: textOnly.documents } : {}),
+    }
   }
 
-  const vectorPending = vectorLeg(
+  const vectorPending = vectorLegWith(
+    host,
     vectorConfig,
     new Float32Array(vectorConfig.value),
     context,
     filtered,
     vectorFetchDepth(limit, offset, cursorDepth),
   )
-  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
+  const [textFanOutResult, vectorOutcome] = await Promise.all([host.textLeg(textOnlyParams, context), vectorPending])
   const vectorScored = vectorOutcome.scored
 
   let fusedScored: ScoredDocument[]
@@ -195,5 +199,6 @@ export async function executeHybridSearch(
     totalMatched: fusedScored.length,
     matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
     facets: textFanOutResult.facets,
+    ...(textFanOutResult.documents !== undefined ? { documents: textFanOutResult.documents } : {}),
   }
 }

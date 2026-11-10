@@ -1,4 +1,11 @@
-import { fromWords, highWord, INFINITE_HIGH_WORD, lowWord, MAGNITUDE_MASK, scaleByPowerOfTwo } from './words'
+import {
+  fromWords,
+  highWord,
+  INFINITE_HIGH_WORD,
+  lowWord,
+  MAGNITUDE_MASK,
+  scaleByPowerOfTwo,
+} from '../geo/geo-host-bindings'
 
 const CHUNK_BITS = 24
 const CHUNK_TOP_BIT = 23

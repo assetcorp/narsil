@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { SerializedHNSWGraph } from '../hnsw'
 import type { OsqBits } from '../osq'
 import { osqRecordBytes } from '../osq/record'

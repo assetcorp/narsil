@@ -53,6 +53,7 @@ let normalizationCacheSize = 0
 let maxCacheSize = computeDefaultCacheSize()
 
 let cachedLangName = ''
+let cachedRevision = ''
 let cachedFlags = ''
 let cachedBucket: Map<string, string> | null = null
 
@@ -97,15 +98,18 @@ export function configureNormalizationCache(maxSize: number): void {
 }
 
 function getCacheBucket(language: LanguageModule, flags: string): Map<string, string> {
-  const langKey = `${language.name}@${language.revision}`
-  if (cachedBucket && langKey === cachedLangName && flags === cachedFlags) return cachedBucket
-  const key = `${langKey}:${flags}`
+  const name = language.name
+  const revision = language.revision
+  if (cachedBucket && name === cachedLangName && revision === cachedRevision && flags === cachedFlags)
+    return cachedBucket
+  const key = `${name}@${revision}:${flags}`
   let bucket = normalizationCache.get(key)
   if (!bucket) {
     bucket = new Map()
     normalizationCache.set(key, bucket)
   }
-  cachedLangName = langKey
+  cachedLangName = name
+  cachedRevision = revision
   cachedFlags = flags
   cachedBucket = bucket
   return bucket

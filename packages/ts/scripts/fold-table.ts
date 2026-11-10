@@ -6,6 +6,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_DIR = resolve(scriptDirectory, '..')
 const DATA_PATH = join(PACKAGE_DIR, 'scripts', 'data', 'CaseFolding.txt')
 const OUTPUT_PATH = join(PACKAGE_DIR, 'src', 'core', 'ordering', 'fold-table.ts')
+const NATIVE_OUTPUT_PATH = resolve(PACKAGE_DIR, '..', 'native', 'src', 'unicode', 'casefold.c')
 
 const SPEC_UNICODE_VERSION = '17.0.0'
 const SPEC_ENTRY_COUNT = 1585
@@ -135,27 +136,46 @@ export function multiFoldTable(): ReadonlyMap<number, readonly number[]> {
 `
 }
 
-function main(): void {
-  const write = process.argv.includes('--write')
-  const data = readFileSync(DATA_PATH, 'utf-8')
-  const generated = render(parseCaseFolding(data))
-
+function checkOrWrite(path: string, generated: string, write: boolean): void {
   if (write) {
-    writeFileSync(OUTPUT_PATH, generated)
-    console.log(`fold-table: wrote ${OUTPUT_PATH}`)
+    writeFileSync(path, generated)
+    console.log(`fold-table: wrote ${path}`)
     return
   }
 
   let committed: string
   try {
-    committed = readFileSync(OUTPUT_PATH, 'utf-8')
+    committed = readFileSync(path, 'utf-8')
   } catch {
-    fail(`missing ${OUTPUT_PATH}; run "pnpm fold-table:write" to generate it`)
+    fail(`missing ${path}; run "pnpm fold-table:write" to generate it`)
   }
   if (committed !== generated) {
-    fail('src/core/ordering/fold-table.ts differs from a fresh generation; run "pnpm fold-table:write"')
+    fail(`${path} differs from a fresh generation; run "pnpm fold-table:write"`)
   }
-  console.log('fold-table: the committed table matches a fresh generation')
+  console.log(`fold-table: ${path} matches a fresh generation`)
+}
+
+function renderNative(entries: FoldEntry[]): string {
+  const rows = entries.map(({ source, fold }) => {
+    const values = [source, fold.length, ...fold]
+    while (values.length < 5) values.push(0)
+    return `    {${values.map(value => `${value}U`).join(', ')}},`
+  })
+  return `#include "../sort/text.h"
+
+const uint32_t narsil_case_folds[][5] = {
+${rows.join('\n')}
+};
+
+const size_t narsil_case_fold_count = sizeof narsil_case_folds / sizeof narsil_case_folds[0];
+`
+}
+
+function main(): void {
+  const write = process.argv.includes('--write')
+  const entries = parseCaseFolding(readFileSync(DATA_PATH, 'utf-8'))
+  checkOrWrite(OUTPUT_PATH, render(entries), write)
+  checkOrWrite(NATIVE_OUTPUT_PATH, renderNative(entries), write)
 }
 
 main()

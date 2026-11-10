@@ -1,4 +1,4 @@
-import { isSyncEpoch, newSyncEpoch } from '../sync/epoch'
+import { isSyncEpoch, newSyncEpoch } from '#platform/optional-writes-host'
 import type { IndexMetadata } from '../types/internal'
 import type { IndexSyncState } from './registry-entry'
 

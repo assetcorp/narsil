@@ -148,7 +148,10 @@ test_fixture *build_fixture(uint32_t bits) {
     return NULL;
   }
   write_nodes(fixture, bits);
-  for (int32_t node = 0; node < NODES; node++) { fixture->incoming[node] = MAX_BASE_NEIGHBOURS; }
+  for (int32_t node = 0; node < NODES; node++) {
+    fixture->incoming[node] = MAX_BASE_NEIGHBOURS;
+    fixture->born_at[node] = FIXTURE_BORN_SEQUENCE;
+  }
   int32_t upper_used = write_upper_layer(fixture);
   for (int i = 0; i < DIMENSION; i++) { fixture->centroid[i] = CENTROID_STEP * (float)i; }
 
@@ -197,7 +200,11 @@ test_fixture *build_fixture(uint32_t bits) {
                                   .vector_file = fixture->vector_file,
                                   .vector_offset = fixture->vector_offset,
                                   .files = NULL,
-                                  .file_count = 0};
+                                  .file_count = 0,
+                                  .born_at = fixture->born_at,
+                                  .retired_at = fixture->retired_at,
+                                  .pins = fixture->pins,
+                                  .pin_slots = THREAD_SLOTS};
   return fixture;
 }
 

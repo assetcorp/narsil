@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/suggestion-store-host'
 
 const MAGIC_BYTES = new Uint8Array([0x4e, 0x52, 0x53, 0x4c])
 const HEADER_SIZE = 32

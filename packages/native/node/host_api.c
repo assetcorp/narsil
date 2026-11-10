@@ -4,6 +4,8 @@
 
 #include <js_native_api.h>
 #include <js_native_api_types.h>
+#include <node_api.h>
+#include <node_api_types.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -15,6 +17,7 @@ enum {
   HOST_CREATE_DOUBLE,
   HOST_CREATE_EXTERNAL,
   HOST_CREATE_INT32,
+  HOST_CREATE_UINT32,
   HOST_CREATE_REFERENCE,
   HOST_CREATE_STRING_UTF16,
   HOST_CREATE_STRING_UTF8,
@@ -28,7 +31,10 @@ enum {
   HOST_GET_NULL,
   HOST_GET_TYPEDARRAY_INFO,
   HOST_GET_VALUE_EXTERNAL,
+  HOST_GET_VALUE_BOOL,
+  HOST_GET_VALUE_DOUBLE,
   HOST_GET_VALUE_INT32,
+  HOST_GET_VALUE_INT64,
   HOST_GET_VALUE_STRING_UTF16,
   HOST_GET_VALUE_STRING_UTF8,
   HOST_GET_VALUE_UINT32,
@@ -38,15 +44,52 @@ enum {
   HOST_SET_INSTANCE_DATA,
   HOST_THROW_ERROR,
   HOST_TYPEOF,
+  HOST_CREATE_OBJECT,
+  HOST_CREATE_BIGINT_UINT64,
+  HOST_GET_VALUE_BIGINT_UINT64,
+  HOST_TYPE_TAG_OBJECT,
+  HOST_CHECK_OBJECT_TYPE_TAG,
+  HOST_WRAP,
+  HOST_UNWRAP,
+  HOST_IS_DETACHED_ARRAYBUFFER,
+  HOST_IS_ARRAYBUFFER,
+  HOST_CREATE_ASYNC_WORK,
+  HOST_QUEUE_ASYNC_WORK,
+  HOST_DELETE_ASYNC_WORK,
+  HOST_CREATE_PROMISE,
+  HOST_RESOLVE_DEFERRED,
+  HOST_CREATE_ARRAYBUFFER,
+  HOST_CREATE_TYPEDARRAY,
+  HOST_GET_REFERENCE_VALUE,
+  HOST_STRICT_EQUALS,
   HOST_FUNCTION_COUNT
 };
 
 static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
+    [HOST_CREATE_OBJECT] = "napi_create_object",
+    [HOST_CREATE_BIGINT_UINT64] = "napi_create_bigint_uint64",
+    [HOST_GET_VALUE_BIGINT_UINT64] = "napi_get_value_bigint_uint64",
+    [HOST_TYPE_TAG_OBJECT] = "napi_type_tag_object",
+    [HOST_CHECK_OBJECT_TYPE_TAG] = "napi_check_object_type_tag",
+    [HOST_WRAP] = "napi_wrap",
+    [HOST_UNWRAP] = "napi_unwrap",
+    [HOST_IS_DETACHED_ARRAYBUFFER] = "napi_is_detached_arraybuffer",
+    [HOST_IS_ARRAYBUFFER] = "napi_is_arraybuffer",
+    [HOST_CREATE_ASYNC_WORK] = "napi_create_async_work",
+    [HOST_QUEUE_ASYNC_WORK] = "napi_queue_async_work",
+    [HOST_DELETE_ASYNC_WORK] = "napi_delete_async_work",
+    [HOST_CREATE_PROMISE] = "napi_create_promise",
+    [HOST_RESOLVE_DEFERRED] = "napi_resolve_deferred",
+    [HOST_CREATE_ARRAYBUFFER] = "napi_create_arraybuffer",
+    [HOST_CREATE_TYPEDARRAY] = "napi_create_typedarray",
+    [HOST_GET_REFERENCE_VALUE] = "napi_get_reference_value",
+    [HOST_STRICT_EQUALS] = "napi_strict_equals",
     [HOST_ADJUST_EXTERNAL_MEMORY] = "napi_adjust_external_memory",
     [HOST_CREATE_ARRAY_WITH_LENGTH] = "napi_create_array_with_length",
     [HOST_CREATE_DOUBLE] = "napi_create_double",
     [HOST_CREATE_EXTERNAL] = "napi_create_external",
     [HOST_CREATE_INT32] = "napi_create_int32",
+    [HOST_CREATE_UINT32] = "napi_create_uint32",
     [HOST_CREATE_REFERENCE] = "napi_create_reference",
     [HOST_CREATE_STRING_UTF16] = "napi_create_string_utf16",
     [HOST_CREATE_STRING_UTF8] = "napi_create_string_utf8",
@@ -60,7 +103,10 @@ static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
     [HOST_GET_NULL] = "napi_get_null",
     [HOST_GET_TYPEDARRAY_INFO] = "napi_get_typedarray_info",
     [HOST_GET_VALUE_EXTERNAL] = "napi_get_value_external",
+    [HOST_GET_VALUE_BOOL] = "napi_get_value_bool",
+    [HOST_GET_VALUE_DOUBLE] = "napi_get_value_double",
     [HOST_GET_VALUE_INT32] = "napi_get_value_int32",
+    [HOST_GET_VALUE_INT64] = "napi_get_value_int64",
     [HOST_GET_VALUE_STRING_UTF16] = "napi_get_value_string_utf16",
     [HOST_GET_VALUE_STRING_UTF8] = "napi_get_value_string_utf8",
     [HOST_GET_VALUE_UINT32] = "napi_get_value_uint32",
@@ -127,6 +173,10 @@ napi_status NAPI_CDECL napi_create_int32(napi_env env, int32_t value, napi_value
   return HOST_FUNCTION(HOST_CREATE_INT32, napi_create_int32)(env, value, result);
 }
 
+napi_status NAPI_CDECL napi_create_uint32(napi_env env, uint32_t value, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_UINT32, napi_create_uint32)(env, value, result);
+}
+
 napi_status NAPI_CDECL napi_create_reference(napi_env env, napi_value value, uint32_t initial_refcount,
                                              napi_ref *result) {
   return HOST_FUNCTION(HOST_CREATE_REFERENCE, napi_create_reference)(env, value, initial_refcount, result);
@@ -186,8 +236,20 @@ napi_status NAPI_CDECL napi_get_value_external(napi_env env, napi_value value, v
   return HOST_FUNCTION(HOST_GET_VALUE_EXTERNAL, napi_get_value_external)(env, value, result);
 }
 
+napi_status NAPI_CDECL napi_get_value_bool(napi_env env, napi_value value, bool *result) {
+  return HOST_FUNCTION(HOST_GET_VALUE_BOOL, napi_get_value_bool)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_get_value_double(napi_env env, napi_value value, double *result) {
+  return HOST_FUNCTION(HOST_GET_VALUE_DOUBLE, napi_get_value_double)(env, value, result);
+}
+
 napi_status NAPI_CDECL napi_get_value_int32(napi_env env, napi_value value, int32_t *result) {
   return HOST_FUNCTION(HOST_GET_VALUE_INT32, napi_get_value_int32)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_get_value_int64(napi_env env, napi_value value, int64_t *result) {
+  return HOST_FUNCTION(HOST_GET_VALUE_INT64, napi_get_value_int64)(env, value, result);
 }
 
 napi_status NAPI_CDECL napi_get_value_string_utf16(napi_env env, napi_value value, uint16_t *buf, size_t bufsize,
@@ -227,6 +289,86 @@ napi_status NAPI_CDECL napi_throw_error(napi_env env, const char *code, const ch
 
 napi_status NAPI_CDECL napi_typeof(napi_env env, napi_value value, napi_valuetype *result) {
   return HOST_FUNCTION(HOST_TYPEOF, napi_typeof)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_create_object(napi_env env, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_OBJECT, napi_create_object)(env, result);
+}
+
+napi_status NAPI_CDECL napi_create_bigint_uint64(napi_env env, uint64_t value, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_BIGINT_UINT64, napi_create_bigint_uint64)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_get_value_bigint_uint64(napi_env env, napi_value value, uint64_t *result, bool *lossless) {
+  return HOST_FUNCTION(HOST_GET_VALUE_BIGINT_UINT64, napi_get_value_bigint_uint64)(env, value, result, lossless);
+}
+
+napi_status NAPI_CDECL napi_type_tag_object(napi_env env, napi_value value, const napi_type_tag *type_tag) {
+  return HOST_FUNCTION(HOST_TYPE_TAG_OBJECT, napi_type_tag_object)(env, value, type_tag);
+}
+
+napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env, napi_value value, const napi_type_tag *type_tag,
+                                                  bool *result) {
+  return HOST_FUNCTION(HOST_CHECK_OBJECT_TYPE_TAG, napi_check_object_type_tag)(env, value, type_tag, result);
+}
+
+napi_status NAPI_CDECL napi_wrap(napi_env env, napi_value js_object, void *native_object,
+                                 node_api_basic_finalize finalize_cb, void *finalize_hint, napi_ref *result) {
+  return HOST_FUNCTION(HOST_WRAP, napi_wrap)(env, js_object, native_object, finalize_cb, finalize_hint, result);
+}
+
+napi_status NAPI_CDECL napi_unwrap(napi_env env, napi_value object, void **result) {
+  return HOST_FUNCTION(HOST_UNWRAP, napi_unwrap)(env, object, result);
+}
+
+napi_status NAPI_CDECL napi_is_detached_arraybuffer(napi_env env, napi_value value, bool *result) {
+  return HOST_FUNCTION(HOST_IS_DETACHED_ARRAYBUFFER, napi_is_detached_arraybuffer)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_is_arraybuffer(napi_env env, napi_value value, bool *result) {
+  return HOST_FUNCTION(HOST_IS_ARRAYBUFFER, napi_is_arraybuffer)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_create_async_work(napi_env env, napi_value resource, napi_value resource_name,
+                                              napi_async_execute_callback execute,
+                                              napi_async_complete_callback complete, void *data,
+                                              napi_async_work *result) {
+  return HOST_FUNCTION(HOST_CREATE_ASYNC_WORK, napi_create_async_work)(env, resource, resource_name, execute, complete,
+                                                                       data, result);
+}
+
+napi_status NAPI_CDECL napi_queue_async_work(node_api_basic_env env, napi_async_work work) {
+  return HOST_FUNCTION(HOST_QUEUE_ASYNC_WORK, napi_queue_async_work)(env, work);
+}
+
+napi_status NAPI_CDECL napi_delete_async_work(napi_env env, napi_async_work work) {
+  return HOST_FUNCTION(HOST_DELETE_ASYNC_WORK, napi_delete_async_work)(env, work);
+}
+
+napi_status NAPI_CDECL napi_create_promise(napi_env env, napi_deferred *deferred, napi_value *promise) {
+  return HOST_FUNCTION(HOST_CREATE_PROMISE, napi_create_promise)(env, deferred, promise);
+}
+
+napi_status NAPI_CDECL napi_resolve_deferred(napi_env env, napi_deferred deferred, napi_value resolution) {
+  return HOST_FUNCTION(HOST_RESOLVE_DEFERRED, napi_resolve_deferred)(env, deferred, resolution);
+}
+
+napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env, size_t byte_length, void **data, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_ARRAYBUFFER, napi_create_arraybuffer)(env, byte_length, data, result);
+}
+
+napi_status NAPI_CDECL napi_create_typedarray(napi_env env, napi_typedarray_type type, size_t length,
+                                              napi_value arraybuffer, size_t byte_offset, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_TYPEDARRAY, napi_create_typedarray)(env, type, length, arraybuffer, byte_offset,
+                                                                       result);
+}
+
+napi_status NAPI_CDECL napi_get_reference_value(napi_env env, napi_ref ref, napi_value *result) {
+  return HOST_FUNCTION(HOST_GET_REFERENCE_VALUE, napi_get_reference_value)(env, ref, result);
+}
+
+napi_status NAPI_CDECL napi_strict_equals(napi_env env, napi_value lhs, napi_value rhs, bool *result) {
+  return HOST_FUNCTION(HOST_STRICT_EQUALS, napi_strict_equals)(env, lhs, rhs, result);
 }
 
 #else

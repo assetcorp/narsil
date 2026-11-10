@@ -18,7 +18,7 @@ export {
 } from './insync'
 export { createReplicationLog } from './log'
 export { replicateToReplicas } from './primary'
-export { applyDeleteEntry, applyIndexEntry, setNestedValue, validateReplicationEntry } from './replica'
+export { applyDeleteEntry, applyIndexEntry, validateReplicationEntry } from './replica'
 export { decideSyncTier, validateSyncRequest } from './sync-primary'
 export type {
   EntryValidation,

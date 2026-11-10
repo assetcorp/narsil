@@ -18,6 +18,11 @@
 #include <emmintrin.h>
 #endif
 
+#ifdef NARSIL_AVX2
+#include <immintrin.h>
+#define WIDE_VECTOR_BYTES 32U
+#endif
+
 #ifdef NARSIL_HARDWARE_POPCOUNT
 #include <cpuid.h>
 #include <stdatomic.h>
@@ -66,7 +71,38 @@ uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint
   return total;
 }
 
+#ifdef NARSIL_AVX2
+__attribute__((target("avx2"))) static uint32_t
+nibble_products_in_wide_lanes(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes) {
+  const uint32_t end = bytes - (bytes % WIDE_VECTOR_BYTES);
+  __m256i mask = _mm256_set1_epi8((char)LOW_NIBBLE_MASK);
+  __m256i ones = _mm256_set1_epi16(1);
+  __m256i running = _mm256_setzero_si256();
+  uint32_t offset = 0;
+  for (; offset < end; offset += WIDE_VECTOR_BYTES) {
+    __m256i packed;
+    __m256i low_bytes;
+    __m256i high_bytes;
+    memcpy(&packed, document + offset, sizeof packed);
+    memcpy(&low_bytes, low + offset, sizeof low_bytes);
+    memcpy(&high_bytes, high + offset, sizeof high_bytes);
+    __m256i lower = _mm256_maddubs_epi16(low_bytes, _mm256_and_si256(packed, mask));
+    __m256i upper = _mm256_maddubs_epi16(high_bytes, _mm256_and_si256(_mm256_srli_epi16(packed, NIBBLE_BITS), mask));
+    running = _mm256_add_epi32(running, _mm256_madd_epi16(_mm256_add_epi16(lower, upper), ones));
+  }
+  uint32_t total = sum_of_lanes(_mm_add_epi32(_mm256_castsi256_si128(running), _mm256_extracti128_si256(running, 1)));
+  for (; offset < bytes; offset++) {
+    total += ((uint32_t)(document[offset] & LOW_NIBBLE_MASK) * low[offset]) +
+             ((uint32_t)(document[offset] >> NIBBLE_BITS) * high[offset]);
+  }
+  return total;
+}
+#endif
+
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes) {
+#ifdef NARSIL_AVX2
+  if (uses_hardware_avx2()) { return nibble_products_in_wide_lanes(document, low, high, bytes); }
+#endif
   uint32_t total = 0;
   uint32_t offset = 0;
 #ifdef NARSIL_NEON

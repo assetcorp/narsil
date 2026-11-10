@@ -1,4 +1,22 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import {
+  acceptedPhrase,
+  banListFromInput,
+  DEFAULT_PREVIEW_LIMIT,
+  ErrorCodes,
+  GROUP_FORMAT,
+  invalidSetting,
+  isGroup,
+  MAX_MANUAL_SUGGESTION_COUNT,
+  MAX_PREVIEW_LIMIT,
+  MAX_SOURCE_INDEX_NAME_LENGTH,
+  NarsilError,
+  normaliseBan,
+  requireFieldsInSchema,
+  resolveSetting,
+  unionOfBans,
+  validateSetting,
+  withState,
+} from '#platform/suggestions-host'
 import type {
   ManualQuerySuggestion,
   QuerySuggestions,
@@ -6,19 +24,9 @@ import type {
   QuerySuggestionsSetting,
   QuerySuggestionsStatus,
 } from '../types/query-suggestions'
-import { banListFromInput, normaliseBan, unionOfBans } from './bans'
-import {
-  DEFAULT_PREVIEW_LIMIT,
-  MAX_MANUAL_SUGGESTION_COUNT,
-  MAX_PREVIEW_LIMIT,
-  MAX_SOURCE_INDEX_NAME_LENGTH,
-} from './constants'
 import type { IndexView } from './host'
-import { acceptedPhrase, GROUP_FORMAT, isGroup } from './phrase'
 import { previewBuild } from './preview'
 import type { QuerySuggestionsRuntime } from './runtime'
-import { invalidSetting, requireFieldsInSchema, resolveSetting, validateSetting } from './setting'
-import { withState } from './stored-state'
 import {
   ensureSuggestionsIndex,
   markedSuggestionIndexes,

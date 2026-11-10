@@ -1,10 +1,18 @@
 import type { ListParams, ListResult, SortSpec } from '@delali/narsil'
 import type { SortingState, VisibilityState } from '@tanstack/react-table'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { buildFilterExpression, type FilterRule, isRuleComplete, type SchemaField } from '../lib/field-filters'
+import {
+  buildFilterExpression,
+  type FilterJoin,
+  type FilterRule,
+  isRuleComplete,
+  type SchemaField,
+} from '../lib/field-filters'
 
 export const DOCUMENT_PAGE_SIZE = 20
 export const DOCUMENT_PAGE_SIZES = [10, 20, 50, 100]
+
+const NO_EXCLUDED_FIELDS: readonly string[] = []
 
 export interface DocumentBrowser {
   params: ListParams
@@ -13,6 +21,7 @@ export interface DocumentBrowser {
   sorting: SortingState
   columnVisibility: VisibilityState
   rules: FilterRule[]
+  join: FilterJoin
   activeFilterCount: number
   orderDescription: string
   setPage: (page: number) => void
@@ -20,6 +29,7 @@ export interface DocumentBrowser {
   setSorting: (updater: SortingState | ((current: SortingState) => SortingState)) => void
   setColumnVisibility: (updater: VisibilityState | ((current: VisibilityState) => VisibilityState)) => void
   setRules: (rules: FilterRule[]) => void
+  setJoin: (join: FilterJoin) => void
   hideColumns: (paths: ReadonlySet<string>) => void
   recordCursor: (result: ListResult | undefined) => void
 }
@@ -42,12 +52,17 @@ function describeOrder(sorting: SortingState): string {
  * parameters a document listing takes, and remembers the cursor each page
  * answered with so the next page can start from it.
  */
-export function useDocumentBrowser(indexName: string | null, fields: SchemaField[]): DocumentBrowser {
+export function useDocumentBrowser(
+  indexName: string | null,
+  fields: SchemaField[],
+  excludedFields: readonly string[] = NO_EXCLUDED_FIELDS,
+): DocumentBrowser {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSizeState] = useState(DOCUMENT_PAGE_SIZE)
   const [sorting, setSortingState] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibilityState] = useState<VisibilityState>({})
   const [rules, setRulesState] = useState<FilterRule[]>([])
+  const [join, setJoinState] = useState<FilterJoin>('and')
   const [browsedIndex, setBrowsedIndex] = useState(indexName)
   const cursors = useRef<Array<string | undefined>>([undefined])
 
@@ -57,10 +72,11 @@ export function useDocumentBrowser(indexName: string | null, fields: SchemaField
     setSortingState([])
     setColumnVisibilityState({})
     setRulesState([])
+    setJoinState('and')
     cursors.current = [undefined]
   }
 
-  const filters = useMemo(() => buildFilterExpression(rules, fields), [rules, fields])
+  const filters = useMemo(() => buildFilterExpression(rules, fields, join), [rules, fields, join])
   const sort = useMemo(() => toSortSpec(sorting), [sorting])
 
   const params = useMemo<ListParams>(() => {
@@ -69,8 +85,9 @@ export function useDocumentBrowser(indexName: string | null, fields: SchemaField
     if (cursor !== undefined) listParams.cursor = cursor
     if (filters !== undefined) listParams.filters = filters
     if (sort !== undefined) listParams.sort = sort
+    if (excludedFields.length > 0) listParams.document = { exclude: [...excludedFields] }
     return listParams
-  }, [page, pageSize, filters, sort])
+  }, [page, pageSize, filters, sort, excludedFields])
 
   const restart = useCallback(() => {
     cursors.current = [undefined]
@@ -96,6 +113,14 @@ export function useDocumentBrowser(indexName: string | null, fields: SchemaField
   const setRules = useCallback(
     (next: FilterRule[]) => {
       setRulesState(next)
+      restart()
+    },
+    [restart],
+  )
+
+  const setJoin = useCallback(
+    (next: FilterJoin) => {
+      setJoinState(next)
       restart()
     },
     [restart],
@@ -133,6 +158,7 @@ export function useDocumentBrowser(indexName: string | null, fields: SchemaField
     sorting,
     columnVisibility,
     rules,
+    join,
     activeFilterCount,
     orderDescription: describeOrder(sorting),
     setPage: goToPage,
@@ -140,6 +166,7 @@ export function useDocumentBrowser(indexName: string | null, fields: SchemaField
     setSorting,
     setColumnVisibility: setColumnVisibilityState,
     setRules,
+    setJoin,
     hideColumns,
     recordCursor,
   }

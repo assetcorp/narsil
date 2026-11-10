@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../../core/id-generator'
 import { describeError, ErrorCodes, NarsilError } from '../../../../errors'
+import { decode } from '../../../../serialization/msgpack'
 import type { ClusterCoordinator } from '../../../coordinator/types'
 import { isRecord } from '../../../payload-guards'
 import { sendToFirstReachableTarget } from '../../../query/node-send'

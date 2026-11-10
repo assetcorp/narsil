@@ -1,6 +1,5 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { DEFAULT_EF_SEARCH, ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { VectorQueryConfig } from '../../types/search'
-import { DEFAULT_EF_SEARCH } from '../hnsw/constants'
 import { MIN_OVERSAMPLE } from '../osq/constants'
 import {
   DEFAULT_EF_SEARCH_MARGIN_BY_BAND,

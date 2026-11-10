@@ -29,21 +29,38 @@ function streamNote(message: unknown): { type: 'stream-credit' | 'stream-cancel'
   return type === 'stream-credit' || type === 'stream-cancel' ? { type, requestId } : null
 }
 
-function answerMovesOn(port: MessagePort, handlers: Record<'search' | 'preflight', RouteHandler>): void {
+function answerMovesOn(
+  port: MessagePort,
+  handlers: Record<'search' | 'preflight', RouteHandler>,
+  enqueue: (work: () => Promise<void>) => () => void,
+): void {
   const streams = new Map<number, CapturingResponse>()
+  const waiting = new Map<number, () => void>()
+  port.on('close', () => {
+    for (const cancel of waiting.values()) cancel()
+    waiting.clear()
+    for (const stream of streams.values()) stream.cancel()
+  })
   port.on('message', (message: unknown) => {
     const note = streamNote(message)
     if (note !== null) {
       if (note.type === 'stream-credit') streams.get(note.requestId)?.credit()
-      else streams.get(note.requestId)?.cancel()
+      else {
+        waiting.get(note.requestId)?.()
+        waiting.delete(note.requestId)
+        streams.get(note.requestId)?.cancel()
+      }
       return
     }
     if (!isMovedRequest(message)) return
     const handler = message.route === 'search' || message.route === 'preflight' ? handlers[message.route] : null
     if (handler === null) return
-    void answerRequest(handler, message, port, streams).then(answer => {
+    const cancel = enqueue(async () => {
+      waiting.delete(message.requestId)
+      const answer = await answerRequest(handler, message, port, streams)
       if (answer !== null) port.postMessage(answer)
     })
+    waiting.set(message.requestId, cancel)
   })
 }
 
@@ -58,18 +75,18 @@ export function serveLongQueries(executor: DirectExecutorExtensions, settings: L
     maxRerankWindow: settings.maxRerankWindow,
   })
   const afterWrites =
-    <R>(answer: (indexName: string, params: QueryParams) => Promise<R>) =>
-    async (indexName: string, params: QueryParams): Promise<R> => {
-      await relay.awaitWrites(indexName)
-      return answer(indexName, params)
+    <R>(answer: (indexName: string, params: QueryParams, signal: AbortSignal) => Promise<R>) =>
+    async (indexName: string, params: QueryParams, signal: AbortSignal): Promise<R> => {
+      await relay.awaitWrites(indexName, signal)
+      return answer(indexName, params, signal)
     }
   const shared = {
     limits: settings.limits,
     allowRegex: settings.allowRegex,
     move: async () => false,
   }
-  const query = afterWrites((name, params) => local.queryHere(name, params))
-  const preflight = afterWrites((name, params) => local.preflightHere(name, params))
+  const query = afterWrites((name, params, signal) => local.queryHere(name, params, signal))
+  const preflight = afterWrites((name, params, signal) => local.preflightHere(name, params, signal))
   const handlers = {
     search: searchHandler({
       ...shared,
@@ -87,11 +104,34 @@ export function serveLongQueries(executor: DirectExecutorExtensions, settings: L
     }),
   }
   const thread: LongQueryThread = { relay, ports: new Set() }
+  const pending = new Map<symbol, () => Promise<void>>()
+  let draining = false
+  async function drain(): Promise<void> {
+    try {
+      for (const [id, work] of pending) {
+        pending.delete(id)
+        await work().catch(() => undefined)
+      }
+    } finally {
+      draining = false
+    }
+  }
+  function enqueue(work: () => Promise<void>): () => void {
+    const id = Symbol()
+    pending.set(id, work)
+    if (!draining) {
+      draining = true
+      queueMicrotask(() => void drain())
+    }
+    return () => {
+      pending.delete(id)
+    }
+  }
   settings.port.on('message', (message: unknown) => {
     if (!isLongQueryPortNote(message) || serving !== thread) return
     thread.ports.add(message.port)
     message.port.on('close', () => thread.ports.delete(message.port))
-    answerMovesOn(message.port, handlers)
+    answerMovesOn(message.port, handlers, enqueue)
   })
   serving = thread
 }

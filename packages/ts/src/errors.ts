@@ -57,6 +57,12 @@ export const ErrorCodes = {
   SEARCH_INVALID_CURSOR: 'SEARCH_INVALID_CURSOR',
   SEARCH_RESULT_WINDOW_EXCEEDED: 'SEARCH_RESULT_WINDOW_EXCEEDED',
   SEARCH_WORK_CAP_EXCEEDED: 'SEARCH_WORK_CAP_EXCEEDED',
+  /**
+   * An engine fault: a write changed the index during a search that held every
+   * write, so the search could not answer from one state. A correct engine
+   * never raises it, and retrying the request does not help.
+   */
+  SEARCH_STATE_MOVED: 'SEARCH_STATE_MOVED',
   SEARCH_INVALID_PHRASE: 'SEARCH_INVALID_PHRASE',
   SEARCH_PHRASE_NOT_READY: 'SEARCH_PHRASE_NOT_READY',
   BM25_NOT_READY: 'BM25_NOT_READY',

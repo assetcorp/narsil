@@ -840,7 +840,7 @@ QueryParams {
   boost:         Map<string, float32> or absent   (per-field boost)
   tolerance:     uint8 or absent                  (fuzzy matching tolerance, at most 10)
   threshold:     float32 or absent                (minimum score)
-  includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
+  includeScores: boolean or absent                (default false; controls public sorted response scores)
   scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
   termMatch:     'all' or 'any' or uint32 or absent   (absent means 'any'; a count names the minimum matching terms)
   prefixLength:  uint32 or absent                 (leading characters exempt from tolerance, at most 1,024; default 2)
@@ -965,7 +965,7 @@ HighlightConfig {
 
 ScoredEntry {
   docId:      string
-  score:      float32 or absent       (absent when a sort suppressed scoring)
+  score:      float64 or absent       (absent when a sort suppressed scoring)
   sortValues: List<value> or absent   (present when the query specifies a sort)
 }
 
@@ -984,7 +984,9 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
 
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
 
-`score` is absent where the query named a sort without `includeScores`, because a [sorted query computes no relevance scores](../algorithms.md#string-ordering), and the coordinator then merges by sort values alone.
+For a sorted query without grouping or `includeScores`, the node omits `score` from its reply. A sorted grouped query must preserve raw relevance scores in its grouped replies for [group ordering and reducers](query-routing.md#distributed-grouping), even where the caller omits `includeScores` or sets it to false. The coordinator may request `includeScores` internally to retain those scores, but it must honour the caller's setting when assembling the public response. Sorted entry merging always uses sort values and document ID, independently of score presence. [String Ordering](../algorithms.md#string-ordering) defines when the node must compute scores.
+
+A present relevance score may be finite, positive infinity, negative infinity, or NaN, in ordinary and hybrid results and in grouped entries alike. The node must preserve that numeric value through MessagePack, and the coordinator must accept it at each `ScoredEntry.score` while retaining the validation rules for every other field. Score strings belong to HTTP responses and cursors alone. Ranked selection and merging follow [Score Order](../algorithms.md#score-order), and [Distributed Grouping](query-routing.md#distributed-grouping) keeps the raw text-leg scores of a hybrid query.
 
 `facetErrorBounds` holds one figure per field in `facets`, which is the largest count the node left out of that field, and 0 where the node sent every bucket it holds. A node that sends `facets` must send it, and the coordinator sums the figures across nodes to report the [error bound](query-routing.md#distributed-facets).
 

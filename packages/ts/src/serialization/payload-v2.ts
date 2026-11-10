@@ -1,7 +1,5 @@
-import { decode } from '@msgpack/msgpack'
-import { requireValidFieldTypes } from '../schema/validator/schema'
+import { decode, requireValidFieldTypes, VALID_HNSW_METRICS } from '#platform/storage-host'
 import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
-import { VALID_HNSW_METRICS } from './constants'
 import { patternIndexesFromWire, type RawPatternIndex, sanitizeSurfaceForms } from './payload-v1'
 import { dropStoredVectorValues } from './stored-vector-values'
 

@@ -1,9 +1,12 @@
+import {
+  createRequestId,
+  noteThreadSlotGone,
+  requireLoadedVectorCode,
+  threadSlotOfWorker,
+} from '#platform/worker-copies-host'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import type { SharedCopyHost } from '../../vector/vector-index/shared'
 import type { WorkerLease } from '../../workers/pool'
-import { createRequestId } from '../../workers/protocol'
-import { noteThreadSlotGone, threadSlotOfWorker } from '../../workers/thread-slot'
-import { requireLoadedVectorCode } from '../../workers/vector-code'
 import { awaitWritesApplied, replicateToWorkers } from './replication'
 import type { OrchestratorState } from './types'
 
@@ -49,17 +52,24 @@ export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
       handles: SharedVectorFieldHandles,
     ): Promise<boolean> {
       if (!holdsIndex(state, indexName)) return false
+      const publication = state.executor.getManager(indexName)?.getVectorIndexes().get(fieldName)?.holdCopyPublication()
+      if (publication === undefined) return false
       state.sharedVectorFields.set(handle, handles)
-      await replicateToWorkers(state, {
-        type: 'loadVectorCopy',
-        indexName,
-        fieldName,
-        handle,
-        handles,
-        requestId: createRequestId(),
-      })
-      await awaitWritesApplied(state, indexName)
-      return state.scaledOutIndexes.has(indexName)
+      try {
+        await replicateToWorkers(state, {
+          type: 'loadVectorCopy',
+          indexName,
+          fieldName,
+          handle,
+          storeHandle: publication.field.handle,
+          handles,
+          requestId: createRequestId(),
+        })
+        await awaitWritesApplied(state, indexName)
+        return state.scaledOutIndexes.has(indexName)
+      } finally {
+        publication.release()
+      }
     },
     async drop(indexName: string, fieldName: string, handle: string): Promise<void> {
       state.sharedVectorFields.delete(handle)
@@ -90,9 +100,11 @@ export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
 export function releaseVectorLocksOf(state: OrchestratorState, workerId: number): void {
   noteThreadSlotGone(threadSlotOfWorker(workerId))
   if (state.sharedVectorFields.size === 0) return
-  const { releaseLocksHeldBy } = requireLoadedVectorCode()
+  const { releaseLocksHeldBy, releasePinsHeldBy } = requireLoadedVectorCode()
+  const threadSlot = threadSlotOfWorker(workerId)
   for (const handles of state.sharedVectorFields.values()) {
-    if (handles.graph !== null) releaseLocksHeldBy(handles.graph, threadSlotOfWorker(workerId))
+    releasePinsHeldBy(handles.store.pins, threadSlot)
+    if (handles.graph !== null) releaseLocksHeldBy(handles.graph, threadSlot)
   }
 }
 

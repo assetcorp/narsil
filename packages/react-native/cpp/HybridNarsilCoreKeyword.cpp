@@ -1,9 +1,14 @@
 #include "HostMemory.hpp"
 #include "HybridNarsilCoreImpl.hpp"
+#include "TypedElements.hpp"
+#include "core/src/keyword/regions.h"
+#include "narsil_fusion.h"
 
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -38,6 +43,22 @@ enum KeywordArgument : size_t {
   ARGUMENT_COUNT
 };
 
+enum FusionArgument : size_t {
+  FUSE_STRATEGY,
+  FUSE_K,
+  FUSE_ALPHA,
+  FUSE_TEXT_KEYS,
+  FUSE_TEXT_SCORES,
+  FUSE_VECTOR_KEYS,
+  FUSE_VECTOR_SCORES,
+  FUSE_ID_RANKS,
+  FUSE_OUTPUT_KEYS,
+  FUSE_OUTPUT_SCORES,
+  FUSE_ARGUMENT_COUNT
+};
+
+static_assert(FUSE_ARGUMENT_COUNT == FUSION_ARGUMENT_COUNT);
+
 static_assert(ARGUMENT_COUNT == KEYWORD_SCORE_ARGUMENT_COUNT);
 
 enum Setting : size_t {
@@ -57,50 +78,6 @@ enum Outcome : size_t { OUTCOME_COUNT, OUTCOME_TOTAL_MATCHED, OUTCOME_SCORING_PA
 
 constexpr uint32_t OUTCOME_MIN_LENGTH = OUTCOME_SCORING_PATH;
 
-template <typename Element>
-struct Elements {
-  Element* data;
-  uint32_t length;
-};
-
-size_t wholeProperty(jsi::Runtime& runtime, const jsi::Object& array, const char* name, const char* what) {
-  jsi::Value value = array.getProperty(runtime, name);
-  if (!value.isNumber()) throwInvalid(std::string(what) + " is not a typed array");
-  double number = value.getNumber();
-  if (!std::isfinite(number) || number < 0 || number > UINT32_MAX || std::floor(number) != number) {
-    throwInvalid(std::string(what) + " is not a typed array");
-  }
-  return static_cast<size_t>(number);
-}
-
-template <typename Element>
-Elements<Element> elementsOf(jsi::Runtime& runtime, const jsi::Value& value, const char* what) {
-  if (!value.isObject()) throwInvalid(std::string(what) + " must be a typed array");
-  jsi::Object array = value.getObject(runtime);
-  if (wholeProperty(runtime, array, "BYTES_PER_ELEMENT", what) != sizeof(Element)) {
-    throwInvalid(std::string(what) + " holds elements of the wrong width");
-  }
-  jsi::Value bufferValue = array.getProperty(runtime, "buffer");
-  if (!bufferValue.isObject()) throwInvalid(std::string(what) + " has no buffer");
-  jsi::Object bufferObject = bufferValue.getObject(runtime);
-  if (!bufferObject.isArrayBuffer(runtime)) throwInvalid(std::string(what) + " has no buffer");
-  jsi::ArrayBuffer buffer = bufferObject.getArrayBuffer(runtime);
-  size_t offset = wholeProperty(runtime, array, "byteOffset", what);
-  size_t length = wholeProperty(runtime, array, "length", what);
-  size_t held = buffer.size(runtime);
-  if (offset > held || length > (held - offset) / sizeof(Element)) {
-    throwInvalid(std::string(what) + " reaches past the end of its buffer");
-  }
-  uint8_t* base = buffer.data(runtime);
-  if (base == nullptr) {
-    if (length > 0) throwInvalid(std::string(what) + " has a detached buffer");
-    return {nullptr, 0};
-  }
-  uint8_t* start = base + offset;
-  if (reinterpret_cast<uintptr_t>(start) % alignof(Element) != 0) throwInvalid(std::string(what) + " is misaligned");
-  return {reinterpret_cast<Element*>(start), static_cast<uint32_t>(length)};
-}
-
 uint32_t wholeCount(double value, const char* what) {
   if (!(value >= 0) || value > UINT32_MAX || std::floor(value) != value) {
     throwInvalid(std::string(what) + " must be a whole number from 0 to 4294967295");
@@ -110,14 +87,14 @@ uint32_t wholeCount(double value, const char* what) {
 
 uint32_t shorterOf(uint32_t first, uint32_t second) { return first < second ? first : second; }
 
-void readRows(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_request& request) {
-  auto poolDocIds = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_POOL_DOC_IDS], "The pool ordinals");
+void readRows(jsi::Runtime& runtime, TypedElements& views, narsil_keyword_request& request) {
+  auto poolDocIds = views.read<const uint32_t>(runtime, ARGUMENT_POOL_DOC_IDS, "The pool ordinals");
   auto poolFrequencies =
-      elementsOf<const uint16_t>(runtime, arguments[ARGUMENT_POOL_FREQUENCIES], "The pool frequencies");
-  auto poolFields = elementsOf<const uint16_t>(runtime, arguments[ARGUMENT_POOL_FIELDS], "The pool fields");
-  auto rowDocIds = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_ROW_DOC_IDS], "The row ordinals");
-  auto rowFrequencies = elementsOf<const double>(runtime, arguments[ARGUMENT_ROW_FREQUENCIES], "The row frequencies");
-  auto rowFields = elementsOf<const uint16_t>(runtime, arguments[ARGUMENT_ROW_FIELDS], "The row fields");
+      views.read<const uint16_t>(runtime, ARGUMENT_POOL_FREQUENCIES, "The pool frequencies");
+  auto poolFields = views.read<const uint16_t>(runtime, ARGUMENT_POOL_FIELDS, "The pool fields");
+  auto rowDocIds = views.read<const uint32_t>(runtime, ARGUMENT_ROW_DOC_IDS, "The row ordinals");
+  auto rowFrequencies = views.read<const double>(runtime, ARGUMENT_ROW_FREQUENCIES, "The row frequencies");
+  auto rowFields = views.read<const uint16_t>(runtime, ARGUMENT_ROW_FIELDS, "The row fields");
   request.pool_doc_ids = poolDocIds.data;
   request.pool_frequencies = poolFrequencies.data;
   request.pool_fields = poolFields.data;
@@ -128,11 +105,11 @@ void readRows(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword
   request.row_length = shorterOf(rowDocIds.length, shorterOf(rowFrequencies.length, rowFields.length));
 }
 
-void readSlots(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_request& request) {
-  auto slots = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_SLOTS], "The slots");
-  auto lists = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_LISTS], "The lists");
-  auto listValues = elementsOf<const double>(runtime, arguments[ARGUMENT_LIST_VALUES], "The list values");
-  auto slotValues = elementsOf<const double>(runtime, arguments[ARGUMENT_SLOT_VALUES], "The slot values");
+void readSlots(jsi::Runtime& runtime, TypedElements& views, narsil_keyword_request& request) {
+  auto slots = views.read<const uint32_t>(runtime, ARGUMENT_SLOTS, "The slots");
+  auto lists = views.read<const uint32_t>(runtime, ARGUMENT_LISTS, "The lists");
+  auto listValues = views.read<const double>(runtime, ARGUMENT_LIST_VALUES, "The list values");
+  auto slotValues = views.read<const double>(runtime, ARGUMENT_SLOT_VALUES, "The slot values");
   request.slots = slots.data;
   request.slot_capacity = slots.length / NARSIL_KEYWORD_SLOT_STRIDE;
   request.lists = lists.data;
@@ -143,11 +120,11 @@ void readSlots(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keywor
   request.slot_value_capacity = slotValues.length;
 }
 
-void readFields(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_request& request) {
-  auto searchable = elementsOf<const uint8_t>(runtime, arguments[ARGUMENT_SEARCHABLE], "The searchable fields");
-  auto partialMarks = elementsOf<const uint8_t>(runtime, arguments[ARGUMENT_PARTIAL_MARKS], "The partial fields");
-  auto nameRanks = elementsOf<const uint16_t>(runtime, arguments[ARGUMENT_NAME_RANKS], "The field name ranks");
-  auto numbers = elementsOf<const double>(runtime, arguments[ARGUMENT_FIELD_NUMBERS], "The field numbers");
+void readFields(jsi::Runtime& runtime, TypedElements& views, narsil_keyword_request& request) {
+  auto searchable = views.read<const uint8_t>(runtime, ARGUMENT_SEARCHABLE, "The searchable fields");
+  auto partialMarks = views.read<const uint8_t>(runtime, ARGUMENT_PARTIAL_MARKS, "The partial fields");
+  auto nameRanks = views.read<const uint16_t>(runtime, ARGUMENT_NAME_RANKS, "The field name ranks");
+  auto numbers = views.read<const double>(runtime, ARGUMENT_FIELD_NUMBERS, "The field numbers");
   uint32_t count = searchable.length;
   if (count > NARSIL_KEYWORD_MAX_FIELDS || partialMarks.length != count || nameRanks.length != count ||
       static_cast<uint64_t>(numbers.length) != static_cast<uint64_t>(count) * NARSIL_KEYWORD_FIELD_NUMBER_COLUMNS) {
@@ -160,40 +137,49 @@ void readFields(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keywo
   request.field_numbers = numbers.data;
 }
 
-void readLengths(jsi::Runtime& runtime, const jsi::Value& value, std::vector<narsil_keyword_column>& columns,
-                 uint32_t count) {
+std::vector<jsi::Value> lengthValues(jsi::Runtime& runtime, const jsi::Value& value) {
   if (!value.isObject() || !value.getObject(runtime).isArray(runtime)) {
     throwInvalid("The field lengths must be a list");
   }
   jsi::Array list = value.getObject(runtime).getArray(runtime);
-  if (list.size(runtime) != count) throwInvalid("The field lengths hold one entry per field");
+  size_t count = list.size(runtime);
+  if (count > NARSIL_KEYWORD_MAX_FIELDS) throwInvalid("The field lengths exceed the field limit");
+  std::vector<jsi::Value> values;
+  values.reserve(count);
+  for (size_t field = 0; field < count; field++) values.push_back(list.getValueAtIndex(runtime, field));
+  return values;
+}
+
+void readLengths(jsi::Runtime& runtime, const std::vector<jsi::Value>& values, TypedElements& views,
+                 std::vector<narsil_keyword_column>& columns, uint32_t count) {
+  if (values.size() != count) throwInvalid("The field lengths hold one entry per field");
   columns.resize(count);
   for (uint32_t field = 0; field < count; field++) {
-    jsi::Value column = list.getValueAtIndex(runtime, field);
+    const jsi::Value& column = values[field];
     columns[field] = {nullptr, 0};
     if (column.isNull()) continue;
-    auto lengths = elementsOf<const uint32_t>(runtime, column, "A field length column");
+    auto lengths = views.read<const uint32_t>(runtime, field, "A field length column");
     columns[field] = {lengths.data, lengths.length};
   }
 }
 
-void readBitsets(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_request& request) {
+void readBitsets(jsi::Runtime& runtime, const jsi::Value* arguments, TypedElements& views, narsil_keyword_request& request) {
   request.has_filter = !arguments[ARGUMENT_FILTER].isNull();
   if (request.has_filter) {
-    auto filter = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_FILTER], "The filter");
+    auto filter = views.read<const uint32_t>(runtime, ARGUMENT_FILTER, "The filter");
     request.filter = filter.data;
     request.filter_words = filter.length;
   }
-  auto live = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_LIVE], "The live ordinals");
-  auto removed = elementsOf<const uint32_t>(runtime, arguments[ARGUMENT_REMOVED], "The removed ordinals");
+  auto live = views.read<const uint32_t>(runtime, ARGUMENT_LIVE, "The live ordinals");
+  auto removed = views.read<const uint32_t>(runtime, ARGUMENT_REMOVED, "The removed ordinals");
   request.live = live.data;
   request.live_words = live.length;
   request.removed = removed.data;
   request.removed_words = removed.length;
 }
 
-void readSettings(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_request& request) {
-  auto settings = elementsOf<const double>(runtime, arguments[ARGUMENT_SETTINGS], "The settings");
+void readSettings(jsi::Runtime& runtime, TypedElements& views, narsil_keyword_request& request) {
+  auto settings = views.read<const double>(runtime, ARGUMENT_SETTINGS, "The settings");
   if (settings.length < SETTING_COUNT) throwInvalid("The settings of keywordScore are too short");
   const double* values = settings.data;
   request.terms = values[SETTING_TERMS];
@@ -206,11 +192,11 @@ void readSettings(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_key
   request.capacity = wholeCount(values[SETTING_CAPACITY], "The capacity");
 }
 
-Elements<double> readOutput(jsi::Runtime& runtime, const jsi::Value* arguments, narsil_keyword_output& output) {
-  auto ordinals = elementsOf<int32_t>(runtime, arguments[ARGUMENT_ORDINALS], "The ordinals");
-  auto scores = elementsOf<double>(runtime, arguments[ARGUMENT_SCORES], "The scores");
-  auto matched = elementsOf<uint32_t>(runtime, arguments[ARGUMENT_MATCHED], "The matched ordinals");
-  auto outcome = elementsOf<double>(runtime, arguments[ARGUMENT_OUTCOME], "The outcome");
+Elements<double> readOutput(jsi::Runtime& runtime, TypedElements& views, narsil_keyword_output& output) {
+  auto ordinals = views.read<int32_t>(runtime, ARGUMENT_ORDINALS, "The ordinals");
+  auto scores = views.read<double>(runtime, ARGUMENT_SCORES, "The scores");
+  auto matched = views.read<uint32_t>(runtime, ARGUMENT_MATCHED, "The matched ordinals");
+  auto outcome = views.read<double>(runtime, ARGUMENT_OUTCOME, "The outcome");
   if (outcome.length < OUTCOME_MIN_LENGTH) throwInvalid("The outcome of keywordScore is too short");
   output.ordinals = ordinals.data;
   output.scores = scores.data;
@@ -225,29 +211,98 @@ Elements<double> readOutput(jsi::Runtime& runtime, const jsi::Value* arguments, 
 jsi::Value HybridNarsilCoreImpl::keywordScore(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value* arguments,
                                               size_t count) {
   if (count != ARGUMENT_COUNT) throwInvalid("keywordScore takes twenty-three arguments");
+  std::vector<jsi::Value> lengths = lengthValues(runtime, arguments[ARGUMENT_LENGTHS]);
+  TypedElements views(ARGUMENT_COUNT);
+  for (size_t argument = 0; argument < ARGUMENT_COUNT; argument++) {
+    if (argument == ARGUMENT_LENGTHS || (argument == ARGUMENT_FILTER && arguments[argument].isNull())) continue;
+    views.prepare(runtime, argument, arguments[argument]);
+  }
+  TypedElements lengthViews(lengths.size());
+  for (size_t field = 0; field < lengths.size(); field++) {
+    if (!lengths[field].isNull()) lengthViews.prepare(runtime, field, lengths[field]);
+  }
   narsil_keyword_request request{};
   narsil_keyword_output output{};
-  readRows(runtime, arguments, request);
-  readSlots(runtime, arguments, request);
-  readBitsets(runtime, arguments, request);
-  readSettings(runtime, arguments, request);
-  Elements<double> outcome = readOutput(runtime, arguments, output);
-  readFields(runtime, arguments, request);
+  readRows(runtime, views, request);
+  readSlots(runtime, views, request);
+  readBitsets(runtime, arguments, views, request);
+  readSettings(runtime, views, request);
+  Elements<double> outcome = readOutput(runtime, views, output);
+  readFields(runtime, views, request);
   RuntimeState& state = stateOf(runtime);
-  readLengths(runtime, arguments[ARGUMENT_LENGTHS], state.keywordLengths, request.field_count);
+  readLengths(runtime, lengths, lengthViews, state.keywordLengths, request.field_count);
   request.lengths = state.keywordLengths.data();
+  auto settings = views.read<const double>(runtime, ARGUMENT_SETTINGS, "The settings");
+  if (!keyword_binding_regions_are_disjoint(&request, &output, settings.data, settings.length,
+                                           outcome.data, outcome.length)) {
+    return jsi::Value(static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  }
   if (state.keywordWorkspace == nullptr) {
     narsil_workspace* created = nullptr;
     if (narsil_workspace_create(&created) != NARSIL_OK) throwSystemError(ENOMEM, "allocate the keyword workspace", "");
     state.keywordWorkspace.reset(created);
   }
   narsil_status status = narsil_keyword_score(state.keywordWorkspace.get(), &request, &output);
+  if (status != NARSIL_OK) return jsi::Value(static_cast<double>(status));
   outcome.data[OUTCOME_COUNT] = static_cast<double>(output.count);
   outcome.data[OUTCOME_TOTAL_MATCHED] = static_cast<double>(output.total_matched);
   if (outcome.length > OUTCOME_SCORING_PATH) {
     outcome.data[OUTCOME_SCORING_PATH] = static_cast<double>(output.scoring_path);
   }
   return jsi::Value(static_cast<double>(status));
+}
+
+jsi::Value HybridNarsilCoreImpl::fuse(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value* arguments,
+                                      size_t count) try {
+  const jsi::Value invalid(-static_cast<double>(NARSIL_INVALID_ARGUMENT));
+  if (count != FUSE_ARGUMENT_COUNT || !arguments[FUSE_STRATEGY].isNumber() ||
+      !arguments[FUSE_K].isNumber() || !arguments[FUSE_ALPHA].isNumber()) {
+    return jsi::Value(runtime, invalid);
+  }
+  double strategy = arguments[FUSE_STRATEGY].getNumber();
+  if (!std::isfinite(strategy) || strategy < static_cast<double>(NARSIL_FUSION_RRF) ||
+      strategy > static_cast<double>(NARSIL_FUSION_LINEAR) || std::floor(strategy) != strategy) {
+    return jsi::Value(runtime, invalid);
+  }
+  TypedElements views(FUSE_ARGUMENT_COUNT);
+  for (size_t argument = FUSE_TEXT_KEYS; argument < FUSE_ARGUMENT_COUNT; argument++) {
+    views.prepare(runtime, argument, arguments[argument]);
+  }
+  auto textKeys = views.read<const uint32_t>(runtime, FUSE_TEXT_KEYS, "The text keys");
+  auto textScores = views.read<const double>(runtime, FUSE_TEXT_SCORES, "The text scores");
+  auto vectorKeys = views.read<const uint32_t>(runtime, FUSE_VECTOR_KEYS, "The vector keys");
+  auto vectorScores = views.read<const double>(runtime, FUSE_VECTOR_SCORES, "The vector scores");
+  auto ranks = views.read<const uint32_t>(runtime, FUSE_ID_RANKS, "The ID ranks");
+  auto keys = views.read<uint32_t>(runtime, FUSE_OUTPUT_KEYS, "The fused keys");
+  auto scores = views.read<double>(runtime, FUSE_OUTPUT_SCORES, "The fused scores");
+  if (textKeys.length != textScores.length || vectorKeys.length != vectorScores.length) {
+    return jsi::Value(runtime, invalid);
+  }
+  narsil_fusion_request request{};
+  request.strategy = static_cast<uint32_t>(strategy);
+  request.rank_constant = arguments[FUSE_K].getNumber();
+  request.alpha = arguments[FUSE_ALPHA].getNumber();
+  request.text = {textKeys.data, textScores.data, textKeys.length};
+  request.vector = {vectorKeys.data, vectorScores.data, vectorKeys.length};
+  request.id_ranks = ranks.data;
+  request.key_count = ranks.length;
+  narsil_fusion_output output{keys.data, scores.data, shorterOf(keys.length, scores.length), 0};
+  RuntimeState& state = stateOf(runtime);
+  if (state.keywordWorkspace == nullptr) {
+    narsil_workspace* created = nullptr;
+    if (narsil_workspace_create(&created) != NARSIL_OK) {
+      return jsi::Value(-static_cast<double>(NARSIL_OUT_OF_MEMORY));
+    }
+    state.keywordWorkspace.reset(created);
+  }
+  narsil_status status = narsil_fuse(state.keywordWorkspace.get(), &request, &output);
+  return jsi::Value(status == NARSIL_OK ? static_cast<double>(output.count) : -static_cast<double>(status));
+} catch (const std::invalid_argument&) {
+  return jsi::Value(-static_cast<double>(NARSIL_INVALID_ARGUMENT));
+} catch (const std::length_error&) {
+  return jsi::Value(-static_cast<double>(NARSIL_INVALID_ARGUMENT));
+} catch (const std::bad_alloc&) {
+  return jsi::Value(-static_cast<double>(NARSIL_OUT_OF_MEMORY));
 }
 
 }

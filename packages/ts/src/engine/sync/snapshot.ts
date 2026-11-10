@@ -1,15 +1,19 @@
-import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  decode,
+  ErrorCodes,
+  isSyncEpoch,
+  NarsilError,
+  oneSyncChangeAtATime,
+  openChecksummedEnvelope,
+  withOpenIndex,
+} from '#platform/storage-host'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import type { PublishedSnapshot, SyncStorage } from '../../persistence/durability/sync/storage'
-import { openChecksummedEnvelope } from '../../serialization/envelope-file'
-import { isSyncEpoch } from '../../sync/epoch'
 import type { EngineCore } from '../core'
-import { withOpenIndex } from '../serial-index-update'
 import { MAX_SNAPSHOT_ANALYSIS_ATTEMPTS } from '../snapshot/constants'
-import { encodeIndexConfiguration, INDEX_CONFIGURATION_ENVELOPE_VERSION } from '../snapshot/index-configuration'
+import { INDEX_CONFIGURATION_ENVELOPE_VERSION } from '../snapshot/index-configuration-decode'
+import { encodeIndexConfiguration } from '../snapshot/index-configuration-encode'
 import { syncStorageOf } from './operations'
-import { oneSyncChangeAtATime } from './serial'
 
 export interface PublishedSyncSnapshot {
   snapshot: PublishedSnapshot

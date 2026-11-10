@@ -11,13 +11,17 @@
     "dev": "vite dev --port 5173",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run --passWithNoTests",
+    "embed:places": "node --experimental-strip-types scripts/embed-places.ts",
+    "test": "vitest run --passWithNoTests && playwright test",
+    "test:e2e": "playwright test",
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@delali/narsil": "workspace:*",
+    "@delali/narsil-embeddings-transformers": "workspace:*",
     "@delali/narsil-example-shared": "workspace:*",
+    "@huggingface/transformers": "4.3.2",
     "@react-three/drei": "10.7.7",
     "@react-three/fiber": "9.5.0",
     "@tailwindcss/vite": "^4.1.18",
@@ -38,9 +42,11 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.1.18",
     "three": "0.183.2",
-    "tw-animate-css": "^1.3.6"
+    "tw-animate-css": "^1.3.6",
+    "valibot": "1.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "0.6.0",
     "@testing-library/dom": "^10.4.1",

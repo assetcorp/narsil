@@ -1,6 +1,4 @@
-import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { openChecksummedEnvelope } from '../../serialization/envelope-codec'
+import { decode, ErrorCodes, NarsilError, openChecksummedEnvelope } from '#platform/storage-host'
 import type { SnapshotEnvelope } from './restore-config'
 
 export const INDEX_CONFIGURATION_ENVELOPE_VERSION = 5

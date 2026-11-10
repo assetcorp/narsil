@@ -1,16 +1,19 @@
-import { turnsAreBudgeted } from '#platform/shared-turns'
-import type { VectorMetric } from '../brute-force'
-import type { OsqQuantizer } from '../osq'
 import {
-  type CentroidSums,
   centroidOfCentroidSums,
   countOfCentroidSums,
   createCentroidSums,
+  DRIFT_CHECK_GROWTH_FACTOR,
+  liveOrdinals,
   meanOfCentroidSums,
+  RECALIBRATION_CHUNK_VECTORS,
   squaredLengthsOfCentroidSums,
-} from '../osq/quantize'
-import { DRIFT_CHECK_GROWTH_FACTOR, RECALIBRATION_CHUNK_VECTORS } from './constants'
-import { liveOrdinals, type VectorIndexState, yieldBuildTurn } from './shared'
+  turnsAreBudgeted,
+  yieldBuildTurn,
+} from '#platform/vector-host'
+import type { VectorMetric } from '../brute-force'
+import type { OsqQuantizer } from '../osq'
+import type { CentroidSums } from '../osq/quantize'
+import type { VectorIndexState } from './shared'
 import { liveOrdinalsInTurns } from './turns'
 
 export interface LiveVectorMean {

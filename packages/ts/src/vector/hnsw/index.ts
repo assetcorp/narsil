@@ -1,12 +1,16 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { ScoredDocument, VectorEntry } from '../../types/internal'
+import {
+  COMPACTION_ABSOLUTE_THRESHOLD,
+  COMPACTION_TOMBSTONE_RATIO,
+  ErrorCodes,
+  NarsilError,
+} from '#platform/vector-core-host'
+import type { VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { connectOffThread, connectOnThisThread } from './connect-in-turns'
 import { connectAfterBuild } from './connect-unreached'
-import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import { createSharedGraphHandles, GRAPH_RETIRED, GRAPH_UNLINKED_NODES, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
@@ -24,8 +28,8 @@ import {
 } from './numbered-graph'
 import { deserializeGraph } from './persistence'
 import { searchScratchBytes } from './scratch-bytes'
-import { type GraphSearchOptions, type ResolvedHit, search as searchOp } from './search'
-import { searchOffThread as searchOffThreadOp } from './search-off-thread'
+import type { GraphSearchOptions, ResolvedHit } from './search'
+import { searchAtWriterSequence, searchOffThreadUnderPin } from './search-admission'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -80,7 +84,7 @@ export interface HNSWIndex {
     searchMetric: VectorMetric,
     minSimilarity: number,
     options?: GraphSearchOptions,
-  ): ScoredDocument[]
+  ): ResolvedHit[]
   /** Walks the graph on a native thread, or answers `null` when the native core has no threads of its own. */
   searchOffThread(
     query: Float32Array,
@@ -93,7 +97,8 @@ export interface HNSWIndex {
   retire(): void
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
-  compactTombstones(): void
+  /** Takes out of the graph every tombstoned node whose ordinal every pin leaves out, given the oldest pin that any thread holds. */
+  compactTombstones(oldestPin: number): void
   connectUnreached(): void
   connectOffThread(): Promise<boolean> | null
   connectOnThisThread(inSlices: boolean): Promise<void>
@@ -255,20 +260,21 @@ export function createHNSWIndex(
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
-      options?: GraphSearchOptions,
-    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
+      options: GraphSearchOptions = {},
+    ) => searchAtWriterSequence(state, store, docIdOf, query, k, searchMetric, minSimilarity, options),
     searchOffThread: (
       query: Float32Array,
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
       options: GraphSearchOptions,
-    ) => searchOffThreadOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
+    ) => searchOffThreadUnderPin(state, store, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => relinking(() => resetGraph(state)),
     retire: () => Atomics.store(shared.header, GRAPH_RETIRED, 1),
     entries: entriesIterator,
     compactionNeeded,
-    compactTombstones: () => relinking(() => compactTombstonesOp(state)),
+    compactTombstones: (oldestPin: number) =>
+      relinking(() => compactTombstonesOp(state, ord => store.mayFreeOrdinal(ord, oldestPin))),
     connectUnreached: () => relinking(() => connectAfterBuild(state)),
     connectOffThread: () => connectOffThread(state),
     connectOnThisThread: (inSlices: boolean) => connectOnThisThread(state, inSlices),

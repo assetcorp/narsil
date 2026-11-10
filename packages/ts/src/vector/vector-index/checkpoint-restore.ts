@@ -1,21 +1,27 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { createHNSWIndex, type HNSWIndex, type NumberedGraphParts } from '../hnsw'
-import { requireWholeNeighbourLists, topLayerInParts } from '../hnsw/numbered-graph'
-import { osqBitsOf } from '../osq'
-import { magnitude } from '../similarity'
-import type { VectorFilePayload, VectorGraphParts } from './checkpoint-payload'
-import { type SavedVectorFile, signatureOf } from './checkpoint-plan'
-import { isDead, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
-import { readsFromDisk, type VectorPartFile } from './disk'
-import { bytesToVectors, type VectorIndexCodes } from './payload'
 import {
   adoptGraph,
   adoptLoadedCalibration,
+  bytesToVectors,
+  createHNSWIndex,
+  ErrorCodes,
   emptyFieldBeforeRestore,
+  isDead,
+  magnitude,
+  NarsilError,
+  NO_LIVE_VECTOR_AT_POSITION,
+  osqBitsOf,
   recalibrateFromStore,
   releaseReplacedVectors,
-  type VectorIndexState,
-} from './shared'
+  requireWholeNeighbourLists,
+  signatureOf,
+  topLayerInParts,
+} from '#platform/vector-host'
+import type { HNSWIndex, NumberedGraphParts } from '../hnsw'
+import type { VectorFilePayload, VectorGraphParts } from './checkpoint-payload'
+import type { SavedVectorFile } from './checkpoint-plan'
+import { readsFromDisk, type VectorPartFile } from './disk'
+import type { VectorIndexCodes } from './payload'
+import type { VectorIndexState } from './shared'
 
 const CALIBRATION_NEVER_CURRENT = -1
 

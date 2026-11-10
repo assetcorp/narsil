@@ -4,7 +4,6 @@
 #include "HostMemory.hpp"
 
 #include <atomic>
-#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -43,6 +42,15 @@ int32_t signedOf(double value, const char* what) {
     throwInvalid(std::string(what) + " must be a 32-bit whole number");
   }
   return static_cast<int32_t>(value);
+}
+
+constexpr double LARGEST_EXACT_PIN = 9007199254740991.0;
+
+int64_t pinOf(double value) {
+  if (!std::isfinite(value) || value < 0 || value > LARGEST_EXACT_PIN || std::floor(value) != value) {
+    throwInvalid("The pin must be a whole number from 0 to 9007199254740991");
+  }
+  return static_cast<int64_t>(value);
 }
 
 uint32_t clampedCount(size_t count) { return count > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(count); }
@@ -92,7 +100,13 @@ std::shared_ptr<BackgroundUse> startBackgroundUse(const std::shared_ptr<HybridNa
     core->releaseBackgroundSlot(threadSlot);
     throwInvalid("The vector store is detached");
   }
-  return std::make_shared<BackgroundUse>(core, store, threadSlot, workspace);
+  try {
+    return std::make_shared<BackgroundUse>(core, store, threadSlot, workspace);
+  } catch (...) {
+    store->endBackgroundUse();
+    core->releaseBackgroundSlot(threadSlot);
+    throw;
+  }
 }
 
 std::shared_ptr<std::vector<float>> copiedQuery(const MemoryView& query, uint32_t dimension) {
@@ -108,43 +122,6 @@ std::shared_ptr<ArrayBuffer> allocatedFor(size_t count, size_t elementBytes) {
 
 }
 
-HybridNarsilCoreImpl::~HybridNarsilCoreImpl() {
-  if (_workspace != nullptr) narsil_workspace_destroy(_workspace);
-  for (auto& entry : _backgroundWorkspaces) narsil_workspace_destroy(entry.second);
-}
-
-narsil_workspace* HybridNarsilCoreImpl::claimBackgroundSlot(uint32_t threadSlot) {
-  std::lock_guard<std::mutex> guard(_backgroundLock);
-  if (_busyBackgroundSlots.count(threadSlot) != 0) throwInvalid("The thread slot is already searching");
-  auto found = _backgroundWorkspaces.find(threadSlot);
-  narsil_workspace* claimed = found == _backgroundWorkspaces.end() ? nullptr : found->second;
-  if (claimed == nullptr) {
-    if (narsil_workspace_create(&claimed) != NARSIL_OK) {
-      throwSystemError(ENOMEM, "allocate a background search workspace", "");
-    }
-    _backgroundWorkspaces.emplace(threadSlot, claimed);
-  }
-  _busyBackgroundSlots.insert(threadSlot);
-  return claimed;
-}
-
-void HybridNarsilCoreImpl::releaseBackgroundSlot(uint32_t threadSlot) {
-  std::lock_guard<std::mutex> guard(_backgroundLock);
-  _busyBackgroundSlots.erase(threadSlot);
-}
-
-narsil_workspace* HybridNarsilCoreImpl::workspace() {
-  if (_workspace == nullptr && narsil_workspace_create(&_workspace) != NARSIL_OK) {
-    _workspace = nullptr;
-    throwSystemError(ENOMEM, "allocate the search workspace", "");
-  }
-  return _workspace;
-}
-
-double HybridNarsilCoreImpl::abiVersion() { return narsil_core_abi_version(); }
-
-double HybridNarsilCoreImpl::workspaceBytes() { return static_cast<double>(narsil_workspace_bytes(workspace())); }
-
 std::shared_ptr<HybridNarsilAttachedGraphSpec> HybridNarsilCoreImpl::attachGraph(const GraphMemory& memory) {
   return std::make_shared<HybridNarsilAttachedGraphImpl>(memory);
 }
@@ -155,14 +132,15 @@ std::shared_ptr<HybridNarsilAttachedStoreSpec> HybridNarsilCoreImpl::attachStore
 
 double HybridNarsilCoreImpl::search(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph,
                                     const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store,
-                                    const MemoryView& query, double metric, double candidateCount, double threadSlot,
-                                    const MemoryView& ordinals, const MemoryView& distances,
+                                    const MemoryView& query, double metric, double candidateCount, double pin,
+                                    double threadSlot, const MemoryView& ordinals, const MemoryView& distances,
                                     const MemoryView& accepted, bool filtered) {
   auto attachedGraph = attachedGraphOf(graph);
   auto attachedStore = attachedStoreOf(store);
   narsil_search_request request{};
   request.metric = unsignedOf(metric, "The metric");
   request.candidate_count = unsignedOf(candidateCount, "The candidate count");
+  request.pin = pinOf(pin);
   request.thread_slot = unsignedOf(threadSlot, "The thread slot");
   size_t queryLength = 0;
   request.query = elementsOf<float>(query, 1, "The query", &queryLength);
@@ -187,11 +165,12 @@ double HybridNarsilCoreImpl::search(const std::shared_ptr<HybridNarsilAttachedGr
 
 double HybridNarsilCoreImpl::score(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store,
                                    const MemoryView& query, double metric, const MemoryView& ordinals, double count,
-                                   const MemoryView& distances) {
+                                   double pin, const MemoryView& distances) {
   auto attachedStore = attachedStoreOf(store);
   narsil_score_request request{};
   request.metric = unsignedOf(metric, "The metric");
   request.count = unsignedOf(count, "The count");
+  request.pin = pinOf(pin);
   size_t queryLength = 0;
   request.query = elementsOf<float>(query, 1, "The query", &queryLength);
   if (queryLength != attachedStore->store.dimension) throwInvalid("The query has the wrong dimension");
@@ -203,12 +182,13 @@ double HybridNarsilCoreImpl::score(const std::shared_ptr<HybridNarsilAttachedSto
 std::shared_ptr<Promise<NativeSearchHits>> HybridNarsilCoreImpl::searchAsync(
     const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph,
     const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric,
-    double candidateCount, double threadSlot, const MemoryView& accepted, bool filtered) {
+    double candidateCount, double pin, double threadSlot, const MemoryView& accepted, bool filtered) {
   auto attachedGraph = attachedGraphOf(graph);
   auto attachedStore = attachedStoreOf(store);
   narsil_search_request request{};
   request.metric = unsignedOf(metric, "The metric");
   request.candidate_count = unsignedOf(candidateCount, "The candidate count");
+  request.pin = pinOf(pin);
   request.thread_slot = unsignedOf(threadSlot, "The thread slot");
   if (request.candidate_count == 0) throwInvalid("The candidate count must be at least 1");
   if (request.thread_slot >= attachedGraph->graph.thread_slots) throwInvalid("The thread slot is out of range");
@@ -242,11 +222,12 @@ std::shared_ptr<Promise<NativeSearchHits>> HybridNarsilCoreImpl::searchAsync(
 
 std::shared_ptr<Promise<NativeScores>> HybridNarsilCoreImpl::scoreAsync(
     const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric,
-    const MemoryView& ordinals, double count, double threadSlot) {
+    const MemoryView& ordinals, double count, double pin, double threadSlot) {
   auto attachedStore = attachedStoreOf(store);
   narsil_score_request request{};
   request.metric = unsignedOf(metric, "The metric");
   request.count = unsignedOf(count, "The count");
+  request.pin = pinOf(pin);
   uint32_t slot = unsignedOf(threadSlot, "The thread slot");
   if (slot >= BACKGROUND_THREAD_SLOT_LIMIT) throwInvalid("The thread slot is out of range");
   auto queryValues = copiedQuery(query, attachedStore->store.dimension);

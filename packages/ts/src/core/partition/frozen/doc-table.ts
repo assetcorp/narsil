@@ -1,6 +1,7 @@
 import type { InternalIdResolver } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { DocumentStoreReader, ReadonlyStoredDocument } from '../../document-store'
+import { LiveOrdinals } from '../../document-store/live'
 import type { ResolvedProjection } from '../../projection'
 import type { FrozenDocumentSource } from './document-source'
 import type { ExternalIdTable } from './external-ids'
@@ -15,6 +16,20 @@ export function createFrozenDocTable(
   const capacity = idTable.count
   let sortedIds: string[] | null = null
   let sortedRevision = -1
+  const live = new LiveOrdinals()
+  let appliedRemovals = 0
+
+  function* liveIds(): IterableIterator<number> {
+    for (let ordinal = 0; ordinal < capacity; ordinal++) {
+      if (!tombstones.has(ordinal)) yield ordinal
+    }
+  }
+
+  function liveOrdinals(): Uint32Array {
+    const bits = live.regions(capacity, liveIds)
+    while (appliedRemovals < tombstones.size) live.remove(tombstones.at(appliedRemovals++))
+    return bits
+  }
 
   function storedAt(ordinal: number): ReadonlyStoredDocument {
     const fieldLengths: Record<string, number> = {}
@@ -45,6 +60,8 @@ export function createFrozenDocTable(
   }
 
   return {
+    liveOrdinals,
+    liveOrdinalBytes: () => live.bytes(),
     get(docId: string): ReadonlyStoredDocument | undefined {
       const ordinal = liveOrdinal(docId)
       if (ordinal === undefined) return undefined

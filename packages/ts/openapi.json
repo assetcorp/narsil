@@ -2268,6 +2268,39 @@
       }
     },
     "/indexes/{name}/sync": {
+      "get": {
+        "operationId": "getSync",
+        "summary": "Report the device sync setting of an index, whether a device has downloaded it, and its epoch",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
       "put": {
         "operationId": "updateSync",
         "summary": "Replace the device sync setting of an index",
@@ -3895,39 +3928,6 @@
         ],
         "description": "A highlighted field, ready to render."
       },
-      "Hit": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "The document is stored under this id."
-          },
-          "score": {
-            "type": "number",
-            "description": "This score ranked the hit. Scores compare within one result set, never across searches. A sorted query ranks by sort values instead and carries no score unless it sets `includeScores`."
-          },
-          "document": {
-            "$ref": "#/components/schemas/AnyDocument",
-            "description": "This is the stored document."
-          },
-          "scoreComponents": {
-            "$ref": "#/components/schemas/ScoreComponents",
-            "description": "These are the parts the score was built from, which arrive when the query asked for them."
-          },
-          "highlights": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/HighlightMatch"
-            },
-            "description": "These highlighted snippets are keyed by field, and arrive when the query asked for highlighting."
-          }
-        },
-        "required": [
-          "id",
-          "document"
-        ],
-        "description": "One matching document, with the score that ranked it."
-      },
       "HttpCreateIndexBody": {
         "type": "object",
         "properties": {
@@ -3949,24 +3949,69 @@
       "HttpGroupResult": {
         "type": "object",
         "properties": {
-          "hits": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Hit"
-            },
-            "description": "These hits fall in the group, cut to the query's `maxPerGroup`."
-          },
           "values": {
             "type": "object",
             "additionalProperties": true,
             "description": "Each grouping field holds this value for the group, keyed by field."
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HttpHit"
+            },
+            "description": "These hits retain the scores of the group's ranking."
           }
         },
         "required": [
-          "hits",
-          "values"
+          "values",
+          "hits"
         ],
         "description": "One group of hits as the server sends it, which is GroupResult with no reducer output, because the server refuses a query with a reducer."
+      },
+      "HttpHit": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/AnyDocument",
+            "description": "This is the stored document."
+          },
+          "id": {
+            "type": "string",
+            "description": "The document is stored under this id."
+          },
+          "scoreComponents": {
+            "$ref": "#/components/schemas/ScoreComponents",
+            "description": "These are the parts the score was built from, which arrive when the query asked for them."
+          },
+          "highlights": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HighlightMatch"
+            },
+            "description": "These highlighted snippets are keyed by field, and arrive when the query asked for highlighting."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "NaN",
+                  "Infinity",
+                  "-Infinity"
+                ]
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The client decodes this value to a numeric score, or leaves it absent when the search returns no score."
+          }
+        },
+        "required": [
+          "document",
+          "id"
+        ],
+        "description": "A search hit whose score uses the HTTP representation of HttpScore."
       },
       "HttpIndexBody": {
         "type": "object",
@@ -4298,13 +4343,6 @@
             },
             "description": "These facet counts are keyed by the field each facet was asked for."
           },
-          "hits": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Hit"
-            },
-            "description": "These documents match, cut to the query's `limit`, best score first or in the query's sort order."
-          },
           "count": {
             "type": "number",
             "description": "This many documents match in total, before the engine applies `limit` and `offset`. For a keyword search the engine counts every match. For a vector search it counts every vector that passes the query's filter and its `similarity` floor, which is every vector in the field where the query sets neither of them. The engine also counts each pinned document that the query does not match, since it places that document among the hits."
@@ -4329,6 +4367,13 @@
             "$ref": "#/components/schemas/QueryCoverage",
             "description": "The search read this much of the index, which is how you spot a degraded answer."
           },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HttpHit"
+            },
+            "description": "These hits follow the search's ranking, with scores encoded for HTTP."
+          },
           "groups": {
             "type": "array",
             "items": {
@@ -4338,11 +4383,11 @@
           }
         },
         "required": [
-          "hits",
           "count",
           "countExact",
           "elapsed",
-          "coverage"
+          "coverage",
+          "hits"
         ],
         "description": "The body of `POST /indexes/{name}/search`."
       },
@@ -4644,6 +4689,10 @@
           "schema": {
             "$ref": "#/components/schemas/SchemaDefinition",
             "description": "The index was created with this field layout."
+          },
+          "heldSearchStates": {
+            "type": "number",
+            "description": "This many searches on this instance's main copy hold a state of the index open right now. Each search holds one state from its start until it answers, fails, or is cancelled, so the figure falls back to 0 once every search has finished. A cluster reports no figure."
           }
         },
         "required": [
@@ -6061,6 +6110,44 @@
           "enabled"
         ],
         "description": "The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on only for an index whose every document belongs to one user, because every device that syncs the index receives the whole index. Create one index for each user, and leave sync off for a public index or for an index that holds the data of several users."
+      },
+      "SyncStatus": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "This is true once a device has asked for the published snapshot, from when the server keeps history."
+          },
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a new copy."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the server deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the server deletes the oldest log segment from history. It defaults to the length of the published snapshot."
+          }
+        },
+        "required": [
+          "active",
+          "epoch",
+          "enabled"
+        ],
+        "description": "The device sync state of one index, which SyncOperations.getSync returns."
       },
       "SynonymRule": {
         "anyOf": [

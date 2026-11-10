@@ -1,5 +1,5 @@
-import { type ResolvedAnalysis, resolveIndexAnalysis } from '../../analysis/registry'
-import { getLanguage } from '../../languages/registry'
+import { getLanguage, resolveIndexAnalysis } from '#platform/storage-host'
+import type { ResolvedAnalysis } from '../../analysis/registry'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'

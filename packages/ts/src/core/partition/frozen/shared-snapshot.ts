@@ -1,14 +1,24 @@
+import {
+  buildPartialWordTableFrom,
+  encodeDocumentTableData,
+  encodeExternalIdTableData,
+  encodeFrozenTokenTableData,
+  encodeSurfaceTable,
+  generateId,
+  partialSpellingsOfDocuments,
+  sameFields,
+  storedDocumentsOf,
+  wrapFrozenTokenTable,
+} from '#platform/segment-merge-host'
 import type { AnyDocument } from '../../../types/schema'
-import { generateId } from '../../id-generator'
-import { buildPartialWordTableFrom, partialSpellingsOfDocuments } from '../partial-words/registry'
-import { type PartialSpellings, type PartialWordAnalysis, sameFields } from '../partial-words/spellings'
+import type { PartialSpellings, PartialWordAnalysis } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
-import { type EncodedDocumentTableData, encodeDocumentTableData, storedDocumentsOf } from './document-source'
-import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
-import { encodeSurfaceTable, type SurfaceTableData } from './surface-table'
-import { encodeFrozenTokenTableData, type FrozenTokenTableData, wrapFrozenTokenTable } from './token-table'
+import type { EncodedDocumentTableData } from './document-source'
+import type { ExternalIdTableData } from './external-ids'
+import type { SurfaceTableData } from './surface-table'
+import type { FrozenTokenTableData } from './token-table'
 
 export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForms'> {
   segmentId: string
@@ -18,6 +28,20 @@ export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForm
   /** The surface forms packed flat, or null where the segment holds none. */
   surfaceTable: SurfaceTableData | null
   partialWords: PartialWordTableData | null
+}
+
+export interface EncodedSegmentPayload extends Omit<SegmentPayload, 'tokens' | 'docFrequencies' | 'surfaceForms'> {
+  tokenTable: FrozenTokenTableData
+  surfaceTable: SurfaceTableData | null
+}
+
+export function encodedPayloadOf(payload: SegmentPayload): EncodedSegmentPayload {
+  const { tokens, docFrequencies, surfaceForms, ...columns } = payload
+  return {
+    ...columns,
+    tokenTable: encodeFrozenTokenTableData(tokens, docFrequencies),
+    surfaceTable: surfaceForms === null ? null : encodeSurfaceTable(surfaceForms),
+  }
 }
 
 function sharedUint32(source: Uint32Array): Uint32Array {
@@ -44,10 +68,8 @@ function sharedFloat64(source: Float64Array): Float64Array {
   return copy
 }
 
-function sharedSurfaceTable(payload: SegmentPayload): SurfaceTableData | null {
-  if (payload.surfaceForms === null) return null
-  const table = encodeSurfaceTable(payload.surfaceForms)
-  if (table.counts.length === 0) return null
+function sharedSurfaceTable(table: SurfaceTableData | null): SurfaceTableData | null {
+  if (table === null || table.counts.length === 0) return null
   return { blob: sharedUint8(table.blob), offsets: sharedUint32(table.offsets), counts: sharedUint32(table.counts) }
 }
 
@@ -99,13 +121,12 @@ export function shareSegmentArrays(
 }
 
 export function segmentArraysOf(
-  payload: SegmentPayload,
+  payload: EncodedSegmentPayload,
   documentData: EncodedDocumentTableData,
   reusedPartialWords: PartialWordTableData | null = null,
 ): SegmentArraysData {
-  const tokenTable = encodeFrozenTokenTableData(payload.tokens, payload.docFrequencies)
+  const { tokenTable, surfaceTable } = payload
   const idTable = encodeExternalIdTableData(payload.docIds)
-  const surfaceTable = payload.surfaceForms === null ? null : encodeSurfaceTable(payload.surfaceForms)
   const partialWords =
     reusedPartialWords ??
     (payload.partialSpellings === null
@@ -132,6 +153,7 @@ export function segmentArraysOf(
     enums: payload.enums,
     geo: payload.geo,
     pattern: payload.pattern,
+    storedFields: payload.storedFields,
     surfaceTable: surfaceTable === null || surfaceTable.counts.length === 0 ? null : surfaceTable,
     partialWords,
   }
@@ -144,11 +166,11 @@ export function freezeSegmentShared(
   analysis: PartialWordAnalysis | null = null,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
-  return freezeEncodedSegmentShared(payload, encodeDocumentTableData(documents), segmentId, analysis)
+  return freezeEncodedSegmentShared(encodedPayloadOf(payload), encodeDocumentTableData(documents), segmentId, analysis)
 }
 
 export function freezeEncodedSegmentShared(
-  payload: SegmentPayload,
+  payload: EncodedSegmentPayload,
   documentData: EncodedDocumentTableData,
   segmentId?: string,
   analysis: PartialWordAnalysis | null = null,
@@ -156,7 +178,7 @@ export function freezeEncodedSegmentShared(
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
 
-  const tokenData = encodeFrozenTokenTableData(payload.tokens, payload.docFrequencies)
+  const tokenData = payload.tokenTable
   const idData = encodeExternalIdTableData(payload.docIds)
 
   return {
@@ -222,7 +244,20 @@ export function freezeEncodedSegmentShared(
       offsets: sharedUint32(entry.offsets),
       postings: sharedUint32(entry.postings),
     })),
-    surfaceTable: sharedSurfaceTable(payload),
+    storedFields: payload.storedFields?.map(({ field, values }) => ({
+      field,
+      values: {
+        shapes: sharedUint8(values.shapes),
+        starts: sharedUint32(values.starts),
+        kinds: sharedUint8(values.kinds),
+        numbers: sharedFloat64(values.numbers),
+        textStart: sharedUint32(values.textStart),
+        textLength: sharedUint32(values.textLength),
+        units: sharedUint16(values.units),
+        bytes: sharedUint8(values.bytes),
+      },
+    })),
+    surfaceTable: sharedSurfaceTable(payload.surfaceTable),
     partialWords:
       reusedPartialWords === null
         ? sharedPartialWordsOf(tokenData, payload.partialSpellings, documentData, analysis)

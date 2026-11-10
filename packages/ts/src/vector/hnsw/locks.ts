@@ -1,11 +1,12 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { threadSlotGone } from '../../workers/thread-slot'
 import {
+  ErrorCodes,
   GRAPH_LOCK_WAIT_DEADLINE_MS,
   GRAPH_LOCK_WAIT_SLICE_MS,
   LOCK_SPIN_ITERATIONS,
   LOCK_WAIT_SLICE_MS,
-} from '../constants'
+  NarsilError,
+  threadSlotGone,
+} from '#platform/vector-core-host'
 import { fixedView, growBufferTo, sharedMemoryAvailable } from '../shared-buffers/growable'
 import {
   GRAPH_ENTRY_LOCK,

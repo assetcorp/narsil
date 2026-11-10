@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
 import {
   type DeviceMessage,
   deviceMessageOf,

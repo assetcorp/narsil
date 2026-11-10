@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { BootstrapCompletePayload, NodeTransport, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'

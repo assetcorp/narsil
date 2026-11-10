@@ -1,4 +1,4 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints } from '#platform/vector-host'
 import type { VectorScoredResult } from './shared'
 
 export function highScoreFirst(a: VectorScoredResult, b: VectorScoredResult): number {

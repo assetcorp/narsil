@@ -1,5 +1,5 @@
+import { adoptSharedTurns } from '../vector/core-host.browser'
 import { UI_THREAD_TURN_BUDGET_MS } from './constants'
-import { adoptSharedTurns } from './turn-budget.browser'
 import type { TurnScheduler } from './turn-scheduler'
 
 let turnStartedAt = performance.now()

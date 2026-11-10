@@ -281,11 +281,11 @@ describe('an index with its text on disk, through the operations that move its f
     let total = 0
     for (let round = 0; round < 4; round++) {
       const batch = []
-      for (let i = 0; i < 5_000; i++) {
+      for (let i = 0; i < 1_250; i++) {
         const id = `large-${round}-${i}`
         const words = Array.from({ length: 12 }, rareWord)
-        if (i % 500 === 0) holders.set(words[0], [...(holders.get(words[0]) ?? []), id])
-        batch.push({ id, title: words[0], body: words.join(' '), year: 2000, kept: rareWord().repeat(4_000) })
+        if (i % 125 === 0) holders.set(words[0], [...(holders.get(words[0]) ?? []), id])
+        batch.push({ id, title: words[0], body: words.join(' '), year: 2000, kept: rareWord().repeat(16_000) })
       }
       await engine.insertBatch(INDEX, batch)
       await engine.checkpoint(INDEX)
