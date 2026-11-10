@@ -1,3 +1,4 @@
+pub(crate) use crate::util::text::utf16_length;
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
 
@@ -16,10 +17,6 @@ pub(crate) struct PhraseLimits {
 const APOSTROPHE: char = '\u{27}';
 const HYPHEN: char = '\u{2d}';
 const SPACE: char = ' ';
-
-pub(crate) fn utf16_length(text: &str) -> usize {
-    text.chars().map(char::len_utf16).sum()
-}
 
 fn is_letter(character: char) -> bool {
     character.general_category_group() == GeneralCategoryGroup::Letter

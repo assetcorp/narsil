@@ -57,6 +57,14 @@ fn checked(status: ffi::narsil_status, what: &str) -> Result<()> {
     }
 }
 
+fn ordinals_request(metric: u32, ordinals: &[i32]) -> ffi::narsil_ordinals_request {
+    ffi::narsil_ordinals_request {
+        metric,
+        ordinals: ordinals.as_ptr(),
+        count: ordinals.len() as u32,
+    }
+}
+
 pub(crate) struct GraphSearch<'a> {
     pub(crate) query: &'a [f32],
     pub(crate) metric: u32,
@@ -240,11 +248,7 @@ impl Scratch {
             return Ok(());
         }
         let raw_store = store.raw();
-        let request = ffi::narsil_ordinals_request {
-            metric,
-            ordinals: ordinals.as_ptr(),
-            count: ordinals.len() as u32,
-        };
+        let request = ordinals_request(metric, ordinals);
         let status = unsafe { ffi::narsil_quantise(self.workspace.handle(), &raw_store, &request) };
         checked(status, "code vectors")
     }
@@ -260,11 +264,7 @@ impl Scratch {
             return Ok(());
         }
         let raw_store = store.raw();
-        let request = ffi::narsil_ordinals_request {
-            metric,
-            ordinals: ordinals.as_ptr(),
-            count: ordinals.len() as u32,
-        };
+        let request = ordinals_request(metric, ordinals);
         let status = unsafe {
             ffi::narsil_measure(
                 self.workspace.handle(),

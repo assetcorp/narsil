@@ -3,8 +3,7 @@ use std::sync::Arc;
 use super::metadata::config_of;
 use crate::analysis::{Analyser, Language};
 use crate::config::{
-    IndexConfig, require_surface_forms_for_partial_fields, validate_partition_config,
-    validate_pattern_value_limit, validate_storage,
+    IndexConfig, compiled_config_schema, validate_partition_config, validate_storage,
 };
 use crate::engine::EngineInner;
 use crate::engine::changes::analysis::terms_are_stale;
@@ -16,7 +15,7 @@ use crate::engine::vectors::IndexVectors;
 use crate::engine::vectors::embedding::bind_embedding;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
-use crate::schema::{CompiledSchema, schema_fields, validate_schema};
+use crate::schema::CompiledSchema;
 use crate::synonyms::wire::synonym_rules_of;
 
 const STORED_SYNONYMS_SOURCE: &str = "The synonym set in the index metadata is invalid: ";
@@ -39,11 +38,7 @@ pub(super) fn recovery_failure(name: &str, error: NarsilError) -> NarsilError {
 }
 
 fn checked_schema(config: &IndexConfig) -> Result<CompiledSchema> {
-    let definition = validate_schema(&config.schema)?;
-    schema_fields(&definition)?;
-    let schema = CompiledSchema::of(definition)?;
-    validate_pattern_value_limit(config.pattern_value_limit)?;
-    require_surface_forms_for_partial_fields(&schema, config.surface_forms)?;
+    let schema = compiled_config_schema(config)?;
     if let Some(partitions) = &config.partitions {
         validate_partition_config(partitions)?;
     }

@@ -2,7 +2,7 @@ use super::types::{
     Bm25FieldParams, Bm25Params, IndexConfig, PartitionConfig, Storage, VectorPromotion,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::schema::CompiledSchema;
+use crate::schema::{CompiledSchema, validate_schema};
 use crate::util::text::utf16_length;
 use crate::value::number_to_text;
 
@@ -117,6 +117,13 @@ pub(crate) fn validate_pattern_value_limit(limit: Option<u64>) -> Result<()> {
         }
         _ => Ok(()),
     }
+}
+
+pub(crate) fn compiled_config_schema(config: &IndexConfig) -> Result<CompiledSchema> {
+    let schema = CompiledSchema::of(validate_schema(&config.schema)?)?;
+    validate_pattern_value_limit(config.pattern_value_limit)?;
+    require_surface_forms_for_partial_fields(&schema, config.surface_forms)?;
+    Ok(schema)
 }
 
 pub(crate) fn require_surface_forms_for_partial_fields(
