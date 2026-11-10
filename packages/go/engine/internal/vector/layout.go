@@ -98,6 +98,15 @@ func (f *Field) acquireLayout() *layout {
 	}
 }
 
+func (f *Field) layoutPublishedBy(held *layout) *layout {
+	if f.current.Load() == held {
+		return held
+	}
+	fresh := f.acquireLayout()
+	held.done()
+	return fresh
+}
+
 func (f *Field) publish(store *storeMemory, graph *graphMemory) error {
 	next, err := buildLayout(store, graph)
 	if err != nil {

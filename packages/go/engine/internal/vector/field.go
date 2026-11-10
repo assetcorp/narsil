@@ -51,6 +51,7 @@ type Field struct {
 	store       *storeMemory
 	graph       *graphMemory
 	fresh       *graphMemory
+	earlier     []*graphMemory
 	buffer      *flaggedDocuments
 	tombstones  *flaggedDocuments
 	calibration calibrationState

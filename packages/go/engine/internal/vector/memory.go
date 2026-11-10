@@ -124,6 +124,7 @@ func (f *Field) releaseHeldMemory() {
 		f.fresh.resource.drop()
 		f.fresh = nil
 	}
+	f.earlier = nil
 	f.tombstones.forget()
 	f.buffer.forget()
 	clear(f.pendingLocations)

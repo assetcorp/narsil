@@ -27,12 +27,27 @@ func (f *Field) placeChunk(graph *graphMemory, docIDs []string, admit admitDocum
 			return graph, placed, false, err
 		}
 		if graph == f.graph {
-			f.buffer.delete(f.store, docID)
 			f.builds.connectPending = f.builds.connectPending || inserted
 		}
 		placed++
 	}
 	return graph, placed, true, nil
+}
+
+func (f *Field) leaveBufferOnceConnected(connected *graphMemory, docIDs []string) {
+	leaving := make([]string, 0, len(docIDs))
+	ordinals := make([]int32, 0, len(docIDs))
+	for _, docID := range docIDs {
+		ordinal, held := f.store.ordinalOf(docID)
+		if held && f.buffer.has(docID) && connected.holdsLiveNode(ordinal) {
+			leaving = append(leaving, docID)
+			ordinals = append(ordinals, ordinal)
+		}
+	}
+	f.scanOnEarlierGraphs(ordinals)
+	for _, docID := range leaving {
+		f.buffer.delete(f.store, docID)
+	}
 }
 
 func (f *Field) currentOfLineage(graph *graphMemory, published bool) (*graphMemory, bool) {
@@ -81,17 +96,18 @@ func (f *Field) insertLocally(ctx context.Context, graph *graphMemory, docIDs []
 	if placed == 0 {
 		return graph, true, nil
 	}
-	graph, current := f.currentOfLineage(graph, published)
+	latest, current := f.currentOfLineage(graph, published)
 	if !current {
-		return graph, false, nil
+		return latest, false, nil
 	}
-	connected, err := f.connectUnreached(graph)
+	connected, err := f.connectUnreached(latest)
 	if err != nil {
 		return connected, false, err
 	}
 	f.revision.Add(1)
 	if published {
 		f.builds.connectPending = false
+		f.leaveBufferOnceConnected(connected, docIDs)
 	}
 	return connected, true, nil
 }
@@ -154,7 +170,6 @@ func (f *Field) buildGraphFromStore(ctx context.Context) (bool, error) {
 		built.resource.drop()
 		return false, err
 	}
-	f.keepPlacedVisibleToEarlierSearches(previous, built)
 	if err := f.adoptGraph(built); err != nil {
 		f.writeMu.Unlock()
 		return false, err
@@ -165,22 +180,6 @@ func (f *Field) buildGraphFromStore(ctx context.Context) (bool, error) {
 	f.bufferWhatTheGraphLacks(built)
 	f.writeMu.Unlock()
 	return true, f.releasePendingLocations(ctx)
-}
-
-func (f *Field) keepPlacedVisibleToEarlierSearches(previous, built *graphMemory) {
-	if previous == nil {
-		return
-	}
-	placed := []int32{}
-	f.store.table.eachUnplaced(func(ordinal int32) bool {
-		if built.holdsNode(ordinal) {
-			placed = append(placed, ordinal)
-		}
-		return true
-	})
-	if len(placed) > 0 {
-		previous.lineage.alsoScan.Store(&placed)
-	}
 }
 
 func (f *Field) scanRetiredOutsideOf(graph *graphMemory) {
@@ -221,19 +220,20 @@ func (f *Field) adoptGraph(graph *graphMemory) error {
 	f.hasShuffledBuild = false
 	f.compactedNodeCount = 0
 	if previous != nil && previous != graph {
+		f.rememberReplacedGraph(previous)
 		previous.resource.drop()
 	}
 	return nil
 }
 
 func (f *Field) bufferWhatTheGraphLacks(graph *graphMemory) {
-	for _, docID := range f.liveDocIDs() {
+	live := f.liveDocIDs()
+	f.leaveBufferOnceConnected(graph, live)
+	for _, docID := range live {
 		ordinal, held := f.store.ordinalOf(docID)
-		if held && graph.holdsLiveNode(ordinal) {
-			f.buffer.delete(f.store, docID)
-			continue
+		if !held || !graph.holdsLiveNode(ordinal) {
+			f.buffer.add(f.store, docID)
 		}
-		f.buffer.add(f.store, docID)
 	}
 }
 

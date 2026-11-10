@@ -175,6 +175,20 @@ func durationOf(count int, millisecondsPerItem float64, scale float64) time.Dura
 	return time.Duration(milliseconds) * time.Millisecond
 }
 
+func (f *Field) bufferedOutsideGraph() int {
+	if f.graph == nil {
+		return f.buffer.size()
+	}
+	outside := 0
+	for _, docID := range f.buffer.values() {
+		ordinal, held := f.store.ordinalOf(docID)
+		if !held || !f.graph.holdsLiveNode(ordinal) {
+			outside++
+		}
+	}
+	return outside
+}
+
 func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 	f.writeMu.Lock()
 	defer f.writeMu.Unlock()
@@ -189,7 +203,8 @@ func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 		ratio = float64(tombstoned) / float64(graphNodes)
 	}
 	rebuilds := f.graph == nil || f.graphNeedsRebuild() || f.shuffledRebuildDue(f.liveSize())
-	optimizeCount := f.buffer.size()
+	outsideGraph := f.bufferedOutsideGraph()
+	optimizeCount := outsideGraph
 	if rebuilds {
 		optimizeCount = storeSize
 	}
@@ -201,7 +216,7 @@ func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 		FieldName:         f.config.fieldName,
 		TombstoneRatio:    ratio,
 		GraphCount:        graphCount,
-		BufferSize:        f.buffer.size(),
+		BufferSize:        outsideGraph,
 		Building:          f.builds.running || f.builds.retry != nil,
 		WaitingForMemory:  f.builds.waitingForMemory,
 		EstimatedCompact:  durationOf(tombstoned, estimatedCompactPerTombstone, f.config.dimensionScale),

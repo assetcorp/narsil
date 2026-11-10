@@ -208,7 +208,7 @@ func outsideTheGraph(current *layout, accepted *ordinalFilter) func(visit func(o
 			open = visit(ordinal)
 			return open
 		})
-		listed := current.graph.lineage.alsoScan.Load()
+		listed := current.graph.alsoScan.Load()
 		if !open || listed == nil {
 			return
 		}

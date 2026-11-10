@@ -27,7 +27,7 @@ func (f *Field) GetVectorUnder(ctx context.Context, docID string) ([]float32, bo
 		if failure := hold.replayFailure(); failure != nil {
 			return nil, false, failure
 		}
-		values, held, err := f.coldVectorOf(hold, docID)
+		values, held, err := f.coldVectorOf(ctx, hold, docID)
 		if failure := hold.replayFailure(); failure != nil {
 			return nil, false, failure
 		}

@@ -2,7 +2,6 @@ package persist
 
 import (
 	"context"
-	"os"
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -17,9 +16,8 @@ import (
 )
 
 type coldHeld struct {
-	files  []*os.File
+	native []*paged.NativeFile
 	paged  []*paged.File
-	native []*core.PagedFile
 	paths  []string
 	closed bool
 }
@@ -27,7 +25,7 @@ type coldHeld struct {
 type coldOpened struct {
 	source coldSource
 	file   *paged.File
-	native *core.PagedFile
+	native *paged.NativeFile
 }
 
 func (held *coldHeld) close() {
@@ -35,20 +33,16 @@ func (held *coldHeld) close() {
 		return
 	}
 	held.closed = true
-	for _, file := range held.native {
-		file.Close()
-	}
 	for _, file := range held.paged {
 		file.Close()
 	}
-	for _, file := range held.files {
+	for _, file := range held.native {
 		_ = file.Close()
 	}
 }
 
 func (opened coldOpened) pages(section paged.Section) core.PageSection {
-	return core.PageSection{File: opened.native, Offset: uint64(envelope.HeaderBytes + section.Offset),
-		Length: uint64(section.Length), PageBytes: uint32(section.PageBytes), Checksums: section.Checksums}
+	return opened.native.PageSection(section)
 }
 
 func (held *coldHeld) open(path string, key string) (coldOpened, error) {
@@ -57,22 +51,15 @@ func (held *coldHeld) open(path string, key string) (coldOpened, error) {
 		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
 			`The file "`+key+`" cannot be opened`, err, map[string]any{"key": key})
 	}
-	held.files = append(held.files, file)
-	held.paths = append(held.paths, path)
-	info, err := file.Stat()
+	native, err := paged.OpenNativeFile(file, path)
 	if err != nil {
-		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
-			`The file "`+key+`" cannot be measured`, err, map[string]any{"key": key})
-	}
-	native, err := core.OpenPagedFile(path)
-	if err != nil {
-		return coldOpened{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
-			`The file "`+key+`" cannot be opened for paged reads`, err, map[string]any{"key": key})
+		return coldOpened{}, err
 	}
 	held.native = append(held.native, native)
-	opened := paged.OpenFile(file, key, paged.SharedReadCache())
+	held.paths = append(held.paths, path)
+	opened := paged.OpenFile(native, key, paged.SharedReadCache())
 	held.paged = append(held.paged, opened)
-	return coldOpened{source: coldSource{reader: file, size: info.Size(), close: func() {}}, file: opened,
+	return coldOpened{source: coldSource{reader: native, size: native.Size(), close: func() {}}, file: opened,
 		native: native}, nil
 }
 
