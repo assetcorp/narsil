@@ -8,7 +8,7 @@ pub(crate) fn manifest_key(index_name: &str) -> String {
     format!("{index_name}/manifest")
 }
 
-pub(crate) fn segment_prefix(index_name: &str, partition_id: u32) -> String {
+fn segment_prefix(index_name: &str, partition_id: u32) -> String {
     format!("{index_name}/segments/{partition_id}/")
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn segment_key(index_name: &str, partition_id: u32, segment_id: u64) 
     )
 }
 
-pub(crate) fn encode_field_path(field_path: &str) -> Result<String> {
+fn encode_field_path(field_path: &str) -> Result<String> {
     let valid = !field_path.is_empty()
         && field_path
             .bytes()

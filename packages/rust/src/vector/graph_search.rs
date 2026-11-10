@@ -29,7 +29,7 @@ fn dimension_band(dimension: usize) -> usize {
     }
 }
 
-pub(crate) fn default_ef_search(dimension: usize, k: usize) -> usize {
+fn default_ef_search(dimension: usize, k: usize) -> usize {
     let margin = match dimension_band(dimension) {
         NARROW_BAND => EF_SEARCH_MARGIN_NARROW,
         MIDDLE_BAND => EF_SEARCH_MARGIN_MIDDLE,
@@ -38,7 +38,7 @@ pub(crate) fn default_ef_search(dimension: usize, k: usize) -> usize {
     DEFAULT_EF_SEARCH.max(k + margin)
 }
 
-pub(crate) fn default_rescore_depth(bits: u8, dimension: usize, k: usize) -> usize {
+fn default_rescore_depth(bits: u8, dimension: usize, k: usize) -> usize {
     let band = dimension_band(dimension);
     let (table, floor) = match bits {
         1 => (RESCORE_DEPTH_OSQ1, RESCORE_DEPTH_FLOOR_PER_LIMIT_OSQ1),
@@ -63,14 +63,10 @@ pub(crate) fn default_rescore_depth(bits: u8, dimension: usize, k: usize) -> usi
 pub(crate) struct SearchDepths {
     pub(crate) ef: usize,
     pub(crate) depth: usize,
-    pub(crate) quantised: bool,
+    quantised: bool,
 }
 
-pub(crate) fn search_depths(
-    generation: &Generation,
-    k: usize,
-    options: &VectorSearchOptions,
-) -> SearchDepths {
+fn search_depths(generation: &Generation, k: usize, options: &VectorSearchOptions) -> SearchDepths {
     let store = &generation.store;
     let quantised = store.bits != 0 && store.calibrated() && store.code_count() > 0;
     depths_for(quantised.then_some(store.bits), store.dimension, k, options)

@@ -77,8 +77,7 @@ fn require_persistable_analysis(name: &str, config: &IndexConfig) -> Result<()> 
     Ok(())
 }
 
-/// Checks a new index's configuration in the order that every Narsil engine checks it, and builds its state.
-pub(crate) fn build_index(
+fn build_index(
     engine: &EngineInner,
     registered: &EmbeddingAdapters,
     name: &str,

@@ -31,7 +31,7 @@ fn map_dead(payload: &mut Map, convert: &dyn Fn(&Value) -> Result<Value>) -> Res
     Ok(())
 }
 
-pub(crate) fn dead_to_form(payload: &mut Map) -> Result<()> {
+fn dead_to_form(payload: &mut Map) -> Result<()> {
     map_dead(payload, &|dead| match dead {
         Value::Bytes(bytes) => Ok(numbers_form(bytes)),
         other => Ok(other.clone()),

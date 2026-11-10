@@ -74,7 +74,7 @@ pub(crate) fn measure_live(shared: &Shared, generation: &Generation) -> Result<O
     Ok(live_mean_of(&totals, dimension, shared.settings.metric))
 }
 
-pub(crate) fn next_drift_check(calibrated_count: u64, held: u64) -> u64 {
+fn next_drift_check(calibrated_count: u64, held: u64) -> u64 {
     let mut next = calibrated_count
         .max(1)
         .saturating_mul(DRIFT_CHECK_GROWTH_FACTOR);
@@ -111,12 +111,7 @@ fn drift_ratio(
     squares.sqrt() / expected
 }
 
-pub(crate) fn note_calibration(
-    shared: &Shared,
-    writer: &mut Writer,
-    count: u64,
-    mean_length: Option<f64>,
-) {
+fn note_calibration(shared: &Shared, writer: &mut Writer, count: u64, mean_length: Option<f64>) {
     writer.calibrated_count = Some(count);
     writer.calibrated_mean_length = if shared.settings.metric == Metric::Cosine {
         mean_length

@@ -1,6 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 
-pub(crate) const MAX_STORED_VECTOR_DIMENSION: u32 = 65_535;
+const MAX_STORED_VECTOR_DIMENSION: u32 = 65_535;
 pub(crate) const MAX_VECTOR_DIMENSION: u32 = 4_096;
 const TYPE_SEPARATOR: char = ':';
 const TEXT_OPTIONS: [&str; 3] = ["sortable", "pattern", "partial"];

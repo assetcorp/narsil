@@ -4,7 +4,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::keyword_segment::MAX_SEGMENT_FIELD_NAMES;
 use crate::index::segment::{SegmentData, SegmentEntry};
 
-pub(crate) const DROPPED: u32 = u32::MAX;
+const DROPPED: u32 = u32::MAX;
 
 pub(crate) struct MergeInput<'a> {
     pub(crate) entry: &'a SegmentEntry,

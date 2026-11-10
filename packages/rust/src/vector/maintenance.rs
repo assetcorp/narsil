@@ -31,7 +31,7 @@ pub(crate) struct MaintenanceStatus {
     pub(crate) estimated_optimize_ms: u64,
 }
 
-pub(crate) fn graph_needs_rebuild(shared: &Shared, generation: &Generation) -> bool {
+fn graph_needs_rebuild(shared: &Shared, generation: &Generation) -> bool {
     let Some(graph) = &generation.graph else {
         return false;
     };
@@ -70,7 +70,7 @@ fn compact_graph(shared: &Shared, writer: &Writer, graph: &GraphTables) -> Resul
     Ok(())
 }
 
-pub(crate) fn compact_held(shared: &Shared, writer: &mut Writer) -> Result<()> {
+fn compact_held(shared: &Shared, writer: &mut Writer) -> Result<()> {
     let generation = Arc::clone(&writer.generation);
     let counts = &generation.counts;
     if counts.removed.load(Ordering::Acquire) == 0 && counts.replaced.load(Ordering::Acquire) == 0 {

@@ -228,11 +228,7 @@ fn listed_length_differs(what: &str, key: &str, found: u64, listed: u64) -> Nars
     )
 }
 
-pub(crate) fn require_listed_length(
-    store: &dyn CheckpointStore,
-    file: &FileRef,
-    what: &str,
-) -> Result<()> {
+fn require_listed_length(store: &dyn CheckpointStore, file: &FileRef, what: &str) -> Result<()> {
     match store.length(&file.key)? {
         FileLength::Missing => Err(missing_file(what, &file.key)),
         FileLength::Known(found) if found != file.bytes => {
@@ -242,11 +238,7 @@ pub(crate) fn require_listed_length(
     }
 }
 
-pub(crate) fn read_listed_file(
-    store: &dyn CheckpointStore,
-    file: &FileRef,
-    what: &str,
-) -> Result<Vec<u8>> {
+fn read_listed_file(store: &dyn CheckpointStore, file: &FileRef, what: &str) -> Result<Vec<u8>> {
     require_listed_length(store, file, what)?;
     let limit = file.bytes.min(MAX_FILE_BYTES);
     let bytes = match store.read_within(&file.key, limit) {
@@ -273,12 +265,7 @@ pub(crate) fn read_listed_file(
     Ok(bytes)
 }
 
-pub(crate) fn require_listed_checksum(
-    what: &str,
-    key: &str,
-    found: u32,
-    listed: u32,
-) -> Result<()> {
+fn require_listed_checksum(what: &str, key: &str, found: u32, listed: u32) -> Result<()> {
     if found == listed {
         return Ok(());
     }

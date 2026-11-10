@@ -56,7 +56,7 @@ pub(crate) fn level_of(ordinal: u32, m: u32) -> u8 {
     level.min(f64::from(MAX_LAYER_CAP)) as u8
 }
 
-pub(crate) fn shuffle(items: &mut [u32]) {
+fn shuffle(items: &mut [u32]) {
     let mut stream = items.len() as u32;
     for i in (1..items.len()).rev() {
         stream = mixed(stream);

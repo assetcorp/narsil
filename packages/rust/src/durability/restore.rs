@@ -63,7 +63,7 @@ impl<'d> RestoreStaging<'d> {
         &self.index_name
     }
 
-    pub(crate) fn committed(&self) -> bool {
+    fn committed(&self) -> bool {
         self.committed
     }
 

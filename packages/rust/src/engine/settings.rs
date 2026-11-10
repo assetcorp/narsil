@@ -32,12 +32,7 @@ fn stored_bm25(params: &Bm25Params) -> Option<Bm25Params> {
     (stored.k1.is_some() || stored.b.is_some() || stored.fields.is_some()).then_some(stored)
 }
 
-/// Replaces the settings of `index` with the result of `change`, while the caller holds its write lock. A durable
-/// index records the new settings in its metadata file, and goes back to the old settings where that write fails.
-pub(crate) fn replace_settings(
-    index: &IndexState,
-    change: impl FnOnce(&mut IndexConfig),
-) -> Result<()> {
+fn replace_settings(index: &IndexState, change: impl FnOnce(&mut IndexConfig)) -> Result<()> {
     let previous = index.config();
     let mut next = (*previous).clone();
     change(&mut next);

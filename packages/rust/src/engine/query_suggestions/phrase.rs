@@ -41,7 +41,7 @@ fn folded(character: char) -> char {
     }
 }
 
-pub(crate) fn normalise_phrase(raw: &str, max_length: u32) -> Option<String> {
+fn normalise_phrase(raw: &str, max_length: u32) -> Option<String> {
     let units = utf16_length(raw);
     let ceiling = (max_length as usize).saturating_mul(RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT);
     if units == 0 || units > ceiling {
@@ -65,7 +65,7 @@ pub(crate) fn normalise_phrase(raw: &str, max_length: u32) -> Option<String> {
     Some(out)
 }
 
-pub(crate) fn phrase_fits(phrase: &str, limits: &PhraseLimits) -> bool {
+fn phrase_fits(phrase: &str, limits: &PhraseLimits) -> bool {
     let units = utf16_length(phrase);
     if units == 0 || units > (limits.max_length as usize).saturating_mul(2) {
         return false;

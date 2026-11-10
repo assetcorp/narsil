@@ -29,7 +29,7 @@ fn bm25_pair_payload(k1: Option<f64>, b: Option<f64>) -> Map {
     pair
 }
 
-pub(crate) fn bm25_payload(bm25: &Bm25Params) -> Map {
+fn bm25_payload(bm25: &Bm25Params) -> Map {
     let mut payload = bm25_pair_payload(bm25.k1, bm25.b);
     if let Some(fields) = &bm25.fields {
         let mut named = Map::new();

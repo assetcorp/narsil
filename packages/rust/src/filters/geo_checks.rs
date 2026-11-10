@@ -4,7 +4,7 @@ use crate::geo::constants::{MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POL
 use crate::geo::{is_latitude, is_longitude};
 use crate::value::{Value, javascript_text, number_to_text};
 
-pub(crate) const GEO_UNITS: [(&str, f64); 3] = [
+const GEO_UNITS: [(&str, f64); 3] = [
     ("km", crate::geo::constants::METRES_PER_KILOMETRE),
     ("mi", crate::geo::constants::METRES_PER_MILE),
     ("m", 1.0),
@@ -86,7 +86,7 @@ fn require_radius(path: &str, circle: &Value) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn require_polygon_ring(points: Option<&Value>) -> Result<()> {
+fn require_polygon_ring(points: Option<&Value>) -> Result<()> {
     let points = match points {
         Some(Value::Array(points)) if points.len() >= MIN_POLYGON_POINTS => points,
         _ => {

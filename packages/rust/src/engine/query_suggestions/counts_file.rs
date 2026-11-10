@@ -40,7 +40,7 @@ pub(crate) enum OpenedCountsFile<'a> {
     OtherKey,
 }
 
-pub(crate) fn is_day(value: &str) -> bool {
+fn is_day(value: &str) -> bool {
     let part = |range: Range<usize>| value.get(range).and_then(|text| text.parse::<i8>().ok());
     let year = value.get(0..4).and_then(|text| text.parse::<i16>().ok());
     is_day_shape(value)

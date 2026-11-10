@@ -55,7 +55,7 @@ fn unseen_partition<'a>(entry: &'a Value, seen: &mut Vec<u32>) -> Option<(&'a Ma
     Some((map, partition_id))
 }
 
-pub(crate) fn normalize_checkpoint(raw: Option<&Value>) -> Result<Vec<PartitionCheckpoint>> {
+fn normalize_checkpoint(raw: Option<&Value>) -> Result<Vec<PartitionCheckpoint>> {
     let Some(Value::Array(entries)) = raw else {
         return Err(invalid_manifest("is missing its checkpoint list"));
     };

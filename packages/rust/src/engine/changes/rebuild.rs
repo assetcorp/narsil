@@ -22,9 +22,7 @@ pub(crate) struct Rebuild<'a> {
     pub(crate) partition_count: usize,
 }
 
-/// Returns the lowest segment ID that no partition of `snapshots` has used, which every new partition starts
-/// from so that no file of a new segment lands on a key that the newest checkpoint lists.
-pub(crate) fn first_free_segment_id(snapshots: &[Arc<PartitionSnapshot>]) -> u64 {
+fn first_free_segment_id(snapshots: &[Arc<PartitionSnapshot>]) -> u64 {
     snapshots
         .iter()
         .map(|snapshot| snapshot.next_segment_id)

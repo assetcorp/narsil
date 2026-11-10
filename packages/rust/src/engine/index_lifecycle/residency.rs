@@ -43,7 +43,7 @@ impl IndexResidency {
         self.active_writes.load(Ordering::SeqCst)
     }
 
-    pub(crate) fn is_closing(&self) -> bool {
+    fn is_closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
     }
 

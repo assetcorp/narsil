@@ -9,7 +9,7 @@ pub(crate) const NO_ORDINAL: i32 = -1;
 const NO_NUMBER: i32 = -1;
 const NO_LAYER: i32 = -1;
 
-pub(crate) fn graph_metric_of(code: u32) -> GraphMetric {
+fn graph_metric_of(code: u32) -> GraphMetric {
     match code {
         ffi::NARSIL_METRIC_DOT_PRODUCT => GraphMetric::DotProduct,
         ffi::NARSIL_METRIC_EUCLIDEAN => GraphMetric::Euclidean,
@@ -17,7 +17,7 @@ pub(crate) fn graph_metric_of(code: u32) -> GraphMetric {
     }
 }
 
-pub(crate) fn metric_code_of(metric: GraphMetric) -> u32 {
+fn metric_code_of(metric: GraphMetric) -> u32 {
     match metric {
         GraphMetric::Cosine => ffi::NARSIL_METRIC_COSINE,
         GraphMetric::DotProduct => ffi::NARSIL_METRIC_DOT_PRODUCT,

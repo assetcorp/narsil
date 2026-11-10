@@ -54,7 +54,7 @@ fn sync_prefix(index_name: &str) -> String {
     format!("{index_name}/sync/")
 }
 
-pub(crate) fn history_root(index_name: &str) -> String {
+fn history_root(index_name: &str) -> String {
     format!("{index_name}/history/")
 }
 
@@ -119,8 +119,7 @@ pub(crate) fn list_history(
     Ok(segments)
 }
 
-/// Deletes the history of an index, or of one of its partitions.
-pub(crate) fn remove_history(
+fn remove_history(
     store: &dyn CheckpointStore,
     index_name: &str,
     partition_id: Option<u32>,

@@ -147,7 +147,7 @@ impl Generation {
         self.ids.find(doc_id, &self.names)
     }
 
-    pub(crate) fn live_ordinal_of(&self, doc_id: &str) -> Option<u32> {
+    fn live_ordinal_of(&self, doc_id: &str) -> Option<u32> {
         self.ordinal_of(doc_id)
             .filter(|&ordinal| self.store.is_live(ordinal))
     }
@@ -226,7 +226,7 @@ pub(crate) struct History {
     pub(crate) compacted_node_count: AtomicU64,
 }
 
-pub(crate) const NO_SHUFFLED_BUILD: u64 = u64::MAX;
+const NO_SHUFFLED_BUILD: u64 = u64::MAX;
 
 impl History {
     pub(crate) fn shuffled_build_count(&self) -> Option<u64> {

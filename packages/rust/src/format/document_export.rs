@@ -7,8 +7,8 @@ use crate::value::{
     write_exact_json_into, write_json_into,
 };
 
-pub(crate) const DOCUMENT_EXPORT_FORMAT: &str = "narsil-export";
-pub(crate) const DOCUMENT_EXPORT_VERSION: f64 = 1.0;
+const DOCUMENT_EXPORT_FORMAT: &str = "narsil-export";
+const DOCUMENT_EXPORT_VERSION: f64 = 1.0;
 pub(crate) const MAX_EXPORT_LINE_BYTES: usize = 117_443_592;
 const NEWLINE: u8 = b'\n';
 

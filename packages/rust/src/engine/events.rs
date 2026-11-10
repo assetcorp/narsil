@@ -180,8 +180,7 @@ pub(crate) struct EventBus {
 }
 
 impl EventBus {
-    /// Reports whether any listener hears events of `kind`.
-    pub(crate) fn listens(&self, kind: NarsilEventKind) -> bool {
+    fn listens(&self, kind: NarsilEventKind) -> bool {
         self.listeners
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

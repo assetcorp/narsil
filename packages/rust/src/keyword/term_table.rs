@@ -9,16 +9,16 @@ use crate::util::hash::fnv1a_of;
 
 pub(crate) const HEADER_WORDS: usize = 8;
 pub(crate) const COUNT: usize = 0;
-pub(crate) const LIVE_COUNT: usize = 1;
+const LIVE_COUNT: usize = 1;
 pub(crate) const SLOT_CAPACITY: usize = 2;
-pub(crate) const GENERATION: usize = 3;
-pub(crate) const UNITS_USED: usize = 4;
+const GENERATION: usize = 3;
+const UNITS_USED: usize = 4;
 const FIRST_UNIT_COUNT: usize = 0x10000;
 const LAST_SLOT_ORDINAL: usize = 0x7fff_fffe;
 const LAST_SLOT_CAPACITY: usize = 0x8000_0000;
 const LAST_OFFSET: usize = u32::MAX as usize;
 
-pub(crate) fn term_hash(units: &[u16]) -> u32 {
+fn term_hash(units: &[u16]) -> u32 {
     fnv1a_of(units.iter().flat_map(|unit| unit.to_le_bytes()))
 }
 

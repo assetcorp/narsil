@@ -62,7 +62,7 @@ pub(crate) struct StoreTables {
     sequence: Option<Arc<IndexSequence>>,
 }
 
-pub(crate) fn record_bytes_of(dimension: usize, bits: u8) -> usize {
+fn record_bytes_of(dimension: usize, bits: u8) -> usize {
     if bits == 0 {
         return 0;
     }

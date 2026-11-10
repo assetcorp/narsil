@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::schema::BaseType;
 use crate::value::Value;
 
-pub(crate) const WHOLE_VALUE_OPERATORS: [&str; 8] = [
+const WHOLE_VALUE_OPERATORS: [&str; 8] = [
     "eq",
     "ne",
     "in",
@@ -16,9 +16,9 @@ pub(crate) const WHOLE_VALUE_OPERATORS: [&str; 8] = [
     "matchesAny",
     "containsAll",
 ];
-pub(crate) const ELEMENT_OPERATORS: [&str; 2] = ["matchesAny", "containsAll"];
+const ELEMENT_OPERATORS: [&str; 2] = ["matchesAny", "containsAll"];
 pub(crate) const PRESENCE_OPERATORS: [&str; 4] = ["exists", "notExists", "isEmpty", "isNotEmpty"];
-pub(crate) const SIZE_OPERATORS: [&str; 7] = ["eq", "ne", "gt", "gte", "lt", "lte", "between"];
+const SIZE_OPERATORS: [&str; 7] = ["eq", "ne", "gt", "gte", "lt", "lte", "between"];
 
 pub(crate) fn require_whole_value_index(field: &FieldContext<'_>) -> Result<()> {
     let field_type = field.field_type;
@@ -54,7 +54,7 @@ pub(crate) fn require_presence_operands(field: &FieldContext<'_>) -> Result<()> 
     Ok(())
 }
 
-pub(crate) fn list_element_kind(field: &FieldContext<'_>, operator: &str) -> Result<OperandKind> {
+fn list_element_kind(field: &FieldContext<'_>, operator: &str) -> Result<OperandKind> {
     match field.field_type.base {
         BaseType::NumberList => Ok(OperandKind::Number),
         BaseType::BooleanList => Ok(OperandKind::Boolean),

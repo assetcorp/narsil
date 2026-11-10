@@ -24,4 +24,4 @@ pub(crate) mod store_config;
 pub(crate) mod store_inner;
 pub(crate) mod sync_files;
 pub(crate) mod sync_retention;
-pub(crate) mod sync_store;
+mod sync_store;

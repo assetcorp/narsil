@@ -252,7 +252,7 @@ pub(crate) fn append(
     Ok(ordinal)
 }
 
-pub(crate) fn ensure_room(shared: &Shared, writer: &mut Writer, slots: usize) {
+fn ensure_room(shared: &Shared, writer: &mut Writer, slots: usize) {
     let generation = Arc::clone(&writer.generation);
     let store_short = slots > generation.store.capacity();
     let buffer_short = generation.buffer.len() >= generation.buffer_capacity();
@@ -283,7 +283,7 @@ pub(crate) fn ensure_room(shared: &Shared, writer: &mut Writer, slots: usize) {
     shared.publish(writer, next);
 }
 
-pub(crate) fn still_scanned(generation: &Generation, ordinal: u32, oldest_pin: i64) -> bool {
+fn still_scanned(generation: &Generation, ordinal: u32, oldest_pin: i64) -> bool {
     if generation.is_buffered(ordinal) {
         return true;
     }

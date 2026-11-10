@@ -114,7 +114,7 @@ fn run_hash(points: &[u32]) -> u32 {
 }
 
 #[derive(Clone)]
-pub(crate) struct RunTable {
+struct RunTable {
     header: Box<[u32; HEADER_WORDS]>,
     slots: Vec<i32>,
     runs: Vec<u32>,

@@ -14,7 +14,7 @@ use super::files::{DurableDirectory, TEMPORARY_MARK};
 use super::lock::LOCK_FILE_NAME;
 use super::platform::random_token;
 
-pub(crate) const RESTORE_JOURNAL_PREFIX: &str = ".swap-";
+const RESTORE_JOURNAL_PREFIX: &str = ".swap-";
 pub(crate) const RESTORE_STAGING_PREFIX: &str = ".restore-";
 const RETIRED_INDEX_PREFIX: &str = ".retired-";
 

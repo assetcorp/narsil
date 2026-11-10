@@ -1,5 +1,4 @@
-/// Returns the first `prefix_length` characters of `term`, which every typo match of `term` must start with.
-pub(crate) fn fuzzy_prefix(term: &str, prefix_length: u32) -> &str {
+fn fuzzy_prefix(term: &str, prefix_length: u32) -> &str {
     match term.char_indices().nth(prefix_length as usize) {
         Some((end, _)) => &term[..end],
         None => term,
@@ -23,8 +22,7 @@ pub(crate) fn fuzzy_term_matches(
     within_edits(term, candidate, tolerance)
 }
 
-/// Reports whether `candidate` lies within `tolerance` edits of `term`, counting each character as one unit.
-pub(crate) fn within_edits(term: &str, candidate: &str, tolerance: u32) -> bool {
+fn within_edits(term: &str, candidate: &str, tolerance: u32) -> bool {
     if term == candidate {
         return true;
     }

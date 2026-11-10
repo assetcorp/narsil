@@ -10,7 +10,7 @@ fn core_layout_values() -> [usize; LAYOUT_COUNT] {
     unsafe { narsil_rust_layout_values }
 }
 
-pub(crate) fn layout_mismatches() -> Vec<String> {
+fn layout_mismatches() -> Vec<String> {
     let core = core_layout_values();
     let rust = rust_layout_values();
     LAYOUT_NAMES

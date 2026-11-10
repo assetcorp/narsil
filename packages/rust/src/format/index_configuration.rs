@@ -2,7 +2,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Compression, Expectation, open_checksummed, pack};
 use crate::value::{Map, Value, decode_value, encode_value};
 
-pub(crate) const INDEX_CONFIGURATION_ENVELOPE_VERSION: u8 = 5;
+const INDEX_CONFIGURATION_ENVELOPE_VERSION: u8 = 5;
 pub(crate) const MAX_INDEX_CONFIGURATION_BYTES: usize = 16_777_216;
 
 /// Checks that a decoded index configuration holds a schema and a language, as every reader of one must.

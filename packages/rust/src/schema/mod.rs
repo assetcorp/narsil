@@ -13,8 +13,8 @@ pub use field_type::{BaseType, FieldType, parse_field_type};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::{Map, Value};
 
-pub(crate) const MAX_NESTING_DEPTH: usize = 4;
-pub(crate) const MAX_TEXT_FIELDS: usize = 65_536;
+const MAX_NESTING_DEPTH: usize = 4;
+const MAX_TEXT_FIELDS: usize = 65_536;
 const RESERVED_ROOT_FIELD: &str = "id";
 const PROTOTYPE_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
 
@@ -201,9 +201,7 @@ pub(crate) fn schema_fields(definition: &Map) -> Result<Vec<SchemaField>> {
     flat_schema_fields(&flat)
 }
 
-/// Parses every field of a flat schema, in schema order, and raises `SCHEMA_INVALID_TYPE` for a value that is not a
-/// type name, as a reader of a stored schema must.
-pub(crate) fn flat_schema_fields(flat: &Map) -> Result<Vec<SchemaField>> {
+fn flat_schema_fields(flat: &Map) -> Result<Vec<SchemaField>> {
     let mut fields = Vec::with_capacity(flat.len());
     for (path, type_value) in flat.iter() {
         let Value::String(type_name) = type_value else {

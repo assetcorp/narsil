@@ -39,7 +39,7 @@ fn restored_bm25_pair(raw: &Map, label: &str, reject: Rejection<'_>) -> Result<B
     })
 }
 
-pub(crate) fn restored_bm25(raw: &Value, reject: Rejection<'_>) -> Result<Bm25Params> {
+fn restored_bm25(raw: &Value, reject: Rejection<'_>) -> Result<Bm25Params> {
     let raw = object(raw, "bm25 must be an object", reject)?;
     let pair = restored_bm25_pair(raw, "bm25", reject)?;
     let fields = match raw.get("fields") {
@@ -68,10 +68,7 @@ pub(crate) fn restored_bm25(raw: &Value, reject: Rejection<'_>) -> Result<Bm25Pa
     })
 }
 
-pub(crate) fn restored_partition_config(
-    raw: &Value,
-    reject: Rejection<'_>,
-) -> Result<PartitionConfig> {
+fn restored_partition_config(raw: &Value, reject: Rejection<'_>) -> Result<PartitionConfig> {
     let raw = object(raw, "partitionConfig must be an object", reject)?;
     let watermark = match raw.get("watermark") {
         None => None,

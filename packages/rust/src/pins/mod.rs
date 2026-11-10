@@ -42,7 +42,7 @@ impl PinTable {
         slots_reached().min(MAX_THREAD_SLOTS)
     }
 
-    pub(crate) fn oldest(&self) -> i64 {
+    fn oldest(&self) -> i64 {
         let mut oldest = NO_HELD_PIN;
         for slot in 0..self.slots() {
             let entry = self.load(slot);

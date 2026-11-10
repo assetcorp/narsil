@@ -4,7 +4,7 @@ use crate::format::fields::whole_number;
 use crate::format::metadata_parts::is_sync_epoch;
 use crate::value::{Map, Value, decode_value, encode_value};
 
-pub(crate) const BACKUP_MANIFEST_ENVELOPE_VERSION: u8 = 1;
+const BACKUP_MANIFEST_ENVELOPE_VERSION: u8 = 1;
 const MAX_PARTITION_COUNT: f64 = 65_536.0;
 const MAX_REPLICATION_FACTOR: f64 = 255.0;
 const MAX_BACKUP_FILES_PER_PARTITION: usize = 1_000_000;
@@ -15,7 +15,7 @@ const SHA256_HEX_DIGITS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StoredFile {
-    pub(crate) sha256: String,
+    sha256: String,
     pub(crate) bytes: u64,
 }
 
@@ -34,24 +34,24 @@ pub(crate) struct BackupPartition {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct AllocationConstraints {
-    pub(crate) zone_awareness: bool,
-    pub(crate) zone_attribute: String,
-    pub(crate) max_shards_per_node: Option<f64>,
+struct AllocationConstraints {
+    zone_awareness: bool,
+    zone_attribute: String,
+    max_shards_per_node: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BackupManifest {
     pub(crate) name: String,
-    pub(crate) cluster_uuid: String,
+    cluster_uuid: String,
     pub(crate) index_name: String,
     pub(crate) started_at: f64,
-    pub(crate) completed_at: f64,
+    completed_at: f64,
     pub(crate) partition_count: u64,
     pub(crate) sync_epoch: Option<String>,
-    pub(crate) taken_by: Option<String>,
-    pub(crate) replication_factor: f64,
-    pub(crate) constraints: AllocationConstraints,
+    taken_by: Option<String>,
+    replication_factor: f64,
+    constraints: AllocationConstraints,
     pub(crate) config: StoredFile,
     pub(crate) query_history: Option<Vec<StoredFile>>,
     pub(crate) partitions: Vec<BackupPartition>,
@@ -83,7 +83,7 @@ fn is_path_segment(segment: &str) -> bool {
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-pub(crate) fn is_safe_file_key(key: &str) -> bool {
+fn is_safe_file_key(key: &str) -> bool {
     key.encode_utf16().count() <= MAX_BACKUP_FILE_PATH_LENGTH && key.split('/').all(is_path_segment)
 }
 

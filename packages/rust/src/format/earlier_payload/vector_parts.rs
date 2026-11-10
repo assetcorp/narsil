@@ -7,8 +7,8 @@ use crate::value::{Map, Value};
 
 use super::graph::earlier_graph_parts;
 
-pub(crate) const VECTOR_INDEX_PAYLOAD_VERSION: u8 = 3;
-pub(crate) const VECTOR_INDEX_PART_VECTORS: usize = 65_536;
+const VECTOR_INDEX_PAYLOAD_VERSION: u8 = 3;
+const VECTOR_INDEX_PART_VECTORS: usize = 65_536;
 pub(super) const PREFIX: &str = "Invalid vector index payload: ";
 const FLOAT32_BYTES: u128 = 4;
 static UNVERSIONED_LAYOUT: Value = Value::Number(1.0);

@@ -37,12 +37,11 @@ fn validate_geopoint(path: &str, value: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Returns true for a number whose nearest float32 is finite, which is what a vector element must be.
-pub(crate) fn is_float32_finite(number: f64) -> bool {
+fn is_float32_finite(number: f64) -> bool {
     (number as f32).is_finite()
 }
 
-pub(crate) fn validate_vector(path: &str, value: &Value, dimension: u32) -> Result<()> {
+fn validate_vector(path: &str, value: &Value, dimension: u32) -> Result<()> {
     let Value::Array(items) = value else {
         return Err(failed(format!(
             "Field \"{path}\" expected a vector (Array or Float32Array)"

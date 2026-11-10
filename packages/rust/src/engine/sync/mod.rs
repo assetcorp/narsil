@@ -54,8 +54,7 @@ pub(crate) fn sync_epoch_of(metadata: &IndexMetadata) -> Option<&str> {
         .flatten()
 }
 
-/// Returns a new epoch: 16 random bytes as 32 lowercase hexadecimal digits.
-pub(crate) fn new_sync_epoch() -> Result<String> {
+fn new_sync_epoch() -> Result<String> {
     let mut bytes = [0u8; SYNC_EPOCH_BYTES];
     getrandom::fill(&mut bytes).map_err(|error| {
         NarsilError::new(
