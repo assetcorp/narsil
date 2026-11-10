@@ -124,7 +124,7 @@ fn expansion_of(
         },
     )?;
     if let Some(lookup) = &layout.synonyms.lookup {
-        expansion.synonyms = lookup.expand(&query_tokens);
+        expansion.synonyms = lookup.expand(&query_tokens)?;
     }
     Ok(expansion)
 }
