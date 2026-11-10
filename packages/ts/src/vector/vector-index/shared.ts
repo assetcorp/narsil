@@ -150,6 +150,7 @@ export interface VectorIndexState {
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
   freshGraph: HNSWIndex | null
+  growingCopy: HNSWIndex | null
   shuffledBuildCount: number | null
   calibratedCount: number | null
   calibratedMeanLength: number | null
