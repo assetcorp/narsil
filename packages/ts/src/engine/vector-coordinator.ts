@@ -6,13 +6,22 @@ import type { VectorIndex } from '../vector/vector-index'
 export function extractVectorFromDoc(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   const value = getNestedValue(document, fieldPath)
   if (value === undefined || value === null) return null
-  if (!(value instanceof Float32Array) && !Array.isArray(value)) return null
+  if (value instanceof Float32Array) return holdsOnlyFiniteFloats(value) ? value : null
+  if (!Array.isArray(value)) return null
   const length = value.length
   for (let i = 0; i < length; i++) {
     const n = value[i]
     if (typeof n !== 'number' || !(n < FLOAT32_OVERFLOW_MAGNITUDE && n > -FLOAT32_OVERFLOW_MAGNITUDE)) return null
   }
-  return value instanceof Float32Array ? value : new Float32Array(value)
+  return new Float32Array(value)
+}
+
+function holdsOnlyFiniteFloats(vector: Float32Array): boolean {
+  const length = vector.length
+  for (let i = 0; i < length; i++) {
+    if (vector[i] - vector[i] !== 0) return false
+  }
+  return true
 }
 
 export function deleteNestedValue(obj: Record<string, unknown>, path: string): void {
