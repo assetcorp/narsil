@@ -114,19 +114,19 @@ fn partial_tagging(
     })
 }
 
-fn synonyms_of(layout: &TextLayout, query_tokens: &[(String, u32)]) -> HashSet<String> {
+fn synonyms_of(layout: &TextLayout, query_tokens: &[(String, u32)]) -> Result<HashSet<String>> {
     let mut synonyms = HashSet::new();
     let Some(lookup) = &layout.synonyms.lookup else {
-        return synonyms;
+        return Ok(synonyms);
     };
     let tokens: Vec<String> = query_tokens
         .iter()
         .map(|(token, _)| token.clone())
         .collect();
-    for (_, added) in lookup.expand(&tokens) {
+    for (_, added) in lookup.expand(&tokens)? {
         synonyms.extend(added);
     }
-    synonyms
+    Ok(synonyms)
 }
 
 impl Highlighter {
@@ -180,7 +180,7 @@ impl Highlighter {
         };
         let mut synonyms = match exact || query_tokens.is_empty() {
             true => HashSet::new(),
-            false => synonyms_of(layout, &query_tokens),
+            false => synonyms_of(layout, &query_tokens)?,
         };
         synonyms.extend(phrase_tokens);
         let field_analyser =

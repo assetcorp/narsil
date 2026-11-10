@@ -2,7 +2,8 @@ mod support;
 
 use narsil::{IndexConfig, Map, Value, parse_json};
 use support::parity::{
-    ParitySpec, conformance_searches, crate_outcomes, reference_outcomes, synonym_rules,
+    ParitySpec, conformance_searches, crate_outcomes, dataset_documents, reference_outcomes,
+    synonym_rules,
 };
 use support::parity_cases::{
     answered_count, chosen_writes, index_config, query, require_same_outcomes,
@@ -65,6 +66,97 @@ fn queries_over_a_configured_synonym_set_answer_exactly_as_the_reference_does() 
     assert!(
         answered_count(&wanted) >= 12,
         "the reference answers too few queries"
+    );
+    let crate_config = IndexConfig {
+        synonyms: Some(synonym_rules(&rules)),
+        ..index_config(&searches)
+    };
+    let found = crate_outcomes(&spec, crate_config);
+    require_same_outcomes(&spec, &found, &wanted);
+}
+
+const SUMMARY_WORD_LENGTHS: std::ops::RangeInclusive<usize> = 6..=12;
+const WIDE_RULE_WORDS: usize = 40;
+const WIDE_RULE_COUNT: usize = 3;
+const PAIR_RULE_COUNT: usize = 60;
+
+fn summary_words() -> Vec<String> {
+    let mut words = std::collections::BTreeSet::new();
+    for document in dataset_documents() {
+        let summary = document
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        for word in summary.split(|character: char| !character.is_ascii_alphabetic()) {
+            if SUMMARY_WORD_LENGTHS.contains(&word.len()) {
+                words.insert(word.to_ascii_lowercase());
+            }
+        }
+    }
+    words.into_iter().collect()
+}
+
+fn quoted(words: &[String]) -> String {
+    words
+        .iter()
+        .map(|word| format!("\"{word}\""))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[test]
+fn queries_whose_tokens_hold_more_than_fifty_synonyms_share_them_as_the_reference_does() {
+    let searches = conformance_searches();
+    let (removals, updates) = chosen_writes();
+    let words = summary_words();
+    let wide_words = WIDE_RULE_WORDS * WIDE_RULE_COUNT;
+    assert!(
+        words.len() >= wide_words + PAIR_RULE_COUNT * 2,
+        "the dataset holds too few summary words"
+    );
+    let wide_rules: Vec<&[String]> = words[..wide_words].chunks(WIDE_RULE_WORDS).collect();
+    let pair_rules: Vec<&[String]> = words[wide_words..wide_words + PAIR_RULE_COUNT * 2]
+        .chunks(2)
+        .collect();
+    let rules_text: Vec<String> = wide_rules
+        .iter()
+        .chain(&pair_rules)
+        .map(|rule| format!(r#"{{"words": [{}]}}"#, quoted(rule)))
+        .collect();
+    let rules = json(&format!("[{}]", rules_text.join(",")));
+    let first_words = |rules: &[&[String]]| -> String {
+        rules
+            .iter()
+            .map(|rule| rule[0].as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let wide_term = first_words(&wide_rules);
+    let pair_term = first_words(&pair_rules);
+    let queries = vec![
+        query(&format!(r#"{{"term": "{wide_term}", "limit": 25}}"#)),
+        query(&format!(
+            r#"{{"term": "{}", "limit": 25}}"#,
+            wide_rules[0][0]
+        )),
+        query(&format!(r#"{{"term": "{pair_term}", "limit": 25}}"#)),
+        query(&format!(
+            r#"{{"term": "{wide_term} {pair_term}", "limit": 25}}"#
+        )),
+    ];
+    let spec = ParitySpec {
+        index: INDEX_NAME.to_string(),
+        config: config_with_synonyms(&rules),
+        removals,
+        updates,
+        synonym_updates: Vec::new(),
+        queries,
+    };
+    let wanted = reference_outcomes(&spec);
+    assert_eq!(
+        answered_count(&wanted),
+        spec.queries.len(),
+        "the reference answers every query"
     );
     let crate_config = IndexConfig {
         synonyms: Some(synonym_rules(&rules)),
