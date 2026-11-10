@@ -21,6 +21,7 @@ on:
       - 'packages/spec/**'
       - 'packages/ts/src/**'
       - '.github/workflows/go-engine.yml'
+  workflow_call:
 
 permissions:
   contents: read
