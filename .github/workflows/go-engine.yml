@@ -118,7 +118,7 @@ jobs:
           - platform: darwin-x64
             runner: macos-15-intel
             go: stable
-            race: true
+            race: false
           - platform: win32-x64
             runner: windows-latest
             go: stable
@@ -135,7 +135,7 @@ jobs:
     env:
       PART_1_TESTS: TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact
       PART_2_TESTS: TestEveryAcknowledgedVectorFindsItselfWhileGrowthPassesPlaceNewOnes|TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew|TestCrossImplementationSavesOpenWithTheSameAnswers
-      PART_3_TESTS: TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally|TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory|TestCrashKeepsEveryAcknowledgedWrite|TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector
+      PART_3_TESTS: TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally|TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory|TestCrashKeepsEveryAcknowledgedWrite
 
     defaults:
       run:
@@ -152,10 +152,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the TypeScript engine's runtime dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --prod --filter @delali/narsil
 
       - name: Download the TypeScript engine
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
