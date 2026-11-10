@@ -10,8 +10,8 @@ use crate::index::indexed::nested_value;
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::index::tail::TailSegment;
 use crate::pattern::constants::PATTERN_RUN_CODE_POINTS;
+use crate::pattern::text::append_case_fold;
 use crate::schema::CompiledSchema;
-use crate::util::case_fold::append_folded;
 use crate::value::Value;
 
 /// The field columns of one merge input in that input's order, borrowed from a frozen segment or built from a tail.
@@ -49,9 +49,7 @@ pub(crate) fn tail_pattern_column(path: &str, values: &[(u32, Value)]) -> Result
         runs.clear();
         for text in texts {
             folded.clear();
-            for point in text.chars() {
-                append_folded(u32::from(point), &mut folded);
-            }
+            append_case_fold(text, &mut folded)?;
             runs.extend(
                 folded
                     .windows(PATTERN_RUN_CODE_POINTS)

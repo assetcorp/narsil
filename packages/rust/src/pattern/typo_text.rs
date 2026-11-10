@@ -1,23 +1,24 @@
 use super::constants::PATTERN_RUN_CODE_POINTS;
-use crate::util::case_fold::append_folded;
+use super::text::append_folded_code_point;
+use crate::error::Result;
 
 pub(crate) struct TypoText {
     pub(crate) folded: Vec<u32>,
     pub(crate) longest_fold: usize,
 }
 
-pub(crate) fn fold_typo_text(text: &str) -> TypoText {
+pub(crate) fn fold_typo_text(text: &str) -> Result<TypoText> {
     let mut folded = Vec::with_capacity(text.len());
     let mut longest_fold = 0;
     for character in text.chars() {
         let before = folded.len();
-        append_folded(character as u32, &mut folded);
+        append_folded_code_point(u32::from(character), &mut folded)?;
         longest_fold = longest_fold.max(folded.len() - before);
     }
-    TypoText {
+    Ok(TypoText {
         folded,
         longest_fold,
-    }
+    })
 }
 
 fn keep_distinct_run(runs: &mut Vec<u32>, folded: &[u32], at: usize) {
