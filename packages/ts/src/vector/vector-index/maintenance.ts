@@ -103,7 +103,7 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
 }
 
 export function completeGraph(state: VectorIndexState): Promise<void> {
-  return buildExclusively(state, () => fillGraph(state), false)
+  return buildExclusively(state, () => fillGraph(state), false, true)
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {

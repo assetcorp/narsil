@@ -80,14 +80,38 @@ async function recalibratesForRebuild(state: VectorIndexState, graph: HNSWIndex)
   return recalibrateWhenDrifted(state, graph.size)
 }
 
+export async function keepBuildsOut(state: VectorIndexState): Promise<() => void> {
+  while (state.buildsKeptOut !== null) await state.buildsKeptOut.ended
+  if (state.disposed) return () => undefined
+  let end: () => void = () => undefined
+  const ended = new Promise<void>(resolve => {
+    end = resolve
+  })
+  const kept = { ended, end }
+  state.buildsKeptOut = kept
+  return () => {
+    if (state.buildsKeptOut !== kept) return
+    letBuildsIn(state)
+    scheduleBuild(state)
+  }
+}
+
+function letBuildsIn(state: VectorIndexState): void {
+  const kept = state.buildsKeptOut
+  state.buildsKeptOut = null
+  kept?.end()
+}
+
 export async function buildExclusively(
   state: VectorIndexState,
   work: () => Promise<void>,
   waitsForShuffledRebuild = true,
+  keepsBuildsOut = false,
 ): Promise<void> {
   for (;;) {
     if (state.pendingBuild !== null) await state.pendingBuild
     else if (waitsForShuffledRebuild && state.shuffledRebuild !== null) await state.shuffledRebuild
+    else if (!keepsBuildsOut && state.buildsKeptOut !== null) await state.buildsKeptOut.ended
     else break
   }
   if (state.disposed) return
@@ -179,7 +203,7 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
 }
 
 export function triggerBuild(state: VectorIndexState): void {
-  if (state.building) return
+  if (state.building || state.buildsKeptOut !== null) return
   state.building = true
 
   const bufferSnapshot = turnsAreBudgeted ? null : new Set(state.buffer)
@@ -237,6 +261,17 @@ function armBuildTimer(state: VectorIndexState, delayMs: number, run: () => void
   state.buildTimer = timer
 }
 
+function connectAfterUnfinishedPass(state: VectorIndexState, graph: HNSWIndex): void {
+  graph.connectUnreached()
+  state.graphsPlacedIntoSinceConnect.delete(graph)
+  noteWrite(state)
+}
+
+export function connectWhereAPassStoppedEarly(state: VectorIndexState): void {
+  const graph = state.hnsw
+  if (graph !== null && state.graphsPlacedIntoSinceConnect.has(graph)) connectAfterUnfinishedPass(state, graph)
+}
+
 function retryAfterBackoff(state: VectorIndexState): void {
   const delayMs = Math.min(BUILD_RETRY_MAX_DELAY_MS, Math.max(BUILD_RETRY_FIRST_DELAY_MS, state.buildRetryDelayMs * 2))
   state.buildRetryDelayMs = delayMs
@@ -244,7 +279,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
   state.buildTimer = null
   armBuildTimer(state, delayMs, () => {
     const graph = state.hnsw
-    if (state.building) {
+    if (state.building || state.buildsKeptOut !== null) {
       retryAfterBackoff(state)
       return
     }
@@ -253,9 +288,7 @@ function retryAfterBackoff(state: VectorIndexState): void {
       return
     }
     try {
-      graph.connectUnreached()
-      state.graphsPlacedIntoSinceConnect.delete(graph)
-      noteWrite(state)
+      connectAfterUnfinishedPass(state, graph)
       state.buildRetryDelayMs = 0
       scheduleWorkerCopyLoad(state)
     } catch (error) {
@@ -273,7 +306,7 @@ function buildDue(state: VectorIndexState): boolean {
 }
 
 export function scheduleBuild(state: VectorIndexState): void {
-  if (state.building || state.buildScheduled || state.disposed) return
+  if (state.building || state.buildScheduled || state.disposed || state.buildsKeptOut !== null) return
   if (!buildDue(state)) return
 
   state.buildScheduled = true
@@ -309,6 +342,7 @@ function releaseHeldMemory(state: VectorIndexState): void {
 
 export function disposeIndex(state: VectorIndexState): Promise<void> {
   state.disposed = true
+  letBuildsIn(state)
   if (state.rebuildWaitTimer !== null) clearTimeout(state.rebuildWaitTimer)
   state.rebuildWaitTimer = null
   if (state.buildTimer !== null) clearTimeout(state.buildTimer)
