@@ -11,6 +11,7 @@ pub(crate) mod config;
 pub(crate) mod constants;
 mod earlier;
 pub(crate) mod load;
+mod load_from_files;
 pub(crate) mod load_source;
 pub(crate) mod log;
 pub(crate) mod metadata;

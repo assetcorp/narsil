@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::load_from_files::open_from_files;
 use super::load_source::CheckpointSource;
 use crate::config::{MAX_PARTITIONS, Storage};
 use crate::engine::index::IndexState;
@@ -7,14 +8,13 @@ use crate::engine::vectors::paths::{set_value_at, value_at};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::HEADER_BYTES;
 use crate::format::graph_part::{
-    GRAPH_PART_ENVELOPE_VERSION, assemble_graph_parts, decode_graph_part,
+    GRAPH_PART_ENVELOPE_VERSION, GraphParts, assemble_graph_parts, decode_graph_part,
 };
 use crate::format::keyword_segment::{KEYWORD_SEGMENT_ENVELOPE_VERSION, decode_keyword_segment};
 use crate::format::manifest::{PartitionEntry, SegmentManifest, SegmentRef};
-use crate::format::manifest_refs::{FileRef, VectorFieldRef};
+use crate::format::manifest_refs::VectorFieldRef;
 use crate::format::paged_segment::PAGED_SEGMENT_ENVELOPE_VERSION;
 use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, decode_vector_file};
-use crate::format::vector_head::{check_graph_part_head, check_vector_file_head};
 use crate::index::frozen::FrozenSegment;
 use crate::index::paged::{PagedListing, open_paged_segment};
 use crate::index::partition::{Partition, PartitionSnapshot};
@@ -205,29 +205,13 @@ pub(super) fn vectors_location(
     }))
 }
 
-fn load_vector_field(
+pub(super) fn read_graph_parts(
     store: &dyn CheckpointSource,
-    index: &IndexState,
     listed: &VectorFieldRef,
-) -> Result<()> {
-    let Some(field) = index.vectors.field(&listed.field_path) else {
-        return Ok(());
-    };
-    let vectors_on_disk = index
-        .config()
-        .vector_promotion
-        .as_ref()
-        .and_then(|promotion| promotion.storage)
-        == Some(Storage::Disk);
-    let checks_head = |file: &FileRef| -> Result<bool> {
-        Ok(vectors_on_disk && file.head.is_some() && store.holds_raw_payload(&file.key)?)
-    };
+) -> Result<Option<GraphParts>> {
     let mut parts = Vec::with_capacity(listed.graph_parts.len());
     for part in &listed.graph_parts {
         let payload = store.read_listed(part, "graph part", GRAPH_PART_ENVELOPE_VERSION, true)?;
-        if checks_head(part)? {
-            check_graph_part_head(&payload, part)?;
-        }
         let decoded = decode_graph_part(&payload)?;
         if decoded.field_name != listed.field_path {
             return Err(load_failed(format!(
@@ -237,11 +221,24 @@ fn load_vector_field(
         }
         parts.push(decoded);
     }
-    let graph = if parts.is_empty() {
-        None
-    } else {
-        Some(assemble_graph_parts(parts)?)
+    if parts.is_empty() {
+        return Ok(None);
+    }
+    assemble_graph_parts(parts).map(Some)
+}
+
+fn load_vector_field(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    listed: &VectorFieldRef,
+) -> Result<()> {
+    let Some(field) = index.vectors.field(&listed.field_path) else {
+        return Ok(());
     };
+    if open_from_files(store, field, listed)? {
+        return Ok(());
+    }
+    let graph = read_graph_parts(store, listed)?;
     let live_vectors = listed
         .files
         .iter()
@@ -260,9 +257,6 @@ fn load_vector_field(
             VECTOR_FILE_ENVELOPE_VERSION,
             false,
         )?;
-        if checks_head(&file.file)? {
-            check_vector_file_head(&payload, &file.file, file.count)?;
-        }
         let decoded = decode_vector_file(&payload)?;
         if decoded.doc_ids.len() != file.count as usize {
             return Err(load_failed(format!(

@@ -217,6 +217,7 @@ fn open_case(case: &CheckpointCase, wanted_ids: &[String]) -> Outcome {
                 narsil.query(&case.index, &query)?;
             }
             search_every_vector_field(&narsil, &case.index)?;
+            narsil.export_documents(&case.index, &mut std::io::sink())?;
             let held = held_documents(&narsil, &case.index, wanted_ids)?;
             Ok((held, narsil.count_documents(&case.index)?))
         })();

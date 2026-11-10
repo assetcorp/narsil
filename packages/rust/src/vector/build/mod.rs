@@ -92,7 +92,7 @@ pub(crate) fn shuffled_rebuild_due(shared: &Shared, graph: &GraphTables, held: u
 }
 
 fn build_due(shared: &Shared) -> bool {
-    if shared.restoring.load(Ordering::Acquire) {
+    if shared.restoring.load(Ordering::Acquire) || shared.is_cold() {
         return false;
     }
     let generation = shared.current();

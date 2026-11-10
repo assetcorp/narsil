@@ -73,26 +73,36 @@ pub(crate) fn search_depths(
 ) -> SearchDepths {
     let store = &generation.store;
     let quantised = store.bits != 0 && store.calibrated() && store.code_count() > 0;
+    depths_for(quantised.then_some(store.bits), store.dimension, k, options)
+}
+
+pub(crate) fn depths_for(
+    code_bits: Option<u8>,
+    dimension: usize,
+    k: usize,
+    options: &VectorSearchOptions,
+) -> SearchDepths {
     let window = options.rescore_window.unwrap_or(k);
-    let depth = if !quantised {
-        window
-    } else {
-        let default_depth = default_rescore_depth(store.bits, store.dimension, window);
-        match options.oversample {
-            Some(oversample) => ((window as f64 * oversample).ceil() as usize)
-                .min(default_depth.max(OVERSAMPLED_DEPTH_CAP)),
-            None => default_depth,
+    let depth = match code_bits {
+        None => window,
+        Some(bits) => {
+            let default_depth = default_rescore_depth(bits, dimension, window);
+            match options.oversample {
+                Some(oversample) => ((window as f64 * oversample).ceil() as usize)
+                    .min(default_depth.max(OVERSAMPLED_DEPTH_CAP)),
+                None => default_depth,
+            }
         }
     };
     let ef = options
         .ef_search
-        .unwrap_or_else(|| default_ef_search(store.dimension, window))
+        .unwrap_or_else(|| default_ef_search(dimension, window))
         .max(depth)
         .max(1);
     SearchDepths {
         ef,
         depth,
-        quantised,
+        quantised: code_bits.is_some(),
     }
 }
 

@@ -62,7 +62,13 @@ impl IndexVectors {
     ) -> Result<VectorUndo> {
         let mut undo = VectorUndo::default();
         for (position, entry) in self.fields.iter().enumerate() {
-            let previous = entry.field.get_vector(doc_id);
+            let previous = match entry.field.get_vector(doc_id) {
+                Ok(previous) => previous,
+                Err(error) => {
+                    self.undo(doc_id, undo);
+                    return Err(error);
+                }
+            };
             let outcome = match vectors.get(position) {
                 Some(vector) if previous.as_deref() == Some(vector) => continue,
                 Some(vector) => entry.field.insert(doc_id, vector),

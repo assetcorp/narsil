@@ -1,5 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result, load_failed};
-use crate::format::file_sections::{RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES};
+use crate::format::envelope::HEADER_BYTES;
+use crate::format::file_sections::{RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES, binary_header_bytes};
 use crate::format::manifest_refs::FileRef;
 use crate::format::paged_segment::head::{PagedSection, decode_sections};
 use crate::util::hash::crc32;
@@ -7,29 +8,58 @@ use crate::value::{Map, Value, decode_value};
 
 const FLOAT64_BYTES: u64 = 8;
 const UINT32_BYTES: usize = 4;
-const VECTOR_FILE_SECTIONS: [&str; 4] = ["docIds", "idOffsets", "idOrder", "vectors"];
+const CODES_KEY_AND_MAP_HEADER_BYTES: usize = 7;
+const CODE_VALUES_BEFORE_RECORDS: usize = 5;
+const FIXARRAY_OF_CODE_VALUES: u8 = 0x90 | CODE_VALUES_BEFORE_RECORDS as u8;
+const MAX_CENTROID_BYTES_PER_COMPONENT: u64 = 9;
+const MAX_CODE_BYTES_BESIDE_CENTROID: u64 = 64;
 
-fn head_of<'a>(payload: &'a [u8], file: &FileRef) -> Result<Option<&'a [u8]>> {
-    let Some(head) = &file.head else {
-        return Ok(None);
-    };
-    let key = &file.key;
-    let bytes = usize::try_from(head.offset).ok().and_then(|start| {
-        let end = start.checked_add(usize::try_from(head.length).ok()?)?;
-        payload.get(start..end)
-    });
-    let Some(bytes) = bytes else {
-        return load_failed(format!(
-            "The head of the file \"{key}\" ends outside its payload"
-        ));
-    };
-    if crc32(bytes) != head.checksum {
-        return Err(NarsilError::new(
-            ErrorCode::PERSISTENCE_CRC_MISMATCH,
-            format!("The head of the file \"{key}\" does not match its checksum"),
-        ));
+pub(crate) struct VectorFileSections {
+    pub(crate) doc_ids: PagedSection,
+    pub(crate) id_offsets: PagedSection,
+    pub(crate) id_order: PagedSection,
+    pub(crate) magnitudes: PagedSection,
+    pub(crate) vectors: PagedSection,
+    pub(crate) records: Option<PagedSection>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FileCodes {
+    pub(crate) bits: u8,
+    pub(crate) centroid: Vec<f32>,
+}
+
+pub(crate) struct CodesSpan {
+    pub(crate) offset: u64,
+    pub(crate) length: usize,
+}
+
+pub(crate) struct GraphPartLayout {
+    pub(crate) entry_point: Option<f64>,
+    pub(crate) max_layer: f64,
+    pub(crate) levels: PagedSection,
+    pub(crate) node_offsets: Vec<u32>,
+    pub(crate) neighbours: PagedSection,
+}
+
+pub(crate) fn payload_length_of(file: &FileRef) -> u64 {
+    file.bytes.saturating_sub(HEADER_BYTES as u64)
+}
+
+pub(crate) fn require_head_checksum(head: &[u8], file: &FileRef) -> Result<()> {
+    if file
+        .head
+        .is_some_and(|listed| listed.checksum == crc32(head))
+    {
+        return Ok(());
     }
-    Ok(Some(bytes))
+    Err(NarsilError::new(
+        ErrorCode::PERSISTENCE_CRC_MISMATCH,
+        format!(
+            "The head of the file \"{}\" does not match its checksum",
+            file.key
+        ),
+    ))
 }
 
 fn decoded_head(head: &[u8], key: &str) -> Result<Map> {
@@ -48,70 +78,137 @@ fn decoded_head(head: &[u8], key: &str) -> Result<Map> {
     }
 }
 
-fn check_pages(payload: &[u8], section: &PagedSection, key: &str) -> Result<()> {
-    let end = section.offset.saturating_add(section.length);
-    for page in 0..section.page_count() {
-        let start = section
-            .offset
-            .saturating_add(page.saturating_mul(section.page_bytes));
-        let stop = start.saturating_add(section.page_bytes).min(end);
-        let bytes = usize::try_from(start)
-            .ok()
-            .zip(usize::try_from(stop).ok())
-            .and_then(|(start, stop)| payload.get(start..stop));
-        let Some(bytes) = bytes else {
-            return load_failed(format!(
-                "Section \"{}\" of the file \"{key}\" ends outside its payload",
-                section.name
-            ));
-        };
-        if section.checksum_of_page(page) != Some(crc32(bytes)) {
-            return Err(NarsilError::new(
-                ErrorCode::PERSISTENCE_CRC_MISMATCH,
-                format!(
-                    "Page {page} of section \"{}\" of the file \"{key}\" does not match its checksum",
-                    section.name
-                ),
-            ));
-        }
-    }
-    Ok(())
+pub(crate) fn decode_vector_file_head(head: &[u8], file: &FileRef) -> Result<Vec<PagedSection>> {
+    let key = file.key.as_str();
+    let raw = decoded_head(head, key)?;
+    decode_sections(
+        raw.get("sections"),
+        payload_length_of(file),
+        &format!("head of \"{key}\""),
+        &[SEGMENT_PAGE_BYTES as u64, RECORD_PAGE_BYTES as u64],
+    )
 }
 
-fn required<'a>(sections: &'a [PagedSection], name: &str, key: &str) -> Result<&'a PagedSection> {
-    match sections.iter().find(|section| section.name == name) {
-        Some(section) => Ok(section),
+fn listed<'a>(sections: &'a [PagedSection], name: &str) -> Option<&'a PagedSection> {
+    sections.iter().find(|section| section.name == name)
+}
+
+fn required(sections: &[PagedSection], name: &str, key: &str) -> Result<PagedSection> {
+    match listed(sections, name) {
+        Some(section) => Ok(section.clone()),
         None => load_failed(format!("The head of \"{key}\" lists no section \"{name}\"")),
     }
 }
 
-/// Checks the head that the manifest lists for a vector file of a field whose vectors stay on disk, holding
-/// `count` vectors: the head's CRC-32 against the manifest, its sections against the payload, and the CRC-32 of
-/// every page of every section, so that a damaged file refuses the open as it would refuse a read by position.
-pub(crate) fn check_vector_file_head(payload: &[u8], file: &FileRef, count: u32) -> Result<()> {
-    let key = file.key.as_str();
-    let Some(head) = head_of(payload, file)? else {
-        return Ok(());
+pub(crate) fn codes_span(
+    sections: &[PagedSection],
+    dimension: usize,
+    key: &str,
+) -> Result<Option<CodesSpan>> {
+    let (Some(records), Some(doc_ids)) = (listed(sections, "records"), listed(sections, "docIds"))
+    else {
+        return Ok(None);
     };
-    let raw = decoded_head(head, key)?;
-    let sections = decode_sections(
-        raw.get("sections"),
-        payload.len() as u64,
-        &format!("head of \"{key}\""),
-        &[SEGMENT_PAGE_BYTES as u64, RECORD_PAGE_BYTES as u64],
-    )?;
-    let magnitudes = required(&sections, "magnitudes", key)?;
+    let offset = doc_ids.offset.saturating_add(doc_ids.length);
+    let record_header = usize::try_from(records.length).map_or(5, binary_header_bytes) as u64;
+    let length = records
+        .offset
+        .checked_sub(offset)
+        .and_then(|between| between.checked_sub(record_header))
+        .filter(|&length| length > CODES_KEY_AND_MAP_HEADER_BYTES as u64);
+    let Some(length) = length else {
+        return load_failed(format!(
+            "The file \"{key}\" places its codes before its IDs"
+        ));
+    };
+    let most = (dimension as u64)
+        .saturating_mul(MAX_CENTROID_BYTES_PER_COMPONENT)
+        .saturating_add(MAX_CODE_BYTES_BESIDE_CENTROID);
+    if length > most {
+        return load_failed(format!(
+            "The file \"{key}\" holds its codes in another layout"
+        ));
+    }
+    Ok(Some(CodesSpan {
+        offset,
+        length: length as usize,
+    }))
+}
+
+pub(crate) fn decode_file_codes(span: &[u8], key: &str) -> Result<FileCodes> {
+    let mut listed = Vec::with_capacity(span.len());
+    listed.push(FIXARRAY_OF_CODE_VALUES);
+    listed.extend_from_slice(
+        span.get(CODES_KEY_AND_MAP_HEADER_BYTES..)
+            .unwrap_or_default(),
+    );
+    let values = match decode_value(&listed) {
+        Ok(Value::Array(values)) => values,
+        Ok(_) => Vec::new(),
+        Err(error) => {
+            return load_failed(format!(
+                "The codes of \"{key}\" are not MessagePack: {}",
+                error.message()
+            ));
+        }
+    };
+    let (
+        Some(Value::String(bits_key)),
+        Some(bits),
+        Some(Value::String(centroid_key)),
+        Some(Value::Array(centroid)),
+    ) = (values.first(), values.get(1), values.get(2), values.get(3))
+    else {
+        return load_failed(format!(
+            "The file \"{key}\" holds its codes in another layout"
+        ));
+    };
+    if bits_key != "bits" || centroid_key != "centroid" {
+        return load_failed(format!(
+            "The file \"{key}\" holds its codes in another layout"
+        ));
+    }
+    let bits = match bits {
+        Value::Number(number) if [1.0, 2.0, 4.0, 8.0].contains(number) => *number as u8,
+        other => {
+            return load_failed(format!(
+                "The file \"{key}\" holds {} bit codes",
+                other.to_json()
+            ));
+        }
+    };
+    let centroid = centroid
+        .iter()
+        .map(|component| match component {
+            Value::Number(number) if number.is_finite() && (*number as f32).is_finite() => {
+                Ok(*number as f32)
+            }
+            _ => load_failed(format!(
+                "The centroid of \"{key}\" holds an invalid float32 value"
+            )),
+        })
+        .collect::<Result<Vec<f32>>>()?;
+    Ok(FileCodes { bits, centroid })
+}
+
+pub(crate) fn vector_file_sections(
+    sections: &[PagedSection],
+    key: &str,
+    count: u32,
+) -> Result<VectorFileSections> {
+    let magnitudes = required(sections, "magnitudes", key)?;
     if magnitudes.length != u64::from(count) * FLOAT64_BYTES {
         let held = Value::Number(magnitudes.length as f64 / FLOAT64_BYTES as f64).to_json();
         return load_failed(format!("The file \"{key}\" holds {held} magnitudes"));
     }
-    for name in VECTOR_FILE_SECTIONS {
-        required(&sections, name, key)?;
-    }
-    for section in &sections {
-        check_pages(payload, section, key)?;
-    }
-    Ok(())
+    Ok(VectorFileSections {
+        doc_ids: required(sections, "docIds", key)?,
+        id_offsets: required(sections, "idOffsets", key)?,
+        id_order: required(sections, "idOrder", key)?,
+        vectors: required(sections, "vectors", key)?,
+        records: listed(sections, "records").cloned(),
+        magnitudes,
+    })
 }
 
 fn one_section(
@@ -139,12 +236,15 @@ fn node_offsets(
     levels: &PagedSection,
     neighbours: &PagedSection,
     key: &str,
-) -> Result<()> {
+) -> Result<Vec<u32>> {
     let Some(Value::Bytes(bytes)) = layout.get("nodeOffsets") else {
         return load_failed(format!("The head of \"{key}\" holds no node offsets"));
     };
+    if bytes.len() % UINT32_BYTES != 0 {
+        return load_failed("The node offsets do not hold whole uint32 values");
+    }
     let count = bytes.len() / UINT32_BYTES;
-    if bytes.len() % UINT32_BYTES != 0 || count as u64 != levels.length.saturating_add(1) {
+    if count as u64 != levels.length.saturating_add(1) {
         return load_failed(format!(
             "The head of \"{key}\" holds the wrong number of offsets"
         ));
@@ -166,44 +266,45 @@ fn node_offsets(
             "The node offsets of \"{key}\" end outside its neighbour lists"
         ));
     }
-    Ok(())
+    Ok(offsets)
 }
 
-/// Checks the head that the manifest lists for a graph part of a field whose vectors stay on disk: the head's
-/// CRC-32 against the manifest, its level and neighbour sections against the payload, its node offsets against
-/// those sections, and the CRC-32 of every page of both sections.
-pub(crate) fn check_graph_part_head(payload: &[u8], file: &FileRef) -> Result<()> {
+pub(crate) fn decode_graph_part_head(
+    head: &[u8],
+    file: &FileRef,
+) -> Result<Option<GraphPartLayout>> {
     let key = file.key.as_str();
-    let Some(head) = head_of(payload, file)? else {
-        return Ok(());
-    };
     let raw = decoded_head(head, key)?;
     let Some(Value::Array(graphs)) = raw.get("graphs") else {
-        return Ok(());
+        return Ok(None);
     };
     let [graph] = graphs.as_slice() else {
-        return Ok(());
+        return Ok(None);
     };
     let empty = Map::new();
     let layout = match graph {
         Value::Object(layout) => layout,
         _ => &empty,
     };
-    let payload_length = payload.len() as u64;
+    let payload_length = payload_length_of(file);
     let levels = one_section(layout, "levels", key, payload_length, SEGMENT_PAGE_BYTES)?;
     let neighbours = one_section(layout, "neighbours", key, payload_length, RECORD_PAGE_BYTES)?;
-    node_offsets(layout, &levels, &neighbours, key)?;
-    if !matches!(layout.get("maxLayer"), Some(Value::Number(_)))
-        || !matches!(layout.get("m"), Some(Value::Number(_)))
-    {
+    let node_offsets = node_offsets(layout, &levels, &neighbours, key)?;
+    let (Some(Value::Number(max_layer)), Some(Value::Number(_))) =
+        (layout.get("maxLayer"), layout.get("m"))
+    else {
         return load_failed(format!("The head of \"{key}\" holds no layers"));
-    }
-    if !matches!(
-        layout.get("entryPoint"),
-        Some(Value::Number(_)) | Some(Value::Null)
-    ) {
-        return load_failed(format!("The head of \"{key}\" holds no entry"));
-    }
-    check_pages(payload, &levels, key)?;
-    check_pages(payload, &neighbours, key)
+    };
+    let entry_point = match layout.get("entryPoint") {
+        Some(Value::Number(entry)) => Some(*entry),
+        Some(Value::Null) => None,
+        _ => return load_failed(format!("The head of \"{key}\" holds no entry")),
+    };
+    Ok(Some(GraphPartLayout {
+        entry_point,
+        max_layer: *max_layer,
+        levels,
+        node_offsets,
+        neighbours,
+    }))
 }
