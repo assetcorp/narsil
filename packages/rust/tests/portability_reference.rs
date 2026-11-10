@@ -326,7 +326,7 @@ fn every_damaged_export_gets_the_reference_outcome_through_a_full_import() {
     let cases = damaged_cases("export");
     assert_eq!(
         cases.len(),
-        12,
+        16,
         "cases.json lists {} export cases",
         cases.len()
     );
