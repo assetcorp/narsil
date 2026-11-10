@@ -87,16 +87,16 @@ func untilGrowthStatus(narsil *engine.Narsil, reached func(status engine.VectorM
 
 func checkpointInsideGrowthPass(ctx context.Context, narsil *engine.Narsil) (bool, error) {
 	before, err := untilGrowthStatus(narsil, func(status engine.VectorMaintenanceResult) bool {
-		return status.BufferSize < growthPromotionThreshold
+		return status.Building || status.BufferSize == 0
 	})
-	if err != nil || before.BufferSize == 0 {
+	if err != nil || !before.Building || before.BufferSize == 0 {
 		return false, err
 	}
 	if err := narsil.Checkpoint(ctx, growthIndexName); err != nil {
 		return false, err
 	}
 	after, err := growthStatus(narsil)
-	return after.BufferSize > 0, err
+	return after.Building && after.BufferSize > 0, err
 }
 
 func runGrowthCheckpointChild(directory string, readyPath string) error {
@@ -235,8 +235,14 @@ func firstHitID(hits []engine.Hit) string {
 }
 
 func TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew(t *testing.T) {
+	node := nodeForSavedGraphs(t)
 	directory := t.TempDir()
 	inserted := documentsHeldWhenTheChildStopped(t, directory)
+	saved := readSavedGraph(t, node, directory, growthIndexName)
+	if saved.LiveWithoutNode == 0 || saved.UnreachedLiveNodes > 0 || saved.LiveNodes+saved.LiveWithoutNode != inserted {
+		t.Fatalf("the checkpoint taken inside a growth pass saved %d placed and %d waiting vectors of the %d acknowledged, and %d placed vectors that its graph never reaches",
+			saved.LiveNodes, saved.LiveWithoutNode, inserted, saved.UnreachedLiveNodes)
+	}
 	live := make(map[string][]float32, inserted)
 	for slot := range inserted {
 		live[growthID(slot)] = growthVector(slot)
@@ -256,13 +262,8 @@ func TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGr
 		t.Fatalf("the reopened index counts %d documents (%v), while the child had %d acknowledged", count, err, inserted)
 	}
 	requireEveryVectorFindsItself(t, "right after the restart", narsil, live)
-	loaded, err := untilGrowthStatus(narsil, func(status engine.VectorMaintenanceResult) bool { return !status.LoadingFromFiles })
-	if err != nil {
+	if _, err := untilGrowthStatus(narsil, func(status engine.VectorMaintenanceResult) bool { return !status.LoadingFromFiles }); err != nil {
 		t.Fatalf("the vector field never finished loading: %v", err)
-	}
-	if loaded.BufferSize == 0 || loaded.BufferSize >= growthPromotionThreshold || loaded.Building {
-		t.Fatalf("the reopened field holds %d vectors outside its graph (building %v), so the checkpoint it loaded was not taken inside a growth pass",
-			loaded.BufferSize, loaded.Building)
 	}
 	requireEveryVectorFindsItself(t, "once the saved graph is loaded", narsil, live)
 }

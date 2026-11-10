@@ -94,26 +94,15 @@ func (f *Field) foldIntoGraph(ctx context.Context) error {
 		_, err = f.buildGraphFromStore(ctx)
 		return err
 	}
-	return f.insertMissing(ctx, graph)
+	return f.insertMissing(ctx)
 }
 
-func (f *Field) insertMissing(ctx context.Context, graph *graphMemory) error {
+func (f *Field) insertMissing(ctx context.Context) error {
 	f.writeMu.Lock()
 	held := f.liveDocIDs()
-	lineage := graph.lineage
 	f.writeMu.Unlock()
-	stillUnplaced := func(docID string) bool {
-		if f.tombstones.has(docID) {
-			return false
-		}
-		current := f.graph
-		if current == nil || current.lineage != lineage {
-			return true
-		}
-		ordinal, known := f.store.ordinalOf(docID)
-		return !known || !current.holdsLiveNode(ordinal) || f.buffer.has(docID)
-	}
-	if _, _, err := f.insertLocally(ctx, graph, held, stillUnplaced); err != nil {
+	stillLive := func(docID string) bool { return !f.tombstones.has(docID) }
+	if err := f.growPrivately(ctx, held, stillLive); err != nil {
 		return err
 	}
 	return f.shuffledRebuildWhenDue(ctx)
@@ -155,7 +144,7 @@ func (f *Field) fillGraph(ctx context.Context) error {
 		_, err := f.buildGraphFromStore(ctx)
 		return err
 	}
-	return f.insertMissing(ctx, graph)
+	return f.insertMissing(ctx)
 }
 
 func (f *Field) CompleteGraph(ctx context.Context) error {
@@ -175,20 +164,6 @@ func durationOf(count int, millisecondsPerItem float64, scale float64) time.Dura
 	return time.Duration(milliseconds) * time.Millisecond
 }
 
-func (f *Field) bufferedOutsideGraph() int {
-	if f.graph == nil {
-		return f.buffer.size()
-	}
-	outside := 0
-	for _, docID := range f.buffer.values() {
-		ordinal, held := f.store.ordinalOf(docID)
-		if !held || !f.graph.holdsLiveNode(ordinal) {
-			outside++
-		}
-	}
-	return outside
-}
-
 func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 	f.writeMu.Lock()
 	defer f.writeMu.Unlock()
@@ -203,8 +178,7 @@ func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 		ratio = float64(tombstoned) / float64(graphNodes)
 	}
 	rebuilds := f.graph == nil || f.graphNeedsRebuild() || f.shuffledRebuildDue(f.liveSize())
-	outsideGraph := f.bufferedOutsideGraph()
-	optimizeCount := outsideGraph
+	optimizeCount := f.buffer.size()
 	if rebuilds {
 		optimizeCount = storeSize
 	}
@@ -216,7 +190,7 @@ func (f *Field) MaintenanceStatus() model.VectorMaintenanceResult {
 		FieldName:         f.config.fieldName,
 		TombstoneRatio:    ratio,
 		GraphCount:        graphCount,
-		BufferSize:        outsideGraph,
+		BufferSize:        f.buffer.size(),
 		Building:          f.builds.running || f.builds.retry != nil,
 		WaitingForMemory:  f.builds.waitingForMemory,
 		EstimatedCompact:  durationOf(tombstoned, estimatedCompactPerTombstone, f.config.dimensionScale),

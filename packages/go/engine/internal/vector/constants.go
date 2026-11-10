@@ -61,6 +61,7 @@ const (
 	searchScratchInitialCandidates = 256
 	initialReachQueue              = 4096
 	liveCountsKept                 = 16
+	growthPassMaxVectors           = 4096
 )
 
 const (

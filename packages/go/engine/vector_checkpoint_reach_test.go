@@ -59,10 +59,14 @@ func reachVector(number int) []float32 {
 	return vector
 }
 
-func insertReachWave(ctx context.Context, narsil *engine.Narsil, first int) error {
-	batch := make([]*engine.Document, 0, reachWaveDocuments)
-	for number := first; number < first+reachWaveDocuments; number++ {
-		batch = append(batch, engine.NewDocument().Set("id", fmt.Sprintf("lantern-%05d", number)).
+func reachID(number int) string {
+	return fmt.Sprintf("lantern-%05d", number)
+}
+
+func insertReachWave(ctx context.Context, narsil *engine.Narsil, first int, count int) error {
+	batch := make([]*engine.Document, 0, count)
+	for number := first; number < first+count; number++ {
+		batch = append(batch, engine.NewDocument().Set("id", reachID(number)).
 			Set(reachFieldName, reachVector(number)))
 	}
 	result, err := narsil.InsertBatch(ctx, reachIndexName, batch, engine.InsertOptions{})
@@ -96,11 +100,20 @@ func waitForReachBuilds(t *testing.T, narsil *engine.Narsil) {
 	t.Fatal("the vector field never finished placing the vectors that arrived")
 }
 
-func readSavedGraph(t *testing.T, node string, directory string) savedGraphCounts {
+func nodeForSavedGraphs(t *testing.T) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is not on PATH, so nothing outside the engine can read the checkpoint: %v", err)
+	}
+	return node
+}
+
+func readSavedGraph(t *testing.T, node string, directory string, indexName string) savedGraphCounts {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), reachReaderDeadline)
 	defer cancel()
-	command := exec.CommandContext(ctx, node, filepath.Join("testdata", "saved-graph-reach.mjs"), directory, reachIndexName)
+	command := exec.CommandContext(ctx, node, filepath.Join("testdata", "saved-graph-reach.mjs"), directory, indexName)
 	var report, complaint bytes.Buffer
 	command.Stdout = &report
 	command.Stderr = &complaint
@@ -117,11 +130,21 @@ func readSavedGraph(t *testing.T, node string, directory string) savedGraphCount
 	return fields[0]
 }
 
-func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Fatalf("node is not on PATH, so nothing outside the engine can read the checkpoint: %v", err)
+func savedVectorsOutsideTheirBounds(checkpoint int, saved savedGraphCounts, acknowledged int, mayHold int) string {
+	held := saved.LiveNodes + saved.LiveWithoutNode
+	if saved.UnreachedLiveNodes > 0 {
+		return fmt.Sprintf("checkpoint %d saved a graph of %d nodes that never reaches %d live vectors, such as %v",
+			checkpoint, saved.Nodes, saved.UnreachedLiveNodes, saved.UnreachedExamples)
 	}
+	if held < acknowledged || held > mayHold {
+		return fmt.Sprintf("checkpoint %d saved %d live vectors, %d of them without a node, while %d were acknowledged before it began and at most %d could have arrived by its end",
+			checkpoint, held, saved.LiveWithoutNode, acknowledged, mayHold)
+	}
+	return ""
+}
+
+func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *testing.T) {
+	node := nodeForSavedGraphs(t)
 	directory := t.TempDir()
 	ctx := context.Background()
 	narsil, err := growthEngine(ctx, directory)
@@ -139,7 +162,7 @@ func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *tes
 	if err := narsil.CreateIndex(ctx, reachIndexName, engine.IndexConfig{Schema: schema, VectorPromotion: promotion}); err != nil {
 		t.Fatalf("creating the index failed: %v", err)
 	}
-	if err := insertReachWave(ctx, narsil, 0); err != nil {
+	if err := insertReachWave(ctx, narsil, 0, reachWaveDocuments); err != nil {
 		t.Fatalf("the first wave failed: %v", err)
 	}
 	waitForReachBuilds(t, narsil)
@@ -151,7 +174,7 @@ func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *tes
 	waves := make(chan error, 1)
 	go func() {
 		for arriving.Load() && arrived.Load() < reachMaxDocuments {
-			if err := insertReachWave(ctx, narsil, int(arrived.Load())); err != nil {
+			if err := insertReachWave(ctx, narsil, int(arrived.Load()), reachWaveDocuments); err != nil {
 				waves <- err
 				return
 			}
@@ -159,29 +182,31 @@ func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *tes
 		}
 		waves <- nil
 	}()
-	begunDuringABuild := 0
-	unreached := ""
-	for checkpoint := 0; checkpoint < reachCheckpoints && unreached == ""; checkpoint++ {
-		if reachStatus(t, narsil).Building {
-			begunDuringABuild++
-		}
+	savedInsideAPass := 0
+	wrong := ""
+	for checkpoint := 0; checkpoint < reachCheckpoints && wrong == ""; checkpoint++ {
+		acknowledged := int(arrived.Load())
+		building := reachStatus(t, narsil).Building
 		if err := narsil.Checkpoint(ctx, reachIndexName); err != nil {
 			t.Fatalf("checkpoint %d failed with %s: %v", checkpoint, codeOrMessage(err), err)
 		}
-		if saved := readSavedGraph(t, node, directory); saved.UnreachedLiveNodes > 0 {
-			unreached = fmt.Sprintf("checkpoint %d saved a graph of %d nodes that never reaches %d live vectors, such as %v",
-				checkpoint, saved.Nodes, saved.UnreachedLiveNodes, saved.UnreachedExamples)
+		stillBuilding := reachStatus(t, narsil).Building
+		mayHold := int(arrived.Load()) + reachWaveDocuments
+		saved := readSavedGraph(t, node, directory, reachIndexName)
+		wrong = savedVectorsOutsideTheirBounds(checkpoint, saved, acknowledged, mayHold)
+		if building && stillBuilding && saved.LiveWithoutNode > 0 {
+			savedInsideAPass++
 		}
 	}
 	arriving.Store(false)
 	if err := <-waves; err != nil {
 		t.Fatalf("a wave failed with %s: %v", codeOrMessage(err), err)
 	}
-	if unreached != "" {
-		t.Fatal(unreached)
+	if wrong != "" {
+		t.Fatal(wrong)
 	}
-	if begunDuringABuild == 0 {
-		t.Fatal("no checkpoint began while a build placed vectors")
+	if savedInsideAPass == 0 {
+		t.Fatal("no checkpoint saved vectors waiting outside the graph while a pass placed them")
 	}
 	if err := narsil.OptimizeVectors(ctx, reachIndexName, reachFieldName); err != nil {
 		t.Fatalf("building the graph of every vector failed: %v", err)
@@ -189,7 +214,7 @@ func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *tes
 	if err := narsil.Checkpoint(ctx, reachIndexName); err != nil {
 		t.Fatalf("the last checkpoint failed: %v", err)
 	}
-	settled := readSavedGraph(t, node, directory)
+	settled := readSavedGraph(t, node, directory, reachIndexName)
 	if settled.LiveNodes != int(arrived.Load()) || settled.LiveWithoutNode != 0 || settled.UnreachedLiveNodes != 0 {
 		t.Fatalf("the settled graph holds %d of the %d vectors that arrived, leaves %d without a node, and never reaches %d",
 			settled.LiveNodes, arrived.Load(), settled.LiveWithoutNode, settled.UnreachedLiveNodes)

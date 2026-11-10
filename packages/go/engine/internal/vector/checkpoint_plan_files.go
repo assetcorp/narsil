@@ -60,9 +60,6 @@ func (f *Field) PlanCheckpoint(ctx context.Context, request CheckpointPlanReques
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := f.connectBeforeCopying(); err != nil {
-		return nil, err
-	}
 	signature := f.signature()
 	trusted := f.registryMatches(request.ListedKeys)
 	capacity := VectorsPerFile(f.config.dimension, f.config.bits)

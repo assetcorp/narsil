@@ -14,7 +14,6 @@ type buildControl struct {
 	retry            *time.Timer
 	waitingForMemory bool
 	rebuilding       bool
-	connectPending   bool
 }
 
 func (b *buildControl) init() {
@@ -123,9 +122,10 @@ func (f *Field) backgroundBuildPass(ctx context.Context) error {
 	f.writeMu.Lock()
 	graph := f.graph
 	snapshot := f.buffer.values()
+	snapshot = snapshot[:min(len(snapshot), f.growthPassLimit())]
 	f.writeMu.Unlock()
 	if graph != nil {
-		return f.growGraph(ctx, graph, snapshot)
+		return f.growGraph(ctx, snapshot)
 	}
 	return f.promoteToGraph(ctx)
 }
