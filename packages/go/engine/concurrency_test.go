@@ -157,6 +157,7 @@ func (run *mixedRun) chaosStep(kind int) error {
 }
 
 func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
+	t.Parallel()
 	run := &mixedRun{ctx: context.Background(), directory: t.TempDir()}
 	for _, token := range mixedOwnerTokens {
 		run.owners = append(run.owners, &mixedOwner{token: token, live: map[string]mixedDocument{}})

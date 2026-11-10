@@ -119,6 +119,7 @@ func cosineSimilarities(dataset conformanceDataset, query []float64) []float64 {
 }
 
 func TestConformanceSearchesMatchTheReferenceOverThePinnedDataset(t *testing.T) {
+	t.Parallel()
 	var expected expectedSearches
 	readJSONFile(t, conformancePath("searches", "queries.json"), &expected)
 	var pin datasetPin

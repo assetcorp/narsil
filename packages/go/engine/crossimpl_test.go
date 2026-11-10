@@ -259,6 +259,7 @@ func sameHits(left [][2]any, right [][2]any) bool {
 }
 
 func TestCrossImplementationSavesOpenWithTheSameAnswers(t *testing.T) {
+	t.Parallel()
 	requireTypeScriptEngine(t)
 	dataset := loadConformanceDataset(t, fetchPinnedDataset(t))
 	if len(dataset.documents) < crossDocumentCount+crossInsertedLater {
@@ -266,6 +267,7 @@ func TestCrossImplementationSavesOpenWithTheSameAnswers(t *testing.T) {
 	}
 	for _, scenario := range crossScenarios() {
 		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
 			plan := buildCrossPlan(dataset, scenario)
 			planPath := filepath.Join(t.TempDir(), "plan.json")
 			writeJSONFile(t, planPath, plan)

@@ -164,6 +164,7 @@ func reopenedDocuments(t *testing.T, directory string, mode string) map[string]a
 }
 
 func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
+	t.Parallel()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("finding the test binary failed: %v", err)

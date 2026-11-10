@@ -229,6 +229,7 @@ func diskTextCheckpoint(t *testing.T, narsil *engine.Narsil, moment string) {
 }
 
 func TestTextStoredOnDiskKeepsEveryAnswerThroughCompactionRestartAndRestore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	directory := t.TempDir()
 	narsil := diskTextEngine(t, directory)

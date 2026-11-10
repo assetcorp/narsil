@@ -235,6 +235,7 @@ func firstHitID(hits []engine.Hit) string {
 }
 
 func TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew(t *testing.T) {
+	t.Parallel()
 	node := nodeForSavedGraphs(t)
 	directory := t.TempDir()
 	inserted := documentsHeldWhenTheChildStopped(t, directory)

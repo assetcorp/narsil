@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -42,6 +43,8 @@ var (
 	sha256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	safeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	retriedStatuses = map[int]bool{408: true, 425: true, 429: true, 500: true, 502: true, 503: true, 504: true}
+
+	pinnedDatasetFetch sync.Mutex
 )
 
 type datasetPin struct {
@@ -182,6 +185,8 @@ func verifiedDatasetDirectory(directory string, pin datasetPin) bool {
 
 func fetchPinnedDataset(t *testing.T) string {
 	t.Helper()
+	pinnedDatasetFetch.Lock()
+	defer pinnedDatasetFetch.Unlock()
 	var pin datasetPin
 	readJSONFile(t, conformancePath("dataset-pin.json"), &pin)
 	if !strings.HasPrefix(pin.URL, "https://") || !sha256Pattern.MatchString(pin.SHA256) {

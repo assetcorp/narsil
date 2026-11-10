@@ -371,6 +371,7 @@ func untilStopped(stop <-chan struct{}, pause time.Duration, step func() error, 
 }
 
 func TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	narsil, err := engine.New(ctx, engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)}})
 	if err != nil {

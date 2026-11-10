@@ -144,6 +144,7 @@ func savedVectorsOutsideTheirBounds(checkpoint int, saved savedGraphCounts, ackn
 }
 
 func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *testing.T) {
+	t.Parallel()
 	node := nodeForSavedGraphs(t)
 	directory := t.TempDir()
 	ctx := context.Background()

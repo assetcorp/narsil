@@ -324,6 +324,7 @@ func openTallyEngine(t *testing.T, directory string) *engine.Narsil {
 }
 
 func TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally(t *testing.T) {
+	t.Parallel()
 	directory := t.TempDir()
 	narsil := openTallyEngine(t, directory)
 	ctx := context.Background()
