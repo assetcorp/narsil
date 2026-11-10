@@ -185,6 +185,10 @@ fn pinned_and_grouped_queries() -> Vec<(Value, usize)> {
         ),
         step(r#"{"term": "tax", "group": {"fields": ["summary"]}}"#, 1),
         step(
+            r#"{"term": "tax", "group": {"fields": ["topics", "year"], "maxPerGroup": 2, "limit": 3}, "filters": {"fields": {"chamber": {"eq": "late"}}}}"#,
+            1,
+        ),
+        step(
             r#"{"term": "tax", "group": {"fields": ["sponsor.rank"], "reduce": "scoreSum"}, "limit": 3}"#,
             2,
         ),

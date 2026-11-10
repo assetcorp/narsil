@@ -5,6 +5,7 @@ use crate::error::Result;
 use crate::ordering::{OwnedSortValue, SortValue};
 use crate::search::components::ScoreComponents as SegmentComponents;
 use crate::search::keyword::KeywordHit;
+use crate::search::rankings::RankedEntry;
 
 #[derive(Clone)]
 pub(crate) struct Ranked {
@@ -24,6 +25,16 @@ impl Ranked {
             location,
             pinned: false,
         }
+    }
+}
+
+impl RankedEntry for Ranked {
+    fn ranking_score(&self) -> f64 {
+        self.score
+    }
+
+    fn ranking_id(&self) -> &str {
+        &self.id
     }
 }
 
