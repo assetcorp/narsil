@@ -18,7 +18,7 @@
       "k1": 1.2,
       "b": 0.75
     },
-    "created_at": 1793882169354,
+    "created_at": 1794313766236,
     "engine_version": "0.1.0",
     "vector_fields": {
       "embedding": {
@@ -29,7 +29,7 @@
     },
     "document_count": 140,
     "surface_forms_enabled": true,
-    "analysis_revision": "ebae3448ae674b59",
+    "analysis_revision": "4026533016c7f4b1",
     "array_position_gap": 100,
     "text_storage": "disk",
     "vector_promotion": {
