@@ -53,7 +53,12 @@ export function endColdHold(state: VectorIndexState): void {
   const hold = state.cold
   if (hold === null) return
   state.cold = null
-  for (const write of hold.writes) write()
+  try {
+    for (const write of hold.writes) write()
+  } catch (error) {
+    state.cold = hold
+    throw error
+  }
   hold.field.close()
 }
 
@@ -88,13 +93,11 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     shape => beginCheckpointRestore(state, shape),
     () => state.cold === hold,
     loadingWanted,
-  ).then(
-    () => {
-      if (state.cold === hold) endColdHold(state)
-      finished()
-    },
-    error => failed(error),
   )
+    .then(() => {
+      if (state.cold === hold) endColdHold(state)
+    })
+    .then(finished, failed)
   loaded.catch(() => undefined)
 }
 
