@@ -93,6 +93,12 @@ static void forget_segment_view(napi_env env, struct segment_view *view) {
   view->generation = 0;
 }
 
+void release_segment_view(napi_env env, struct segment_view *view) {
+  if (view == NULL) { return; }
+  forget_segment_view(env, view);
+  free(view);
+}
+
 static int generation_argument(napi_env env, napi_value value, uint64_t *generation) {
   double number = 0;
   if (napi_get_value_double(env, value, &number) != napi_ok || !(number >= 1 && number <= LARGEST_GENERATION)) {

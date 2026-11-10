@@ -2,6 +2,7 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_segments.h"
+#include "../allocation.h"
 #include "../terms/table.h"
 #include "pools.h"
 #include "strings.h"
@@ -40,7 +41,7 @@ static narsil_status reserve_changes(segment_posting_plan *plan, size_t count) {
     held *= POSTING_PLAN_GROWTH;
   }
   if (held > SIZE_MAX / sizeof(segment_posting_change)) { return NARSIL_OUT_OF_MEMORY; }
-  segment_posting_change *changes = realloc(plan->changes, held * sizeof *changes);
+  segment_posting_change *changes = core_reallocate(plan->changes, held * sizeof *changes);
   if (changes == NULL) { return NARSIL_OUT_OF_MEMORY; }
   plan->changes = changes;
   plan->capacity = held;

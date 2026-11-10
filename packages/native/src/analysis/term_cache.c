@@ -1,5 +1,7 @@
 #include "term_cache.h"
 
+#include "../allocation.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -26,8 +28,8 @@ static int holds(const narsil_term_slot *slot, uint32_t tag, const narsil_term_k
 static int prepared(narsil_term_cache *cache) {
   if (cache->slots != NULL) { return 1; }
   if (cache->unavailable) { return 0; }
-  cache->slots = calloc(TERM_CACHE_SLOTS, sizeof *cache->slots);
-  cache->next_victim = calloc(TERM_CACHE_SETS, sizeof *cache->next_victim);
+  cache->slots = core_allocate_zeroed(TERM_CACHE_SLOTS, sizeof *cache->slots);
+  cache->next_victim = core_allocate_zeroed(TERM_CACHE_SETS, sizeof *cache->next_victim);
   if (cache->slots == NULL || cache->next_victim == NULL) {
     free(cache->slots);
     free(cache->next_victim);

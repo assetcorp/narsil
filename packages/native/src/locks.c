@@ -102,6 +102,12 @@ int32_t node_top_layer(const walk_context *context, int32_t ordinal) {
   return (int32_t)atomic_load(atomic_byte(context->graph->node_levels, (uint32_t)ordinal)) - 1;
 }
 
+int32_t entry_top_layer(const walk_context *context, int32_t entry) {
+  int32_t recorded = load_word(context->graph->header, NARSIL_GRAPH_WORD_TOP_LAYER);
+  int32_t level = node_top_layer(context, entry);
+  return recorded < level ? recorded : level;
+}
+
 uint32_t list_limit(const narsil_graph *graph, int32_t layer) {
   int32_t limit = load_word(graph->header, layer == 0 ? NARSIL_GRAPH_WORD_MMAX0 : NARSIL_GRAPH_WORD_M);
   return limit <= 0 ? 0 : (uint32_t)limit;

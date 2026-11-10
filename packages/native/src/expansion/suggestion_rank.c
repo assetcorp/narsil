@@ -1,4 +1,5 @@
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "internal.h"
 #include "suggestions.h"
 
@@ -23,7 +24,7 @@ narsil_status suggestion_append(suggestion_scratch *scratch, suggestion_entry en
     if (scratch->capacity > SIZE_MAX / 2) { return NARSIL_OUT_OF_MEMORY; }
     size_t capacity = scratch->capacity == 0 ? FIRST_SUGGESTIONS : scratch->capacity * 2;
     if (capacity > SIZE_MAX / sizeof *scratch->entries) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(scratch->entries, capacity * sizeof *scratch->entries);
+    void *grown = core_reallocate(scratch->entries, capacity * sizeof *scratch->entries);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->entries = grown;
     scratch->capacity = capacity;
@@ -114,7 +115,7 @@ narsil_status suggestion_rank(suggestion_scratch *scratch) {
   if (scratch->count == 0) { return NARSIL_OK; }
   if (scratch->count > scratch->group_capacity) {
     if (scratch->count > SIZE_MAX / sizeof *scratch->groups) { return NARSIL_OUT_OF_MEMORY; }
-    void *grown = realloc(scratch->groups, scratch->count * sizeof *scratch->groups);
+    void *grown = core_reallocate(scratch->groups, scratch->count * sizeof *scratch->groups);
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->groups = grown;
     scratch->group_capacity = scratch->count;

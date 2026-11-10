@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_analysis.h"
@@ -704,6 +705,10 @@ static int finish(void) {
 int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], ANALYSIS_THREADS_ONLY) == 0) {
     analysis_thread_checks();
+    return finish();
+  }
+  if (argc > 1 && strcmp(argv[1], ALLOCATION_FAILURES_ONLY) == 0) {
+    allocation_failure_checks(argc > 2 ? argv[2] : NULL, argc > 3 ? argv[3] : NULL);
     return finish();
   }
   narsil_workspace *workspace = NULL;

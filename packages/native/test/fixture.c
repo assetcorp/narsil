@@ -41,6 +41,8 @@ int failed_checks(void) { return failures; }
 
 static uint32_t random_state = RANDOM_SEED;
 
+void restart_random(void) { random_state = RANDOM_SEED; }
+
 static uint32_t next_random(void) {
   random_state = (random_state * RANDOM_MULTIPLIER) + RANDOM_INCREMENT;
   return random_state;
@@ -134,19 +136,72 @@ test_fixture *build_fixture_without_a_graph(uint32_t bits) {
   return fixture;
 }
 
-test_fixture *build_fixture(uint32_t bits) {
-  test_fixture *fixture = calloc(1, sizeof *fixture);
-  if (fixture == NULL) { return NULL; }
-  uint32_t stride = fixture_vector_stride_floats();
+static size_t vector_block_bytes(void) { return (size_t)NODES * fixture_vector_stride_floats() * sizeof(float); }
+
+static size_t record_block_bytes(uint32_t bits) {
   uint32_t record_bytes = fixture_record_bytes(bits);
-  fixture->vectors = calloc((size_t)NODES * stride, sizeof(float));
-  fixture->records = calloc(NODES, record_bytes == 0 ? 1 : record_bytes);
-  if (fixture->vectors == NULL || fixture->records == NULL) {
-    free(fixture->vectors);
-    free(fixture->records);
+  return (size_t)NODES * (record_bytes == 0 ? 1 : record_bytes);
+}
+
+static void point_at_own_arrays(test_fixture *fixture) {
+  fixture->vector_blocks[0] = fixture->vectors;
+  fixture->code_blocks[0] = fixture->records;
+  fixture->graph.header = fixture->graph_header;
+  fixture->graph.node_levels = fixture->node_levels;
+  fixture->graph.level0 = fixture->level0;
+  fixture->graph.upper_base = fixture->upper_base;
+  fixture->graph.upper = fixture->upper;
+  fixture->graph.locks = fixture->locks;
+  fixture->graph.tombstones = fixture->tombstones;
+  fixture->graph.incoming = fixture->incoming;
+  fixture->graph.nearest_link_due = fixture->nearest_link_due;
+  fixture->graph.held_locks = fixture->held_locks;
+  fixture->store.header = fixture->store_header;
+  fixture->store.code_blocks = fixture->code_blocks;
+  fixture->store.code_present = fixture->code_present;
+  fixture->store.centroid = fixture->centroid;
+  fixture->store.vector_blocks = fixture->vector_blocks;
+  fixture->store.magnitudes = fixture->magnitudes;
+  fixture->store.present = fixture->present;
+  fixture->store.vector_file = fixture->vector_file;
+  fixture->store.vector_offset = fixture->vector_offset;
+  fixture->store.born_at = fixture->born_at;
+  fixture->store.retired_at = fixture->retired_at;
+  fixture->store.pins = fixture->pins;
+}
+
+static test_fixture *hold_blocks(test_fixture *fixture, float *vectors, uint8_t *records) {
+  if (fixture == NULL || vectors == NULL || records == NULL) {
+    free(vectors);
+    free(records);
     free(fixture);
     return NULL;
   }
+  fixture->vectors = vectors;
+  fixture->records = records;
+  point_at_own_arrays(fixture);
+  return fixture;
+}
+
+test_fixture *copy_fixture(const test_fixture *source) {
+  if (source == NULL) { return NULL; }
+  size_t record_bytes = record_block_bytes(source->store.bits);
+  test_fixture *fixture = malloc(sizeof *fixture);
+  float *vectors = malloc(vector_block_bytes());
+  uint8_t *records = malloc(record_bytes);
+  if (fixture != NULL && vectors != NULL && records != NULL) {
+    memcpy(fixture, source, sizeof *fixture);
+    memcpy(vectors, source->vectors, vector_block_bytes());
+    memcpy(records, source->records, record_bytes);
+  }
+  return hold_blocks(fixture, vectors, records);
+}
+
+test_fixture *build_fixture(uint32_t bits) {
+  uint32_t stride = fixture_vector_stride_floats();
+  test_fixture *fixture =
+      hold_blocks(calloc(1, sizeof *fixture), calloc(1, vector_block_bytes()), calloc(1, record_block_bytes(bits)));
+  if (fixture == NULL) { return NULL; }
   write_nodes(fixture, bits);
   for (int32_t node = 0; node < NODES; node++) {
     fixture->incoming[node] = MAX_BASE_NEIGHBOURS;
@@ -170,41 +225,15 @@ test_fixture *build_fixture(uint32_t bits) {
   fixture->store_header[NARSIL_STORE_WORD_CALIBRATED] = bits != 0;
   fixture->store_header[NARSIL_STORE_WORD_CODE_COUNT] = bits != 0 ? NODES : 0;
 
-  fixture->vector_blocks[0] = fixture->vectors;
-  fixture->code_blocks[0] = fixture->records;
-  fixture->graph = (narsil_graph){.header = fixture->graph_header,
-                                  .node_levels = fixture->node_levels,
-                                  .level0 = fixture->level0,
-                                  .upper_base = fixture->upper_base,
-                                  .upper = fixture->upper,
-                                  .locks = fixture->locks,
-                                  .tombstones = fixture->tombstones,
-                                  .incoming = fixture->incoming,
-                                  .nearest_link_due = fixture->nearest_link_due,
-                                  .held_locks = fixture->held_locks,
-                                  .thread_slots = THREAD_SLOTS};
-  fixture->store = (narsil_store){.header = fixture->store_header,
-                                  .dimension = DIMENSION,
-                                  .bits = bits,
-                                  .code_blocks = fixture->code_blocks,
-                                  .code_block_count = bits != 0 ? 1U : 0U,
-                                  .records_per_block = NODES,
-                                  .code_present = fixture->code_present,
-                                  .centroid = fixture->centroid,
-                                  .vector_blocks = fixture->vector_blocks,
-                                  .vector_block_count = 1,
-                                  .vectors_per_block = NODES,
-                                  .vector_stride_floats = stride,
-                                  .magnitudes = fixture->magnitudes,
-                                  .present = fixture->present,
-                                  .vector_file = fixture->vector_file,
-                                  .vector_offset = fixture->vector_offset,
-                                  .files = NULL,
-                                  .file_count = 0,
-                                  .born_at = fixture->born_at,
-                                  .retired_at = fixture->retired_at,
-                                  .pins = fixture->pins,
-                                  .pin_slots = THREAD_SLOTS};
+  fixture->graph.thread_slots = THREAD_SLOTS;
+  fixture->store.dimension = DIMENSION;
+  fixture->store.bits = bits;
+  fixture->store.code_block_count = bits != 0 ? 1U : 0U;
+  fixture->store.records_per_block = NODES;
+  fixture->store.vector_block_count = 1;
+  fixture->store.vectors_per_block = NODES;
+  fixture->store.vector_stride_floats = stride;
+  fixture->store.pin_slots = THREAD_SLOTS;
   return fixture;
 }
 
