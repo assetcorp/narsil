@@ -4,7 +4,8 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::keyword::constants::{
     MAX_ROOM_ATTEMPTS, POOL_VACUUM_FREE_DENOMINATOR, POOL_VACUUM_FREE_NUMERATOR,
-    POOL_VACUUM_MIN_FREE_ENTRIES, POSITION_VACUUM_MIN_FREE_VALUES, TERM_VACUUM_MIN_DEAD_TERMS,
+    POOL_VACUUM_MIN_FREE_ENTRIES, POSITION_VACUUM_MIN_FREE_VALUES, TERM_TABLE_START_CAPACITY,
+    TERM_VACUUM_MIN_DEAD_TERMS,
 };
 use crate::keyword::strings::SurfaceTable;
 use crate::keyword::tokens::{SegmentFieldTokens, raw_fields};
@@ -155,6 +156,7 @@ impl GrowingSegment {
         if self.holds_no_keywords() {
             return Ok(());
         }
+        let generation = self.terms.generation();
         let segment = self.raw();
         let status = with_workspace(|workspace| {
             Ok(unsafe {
@@ -168,7 +170,25 @@ impl GrowingSegment {
         if status != ffi::NARSIL_OK {
             return Err(core_refused("a batch boundary", status));
         }
+        if self.terms.generation() != generation {
+            self.trim();
+        }
         Ok(())
+    }
+
+    fn trim(&mut self) {
+        self.terms.trim(TERM_TABLE_START_CAPACITY);
+        self.columns.trim(self.terms.capacity());
+        self.postings.trim();
+        if let Some(positions) = &mut self.positions {
+            positions.trim();
+        }
+        if let Some(surfaces) = &mut self.surfaces {
+            surfaces.trim();
+        }
+        if let Some(spellings) = &mut self.spellings {
+            spellings.trim();
+        }
     }
 
     pub(crate) fn begin_batch(&mut self) -> Result<()> {

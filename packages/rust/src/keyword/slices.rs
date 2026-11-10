@@ -48,6 +48,13 @@ pub(crate) fn grow_to<T: Copy + Default>(values: &mut Vec<T>, capacity: usize) {
     }
 }
 
+pub(crate) fn trim_to<T>(values: &mut Vec<T>, length: usize) {
+    if length < values.len() {
+        values.truncate(length);
+        values.shrink_to_fit();
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SliceAllocator {
     allocation: Box<[u32; ALLOCATION_WORDS]>,

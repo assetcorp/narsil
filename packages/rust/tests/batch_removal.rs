@@ -9,10 +9,16 @@ use narsil::{
 use support::ScratchDirectory;
 
 const INDEX: &str = "ledger";
-const DOCUMENT_COUNT: u64 = 900;
+const DOCUMENT_COUNT: u64 = 3_000;
 const WORD_COUNT: u64 = 61;
 const WORDS_PER_TITLE: u64 = 4;
 const KEPT_STRIDE: u64 = 5;
+const RETURNING_VERSION_SHIFT: u64 = 5_000;
+const LAST_VERSION_SHIFT: u64 = 9_000;
+const VERSION_SPACE: u64 = 12_000;
+const SAMPLED_VERSION_STRIDE: usize = 97;
+const OWN_WORD_SYLLABLES: u32 = 4;
+const SYLLABLE_COUNT: u64 = 21;
 const CONSONANTS: [char; 7] = ['b', 'd', 'g', 'm', 'n', 'r', 't'];
 const VOWELS: [char; 3] = ['a', 'o', 'u'];
 
@@ -27,9 +33,21 @@ fn word(number: u64) -> String {
     format!("q{first}{second}{third}{fourth}k")
 }
 
+fn own_word(version: u64) -> String {
+    let mut text = String::from("z");
+    for place in 0..OWN_WORD_SYLLABLES {
+        let syllable = (version / SYLLABLE_COUNT.pow(place) % SYLLABLE_COUNT) as usize;
+        text.push(CONSONANTS[syllable % 7]);
+        text.push(VOWELS[syllable / 7]);
+    }
+    text.push('k');
+    text
+}
+
 fn words_of(version: u64) -> Vec<String> {
     (0..WORDS_PER_TITLE)
         .map(|at| word((version * 13 + at * at * 7 + version / 3) % WORD_COUNT))
+        .chain([own_word(version)])
         .collect()
 }
 
@@ -81,8 +99,11 @@ fn insert_all(narsil: &Narsil, model: &mut Model, ids: &[String], version_shift:
 fn require_agreement(narsil: &Narsil, model: &Model, moment: &str) {
     let count = narsil.count_documents(INDEX).expect("the count reads");
     assert_eq!(count, model.len() as u64, "the document count {moment}");
-    for number in 0..WORD_COUNT {
-        let sought = word(number);
+    let shared = (0..WORD_COUNT).map(word);
+    let own = (0..VERSION_SPACE)
+        .step_by(SAMPLED_VERSION_STRIDE)
+        .map(own_word);
+    for sought in shared.chain(own) {
         let query = QueryParams {
             term: Some(sought.clone()),
             exact: Some(true),
@@ -98,6 +119,13 @@ fn require_agreement(narsil: &Narsil, model: &Model, moment: &str) {
             .collect();
         assert_eq!(ids, wanted, "the search for {sought} {moment}");
     }
+}
+
+fn estimated_bytes(narsil: &Narsil) -> u64 {
+    narsil
+        .get_stats(INDEX)
+        .expect("the statistics read")
+        .estimated_memory_bytes
 }
 
 fn remove_listed(narsil: &Narsil, model: &mut Model, listed: Vec<String>) {
@@ -152,7 +180,13 @@ fn a_batch_removal_leaves_every_search_as_single_removals_would() {
     listed.insert(40, listed[7].clone());
     listed.push(String::new());
     listed.push(listed[0].clone());
+    let before = estimated_bytes(&narsil);
     remove_listed(&narsil, &mut model, listed);
+    let after = estimated_bytes(&narsil);
+    assert!(
+        after < before,
+        "the index gives back keyword memory once most of its terms are gone: {before} bytes before, {after} after"
+    );
     require_agreement(&narsil, &model, "after most documents leave in one batch");
 
     let returning: Vec<String> = ids
@@ -161,7 +195,7 @@ fn a_batch_removal_leaves_every_search_as_single_removals_would() {
         .filter(|(at, _)| *at as u64 % KEPT_STRIDE == 2)
         .map(|(_, id)| id.clone())
         .collect();
-    insert_all(&narsil, &mut model, &returning, 5_000);
+    insert_all(&narsil, &mut model, &returning, RETURNING_VERSION_SHIFT);
     require_agreement(&narsil, &model, "after removed IDs return with other words");
 
     narsil.shutdown().expect("the engine shuts down");
@@ -171,7 +205,7 @@ fn a_batch_removal_leaves_every_search_as_single_removals_would() {
     let held: Vec<String> = model.keys().cloned().collect();
     remove_listed(&narsil, &mut model, held);
     require_agreement(&narsil, &model, "after every document leaves");
-    insert_all(&narsil, &mut model, &ids[..120], 9_000);
+    insert_all(&narsil, &mut model, &ids[..120], LAST_VERSION_SHIFT);
     require_agreement(&narsil, &model, "after writes follow an emptied index");
 
     narsil.shutdown().expect("the engine shuts down again");
