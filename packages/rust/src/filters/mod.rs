@@ -38,10 +38,10 @@ fn live_bits(capacity: u32, tombstones: &[u32]) -> Vec<u32> {
         *word = u32::MAX;
     }
     let spare = (live.len() as u32 * 32).saturating_sub(capacity);
-    if let Some(last) = live.last_mut() {
-        if spare > 0 {
-            *last = u32::MAX >> spare;
-        }
+    if let Some(last) = live.last_mut()
+        && spare > 0
+    {
+        *last = u32::MAX >> spare;
     }
     and_not_into(&mut live, tombstones);
     live

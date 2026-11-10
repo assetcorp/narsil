@@ -19,6 +19,7 @@ use crate::index::frozen::FrozenSegment;
 use crate::index::paged::{PagedListing, open_paged_segment};
 use crate::index::partition::{Partition, PartitionSnapshot, in_keyword_batch};
 use crate::index::segment::{SegmentData, SegmentEntry};
+use crate::util::bytes::float32_array;
 use crate::value::{Map, Value};
 use crate::vector::restore::{CheckpointRestoreShape, LoadedVectorFile, VectorFileLocation};
 
@@ -311,21 +312,15 @@ pub(crate) fn restore_vector_bytes(index: &IndexState, document: &mut Map) -> Re
         let Some(Value::Bytes(bytes)) = value_at(document, &entry.path) else {
             continue;
         };
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return Err(load_failed(format!(
                 "Vector field \"{}\" has invalid byte length {} (must be divisible by 4)",
                 entry.path,
                 bytes.len()
             )));
         }
-        let numbers = bytes
-            .chunks_exact(4)
-            .map(|chunk| {
-                let raw = <[u8; 4]>::try_from(chunk).unwrap_or_default();
-                Value::Number(f64::from(f32::from_le_bytes(raw)))
-            })
-            .collect();
-        set_value_at(document, &entry.path, Value::Array(numbers));
+        let numbers = float32_array(bytes);
+        set_value_at(document, &entry.path, numbers);
     }
     Ok(())
 }

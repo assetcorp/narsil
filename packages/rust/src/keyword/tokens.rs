@@ -69,28 +69,22 @@ impl PackedTokens {
         position: u32,
     ) -> Result<Option<u32>> {
         let shift = stored_at(&mut self.units, units)?;
-        let last = records
-            .chunks_exact(PACKED_TOKEN_WORDS)
-            .last()
-            .map(|record| record[PACKED_POSITION]);
+        let (packed, _) = records.as_chunks::<PACKED_TOKEN_WORDS>();
+        let last = packed.last().map(|record| record[PACKED_POSITION]);
         self.records
-            .extend(
-                records
-                    .chunks_exact(PACKED_TOKEN_WORDS)
-                    .map(|record| ffi::narsil_token {
-                        position: record[PACKED_POSITION].saturating_add(position),
-                        term_offset: record[PACKED_TERM_OFFSET] + shift,
-                        term_length: record[PACKED_TERM_LENGTH],
-                        surface_offset: match record[PACKED_SURFACE_OFFSET] {
-                            ffi::NARSIL_NO_SURFACE => ffi::NARSIL_NO_SURFACE,
-                            offset => offset + shift,
-                        },
-                        surface_length: record[PACKED_SURFACE_LENGTH],
-                        original_offset: record[PACKED_ORIGINAL_OFFSET],
-                        original_length: record[PACKED_ORIGINAL_LENGTH],
-                        term_slot: record[PACKED_TERM_SLOT],
-                    }),
-            );
+            .extend(packed.iter().map(|record| ffi::narsil_token {
+                position: record[PACKED_POSITION].saturating_add(position),
+                term_offset: record[PACKED_TERM_OFFSET] + shift,
+                term_length: record[PACKED_TERM_LENGTH],
+                surface_offset: match record[PACKED_SURFACE_OFFSET] {
+                    ffi::NARSIL_NO_SURFACE => ffi::NARSIL_NO_SURFACE,
+                    offset => offset + shift,
+                },
+                surface_length: record[PACKED_SURFACE_LENGTH],
+                original_offset: record[PACKED_ORIGINAL_OFFSET],
+                original_length: record[PACKED_ORIGINAL_LENGTH],
+                term_slot: record[PACKED_TERM_SLOT],
+            }));
         Ok(last)
     }
 

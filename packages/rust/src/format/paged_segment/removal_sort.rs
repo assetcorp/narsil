@@ -120,7 +120,7 @@ fn read_triples(
             break;
         };
         bucket.scratch.read_exact(target)?;
-        for triple in target.chunks_exact(TRIPLE_BYTES) {
+        for triple in target.as_chunks::<TRIPLE_BYTES>().0 {
             visit(le_u32(triple, 0), le_u32(triple, 4), le_u32(triple, 8))?;
         }
         left -= take as u64;

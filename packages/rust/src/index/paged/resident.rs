@@ -17,6 +17,7 @@ use crate::format::segment_checks::{
     require_entries_ascend, require_offsets, require_utf8_entries,
 };
 use crate::schema::require_valid_field_types;
+use crate::util::bytes::le_u32;
 use crate::value::{Map, Value, decode_value};
 
 const ERROR_PREFIX: &str = "Invalid keyword segment: ";
@@ -36,12 +37,6 @@ pub(super) struct Resident {
     pub(super) segment: KeywordSegment,
     pub(super) document_blocks: Vec<BlockEntry>,
     pub(super) id_sample: Vec<(String, u32)>,
-}
-
-fn le_u32(bytes: &[u8], at: usize) -> u32 {
-    bytes.get(at..at + 4).map_or(0, |raw| {
-        u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])
-    })
 }
 
 fn checked_u32s(file: &PagedFile, head: &PagedHead, name: &str, key: &str) -> Result<Vec<u32>> {
@@ -78,7 +73,7 @@ fn require_blocks(
     key: &str,
     fields: &Fields<'_>,
 ) -> Result<()> {
-    if summaries.len() % BLOCK_SUMMARY_BYTES != 0 {
+    if !summaries.len().is_multiple_of(BLOCK_SUMMARY_BYTES) {
         return load_failed(format!("The block summaries of \"{key}\" are cut short"));
     }
     if offsets.len() != lists.len() + 1 {
@@ -136,12 +131,17 @@ fn document_blocks(
     section_length: u64,
     key: &str,
 ) -> Result<Vec<BlockEntry>> {
-    if bytes.len() % DOCUMENT_BLOCK_BYTES != 0 {
+    if !bytes.len().is_multiple_of(DOCUMENT_BLOCK_BYTES) {
         return load_failed(format!("The document blocks of \"{key}\" are cut short"));
     }
     let mut blocks = Vec::with_capacity(bytes.len() / DOCUMENT_BLOCK_BYTES);
     let mut previous_end = 0u64;
-    for (at, raw) in bytes.chunks_exact(DOCUMENT_BLOCK_BYTES).enumerate() {
+    for (at, raw) in bytes
+        .as_chunks::<DOCUMENT_BLOCK_BYTES>()
+        .0
+        .iter()
+        .enumerate()
+    {
         let mut offset = [0u8; 8];
         offset.copy_from_slice(&raw[4..12]);
         let block = BlockEntry {

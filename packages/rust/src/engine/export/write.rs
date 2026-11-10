@@ -11,6 +11,7 @@ use crate::format::manifest::{PartitionEntry, SegmentRef};
 use crate::format::manifest_refs::VectorFileRef;
 use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, decode_vector_file};
 use crate::index::frozen::FrozenSegment;
+use crate::util::bytes::float32_array;
 use crate::value::{Map, Value};
 
 const FLOAT32_BYTES: u64 = 4;
@@ -75,14 +76,7 @@ fn read_vector(checkpoint: &ArchiveCheckpoint, location: &VectorLocation<'_>) ->
         .bytes
         .saturating_sub(behind.saturating_mul(width));
     let bytes = checkpoint.read_range(&location.file.file, offset, width)?;
-    let numbers = bytes
-        .chunks_exact(FLOAT32_BYTES as usize)
-        .map(|chunk| {
-            let raw = <[u8; 4]>::try_from(chunk).unwrap_or_default();
-            Value::Number(f64::from(f32::from_le_bytes(raw)))
-        })
-        .collect();
-    Ok(Value::Array(numbers))
+    Ok(float32_array(&bytes))
 }
 
 fn read_segment(

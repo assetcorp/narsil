@@ -222,14 +222,14 @@ fn acquire(root: &Path, lock_path: &Path, me: &LockHolder) -> io::Result<Option<
             return Ok(None);
         }
         let reading = settled_holder(lock_path)?;
-        if let LockReading::Holder(holder) = &reading {
-            if holder_is_live(holder, me, lock_path) {
-                return Ok(Some(held_elsewhere(
-                    root,
-                    &holder_label(holder, me),
-                    lock_path,
-                )));
-            }
+        if let LockReading::Holder(holder) = &reading
+            && holder_is_live(holder, me, lock_path)
+        {
+            return Ok(Some(held_elsewhere(
+                root,
+                &holder_label(holder, me),
+                lock_path,
+            )));
         }
         if !matches!(reading, LockReading::Absent) {
             remove_stale_lock(lock_path, &aside, &reading)?;

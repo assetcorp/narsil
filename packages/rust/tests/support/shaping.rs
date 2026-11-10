@@ -79,7 +79,7 @@ fn undeclared_note(at: u64, hash: u64) -> Option<Value> {
     match at % 9 {
         0 => None,
         1 => Some(Value::Null),
-        2 => Some(text(if hash % 2 == 0 { "a" } else { "b" })),
+        2 => Some(text(if hash.is_multiple_of(2) { "a" } else { "b" })),
         3 => Some(number(hash % 4)),
         4 => Some(Value::Array(vec![
             text("x"),
@@ -88,7 +88,7 @@ fn undeclared_note(at: u64, hash: u64) -> Option<Value> {
             Value::Bool(true),
             text("x"),
         ])),
-        5 => Some(Value::Bool(hash % 2 == 0)),
+        5 => Some(Value::Bool(hash.is_multiple_of(2))),
         6 => Some(Value::Array(Vec::new())),
         _ => Some(text("1")),
     }
@@ -109,32 +109,32 @@ fn undeclared_weight(at: u64, hash: u64) -> Option<Value> {
 pub fn augment(document: &mut Map, at: u64) {
     let hash = mixed(at);
     document.remove("embedding");
-    if at % 23 != 0 {
+    if !at.is_multiple_of(23) {
         document.insert("year", number(1970 + hash % 50));
     }
-    if at % 11 != 0 {
+    if !at.is_multiple_of(11) {
         let count = if at % 11 == 1 { 0 } else { 1 + (hash >> 8) % 3 };
         let pages = (0..count)
             .map(|place| Value::Number((mixed(hash + place) % 1600) as f64 / 4.0))
             .collect();
         document.insert("pages", Value::Array(pages));
     }
-    if at % 29 != 0 {
+    if !at.is_multiple_of(29) {
         document.insert("chamber", text(CHAMBERS[(hash % 3) as usize]));
     }
     let topics = (0..(hash >> 12) % 4)
         .map(|place| text(TOPICS[(mixed(hash ^ place) % TOPICS.len() as u64) as usize]))
         .collect();
     document.insert("topics", Value::Array(topics));
-    if at % 31 != 0 {
-        document.insert("enacted", Value::Bool(hash % 5 == 0));
+    if !at.is_multiple_of(31) {
+        document.insert("enacted", Value::Bool(hash.is_multiple_of(5)));
     }
     let votes = (0..(hash >> 20) % 3)
-        .map(|place| Value::Bool((hash >> place) % 2 == 0))
+        .map(|place| Value::Bool((hash >> place).is_multiple_of(2)))
         .collect();
     document.insert("votes", Value::Array(votes));
     document.insert("code", Value::String(code_of(at, hash)));
-    if at % 19 != 0 {
+    if !at.is_multiple_of(19) {
         let mut sponsor = Map::new();
         sponsor.insert("rank", number((hash >> 4) % 7));
         sponsor.insert(

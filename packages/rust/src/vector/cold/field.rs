@@ -8,6 +8,7 @@ use crate::format::graph_part::VECTOR_GRAPH_PART_VECTORS;
 use crate::format::paged_segment::head::PagedSection;
 use crate::format::vector_head::{FileCodes, VectorFileSections};
 use crate::index::paged::PagedFile;
+use crate::util::bytes::le_values;
 use crate::value::{Value, decode_value};
 
 use super::super::constants::{MAX_DOC_ID_UTF8_BYTES_PER_UNIT, VECTOR_FILE_STRING_HEADER_BYTES};
@@ -284,8 +285,8 @@ impl ColdField {
             u64::from(number - file.first) * stride,
             stride,
         )?;
-        for (value, chunk) in out.iter_mut().zip(bytes.chunks_exact(FLOAT32_BYTES)) {
-            *value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (value, number) in out.iter_mut().zip(le_values(&bytes, f32::from_le_bytes)) {
+            *value = number;
         }
         Ok(())
     }

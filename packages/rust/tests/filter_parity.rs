@@ -58,9 +58,9 @@ fn id_of_row(row: usize) -> String {
 fn enriched(row: usize, mut document: Map, vector: &[f32]) -> Map {
     document.insert("year", Value::Number((1_990 + (row * 7) % 35) as f64));
     document.insert("category", Value::String(CATEGORIES[row % 5].into()));
-    if row % 13 != 0 {
+    if !row.is_multiple_of(13) {
         let mut tags: Vec<&str> = Vec::new();
-        if row % 11 != 0 {
+        if !row.is_multiple_of(11) {
             tags.push(CATEGORIES[row % 5]);
             let second = CATEGORIES[(row * 3 + 1) % 5];
             if !tags.contains(&second) {
@@ -81,12 +81,15 @@ fn enriched(row: usize, mut document: Map, vector: &[f32]) -> Map {
         "ratings",
         Value::Array(ratings.into_iter().map(Value::Number).collect()),
     );
-    if row % 19 != 0 {
-        document.insert("active", Value::Bool(row % 3 == 0));
+    if !row.is_multiple_of(19) {
+        document.insert("active", Value::Bool(row.is_multiple_of(3)));
     }
     document.insert(
         "flags",
-        Value::Array(vec![Value::Bool(row % 2 == 0), Value::Bool(row % 5 == 0)]),
+        Value::Array(vec![
+            Value::Bool(row.is_multiple_of(2)),
+            Value::Bool(row.is_multiple_of(5)),
+        ]),
     );
     let mut location = Map::new();
     location.insert(
@@ -106,7 +109,11 @@ fn enriched(row: usize, mut document: Map, vector: &[f32]) -> Map {
         "sponsor",
         Value::String(format!("{} {row}", SPONSORS[row % 8])),
     );
-    let house = if row % 2 == 0 { "House" } else { "senate" };
+    let house = if row.is_multiple_of(2) {
+        "House"
+    } else {
+        "senate"
+    };
     document.insert("label", Value::String(format!("{house} Bill {row}")));
     document.insert(DATASET_VECTOR_FIELD, vector_value(vector));
     document

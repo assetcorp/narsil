@@ -268,7 +268,11 @@ impl ComponentSource<'_> {
         let builder = self.builder;
         let mut list_from = 0usize;
         let mut value_from = 0usize;
-        for slot in builder.slots.chunks_exact(ffi::NARSIL_KEYWORD_SLOT_STRIDE) {
+        for slot in builder
+            .slots
+            .as_chunks::<{ ffi::NARSIL_KEYWORD_SLOT_STRIDE }>()
+            .0
+        {
             let (kind, list_end, value_end) = (slot[0], slot[2] as usize, slot[3] as usize);
             let values = builder
                 .slot_values

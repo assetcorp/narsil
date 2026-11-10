@@ -61,7 +61,9 @@ impl Output {
         let length = (self.length[0] as usize).min(self.snippet.len());
         let positions = self
             .positions
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .take(count as usize)
             .map(|pair| HighlightPosition {
                 start: pair[0] as usize,
