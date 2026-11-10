@@ -329,6 +329,17 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
   }
 }
 
+export function reviveTombstone(state: HNSWGraphState, ord: number): void {
+  if (!nodeExists(state, ord) || !isTombstoned(state, ord)) return
+  lockGraphShared(state.locks)
+  try {
+    clearTombstone(state, ord)
+  } finally {
+    unlockGraphShared(state.locks)
+  }
+  state.linkWrites += 1
+}
+
 export function compactTombstones(state: HNSWGraphState, mayFree: (ord: number) => boolean): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
   countIncomingBeforeWriting(state, true)

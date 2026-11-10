@@ -10,6 +10,9 @@ import type { ColdVectorField, MaintenanceStatus, VectorSearchOptions, VectorSea
 
 export interface VectorIndex extends VectorPublicationSource {
   insert(docId: string, vector: Float32Array, partitionId?: number): void
+  requireRoomFor(docId: string, vector: Float32Array): void
+  restore(docId: string, vector: Float32Array, partitionId?: number): void
+  holdForRollback(docId: string): () => void
   remove(docId: string): void
   /** Reports whether every stored vector names the partition it belongs to. */
   partitionsKnown(): boolean

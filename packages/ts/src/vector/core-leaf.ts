@@ -60,6 +60,7 @@ export {
   fixedView,
   growBufferTo,
   grownByteLength,
+  requireBytesWithinLimit,
   sharedMemoryAvailable,
 } from './shared-buffers/growable'
 export { arenaFloat32Distance, simdModuleLoaded } from './simd'

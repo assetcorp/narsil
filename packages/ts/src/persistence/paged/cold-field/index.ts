@@ -1,9 +1,10 @@
 import { bytesToVectors, compareCodePoints, decode, isDead } from '#platform/storage-host'
 import type { VectorMetric } from '../../../vector/brute-force'
+import type { ColdFieldClaims } from '../../../vector/vector-index/cold'
 import type { ColdVectorField } from '../../../vector/vector-index/shared'
 import { searchColdGraph, searchColdGraphConcurrently } from '../cold-search'
 import { COLD_GRAPH_PART_VECTORS } from '../constants'
-import { loadFailed } from '../format'
+import { loadFailed, SEGMENT_PAGE_BYTES } from '../format'
 import { cachedFileBytes, type SectionReader } from '../section-file'
 import {
   type ColdCodes,
@@ -32,7 +33,10 @@ export { codesOfFile } from './open-files'
 
 const FIXSTR = 0xa0
 const FIXSTR_MAX_BYTES = 31
+const STR8_MAX_BYTES = 0xff
+const STR16_MAX_BYTES = 0xffff
 const ASCII_MAX = 0x7f
+const ID_OFFSET_BYTES = 4
 
 export interface ColdFieldData {
   readonly dimension: number
@@ -170,6 +174,37 @@ function createFieldData(
   }
 }
 
+function utf8BytesOfEncodedId(encodedBytes: number): number {
+  if (encodedBytes <= FIXSTR_MAX_BYTES + 1) return encodedBytes - 1
+  if (encodedBytes <= STR8_MAX_BYTES + 2) return encodedBytes - 2
+  if (encodedBytes <= STR16_MAX_BYTES + 3) return encodedBytes - 3
+  return encodedBytes - 5
+}
+
+function claimsOfLoad(data: ColdFieldData): ColdFieldClaims {
+  const offsets = new Uint8Array(SEGMENT_PAGE_BYTES)
+  const view = new DataView(offsets.buffer)
+  const offsetsPerRead = offsets.byteLength / ID_OFFSET_BYTES - 1
+  let slots = 0
+  let docIdBytes = 0
+  for (const file of data.files) {
+    for (let first = 0; first < file.count; first += offsetsPerRead) {
+      const count = Math.min(offsetsPerRead, file.count - first)
+      file.idOffsets.read(first * ID_OFFSET_BYTES, offsets.subarray(0, (count + 1) * ID_OFFSET_BYTES))
+      for (let at = 0; at < count; at++) {
+        const position = first + at
+        if (isDead(file.dead, position) && data.topLayerOf(file.firstNumber + position) < 0) continue
+        const start = view.getUint32(at * ID_OFFSET_BYTES, true)
+        const end = view.getUint32((at + 1) * ID_OFFSET_BYTES, true)
+        if (end <= start) loadFailed(`The ID offsets of "${file.file.path}" hold no ID at position ${position}`)
+        slots += 1
+        docIdBytes += utf8BytesOfEncodedId(end - start)
+      }
+    }
+  }
+  return { slots, docIdBytes }
+}
+
 function positionOfId(
   file: ColdFile,
   docId: string,
@@ -233,6 +268,9 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
   }
   let residentBytes = 0
   for (const part of parts) residentBytes += part.levels.byteLength + part.nodeOffsets.byteLength
+  let encodedIdBytes = 0
+  for (const file of opened.files) encodedIdBytes += file.ids.length
+  let claimsOnceRead: ColdFieldClaims | null = null
 
   const orderSlot = new Uint8Array(4)
   const orderView = new DataView(orderSlot.buffer)
@@ -253,6 +291,11 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
       for (const file of opened.files) bytes += cachedFileBytes(file.file)
       for (const part of parts) bytes += cachedFileBytes(part.file)
       return bytes
+    },
+    claimsAtMost: { slots: data.total, docIdBytes: encodedIdBytes },
+    claims() {
+      claimsOnceRead ??= claimsOfLoad(data)
+      return claimsOnceRead
     },
     numberOf: liveNumberOf,
     vectorOfNumber: number => data.vectorAt(number),
