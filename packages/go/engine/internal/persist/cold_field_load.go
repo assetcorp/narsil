@@ -183,13 +183,12 @@ func addColdFile(restore *vector.CheckpointRestore, fieldPath string, ref manife
 		return narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed, `The file "`+key+`" cannot be opened`, err,
 			map[string]any{"key": key})
 	}
-	defer file.Close()
-	info, err := file.Stat()
+	native, err := paged.OpenNativeFile(file, path)
 	if err != nil {
-		return narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed, `The file "`+key+`" cannot be measured`, err,
-			map[string]any{"key": key})
+		return err
 	}
-	source := coldSource{reader: file, size: info.Size(), close: func() {}}
+	defer func() { _ = native.Close() }()
+	source := coldSource{reader: native, size: native.Size(), close: func() {}}
 	sections, cold, err := coldSectionsOf(source, ref.File)
 	if err != nil {
 		return err

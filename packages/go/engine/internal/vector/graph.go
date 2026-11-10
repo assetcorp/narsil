@@ -41,12 +41,11 @@ type graphMemory struct {
 	slotTable      *Slots
 	native         *core.Graph
 	resource       *sharedResource
-	lineage        *graphLineage
+	lineage        int64
+	alsoScan       atomic.Pointer[[]int32]
 }
 
-type graphLineage struct {
-	alsoScan atomic.Pointer[[]int32]
-}
+var graphLineages atomic.Int64
 
 func perOrdinalMax(bytesPerOrdinal int) uintptr {
 	return uintptr(MaxVectorOrdinals) * uintptr(bytesPerOrdinal)
@@ -58,7 +57,7 @@ func newGraphMemory(shape graphShape, slots *Slots) (*graphMemory, error) {
 		level0Stride: shape.mMax0 + core.ListWordsOverNeighbours,
 		upperStride:  shape.m + core.ListWordsOverNeighbours,
 		multiplier:   levelMultiplier(shape.m),
-		lineage:      &graphLineage{},
+		lineage:      graphLineages.Add(1),
 		slotTable:    slots.Retain(),
 	}
 	regions := []struct {

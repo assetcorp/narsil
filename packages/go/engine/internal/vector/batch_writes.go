@@ -45,6 +45,9 @@ func (f *Field) PublishSequence(sequence int64) {
 	if !f.disposed {
 		f.store.publishSequence(sequence)
 		f.recordCommittedLive(sequence)
+		if f.cold != nil {
+			f.cold.commit(sequence, f)
+		}
 	}
 }
 
@@ -58,14 +61,6 @@ type DocumentVectors struct {
 	Vectors   map[string][]float32
 	Partition int32
 	Remove    bool
-}
-
-func fieldsBySlots(fields []NamedField) map[*Slots][]NamedField {
-	grouped := map[*Slots][]NamedField{}
-	for _, named := range fields {
-		grouped[named.Field.slots] = append(grouped[named.Field.slots], named)
-	}
-	return grouped
 }
 
 func applyField(sequence int64, named NamedField, documents []DocumentVectors, failures []error) {
@@ -99,26 +94,10 @@ func ApplyDocumentsAt(sequence int64, fields []NamedField, documents []DocumentV
 	}
 }
 
-func ApplyDocuments(fields []NamedField, documents []DocumentVectors, failures []error) {
-	for slots, group := range fieldsBySlots(fields) {
-		_ = slots.Write(func(sequence int64) error {
-			ApplyDocumentsAt(sequence, group, documents, failures)
-			return nil
-		})
-	}
-}
-
 func RemovalsOf(docIDs []string) []DocumentVectors {
 	removals := make([]DocumentVectors, len(docIDs))
 	for at, docID := range docIDs {
 		removals[at] = DocumentVectors{DocID: docID, Remove: true}
 	}
 	return removals
-}
-
-func RemoveDocuments(fields []NamedField, docIDs []string) {
-	if len(docIDs) == 0 {
-		return
-	}
-	ApplyDocuments(fields, RemovalsOf(docIDs), make([]error, len(docIDs)))
 }

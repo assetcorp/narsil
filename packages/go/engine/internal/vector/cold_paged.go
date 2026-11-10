@@ -75,7 +75,7 @@ func bitsetWith(total int, numbers func(set func(number int))) []uint32 {
 	return words
 }
 
-func (c *coldGraphField) acceptedNumbers(ctx context.Context, filter *Filter) ([]uint32, error) {
+func (c *coldGraphField) AcceptedNumbers(ctx context.Context, filter *Filter) ([]uint32, error) {
 	if !filter.byPartitions {
 		var failure error
 		accepted := bitsetWith(c.total, func(set func(number int)) {
@@ -147,18 +147,12 @@ func (c *coldGraphField) searchRequest(query []float32, k int, options SearchOpt
 }
 
 func (c *coldGraphField) Search(ctx context.Context, query []float32, k int, options SearchOptions,
-	excluded map[int]struct{}) ([]ScoredResult, error) {
+	accepted []uint32, excluded map[int]struct{}) ([]ScoredResult, error) {
 	if c.total == 0 || k <= 0 {
 		return []ScoredResult{}, nil
 	}
 	request := c.searchRequest(query, k, options)
-	if options.Filter != nil {
-		accepted, err := c.acceptedNumbers(ctx, options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		request.Accepted, request.HasAccepted = accepted, true
-	}
+	request.Accepted, request.HasAccepted = accepted, accepted != nil
 	if len(excluded) > 0 {
 		request.Excluded = bitsetWith(c.total, func(set func(number int)) {
 			for number := range excluded {

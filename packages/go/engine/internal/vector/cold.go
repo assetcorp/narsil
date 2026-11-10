@@ -16,8 +16,9 @@ type ColdVectorField interface {
 	VectorOfNumber(number int) ([]float32, error)
 	PartitionOf(ctx context.Context, docID string) (int32, bool, error)
 	FilePaths() []string
-	Search(ctx context.Context, query []float32, k int, options SearchOptions, excluded map[int]struct{}) ([]ScoredResult,
-		error)
+	AcceptedNumbers(ctx context.Context, filter *Filter) ([]uint32, error)
+	Search(ctx context.Context, query []float32, k int, options SearchOptions, accepted []uint32,
+		excluded map[int]struct{}) ([]ScoredResult, error)
 	ScoreNumbers(query []float32, metric core.Metric, numbers []int, distances []float64) error
 	Close()
 }
@@ -31,6 +32,8 @@ type coldView struct {
 	removedIDs     map[string]struct{}
 	live           int
 	sequence       int64
+	committed      int64
+	earlier        atomic.Pointer[coldView]
 }
 
 type coldHold struct {
@@ -113,8 +116,24 @@ func (h *coldHold) insert(docID string, values []float32, field *Field) error {
 	view.written[docID] = ordinal
 	view.sequence = sequence
 	h.view = view
-	field.coldViewNow.Store(view)
 	return nil
+}
+
+func (h *coldHold) commit(sequence int64, field *Field) {
+	published := field.coldViewNow.Load()
+	if h.view == published {
+		return
+	}
+	h.view.committed = sequence
+	h.view.earlier.Store(published)
+	oldest := min(field.slots.oldestPin(), sequence-1)
+	for kept := published; kept != nil; kept = kept.earlier.Load() {
+		if kept.committed <= oldest {
+			kept.earlier.Store(nil)
+			break
+		}
+	}
+	field.coldViewNow.Store(h.view)
 }
 
 func (h *coldHold) remove(docID string, field *Field) (bool, error) {
@@ -128,7 +147,6 @@ func (h *coldHold) remove(docID string, field *Field) (bool, error) {
 	}
 	view.live--
 	h.view = view
-	field.coldViewNow.Store(view)
 	return true, nil
 }
 

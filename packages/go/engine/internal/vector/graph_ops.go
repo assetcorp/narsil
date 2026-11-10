@@ -35,6 +35,7 @@ func (f *Field) withGraphAlone(graph *graphMemory, operation func(held *graphMem
 		target.resource.drop()
 		return graph, publishErr
 	}
+	f.rememberReplacedGraph(graph)
 	graph.resource.drop()
 	return target, nil
 }

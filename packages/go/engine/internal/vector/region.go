@@ -125,6 +125,10 @@ func (r *sharedResource) retain() *sharedResource {
 	return r
 }
 
+func (r *sharedResource) released() bool {
+	return r.refs.Load() <= 0
+}
+
 func (r *sharedResource) drop() {
 	if r.refs.Add(-1) == 0 {
 		r.free()

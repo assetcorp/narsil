@@ -95,12 +95,16 @@ func (f *Field) Search(ctx context.Context, query []float32, k int, options Sear
 	if current == nil {
 		return emptyOutcome(), nil
 	}
-	defer current.done()
 	lease, release, err := f.slots.searchLease(ctx)
 	if err != nil {
+		current.done()
 		return SearchOutcome{}, err
 	}
 	defer release()
+	if current = f.layoutPublishedBy(current); current == nil {
+		return emptyOutcome(), nil
+	}
+	defer current.done()
 	f.nudgeBuild()
 	return f.searchLayout(ctx, current, lease, query, k, options)
 }
@@ -136,7 +140,7 @@ func (f *Field) searchLayout(ctx context.Context, current *layout, lease *Lease,
 		return SearchOutcome{Results: tally.results(), Matched: tally.matched, MatchedExact: true}, nil
 	}
 	var outside *scanTally
-	if current.store.unplacedCount.Load()+current.store.retiredScans.Load() > 0 || graph.lineage.alsoScan.Load() != nil {
+	if current.store.unplacedCount.Load()+current.store.retiredScans.Load() > 0 || graph.alsoScan.Load() != nil {
 		outside, err = f.scanOrdinals(ctx, current, request, k, scratch, outsideTheGraph(current, accepted))
 		if err != nil {
 			return SearchOutcome{}, err
