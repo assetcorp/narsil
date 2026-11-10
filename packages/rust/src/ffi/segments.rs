@@ -1,7 +1,6 @@
 use super::{narsil_status, narsil_tokens, narsil_workspace};
 
 pub const NARSIL_LOOKUP_EXACT: u32 = 0;
-pub const NARSIL_LOOKUP_PREFIX: u32 = 1;
 pub const NARSIL_LOOKUP_TYPO: u32 = 2;
 
 #[repr(C)]

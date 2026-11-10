@@ -6,7 +6,6 @@ use super::{
 };
 
 pub const NARSIL_SUGGESTION_TOKEN: usize = 0;
-pub const NARSIL_SUGGESTION_SURFACE: usize = 1;
 pub const NARSIL_SUGGESTION_WORDS: usize = 3;
 
 #[repr(C)]

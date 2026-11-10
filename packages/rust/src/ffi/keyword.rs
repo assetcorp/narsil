@@ -6,30 +6,12 @@ pub const NARSIL_KEYWORD_TERM_SLOT: u32 = 0;
 pub const NARSIL_KEYWORD_GROUP_SLOT: u32 = 1;
 pub const NARSIL_KEYWORD_PHRASE_SLOT: u32 = 2;
 pub const NARSIL_KEYWORD_SLOT_STRIDE: usize = 4;
-pub const NARSIL_KEYWORD_SLOT_KIND: usize = 0;
-pub const NARSIL_KEYWORD_SLOT_TERM: usize = 1;
-pub const NARSIL_KEYWORD_SLOT_LIST_END: usize = 2;
-pub const NARSIL_KEYWORD_SLOT_VALUE_END: usize = 3;
 pub const NARSIL_KEYWORD_LIST_STRIDE: usize = 3;
-pub const NARSIL_KEYWORD_LIST_FLAGS: usize = 0;
-pub const NARSIL_KEYWORD_LIST_START: usize = 1;
-pub const NARSIL_KEYWORD_LIST_LENGTH: usize = 2;
 pub const NARSIL_KEYWORD_LIST_FROM_ROWS: u32 = 1;
 pub const NARSIL_KEYWORD_LIST_ORDERED: u32 = 2;
 pub const NARSIL_KEYWORD_LIST_VALUE_STRIDE: usize = 2;
-pub const NARSIL_KEYWORD_LIST_DOCUMENT_FREQUENCY: usize = 0;
-pub const NARSIL_KEYWORD_LIST_FACTOR: usize = 0;
-pub const NARSIL_KEYWORD_LIST_PARTIAL_FACTOR: usize = 1;
-pub const NARSIL_KEYWORD_FIELD_BOOSTS: usize = 0;
-pub const NARSIL_KEYWORD_FIELD_AVERAGE_LENGTHS: usize = 1;
-pub const NARSIL_KEYWORD_FIELD_K1: usize = 2;
-pub const NARSIL_KEYWORD_FIELD_B: usize = 3;
 pub const NARSIL_KEYWORD_FIELD_NUMBER_COLUMNS: usize = 4;
-pub const NARSIL_KEYWORD_SCORED_IN_FULL: u32 = 0;
-pub const NARSIL_KEYWORD_PRUNED: u32 = 1;
-pub const NARSIL_KEYWORD_PRUNED_THEN_FULL: u32 = 2;
 pub const NARSIL_KEYWORD_NO_LIMIT: f64 = -1.0;
-pub const NARSIL_KEYWORD_MAX_FIELDS: u32 = 65536;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -104,5 +86,4 @@ unsafe extern "C" {
         request: *const narsil_keyword_request,
         output: *mut narsil_keyword_output,
     ) -> narsil_status;
-    pub fn narsil_clock_now() -> u64;
 }

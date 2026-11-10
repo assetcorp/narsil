@@ -226,11 +226,6 @@ unsafe extern "C" {
         request: *const narsil_group_request,
         output: *mut narsil_group_output,
     ) -> narsil_status;
-    pub fn narsil_merge_groups(
-        workspace: *mut narsil_workspace,
-        request: *const narsil_group_merge_request,
-        output: *mut narsil_group_merge_output,
-    ) -> narsil_status;
     pub fn narsil_place_pinned(
         workspace: *mut narsil_workspace,
         request: *const narsil_pinned_request,

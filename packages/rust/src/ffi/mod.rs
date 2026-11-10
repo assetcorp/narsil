@@ -35,7 +35,6 @@ pub const NARSIL_NEEDS_ROOM: narsil_status = 3;
 pub const NARSIL_GRAPH_NOT_HELD_ALONE: narsil_status = 4;
 pub const NARSIL_FILE_UNREADABLE: narsil_status = 5;
 pub const NARSIL_WORK_CAP_EXCEEDED: narsil_status = 6;
-pub const NARSIL_STOPPED: narsil_status = 7;
 pub const NARSIL_SEGMENT_FULL: narsil_status = 8;
 pub const NARSIL_PAGE_CORRUPT: narsil_status = 9;
 pub const NARSIL_PAGE_UNREADABLE: narsil_status = 10;
