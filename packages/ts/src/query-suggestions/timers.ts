@@ -1,9 +1,19 @@
-import { DAY_MS, HISTORY_SWEEP_INTERVAL_MS, MAX_TIMER_DELAY_MS, SCHEDULE_OFF } from './constants'
-import { dayOf } from './day-store'
-import { historyFileOf, listHistoryFolder, removeHistoryFolder, removeRestoreLeftovers } from './history-files'
+import {
+  DAY_MS,
+  dayOf,
+  HISTORY_SWEEP_INTERVAL_MS,
+  historyFileOf,
+  latestMatchAtOrBefore,
+  listHistoryFolder,
+  MAX_TIMER_DELAY_MS,
+  nextMatchAfter,
+  parseSchedule,
+  removeHistoryFolder,
+  removeRestoreLeftovers,
+  resolveSetting,
+  SCHEDULE_OFF,
+} from '#platform/suggestions-host'
 import type { QuerySuggestionsRuntime } from './runtime'
-import { latestMatchAtOrBefore, nextMatchAfter, parseSchedule } from './schedule'
-import { resolveSetting } from './setting'
 
 type Timer = ReturnType<typeof setTimeout>
 

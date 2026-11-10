@@ -155,6 +155,26 @@ describe('damaged files of an index with its text on disk', () => {
       await engine.shutdown()
     }
   })
+
+  it('refuses to merge a segment file whose payload changed after its index opened', async () => {
+    const engine = await createNarsil({
+      durability: { directory: root, compactionThreshold: 1 },
+      workers: { enabled: false },
+    })
+    try {
+      const word = VOCABULARY[0]
+      const before = await engine.query(INDEX, { term: word, limit: DOCUMENTS })
+      expect(before.hits.map(hit => hit.id).sort()).toEqual(oracle.idsHolding(word))
+      const [segment] = await segmentFiles(root)
+      await flipByte(segment, (await stat(segment)).size - 1)
+      const random = seededRandom(96)
+      const batch = Array.from({ length: 200 }, (_, i) => ({ id: `later-${i}`, ...randomArticle(random) }))
+      await engine.insertBatch(INDEX, batch)
+      await expect(engine.checkpoint(INDEX)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
+    } finally {
+      await engine.shutdown().catch(() => undefined)
+    }
+  })
 })
 
 describe('the storage settings of an index with its text on disk', () => {

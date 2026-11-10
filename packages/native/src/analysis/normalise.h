@@ -15,6 +15,8 @@ typedef struct {
 typedef int (*narsil_mark_test)(uint32_t code_point);
 
 void narsil_normalise_scratch_release(narsil_normalise_scratch *scratch);
+uint16_t narsil_fold_width(uint16_t unit);
+uint32_t narsil_fold_form(uint32_t point);
 
 int narsil_nfd(const uint16_t *units, size_t length, narsil_text *out, narsil_code_points *points);
 int narsil_nfc(const uint16_t *units, size_t length, narsil_text *out, narsil_code_points *points);

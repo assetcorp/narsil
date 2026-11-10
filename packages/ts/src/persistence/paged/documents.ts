@@ -1,6 +1,6 @@
 import { inflateBlock } from '#platform/raw-deflate'
+import { endOfValue } from '#platform/storage-host'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { endOfValue } from '../../serialization/msgpack-without-fields'
 import { DOCUMENT_BLOCK_BYTES, loadFailed, MAX_DOCUMENT_BLOCK_RAW_BYTES } from './format'
 import { CACHED_DOCUMENT_BLOCK, type ReadCache } from './read-cache'
 import type { SectionReader } from './section-file'

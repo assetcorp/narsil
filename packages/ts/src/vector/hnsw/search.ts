@@ -1,16 +1,16 @@
-import { compareCodePoints } from '../../core/ordering'
+import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import type { SearchClock } from '../../core/search-clock'
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'
 import { type NativeField, nativeFieldFor } from '../native/field'
 import { nativeRescoredHits, nativeTraverse } from '../native/walk'
-import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { ordinalFilterHas } from '../ordinal-membership'
 import { defaultEfSearch, defaultRescoreDepth } from '../search-depth'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
-import { searchLayer } from './graph-ops'
+import type { OrdinalAdmission } from '../vector-store/admission'
+import { searchAdmittedBaseLayer, searchLayer } from './graph-ops'
 import { lockGraphShared, unlockGraphShared } from './locks'
 import {
   activeQuantizer,
@@ -36,6 +36,7 @@ export interface GraphSearchOptions {
   oversample?: number
   rescoreWindow?: number
   clock?: SearchClock
+  admission?: OrdinalAdmission
 }
 
 interface Traversal {
@@ -91,13 +92,14 @@ function traverse(
   const { ef, depth, useQuantized } = searchDepths(state, k, options)
   const quantizer = useQuantized ? activeQuantizer(state) : undefined
   const filter = options.filter
+  const admission = options.admission
 
   const workspace = state.workspace
   const candidates = workspace.traversal
   const native = nativeFieldFor(state)
-  if (native !== null) {
+  if (native !== null && admission !== undefined) {
     candidates.size = 0
-    if (nativeTraverse(state, native, query, ef, searchMetric, filter, candidates)) {
+    if (nativeTraverse(state, native, query, ef, searchMetric, filter, admission.pin, candidates)) {
       return { candidates, depth: useQuantized ? depth : 0, arenaQuery: null, qMag: 0, native }
     }
   }
@@ -130,7 +132,22 @@ function traverse(
       }
     }
 
-    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter, options.clock)
+    if (admission === undefined) {
+      searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter, options.clock)
+    } else {
+      searchAdmittedBaseLayer(
+        state,
+        query,
+        qMag,
+        ef,
+        searchMetric,
+        distFn,
+        candidates,
+        admission,
+        filter,
+        options.clock,
+      )
+    }
   } finally {
     unlockGraphShared(state.locks)
   }
@@ -175,12 +192,17 @@ export function bestResolvedHits(
     ordered = hits.slice().sort((a, b) => b.score - a.score)
   }
   const taken: ResolvedHit[] = []
+  let hasTies = false
   for (const hit of ordered) {
     if (taken.length >= k && hit.score < taken[k - 1].score) break
     const docId = docIdOf(hit.ord)
-    if (docId !== undefined) taken.push({ ord: hit.ord, score: hit.score, docId })
+    if (docId === undefined) continue
+    if (taken.length > 0 && hit.score === taken[taken.length - 1].score) hasTies = true
+    taken.push({ ord: hit.ord, score: hit.score, docId })
   }
-  return taken.sort(bestFirst).slice(0, k)
+  if (hasTies) taken.sort(bestFirst)
+  if (taken.length > k) taken.length = k
+  return taken
 }
 
 function collectHits(
@@ -199,7 +221,16 @@ function collectHits(
   const filter = options.filter
   if (traversal.depth === 0) return estimatedHits(candidates, 0, searchMetric, minSimilarity, filter)
 
-  const rescored = rescoredHits(state, traversal, query, traversal.depth, searchMetric, minSimilarity, filter)
+  const rescored = rescoredHits(
+    state,
+    traversal,
+    query,
+    traversal.depth,
+    searchMetric,
+    minSimilarity,
+    filter,
+    options.admission,
+  )
   if (options.rescoreWindow === undefined || minSimilarity !== Number.NEGATIVE_INFINITY) return rescored
   const rest = endOfRescored(candidates, traversal.depth, filter)
   return rescored.concat(estimatedHits(candidates, rest, searchMetric, minSimilarity, filter))
@@ -242,10 +273,20 @@ function rescoredHits(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter | undefined,
+  admission: OrdinalAdmission | undefined,
 ): OrdinalHit[] {
   const { candidates, native } = traversal
-  if (native !== null) {
-    const rescored = nativeRescoredHits(native.store, candidates, query, depth, metric, minSimilarity, filter)
+  if (native !== null && admission !== undefined) {
+    const rescored = nativeRescoredHits(
+      native.store,
+      candidates,
+      query,
+      depth,
+      metric,
+      minSimilarity,
+      filter,
+      admission.pin,
+    )
     if (rescored !== null) return rescored
     const arena = state.store.prepareQueryArena(query)
     const qMag = arena ? arena.magnitude : magnitude(query)
@@ -301,15 +342,15 @@ export function search(
   searchMetric: VectorMetric,
   minSimilarity: number,
   options: GraphSearchOptions = {},
-): ScoredDocument[] {
+): ResolvedHit[] {
   const hits = collectHits(state, query, k, searchMetric, minSimilarity, options)
-  return bestResolvedHits(hits, k, docIdOf).map(hit => ({
-    docId: hit.docId,
-    score: hit.score,
-    termFrequencies: {},
-    fieldLengths: {},
-    idf: {},
-  }))
+  const admission = options.admission
+  const pinnedDocIdOf = (ordinal: number): string | undefined => {
+    if (admission === undefined) return docIdOf(ordinal)
+    if (!admission.admits(ordinal)) return undefined
+    return docIdOf(ordinal) ?? admission.docIdOf(ordinal)
+  }
+  return bestResolvedHits(hits, k, pinnedDocIdOf)
 }
 
 export function searchOrdinals(
@@ -322,5 +363,5 @@ export function searchOrdinals(
   options: GraphSearchOptions = {},
 ): OrdinalHit[] {
   const hits = collectHits(state, query, k, searchMetric, minSimilarity, options)
-  return bestResolvedHits(hits, k, docIdOf)
+  return bestResolvedHits(hits, k, options.admission?.docIdOf ?? docIdOf)
 }

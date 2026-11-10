@@ -87,7 +87,7 @@ An engine that holds its indexes in one process must refuse an insert or an upda
 - The engine judges only its own memory, so while it is full it refuses every insert and update to every index that it holds, and it accepts them again once both figures fall below the resume fraction.
 - The engine applies the bound on the memory that indexing can take, the rule for a batch that runs short of memory part of the way through, and the rule for a document that cannot fit even on an idle engine, as a cluster node does.
 - The engine leaves out the bound on the bytes of writes in progress, because the caller already holds those documents in the same process.
-- The engine must measure its memory before each group of a write whose latest measurement is more than one second old.
+- The engine must measure its memory before each group of a write whose latest measurement is more than 10 ms old, because within one second a run of writes can carry a small heap from the block fraction past its limit.
 - The engine must accept every remove, search, and document read, and every write that recovery replays, that a worker copy applies, or that a restore loads. A restore keeps its own check and refuses with `RESTORE_MEMORY_EXCEEDED`.
 - Where the runtime reports no process limit, the engine compares its heap alone, and where the runtime reports neither limit, the engine admits every write.
 - A cluster node applies the cluster's block alone, so a node refuses a write under one code.
@@ -166,11 +166,14 @@ With durability configured, the engine appends a buffered write to the write-ahe
    An update whose document is absent applies as an insert,
    matching write-ahead-log recovery.
 
-6. PERSIST the new layout. Write the index metadata, take
-   a checkpoint covering every new partition, and remove
-   the log segments of every partition past the new count.
-   For an index with sync on, write a new epoch, as Index
-   Epoch in sync.md defines, with the metadata.
+6. PERSIST the new layout. Commit the durable routing
+   boundary in the [layout transition](durability.md#partition-layout-transition),
+   take a checkpoint covering every new partition, and
+   write index metadata with the new count. Remove the log
+   segments of every partition past the new count only
+   after the manifest and metadata are durable. For an
+   index with sync on, write a new epoch, as Index Epoch in
+   sync.md defines, with the metadata.
 
 7. RESYNCHRONISE every worker copy of the index, then
    drain and replay any writes buffered while steps 5 to 7
@@ -225,13 +228,19 @@ A search against a multi-partition index runs on a coordinator that queries ever
 
 Each partition must count every value of a faceted field, so that the summed counts are exact. An implementation that splits the partitions across threads may instead oversample the values from each thread by the rule in [Distributed Facets](distribution/query-routing.md#distributed-facets) for each node, except for a field with ranges or the sort `'asc'`, where each thread must return every count.
 
+### One State per Search
+
+An implementation must answer each search attempt from the states that the copies answering that attempt hold when the attempt starts. An attempt that the implementation abandons before it returns contributes no result. Where [Request Threads](#request-threads) abandons an attempt and starts the request again on another copy, the new attempt takes the destination copy's current state once. Within an attempt that contributes to the response, the implementation must never release its state and acquire a later one.
+
+The implementation must take the document, the highlights, and the stored values of each hit from the state against which it scored that hit, so that the score of each hit matches the document beside it. Where both legs of a hybrid search go to one copy, the implementation must answer both from the same state of that copy. It must also count the matches and the facet values in the states that the hits come from. To answer from an earlier state, an implementation may keep a removed document, or the vector of a removed or updated document, but it must free that data once every search attempt that uses that state ends, whether the attempt finishes, fails, moves, or the caller cancels it.
+
 ### Hybrid Search
 
 A query carrying both a text term and a vector runs the two searches independently and fuses the results. The text search fans out to the partitions as above. The vector search queries the per-field vector index directly and never fans out. See [Hybrid Search](vector-index.md#hybrid-search) for the fusion strategies and the coordinator flow.
 
 ### Merge Algorithm
 
-Merging the K sorted lists, one per partition, uses a max-heap ordered by score, highest first, with ties in document ID order as [String Ordering](algorithms.md#string-ordering) defines. A query carrying a sort orders the heap by the [sort value order](algorithms.md#sort-value-order) instead.
+Merging the K sorted lists, one per partition, uses a max-heap ordered by [Score Order](algorithms.md#score-order), with ties in document ID code point order. Each partition must select and order its candidates under that same rule before it applies a limit. A query carrying a sort orders the heap by the [sort value order](algorithms.md#sort-value-order).
 
 The merge runs:
 
@@ -310,9 +319,9 @@ A sorted search or a sorted listing encodes:
 
 | Field | Description |
 |-------|-------------|
-| `v` | The cursor format version, 4. A reader must reject any other value. |
+| `v` | The cursor format version, 4 for a finite score or a cursor without a score, and 5 for a non-finite score. A reader must accept these two versions and reject every other value. |
 | `a` | The document ID of the last document returned, the anchor. Always present. |
-| `s` | The score of that document. Present when the query carries no sort. |
+| `s` | The score of that document. A version 4 score is a finite JSON number. A version 5 score is exactly `Infinity`, `-Infinity`, or `NaN` as a JSON string. Present for a search that anchors on score, and absent for a sort or a listing. |
 | `k` | The sort values of that document, one per sort field in sort order, each array reduced by its field's mode. Present when the caller sets a sort. |
 | `o` | The sort's fields and directions, serialised as the JSON text `[["field","asc"],...]`. Where a field's mode differs from the default for its direction, the field's entry holds the mode as a third element, as in `["prices","asc","avg"]`. Present exactly when `k` is. |
 | `d` | The count of results that precede the next page, which is the depth to which an implementation fetches a vector search. Present when that count is above 0. |
@@ -320,10 +329,14 @@ A sorted search or a sorted listing encodes:
 
 A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` and `a`, a sorted search or listing anchors on `k` and `a`, and an unsorted listing anchors on `a` alone.
 
+A writer must emit version 5 only where the anchor score is non-finite, using the score strings of [Score Encoding](algorithms.md#score-encoding). It must continue emitting version 4 for finite scores, sorted cursors, and listing cursors. A reader must decode a version 5 score to its numeric value before comparing anchors under [Score Order](algorithms.md#score-order). Every node that may receive a version 5 cursor must support that version before the application uses such cursors, because an older node rejects them.
+
 A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule below fails:
 
 - The encoded cursor is longer than 40,960 characters, which covers the largest payload the rules below allow.
-- `v` is not 4, or `a` is empty, missing, or longer than 512 code points.
+- `v` is neither 4 nor 5, or `a` is empty, missing, or longer than 512 code points.
+- A version 4 cursor has a present `s` that is not a finite JSON number.
+- A version 5 cursor lacks `s`, has an `s` other than the three exact non-finite score strings, or has `k` or `o`.
 - `d` is present and is not a whole number of at least 1.
 - `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
 - `o` and `k` do not arrive together, or `o` differs from the request's own sort.
@@ -445,7 +458,9 @@ capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
 
 A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy, after the main thread embeds any `vector.text` in the query. It must send to the main thread, which answers as it does for its own callers, a write, a query on an index whose copy it lacks, a query naming a vector field whose graph is not yet built, and every query while a plugin hooks searches.
 
-A request thread must move a query off itself once that query has run on it for longer than the move threshold, so that one costly query delays no other request on the thread. The thread stops the query and sends it to the long-query thread, a worker that holds a copy of every scaled-out index and accepts no connections. The long-query thread must answer a moved query from its own copy under the same pattern work cap, once that copy has applied every write that returned before the query moved, so that the caller receives the same answer, or the same `SEARCH_WORK_CAP_EXCEEDED` error, as from a query that never moved. It answers moved queries in the order they arrive. While the long-query thread holds as many moved queries as its queue allows, a server must refuse with `TOO_MANY_REQUESTS` a further query that runs past the threshold, and a moved query leaves that queue once it answers, fails, loses its caller, or loses the long-query thread. A request thread must answer a query itself while no long-query thread runs. The move threshold and the queue length are implementation constants.
+A request thread must move a query off itself once that query has run on it for longer than the move threshold, so that one costly query delays no other request on the thread. The request thread abandons that search attempt, releases every state and vector pin that the attempt holds, discards its partial work, and sends the original request to the long-query thread, a worker that holds a copy of every scaled-out index and accepts no connections. The long-query thread must first apply every write that returned before the query moved, then start a new attempt under the same pattern work cap and take its copy's current state once. A write applied between the two attempts may therefore appear in the answer, and no result from the abandoned attempt may contribute to it. The new attempt must return the answer, or the `SEARCH_WORK_CAP_EXCEEDED` error, that a query started on that destination state returns. Where the long-query thread is lost before its response starts, the request thread starts a new attempt on its current state. Where the response has started, the server closes it.
+
+The long-query thread answers moved queries in the order they arrive. While it holds as many moved queries as its queue allows, a server must refuse with `TOO_MANY_REQUESTS` a further query that runs past the threshold, and a moved query leaves that queue once it answers, fails, loses its caller, or loses the long-query thread. A request thread must answer a query itself while no long-query thread runs. The move threshold and the queue length are implementation constants.
 
 A request thread holds a vector field's vectors once the main thread has sent it that field. Until then it must send every request whose answer would include that field to the main thread, so that a caller receives each document whole. Meanwhile it may answer from its own copy both a count and a query whose `document` projection keeps no vector field, since neither answer includes a vector.
 

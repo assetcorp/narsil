@@ -142,6 +142,36 @@ describe('a synced device', () => {
   })
 
   it(
+    'preserves leading character marks in snapshots, feed entries, and an offline queue after restart',
+    async () => {
+      await serving().admin.createIndex(INDEX, SCHEMA)
+      const key = `\ufeff${'key'.repeat(80)}`
+      const first = { title: 'catalogue', body: `\ufeff${'x'.repeat(197)}`, nested: { [key]: ['\ufeff', ''] } }
+      const second = { title: 'catalogue', body: `\ufeff${'x'.repeat(198)}`, nested: { [key]: ['', '\ufeff'] } }
+      await serving().admin.put(INDEX, 'record', first)
+      await serving().admin.updateSync(INDEX, { enabled: true })
+      const started = await device('lossless')
+      await settledWithin(started.sync)
+      expect(await started.engine.get(INDEX, 'record')).toMatchObject(first)
+      await serving().admin.put(INDEX, 'record', second)
+      await settledWithin(started.sync)
+      expect(await started.engine.get(INDEX, 'record')).toMatchObject(second)
+      serving().proxy.cut()
+      await started.sync.put('offline', first)
+      await started.close()
+      devices.splice(devices.indexOf(started), 1)
+      const restarted = await device('lossless')
+      expect(await restarted.engine.get(INDEX, 'offline')).toMatchObject(first)
+      serving().proxy.heal()
+      await settledWithin(restarted.sync)
+      expect(await serving().running.engine.get(INDEX, 'offline')).toMatchObject(first)
+      expect(await restarted.engine.get(INDEX, 'record')).toMatchObject(second)
+      expect(restarted.sync.status().queuedWrites).toBe(0)
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
+
+  it(
     'carries on after the server restarts and keeps the writes that it queued meanwhile',
     async () => {
       const oracle = await seed()

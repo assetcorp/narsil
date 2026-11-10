@@ -1,8 +1,13 @@
+import {
+  arenaFloat32Distance,
+  cosineSimilarityWithMagnitudes,
+  dotProduct,
+  euclideanDistance,
+  IN_MEMORY,
+  QUERY_STAGED,
+} from '#platform/vector-host'
 import type { VectorMetric } from '../brute-force'
-import { arenaFloat32Distance } from '../simd'
-import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import { type OpenVectorBlock, QUERY_STAGED } from './blocks'
-import { IN_MEMORY } from './handles'
+import type { OpenVectorBlock } from './blocks'
 import type { ArenaQueryVector } from './types'
 
 export interface HotBlockReads {

@@ -1,8 +1,17 @@
-import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../../core/partition/frozen'
-import { decodeEveryStoredDocument } from '../../../core/partition/frozen/document-source'
-import { ErrorCodes, NarsilError } from '../../../errors'
+import {
+  createSharedFrozenSegment,
+  decodeEveryStoredDocument,
+  ErrorCodes,
+  NarsilError,
+  shareSegmentArrays,
+} from '#platform/storage-host'
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
+import { createPagedFrozenSegment } from '../../paged/open-segment'
+import { openPagedSnapshot } from '../../paged/resident'
+import { checkPagedSegmentFully } from '../../paged/segment-scan'
+import { isPagedSegmentFile, pagedListingOf } from '../../paged/verify'
 import type { DurableDirectory } from '../durable-filesystem'
 import type { WriteRecordKeeper } from '../types'
 import type { PartitionManifestEntry, SegmentRef } from './manifest'
@@ -73,9 +82,6 @@ async function attachPagedSegment(
   manager: PartitionManager,
   options: PartitionLoadOptions,
 ): Promise<FrozenSegment | null> {
-  const { checkPagedSegmentFully, createPagedFrozenSegment, openPagedSnapshot, pagedListingOf } = await import(
-    '../../paged/module'
-  )
   if (options.decodesEveryDocument) await checkPagedSegmentFully(directory, ref)
   const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
   requireAgreedSchema(options.schema, snapshot.schema, ref.key)
@@ -134,7 +140,6 @@ async function attachPartitionSegments(
   const { directory } = store
   for (const ref of partition.segments) {
     if (manager.config.textStorage === 'disk' && directory !== undefined) {
-      const { isPagedSegmentFile } = await import('../../paged/module')
       if (await isPagedSegmentFile(directory, ref.key)) {
         const paged = await attachPagedSegment(directory, ref, partition.partitionId, manager, options)
         if (paged !== null) loaded.push(paged)

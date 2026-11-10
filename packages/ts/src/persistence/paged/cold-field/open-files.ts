@@ -1,7 +1,4 @@
-import { decode, decodeMulti } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { crc32 } from '../../../serialization/crc32'
-import { HEADER_SIZE, readHeader } from '../../../serialization/header'
+import { crc32, decode, decodeMulti, ErrorCodes, HEADER_SIZE, NarsilError, readHeader } from '#platform/storage-host'
 import type { VectorMetric } from '../../../vector/brute-force'
 import type { OsqBits } from '../../../vector/osq'
 import type { FileRef, VectorFileRef } from '../../durability/segment/manifest'
@@ -123,6 +120,8 @@ function isUint32OfThisHost(bytes: Uint8Array): boolean {
 }
 
 function uint32ValuesOf(bytes: Uint8Array): Uint32Array {
+  if (bytes.byteLength % Uint32Array.BYTES_PER_ELEMENT !== 0)
+    loadFailed('The node offsets do not hold whole uint32 values')
   if (isUint32OfThisHost(bytes)) return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
   const values = new Uint32Array(bytes.byteLength / 4)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -151,7 +150,14 @@ export function codesOfFile(path: string, sections: Map<string, FileSection>, ke
   }
   if (bits !== 1 && bits !== 2 && bits !== 4 && bits !== 8)
     loadFailed(`The file "${key}" holds ${String(bits)} bit codes`)
-  return { bits, centroid: Float32Array.from(centroid.map(Number)) }
+  const valuesOfCentroid = new Float32Array(centroid.length)
+  for (let at = 0; at < centroid.length; at++) {
+    const value: unknown = centroid[at]
+    if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isFinite(Math.fround(value)))
+      loadFailed(`The centroid of "${key}" holds an invalid float32 value`)
+    valuesOfCentroid[at] = value
+  }
+  return { bits, centroid: valuesOfCentroid }
 }
 
 function sameCodes(left: ColdCodes, right: ColdCodes): boolean {

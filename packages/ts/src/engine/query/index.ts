@@ -1,28 +1,25 @@
-import type { ComparableSortValue } from '../../core/ordering'
-import { projectionKeepsField, resolveProjection } from '../../core/projection'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { fanOutQuery } from '../../partitioning/fan-out'
+import { loadPrefixFor } from '../../core/partition/suggestion-code'
+import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
-import { flattenSchema } from '../../schema/validator'
-import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
-import type { CursorBinding } from '../../search/cursor-binding'
-import { applyGrouping } from '../../search/grouping'
-import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
+import { loadCursorPageFor } from '../../search/cursor-page-code'
+import { loadFacetMergesFor } from '../../search/facets'
+import { loadGroupingFor } from '../../search/grouping-code'
+import { loadMessagePackForStoredValues } from '../../search/object-values'
 import { loadPhraseCodeFor } from '../../search/phrase-code'
-import { placePinned } from '../../search/pinning'
-import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
-import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
+import { loadPinningFor } from '../../search/pinning-code'
+import { loadSortingFor } from '../../search/sorting-code'
+import type { PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { clampLimit, clampOffset, now } from '../validation'
-import { applyHighlights } from './highlight'
-import type { PagedFanOutResult } from './hybrid-depth'
+import { requireLoadedVectorCode } from '../../workers/vector-code'
+import { now } from '../validation'
+import { loadedRerankRuntime, loadRerankRuntime } from './fixed-depth-code'
+import { runQuery } from './run'
 import { runtimeHost } from './runtime-host'
 import {
   bm25SettingFor,
   broadcastStatsForWorker,
-  coverageFor,
-  type QueryContext,
+  type PinnedQueryContext,
   requireKnownMode,
   requireUsablePhrases,
   requireVectorSearchable,
@@ -33,279 +30,75 @@ import {
   vectorSearchersOf,
   withPatternWork,
 } from './shared'
-import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
-import { executeHybridSearch, executeVectorSearch } from './vector'
+import { vectorQueryHost } from './vector-query-host'
 
 export type { QueryContext } from './shared'
 
-function requireCursorDepth(cursor: string | undefined, signature: string | null, binding: CursorBinding): number {
-  if (cursor === undefined) return 0
-  const decoded = decodePageCursor(cursor)
-  requireMatchingCursor(decoded, cursor, signature, true, binding())
-  return decoded.depth ?? 0
-}
-
-function hybridSearchOf(
-  params: QueryParams,
-  context: SearchContext,
-  limit: number,
-  offset: number,
-  cursorDepth?: number,
-): Promise<PagedFanOutResult> {
-  if ((params.hybrid?.depth ?? null) === null) return executeHybridSearch(params, context, limit, offset, cursorDepth)
-  return import('../../rerank/runtime').then(runtime =>
-    runtime.searchFixedDepthHybrid(params, context, { cursorDepth: cursorDepth ?? 0, offset, limit }, runtimeHost),
+export function loadQueryCode(request: QueryParams): Promise<unknown> | null {
+  const prefix = loadPrefixFor(request.prefix)
+  const phrase = loadPhraseCodeFor(request.term)
+  const cursor = loadCursorPageFor(request.searchAfter)
+  const grouping = loadGroupingFor(request.group)
+  const pinning = loadPinningFor(request.pinned)
+  const facets = loadFacetMergesFor(request.facets)
+  const sorting = loadSortingFor(request.sort, request.filters)
+  const fixedDepth =
+    (request.rerank !== undefined || (request.hybrid?.depth ?? null) !== null) && loadedRerankRuntime() === null
+      ? loadRerankRuntime()
+      : null
+  if (
+    phrase === null &&
+    fixedDepth === null &&
+    cursor === null &&
+    grouping === null &&
+    pinning === null &&
+    facets === null &&
+    sorting === null &&
+    prefix === null
   )
+    return null
+  return Promise.all([phrase, fixedDepth, cursor, grouping, pinning, facets, sorting, prefix])
 }
 
 export function executeQuery<T = AnyDocument>(
   request: QueryParams,
-  callerContext: QueryContext,
+  callerContext: PinnedQueryContext,
 ): Promise<QueryResult<T>> {
-  if (request.rerank === undefined) {
-    const loadingPhraseCode = loadPhraseCodeFor(request.term)
-    if (loadingPhraseCode === null) return runQuery<T>(request, callerContext)
-    return loadingPhraseCode.then(() => runQuery<T>(request, callerContext))
+  const loading = loadQueryCode(request) ?? loadMessagePackForStoredValues(request, callerContext.config)
+  if (loading !== null) return loading.then(() => executeQuery<T>(request, callerContext))
+  if (request.rerank === undefined) return runQuery<T>(request, callerContext, callerContext.pin)
+  const runtime = loadedRerankRuntime()
+  if (runtime === null) return loadRerankRuntime().then(() => executeQuery<T>(request, callerContext))
+  return runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost)
+}
+
+function fixedDepthHybridOf(params: QueryParams, context: SearchContext, limit: number): Promise<FanOutResult> {
+  if ((params.hybrid?.depth ?? null) === null) {
+    return requireLoadedVectorCode().executeHybridSearch(vectorQueryHost, params, context, limit, 0)
   }
-  return import('../../rerank/runtime').then(runtime =>
-    runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost),
+  return loadRerankRuntime().then(runtime =>
+    runtime.searchFixedDepthHybrid(params, context, { cursorDepth: 0, offset: 0, limit }, runtimeHost),
   )
 }
 
-async function runQuery<T>(request: QueryParams, callerContext: QueryContext): Promise<QueryResult<T>> {
-  const context = withPatternWork(callerContext)
-  const { manager, language, config, workerSearch, indexName } = context
-  const startTime = now()
-  const limit = clampLimit(request.limit)
-  const offset = clampOffset(request.offset)
-  requireWithinResultWindow(limit, offset)
-  const sortFields = normalizeSort(request.sort)
-  requireKnownMode(request)
-  const sortSignature = sortSignatureOf(request.sort)
-
-  const hasTerm = request.term !== undefined && request.term.trim().length > 0
-  const hasVector = request.vector !== undefined && request.vector.value !== undefined
-  const isHybridMode = request.mode === 'hybrid' || (hasTerm && hasVector)
-  const isVectorOnly = (request.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
-
-  if (sortSignature !== null && (isHybridMode || request.hybrid !== undefined)) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_MODE,
-      'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
-      { sort: sortFields.map(entry => entry.field) },
-    )
-  }
-
-  const params = validQueryParams(request, config)
-  requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
-  if (!isVectorOnly) requireUsablePhrases(params, context)
-  const projection = resolveProjection(params.document)
-
-  let paginated: Array<Hit<T>>
-  let nextCursor: string | undefined
-  let count: number
-  let countExact = true
-  let facets: Record<string, FacetResult> | undefined
-  let groups: GroupResult[] | undefined
-
-  if (sortSignature !== null && hasTerm && !isVectorOnly && !isHybridMode && sortsWithoutScores(params)) {
-    const page = await executeSortedQueryPage<T>(params, context, limit, offset, sortSignature)
-    paginated = page.hits
-    nextCursor = page.cursor
-    count = page.count
-    facets = page.facets
-  } else {
-    const requestedVectorField = params.vector?.field
-    const hasGlobalVectorIndex =
-      requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
-
-    let fanOutResult: PagedFanOutResult
-
-    if (isVectorOnly && hasGlobalVectorIndex) {
-      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
-    } else if (isHybridMode && hasGlobalVectorIndex) {
-      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      fanOutResult = await hybridSearchOf(params, context, limit, offset, depth)
-    } else {
-      const scoring = scoringConfigFor(params, context)
-      const workerResult = workerSearch
-        ? await workerSearch(
-            indexName,
-            params,
-            broadcastStatsForWorker(params, context, scoring),
-            context.partitionIds,
-            context.patternWork,
-            bm25SettingFor(params, context),
-          )
-        : null
-      if (workerResult) {
-        fanOutResult = workerResult
-      } else {
-        fanOutResult = await fanOutQuery(
-          manager,
-          params,
-          language,
-          config.schema,
-          scoring,
-          searchOptionsFor(params, context),
-        )
-      }
-    }
-
-    const needsFullHits =
-      params.sort !== undefined ||
-      params.group !== undefined ||
-      params.pinned !== undefined ||
-      params.searchAfter !== undefined
-    let hits: Array<Hit<T>>
-
-    if (needsFullHits) {
-      hits = fanOutResult.scored.map(scored => ({
-        id: scored.docId,
-        score: scored.score,
-        document: undefined as unknown as T,
-        scoreComponents: params.includeScoreComponents
-          ? { termFrequencies: scored.termFrequencies, fieldLengths: scored.fieldLengths, idf: scored.idf }
-          : undefined,
-      }))
-    } else {
-      const end = Math.min(offset + limit + 1, fanOutResult.scored.length)
-      hits = new Array(end)
-      for (let i = 0; i < end; i++) {
-        const scored = fanOutResult.scored[i]
-        hits[i] = {
-          id: scored.docId,
-          score: scored.score,
-          document: undefined as unknown as T,
-          scoreComponents: params.includeScoreComponents
-            ? { termFrequencies: scored.termFrequencies, fieldLengths: scored.fieldLengths, idf: scored.idf }
-            : undefined,
-        }
-      }
-    }
-
-    const sortFieldNames = sortFields.map(entry => entry.field)
-    const sortFlatSchema = sortFieldNames.length === 0 ? {} : flattenSchema(config.schema)
-    const sortFieldTypes = sortFieldNames.map(field => sortFlatSchema[field])
-    const sortModes = sortModesOf(sortFields)
-    const sortKeyCache = new Map<string, readonly ComparableSortValue[]>()
-    const sortKeyOf = (docId: string): readonly ComparableSortValue[] => {
-      let key = sortKeyCache.get(docId)
-      if (key === undefined) {
-        key = manager.sortValues(docId, sortFieldNames, sortFieldTypes, sortModes)
-        sortKeyCache.set(docId, key)
-      }
-      return key
-    }
-
-    if (params.sort) {
-      hits = applySorting(hits, params.sort, sortKeyOf)
-    }
-
-    if (params.group) {
-      groups = applyGrouping(hits, params.group, {
-        fieldValues: (docId, fieldPaths) => manager.fieldValues(docId, fieldPaths),
-        document: docId => manager.getRef(docId),
-      })
-    }
-
-    let pinsFromOutside = 0
-    if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
-      const placement = placePinned(hits, params.pinned, (docId: string) => {
-        const doc = manager.getRef(docId)
-        if (!doc) return undefined
-        return { id: docId, score: 0, document: doc as T }
-      })
-      hits = placement.hits
-      pinsFromOutside = placement.placedFromOutside
-    }
-
-    let sortContext: PaginationSortContext | undefined
-    if (sortSignature !== null) {
-      sortContext = {
-        signature: sortSignature,
-        directions: sortFields.map(entry => entry.direction),
-        sortKeyOf,
-      }
-    }
-
-    const pinnedIds =
-      params.pinned !== undefined && params.searchAfter === undefined
-        ? new Set(params.pinned.map(entry => entry.docId))
-        : undefined
-    const paged = (fanOutResult.paginate ?? applyPagination)(
-      hits,
-      limit,
-      offset,
-      context.cursorBinding,
-      params.searchAfter,
-      sortContext,
-      pinnedIds,
-    )
-    paginated = paged.paginated
-    nextCursor = paged.nextCursor
-    const holdsEveryMatch =
-      fanOutResult.matchedExact !== false && fanOutResult.scored.length === fanOutResult.totalMatched
-    count = fanOutResult.totalMatched + (holdsEveryMatch ? pinsFromOutside : 0)
-    countExact = fanOutResult.matchedExact !== false && (holdsEveryMatch || pinsFromOutside === 0)
-    facets = fanOutResult.facets
-
-    if (sortSignature !== null && params.includeScores !== true) {
-      for (const hit of hits) hit.score = undefined
-    }
-  }
-
-  if (projection.kind === 'none') {
-    for (const hit of paginated) {
-      hit.document = {} as T
-    }
-  } else {
-    for (const hit of paginated) {
-      hit.document = (manager.get(hit.id, projection) ?? {}) as T
-    }
-  }
-
-  if (groups) {
-    for (const group of groups) {
-      for (const hit of group.hits) {
-        if (projection.kind === 'none') {
-          hit.document = {}
-          continue
-        }
-        hit.document = manager.get(hit.id, projection) ?? {}
-      }
-    }
-  }
-
-  if (params.highlight) {
-    const dropped = params.highlight.fields.some(field => !projectionKeepsField(projection, field))
-    const readStoredDocument = dropped
-      ? (docId: string): Record<string, unknown> | undefined => manager.get(docId, { kind: 'full' })
-      : undefined
-    applyHighlights(paginated, params, language, manager.analysis, manager.schema, readStoredDocument, manager.synonyms)
-  }
-
-  const elapsed = now() - startTime
-
-  return {
-    hits: paginated,
-    count,
-    countExact,
-    elapsed,
-    cursor: nextCursor,
-    facets,
-    groups,
-    coverage: coverageFor(manager, context.partitionIds),
-  }
-}
-
-export async function executePreflight(request: QueryParams, callerContext: QueryContext): Promise<PreflightResult> {
+export async function executePreflight(
+  request: QueryParams,
+  callerContext: PinnedQueryContext,
+): Promise<PreflightResult> {
+  const loading = loadQueryCode(request)
+  if (loading !== null) await loading
+  const storedValueCode = loadMessagePackForStoredValues(request, callerContext.config)
+  if (storedValueCode !== null) await storedValueCode
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
   requireKnownMode(request)
+  const loadingSorting = loadSortingFor(request.sort, request.filters)
+  const loadingGrouping = loadGroupingFor(request.group)
+  const loadingFacets = loadFacetMergesFor(request.facets)
+  if (loadingSorting !== null || loadingGrouping !== null || loadingFacets !== null)
+    await Promise.all([loadingSorting, loadingGrouping, loadingFacets])
   const params = validQueryParams(request, config)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
@@ -314,7 +107,8 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
 
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
   const loadingPhraseCode = loadPhraseCodeFor(params.term)
-  if (loadingPhraseCode !== null) await loadingPhraseCode
+  const loadingFacetCode = loadFacetMergesFor(params.facets)
+  if (loadingPhraseCode !== null || loadingFacetCode !== null) await Promise.all([loadingPhraseCode, loadingFacetCode])
   if (!isVectorOnly) requireUsablePhrases(params, context)
 
   const requestedVectorField = params.vector?.field
@@ -328,11 +122,17 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
   const preflightOffset = 0
 
   if (isVectorOnly && hasGlobalVectorIndex) {
-    const result = await executeVectorSearch(params, context, preflightLimit, preflightOffset)
+    const result = await requireLoadedVectorCode().executeVectorSearch(
+      vectorQueryHost,
+      params,
+      context,
+      preflightLimit,
+      preflightOffset,
+    )
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await hybridSearchOf(params, context, preflightLimit, preflightOffset)
+    const result = await fixedDepthHybridOf(params, context, preflightLimit)
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
@@ -346,7 +146,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
       ? await workerSearch(
           indexName,
           params,
-          broadcastStatsForWorker(params, context, scoring),
+          broadcastStatsForWorker(params, scoring),
           context.partitionIds,
           context.patternWork,
           bm25SettingFor(params, context),

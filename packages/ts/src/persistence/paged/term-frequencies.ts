@@ -1,4 +1,4 @@
-import { mergeDocFrequencies } from '../../core/partition/composite/stats'
+import { mergeDocFrequencies } from '#platform/storage-host'
 import type { PartitionReadState } from '../../core/partition/read-state'
 
 export function termFrequenciesAcross(states: () => readonly PartitionReadState[]): Readonly<Record<string, number>> {

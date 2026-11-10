@@ -1,6 +1,6 @@
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { RuntimeHost } from '../../rerank/host'
-import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
+import { HYBRID_RESCORE_WINDOW } from '../../rerank/rerank-host-bindings'
 import { fixedHybridDepthOf, requireWithinHybridDepth } from '../../search/hybrid-depth'
 import type { applyPagination } from '../../search/pagination'
 import { pageByPosition } from '../../search/position-page'
@@ -45,7 +45,12 @@ async function fusedAtDepth(
 
   if (!vectorConfig || !vectorConfig.value) {
     const textOnly = await textLeg(textOnlyParams, context)
-    return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
+    return {
+      scored: textOnly.scored,
+      totalMatched: textOnly.totalMatched,
+      facets: textOnly.facets,
+      ...(textOnly.documents !== undefined ? { documents: textOnly.documents } : {}),
+    }
   }
 
   const vectorPending = vectorLeg(
@@ -80,6 +85,7 @@ async function fusedAtDepth(
       textHoldsEveryMatch &&
       (!filtersByScore || textScored.length === textFanOutResult.totalMatched),
     facets: textFanOutResult.facets,
+    ...(textFanOutResult.documents !== undefined ? { documents: textFanOutResult.documents } : {}),
   }
 }
 

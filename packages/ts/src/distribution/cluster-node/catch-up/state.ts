@@ -138,6 +138,25 @@ export function forgetReplica(
   clearPendingAdmission(state, indexName, partitionId, replicaNodeId)
 }
 
+function forgetKeysOfIndex<T>(entries: Map<string, T>, indexName: string): void {
+  for (const key of [...entries.keys()]) {
+    if (key.slice(0, key.lastIndexOf(':')) === indexName) entries.delete(key)
+  }
+}
+
+export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void {
+  for (const [key, replicas] of [...state.cursors]) {
+    if (key.slice(0, key.lastIndexOf(':')) !== indexName) continue
+    for (const cursor of replicas.values()) cursor.feed?.cancel()
+    state.cursors.delete(key)
+  }
+  forgetKeysOfIndex(state.pendingAdmissions, indexName)
+  forgetKeysOfIndex(state.admittedReplicas, indexName)
+  forgetKeysOfIndex(state.acknowledgedSeqNos, indexName)
+  forgetKeysOfIndex(state.removedReplicas, indexName)
+  forgetKeysOfIndex(state.startedTerms, indexName)
+}
+
 /**
  * Lists the replicas of a partition whose admission the primary has proposed and the controller has yet to answer.
  *

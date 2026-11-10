@@ -3,6 +3,7 @@ import { encodeJson } from '../../json-encoding'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import { REQUEST_THREAD_DEPARTURE_DRAIN_MS } from '../constants'
 import type { ResponseAbort, RouteHandler } from '../request'
+import { stopResponse } from '../request-signal'
 import { type ResponseSink, statusLine } from '../response'
 import type { ErrorEnvelope } from '../types'
 import { awaitDepartureConfirmation, departureConfirmation, departureConfirmed } from './departure'
@@ -56,6 +57,7 @@ function threadEndOf(target: object): ThreadExit | null {
 }
 
 function refuse(request: RunningRequest): void {
+  stopResponse(request.abort)
   if (request.abort.aborted) return
   const payload = encodeJson(DEPARTURE_REFUSAL)
   try {
@@ -208,6 +210,7 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
         heldVectorOf: refusingOnceDeparting((indexName, fieldName, docId) =>
           executor.heldVectorOf(indexName, fieldName, docId),
         ),
+        pinVectorField: refusingOnceDeparting((indexName, fieldName) => executor.pinVectorField(indexName, fieldName)),
         createIndex: refusingOnceDeparting((indexName, config, language, analysisStale, synonyms) =>
           executor.createIndex(indexName, config, language, analysisStale, synonyms),
         ),

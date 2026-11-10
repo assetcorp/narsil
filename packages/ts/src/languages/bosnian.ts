@@ -206,7 +206,7 @@ const stopWords = new Set([
  */
 export const bosnian: LanguageModule = {
   name: 'bosnian',
-  revision: '1',
+  revision: 'a03929840cd3c58f',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9čćđšž]+/gi },

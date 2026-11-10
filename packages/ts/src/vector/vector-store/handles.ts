@@ -1,5 +1,9 @@
+import {
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+  VECTOR_SCRATCH_SLOTS,
+  VECTOR_STORE_INITIAL_CAPACITY,
+} from '#platform/vector-core-host'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { UNPLACED_FLAG_CHUNK_ORDINALS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import type { OsqBits } from '../osq/quantize'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
 import { blockBuffer, computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'
@@ -17,7 +21,10 @@ export const STORE_RELEASED_VECTORS_TO_DISK = 8
 export const STORE_UNPLACED_COUNT = 9
 export const STORE_REMOVED_COUNT = 10
 export const STORE_ORDINAL_LAYOUT_GENERATION = 11
+export const STORE_WRITE_SEQUENCE_INT64 = 6
 const STORE_HEADER_WORDS = 16
+const FIRST_WRITE_SEQUENCE = 1n
+const SEQUENCE_BYTES = 8
 
 export const IN_MEMORY = -1
 
@@ -88,6 +95,12 @@ export interface SharedVectorStoreHandles {
   diskOffset: GrowableBuffer
   /** This holds the centroid the quantizer takes every code against. */
   centroid: Float32Array
+  /** This holds one 64-bit sequence per ordinal, the sequence of the write that added the ordinal's vector. */
+  bornAt: GrowableBuffer
+  /** This holds one 64-bit sequence per ordinal, the sequence of the write that removed or replaced its document, or 0 while the document holds it. */
+  retiredAt: GrowableBuffer
+  /** This holds one 64-bit entry per thread slot, the oldest pin that the thread holds plus 1, or 0 while it holds none. */
+  pins: BigInt64Array
 }
 
 function fixedInt32(words: number): Int32Array {
@@ -96,6 +109,16 @@ function fixedInt32(words: number): Int32Array {
 
 function fixedFloat32(length: number): Float32Array {
   return new Float32Array(createFixedBuffer(length * 4), 0, length)
+}
+
+function storeHeader(): Int32Array {
+  const header = fixedInt32(STORE_HEADER_WORDS)
+  Atomics.store(writeSequenceWords(header), STORE_WRITE_SEQUENCE_INT64, FIRST_WRITE_SEQUENCE)
+  return header
+}
+
+export function writeSequenceWords(header: Int32Array): BigInt64Array {
+  return new BigInt64Array(header.buffer, header.byteOffset, header.length / 2)
 }
 
 export function unplacedChunkCount(ordinals: number): number {
@@ -126,7 +149,7 @@ export function createSharedVectorStoreHandles(
     layout: computeVectorBlockLayout(dimension, blockBytes),
     codeLayout: codeBits === null ? null : computeCodeBlockLayout(dimension, codeBits),
     layoutRevision: 0,
-    header: fixedInt32(STORE_HEADER_WORDS),
+    header: storeHeader(),
     blocks: [],
     codeBlocks: [],
     vectorFiles: [],
@@ -142,6 +165,9 @@ export function createSharedVectorStoreHandles(
     diskFile: inMemoryTable(),
     diskOffset: perOrdinal(4),
     centroid: fixedFloat32(dimension),
+    bornAt: perOrdinal(SEQUENCE_BYTES),
+    retiredAt: perOrdinal(SEQUENCE_BYTES),
+    pins: new BigInt64Array(createFixedBuffer(VECTOR_SCRATCH_SLOTS * SEQUENCE_BYTES), 0, VECTOR_SCRATCH_SLOTS),
   }
 }
 
@@ -162,5 +188,8 @@ export function sharedVectorStoreBytes(handles: SharedVectorStoreHandles): numbe
   bytes += handles.codePresent.byteLength
   bytes += handles.diskFile.byteLength
   bytes += handles.diskOffset.byteLength
+  bytes += handles.bornAt.byteLength
+  bytes += handles.retiredAt.byteLength
+  bytes += handles.pins.byteLength
   return bytes
 }

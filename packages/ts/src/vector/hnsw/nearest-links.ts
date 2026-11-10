@@ -1,7 +1,7 @@
+import { NEAREST_LINK_FALLBACK_HOSTS } from '#platform/vector-core-host'
 import { adjacencySlots, incomingCount, layerBase, noteLinked, noteUnlinked } from './adjacency'
 import { ABSENT, reachNode } from './adjacency/views'
 import { drain, newPace, type Pace, type Steps, stepTaken } from './connect-steps'
-import { NEAREST_LINK_FALLBACK_HOSTS } from './constants'
 import { isLive } from './last-links'
 import { type HNSWGraphState, nodeDistanceFunction } from './shared'
 

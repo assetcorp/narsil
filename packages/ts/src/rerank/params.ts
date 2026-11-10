@@ -1,9 +1,8 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
-import { DEFAULT_RERANK_WINDOW, MIN_RERANK_WINDOW } from './constants'
 import type { RuntimeHost } from './host'
 import { rerankQueryTextOf } from './query-text'
+import { DEFAULT_RERANK_WINDOW, ErrorCodes, MIN_RERANK_WINDOW, NarsilError } from './rerank-host-bindings'
 
 export interface ResolvedRerank {
   adapter: string

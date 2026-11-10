@@ -15,7 +15,10 @@ export async function releaseIndexCopies(
   const wasScaledOut = state.scaledOutIndexes.delete(indexName)
   const loading = state.copyTransitions.get(indexName)
   if (loading !== undefined) await loading.done.catch(() => undefined)
+  const previousPool = state.workerPool
   await steps.awaitReplicationIdle(state, indexName)
+  await previousPool?.whenRetiredCopiesAreGone(indexName)
+  await state.retiredThreadsGone
   steps.cancelIdleMerge(state, indexName)
   const reloads = wasScaledOut || (loading !== undefined && loading.kind !== 'drop')
   const pool = state.workerPool
@@ -24,9 +27,13 @@ export async function releaseIndexCopies(
   state.segmentLedger.delete(indexName)
   await Promise.all(
     pool.executorEntries().map(({ executor }) =>
-      executor.execute({ type: 'dropIndex', indexName, requestId: `restore-release-${indexName}` }).catch(error => {
-        if (!steps.heldNowhere(error)) throw error
-      }),
+      executor
+        .execute({ type: 'dropIndex', indexName, requestId: `restore-release-${indexName}` })
+        .catch(async error => {
+          if (steps.heldNowhere(error)) return
+          if (pool.getAllExecutors().includes(executor)) throw error
+          await pool.whenExecutorIsGone(executor)
+        }),
     ),
   )
   return reloads

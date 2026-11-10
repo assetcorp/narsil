@@ -32,6 +32,9 @@ export interface StoreMemory {
   present: MemoryView
   vectorFile: MemoryView
   vectorOffset: MemoryView
+  bornAt: MemoryView
+  retiredAt: MemoryView
+  pins: MemoryView
   vectorFiles: string[]
   codeBlocks: MemoryView[]
   vectorBlocks: MemoryView[]
@@ -70,6 +73,7 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     query: MemoryView,
     metric: number,
     candidateCount: number,
+    pin: number,
     threadSlot: number,
     ordinals: MemoryView,
     distances: MemoryView,
@@ -82,6 +86,7 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     query: MemoryView,
     metric: number,
     candidateCount: number,
+    pin: number,
     threadSlot: number,
     accepted: MemoryView,
     filtered: boolean,
@@ -92,6 +97,7 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     metric: number,
     ordinals: MemoryView,
     count: number,
+    pin: number,
     threadSlot: number,
   ): Promise<NativeScores>
   score(
@@ -100,6 +106,7 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     metric: number,
     ordinals: MemoryView,
     count: number,
+    pin: number,
     distances: MemoryView,
   ): number
   place(

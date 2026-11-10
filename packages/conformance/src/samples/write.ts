@@ -17,6 +17,7 @@ import {
 import { CATALOG_PATH, jsonText, SAMPLES_ROOT, type SampleEntry } from './catalog'
 import { backupManifestOf, gzipped, partitionArchiveOf, withTermHistory, withWriteRecords } from './derive'
 import { writeEarlierReleaseExpectations } from './earlier'
+import { rewriteSamples } from './rewrite'
 import { PRODUCTS_INDEX, writeScenario } from './scenario'
 
 const CHECKPOINTS = 'checkpoints'
@@ -237,4 +238,20 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
+const ONLY_FLAG = '--only'
+
+function chosenSamples(argv: readonly string[]): string[] | null {
+  const at = argv.indexOf(ONLY_FLAG)
+  if (at === -1) return null
+  const names = (argv[at + 1] ?? '').split(',').filter(name => name.length > 0)
+  if (names.length === 0) throw new Error(`${ONLY_FLAG} takes a comma-separated list of sample names`)
+  return names
+}
+
+const chosen = chosenSamples(process.argv.slice(2))
+if (chosen === null) {
+  await main()
+} else {
+  const rewritten = await rewriteSamples(chosen)
+  console.log(`rewrote ${rewritten.join(', ')} under ${SAMPLES_ROOT}`)
+}

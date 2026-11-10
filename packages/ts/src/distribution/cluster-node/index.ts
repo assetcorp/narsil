@@ -15,6 +15,7 @@ import { decommissionNode } from './decommission'
 import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
+import { forgetClosedCopy, forgetDroppedCopy } from './local-copy-state'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { orphanedIndexError, settleLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
@@ -31,7 +32,7 @@ import { createClusterQuerySuggestions } from './query-suggestions'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
-import { createReshardState, forgetReshardIndex, stopEveryReshardJob } from './reshard/state'
+import { createReshardState, stopEveryReshardJob } from './reshard/state'
 import { createSearchContextRegistry } from './search-contexts'
 import { clusterNodeEngine } from './server-engine'
 import { createSettlingWrites } from './settling-writes'
@@ -66,6 +67,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const replicationLogs = new Map<string, ReplicationLog>()
   const reshard = createReshardState()
   let localEngine: ClusterLocalEngine | null = null
+  const copies = { replicationLogs, reshard, bootstrapSync: bootstrapSyncState, catchUp: () => writeDeps.catchUp }
   const engine = await createClusterLocalEngine(config.engine, {
     async onIndexOpen(indexName) {
       if (localEngine === null) return
@@ -78,10 +80,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         replicationConfig: config.replication,
       })
     },
-    onIndexClose: indexName => {
-      deleteIndexReplicationLogs(replicationLogs, indexName)
-      forgetReshardIndex(reshard, indexName)
-    },
+    onIndexClose: indexName => forgetClosedCopy(copies, indexName),
+    onIndexDrop: indexName => forgetDroppedCopy(copies, indexName),
   })
   localEngine = engine
   const snapshotSpool = await openSnapshotSpoolDirectory(config.engine?.durability?.directory).catch(async err => {

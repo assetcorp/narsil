@@ -1,6 +1,6 @@
 import type { EngineCore } from '../../engine/core'
 import { MAX_SNAPSHOT_ANALYSIS_ATTEMPTS } from '../../engine/snapshot/constants'
-import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
+import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration-encode'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { FileRef, SegmentManifest } from '../../persistence/durability/segment/manifest'

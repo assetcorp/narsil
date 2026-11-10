@@ -12,6 +12,7 @@ import { decodeCursorText, encodeCursorText } from './cursor-codec'
 import { normalizeSort, sortSignatureEntry } from './sorting'
 
 export const CURSOR_VERSION = 4
+const NON_FINITE_CURSOR_VERSION = 5
 
 /**
  * The decoded form of the paging cursor that search and listing share. The
@@ -82,6 +83,10 @@ export function encodePageCursor(cursor: PageCursor): string {
     payload.o = cursor.sortSignature
   } else if (cursor.score !== null) {
     payload.s = cursor.score
+    if (!Number.isFinite(cursor.score)) {
+      payload.v = NON_FINITE_CURSOR_VERSION
+      payload.s = String(cursor.score)
+    }
   }
   if (cursor.depth !== undefined && cursor.depth > 0) payload.d = cursor.depth
   payload.q = cursor.binding
@@ -125,18 +130,11 @@ function decodeSortKey(value: unknown, cursor: string): ComparableSortValue[] {
 export function decodePageCursor(cursor: string): PageCursor {
   if (cursor.length > MAX_CURSOR_LENGTH) throw invalidCursor(cursor, 'the cursor is too long')
 
-  let json: string
-  try {
-    json = decodeCursorText(cursor)
-  } catch {
-    throw invalidCursor(cursor, 'invalid base64 encoding')
-  }
-
   let parsed: unknown
   try {
-    parsed = JSON.parse(json)
+    parsed = JSON.parse(decodeCursorText(cursor))
   } catch {
-    throw invalidCursor(cursor, 'invalid JSON')
+    throw invalidCursor(cursor, 'invalid base64 or JSON encoding')
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -144,7 +142,6 @@ export function decodePageCursor(cursor: string): PageCursor {
   }
 
   const { v, a, s, k, o, d, q } = parsed as Record<string, unknown>
-  if (v !== CURSOR_VERSION) throw invalidCursor(cursor, `unsupported cursor version ${String(v)}`)
   if (typeof q !== 'string' || !/^[0-9a-f]{8}$/.test(q)) {
     throw invalidCursor(cursor, '"q" must be 8 lowercase hex digits')
   }
@@ -153,8 +150,15 @@ export function decodePageCursor(cursor: string): PageCursor {
     throw invalidCursor(cursor, '"a" is too long to be a document id')
   }
 
-  if (s !== undefined && (typeof s !== 'number' || !Number.isFinite(s))) {
-    throw invalidCursor(cursor, '"s" must be a finite number')
+  const validScore =
+    v === CURSOR_VERSION
+      ? s === undefined || (typeof s === 'number' && Number.isFinite(s))
+      : v === NON_FINITE_CURSOR_VERSION &&
+        (s === 'Infinity' || s === '-Infinity' || s === 'NaN') &&
+        k === undefined &&
+        o === undefined
+  if (!validScore) {
+    throw invalidCursor(cursor, 'invalid score for the cursor version')
   }
   if (s !== undefined && k !== undefined) throw invalidCursor(cursor, 'a cursor carries "s" or "k", never both')
 
@@ -170,7 +174,7 @@ export function decodePageCursor(cursor: string): PageCursor {
 
   return {
     anchor: a,
-    score: typeof s === 'number' ? s : null,
+    score: s === undefined ? null : Number(s),
     sortKey,
     sortSignature: typeof o === 'string' ? o : null,
     depth: typeof d === 'number' ? d : 0,

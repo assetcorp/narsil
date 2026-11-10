@@ -1,7 +1,7 @@
 import type { EngineCore } from '../../engine/core'
+import { loadRerankRuntime } from '../../engine/query/fixed-depth-code'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
 import { isNarsilError } from '../../errors'
-import { rerankOnHost } from '../../rerank/call'
 import { ServerErrorCodes, toHttpError } from '../errors'
 import type { Authorizer } from '../request'
 import type { ThreadFeeds } from '../sync/feed-host'
@@ -40,13 +40,17 @@ export async function answerAuthorize(
   }
 }
 
-export async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promise<RelayReply> {
+export async function answerEmbed(
+  core: EngineCore,
+  request: EmbedQueryRequest,
+  signal?: AbortSignal,
+): Promise<RelayReply> {
   try {
     const entry = core.requireIndex(request.indexName)
     const resolved = await resolveVectorText(
       { vector: request.vector },
       entry.embeddingAdapter,
-      core.abortController.signal,
+      signal === undefined ? core.abortController.signal : AbortSignal.any([core.abortController.signal, signal]),
       entry.embeddingAdapterName,
     )
     const value = resolved.vector?.value
@@ -62,9 +66,14 @@ export async function answerEmbed(core: EngineCore, request: EmbedQueryRequest):
   }
 }
 
-export async function answerRerank(core: EngineCore, request: RerankQueryRequest): Promise<RelayReply> {
+export async function answerRerank(
+  core: EngineCore,
+  request: RerankQueryRequest,
+  signal?: AbortSignal,
+): Promise<RelayReply> {
   try {
-    const scores = await rerankOnHost(core, request.adapter, request.query, request.documents)
+    const { rerankOnHost } = await loadRerankRuntime()
+    const scores = await rerankOnHost(core, request.adapter, request.query, request.documents, signal)
     return { type: 'reranked', requestId: request.requestId, scores, error: null }
   } catch (err) {
     if (!isNarsilError(err)) console.warn('Reranking a query for a request thread failed:', err)

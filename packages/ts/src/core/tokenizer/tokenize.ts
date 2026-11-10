@@ -3,7 +3,7 @@ import type { CustomTokenizer } from '../../types/schema'
 import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
 import { transformToken } from './cache'
 import { DEFAULT_MIN_TOKEN_LENGTH, DEFAULT_SPLIT_PATTERN } from './constants'
-import { nativeAnalysis } from './native-hook'
+import { nativeAnalysis, type PackedTokenVisitor } from './native-hook'
 import { expandNgrams } from './ngrams'
 import { normalizeForSplitting } from './normalize'
 
@@ -84,6 +84,7 @@ export function visitTokens(
   language: LanguageModule,
   options: TokenizeOptions | undefined,
   visit: TokenVisitor,
+  packed?: PackedTokenVisitor,
 ): void {
   const {
     stem = true,
@@ -100,7 +101,7 @@ export function visitTokens(
     }
     return
   }
-  if (nativeAnalysis()?.visitTokens(text, language, options, visit) === true) return
+  if (nativeAnalysis()?.visitTokens(text, language, options, visit, packed) === true) return
 
   const rawParts = splitText(normalizeForSplitting(text), language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH

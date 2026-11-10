@@ -1,6 +1,6 @@
 import type { PartitionManager } from '../../partitioning/manager'
 import type { CapacityScope } from '../../partitioning/manager/capacity'
-import type { BufferedDocState, WAQEntry } from '../../partitioning/write-ahead-queue'
+import type { BufferedDocState, BufferedMutation, QueuedWrite } from '../../partitioning/write-ahead-queue'
 import type { PluginRegistry } from '../../plugins/registry'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
@@ -17,7 +17,7 @@ export interface DurableWriteToken {
   seqNo: number
 }
 
-export type ApplyMutation = () => void | Promise<void>
+export type ApplyMutation = () => void | QueuedWrite | Promise<void> | Promise<QueuedWrite | undefined>
 
 export interface DurableMutation {
   docId: string
@@ -54,7 +54,7 @@ export interface MutationContext {
     vectorFieldPaths: Set<string>
   }
   requireManager: (name: string) => PartitionManager
-  bufferIfRebalancing: (name: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+  bufferIfRebalancing: (name: string, entry: BufferedMutation) => QueuedWrite | undefined
   awaitRebalanceReplay: (name: string) => Promise<void>
   isRebalancing: (name: string) => boolean
   pendingRebalanceWrites: (name: string) => number

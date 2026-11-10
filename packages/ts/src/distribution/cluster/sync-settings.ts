@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import type { ConfigFieldRejection } from '../../engine/snapshot/restore-config'
 import { getLanguage } from '../../languages/registry'
+import { decode } from '../../serialization/msgpack'
 import { isSyncEpoch } from '../../sync/epoch'
 import type { StoredSyncSetting } from '../../types/internal'
 import type { IndexMetadataSnapshot } from './index-metadata'

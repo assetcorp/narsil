@@ -1,7 +1,6 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { EARLIER_RELEASE_MIN_M, ErrorCodes, MAX_M, MIN_M, NarsilError } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import type { NumberedGraphParts, NumberedHnswGraph } from '../hnsw'
-import { EARLIER_RELEASE_MIN_M, MAX_M, MIN_M } from '../hnsw/constants'
 import { codesOf, VECTOR_INDEX_PART_VECTORS, type VectorIndexCodes } from './payload'
 
 export const VECTOR_FILE_PAYLOAD_VERSION = 1

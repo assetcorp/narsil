@@ -249,6 +249,10 @@ Linear combination fuses by score magnitude after min-max normalisation.
 
 An implementation must normalise over the whole result set, which holds every text result from every partition and every result from the vector index. Normalising per partition would compare scores from different scales.
 
+For normalisation, an implementation must replace positive infinity with the largest finite float64 value, `1.7976931348623157e308`, and negative infinity with its negative. It must leave finite scores unchanged. It must exclude a NaN score from the minimum and maximum and give that entry a normalised score of 0, while keeping the document in the combined result. A list with no entries other than NaN therefore contributes 0 for every document. An empty list contributes no entries. These rules apply to the values used for normalisation alone, so an implementation must leave the input scores unchanged.
+
+The implementation must compute the minimum and maximum after those replacements. Where they are equal, it must give every entry other than NaN a normalised score of 1. Otherwise, it must use the formula above where `max_score - min_score` is finite. Where that subtraction overflows, it must compute `((score / 2) - (min_score / 2)) / ((max_score / 2) - (min_score / 2))`, rounding each operation to float64 in that order. It must then combine the two normalised scores with the formula above and order the documents by combined score, highest first, with ties in document ID code point order. RRF uses rank positions alone, so these score replacements do not apply to RRF.
+
 ---
 
 ## Filtered Search
@@ -364,8 +368,8 @@ The core's C interface must use C types alone.
 
 ```text
 NativeSearchCore {
-  search(graph, store, query: List<float32>, metric, candidateCount: uint32, threadSlot: uint32) -> List<Candidate>
-  score(store, query: List<float32>, metric, ordinals: List<int32>) -> List<float64>
+  search(graph, store, query: List<float32>, metric, candidateCount: uint32, pin: int64, threadSlot: uint32) -> List<Candidate>
+  score(store, query: List<float32>, metric, ordinals: List<int32>, pin: int64) -> List<float64>
   place(graph, store, ordinal: int32, topLayer: int32, metric, threadSlot: uint32) -> 'placed' or 'needsRoom'
   remove(graph, ordinal: int32, threadSlot: uint32) -> nothing
   compact(graph, store, metric, threadSlot: uint32) -> nothing
@@ -379,9 +383,9 @@ Candidate {
 }
 ```
 
-`search` must return the `candidateCount` nearest ordinals, nearest first, as [Search](algorithms.md#search) defines. It must walk the graph by the distances that it estimates from the codes while `calibrated` is 1, and by the metric on full-precision vectors otherwise.
+`search` must return the `candidateCount` nearest ordinals that `pin` admits, as [Pins](#pins) defines, and order them nearest first, as [Search](algorithms.md#search) defines. It must pass through every other ordinal as it passes through a node that fails a filter, as [Filtered Traversal](#filtered-traversal) defines. It must walk the graph by the distances that it estimates from the codes while `calibrated` is 1, and by the metric on full-precision vectors otherwise.
 
-`score` must return the distance from `query` to the full-precision vector of each ordinal, and infinity for an ordinal whose vector the store lacks. An implementation must call `score` when it re-scores the candidates of a search and when it scans vectors by brute force.
+`score` must return the distance from `query` to the full-precision vector of each ordinal that `pin` admits and whose vector the store holds, and infinity for every other ordinal. An implementation must call `score` when it re-scores the candidates of a search and when it scans vectors by brute force.
 
 `place` must link the node of `ordinal` into every layer from `topLayer` down to 0, as [Insertion](algorithms.md#insertion) defines, and it must raise `nodeCount` by 1. It must store that node as the entry point where the graph holds no entry point. It must first lower `tombstoneCount` by 1 where the `tombstones` entry of `ordinal` holds 1, and then store 0 in that entry.
 
@@ -389,7 +393,7 @@ Before an implementation calls `place`, it must store the vector of `ordinal`, c
 
 `remove` must store 1 in the `tombstones` entry of `ordinal` and raise `tombstoneCount` by 1. It must leave the entry point unchanged, because a search passes through a tombstoned node.
 
-`compact` must take every tombstoned node out of the graph, as [Removal](algorithms.md#removal) defines, and lower `nodeCount` and `tombstoneCount` by 1 for each node. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
+`compact` must take every tombstoned node whose ordinal the implementation may free, as [Pins](#pins) defines, out of the graph as [Removal](algorithms.md#removal) defines. It must lower `nodeCount` and `tombstoneCount` by 1 for each node that it takes out. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
 
 `measure` must add the vector of each ordinal that the store holds to `totals`, which holds `dimension + 2` entries, and it must leave the store unchanged. Under the cosine metric it must add the vector after `unitNormalise`, as [Centroid](algorithms.md#centroid) defines, and under any other metric the vector itself. It must add each component to the matching entry among the first `dimension` entries, the sum of the squared components to entry `dimension`, and 1 to entry `dimension + 1`, and it must accumulate every entry in float64. To calibrate, an implementation must call `measure` over the vectors of the calibration and store the centroid of the totals in `centroid`, as [Centroid](algorithms.md#centroid) defines. It must then raise `calibrationGeneration` by 1 and store 1 in `calibrated`. An implementation that finds 0 in entry `dimension + 1` must skip calibration and leave `centroid`, `calibrationGeneration`, and `calibrated` unchanged.
 
@@ -446,6 +450,9 @@ Store {
   vectorFile:   int32 per ordinal     (the position in files of the file that holds the vector, or -1 where a block holds it)
   vectorOffset: uint32 per ordinal    (the byte offset of the vector in that file)
   files:        List<string>          (the path of each vector file)
+  bornAt:       int64 per ordinal     (the sequence of the write that adds the vector)
+  retiredAt:    int64 per ordinal     (the sequence of the write that removes or replaces its document, or 0)
+  pins:         int64 per thread slot (the oldest pin that the thread holds plus 1, or 0)
 }
 
 StoreHeader {
@@ -458,12 +465,33 @@ StoreHeader {
   word 6: codeBlockCount
   word 7: calibrationGeneration
   word 8: releasedVectorsToDisk       (1 once the implementation writes any vector of the store to disk)
+  word 12: writeSequence              (an int64 across words 12 and 13)
 }
 ```
 
 A `CodeBlock` must hold `OSQRecord`s, as [Vector File Payload](envelope.md#vector-file-payload) defines, with no padding between them. Each entry of a `VectorBlock` must hold one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds every vector of that block on disk. The core must read a vector whose `vectorFile` entry is 0 or above from that file, at its `vectorOffset`. An implementation must leave a vector file unchanged while a core maps it, and it must detach every core from that file before it deletes the file. The core uses words 0, 3, 4, and 7 of the store header alone.
 
 The core must skip an ordinal at or above `slots`, a list that ends above `upperUsed`, and a vector that ends beyond its file, because a corrupt value could otherwise send the core outside a region.
+
+### Pins
+
+A search must pin the store at one write sequence and answer from the vectors that its pin admits, as [One State per Search](partitioning.md#one-state-per-search) requires. A pin `p` admits ordinal `o` when `bornAt[o]` is at most `p` and `retiredAt[o]` is 0 or above `p`. Every thread must read and write `writeSequence` and every entry of `pins` atomically.
+
+For each write, a writer must take the next sequence, which is `writeSequence` plus 1. It must store that sequence in `bornAt` of every ordinal that the write adds before it raises `slots` past that ordinal or calls `place` for it. It must also store that sequence in `retiredAt` of every ordinal whose document the write removes or replaces. It must store the sequence in `writeSequence` only after every one of those stores, and only after it places every ordinal that the write adds or marks that ordinal as one that every search scans until the implementation places it. A write that replaces the vector of a document must store the new vector under a new ordinal, because a pin that admits the old ordinal must still read the old vector there.
+
+A thread must take a pin as follows, so that every ordinal that a writer frees before the thread's entry is stored in `pins` is one that the returned pin leaves out:
+
+```text
+pin(threadSlot) -> int64
+  repeat:
+    seen = writeSequence
+    when pins[threadSlot] is 0:
+      pins[threadSlot] = seen + 1
+    when writeSequence equals seen:
+      return seen
+```
+
+While a thread holds several pins, it must keep its oldest pin plus 1 in its `pins` entry, and it must store 0 there once it releases its last pin. When a thread dies, the implementation must store 0 in that thread's `pins` entry. An implementation may free an ordinal, which means taking its node out of the graph, releasing its vector, or reusing the ordinal, only once its `retiredAt` is above 0 and at most the pin that each non-zero entry of `pins` records. The implementation must compare each entry with `retiredAt` alone, because an entry records only the oldest pin of its thread, and a newer pin of that thread can admit an ordinal that the oldest pin leaves out. An implementation that opens a store from a file must start `writeSequence` at 1 and store 0 in every `bornAt` entry. It must store 1 in the `retiredAt` entry of every tombstoned ordinal and of every ordinal that holds a replaced vector, and 0 in every other entry.
 
 ### Locks
 

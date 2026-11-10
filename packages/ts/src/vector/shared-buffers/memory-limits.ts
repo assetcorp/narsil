@@ -1,4 +1,4 @@
-import { MAX_DOC_ID_TABLE_BYTES, MAX_VECTOR_ORDINALS, MAX_WASM_PAGES, WASM_PAGE_BYTES } from '../constants'
+import { MAX_DOC_ID_TABLE_BYTES, MAX_VECTOR_ORDINALS, VECTOR_BLOCK_MAX_BYTES } from '#platform/vector-core-host'
 
 export interface VectorMemoryLimits {
   maxOrdinals: number
@@ -7,9 +7,15 @@ export interface VectorMemoryLimits {
 }
 
 export const VECTOR_MEMORY_LIMITS: VectorMemoryLimits = {
-  maxOrdinals: MAX_VECTOR_ORDINALS,
-  maxDocIdTableBytes: MAX_DOC_ID_TABLE_BYTES,
-  blockBytes: MAX_WASM_PAGES * WASM_PAGE_BYTES,
+  get maxOrdinals() {
+    return MAX_VECTOR_ORDINALS
+  },
+  get maxDocIdTableBytes() {
+    return MAX_DOC_ID_TABLE_BYTES
+  },
+  get blockBytes() {
+    return VECTOR_BLOCK_MAX_BYTES
+  },
 }
 
 export function reserveVectorRegion(_bytes: number): ArrayBuffer | null {

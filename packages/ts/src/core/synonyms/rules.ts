@@ -1,4 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import type { SynonymRule } from '../../types/synonyms'
 import {
   MAX_SYNONYM_RULE_WORDS,
@@ -117,10 +117,11 @@ export function parseSynonymRules(value: unknown, raise: RaiseSynonymProblem): S
 }
 
 export function encodeSynonymRules(rules: readonly SynonymRule[]): Uint8Array {
-  return encode(rules)
+  return requireLoadedMessagePack().encode(rules)
 }
 
 export function decodeSynonymRules(bytes: Uint8Array, raise: RaiseSynonymProblem): SynonymRule[] {
+  const { decode } = requireLoadedMessagePack()
   let decoded: unknown
   try {
     decoded = decode(bytes)

@@ -38,6 +38,7 @@ export async function openReferenceIndex(dataset: ConformanceDataset): Promise<N
       const result = await narsil.insertBatch(INDEX_NAME, batch)
       if (result.failed.length > 0) throw new Error(`the reference refused ${result.failed.length} documents`)
     }
+    await narsil.optimizeVectors(INDEX_NAME, VECTOR_FIELD)
     await waitForGraphs(narsil)
     return narsil
   } catch (error) {

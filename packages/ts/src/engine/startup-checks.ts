@@ -3,7 +3,7 @@ import { requireWorkerEntry } from '#platform/worker-factory'
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
 import type { NarsilConfig } from '../types/config'
-import { workersEnabledByDefault } from './orchestration'
+import { workersEnabledByDefault } from './orchestration/loader'
 
 let announcedMissingWorkerEntry = false
 

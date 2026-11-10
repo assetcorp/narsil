@@ -1,11 +1,18 @@
+import { sortFacetedNumbers } from '../../search/facets'
+import {
+  createSortColumnSet,
+  reduceStoredSortValue,
+  selectSortedPage,
+  selectTextRange,
+} from '../../search/sorting-code'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
-import { type ComparableSortValue, defaultSortMode, type SortMode, toReducedSortValue } from '../ordering'
-import { sortFacetedNumbers } from './facets'
+import { type ComparableSortValue, defaultSortMode, type SortMode } from '../ordering'
+import { storedValuesOf } from '../stored-values/columns'
 import type { PartitionIndex } from './partition-index'
-import { createSortColumnSet, type SortColumnSet } from './sort-columns'
-import { selectTextRange, type TextRangeBounds } from './sort-columns/range'
-import { type SortedPageEntry, type SortPageRequest, selectSortedPage } from './sort-columns/select'
+import type { SortColumnSet } from './sort-columns'
+import type { TextRangeBounds } from './sort-columns/range'
+import type { SortedPageEntry, SortPageRequest } from './sort-columns/select'
 import type { PartitionReadState, PartitionState } from './utils'
 
 export type { SortedPageEntry, SortPageRequest } from './sort-columns/select'
@@ -24,9 +31,9 @@ export function textRangeBitsetOf(
   bounds: TextRangeBounds,
   capacity: number,
 ): Uint32Array {
-  const column = ensureColumns(state).column(fieldPath, fieldType, 'min')
-  const resolver = state.docStore.resolver()
-  return selectTextRange(column, bounds, capacity, internalId => resolver.isLive(internalId))
+  const columns = ensureColumns(state)
+  const column = columns.column(fieldPath, fieldType, 'min')
+  return selectTextRange(column, bounds, capacity, columns.liveBitset())
 }
 
 export type SortColumnsRequest = Pick<SortPageRequest, 'fields' | 'directions' | 'fieldTypes' | 'modes'>
@@ -65,7 +72,7 @@ export function sortValuesOf(
       key[i] = set.column(fields[i], fieldTypes[i], mode).valueOf(internalId)
       continue
     }
-    key[i] = toReducedSortValue(state.docStore.fieldReader(fields[i])(internalId), mode)
+    key[i] = reduceStoredSortValue(storedValuesOf(state.docStore, fields[i]), internalId, mode)
   }
 
   return key

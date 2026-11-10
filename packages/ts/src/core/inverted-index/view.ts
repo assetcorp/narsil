@@ -33,7 +33,7 @@ export class LivePostingView implements PostingListView {
     this.docIdSet = {
       get size(): number {
         const live = view.sync()
-        return live === DETACHED ? 0 : view.store.terms.docFrequency[live]
+        return live === DETACHED ? 0 : view.store.terms.frequencyAt(live)
       },
     }
     this.retiredRows = {

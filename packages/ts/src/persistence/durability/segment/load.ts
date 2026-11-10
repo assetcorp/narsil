@@ -1,12 +1,14 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { startReadingOpeningSectionsAhead } from '../../paged/read-ahead'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { WriteRecordKeeper } from '../types'
 import { manifestKey, segmentsPrefix } from './layout'
 import { loadPartitionSegments } from './load-partition'
 import type { SegmentManifest } from './manifest'
-import { type DecodedManifest, decodeSegmentManifest } from './manifest-decode'
+import type { DecodedManifest } from './manifest-decode'
+import { decodeSegmentManifest } from './manifest-decode'
 import type { CheckpointStore } from './store'
 import { loadVectorField } from './vector-load'
 
@@ -65,7 +67,6 @@ export async function loadSegmentedCheckpoint(
       field.files.some(file => file.headOffset !== undefined),
   )
   if (!decodesEveryDocument && directory !== undefined && opensVectorsOnDemand) {
-    const { startReadingOpeningSectionsAhead } = await import('../../paged/module')
     await startReadingOpeningSectionsAhead(directory, manifest)
   }
 

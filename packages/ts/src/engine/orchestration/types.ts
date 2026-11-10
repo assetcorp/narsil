@@ -12,16 +12,16 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
-import type { DiskAdoptionAction, WorkerAction } from '../../workers/protocol'
+import type { DiskAdoptionAction, WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
+
+export type PublicationGrowth = 'liveTail' | 'segments' | 'none'
 
 export interface RequestThreadListener {
   onWorkerReady(workerId: number, executor: Executor): Promise<void>
   onLongQueryWorkerReady(workerId: number, executor: Executor): Promise<void>
   onWorkerGone(workerId: number): void
 }
-
-export type MainWriteGrowth = 'liveTail' | 'segments' | 'none'
 
 export interface IdleMergeTimer {
   timer: ReturnType<typeof setTimeout>
@@ -32,8 +32,8 @@ export interface WorkerOrchestrator {
   scaleOutReadyIndexes(): Promise<void>
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
-  recordMainWrite(action: WorkerAction): void
-  settleMainWrites(indexName: string, growth?: MainWriteGrowth): Promise<void> | null
+  publishToWorkers(action: WorkerAction): Promise<void> | undefined
+  settlePublications(indexName: string, growth?: PublicationGrowth): Promise<void> | undefined
   awaitReplication(indexName?: string): Promise<void>
   queueDiskAdoption(action: DiskAdoptionAction): void
   awaitWrites(indexName: string): Promise<void>
@@ -50,6 +50,7 @@ export interface WorkerOrchestrator {
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
     bm25: BM25Params | undefined,
+    reads?: WorkerHitReads,
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
   mainCopyQueries(): MainCopyQueries
@@ -87,9 +88,17 @@ export type IndexRegistry = Map<
   }
 >
 
+export interface ReplicationRun {
+  done: Promise<void>
+  older: ReplicationRun | undefined
+  newer: ReplicationRun | undefined
+}
+
 export interface ReplicationQueue {
   tail: Promise<void>
-  inFlight: Promise<void>[]
+  oldestRun: ReplicationRun | undefined
+  newestRun: ReplicationRun | undefined
+  runsInFlight: number
   pendingActions: number
   pendingDocuments: number
   drainWaiters: Array<() => void>
@@ -141,6 +150,7 @@ export interface OrchestratorState {
   readonly idleMergeTimers: Map<string, IdleMergeTimer>
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
   readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
+  readonly publishedVectorStores: Set<string>
   workerPool: WorkerPool | null
   /** This settles once every thread of every retired pool has exited, and a new pool starts only after it. */
   retiredThreadsGone: Promise<void>

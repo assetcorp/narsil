@@ -1,22 +1,27 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
-import { validateBatchList, validateDocId } from '../validation'
-import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
-import type { MutationContext } from './context'
 import {
   admitInsert,
   asBatchInsertError,
+  awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
   collectRequiredFieldFailures,
   embedChunkDocuments,
+  MIN_DOCUMENTS_FOR_SEGMENTS,
+  prepareDocumentVectors,
   providedDocId,
   requireDocumentObject,
-} from './insert-admission'
+  turnIsSpent,
+  turnsAreBudgeted,
+  validateBatchList,
+  validateDocId,
+  validateVectorDimensions,
+  yieldTurn,
+} from '#platform/optional-writes-host'
+import type { BatchResult } from '../../types/results'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { insertBatchViaSegments } from './insert-batch-segments'
-import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,
@@ -105,7 +110,8 @@ export async function insertDocumentBatch(
 
       const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
-        requireDocumentObject(documents[i])
+        const sizing = requireDocumentObject(documents[i])
+        if (sizing !== null) await sizing
         validateDocId(batchDocId)
 
         if (hasBeforeHook) {
@@ -134,8 +140,6 @@ export async function insertDocumentBatch(
     }
 
     if (prepared.length > 0) await applyPrepared(prepared)
-    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
-    if (roomForCopies !== null) await roomForCopies
 
     if (chunkEnd < documents.length) {
       ctx.checkHeapPressure(indexName)

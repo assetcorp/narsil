@@ -60,7 +60,7 @@ static const uint32_t keep_ranges[8] = {
 
 const narsil_language narsil_language_punjabi = {
   .name = "punjabi",
-  .revision = "1",
+  .revision = "d6095836d897124e",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 185,

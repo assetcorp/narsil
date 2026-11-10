@@ -1,7 +1,11 @@
-import { backgroundTurnIsSpent, yieldBackgroundTurn } from '#platform/shared-turns'
-import { shuffleStep } from '../hnsw/insertion-order'
-import { BUILD_STEPS_BETWEEN_CLOCK_CHECKS } from './constants'
-import { allLiveDocIds, type VectorIndexState } from './shared'
+import {
+  allLiveDocIds,
+  BUILD_STEPS_BETWEEN_CLOCK_CHECKS,
+  backgroundTurnIsSpent,
+  shuffleStep,
+  yieldBackgroundTurn,
+} from '#platform/vector-host'
+import type { VectorIndexState } from './shared'
 
 function turnDue(steps: number): boolean {
   return steps % BUILD_STEPS_BETWEEN_CLOCK_CHECKS === 0 && backgroundTurnIsSpent()

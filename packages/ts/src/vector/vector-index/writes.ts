@@ -1,8 +1,8 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, handOverBuildTurns, NarsilError, threadsHoldCurrentLayout } from '#platform/vector-host'
 import { coldInsert, coldRemove } from './cold'
 import { afterGraphPass } from './graph-pass'
 import { noteSearchedDocWritten } from './search-writes'
-import { handOverBuildTurns, threadsHoldCurrentLayout, type VectorIndexState } from './shared'
+import type { VectorIndexState } from './shared'
 import { noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
 export interface VectorWrites {
@@ -37,6 +37,11 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     return true
   }
 
+  function forgetRetiredFlags(): void {
+    const oldestPin = state.store.oldestPin()
+    state.buffer.forgetRetired(ordinal => state.store.mayFreeOrdinal(ordinal, oldestPin))
+  }
+
   function applyInsert(docId: string, vector: Float32Array, partitionId?: number): void {
     handOverBuildTurns(state)
     const previous = state.store.getOrdinal(docId)
@@ -65,26 +70,30 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
       if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
+    if (state.buffer.retiredCount !== 0) forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     if (!threadsHoldCurrentLayout(state)) scheduleWorkerCopyLoad(state)
   }
 
   function applyRemove(docId: string): void {
     handOverBuildTurns(state)
-    if (!state.store.has(docId)) return
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal === undefined) return
     noteWrite(state)
     noteSearchedDocWritten(state, docId)
     state.tombstones.add(docId)
-    state.buffer.delete(docId)
+    state.store.retire(ordinal)
+    state.buffer.retire(docId)
+    if (state.buffer.retiredCount !== 0) forgetRetiredFlags()
     state.pendingLocations.delete(docId)
     const graph = state.hnsw
-    const ordinal = state.store.getOrdinal(docId)
-    if (graph !== null && ordinal !== undefined) afterGraphPass(state, () => graph.markTombstoneOrdinal(ordinal))
+    if (graph !== null) afterGraphPass(state, () => graph.markTombstoneOrdinal(ordinal))
   }
 
   return {
     insert(docId, vector, partitionId) {
       validateDimension(vector)
+      for (const listener of state.writeListeners) listener(docId)
       const hold = state.cold
       if (hold === null) {
         applyInsert(docId, vector, partitionId)
@@ -96,6 +105,7 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
       hold.writes.push(() => applyInsert(docId, held, partitionId))
     },
     remove(docId) {
+      for (const listener of state.writeListeners) listener(docId)
       const hold = state.cold
       if (hold === null) {
         applyRemove(docId)

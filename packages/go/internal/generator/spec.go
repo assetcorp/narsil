@@ -160,6 +160,9 @@ func (b *builder) refName(ref string) string {
 	if !b.schemas.has(name) {
 		failf("The file holds no schema for the reference %s", ref)
 	}
+	if name == "HttpHit" {
+		return "Hit"
+	}
 	return name
 }
 
@@ -180,6 +183,9 @@ func isModel(schema *jsonObject) bool {
 }
 
 func (b *builder) topLevel(name string, schema *jsonObject) {
+	if name == "HttpHit" {
+		name = "Hit"
+	}
 	if isModel(schema) {
 		b.model(name, schema, "")
 		return
@@ -211,9 +217,13 @@ func (b *builder) model(name string, schema *jsonObject, where string) *typeRef 
 	for _, key := range properties.orderedKeys() {
 		value := properties.get(key)
 		valueSchema, _ := value.(*jsonObject)
+		fieldType := b.convert(value, name+pascalWords(key), "the `"+key+"` field of `"+name+"`")
+		if name == "Hit" && key == "score" {
+			fieldType = &typeRef{kind: kindNumber}
+		}
 		def.fields = append(def.fields, fieldDef{
 			jsonName:    key,
-			typ:         b.convert(value, name+pascalWords(key), "the `"+key+"` field of `"+name+"`"),
+			typ:         fieldType,
 			required:    required[key],
 			description: describe(valueSchema),
 		})

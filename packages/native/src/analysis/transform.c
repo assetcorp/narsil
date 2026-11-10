@@ -51,6 +51,18 @@ static int stem_with_snowball(narsil_analyser *analyser, const narsil_language *
   return NARSIL_OK;
 }
 
+int narsil_stem_token(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
+                      narsil_unit_view candidate, narsil_unit_view *result) {
+  int status = NARSIL_OK;
+  if (language->stem_by_rules != NULL) {
+    status = rewrite(analyser, language->stem_by_rules, &candidate);
+  } else if (language->snowball_stem != NULL) {
+    status = stem_with_snowball(analyser, language, language_index, &candidate);
+  }
+  if (status == NARSIL_OK) { *result = candidate; }
+  return status;
+}
+
 static int transform_uncached(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
                               narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result) {
   narsil_unit_view current = candidate;

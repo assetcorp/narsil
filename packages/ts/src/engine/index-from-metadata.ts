@@ -1,28 +1,40 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { getLanguage } from '../languages/registry'
-import { validateEmbeddingConfig } from '../schema/embedding-validator'
-import { validateSchema, validateTextStorage, validateVectorStorage } from '../schema/validator'
+import {
+  arrayPositionsAreStale,
+  ErrorCodes,
+  getLanguage,
+  getVectorFieldPaths,
+  loadSchemaCodeFor,
+  loadStorageCode,
+  lookupOfStoredSynonyms,
+  NarsilError,
+  prepareStoredSynonyms,
+  reconstructSchemaFromMetadata,
+  requireSurfaceFormsForPartialFields,
+  validateEmbeddingConfig,
+  validatePatternValueLimit,
+  validateSchema,
+  validateTextStorage,
+  validateVectorStorage,
+} from '#platform/optional-writes-host'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { SchemaDefinition } from '../types/schema'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
-import { loadSchemaCodeFor } from '../workers/schema-code'
 import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
-import { arrayPositionsAreStale } from './array-positions'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
-import { reconstructSchemaFromMetadata } from './recovery-schema'
-import { lookupOfStoredSynonyms, prepareStoredSynonyms } from './synonym-sets'
-import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
-import { getVectorFieldPaths } from './vector-fields'
+import { syncStateOfMetadata } from './sync-state'
 
-const RECOVERY_CONFIG_ERROR_CODES: ReadonlySet<string> = new Set([
-  ErrorCodes.CONFIG_INVALID,
-  ErrorCodes.SCHEMA_INVALID_TYPE,
-  ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION,
-])
+function isRecoveryConfigError(err: unknown): err is NarsilError {
+  return (
+    err instanceof NarsilError &&
+    (err.code === ErrorCodes.CONFIG_INVALID ||
+      err.code === ErrorCodes.SCHEMA_INVALID_TYPE ||
+      err.code === ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION)
+  )
+}
 
 export interface MetadataIndexDeps {
   config: NarsilConfig | undefined
@@ -58,12 +70,30 @@ function resolveEmbeddingAdapter(
 }
 
 function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
-  if (!(err instanceof NarsilError) || !RECOVERY_CONFIG_ERROR_CODES.has(err.code)) return err
+  if (!isRecoveryConfigError(err)) return err
   return new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
     ...err.details,
     indexName: metadata.indexName,
     tokenizer: metadata.tokenizer,
     stopWords: metadata.stopWords,
+  })
+}
+
+async function restorePartitionCount(deps: MetadataIndexDeps, metadata: IndexMetadata): Promise<void> {
+  if (
+    !Number.isInteger(metadata.partitionCount) ||
+    metadata.partitionCount < 1 ||
+    metadata.partitionCount > 0xffff_ffff
+  ) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'The saved index has an invalid partition count')
+  }
+  const manager = deps.executor.getManager(metadata.indexName)
+  if (manager === undefined) return
+  await manager.publication.write(() => {
+    while (manager.partitionCount < metadata.partitionCount) manager.addPartition()
+    if (manager.partitionCount > metadata.partitionCount) {
+      manager.setPartitions(manager.getAllPartitions().slice(0, metadata.partitionCount))
+    }
   })
 }
 
@@ -77,7 +107,7 @@ export async function createIndexFromMetadata(
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
     if ((metadata.analysisGeneration ?? 0) > existing.analysisGeneration) {
-      const { adoptSavedAnalysis } = await import('./analysis-change')
+      const { adoptSavedAnalysis } = await loadStorageCode()
       adoptSavedAnalysis(deps.executor.getManager(metadata.indexName), existing, metadata)
     }
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
@@ -88,6 +118,7 @@ export async function createIndexFromMetadata(
         false,
         lookupOfStoredSynonyms(existing.synonyms, existing.config, existing.language),
       )
+      await restorePartitionCount(deps, metadata)
     }
     return
   }
@@ -114,6 +145,7 @@ export async function createIndexFromMetadata(
     validateTextStorage(indexConfig.textStorage, deps.filesystemDurability)
     if (loadData) {
       deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
+      await restorePartitionCount(deps, metadata)
     }
   } catch (err) {
     throw recoveryFailure(metadata, err)
@@ -134,7 +166,7 @@ export async function createIndexFromMetadata(
     analysisGeneration: metadata.analysisGeneration ?? 0,
     pendingAnalysis: metadata.pendingAnalysis ?? null,
     durableAnalysis: null,
-    sync: metadata.sync?.enabled === true ? (await import('./sync-state')).syncStateOfMetadata(metadata) : null,
+    sync: metadata.sync?.enabled === true ? syncStateOfMetadata(metadata) : null,
     querySuggestions: metadata.querySuggestions ?? null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)

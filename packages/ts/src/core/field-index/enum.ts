@@ -1,16 +1,10 @@
-import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
-import { ValueAffixes } from './affixes'
+import { countEnumFacet } from '../../search/facets'
+import { buildEnumRegions, type EnumRegions, enumRegionBytes } from './enum-regions'
+import { FieldPresence } from './presence'
 
 export interface EnumFieldIndexReader {
-  queryPrefixBitset(prefix: string, capacity: number): Uint32Array
-  querySuffixBitset(suffix: string, capacity: number): Uint32Array
-  queryEq(value: string): Set<number>
-  queryNe(value: string): Set<number>
-  queryIn(values: string[]): Set<number>
-  queryNin(values: string[]): Set<number>
-  getAllDocIds(): Set<number>
-  queryEqBitset(value: string, capacity: number): Uint32Array
-  queryInBitset(values: string[], capacity: number): Uint32Array
+  regionBytes(): number
+  regions(): EnumRegions
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   serialize(): Record<string, number[]>
@@ -26,111 +20,44 @@ export interface EnumFieldIndex extends EnumFieldIndexReader {
 
 export function createEnumIndex(): EnumFieldIndex {
   const valueMap = new Map<string, Set<number>>()
-  let affixes: ValueAffixes | null = null
+  let held: EnumRegions | null = null
+  const present = new FieldPresence(function* () {
+    for (const ids of valueMap.values()) yield* ids
+  })
 
-  function affixesOf(): ValueAffixes {
-    affixes ??= new ValueAffixes(value => valueMap.has(value), valueMap.keys())
-    return affixes
-  }
-
-  function allDocs(): Set<number> {
-    const result = new Set<number>()
-    for (const docSet of valueMap.values()) {
-      for (const id of docSet) result.add(id)
-    }
-    return result
+  function regions(): EnumRegions {
+    held ??= buildEnumRegions(valueMap)
+    return held
   }
 
   return {
+    regions,
+    regionBytes: () => present.bytes() + enumRegionBytes(held),
     insert(internalId: number, value: string): void {
       let docSet = valueMap.get(value)
       if (!docSet) {
         docSet = new Set()
         valueMap.set(value, docSet)
-        affixes?.add(value)
       }
-      docSet.add(internalId)
+      if (!docSet.has(internalId)) {
+        present.invalidate()
+        held = null
+        docSet.add(internalId)
+      }
     },
 
     remove(internalId: number, value: string): void {
       const docSet = valueMap.get(value)
       if (!docSet) return
-      docSet.delete(internalId)
+      if (!docSet.delete(internalId)) return
+      present.invalidate()
+      held = null
       if (docSet.size > 0) return
       valueMap.delete(value)
-      affixes?.forget()
-    },
-
-    queryPrefixBitset(prefix: string, capacity: number): Uint32Array {
-      return this.queryInBitset(affixesOf().withPrefix(prefix), capacity)
-    },
-
-    querySuffixBitset(suffix: string, capacity: number): Uint32Array {
-      return this.queryInBitset(affixesOf().withSuffix(suffix), capacity)
-    },
-
-    queryEq(value: string): Set<number> {
-      const docSet = valueMap.get(value)
-      return docSet ? new Set(docSet) : new Set()
-    },
-
-    queryNe(value: string): Set<number> {
-      const excluded = valueMap.get(value)
-      const result = allDocs()
-      if (excluded) {
-        for (const id of excluded) result.delete(id)
-      }
-      return result
-    },
-
-    queryIn(values: string[]): Set<number> {
-      const result = new Set<number>()
-      for (const val of values) {
-        const docSet = valueMap.get(val)
-        if (docSet) {
-          for (const id of docSet) result.add(id)
-        }
-      }
-      return result
-    },
-
-    queryNin(values: string[]): Set<number> {
-      const excluded = this.queryIn(values)
-      const result = allDocs()
-      for (const id of excluded) result.delete(id)
-      return result
-    },
-
-    getAllDocIds(): Set<number> {
-      return allDocs()
-    },
-
-    queryEqBitset(value: string, capacity: number): Uint32Array {
-      const bs = createBitSet(capacity)
-      const docSet = valueMap.get(value)
-      if (docSet) {
-        for (const id of docSet) bitsetSet(bs, id)
-      }
-      return bs
-    },
-
-    queryInBitset(values: string[], capacity: number): Uint32Array {
-      const bs = createBitSet(capacity)
-      for (const val of values) {
-        const docSet = valueMap.get(val)
-        if (docSet) {
-          for (const id of docSet) bitsetSet(bs, id)
-        }
-      }
-      return bs
     },
 
     getAllDocIdsBitset(capacity: number): Uint32Array {
-      const bs = createBitSet(capacity)
-      for (const docSet of valueMap.values()) {
-        for (const id of docSet) bitsetSet(bs, id)
-      }
-      return bs
+      return present.regions(capacity)
     },
 
     count(): number {
@@ -140,20 +67,14 @@ export function createEnumIndex(): EnumFieldIndex {
     },
 
     facetCounts(matched: Uint32Array): Map<string, number> {
-      const counts = new Map<string, number>()
-      for (const [value, docSet] of valueMap) {
-        let count = 0
-        for (const id of docSet) {
-          if (bitsetHas(matched, id)) count++
-        }
-        if (count > 0) counts.set(value, count)
-      }
-      return counts
+      const index = regions()
+      return countEnumFacet(index.values, index.postingOffsets, index.postings, matched)
     },
 
     clear(): void {
+      present.invalidate()
+      held = null
       valueMap.clear()
-      affixes = null
     },
 
     serialize(): Record<string, number[]> {
@@ -165,8 +86,9 @@ export function createEnumIndex(): EnumFieldIndex {
     },
 
     deserialize(data: Record<string, number[]>): void {
+      present.invalidate()
+      held = null
       valueMap.clear()
-      affixes = null
       for (const value of Object.keys(data)) {
         valueMap.set(value, new Set(data[value]))
       }

@@ -1,5 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { MAX_DOCUMENT_NESTING_DEPTH } from '../../schema/constants'
+import { ErrorCodes, MAX_DOCUMENT_NESTING_DEPTH, NarsilError } from '#platform/storage-host'
 import { decodeExactBase64 } from '../../serialization/base64'
 
 export const TAG_PREFIX = '$'

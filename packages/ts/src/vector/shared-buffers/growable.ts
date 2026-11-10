@@ -1,5 +1,5 @@
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import { allocateFixedRegion } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
 import { createRegionBuffer } from './region'
 
 /**

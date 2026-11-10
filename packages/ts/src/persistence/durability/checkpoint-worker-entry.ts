@@ -1,4 +1,4 @@
-import { resolveWorkerEntry } from '../../workers/entry-point'
+import { resolveWorkerEntry } from '#platform/storage-host'
 
 export function resolveCheckpointWorkerEntry(): string | null {
   return resolveWorkerEntry(

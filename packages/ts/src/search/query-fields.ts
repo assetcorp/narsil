@@ -1,11 +1,11 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema } from '../schema/validator'
 import { isWordIndexedFieldType } from '../schema/validator/field-type'
-import { isGeopointOrVectorType, VECTOR_PATTERN } from '../schema/validator/shared'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import { validateBM25Params } from './bm25-params'
+import { requireFacetableFields } from './facets'
+import { requireGroupableFields } from './grouping-code'
 
 function requireBoostableFields(boost: Record<string, number>, flatSchema: Record<string, string>): void {
   for (const [field, weight] of Object.entries(boost)) {
@@ -24,38 +24,6 @@ function requireBoostableFields(boost: Record<string, number>, flatSchema: Recor
         ErrorCodes.CONFIG_INVALID,
         `The boost on field "${field}" must be a finite number, and this query sets ${String(weight)}`,
         { field, boost: String(weight) },
-      )
-    }
-  }
-}
-
-function requireFacetableFields(
-  facets: Record<string, unknown>,
-  flatSchema: Record<string, string>,
-  strict: boolean,
-): void {
-  for (const field of Object.keys(facets)) {
-    const fieldType = flatSchema[field]
-    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(field, 'facet')
-    if (isGeopointOrVectorType(fieldType)) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_FIELD,
-        `The engine counts the values of a text, number, boolean, or enum field, and the schema declares field "${field}" as "${fieldType}"`,
-        { field, fieldType },
-      )
-    }
-  }
-}
-
-function requireGroupableFields(fields: readonly string[], flatSchema: Record<string, string>, strict: boolean): void {
-  for (const field of fields) {
-    const fieldType = flatSchema[field]
-    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(field, 'group')
-    if (fieldType !== undefined && VECTOR_PATTERN.test(fieldType)) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_FIELD,
-        `The engine groups hits by a text, number, boolean, enum, or geopoint field, and the schema declares field "${field}" as "${fieldType}"`,
-        { field, fieldType },
       )
     }
   }

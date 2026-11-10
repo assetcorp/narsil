@@ -29,8 +29,9 @@ export function prepareSynonyms(
   const report = typeof raise === 'string' ? invalidIn(raise) : raise
   const rules = parseSynonymRules(value, report)
   if (rules.length === 0) return null
-  const lookup = buildSynonymLookup(rules, synonymAnalysisOf(config, language), strictWords ? report : null)
-  return { encoded: encodeSynonymRules(rules), lookup }
+  const encoded = encodeSynonymRules(rules)
+  const lookup = buildSynonymLookup(rules, synonymAnalysisOf(config, language), strictWords ? report : null, encoded)
+  return { encoded, lookup }
 }
 
 export function storedSynonymLookup(
@@ -38,7 +39,12 @@ export function storedSynonymLookup(
   config: IndexConfig,
   language: LanguageModule,
 ): SynonymLookup | null {
-  return buildSynonymLookup(decodeSynonymRules(encoded, raiseConfigInvalid), synonymAnalysisOf(config, language), null)
+  return buildSynonymLookup(
+    decodeSynonymRules(encoded, raiseConfigInvalid),
+    synonymAnalysisOf(config, language),
+    null,
+    encoded,
+  )
 }
 
 export function storedSynonymRules(encoded: Uint8Array): SynonymRule[] {

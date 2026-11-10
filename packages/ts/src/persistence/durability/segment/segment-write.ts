@@ -1,19 +1,27 @@
+import {
+  ErrorCodes,
+  HEADER_SIZE,
+  MAX_FILE_BYTES,
+  mergeSegmentContents,
+  NarsilError,
+  packChecksummedEnvelope,
+  SegmentRefusal,
+  segmentArraysOf,
+  selectionKeeps,
+} from '#platform/storage-host'
 import type { FrozenSegment } from '../../../core/partition/frozen'
-import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from '../../../core/partition/frozen/merge'
-import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
+import type { SegmentSelection } from '../../../core/partition/frozen/merge'
+import type { EncodedSegmentPayload } from '../../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
-import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { MAX_FILE_BYTES } from '../../../serialization/constants'
-import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
-import { HEADER_SIZE } from '../../../serialization/header'
 import { encodeKeywordSegment } from '../../../serialization/keyword-segment/encode'
 import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
   type KeywordSegmentContents,
   type SegmentWriteRecords,
 } from '../../../serialization/keyword-segment/types'
+import { checkPagedSelections } from '../../paged/check-contents'
+import { writePagedSegment } from '../../paged/write-segment'
 import { segmentKey } from './layout'
 import { MAX_SEGMENTS_PER_PARTITION, type SegmentRef } from './manifest'
 import { halvesOf, type SegmentFileGroup, splitIntoSegmentFiles } from './segment-split'
@@ -40,12 +48,17 @@ export interface SegmentsWritten {
   nextSegmentId: number
 }
 
-function emptyPayload(): SegmentPayload {
+function emptyPayload(): EncodedSegmentPayload {
   return {
     documentCount: 0,
     docIds: [],
     fieldNames: [],
-    tokens: [],
+    tokenTable: {
+      blob: new Uint8Array(0),
+      offsets: new Uint32Array(1),
+      payloadSlots: new Uint32Array(0),
+      documentFrequencies: new Uint32Array(0),
+    },
     postingOffsets: new Uint32Array(1),
     postingDocIds: new Uint32Array(0),
     postingFrequencies: new Uint16Array(0),
@@ -55,8 +68,7 @@ function emptyPayload(): SegmentPayload {
     fieldLengthNames: [],
     fieldLengthColumns: [],
     totalFieldLengths: {},
-    docFrequencies: {},
-    surfaceForms: null,
+    surfaceTable: null,
     partialSpellings: null,
     numeric: [],
     boolean: [],
@@ -156,7 +168,6 @@ async function writePagedGroup(state: WriteState, group: SegmentFileGroup | null
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
   const id = state.nextSegmentId
   const key = segmentKey(request.indexName, request.partitionId, id)
-  const { writePagedSegment } = await import('../../paged/module')
   const written = await writePagedSegment({
     directory,
     key,
@@ -195,11 +206,29 @@ function pagedGroupsOf(request: SegmentWriteRequest): SegmentFileGroup[] {
 async function writeGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
   const { request } = state
   if (request.paged === true) {
-    await writePagedGroup(state, group)
+    try {
+      await writePagedGroup(state, group)
+    } catch (error) {
+      if (!(error instanceof SegmentRefusal) || error.status !== 8 || group === null || group.documentCount < 2)
+        throw error
+      const [first, second] = halvesOf(group)
+      await writeGroup(state, first)
+      await writeGroup(state, second)
+    }
     return
   }
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
-  const contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
+  let contents: KeywordSegmentContents
+  try {
+    contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
+  } catch (error) {
+    if (!(error instanceof SegmentRefusal) || error.status !== 8 || group === null || group.documentCount < 2)
+      throw error
+    const [first, second] = halvesOf(group)
+    await writeGroup(state, first)
+    await writeGroup(state, second)
+    return
+  }
   const encoded = encodeKeywordSegment(contents)
   if (HEADER_SIZE + encoded.byteLength > MAX_FILE_BYTES && group !== null && group.documentCount > 1) {
     const [first, second] = halvesOf(group)
@@ -244,6 +273,9 @@ export async function writeSegmentsOf(request: SegmentWriteRequest): Promise<Seg
         : splitIntoSegmentFiles(request.selections, request.schema, request.tombstones)
   for (const group of groups) {
     if (group.documentCount > 0) await writeGroup(state, group)
+    else if (request.paged === true) {
+      await checkPagedSelections(group.selections)
+    }
   }
   if (!state.tombstonesWritten && request.tombstones.length > 0) await writeGroup(state, null)
   return { segments: state.segments, nextSegmentId: state.nextSegmentId }

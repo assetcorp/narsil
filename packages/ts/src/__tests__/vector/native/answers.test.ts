@@ -48,8 +48,12 @@ function exactNearest(query: number[], kept: typeof lamps): Array<{ id: string; 
 
 async function settledGraph(narsil: Narsil): Promise<void> {
   const deadline = Date.now() + SETTLE_DEADLINE_MS
-  while (narsil.vectorMaintenanceStatus('lamps').some(field => field.building || field.bufferSize > 0)) {
-    if (Date.now() > deadline) throw new Error('the graph was still building at the deadline')
+  for (;;) {
+    const status = narsil.vectorMaintenanceStatus('lamps')
+    if (!status.some(field => field.building || field.bufferSize > 0)) return
+    if (Date.now() > deadline) {
+      throw new Error(`the graph was still building at the deadline: ${JSON.stringify(status)}`)
+    }
     await new Promise(resolve => setTimeout(resolve, 5))
   }
 }

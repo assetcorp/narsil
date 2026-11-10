@@ -1,4 +1,5 @@
-import { MAX_GROUP_LENGTH, MAX_PERSON_UTF16_UNITS, RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT } from './constants'
+import { GROUP_PATTERN_SOURCE } from '#platform/suggestion-store-host'
+import { MAX_PERSON_UTF16_UNITS, RAW_PHRASE_UTF16_UNITS_PER_CODE_POINT } from './constants'
 
 export interface PhraseLimits {
   minLetters: number
@@ -13,9 +14,7 @@ const WHITE_SPACE_RUNS = /\p{White_Space}+/gu
 const ALLOWED_PHRASE = /^[\p{L}\p{M}\p{Nd} '-]+$/u
 const LETTER = /\p{L}/gu
 const DIGIT = /\p{Nd}/gu
-const GROUP_PATTERN = new RegExp(`^[A-Za-z0-9][A-Za-z0-9_-]{0,${MAX_GROUP_LENGTH - 1}}$`)
-
-export const GROUP_FORMAT = `1 to ${MAX_GROUP_LENGTH} letters, digits, "_", and "-"`
+let groupPattern: RegExp | null = null
 
 function countMatches(text: string, pattern: RegExp): number {
   pattern.lastIndex = 0
@@ -65,7 +64,8 @@ export function acceptedPhrase(raw: string, limits: PhraseLimits): string | null
 }
 
 export function isGroup(value: unknown): value is string {
-  return typeof value === 'string' && GROUP_PATTERN.test(value)
+  groupPattern ??= new RegExp(GROUP_PATTERN_SOURCE)
+  return typeof value === 'string' && groupPattern.test(value)
 }
 
 export function isPerson(value: unknown): value is string {

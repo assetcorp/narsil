@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../../serialization/msgpack'
 import { createIndexSettingsResultMessage, validateIndexSettingsPayload } from '../../cluster/index-settings-message'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import { applyStoredSynonyms } from '../synonym-sets'

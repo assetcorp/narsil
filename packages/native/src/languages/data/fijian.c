@@ -24,7 +24,7 @@ static const uint32_t keep_ranges[6] = {
 
 const narsil_language narsil_language_fijian = {
   .name = "fijian",
-  .revision = "1",
+  .revision = "73a6f8021f0ad65b",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 43,

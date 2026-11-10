@@ -146,15 +146,16 @@ describe('createInvalidationIntegration', () => {
       instanceId: 'instance-other',
       stats: {
         totalDocs: 30,
-        docFrequencies: { widget: 12, gadget: 4 },
+        docFrequencies: { widget: 12, gadget: 4, sprocket: 7 },
         totalFieldLengths: { title: 90 },
       },
     })
 
-    const merged = integration.broadcastStats('products') as GlobalStatistics
+    const merged = integration.broadcastStats('products', new Set(['widget', 'gadget'])) as GlobalStatistics
     expect(merged.totalDocuments).toBe(40)
     expect(merged.docFrequencies.widget).toBe(22)
     expect(merged.docFrequencies.gadget).toBe(4)
+    expect(Object.hasOwn(merged.docFrequencies, 'sprocket')).toBe(false)
     expect(merged.totalFieldLengths.title).toBe(140)
     expect(merged.averageFieldLengths.title).toBeCloseTo(140 / 40)
     await integration.shutdown()
@@ -171,7 +172,7 @@ describe('createInvalidationIntegration', () => {
       stats: { totalDocs: 500, docFrequencies: {}, totalFieldLengths: {} },
     })
 
-    const merged = integration.broadcastStats('products') as GlobalStatistics
+    const merged = integration.broadcastStats('products', new Set(['widget'])) as GlobalStatistics
     expect(merged.totalDocuments).toBe(10)
     await integration.shutdown()
   })

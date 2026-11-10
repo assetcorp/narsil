@@ -1,8 +1,8 @@
 import type { GlobalStatistics, InternalSearchParams } from '../../../types/internal'
 import type { PartitionStatsView } from '../../statistics'
+import { partitionDocumentFrequency } from '../document-frequency'
 import { termGroupOf, typoMatchesFor } from '../group-scoring'
 import type { PartitionReadState } from '../read-state'
-import { partitionDocumentFrequency } from '../suggestions'
 
 function collectCandidateTerms(subs: readonly PartitionReadState[], params: InternalSearchParams): Set<string> {
   const { queryTokens, termGroups, tolerance = 0, prefixLength = 2, exact = false } = params
@@ -71,11 +71,7 @@ export function aggregateFieldStats(subs: readonly PartitionReadState[]): {
 
 export function mergeDocFrequencies(subs: readonly PartitionReadState[]): Readonly<Record<string, number>> {
   const merged: Record<string, number> = Object.create(null)
-  for (const sub of subs) {
-    for (const [term, frequency] of Object.entries(sub.stats.docFrequencies)) {
-      merged[term] = (merged[term] ?? 0) + frequency
-    }
-  }
+  for (const sub of subs) sub.stats.addDocumentFrequencies(merged)
   return merged
 }
 
@@ -88,6 +84,11 @@ export function buildAggregateStatsView(
     ...fields,
     get docFrequencies(): Readonly<Record<string, number>> {
       return docFrequencies()
+    },
+    addDocumentFrequencies(into: Record<string, number>): number {
+      let added = 0
+      for (const sub of subs) added += sub.stats.addDocumentFrequencies(into)
+      return added
     },
   }
 }

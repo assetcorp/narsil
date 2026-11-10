@@ -1,16 +1,12 @@
-import { encodeDocument } from '../../../serialization/document-encoding'
-import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
-import type { SerializedSurfaceForms } from '../../../types/internal'
-import { createSurfaceRegistry } from '../../surface-registry'
-import { encodePartialSpellingsOf } from '../partial-words/registry'
-import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from '../partial-words/spellings'
+import { encodeDocument, mergeStoredFields, SegmentRefusal, topLevelMapKeys } from '#platform/segment-merge-host'
+import { mergeKeywordColumns } from '../../segment-merges/host'
+import type { PartialWordAnalysis } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
-import type { SegmentPayload } from '../segment-payload'
 import type { EncodedDocumentTableData } from './document-source'
 import type { FrozenSegment } from './index'
 import { mergeFieldIndexes } from './merge-fields'
-import { mergePostings, type SegmentRemap } from './merge-postings'
-import { freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
+import type { SegmentRemap } from './merge-postings'
+import { type EncodedSegmentPayload, freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
 import type { TextAnalysis } from './surface-slot'
 
 export interface SegmentSelection {
@@ -19,14 +15,9 @@ export interface SegmentSelection {
 }
 
 export interface MergedSegmentContents {
-  payload: SegmentPayload
+  payload: EncodedSegmentPayload
   documents: EncodedDocumentTableData
   reusedPartialWords: PartialWordTableData | null
-}
-
-interface MergedPartialWords {
-  spellings: PartialSpellings | null
-  reused: PartialWordTableData | null
 }
 
 export function selectionKeeps(selection: SegmentSelection, ordinal: number): boolean {
@@ -58,47 +49,6 @@ export function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]):
     remap[i] = fieldNameIndex(fieldNames, segment.arrays.fieldNames[i])
   }
   return remap
-}
-
-export function mergeFieldLengths(
-  inputs: readonly SegmentRemap[],
-  documentCount: number,
-): Pick<SegmentPayload, 'fieldLengthNames' | 'fieldLengthColumns' | 'totalFieldLengths'> {
-  const names: string[] = []
-  const columns: Uint32Array[] = []
-  const totals: Record<string, number> = {}
-  for (const input of inputs) {
-    const arrays = input.segment.arrays
-    const remap = input.remap
-    for (let f = 0; f < arrays.fieldLengthNames.length; f++) {
-      const name = arrays.fieldLengthNames[f]
-      let at = names.indexOf(name)
-      if (at < 0) {
-        at = names.length
-        names.push(name)
-        columns.push(new Uint32Array(documentCount))
-        totals[name] = 0
-      }
-      const source = arrays.fieldLengthColumns[f]
-      const column = columns[at]
-      for (let ordinal = 0; ordinal < source.length; ordinal++) {
-        const target = remap[ordinal]
-        if (target < 0) continue
-        column[target] = source[ordinal]
-        totals[name] += source[ordinal]
-      }
-    }
-  }
-  return { fieldLengthNames: names, fieldLengthColumns: columns, totalFieldLengths: totals }
-}
-
-export function mergeSurfaceForms(
-  inputs: readonly SegmentRemap[],
-  analysis: TextAnalysis | null,
-): SerializedSurfaceForms | null {
-  const registry = createSurfaceRegistry()
-  for (const input of inputs) input.segment.surfaces.addKeptForms(registry, input.remap, analysis)
-  return registry.size() === 0 ? null : registry.serialize()
 }
 
 export function holdsADiscardedField(bytes: Uint8Array, discardedFields: readonly string[]): boolean {
@@ -141,7 +91,10 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
       if (remap[ordinal] >= 0) offsets[remap[ordinal] + 1] = readers[i](ordinal).length
     }
   }
-  for (let ordinal = 0; ordinal < documentCount; ordinal++) offsets[ordinal + 1] += offsets[ordinal]
+  for (let ordinal = 0; ordinal < documentCount; ordinal++) {
+    if (offsets[ordinal + 1] > 0xffffffff - offsets[ordinal]) throw new SegmentRefusal(8)
+    offsets[ordinal + 1] += offsets[ordinal]
+  }
   const blob = new Uint8Array(offsets[documentCount])
   for (let i = 0; i < inputs.length; i++) {
     const { remap } = inputs[i]
@@ -151,30 +104,6 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
     }
   }
   return { blob, offsets }
-}
-
-function keepsEveryDocument(remap: Int32Array): boolean {
-  for (let ordinal = 0; ordinal < remap.length; ordinal++) {
-    if (remap[ordinal] < 0) return false
-  }
-  return true
-}
-
-export function mergePartialWords(
-  inputs: readonly SegmentRemap[],
-  mergedTokenCount: number,
-  analysis: PartialWordAnalysis | null,
-): MergedPartialWords {
-  if (analysis === null || analysis.fields.length === 0) return { spellings: null, reused: null }
-  if (inputs.length === 1) {
-    const [only] = inputs
-    const table = only.segment.partialWords.tableOfEveryDocument(analysis)
-    const keepsTokens = mergedTokenCount === only.segment.arrays.tokenTable.size
-    if (table !== null && keepsTokens && keepsEveryDocument(only.remap)) return { spellings: null, reused: table }
-  }
-  const counts: SpellingCounts = new Map()
-  for (const input of inputs) input.segment.partialWords.countKeptSpellings(counts, analysis, input.remap)
-  return { spellings: encodePartialSpellingsOf(analysis.fields, counts), reused: null }
 }
 
 export function mergeFrozenSegments(
@@ -204,29 +133,19 @@ export function mergeSegmentContents(
     fieldIndexRemap: fieldIndexRemapOf(selection.segment, fieldNames),
   }))
   const documentCount = docIds.length
-  const postings = mergePostings(inputs)
-  const lengths = mergeFieldLengths(inputs, documentCount)
-  const partialWords = mergePartialWords(inputs, postings.tokens.length, analysis)
+  const keyword = mergeKeywordColumns(inputs, documentCount, fieldNames, analysis, textAnalysis)
 
-  const payload: SegmentPayload = {
+  const payload: EncodedSegmentPayload = {
     documentCount,
     docIds,
     fieldNames,
-    tokens: postings.tokens,
-    postingOffsets: postings.postingOffsets,
-    postingDocIds: postings.postingDocIds,
-    postingFrequencies: postings.postingFrequencies,
-    postingFieldIndices: postings.postingFieldIndices,
-    positionOffsets: postings.positionOffsets,
-    positionValues: postings.positionValues,
-    fieldLengthNames: lengths.fieldLengthNames,
-    fieldLengthColumns: lengths.fieldLengthColumns,
-    totalFieldLengths: lengths.totalFieldLengths,
-    docFrequencies: postings.docFrequencies,
-    surfaceForms: mergeSurfaceForms(inputs, textAnalysis),
-    partialSpellings: partialWords.spellings,
-    ...mergeFieldIndexes(inputs),
+    ...keyword,
+    ...mergeFieldIndexes(inputs, documentCount),
+    storedFields: mergeStoredFields(
+      inputs.map(input => ({ store: input.segment.docStore, mapping: new Uint32Array(input.remap.buffer) })),
+      documentCount,
+    ),
   }
 
-  return { payload, documents: mergeDocuments(inputs, documentCount), reusedPartialWords: partialWords.reused }
+  return { payload, documents: mergeDocuments(inputs, documentCount), reusedPartialWords: null }
 }

@@ -45,7 +45,27 @@ function holdsCopies(
 
 export function createActionHandler(executor: Executor & Partial<DirectExecutorExtensions>): ActionHandler {
   let servingRequests = false
+  let stopping = false
   const serving: { start: Promise<void> | null } = { start: null }
+  const copyChanges = new Map<string, Promise<void>>()
+
+  function executeCopyAction(action: WorkerAction): Promise<unknown> {
+    if (!('indexName' in action)) return executor.execute(action)
+    const indexName = action.indexName
+    const previous = copyChanges.get(indexName)
+    const result = previous === undefined ? executor.execute(action) : previous.then(() => executor.execute(action))
+    if (action.type === 'createIndex' || action.type === 'dropIndex') {
+      const settled = result.then(
+        () => undefined,
+        () => undefined,
+      )
+      copyChanges.set(indexName, settled)
+      void settled.then(() => {
+        if (copyChanges.get(indexName) === settled) copyChanges.delete(indexName)
+      })
+    }
+    return result
+  }
 
   async function stopServingOnceStarted(): Promise<void> {
     if (serving.start !== null) await serving.start
@@ -54,14 +74,16 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
   }
 
   return async function handleAction(action, post) {
-    if (action.type === 'shutdown') {
-      await stopServingOnceStarted()
-      await executor.shutdown()
-      post(buildSuccessResponse(action.requestId, undefined))
-      return true
-    }
-
     try {
+      if (stopping) throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'The worker is shutting down')
+      if (action.type === 'shutdown') {
+        stopping = true
+        await stopServingOnceStarted()
+        await Promise.all(copyChanges.values())
+        await executor.shutdown()
+        post(buildSuccessResponse(action.requestId, undefined))
+        return true
+      }
       if (action.type === 'bootstrap') {
         await importBootstrapModule(action.moduleUrl)
         post(buildSuccessResponse(action.requestId, undefined))
@@ -103,7 +125,7 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
         return false
       }
 
-      const result = await executor.execute(action)
+      const result = await executeCopyAction(action)
       post(buildSuccessResponse(action.requestId, result))
     } catch (err: unknown) {
       const failure = isNarsilError(err) ? err : null
