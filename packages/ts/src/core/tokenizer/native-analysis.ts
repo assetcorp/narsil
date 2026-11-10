@@ -261,16 +261,7 @@ function visitSpellings(text: string, language: LanguageModule, visit: (spelling
   if (coreLanguage === null) return false
   const analysed = analyseWith(core, coreLanguage.index, SPELLINGS_FLAG, text, null)
   if (analysed === null) return false
-  const { arena, records } = analysed
-  const count = records[0]
-  const ownsShared = records === sharedRecords
-  if (ownsShared) recordsInUse = true
-  try {
-    for (let token = 0, at = 1; token < count; token++, at += TOKEN_RECORD_WORDS)
-      visit(termOf(arena, records[at + 1], records[at + 2], records[at + 7]))
-  } finally {
-    if (ownsShared) recordsInUse = false
-  }
+  visitRecords(analysed, spelling => visit(spelling))
   return true
 }
 
