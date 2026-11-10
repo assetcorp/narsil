@@ -23,7 +23,6 @@ func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
 	if err := s.preparePublication(workspace); err != nil {
 		return err
 	}
-	counted := s.countsNonemptyTerms()
 	s.refreshView()
 	err = workspace.IndexTerms(&s.view, ordinal, fields)
 	if core.StatusOf(err) == core.StatusNeedsRoom {
@@ -41,7 +40,7 @@ func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
 	if err == nil {
 		s.held.set(ordinal)
 	}
-	return s.accept(err, counted)
+	return s.accept(err)
 }
 
 func (s *Segment) reserveDocument(workspace *core.Workspace, fields []core.FieldTokens) (uint64, error) {
@@ -102,13 +101,12 @@ func (s *Segment) Remove(ordinal uint32, fields []core.FieldTokens) error {
 	if err := s.preparePublication(workspace); err != nil {
 		return err
 	}
-	counted := s.countsNonemptyTerms()
 	s.refreshView()
 	err = workspace.RemoveDocument(&s.view, ordinal, fields)
 	if err == nil {
 		s.held.clear(ordinal)
 	}
-	return s.accept(err, counted)
+	return s.accept(err)
 }
 
 func (s *Segment) RemoveTextless(ordinal uint32) error {
@@ -157,9 +155,9 @@ func (s *Segment) batch(ending bool) error {
 	}
 	s.refreshView()
 	if ending {
-		return s.accept(workspace.EndBatch(&s.view), nonemptyUnchanged)
+		return s.accept(workspace.EndBatch(&s.view))
 	}
-	return s.accept(workspace.BeginBatch(&s.view), nonemptyUnchanged)
+	return s.accept(workspace.BeginBatch(&s.view))
 }
 
 func (s *Segment) holdsNoKeywords() bool {
@@ -199,16 +197,15 @@ func (s *Segment) preparePublication(workspace *core.Workspace) error {
 		return nil
 	}
 	s.refreshView()
-	return s.accept(workspace.EndBatch(&s.view), nonemptyUnchanged)
+	return s.accept(workspace.EndBatch(&s.view))
 }
 
-func (s *Segment) accept(err error, change nonemptyChange) error {
+func (s *Segment) accept(err error) error {
 	if err != nil {
 		return refusal(err)
 	}
 	generation := s.terms.ids.header[headerGeneration]
 	compacted := generation != s.terms.generation
-	s.acceptNonempty(change, compacted)
 	if !compacted {
 		return nil
 	}

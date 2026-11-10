@@ -3,10 +3,14 @@ package persist
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 )
+
+var restoredDecoding = codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed}
 
 func checkPagedSegmentFully(ctx context.Context, store checkpoint.Store, ref manifest.FileRef) error {
 	source, err := openColdSource(ctx, store, ref)
@@ -22,17 +26,36 @@ func checkPagedSegmentFully(ctx context.Context, store checkpoint.Store, ref man
 	return reader.CheckFully()
 }
 
-func requireStagedPagedSegments(ctx context.Context, store checkpoint.Store, listed manifest.Manifest) error {
+func decodeEveryStoredDocument(ctx context.Context, store checkpoint.Store, ref manifest.FileRef) error {
+	segment, err := checkpoint.OpenStoredSegment(ctx, store, ref, true)
+	if err != nil {
+		return err
+	}
+	for ordinal := range segment.DocumentTotal() {
+		encoded, err := segment.EncodedDocument(ordinal)
+		if err != nil {
+			return err
+		}
+		if err := codec.StoredDocumentFailure(codec.ShareStoredDocument(encoded, restoredDecoding)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireStagedSegments(ctx context.Context, store checkpoint.Store, listed manifest.Manifest) error {
 	for _, entry := range listed.Partitions {
 		for _, ref := range entry.Segments {
 			_, held, err := checkpoint.ListedPagedPath(ctx, store, ref.File)
 			if err != nil {
 				return err
 			}
-			if !held {
-				continue
+			if held {
+				err = checkPagedSegmentFully(ctx, store, ref.File)
+			} else {
+				err = decodeEveryStoredDocument(ctx, store, ref.File)
 			}
-			if err := checkPagedSegmentFully(ctx, store, ref.File); err != nil {
+			if err != nil {
 				return err
 			}
 		}

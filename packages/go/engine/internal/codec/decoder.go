@@ -65,10 +65,12 @@ func (decoder *Decoder) More() bool {
 
 var ErrTruncated = errors.New("the MessagePack payload holds fewer bytes than it declares")
 
+const decodingFailurePrefix = "MessagePack decoding failed: "
+
 func (decoder *Decoder) failure(format string, arguments ...any) *narsilerr.Error {
 	return narsilerr.New(
 		decoder.errorCode,
-		"MessagePack decoding failed: "+fmt.Sprintf(format, arguments...),
+		decodingFailurePrefix+fmt.Sprintf(format, arguments...),
 		map[string]any{"offset": decoder.position},
 	)
 }

@@ -23,16 +23,11 @@ type Writer struct {
 	destination io.Writer
 	stage       writerStage
 	history     int
-	written     int64
 	failure     error
 }
 
 func NewWriter(destination io.Writer) *Writer {
 	return &Writer{destination: destination}
-}
-
-func (writer *Writer) Written() int64 {
-	return writer.written
 }
 
 func (writer *Writer) fail(err error) error {
@@ -46,9 +41,7 @@ func (writer *Writer) write(chunk []byte) error {
 	if len(chunk) == 0 {
 		return nil
 	}
-	written, err := writer.destination.Write(chunk)
-	writer.written += int64(written)
-	if err != nil {
+	if _, err := writer.destination.Write(chunk); err != nil {
 		return writer.fail(narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed,
 			"The snapshot archive cannot be written: the destination fails to take bytes", err, nil))
 	}
@@ -129,7 +122,6 @@ func (writer *Writer) WriteFile(name string, size int64, body io.Reader) error {
 		return err
 	}
 	copied, err := io.CopyN(writer.destination, body, size)
-	writer.written += copied
 	if copied < size {
 		if err == nil || errors.Is(err, io.EOF) {
 			return writer.fail(saveFailed("the file \""+name+"\" ends after "+strconv.FormatInt(copied, 10)+

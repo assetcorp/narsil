@@ -38,10 +38,6 @@ func (m *WorkMeter) Spent() int64 {
 	return atomic.LoadInt64(&m.words.spent)
 }
 
-func (m *WorkMeter) Add(units int64) bool {
-	return atomic.AddInt64(&m.words.spent, units) <= m.cap
-}
-
 func (m *WorkMeter) Stop() {
 	atomic.StoreUint32(&m.words.stop, 1)
 }

@@ -177,6 +177,7 @@ func (entry *indexEntry) configurationFields() indexconfig.Configuration {
 	held := entry.currentAnalysis()
 	return indexconfig.Configuration{
 		Schema:             flatSchemaOf(entry.parsed),
+		SchemaOrder:        entry.parsed.FieldOrder(),
 		Language:           held.language,
 		AnalysisRevision:   optionalText(held.revision),
 		ArrayPositionGap:   entry.recordedGap(),
@@ -223,6 +224,7 @@ func (entry *indexEntry) metadataOf(documentCount uint64) (metadata.Metadata, er
 	described := metadata.Metadata{
 		IndexName:           entry.name,
 		Schema:              flatSchemaOf(entry.parsed),
+		SchemaOrder:         entry.parsed.FieldOrder(),
 		Language:            held.language,
 		PartitionCount:      uint32(entry.index().PartitionCount()),
 		DocumentCount:       model.Some(documentCount),

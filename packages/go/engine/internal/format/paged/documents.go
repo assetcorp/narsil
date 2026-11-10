@@ -181,7 +181,8 @@ func (reader *Reader) IDBytes(ordinal uint32) ([]byte, error) {
 	}
 	from := int64(binary.LittleEndian.Uint32(bounds))
 	to := int64(binary.LittleEndian.Uint32(bounds[4:]))
-	if to < from || to > ids.Length {
+	if to < from || to > ids.Length || (ordinal == 0 && from != 0) ||
+		(ordinal+1 == reader.Head.DocumentCount && to != ids.Length) {
 		return nil, loadFailed("The ID of a document of the "+what+" leaves its list", map[string]any{"ordinal": ordinal})
 	}
 	id, err := reader.ReadSection(ids, from, to-from)

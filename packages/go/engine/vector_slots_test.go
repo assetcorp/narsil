@@ -4,7 +4,6 @@ import (
 	"context"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/assetcorp/narsil/packages/go/engine"
@@ -15,32 +14,20 @@ const (
 	heldSearchWave        = 4_096
 )
 
-type finishedSearchGate struct {
-	holding atomic.Bool
-	entered chan struct{}
-	release chan struct{}
-}
-
-func (gate *finishedSearchGate) afterSearch(ctx context.Context, search *engine.SearchContext) error {
-	if search.Params == nil || search.Params.Vector == nil || !gate.holding.Load() {
-		return nil
-	}
-	gate.entered <- struct{}{}
-	select {
-	case <-gate.release:
-	case <-ctx.Done():
-	}
-	return nil
-}
-
 func lightVectorQuery(query []float32) engine.QueryParams {
 	return engine.QueryParams{Mode: engine.SearchVector, Limit: engine.Some(1), Document: engine.NoDocumentFields(),
 		Vector: &engine.VectorQueryConfig{Field: "embedding", Value: query}}
 }
 
-func holdEverySearchSlot(harbour *pinnedHarbour, gate *finishedSearchGate, query []float32) (*sync.WaitGroup, []error) {
-	gate.release = make(chan struct{})
-	gate.holding.Store(true)
+func heldRerankQuery(query []float32) engine.QueryParams {
+	params := lightVectorQuery(query)
+	params.Rerank = &engine.RerankConfig{Adapter: pinnedAdapterName, Fields: []string{"title"},
+		Query: engine.Some(pinnedPlainQuery)}
+	return params
+}
+
+func holdEverySearchSlot(harbour *pinnedHarbour, query []float32) (*sync.WaitGroup, []error) {
+	harbour.reranker.release = make(chan struct{})
 	failures := make([]error, searchThreadSlotLimit)
 	var running sync.WaitGroup
 	for start := 0; start < searchThreadSlotLimit; start += heldSearchWave {
@@ -49,28 +36,25 @@ func holdEverySearchSlot(harbour *pinnedHarbour, gate *finishedSearchGate, query
 			running.Add(1)
 			go func() {
 				defer running.Done()
-				_, failures[position] = harbour.narsil.Query(harbour.ctx, pinnedIndexName, lightVectorQuery(query))
+				_, failures[position] = harbour.narsil.Query(harbour.ctx, pinnedIndexName, heldRerankQuery(query))
 			}()
 		}
 		for range wave {
-			<-gate.entered
+			<-harbour.reranker.entered
 		}
 		runtime.GC()
 	}
-	gate.holding.Store(false)
 	return &running, failures
 }
 
 func requireSlotRefused(t *testing.T, harbour *pinnedHarbour, query []float32) {
 	t.Helper()
-	_, err := harbour.narsil.Query(harbour.ctx, pinnedIndexName, lightVectorQuery(query))
-	if code := codeOrMessage(err); code != engine.CodeWorkerBusy {
-		t.Fatalf("a search past %d in flight got %q, while the limit calls for %s", searchThreadSlotLimit, code,
-			engine.CodeWorkerBusy)
-	}
-	keyword, err := harbour.narsil.Query(harbour.ctx, pinnedIndexName, engine.QueryParams{Term: "berth"})
-	if err != nil || len(keyword.Hits) == 0 {
-		t.Fatalf("a keyword search while every vector slot is taken failed or found nothing: %v", err)
+	for _, params := range []engine.QueryParams{lightVectorQuery(query), {Term: "berth"}} {
+		_, err := harbour.narsil.Query(harbour.ctx, pinnedIndexName, params)
+		if code := codeOrMessage(err); code != engine.CodeWorkerBusy {
+			t.Fatalf("a search past %d in flight got %q, while the limit calls for %s", searchThreadSlotLimit, code,
+				engine.CodeWorkerBusy)
+		}
 	}
 }
 
@@ -85,13 +69,12 @@ func requireEverySearchSucceeded(t *testing.T, running *sync.WaitGroup, failures
 }
 
 func TestSearchesPastTheThreadSlotLimitGetWorkerBusyAndEverySlotComesBack(t *testing.T) {
-	gate := &finishedSearchGate{entered: make(chan struct{}, searchThreadSlotLimit)}
-	harbour := openPinnedHarbour(t, 1, engine.Plugin{Name: "finished-search-gate", AfterSearch: gate.afterSearch})
+	harbour := openPinnedHarbour(t, searchThreadSlotLimit)
 	query := harbour.randomVector()
 	for round := range 2 {
-		running, failures := holdEverySearchSlot(harbour, gate, query)
+		running, failures := holdEverySearchSlot(harbour, query)
 		requireSlotRefused(t, harbour, query)
-		close(gate.release)
+		close(harbour.reranker.release)
 		requireEverySearchSucceeded(t, running, failures)
 		result, err := harbour.narsil.Query(context.Background(), pinnedIndexName, pinnedQuery(query, ""))
 		if err != nil {
@@ -99,6 +82,10 @@ func TestSearchesPastTheThreadSlotLimitGetWorkerBusyAndEverySlotComesBack(t *tes
 		}
 		if err := requireScoresMatchVectors("a search after the slots came back", query, result.Hits, harbour.vectors); err != nil {
 			t.Fatal(err)
+		}
+		keyword, err := harbour.narsil.Query(context.Background(), pinnedIndexName, engine.QueryParams{Term: "berth"})
+		if err != nil || len(keyword.Hits) == 0 {
+			t.Fatalf("a keyword search after round %d released every slot failed or found nothing: %v", round, err)
 		}
 	}
 }

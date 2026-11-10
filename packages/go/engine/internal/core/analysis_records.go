@@ -6,10 +6,13 @@ package core
 import "C"
 
 import (
+	"errors"
 	"math"
 	"runtime"
 	"unsafe"
 )
+
+var ErrRecordUnitsFull = errors.New("the analysed text passes the largest offset a token record holds")
 
 func (a *Analyser) AppendRecords(language uint32, flags AnalyseFlags, text string, stops *StopWordSet,
 	records []TokenRecord, units []uint16) ([]TokenRecord, []uint16, error) {
@@ -29,7 +32,7 @@ func (a *Analyser) AppendRecords(language uint32, flags AnalyseFlags, text strin
 	}
 	base := uint64(len(units))
 	if base+uint64(tokens.unit_count) > math.MaxUint32 {
-		return records, units, ErrTextTooLong
+		return records, units, ErrRecordUnitsFull
 	}
 	analysed := unsafe.Slice((*TokenRecord)(unsafe.Pointer(tokens.tokens)), count)
 	units = append(units, unsafe.Slice((*uint16)(unsafe.Pointer(tokens.units)), int(tokens.unit_count))...)

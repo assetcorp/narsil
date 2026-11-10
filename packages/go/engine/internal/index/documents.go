@@ -3,6 +3,7 @@ package index
 import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 )
 
 type documentLookup struct {
@@ -57,12 +58,27 @@ func (l *documentLookup) stored(id string) *codec.Document {
 	return found
 }
 
-func (l *documentLookup) decoded(id string) *codec.Document {
+func (l *documentLookup) shownAs(id string, shown projection.Projection) *codec.Document {
+	return l.checked(id, shown.Failure)
+}
+
+func (l *documentLookup) withFields(id string, fields []string) *codec.Document {
+	return l.checked(id, func(held *codec.Document) error {
+		for _, field := range fields {
+			if err := projection.FieldFailure(held, field); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (l *documentLookup) checked(id string, failure func(*codec.Document) error) *codec.Document {
 	held := l.stored(id)
 	if held == nil {
 		return nil
 	}
-	if err := codec.DocumentFailure(held); err != nil {
+	if err := failure(held); err != nil {
 		if l.err == nil {
 			l.err = err
 		}
@@ -75,10 +91,14 @@ func (l *documentLookup) has(id string) bool {
 	if _, found := l.held[id]; found {
 		return true
 	}
-	if _, absent := l.missing[id]; absent || l.reading == nil {
+	if _, absent := l.missing[id]; absent || l.err != nil || l.reading == nil {
 		return false
 	}
-	return l.snapshotOf(id).Has(id)
+	present, err := l.snapshotOf(id).Has(id)
+	if err != nil {
+		l.err = err
+	}
+	return present
 }
 
 func (l *documentLookup) failure() error {

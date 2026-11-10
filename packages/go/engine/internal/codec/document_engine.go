@@ -12,20 +12,31 @@ func PutHeld(document *Document, key string, value any) {
 }
 
 func PutHeldPath(document *Document, path string, value any) {
-	current := document
+	if state := document.held; state != nil && state.stored != nil && !state.opened {
+		state.markChanged()
+		state.later = append(state.later, heldPath{path: path, value: value})
+		return
+	}
+	document.writable().putPath(path, value)
+}
+
+func (s *documentState) putPath(path string, value any) {
+	current := s
 	for {
 		segment, rest, nested := strings.Cut(path, ".")
 		if !nested {
-			current.writable().put(segment, value)
+			current.put(segment, value)
 			return
 		}
-		held, _ := HeldValue(current, segment)
-		next, isDocument := held.(*Document)
-		if !isDocument || next == nil {
-			next = NewDocument()
-			current.writable().put(segment, next)
+		var next *Document
+		if position, known := current.position(segment); known {
+			next, _ = current.entries[position].value.(*Document)
 		}
-		current, path = next, rest
+		if next == nil {
+			next = NewDocument()
+			current.put(segment, next)
+		}
+		current, path = next.writable(), rest
 	}
 }
 

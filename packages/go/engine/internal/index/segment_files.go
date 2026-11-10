@@ -23,27 +23,25 @@ func (ix *Index) AttachSegmentFile(partitionID int, file *keyword.Segment, docum
 	if err != nil {
 		return err
 	}
-	return ix.Write(func(w *Write) error {
+	err = ix.Write(func(w *Write) error {
 		return ix.partitions[partitionID].Attach(w.write, frozen, ids, documents)
 	})
+	ix.noteGrowth()
+	return err
 }
 
 type PagedSegmentFile struct {
 	Path         string
 	RemovalPages *core.PageCache
-	Replaces     func(fieldSchema map[string]string, tombstones []string, ids []string) error
+	Replaces     func(fieldSchema map[string]string, tombstones []string) error
 }
 
 func (ix *Index) attachOpenedPaged(partitionID int, paged *segments.Paged, file PagedSegmentFile) (bool, error) {
-	ids, err := paged.IDs()
-	if err != nil {
-		return false, err
-	}
-	if err := file.Replaces(paged.FieldSchema(), paged.Tombstones(), ids); err != nil || len(ids) == 0 {
+	if err := file.Replaces(paged.FieldSchema(), paged.Tombstones()); err != nil || paged.DocumentCount() == 0 {
 		return false, err
 	}
 	return true, ix.Write(func(w *Write) error {
-		return ix.partitions[partitionID].AttachPaged(w.write, paged, ids)
+		return ix.partitions[partitionID].AttachPaged(w.write, paged)
 	})
 }
 

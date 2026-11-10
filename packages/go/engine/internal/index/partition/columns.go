@@ -5,8 +5,10 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 )
 
 type ColumnRequest struct {
@@ -54,8 +56,8 @@ func storedValueReader(document func(ordinal uint32) (storedDocument, bool, erro
 			failure = err
 			return nil, false
 		}
-		values, err := decodeStored(stored)
-		if err != nil {
+		values := codec.NewStoredDocument(stored.encoded, storedDecoding)
+		if err := projection.FieldFailure(values, path); err != nil {
 			failure = err
 			return nil, false
 		}

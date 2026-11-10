@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -11,30 +12,26 @@ import (
 
 type FilterRun struct {
 	workspace *core.Workspace
-	meter     *core.WorkMeter
-	ownMeter  bool
+	work      *Work
+	ownWork   bool
 	claimed   map[string]bool
 }
 
-func NewFilterRun(meter *core.WorkMeter) (*FilterRun, error) {
+func NewFilterRun(work *Work) (*FilterRun, error) {
 	workspace, err := core.AcquireWorkspace()
 	if err != nil {
 		return nil, err
 	}
-	run := &FilterRun{workspace: workspace, meter: meter, claimed: map[string]bool{}}
-	if meter == nil {
-		if run.meter, err = core.NewWorkMeter(DefaultPatternWorkCap, 0); err != nil {
-			workspace.Release()
-			return nil, err
-		}
-		run.ownMeter = true
+	run := &FilterRun{workspace: workspace, work: work, claimed: map[string]bool{}}
+	if work == nil {
+		run.work, run.ownWork = NewWork(context.Background(), DefaultPatternWorkCap), true
 	}
 	return run, nil
 }
 
 func (r *FilterRun) Release() {
-	if r.ownMeter {
-		r.meter.Free()
+	if r.ownWork {
+		r.work.Close()
 	}
 	r.workspace.Release()
 }

@@ -47,7 +47,7 @@ func countMatching(snapshot partition.Snapshot, matched [][]uint32) int {
 	count := 0
 	for segment, words := range matched {
 		eachOrdinal(words, func(ordinal uint32) {
-			if _, live := snapshot.IDAt(segment, ordinal); live {
+			if snapshot.Live(segment, ordinal) {
 				count++
 			}
 		})
@@ -68,7 +68,10 @@ func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterR
 	if sorted {
 		return set, countMatching(snapshot, matched), nil
 	}
-	ids := matchingIDs(snapshot, matched)
+	ids, err := matchingIDs(snapshot, matched)
+	if err != nil {
+		return nil, 0, err
+	}
 	set.accepted = make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		set.accepted[id] = struct{}{}
@@ -77,7 +80,10 @@ func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterR
 }
 
 func entriesInIDOrder(set *listedSet, request *listRequest) ([]listedEntry, error) {
-	ids := set.snapshot.SortedIDs()
+	ids, err := set.snapshot.SortedIDs()
+	if err != nil {
+		return nil, err
+	}
 	start := 0
 	if request.anchor != nil {
 		anchor := request.anchor.Anchor
@@ -134,11 +140,11 @@ func (ix *Index) listRequestOf(params *model.ListParams, limit int, signature mo
 }
 
 func (ix *Index) listEntries(ctx context.Context, params *model.ListParams, request *listRequest) ([]listedEntry, int, error) {
-	work, closeWork, err := openWorkMeter(ctx, ix.settings.SearchWorkCap)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
-	defer closeWork()
+	work := query.NewWork(ctx, ix.settings.SearchWorkCap)
+	defer work.Close()
 	prepared := &preparedQuery{params: model.QueryParams{Filters: params.Filters}, work: work, ctx: ctx}
 	if request.sorted {
 		prepared.params.Sort = request.sort
@@ -222,10 +228,10 @@ func (ix *Index) List(ctx context.Context, params model.ListParams) (model.ListR
 	}
 	for _, entry := range entries {
 		document := entry.document
+		if err := shown.Failure(entry.document); err != nil {
+			return model.ListResult{}, err
+		}
 		if shown.Kind() != model.ProjectWholeDocument {
-			if err := codec.DocumentFailure(entry.document); err != nil {
-				return model.ListResult{}, err
-			}
 			document = shown.Clone(entry.document)
 		}
 		result.Documents = append(result.Documents, model.ListedDocument{ID: entry.id, Document: document})

@@ -68,6 +68,7 @@ type PartitionEntry struct {
 
 type Manifest struct {
 	Schema             map[string]string
+	SchemaOrder        []string
 	Language           string
 	AnalysisGeneration uint64
 	Checkpoint         []PartitionCheckpoint

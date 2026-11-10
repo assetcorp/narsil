@@ -11,14 +11,6 @@ type PreparedDocument struct {
 	prepared  partition.Prepared
 }
 
-func (p PreparedDocument) ID() string {
-	return p.prepared.ID
-}
-
-func (p PreparedDocument) Partition() int {
-	return p.partition
-}
-
 type Write struct {
 	ix    *Index
 	write *partition.Write
@@ -128,7 +120,11 @@ func (w *Write) Clear(vectors []vector.NamedField) error {
 	if len(vectors) > 0 {
 		var ids []string
 		for _, held := range w.ix.partitions {
-			ids = append(ids, held.Written(w.write).SortedIDs()...)
+			sorted, err := held.Written(w.write).SortedIDs()
+			if err != nil {
+				return err
+			}
+			ids = append(ids, sorted...)
 		}
 		vector.ApplyDocumentsAt(w.Sequence(), vectors, vector.RemovalsOf(ids), make([]error, len(ids)))
 	}

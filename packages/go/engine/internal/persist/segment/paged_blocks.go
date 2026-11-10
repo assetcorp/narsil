@@ -22,34 +22,6 @@ type tokenRows struct {
 	positions   []uint32
 }
 
-func (rows *tokenRows) ordered() bool {
-	for at := 1; at < len(rows.documents); at++ {
-		before := rows.documents[at-1]
-		if rows.documents[at] < before || (rows.documents[at] == before && rows.fields[at] <= rows.fields[at-1]) {
-			return false
-		}
-	}
-	return true
-}
-
-func (rows *tokenRows) occurrences() float64 {
-	total := 0.0
-	for _, frequency := range rows.frequencies {
-		total += float64(frequency)
-	}
-	return total
-}
-
-func (rows *tokenRows) distinctDocuments() uint32 {
-	var count uint32
-	for at, document := range rows.documents {
-		if at == 0 || document != rows.documents[at-1] {
-			count++
-		}
-	}
-	return count
-}
-
 func fieldLengthBound(columns [][]uint32, field uint16, ordinal uint32) float64 {
 	if int(field) >= len(columns) || columns[field] == nil || int(ordinal) >= len(columns[field]) {
 		return absentFieldLengthBound

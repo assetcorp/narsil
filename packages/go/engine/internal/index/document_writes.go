@@ -110,5 +110,6 @@ func (w *Write) ApplyBatch(b *Batch, vectors []vector.NamedField) error {
 func (ix *Index) Apply(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField) ([]error, error) {
 	batch := ix.PrepareBatch(kind, writes)
 	err := ix.Write(func(w *Write) error { return w.ApplyBatch(batch, vectors) })
+	ix.noteGrowth()
 	return batch.Failures, err
 }

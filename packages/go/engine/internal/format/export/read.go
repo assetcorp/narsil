@@ -20,7 +20,8 @@ const (
 )
 
 type Header struct {
-	Index map[string]any
+	Index       map[string]any
+	SchemaOrder []string
 }
 
 type Entry struct {
@@ -55,7 +56,7 @@ func ParseHeader(text []byte) (Header, error) {
 	if !isIndex {
 		return Header{}, invalidHeader("holds no index configuration object under \"index\"")
 	}
-	return Header{Index: index}, nil
+	return Header{Index: index, SchemaOrder: headerSchemaOrder(text)}, nil
 }
 
 func NewReader(source io.Reader) (*Reader, Header, error) {

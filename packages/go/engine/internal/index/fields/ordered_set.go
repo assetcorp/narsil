@@ -64,7 +64,3 @@ func (s *orderedSet) each(visit func(ordinal uint32)) {
 		}
 	}
 }
-
-func (s *orderedSet) bytes() uint64 {
-	return uint64(cap(s.members))*4 + uint64(cap(s.alive)) + uint64(len(s.position))*hashEntryBytes
-}

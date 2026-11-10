@@ -21,7 +21,9 @@ type Paged struct {
 	source   *paged.NativeFile
 	reader   *paged.Reader
 
-	sectionNames map[uint64]string
+	sectionNames   map[uint64]string
+	holds          atomic.Int64
+	payloadChecked atomic.Bool
 }
 
 func valuesOf(column keyword.Uint32s) []uint32 {
@@ -34,6 +36,7 @@ func valuesOf(column keyword.Uint32s) []uint32 {
 
 func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache) (*Paged, error) {
 	opened := &Paged{path: path}
+	opened.holds.Store(1)
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -113,7 +116,22 @@ func (p *Paged) ReadPostings(w *core.Workspace, term uint32, output []byte) (int
 	return int(count), nil
 }
 
+func (p *Paged) Hold() bool {
+	for {
+		held := p.holds.Load()
+		if held <= 0 {
+			return false
+		}
+		if p.holds.CompareAndSwap(held, held+1) {
+			return true
+		}
+	}
+}
+
 func (p *Paged) Close() {
+	if p.holds.Add(-1) != 0 {
+		return
+	}
 	if p.reader != nil {
 		p.reader.Close()
 	}

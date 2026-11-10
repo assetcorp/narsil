@@ -81,7 +81,7 @@ func reorderByRerank(ranked []model.Hit, windowSize int, scores []float64) []mod
 	return ordered
 }
 
-func (ix *Index) rerankCursorDepth(params *model.QueryParams, binding func() string) (int, error) {
+func (ix *Index) rerankCursorDepth(params *model.QueryParams, binding *cursor.QueryBinding) (int, error) {
 	encoded, set := params.SearchAfter.Get()
 	if !set {
 		return 0, nil
@@ -90,7 +90,7 @@ func (ix *Index) rerankCursorDepth(params *model.QueryParams, binding func() str
 	if err != nil {
 		return 0, err
 	}
-	if err := cursor.RequireMatchingCursor(decoded, encoded, model.Optional[string]{}, true, binding()); err != nil {
+	if err := cursor.RequireMatchingCursor(decoded, encoded, model.Optional[string]{}, true, binding.Text()); err != nil {
 		return 0, err
 	}
 	return decoded.Depth, nil
@@ -162,7 +162,7 @@ func (ix *Index) documentsKeptThroughRerank(ctx context.Context, ids []string) (
 func rerankTexts(documents *documentLookup, hits []model.Hit, fields []string) []string {
 	texts := make([]string, len(hits))
 	for at, hit := range hits {
-		stored := documents.decoded(hit.ID)
+		stored := documents.withFields(hit.ID, fields)
 		if stored == nil {
 			continue
 		}
@@ -190,7 +190,7 @@ func fillRerankedDocuments(documents *documentLookup, hits []model.Hit, groups [
 
 func (ix *Index) highlightReranked(documents *documentLookup, hits []model.Hit, request model.QueryParams) error {
 	request.Rerank, request.Pinned, request.SearchAfter = nil, nil, model.Optional[string]{}
-	prepared, err := ix.prepareQuery(request)
+	prepared, err := ix.prepareQuery(request, QueryOptions{})
 	if err != nil {
 		return err
 	}

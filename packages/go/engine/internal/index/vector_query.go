@@ -149,7 +149,7 @@ func (ix *Index) cursorDepthOf(prepared *preparedQuery) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := cursor.RequireMatchingCursor(decoded, encoded, prepared.sortSignature, true, prepared.binding()); err != nil {
+	if err := cursor.RequireMatchingCursor(decoded, encoded, prepared.sortSignature, true, prepared.binding.Text()); err != nil {
 		return 0, err
 	}
 	return decoded.Depth, nil
@@ -169,7 +169,11 @@ func (ix *Index) acceptedForVectors(prepared *preparedQuery) (vectorAcceptance, 
 		if err != nil {
 			return vectorAcceptance{}, err
 		}
-		accepted.ids = append(accepted.ids, matchingIDs(snapshot, matched)...)
+		ids, err := matchingIDs(snapshot, matched)
+		if err != nil {
+			return vectorAcceptance{}, err
+		}
+		accepted.ids = append(accepted.ids, ids...)
 	}
 	return accepted, nil
 }

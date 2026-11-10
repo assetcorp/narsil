@@ -48,14 +48,6 @@ func (b *Boolean) reserveFor(ordinal uint32) error {
 	return b.falseBits.reserveExactly(target)
 }
 
-func (b *Boolean) Insert(ordinal uint32, value bool) error {
-	if err := b.reserveFor(ordinal); err != nil {
-		return err
-	}
-	b.insert(ordinal, value)
-	return nil
-}
-
 func (b *Boolean) insert(ordinal uint32, value bool) {
 	bits := b.falseBits.all()
 	if value {
@@ -106,10 +98,6 @@ func (b *Boolean) Index() *core.BooleanIndex {
 
 func (b *Boolean) Present() []uint32 {
 	return b.present.view()
-}
-
-func (b *Boolean) Count() uint64 {
-	return b.trueCount + b.falseCount
 }
 
 func (b *Boolean) RegionBytes() uint64 {

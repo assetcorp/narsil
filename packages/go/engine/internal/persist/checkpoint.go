@@ -6,6 +6,8 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/writeahead"
@@ -19,11 +21,18 @@ type capture struct {
 	left       uint64
 	vectors    []checkpoint.VectorCapture
 	partitions []checkpoint.PartitionCapture
+	selections []*heldSelections
+	changes    []*partition.ChangeLog
+	tracked    *index.Index
 }
 
 func (held capture) release() {
+	held.stopTracking()
 	for _, field := range held.vectors {
 		field.Plan.Release()
+	}
+	for _, selections := range held.selections {
+		selections.release()
 	}
 }
 
@@ -98,24 +107,36 @@ func partitionUnchanged(prior *manifest.Manifest, partitionID int, seqNo uint64)
 	return false
 }
 
-func buildPartitions(ctx context.Context, handle *Handle, seqNos []uint64, whole []bool) (
-	[]checkpoint.PartitionCapture, error) {
-	schema := flatSchema(handle)
-	captures := make([]checkpoint.PartitionCapture, len(seqNos))
-	for partitionID, seqNo := range seqNos {
-		captures[partitionID].Checkpoint = manifest.PartitionCheckpoint{PartitionID: uint32(partitionID),
-			LastSeqNo: seqNo, PrimaryTerm: SingleNodePrimaryTerm}
-		if !whole[partitionID] {
+func (held *capture) buildPartitions(ctx context.Context, handle *Handle, store checkpoint.Store,
+	pagedText bool) error {
+	request := segmentWriteRequest{schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle)}
+	held.partitions = make([]checkpoint.PartitionCapture, len(held.seqNos))
+	for partitionID, seqNo := range held.seqNos {
+		partition := &held.partitions[partitionID]
+		partition.Checkpoint = manifest.PartitionCheckpoint{PartitionID: uint32(partitionID), LastSeqNo: seqNo,
+			PrimaryTerm: SingleNodePrimaryTerm}
+		if !held.whole[partitionID] {
 			continue
 		}
-		captures[partitionID].Rewritten = true
-		files, err := partitionSegmentFiles(ctx, handle.Index, partitionID, segmentWriteRequest{schema: schema})
-		if err != nil {
-			return nil, err
+		partition.Rewritten = true
+		if !pagedText {
+			files, err := partitionSegmentFiles(ctx, handle.Index, partitionID, request)
+			if err != nil {
+				return err
+			}
+			partition.Segments = files
+			continue
 		}
-		captures[partitionID].Segments = files
+		selections, err := holdPartitionSelections(ctx, handle.Index, partitionID)
+		if err != nil {
+			return err
+		}
+		held.selections = append(held.selections, selections)
+		partition.Stream = func(ctx context.Context, entry *manifest.PartitionEntry) error {
+			return selections.stream(ctx, store, handle.Name, entry, request)
+		}
 	}
-	return captures, nil
+	return nil
 }
 
 func flatSchema(handle *Handle) map[string]string {
@@ -129,9 +150,16 @@ func flatSchema(handle *Handle) map[string]string {
 	return flat
 }
 
+func schemaOrderOf(handle *Handle) []string {
+	if handle.Schema == nil {
+		return nil
+	}
+	return handle.Schema.FieldOrder()
+}
+
 func checkpointInput(handle *Handle, meta metadata.Metadata, prior *manifest.Manifest, held capture) checkpoint.Input {
-	input := checkpoint.Input{IndexName: handle.Name, Schema: flatSchema(handle), Language: meta.Language,
-		Prior: prior, Partitions: held.partitions, Vectors: held.vectors}
+	input := checkpoint.Input{IndexName: handle.Name, Schema: flatSchema(handle), SchemaOrder: schemaOrderOf(handle),
+		Language: meta.Language, Prior: prior, Partitions: held.partitions, Vectors: held.vectors}
 	if generation, set := meta.AnalysisGeneration.Get(); set {
 		input.AnalysisGeneration = generation
 	}
@@ -146,9 +174,9 @@ type checkpointOptions struct {
 }
 
 func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manifest, logged bool,
-	options checkpointOptions) (capture, error) {
+	options checkpointOptions) (held capture, err error) {
 	consistent := options.consistent
-	held := capture{seqNos: make([]uint64, len(durable.partitions))}
+	held = capture{seqNos: make([]uint64, len(durable.partitions))}
 	for _, log := range durable.partitions {
 		log.mutex.Lock()
 	}
@@ -156,11 +184,21 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 		for _, log := range durable.partitions {
 			log.mutex.Unlock()
 		}
+		if err != nil {
+			held.stopTracking()
+		}
 	}()
-	for partitionID, log := range durable.partitions {
+	for _, log := range durable.partitions {
 		if log.failed != nil {
 			return held, log.failed
 		}
+	}
+	if options.pagedText {
+		if err := held.trackChanges(durable.handle); err != nil {
+			return held, err
+		}
+	}
+	for partitionID, log := range durable.partitions {
 		held.seqNos[partitionID] = log.applied
 	}
 	durable.planPartitions(prior, logged, options, &held)
@@ -170,8 +208,7 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 	}
 	held.vectors = vectors
 	if consistent {
-		held.partitions, err = buildPartitions(ctx, durable.handle, held.seqNos, held.whole)
-		if err != nil {
+		if err := held.buildPartitions(ctx, durable.handle, durable.manager.store, options.pagedText); err != nil {
 			held.release()
 			return held, err
 		}
@@ -267,10 +304,9 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 	if err != nil {
 		return manifest.Manifest{}, 0, err
 	}
-	defer held.release()
+	defer func() { held.release() }()
 	if !options.consistent {
-		held.partitions, err = buildPartitions(ctx, durable.handle, held.seqNos, held.whole)
-		if err != nil {
+		if err := held.buildPartitions(ctx, durable.handle, store, options.pagedText); err != nil {
 			return manifest.Manifest{}, 0, err
 		}
 	}
@@ -299,19 +335,21 @@ func (durable *Durable) commitCheckpoint(ctx context.Context, store checkpoint.S
 		return manifest.Manifest{}, err
 	}
 	input := checkpointInput(durable.handle, meta, prior, held)
-	input.PagedText = durable.textStoredOnDisk()
 	written, err := checkpoint.WriteFiles(ctx, store, input)
 	if err != nil {
 		return manifest.Manifest{}, err
 	}
 	if err := compactWritten(ctx, store, durable.handle, prior, &written,
-		durable.manager.settings.CompactionThreshold, input.PagedText); err != nil {
+		durable.manager.settings.CompactionThreshold, durable.textStoredOnDisk()); err != nil {
 		return manifest.Manifest{}, err
 	}
 	if err := checkpoint.CommitManifest(ctx, store, durable.handle.Name, written); err != nil {
 		return manifest.Manifest{}, err
 	}
 	if err := written.Record(ctx); err != nil {
+		return written.Manifest, err
+	}
+	if err := durable.adoptWritten(ctx, store, written.Manifest, held); err != nil {
 		return written.Manifest, err
 	}
 	if durable.heldFiles.Load() == 0 {

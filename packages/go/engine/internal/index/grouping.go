@@ -6,6 +6,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -79,7 +80,10 @@ func (ix *Index) groupedHitsOf(prepared *preparedQuery, hits []resultHit, fields
 	grouped := make([]query.GroupedHit, len(hits))
 	for at, hit := range hits {
 		partition := ix.partitionOf(hit.ID)
-		segment, ordinal, found := snapshots[partition].Locate(hit.ID)
+		segment, ordinal, found, err := snapshots[partition].Locate(hit.ID)
+		if err != nil {
+			return nil, err
+		}
 		refs := make([]query.StoredRef, len(fields))
 		for slot, field := range fields {
 			refs[slot] = absent
@@ -130,11 +134,11 @@ func (ix *Index) applyGrouping(prepared *preparedQuery, hits []resultHit, config
 	}
 	groups := make([]hitGroup, len(found))
 	for at, entry := range found {
-		group := hitGroup{values: groupValuesOf(documents.decoded(hits[entry.Head].ID), config.Fields), hits: pickHits(hits, entry.Hits)}
+		group := hitGroup{values: groupValuesOf(documents.withFields(hits[entry.Head].ID, config.Fields), config.Fields), hits: pickHits(hits, entry.Hits)}
 		if config.Reduce != nil {
 			rows := make([]reducerRow, len(entry.Every))
 			for row, position := range entry.Every {
-				document := documents.decoded(hits[position].ID)
+				document := documents.shownAs(hits[position].ID, projection.Whole())
 				rows[row] = reducerRow{document: document, found: document != nil, score: scoreOrZero(hits[position])}
 			}
 			reduced, failure := foldGroupReducer(*config.Reduce, rows)

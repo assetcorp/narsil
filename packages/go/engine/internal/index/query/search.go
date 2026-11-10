@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"errors"
 	"math"
 	"sync"
@@ -21,8 +22,8 @@ type searcher struct {
 	combineLists []postingList
 	combined     rowColumns
 	rowOfField   []int32
-	work         *core.WorkMeter
-	ownMeter     *core.WorkMeter
+	work         *Work
+	ownWork      bool
 	paged        pagedPool
 }
 
@@ -41,27 +42,20 @@ func acquireSearcher() (*searcher, error) {
 func (s *searcher) release() {
 	s.paged.reset(nil)
 	s.builder.release()
-	if s.ownMeter != nil {
-		s.ownMeter.Free()
-		s.ownMeter = nil
+	if s.ownWork {
+		s.work.Close()
 	}
-	s.work = nil
+	s.work, s.ownWork = nil, false
 	s.workspace.Release()
 	s.workspace = nil
 	searchers.Put(s)
 }
 
-func (s *searcher) meter(query *KeywordQuery) error {
-	s.work = query.Meter
-	if s.work != nil {
-		return nil
+func (s *searcher) useWork(query *KeywordQuery) {
+	s.work = query.Work
+	if s.work == nil && len(query.Phrases) > 0 {
+		s.work, s.ownWork = NewWork(context.Background(), DefaultPatternWorkCap), true
 	}
-	meter, err := core.NewWorkMeter(DefaultPatternWorkCap, 0)
-	if err != nil {
-		return err
-	}
-	s.ownMeter, s.work = meter, meter
-	return nil
 }
 
 func validateView(view *View) error {
@@ -116,9 +110,7 @@ func Search(view *View, query *KeywordQuery) (*KeywordResult, error) {
 		return nil, err
 	}
 	defer s.release()
-	if err := s.meter(query); err != nil {
-		return nil, err
-	}
+	s.useWork(query)
 	s.terms.reset()
 	s.terms.addQuery(query)
 	if single := onlyPopulated(view); single != -1 {
@@ -169,7 +161,9 @@ func refusal(err error) error {
 
 func (s *searcher) refusal(err error) error {
 	if core.StatusOf(err) == core.StatusWorkCapExceeded && s.work != nil {
-		return patternWorkCapExceeded(s.work.Cap())
+		if meter := s.work.opened(); meter != nil {
+			return patternWorkCapExceeded(meter.Cap())
+		}
 	}
 	return refusal(err)
 }

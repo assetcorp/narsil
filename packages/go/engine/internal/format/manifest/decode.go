@@ -38,15 +38,6 @@ func IsEarlier(payload map[string]any) bool {
 	return ok && version == EarlierVersion
 }
 
-func Decode(data []byte, indexName string) (Opened, Manifest, error) {
-	opened, err := Open(data)
-	if err != nil {
-		return Opened{}, Manifest{}, err
-	}
-	decoded, err := FromPayload(opened.Payload, indexName)
-	return opened, decoded, err
-}
-
 func FromPayload(payload map[string]any, indexName string) (Manifest, error) {
 	version, ok := payload["version"].(float64)
 	if !ok || version != Version {

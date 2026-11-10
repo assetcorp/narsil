@@ -2,7 +2,6 @@ package wal
 
 import (
 	"encoding/binary"
-	"io"
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
@@ -157,21 +156,6 @@ func ScanTail(data []byte, durableByteLength uint64, lastDurableSeqNo uint64, vi
 	return offset, nil
 }
 
-type TailResult struct {
-	Entries  []Entry
-	CleanEnd int
-}
-
-func ReadTail(data []byte, durableByteLength uint64, lastDurableSeqNo uint64) (TailResult, error) {
-	var result TailResult
-	cleanEnd, err := ScanTail(data, durableByteLength, lastDurableSeqNo, func(entry Entry) error {
-		result.Entries = append(result.Entries, entry)
-		return nil
-	})
-	result.CleanEnd = cleanEnd
-	return result, err
-}
-
 func AppendRecord(destination []byte, entry Entry) ([]byte, error) {
 	start := len(destination)
 	destination = append(destination, 0, 0, 0, 0)
@@ -188,33 +172,4 @@ func AppendRecord(destination []byte, entry Entry) ([]byte, error) {
 	binary.BigEndian.PutUint32(destination[start:], uint32(length))
 	payload := destination[start+recordLengthBytes:]
 	return binary.BigEndian.AppendUint32(destination, codec.CRC32(payload)), nil
-}
-
-type Writer struct {
-	destination io.Writer
-	scratch     []byte
-}
-
-func NewWriter(destination io.Writer) *Writer {
-	return &Writer{destination: destination}
-}
-
-func (writer *Writer) WriteSegmentHeader() error {
-	return writer.flush(AppendSegmentHeader(writer.scratch[:0]))
-}
-
-func (writer *Writer) WriteRecord(entry Entry) error {
-	record, err := AppendRecord(writer.scratch[:0], entry)
-	if err != nil {
-		return err
-	}
-	return writer.flush(record)
-}
-
-func (writer *Writer) flush(bytes []byte) error {
-	writer.scratch = bytes
-	if _, err := writer.destination.Write(bytes); err != nil {
-		return narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The log segment fails to write", err, nil)
-	}
-	return nil
 }

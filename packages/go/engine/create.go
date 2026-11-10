@@ -180,6 +180,10 @@ func partitionCountOf(config model.IndexConfig) int {
 // CodeEmbeddingConfigInvalid when the embedding configuration names an
 // adapter that the engine has not registered.
 func (n *Narsil) CreateIndex(ctx context.Context, name string, config IndexConfig) error {
+	return n.createIndex(ctx, name, config, nil)
+}
+
+func (n *Narsil) createIndex(ctx context.Context, name string, config IndexConfig, schemaOrder []string) error {
 	leave, err := n.enter()
 	if err != nil {
 		return err
@@ -193,7 +197,7 @@ func (n *Narsil) CreateIndex(ctx context.Context, name string, config IndexConfi
 	if n.known(name) {
 		return narsilerr.New(narsilerr.CodeIndexAlreadyExists, `Index "`+name+`" already exists`, map[string]any{"indexName": name})
 	}
-	entry, err := n.prepareEntry(name, config, true)
+	entry, err := n.prepareEntry(name, config, true, schemaOrder)
 	if err != nil {
 		return err
 	}
@@ -218,11 +222,13 @@ func (n *Narsil) CreateIndex(ctx context.Context, name string, config IndexConfi
 	return n.plugins.index(ctx, hookOnIndexCreate, &model.IndexContext{IndexName: name, Config: entry.currentConfig()})
 }
 
-func (n *Narsil) prepareEntry(name string, config model.IndexConfig, creating bool) (*indexEntry, error) {
+func (n *Narsil) prepareEntry(name string, config model.IndexConfig, creating bool, schemaOrder []string) (
+	*indexEntry, error) {
 	parsed, err := schema.Parse(config.Schema)
 	if err != nil {
 		return nil, err
 	}
+	parsed = parsed.InFieldOrder(schemaOrder)
 	if creating {
 		if err := parsed.RequireCreatable(); err != nil {
 			return nil, err

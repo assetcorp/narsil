@@ -1,9 +1,6 @@
 package query
 
-import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
-)
+import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
 
 type GroupMember struct {
 	Token         string
@@ -67,7 +64,7 @@ type KeywordQuery struct {
 	Limit         int
 	Filters       [][]uint32
 	Collect       MatchedSet
-	Meter         *core.WorkMeter
+	Work          *Work
 	Order         DocumentOrder
 	Components    bool
 }

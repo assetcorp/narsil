@@ -3,94 +3,17 @@ package segment
 import (
 	"context"
 	"io"
-	"sort"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func lengthColumnsOf(segment *keyword.Segment) [][]uint32 {
-	byField := map[string]keyword.Uint32s{}
-	for _, column := range segment.FieldLengths {
-		byField[column.Field] = column.Lengths
-	}
-	columns := make([][]uint32, len(segment.FieldNames))
-	for at, name := range segment.FieldNames {
-		held, present := byField[name]
-		if !present {
-			continue
-		}
-		values := make([]uint32, held.Len())
-		for ordinal := range values {
-			values[ordinal] = held.At(ordinal)
-		}
-		columns[at] = values
-	}
-	return columns
-}
-
-func rowsOfToken(segment *keyword.Segment, token int) *tokenRows {
-	from, to := int(segment.PostingOffsets.At(token)), int(segment.PostingOffsets.At(token+1))
-	rows := &tokenRows{starts: make([]uint32, 0, to-from+1)}
-	for row := from; row < to; row++ {
-		rows.documents = append(rows.documents, segment.PostingDocuments.At(row))
-		rows.frequencies = append(rows.frequencies, segment.PostingFrequencies.At(row))
-		rows.fields = append(rows.fields, segment.PostingFields.At(row))
-		rows.starts = append(rows.starts, uint32(len(rows.positions)))
-		if segment.TracksPositions {
-			for at := segment.PositionOffsets.At(row); at < segment.PositionOffsets.At(row+1); at++ {
-				rows.positions = append(rows.positions, segment.Positions.At(int(at)))
-			}
-		}
-	}
-	rows.starts = append(rows.starts, uint32(len(rows.positions)))
-	if !rows.ordered() {
-		rows.sortByDocumentAndField()
-	}
-	return rows
-}
-
-func (rows *tokenRows) sortByDocumentAndField() {
-	order := make([]int, len(rows.documents))
-	for at := range order {
-		order[at] = at
-	}
-	sort.SliceStable(order, func(left, right int) bool {
-		a, b := order[left], order[right]
-		if rows.documents[a] != rows.documents[b] {
-			return rows.documents[a] < rows.documents[b]
-		}
-		return rows.fields[a] < rows.fields[b]
-	})
-	sorted := &tokenRows{starts: make([]uint32, 0, len(order)+1)}
-	for _, from := range order {
-		sorted.documents = append(sorted.documents, rows.documents[from])
-		sorted.frequencies = append(sorted.frequencies, rows.frequencies[from])
-		sorted.fields = append(sorted.fields, rows.fields[from])
-		sorted.starts = append(sorted.starts, uint32(len(sorted.positions)))
-		sorted.positions = append(sorted.positions, rows.positions[rows.starts[from]:rows.starts[from+1]]...)
-	}
-	sorted.starts = append(sorted.starts, uint32(len(sorted.positions)))
-	*rows = *sorted
-}
-
-func idSampleOf(segment *keyword.Segment) []paged.IDSampleEntry {
-	var sample []paged.IDSampleEntry
-	for position := range segment.IDOrder.Len() {
-		if position%paged.IDSampleInterval == 0 {
-			sample = append(sample, paged.IDSampleEntry{ID: segment.ID(int(segment.IDOrder.At(position))),
-				Position: uint32(position)})
-		}
-	}
-	return sample
-}
-
-func surfacesOrNil(segment *keyword.Segment) *keyword.SurfaceFormColumn {
-	if segment.SurfaceForms == nil || segment.SurfaceForms.Counts.Len() == 0 {
-		return nil
-	}
-	return segment.SurfaceForms
+type StreamedSegment struct {
+	Schema      map[string]string
+	SchemaOrder []string
+	Tombstones  []string
+	Inputs      []StreamedInput
 }
 
 type pagedStream struct {
@@ -115,22 +38,6 @@ func (stream *pagedStream) discard() {
 	if stream.removals != nil {
 		stream.removals.discard()
 	}
-}
-
-func (stream *pagedStream) writeDocuments(built *keyword.Segment) ([]byte, *sectionSink, error) {
-	documents, err := stream.sink("documents")
-	if err != nil {
-		return nil, nil, err
-	}
-	writer := paged.NewDocumentBlockWriter(documents.write)
-	for ordinal := range int(built.DocumentCount) {
-		from, to := built.DocumentOffsets.At(ordinal), built.DocumentOffsets.At(ordinal+1)
-		if err := writer.Add(built.Documents[from:to]); err != nil {
-			return nil, nil, err
-		}
-	}
-	blocks, err := writer.Finish()
-	return blocks, documents, err
 }
 
 func (stream *pagedStream) writeRemovals() (*sectionSink, *sectionSink, error) {
@@ -166,12 +73,29 @@ func sinkSources(sinks ...*sectionSink) ([]paged.SectionSource, error) {
 	return sources, nil
 }
 
-func (stream *pagedStream) sources(ctx context.Context, built *keyword.Segment) ([]paged.SectionSource, error) {
-	lists, err := stream.writeLists(ctx, built)
+func (stream *pagedStream) residentSources(w *core.Workspace, merge *streamedMerge, lists *streamedLists,
+	documents *writtenDocuments) ([]paged.SectionSource, *keyword.SurfaceFormColumn, error) {
+	terms := lists.terms()
+	surfaces, partialWords, err := merge.mergeStrings(w, terms)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	documentBlocks, documents, err := stream.writeDocuments(built)
+	fields, err := merge.mergeFieldColumns(w)
+	if err != nil {
+		return nil, nil, err
+	}
+	resident, err := paged.ResidentSources(paged.ResidentColumns{Tokens: terms.Text,
+		TokenOffsets: keyword.Uint32sOf(terms.Offsets...), DocumentFrequencies: keyword.Uint32sOf(terms.Counts...),
+		PostingOffsets: lists.postingOffsets, BlockLists: lists.blockLists, BlockListOffsets: lists.blockListOffsets,
+		BlockSummaries: lists.blockSummaries, FieldLengths: merge.fieldLengthColumns(), Numeric: fields.Numeric,
+		Sizes: fields.Sizes, Boolean: fields.Boolean, Enum: fields.Enum, Geopoint: fields.Geopoint,
+		Pattern: fields.Pattern, PartialWords: partialWords, IDSample: documents.idSample}, documents.blocks)
+	return resident, surfaces, err
+}
+
+func (stream *pagedStream) sources(ctx context.Context, w *core.Workspace, merge *streamedMerge) (
+	[]paged.SectionSource, error) {
+	lists, err := stream.writeLists(ctx, w, merge)
 	if err != nil {
 		return nil, err
 	}
@@ -179,49 +103,50 @@ func (stream *pagedStream) sources(ctx context.Context, built *keyword.Segment) 
 	if err != nil {
 		return nil, err
 	}
-	resident, err := paged.ResidentSources(paged.ResidentColumns{Tokens: built.Tokens, TokenOffsets: built.TokenOffsets,
-		DocumentFrequencies: lists.documentFrequencies, PostingOffsets: lists.postingOffsets,
-		BlockLists: lists.blockLists, BlockListOffsets: lists.blockListOffsets, BlockSummaries: lists.blockSummaries,
-		FieldLengths: built.FieldLengths, Numeric: built.Numeric, Sizes: built.Sizes, Boolean: built.Boolean,
-		Enum: built.Enum, Geopoint: built.Geopoint, Pattern: built.Pattern, PartialWords: built.PartialWords,
-		IDSample: idSampleOf(built)}, documentBlocks)
+	documents, err := stream.writeDocuments(ctx, merge)
 	if err != nil {
 		return nil, err
 	}
-	listed, err := sinkSources(lists.postings, lists.tokenTotals, lists.positionOffsets, lists.positions, documents)
+	resident, surfaces, err := stream.residentSources(w, merge, lists, documents)
 	if err != nil {
 		return nil, err
 	}
-	removals, err := sinkSources(removalOffsets, removalValues)
+	streamed, err := sinkSources(lists.postings, lists.tokenTotals, lists.positionOffsets, lists.positions,
+		documents.documents, documents.ids, documents.idOffsets, documents.idOrder, removalOffsets, removalValues,
+		documents.seqNos, documents.primaryTerms)
 	if err != nil {
 		return nil, err
 	}
-	sources := append(resident, listed...)
-	sources = append(sources, paged.BytesSection("ids", built.IDs), paged.BytesSection("idOffsets", built.IDOffsets),
-		paged.BytesSection("idOrder", built.IDOrder))
-	sources = append(sources, removals...)
-	if built.HasWriteRecords {
-		sources = append(sources, paged.BytesSection("seqNos", built.SeqNos),
-			paged.BytesSection("primaryTerms", built.PrimaryTerms))
-	}
-	if surfaces := surfacesOrNil(built); surfaces != nil {
+	sources := append(resident, streamed...)
+	if surfaces != nil {
 		sources = append(sources, paged.SurfaceFormSource(surfaces))
 	}
 	return sources, nil
 }
 
-func WritePaged(ctx context.Context, writer io.Writer, scratchPath string, built *keyword.Segment) (keyword.Written,
-	error) {
-	if err := built.Validate(); err != nil {
-		return keyword.Written{}, narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed,
-			"The paged keyword segment breaks a rule of its format, so it cannot be written", err, nil)
+func WriteStreamed(ctx context.Context, writer io.Writer, scratchPath string, request StreamedSegment) (
+	keyword.Written, uint32, error) {
+	w, err := core.AcquireWorkspace()
+	if err != nil {
+		return keyword.Written{}, 0, err
+	}
+	defer w.Release()
+	merge, err := prepareMerge(w, request.Inputs)
+	if err != nil {
+		return keyword.Written{}, 0, err
 	}
 	stream := &pagedStream{scratchPath: scratchPath}
 	defer stream.discard()
-	sources, err := stream.sources(ctx, built)
+	sources, err := stream.sources(ctx, w, merge)
 	if err != nil {
-		return keyword.Written{}, err
+		return keyword.Written{}, 0, err
 	}
-	return paged.WriteSegment(writer, paged.HeadFields{Schema: built.Schema, Tombstones: built.Tombstones,
-		DocumentCount: built.DocumentCount, FieldNames: built.FieldNames}, sources)
+	schema := request.Schema
+	if schema == nil {
+		schema = map[string]string{}
+	}
+	written, err := paged.WriteSegment(writer, paged.HeadFields{Schema: schema, SchemaOrder: request.SchemaOrder,
+		Tombstones: append([]string{}, request.Tombstones...), DocumentCount: merge.documentCount,
+		FieldNames: merge.fieldNames}, sources)
+	return written, merge.documentCount, err
 }

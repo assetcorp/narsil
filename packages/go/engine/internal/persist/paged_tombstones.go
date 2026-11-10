@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
@@ -20,16 +19,6 @@ func sourceHoldsPagedText(source coldSource, key string) (bool, error) {
 	}
 	header, err := envelope.ParseHeader(start)
 	return err == nil && header.FormatVersion == paged.EnvelopeVersion, nil
-}
-
-func everyBuiltID(built []*keyword.Segment) []string {
-	var ids []string
-	for _, written := range built {
-		for ordinal := range int(written.DocumentCount) {
-			ids = append(ids, written.ID(ordinal))
-		}
-	}
-	return ids
 }
 
 func openedOlderSources(ctx context.Context, store checkpoint.Store, older []manifest.SegmentRef) ([]coldSource,
@@ -60,7 +49,7 @@ func closeSources(sources []coldSource) {
 }
 
 func pagedTombstonesFor(ctx context.Context, store checkpoint.Store, older []manifest.SegmentRef,
-	built []*keyword.Segment, deleted []string) ([]string, error) {
+	ids []string, deleted []string) ([]string, error) {
 	tombstones := &windowTombstones{ordered: []string{}, seen: map[string]struct{}{}}
 	for _, id := range deleted {
 		tombstones.add(id)
@@ -68,7 +57,6 @@ func pagedTombstonesFor(ctx context.Context, store checkpoint.Store, older []man
 	if len(older) == 0 {
 		return tombstones.ordered, nil
 	}
-	ids := everyBuiltID(built)
 	sources, allPaged, err := openedOlderSources(ctx, store, older)
 	if err != nil {
 		return nil, err

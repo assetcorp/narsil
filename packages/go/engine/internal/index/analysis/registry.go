@@ -88,20 +88,6 @@ func (r *Registry) RegisterStopWords(name string, stopWords model.StopWords) err
 	return nil
 }
 
-func (r *Registry) HasTokenizer(name string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, found := r.tokenizers.byName[name]
-	return found
-}
-
-func (r *Registry) HasStopWords(name string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, found := r.stopWords.byName[name]
-	return found
-}
-
 func (r *Registry) Tokenizer(name string) (model.Tokenizer, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

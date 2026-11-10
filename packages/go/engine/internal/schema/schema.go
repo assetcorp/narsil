@@ -47,6 +47,7 @@ type Parsed struct {
 	byPath  map[string]Field
 	vectors map[string]int
 	partial []string
+	order   []string
 }
 
 func (p *Parsed) Schema() model.Schema {

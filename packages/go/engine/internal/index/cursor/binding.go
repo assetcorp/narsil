@@ -276,10 +276,19 @@ func QueryBindingOf(params model.QueryParams) string {
 	return bindingOf(values)
 }
 
-func LazyQueryBinding(params model.QueryParams) func() string {
-	return sync.OnceValue(func() string {
-		return QueryBindingOf(params)
-	})
+type QueryBinding struct {
+	once   sync.Once
+	params model.QueryParams
+	text   string
+}
+
+func NewQueryBinding(params model.QueryParams) *QueryBinding {
+	return &QueryBinding{params: params}
+}
+
+func (b *QueryBinding) Text() string {
+	b.once.Do(func() { b.text = QueryBindingOf(b.params) })
+	return b.text
 }
 
 func ListBindingOf(filters *model.FilterExpression) string {

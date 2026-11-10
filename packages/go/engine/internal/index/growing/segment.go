@@ -23,7 +23,6 @@ type Segment struct {
 	retired   column[uint32]
 	fields    fieldLengths
 	view      core.GrowingSegment
-	nonempty  nonemptyTerms
 	held      ordinalSet
 	released  bool
 }

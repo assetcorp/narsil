@@ -1,7 +1,6 @@
 package partition
 
 import (
-	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -33,25 +32,14 @@ func (s Selection) Paged() bool {
 	return s.segment.paged != nil
 }
 
+func (s Selection) PagedSegment() *segments.Paged {
+	return s.segment.paged
+}
+
 func (s Selection) Keeping(keep func(ordinal uint32) bool) Selection {
 	narrowed := s
 	narrowed.Source.Keep = keep
 	return narrowed
-}
-
-func (s Selection) Resident(w *core.Workspace) (Selection, error) {
-	if s.segment.paged == nil {
-		return s, nil
-	}
-	frozen, err := s.segment.paged.Resident(w)
-	if err != nil {
-		return Selection{}, err
-	}
-	resident := s
-	resident.Source.Frozen = frozen
-	resident.Source.State = segments.NewState(&frozen.Keyword, nil)
-	resident.Source.Keep = s.Keeps
-	return resident, nil
 }
 
 func (s Snapshot) GrowingCount() int {

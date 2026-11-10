@@ -33,6 +33,7 @@ type SyncSetting struct {
 type Metadata struct {
 	IndexName           string
 	Schema              map[string]string
+	SchemaOrder         []string
 	Language            string
 	PartitionCount      uint32
 	DocumentCount       model.Optional[uint64]

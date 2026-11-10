@@ -12,6 +12,7 @@ import (
 
 type storedIndex struct {
 	config      model.IndexConfig
+	schemaOrder []string
 	analysis    analysisSettings
 	partitions  int
 	createdAt   uint64
@@ -145,7 +146,8 @@ func storedFromConfiguration(config indexconfig.Configuration) storedIndex {
 		indexConfig.StopWords = model.StopWordList(words...)
 	}
 	return storedIndex{
-		config: indexConfig,
+		config:      indexConfig,
+		schemaOrder: config.SchemaOrder,
 		analysis: analysisSettings{language: config.Language, revision: config.AnalysisRevision.Or(""),
 			tokenizer: config.Tokenizer, stopWords: config.StopWords, stopWordList: config.StopWordList,
 			generation: config.AnalysisGeneration.Or(0)},
@@ -157,6 +159,7 @@ func configurationOfMetadata(meta metadata.Metadata) indexconfig.Configuration {
 	bm25 := meta.BM25
 	return indexconfig.Configuration{
 		Schema:             meta.Schema,
+		SchemaOrder:        meta.SchemaOrder,
 		Language:           meta.Language,
 		AnalysisRevision:   meta.AnalysisRevision,
 		ArrayPositionGap:   meta.ArrayPositionGap,

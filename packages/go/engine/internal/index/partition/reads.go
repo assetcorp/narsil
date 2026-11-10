@@ -33,20 +33,21 @@ func (s Snapshot) Count() int {
 	return s.side.documentCount()
 }
 
-func (s Snapshot) Has(id string) bool {
-	return s.side.locate(id).found
+func (s Snapshot) Has(id string) (bool, error) {
+	at, err := s.side.locate(id)
+	return at.found, err
 }
 
 func (s Snapshot) Document(id string) (*codec.Document, bool, error) {
-	at := s.side.locate(id)
-	if !at.found {
-		return nil, false, nil
+	at, err := s.side.locate(id)
+	if err != nil || !at.found {
+		return nil, false, err
 	}
 	stored, held, err := s.side.document(at)
 	if err != nil || !held {
 		return nil, false, err
 	}
-	return codec.NewStoredDocument(stored.encoded, storedDecoding), true, nil
+	return codec.ShareStoredDocument(stored.encoded, storedDecoding), true, nil
 }
 
 func (s Snapshot) segmentLocation(segment int, ordinal uint32) (location, bool) {
@@ -64,57 +65,35 @@ func (s Snapshot) segmentLocation(segment int, ordinal uint32) (location, bool) 
 	return location{}, false
 }
 
-func (s Snapshot) IDAt(segment int, ordinal uint32) (string, bool) {
+func (s Snapshot) Live(segment int, ordinal uint32) bool {
+	_, live := s.segmentLocation(segment, ordinal)
+	return live
+}
+
+func (s Snapshot) IDAt(segment int, ordinal uint32) (string, bool, error) {
 	at, live := s.segmentLocation(segment, ordinal)
 	if !live {
-		return "", false
+		return "", false, nil
 	}
 	if at.frozen >= 0 {
 		return s.side.frozen[at.frozen].segment.idAt(ordinal)
 	}
 	document, held := s.side.gen.documents.at(s.side.index, ordinal)
-	return document.id, held
+	return document.id, held, nil
 }
 
-func (s Snapshot) EachDocument(visit func(id string, document *codec.Document) bool) error {
-	segments := len(s.side.frozen) + 1
-	for segment := range segments {
-		capacity := s.side.capacity
-		if segment < len(s.side.frozen) {
-			capacity = s.side.frozen[segment].segment.documentCount()
-		}
-		for ordinal := range capacity {
-			at, live := s.segmentLocation(segment, ordinal)
-			if !live {
-				continue
-			}
-			stored, held, err := s.side.document(at)
-			if err != nil {
-				return err
-			}
-			if !held {
-				return corruptedPartition("a live document holds no stored value", ordinal)
-			}
-			if !visit(stored.id, codec.NewStoredDocument(stored.encoded, storedDecoding)) {
-				return nil
-			}
-		}
-	}
-	return nil
-}
-
-func (s Snapshot) SortedIDs() []string {
+func (s Snapshot) SortedIDs() ([]string, error) {
 	ids := make([]string, 0, s.Count())
 	for id := range s.side.ids {
 		ids = append(ids, id)
 	}
 	for _, held := range s.side.frozen {
-		for ordinal, id := range held.segment.ids {
-			if !held.state.Tombstoned(uint32(ordinal)) {
-				ids = append(ids, id)
-			}
+		kept, err := held.segment.ids.sortedIDs(held.state.Tombstoned)
+		if err != nil {
+			return nil, err
 		}
+		ids = append(ids, kept...)
 	}
 	slices.SortFunc(ids, text.CompareCodePoints)
-	return ids
+	return ids, nil
 }

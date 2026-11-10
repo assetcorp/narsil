@@ -171,34 +171,3 @@ func makeTailDurable(directory *storage.Directory, indexName string, partitionID
 	}
 	return err
 }
-
-func TruncateCovered(directory *storage.Directory, indexName string, partitionID uint32, lastSeqNo uint64) error {
-	marker, found, err := readMarker(directory, indexName, partitionID)
-	if err != nil || !found {
-		return err
-	}
-	segments, err := listSegments(directory, indexName, partitionID)
-	if err != nil {
-		return err
-	}
-	for index, segment := range segments {
-		if segment.StartSeqNo >= marker.ActiveSegmentSeqNo {
-			break
-		}
-		if index+1 >= len(segments) || segments[index+1].StartSeqNo > lastSeqNo+1 {
-			break
-		}
-		if err := directory.Remove(segment.Key); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func HighestDurableSeqNo(directory *storage.Directory, indexName string, partitionID uint32) (uint64, error) {
-	marker, found, err := readMarker(directory, indexName, partitionID)
-	if err != nil || !found {
-		return 0, err
-	}
-	return marker.HighestDurableSeqNo, nil
-}

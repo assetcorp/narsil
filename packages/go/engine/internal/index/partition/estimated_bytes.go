@@ -105,9 +105,6 @@ func pagedHeldBytes(paged *segments.Paged) uint64 {
 		return 0
 	}
 	var bytes uint64
-	if paged.Removals != nil {
-		bytes += uint64(paged.Removals.Cache.Slots()) * core.PageSlotBytes
-	}
 	for _, id := range paged.Tombstones() {
 		bytes += uint64(len(id)) + idOverheadByte
 	}
@@ -116,12 +113,9 @@ func pagedHeldBytes(paged *segments.Paged) uint64 {
 
 func (f *frozenSegment) estimatedBytes() uint64 {
 	bytes := keywordBytes(f.keyword()) + frozenFieldBytes(&f.frozen.Fields) + f.columns.Load().regionBytes()
-	bytes += pagedHeldBytes(f.paged)
-	for at, id := range f.ids {
-		bytes += uint64(len(id)) + idOverheadByte
-		if at < len(f.documents) {
-			bytes += uint64(len(f.documents[at]))
-		}
+	bytes += pagedHeldBytes(f.paged) + f.ids.heldBytes()
+	for _, document := range f.documents {
+		bytes += uint64(len(document))
 	}
 	return bytes
 }

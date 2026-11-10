@@ -92,14 +92,6 @@ func (a *Analyzer) LanguageName() string {
 	return a.languageName
 }
 
-func (a *Analyzer) HasCustomTokenizer() bool {
-	return a.tokenizer != nil
-}
-
-func (a *Analyzer) DefaultStopWords() model.StopWordSet {
-	return a.defaults
-}
-
 type Pass struct {
 	analyzer *Analyzer
 	stops    *core.StopWordSet
@@ -196,6 +188,23 @@ func flagsOf(options Options) core.AnalyseFlags {
 	return flags
 }
 
+type CoreSettings struct {
+	Language uint32
+	Flags    core.AnalyseFlags
+	Stops    *core.StopWordSet
+}
+
+func (p *Pass) CoreSettings(options Options) (CoreSettings, bool) {
+	if p.analyzer.tokenizer != nil {
+		return CoreSettings{}, false
+	}
+	settings := CoreSettings{Language: p.analyzer.language, Flags: flagsOf(options)}
+	if options.RemoveStopWords {
+		settings.Stops = p.stops
+	}
+	return settings, true
+}
+
 func (p *Pass) Visit(source string, options Options, visit func(Token)) error {
 	if p.analyzer.tokenizer != nil {
 		return p.visitCustom(source, visit)
@@ -279,20 +288,4 @@ func (p *Pass) Tokens(source string, options Options) ([]Token, error) {
 	var tokens []Token
 	err := p.Visit(source, options, func(token Token) { tokens = append(tokens, token) })
 	return tokens, err
-}
-
-func (p *Pass) Transform(raw string, stem, removeDiacritics bool) (string, error) {
-	analyser, err := core.AcquireAnalyser()
-	if err != nil {
-		return "", err
-	}
-	defer analyser.Release()
-	var flags core.AnalyseFlags
-	if stem {
-		flags |= core.AnalyseStem
-	}
-	if removeDiacritics {
-		flags |= core.AnalyseRemoveDiacritics
-	}
-	return analyser.Transform(p.analyzer.language, flags, raw)
 }

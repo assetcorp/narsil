@@ -174,9 +174,13 @@ func insertEarlierDocuments(ctx context.Context, handle *Handle, partitions [][]
 		if err != nil {
 			return err
 		}
-		for _, id := range sortedKeys(stored.Documents) {
-			write := Write{DocumentID: id, Document: stored.Documents[id]}
-			for _, place := range places[id] {
+		for _, document := range stored.Documents {
+			encoded, err := encodedDocument(document.Fields)
+			if err != nil {
+				return err
+			}
+			write := Write{DocumentID: document.ID, Encoded: encoded}
+			for _, place := range places[document.ID] {
 				field := fields[place.field]
 				part := field.Parts[place.part]
 				if write.Vectors == nil {

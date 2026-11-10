@@ -3,14 +3,12 @@ package index
 import (
 	"math"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/synonyms"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/text"
 )
 
 type searchPlan struct {
@@ -21,7 +19,7 @@ type searchPlan struct {
 	expansion     *synonyms.Expansion
 	bm25          *query.BM25
 	stats         *query.Statistics
-	work          *core.WorkMeter
+	work          *query.Work
 	filters       *filterRun
 	needsAll      bool
 	sortedPage    bool
@@ -211,7 +209,7 @@ func termGroupsFor(view *query.View, plan *searchPlan, expansion *synonyms.Expan
 	return groups, nil
 }
 
-func (plan *searchPlan) keywordQuery(snapshot partition.Snapshot) *query.KeywordQuery {
+func (plan *searchPlan) keywordQuery(ids *recordedIDLookup) *query.KeywordQuery {
 	params := plan.query
 	keyword := &query.KeywordQuery{
 		Tokens:       uniqueTokenTerms(plan.term.unique),
@@ -226,13 +224,9 @@ func (plan *searchPlan) keywordQuery(snapshot partition.Snapshot) *query.Keyword
 		TermMatch:    requiredTermMatches(params.TermMatch, len(plan.term.unique)),
 		HasLimit:     !plan.needsAll,
 		Limit:        plan.maxResults,
-		Meter:        plan.work,
+		Work:         plan.work,
 		Components:   params.IncludeScoreComponents,
-		Order: func(left, right query.Hit) int {
-			leftID, _ := snapshot.IDAt(left.Segment, left.Ordinal)
-			rightID, _ := snapshot.IDAt(right.Segment, right.Ordinal)
-			return text.CompareCodePoints(leftID, rightID)
-		},
+		Order:        ids.compareHits,
 	}
 	if minimum, set := params.MinScore.Get(); set && minimum > 0 {
 		keyword.MinScore = minimum
@@ -252,7 +246,8 @@ func (ix *Index) searchPartition(snapshot partition.Snapshot, view *query.View, 
 	if !plan.searches {
 		return partitionOutcome{}, nil
 	}
-	keyword := plan.keywordQuery(snapshot)
+	ids := &recordedIDLookup{snapshot: snapshot}
+	keyword := plan.keywordQuery(ids)
 	if plan.filters != nil {
 		accepted, err := plan.filters.evaluate(view)
 		if err != nil {
@@ -274,6 +269,9 @@ func (ix *Index) searchPartition(snapshot partition.Snapshot, view *query.View, 
 		}
 	}
 	found, err := query.Search(view, keyword)
+	if err == nil {
+		err = ids.err()
+	}
 	if err != nil {
 		return partitionOutcome{}, err
 	}
@@ -283,7 +281,10 @@ func (ix *Index) searchPartition(snapshot partition.Snapshot, view *query.View, 
 func outcomeOf(snapshot partition.Snapshot, found *query.KeywordResult) (partitionOutcome, error) {
 	scored := make([]scoredHit, len(found.Hits))
 	for at, hit := range found.Hits {
-		id, held := snapshot.IDAt(hit.Segment, hit.Ordinal)
+		id, held, err := snapshot.IDAt(hit.Segment, hit.Ordinal)
+		if err != nil {
+			return partitionOutcome{}, err
+		}
 		if !held {
 			return partitionOutcome{}, missingHitDocument(hit.Segment, hit.Ordinal)
 		}

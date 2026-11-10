@@ -11,11 +11,8 @@ import (
 )
 
 func (config Configuration) Value() codec.OrderedMap {
-	flat := make(map[string]any, len(config.Schema))
-	for path, fieldType := range config.Schema {
-		flat[path] = fieldType
-	}
-	entries := codec.OrderedMap{{Key: "schema", Value: flat}, {Key: "language", Value: config.Language}}
+	entries := codec.OrderedMap{{Key: "schema", Value: form.SchemaEntries(config.Schema, config.SchemaOrder)},
+		{Key: "language", Value: config.Language}}
 	is.PutOptional(&entries, "analysisRevision", config.AnalysisRevision, is.Text)
 	is.PutOptional(&entries, "arrayPositionGap", config.ArrayPositionGap, is.Number[uint32])
 	is.PutOptional(&entries, "tokenizer", config.Tokenizer, is.Text)
@@ -70,26 +67,19 @@ func Write(config Configuration, gzip bool) ([]byte, error) {
 	return envelope.Pack(payload, envelope.PackOptions{FormatVersion: FormatVersion, What: what, Gzip: gzip, Checksum: true})
 }
 
-func OpenPayload(data []byte) (any, envelope.Header, error) {
-	opened, err := envelope.OpenChecksummed(data, envelope.Kind{FormatVersion: FormatVersion, What: what, AllowsGzip: true})
-	if err != nil {
-		return nil, envelope.Header{}, err
-	}
-	raw, err := codec.Unmarshal(opened.Payload, codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed})
-	if err != nil {
-		return nil, envelope.Header{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
-			"The index configuration is not MessagePack", err, nil)
-	}
-	return raw, opened.Header, nil
-}
-
 func Read(data []byte, reject is.Reject) (Configuration, envelope.Header, error) {
-	raw, header, err := OpenPayload(data)
+	opened, err := envelope.OpenChecksummed(data, envelope.Kind{FormatVersion: FormatVersion, What: what, AllowsGzip: true})
 	if err != nil {
 		return Configuration{}, envelope.Header{}, err
 	}
+	raw, err := codec.Unmarshal(opened.Payload, codec.DecodeOptions{ErrorCode: narsilerr.CodePersistenceLoadFailed})
+	if err != nil {
+		return Configuration{}, envelope.Header{}, narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed,
+			"The index configuration is not MessagePack", err, nil)
+	}
 	config, err := Decode(raw, what, reject)
-	return config, header, err
+	config.SchemaOrder = form.SchemaKeyOrder(opened.Payload)
+	return config, opened.Header, err
 }
 
 func ReadForm(data []byte) ([]byte, error) {

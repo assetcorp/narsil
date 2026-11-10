@@ -1,6 +1,7 @@
 package growing
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -16,16 +17,6 @@ type Document struct {
 	fields  []core.FieldTokens
 	units   []uint16
 	failure error
-}
-
-func (d *Document) Reset() {
-	for at := range d.fields {
-		d.fields[at].Tokens = d.fields[at].Tokens[:0]
-		d.fields[at].Units = nil
-	}
-	d.fields = d.fields[:0]
-	d.units = d.units[:0]
-	d.failure = nil
 }
 
 func (d *Document) open(field uint16) (*core.FieldTokens, error) {
@@ -47,6 +38,9 @@ func (d *Document) open(field uint16) (*core.FieldTokens, error) {
 }
 
 func (d *Document) AddText(pass *analysis.Pass, options analysis.Options, field uint16, text string) error {
+	if settings, native := pass.CoreSettings(options); native {
+		return d.analyseList(settings, field, []string{text}, 0)
+	}
 	target, err := d.open(field)
 	if err != nil {
 		return err
@@ -58,6 +52,9 @@ func (d *Document) AddText(pass *analysis.Pass, options analysis.Options, field 
 }
 
 func (d *Document) AddList(pass *analysis.Pass, options analysis.Options, field uint16, items []string, gap uint32) error {
+	if settings, native := pass.CoreSettings(options); native {
+		return d.analyseList(settings, field, items, gap)
+	}
 	target, err := d.open(field)
 	if err != nil {
 		return err
@@ -82,17 +79,7 @@ func (d *Document) AddList(pass *analysis.Pass, options analysis.Options, field 
 	return nil
 }
 
-type CoreAnalysis struct {
-	Language uint32
-	Flags    core.AnalyseFlags
-	Stops    *core.StopWordSet
-}
-
-func (d *Document) AnalyseText(settings CoreAnalysis, field uint16, text string) error {
-	return d.AnalyseList(settings, field, []string{text}, 0)
-}
-
-func (d *Document) AnalyseList(settings CoreAnalysis, field uint16, items []string, gap uint32) error {
+func (d *Document) analyseList(settings analysis.CoreSettings, field uint16, items []string, gap uint32) error {
 	target, err := d.open(field)
 	if err != nil {
 		return err
@@ -107,6 +94,9 @@ func (d *Document) AnalyseList(settings CoreAnalysis, field uint16, items []stri
 		held := len(target.Tokens)
 		target.Tokens, d.units, err = analyser.AppendRecords(settings.Language, settings.Flags, item, settings.Stops,
 			target.Tokens, d.units)
+		if errors.Is(err, core.ErrRecordUnitsFull) {
+			return textRefusal()
+		}
 		if err != nil {
 			return err
 		}
@@ -118,15 +108,15 @@ func (d *Document) AnalyseList(settings CoreAnalysis, field uint16, items []stri
 		for _, token := range added {
 			highest = max(highest, token.Position)
 		}
-		last := offset + uint64(highest)
-		if last > math.MaxUint32 {
+		if furthest := offset + uint64(highest); furthest > math.MaxUint32 {
 			target.Tokens = target.Tokens[:held]
-			return positionRefusal(last)
+			return positionRefusal(furthest)
 		}
+		lastPosition := uint64(added[len(added)-1].Position)
 		for at := range added {
 			added[at].Position += uint32(offset)
 		}
-		offset = last + 1 + uint64(gap)
+		offset += lastPosition + 1 + uint64(gap)
 	}
 	return nil
 }
@@ -135,6 +125,10 @@ func positionRefusal(position uint64) error {
 	return narsilerr.New(narsilerr.CodeConfigInvalid,
 		fmt.Sprintf("A token position of %d passes the largest position a keyword segment holds", position),
 		map[string]any{"position": float64(position), "maxPosition": float64(math.MaxUint32)})
+}
+
+func textRefusal() error {
+	return narsilerr.New(narsilerr.CodeConfigInvalid, "A document holds more text than a keyword segment takes in one write", nil)
 }
 
 func (d *Document) add(target *core.FieldTokens, token analysis.Token, offset uint64) {
@@ -153,8 +147,7 @@ func (d *Document) add(target *core.FieldTokens, token analysis.Token, offset ui
 	}
 	if !ok {
 		if d.failure == nil {
-			d.failure = narsilerr.New(narsilerr.CodeConfigInvalid,
-				"A document holds more text than a keyword segment takes in one write", nil)
+			d.failure = textRefusal()
 		}
 		return
 	}

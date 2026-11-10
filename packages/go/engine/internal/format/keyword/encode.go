@@ -1,10 +1,9 @@
 package keyword
 
 import (
-	"io"
-
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/form"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -45,15 +44,12 @@ func (chunks *Chunks) Strings(values []string) {
 	}
 }
 
-func (chunks *Chunks) StringMap(values map[string]string) {
-	record := make(map[string]any, len(values))
-	for key, value := range values {
-		record[key] = value
-	}
-	chunks.Map(len(record))
-	for _, key := range codec.ObjectKeyOrder(record) {
-		chunks.Key(key)
-		chunks.head = codec.AppendString(chunks.head, values[key])
+func (chunks *Chunks) Schema(schema map[string]string, order []string) {
+	entries := form.SchemaEntries(schema, order)
+	chunks.Map(len(entries))
+	for _, entry := range entries {
+		chunks.Key(entry.Key)
+		chunks.head = codec.AppendString(chunks.head, schema[entry.Key])
 	}
 }
 
@@ -114,7 +110,7 @@ func (segment *Segment) PayloadChunks() ([][]byte, error) {
 	chunks.Key("v")
 	chunks.Number(PayloadVersion)
 	chunks.Key("schema")
-	chunks.StringMap(segment.Schema)
+	chunks.Schema(segment.Schema, segment.SchemaOrder)
 	chunks.Key("tombstones")
 	chunks.Strings(segment.Tombstones)
 	chunks.Key("documentCount")
@@ -181,37 +177,6 @@ func (segment *Segment) appendColumns(chunks *Chunks) {
 type Written struct {
 	Bytes    int64
 	Checksum uint32
-}
-
-func WriteChecksummed(writer io.Writer, formatVersion uint8, chunks [][]byte, what string) (Written, error) {
-	var payloadLength int64
-	state := codec.CRC32Init()
-	for _, chunk := range chunks {
-		payloadLength += int64(len(chunk))
-		state = codec.CRC32Update(state, chunk)
-	}
-	checksum := codec.CRC32Final(state)
-	header, err := envelope.ChecksummedHeader(formatVersion, payloadLength, checksum, what)
-	if err != nil {
-		return Written{}, err
-	}
-	if _, err := writer.Write(envelope.AppendHeader(nil, header)); err != nil {
-		return Written{}, narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The "+what+" fails to write", err, nil)
-	}
-	for _, chunk := range chunks {
-		if _, err := writer.Write(chunk); err != nil {
-			return Written{}, narsilerr.Wrap(narsilerr.CodePersistenceSaveFailed, "The "+what+" fails to write", err, nil)
-		}
-	}
-	return Written{Bytes: int64(envelope.HeaderBytes) + payloadLength, Checksum: checksum}, nil
-}
-
-func Write(writer io.Writer, segment *Segment) (Written, error) {
-	chunks, err := segment.PayloadChunks()
-	if err != nil {
-		return Written{}, err
-	}
-	return WriteChecksummed(writer, EnvelopeVersion, chunks, what)
 }
 
 func Pack(segment *Segment, gzip bool) ([]byte, error) {

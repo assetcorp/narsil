@@ -17,6 +17,7 @@ const (
 
 type Configuration struct {
 	Schema             map[string]string
+	SchemaOrder        []string
 	Language           string
 	AnalysisRevision   model.Optional[string]
 	ArrayPositionGap   model.Optional[uint32]

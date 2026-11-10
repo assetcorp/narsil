@@ -17,6 +17,7 @@ type PartitionCapture struct {
 	Checkpoint manifest.PartitionCheckpoint
 	Rewritten  bool
 	Segments   []*keyword.Segment
+	Stream     func(ctx context.Context, entry *manifest.PartitionEntry) error
 	Listed     *manifest.PartitionEntry
 }
 
@@ -29,12 +30,12 @@ type VectorCapture struct {
 type Input struct {
 	IndexName          string
 	Schema             map[string]string
+	SchemaOrder        []string
 	Language           string
 	AnalysisGeneration uint64
 	Prior              *manifest.Manifest
 	Partitions         []PartitionCapture
 	Vectors            []VectorCapture
-	PagedText          bool
 }
 
 type writtenField struct {
@@ -85,65 +86,82 @@ func writeSegments(ctx context.Context, store Store, input Input, capture Partit
 	}
 	entry := manifest.PartitionEntry{PartitionID: partitionID, NextSegmentID: prior.NextSegmentID,
 		Segments: []manifest.SegmentRef{}}
-	return entry, AppendSegments(ctx, store, input.IndexName, &entry, capture.Segments, input.PagedText)
+	if capture.Stream != nil {
+		return entry, capture.Stream(ctx, &entry)
+	}
+	return entry, AppendSegments(ctx, store, input.IndexName, &entry, capture.Segments)
 }
 
-func writeSegmentFile(ctx context.Context, store Store, ref *manifest.FileRef, built *keyword.Segment,
-	pagedText bool) error {
-	if !pagedText {
-		packed, err := keyword.Pack(built, false)
+func requireRoom(entry *manifest.PartitionEntry, adding int) error {
+	if len(entry.Segments)+adding > manifest.MaxSegmentsPerPartition {
+		return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
+			"The checkpoint would list more segments for one partition than a manifest holds",
+			map[string]any{"partitionId": entry.PartitionID, "segments": len(entry.Segments) + adding})
+	}
+	if entry.NextSegmentID > manifest.MaxSegmentID {
+		return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
+			"The partition has used every segment number a manifest accepts",
+			map[string]any{"partitionId": entry.PartitionID})
+	}
+	return nil
+}
+
+func AppendSegments(ctx context.Context, store Store, indexName string, entry *manifest.PartitionEntry,
+	segments []*keyword.Segment) error {
+	if err := requireRoom(entry, len(segments)); err != nil {
+		return err
+	}
+	for _, segment := range segments {
+		if err := requireRoom(entry, 0); err != nil {
+			return err
+		}
+		id := entry.NextSegmentID
+		ref := manifest.FileRef{Key: manifest.SegmentKey(indexName, entry.PartitionID, id)}
+		packed, err := keyword.Pack(segment, false)
 		if err != nil {
 			return err
 		}
-		if err := manifest.FillFile(ref, packed); err != nil {
+		if err := manifest.FillFile(&ref, packed); err != nil {
 			return err
 		}
-		return store.Write(ctx, ref.Key, packed)
+		if err := store.Write(ctx, ref.Key, packed); err != nil {
+			return err
+		}
+		entry.NextSegmentID++
+		entry.Segments = append(entry.Segments, manifest.SegmentRef{ID: id, DocCount: segment.DocumentCount,
+			TombstoneCount: uint32(len(segment.Tombstones)), File: ref})
 	}
+	return nil
+}
+
+func AppendStreamed(ctx context.Context, store Store, indexName string, entry *manifest.PartitionEntry,
+	streamed segment.StreamedSegment) error {
+	if err := requireRoom(entry, 1); err != nil {
+		return err
+	}
+	id := entry.NextSegmentID
+	ref := manifest.FileRef{Key: manifest.SegmentKey(indexName, entry.PartitionID, id)}
 	streaming, streams := store.(StreamingStore)
 	path, held := store.PathOf(ref.Key)
 	if !streams || !held {
 		return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-			`The segment "`+ref.Key+`" keeps its text on disk, which needs a durable directory`,
-			map[string]any{"key": ref.Key})
+			`Index "`+indexName+`" stores its text on disk, which needs a durable directory`,
+			map[string]any{"indexName": indexName})
 	}
 	var written keyword.Written
+	var documents uint32
 	err := streaming.WriteStream(ctx, ref.Key, func(writer io.Writer) error {
 		var err error
-		written, err = segment.WritePaged(ctx, writer, path, built)
+		written, documents, err = segment.WriteStreamed(ctx, writer, path, streamed)
 		return err
 	})
 	if err != nil {
 		return err
 	}
-	ref.Bytes = uint64(written.Bytes)
-	ref.Checksum = written.Checksum
-	return nil
-}
-
-func AppendSegments(ctx context.Context, store Store, indexName string, entry *manifest.PartitionEntry,
-	segments []*keyword.Segment, pagedText bool) error {
-	partitionID := entry.PartitionID
-	if len(entry.Segments)+len(segments) > manifest.MaxSegmentsPerPartition {
-		return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-			"The checkpoint would list more segments for one partition than a manifest holds",
-			map[string]any{"partitionId": partitionID, "segments": len(entry.Segments) + len(segments)})
-	}
-	for _, segment := range segments {
-		id := entry.NextSegmentID
-		if id > manifest.MaxSegmentID {
-			return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-				"The partition has used every segment number a manifest accepts",
-				map[string]any{"partitionId": partitionID})
-		}
-		entry.NextSegmentID++
-		ref := manifest.FileRef{Key: manifest.SegmentKey(indexName, partitionID, id)}
-		if err := writeSegmentFile(ctx, store, &ref, segment, pagedText); err != nil {
-			return err
-		}
-		entry.Segments = append(entry.Segments, manifest.SegmentRef{ID: id, DocCount: segment.DocumentCount,
-			TombstoneCount: uint32(len(segment.Tombstones)), File: ref})
-	}
+	ref.Bytes, ref.Checksum = uint64(written.Bytes), written.Checksum
+	entry.NextSegmentID++
+	entry.Segments = append(entry.Segments, manifest.SegmentRef{ID: id, DocCount: documents,
+		TombstoneCount: uint32(len(streamed.Tombstones)), File: ref})
 	return nil
 }
 
@@ -254,6 +272,7 @@ func writeField(ctx context.Context, store Store, input Input, capture VectorCap
 func WriteFiles(ctx context.Context, store Store, input Input) (Written, error) {
 	written := Written{Manifest: manifest.Manifest{
 		Schema:             input.Schema,
+		SchemaOrder:        input.SchemaOrder,
 		Language:           input.Language,
 		AnalysisGeneration: input.AnalysisGeneration,
 		Checkpoint:         []manifest.PartitionCheckpoint{},

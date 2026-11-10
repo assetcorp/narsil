@@ -18,24 +18,6 @@ type Lookup struct {
 	cache          *synonymCache
 }
 
-func (l *Lookup) TokenCount() int {
-	if l == nil {
-		return 0
-	}
-	return l.tokenCount
-}
-
-func (l *Lookup) Bytes() int64 {
-	if l == nil {
-		return 0
-	}
-	return l.bytes
-}
-
-func (l *Lookup) SynonymsOf(token string) []string {
-	return slices.Clone(l.sharedSynonymsOf(token))
-}
-
 func (l *Lookup) sharedSynonymsOf(token string) []string {
 	if l == nil {
 		return nil

@@ -16,10 +16,3 @@ func NewStoredValueSlices(sizes FieldMergeSizes) *StoredValueSlices {
 func EmptyStoredValueSlices(documents uint32) *StoredValueSlices {
 	return &StoredValueSlices{Shapes: make([]uint8, documents), Starts: make([]uint32, uint64(documents)+1)}
 }
-
-func (v *StoredValues) DocumentCount() uint32 {
-	if v == nil {
-		return 0
-	}
-	return uint32(min(v.ShapeCount, uintptr(^uint32(0))))
-}

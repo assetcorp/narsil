@@ -5,6 +5,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
@@ -132,7 +133,7 @@ func (ix *Index) applyHighlights(hits []model.Hit, documents *documentLookup, pr
 			value, isText := heldText(hits[at].Document, field)
 			if !isText && readsStored {
 				if stored == nil {
-					stored = documents.decoded(hits[at].ID)
+					stored = documents.shownAs(hits[at].ID, projection.Whole())
 				}
 				value, isText = heldText(stored, field)
 			}

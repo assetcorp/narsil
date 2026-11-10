@@ -113,8 +113,8 @@ type sortedRead struct {
 	anchor *cursor.PageCursor
 }
 
-func (r sortedRead) request(partitionAt int, snapshot partition.Snapshot) *query.SortRequest {
-	request := &query.SortRequest{Fields: r.fields, Limit: r.limit, IDOf: snapshot.IDAt, Partition: partitionAt}
+func (r sortedRead) request(partitionAt int, ids *recordedIDLookup) *query.SortRequest {
+	request := &query.SortRequest{Fields: r.fields, Limit: r.limit, IDOf: ids.idAt, Partition: partitionAt}
 	if r.anchor != nil {
 		request.Anchor, request.AnchorID = r.anchor.SortKey, r.anchor.Anchor
 		if request.Anchor == nil {
@@ -127,7 +127,8 @@ func (r sortedRead) request(partitionAt int, snapshot partition.Snapshot) *query
 func sortedPages(views []*query.View, snapshots []partition.Snapshot, matched [][][]uint32, read sortedRead) ([][]query.SortedEntry, error) {
 	pages := make([][]query.SortedEntry, 0, len(views)+1)
 	for at, view := range views {
-		request := read.request(at, snapshots[at])
+		ids := &recordedIDLookup{snapshot: snapshots[at]}
+		request := read.request(at, ids)
 		if matched != nil {
 			if matched[at] == nil {
 				continue
@@ -135,6 +136,9 @@ func sortedPages(views []*query.View, snapshots []partition.Snapshot, matched []
 			request.Matched = matched[at]
 		}
 		page, err := query.SortedPage(view, request)
+		if err == nil {
+			err = ids.err()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +185,10 @@ func (ix *Index) hitsInSortOrder(prepared *preparedQuery, hits []resultHit) ([]r
 	matched := make([][][]uint32, len(views))
 	for _, hit := range hits {
 		at := ix.partitionOf(hit.ID)
-		segment, ordinal, found := snapshots[at].Locate(hit.ID)
+		segment, ordinal, found, err := snapshots[at].Locate(hit.ID)
+		if err != nil {
+			return nil, nil, err
+		}
 		if !found {
 			continue
 		}
@@ -230,7 +237,7 @@ func (ix *Index) withSortedPage(prepared *preparedQuery, views []*query.View, ma
 		if err != nil {
 			return err
 		}
-		if err := cursor.RequireMatchingCursor(parsed, encoded, prepared.sortSignature, true, prepared.binding()); err != nil {
+		if err := cursor.RequireMatchingCursor(parsed, encoded, prepared.sortSignature, true, prepared.binding.Text()); err != nil {
 			return err
 		}
 		read.anchor = &parsed

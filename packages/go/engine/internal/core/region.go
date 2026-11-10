@@ -77,23 +77,8 @@ func (r *Region) Pointer() unsafe.Pointer {
 	return r.base
 }
 
-func (r *Region) Len() uintptr {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.length
-}
-
 func (r *Region) Reserved() uintptr {
 	return r.reserved
-}
-
-func (r *Region) Bytes() []byte {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.released || r.length == 0 {
-		return nil
-	}
-	return unsafe.Slice((*byte)(r.base), r.length)
 }
 
 func (r *Region) Release() {
@@ -110,7 +95,6 @@ func (r *Region) Release() {
 
 type Block struct {
 	pointer unsafe.Pointer
-	bytes   uintptr
 }
 
 func AllocateBlock(bytes uintptr) (*Block, error) {
@@ -121,24 +105,16 @@ func AllocateBlock(bytes uintptr) (*Block, error) {
 	if pointer == nil {
 		return nil, ErrRegionUnavailable
 	}
-	return &Block{pointer: pointer, bytes: bytes}, nil
+	return &Block{pointer: pointer}, nil
 }
 
 func (b *Block) Pointer() unsafe.Pointer {
 	return b.pointer
 }
 
-func (b *Block) Bytes() []byte {
-	if b.pointer == nil {
-		return nil
-	}
-	return unsafe.Slice((*byte)(b.pointer), b.bytes)
-}
-
 func (b *Block) Free() {
 	if b.pointer != nil {
 		C.free(b.pointer)
 		b.pointer = nil
-		b.bytes = 0
 	}
 }

@@ -100,6 +100,24 @@ func (p Projection) Clone(document *model.Document) *model.Document {
 	return projected
 }
 
+func (p Projection) Failure(document *model.Document) error {
+	switch {
+	case p.kind == model.ProjectNoFields:
+		return nil
+	case p.kind != model.ProjectSelectedFields || !p.includeList:
+		return codec.StoredDocumentFailure(document)
+	}
+	for _, path := range p.include {
+		if coveredByAny(p.exclude, path) {
+			continue
+		}
+		if err := codec.StoredPathFailure(document, path, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p Projection) CopyVectorsInto(document *model.Document, fieldPaths []string,
 	vectorOf func(fieldPath string) ([]float32, bool, error)) error {
 	for _, fieldPath := range fieldPaths {
@@ -113,7 +131,7 @@ func (p Projection) CopyVectorsInto(document *model.Document, fieldPaths []strin
 		if !held {
 			continue
 		}
-		codec.PutHeldPath(document, fieldPath, append([]float32{}, vector...))
+		codec.PutHeldPath(document, fieldPath, vector)
 	}
 	return nil
 }

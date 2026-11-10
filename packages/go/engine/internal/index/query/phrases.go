@@ -114,7 +114,11 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 		Fields:      make([]uint16, rows),
 		Frequencies: make([]uint32, rows),
 	}
-	if _, err := s.workspace.MatchPhrases(&request, s.work, &output); err != nil {
+	meter, err := s.work.Meter()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.workspace.MatchPhrases(&request, meter, &output); err != nil {
 		return nil, err
 	}
 	matches := &phraseMatches{matched: output.Matched}

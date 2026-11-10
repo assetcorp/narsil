@@ -80,21 +80,14 @@ func attachPagedFile(ctx context.Context, attachment pagedAttachment) error {
 	target, partitionID, key := attachment.target, attachment.partitionID, attachment.key
 	err := target.AttachPagedSegmentFile(partitionID, index.PagedSegmentFile{Path: attachment.path,
 		RemovalPages: attachment.pages,
-		Replaces: func(fieldSchema map[string]string, tombstones []string, ids []string) error {
+		Replaces: func(fieldSchema map[string]string, tombstones []string) error {
 			if err := checkpoint.RequireAgreedSchema(attachment.schema, fieldSchema, key); err != nil {
 				return err
 			}
 			if attachment.replaced != nil {
 				attachment.replaced(tombstones)
 			}
-			for _, id := range ids {
-				if target.RoutePartition(id) != partitionID {
-					return narsilerr.New(narsilerr.CodePersistenceLoadFailed,
-						`The segment "`+key+`" holds a document that belongs to another partition`,
-						map[string]any{"key": key, "partitionId": partitionID})
-				}
-			}
-			replaced, err := heldDocumentIDs(ctx, target, tombstones, ids)
+			replaced, err := heldDocumentIDs(ctx, target, tombstones)
 			if err != nil {
 				return err
 			}

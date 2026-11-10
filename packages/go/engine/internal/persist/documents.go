@@ -20,7 +20,14 @@ type Write struct {
 }
 
 func (write Write) deletes() bool {
-	return write.Document == nil
+	return write.Document == nil && write.Encoded == nil
+}
+
+func encodedDocument(document *codec.Document) ([]byte, error) {
+	if stored, unchanged := codec.StoredBytes(document); unchanged {
+		return stored, nil
+	}
+	return codec.EncodeDocument(document)
 }
 
 func sortedKeys[V any](held map[string]V) []string {
@@ -75,10 +82,7 @@ func storedWithoutVectors(logged []byte, paths map[string]int) ([]byte, error) {
 			holder.Delete(segments[len(segments)-1])
 		}
 	}
-	if stored, unchanged := codec.StoredBytes(document); unchanged {
-		return stored, nil
-	}
-	return codec.EncodeDocument(document)
+	return encodedDocument(document)
 }
 
 func vectorOf(value any) ([]float32, bool) {

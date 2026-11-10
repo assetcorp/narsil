@@ -13,10 +13,11 @@ import (
 var emptyMessagePackMap = []byte{0x80}
 
 type StoredDocuments struct {
-	Schema     map[string]string
-	Tombstones []string
-	IDs        []string
-	Documents  [][]byte
+	Schema      map[string]string
+	SchemaOrder []string
+	Tombstones  []string
+	IDs         []string
+	Documents   [][]byte
 }
 
 func uint32Column(values []uint32) keyword.Uint32s {
@@ -97,7 +98,7 @@ func (k *Keyword) KeywordFile(documents StoredDocuments) (*keyword.Segment, erro
 		return nil, err
 	}
 	built := &keyword.Segment{
-		Schema: documents.Schema, Tombstones: append([]string{}, documents.Tombstones...),
+		Schema: documents.Schema, SchemaOrder: documents.SchemaOrder, Tombstones: append([]string{}, documents.Tombstones...),
 		DocumentCount: frozen.DocumentCount,
 		IDs:           ids, IDOffsets: idOffsets, IDOrder: idOrder, Documents: encoded, DocumentOffsets: documentOffsets,
 		FieldNames: slices.Clone(k.FieldNames), Tokens: frozen.Terms.Text,
