@@ -237,13 +237,13 @@ impl Narsil {
     pub fn query(&self, index: &str, params: &QueryParams) -> Result<QueryResult> {
         let state = self.inner.open_index(index)?;
         let plugins = &self.inner.plugins;
-        let work_cap = self.inner.pattern_work_cap;
+        let limits = &self.inner.search_limits;
         if plugins.is_empty() {
-            return query::run_query(&state, params, work_cap);
+            return query::run_query(&state, params, limits);
         }
         let mut scoped = params.clone();
         plugins.before_search(&state.name, &mut scoped)?;
-        let result = query::run_query(&state, &scoped, work_cap)?;
+        let result = query::run_query(&state, &scoped, limits)?;
         plugins.after(|plugin| plugin.after_search(&state.name, &scoped, &result));
         Ok(result)
     }

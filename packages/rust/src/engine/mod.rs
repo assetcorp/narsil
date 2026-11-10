@@ -45,7 +45,8 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use crate::analysis::AnalysisRegistry;
 use crate::config::IndexConfig;
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::{ErrorCode, NarsilError, Result, instance_shut_down};
+use crate::pattern::SearchLimits;
 use crate::pattern::constants::DEFAULT_PATTERN_WORK_CAP;
 use adapter_registry::AdapterRegistry;
 pub use changes::analysis::{AnalysisChange, AnalysisSetting};
@@ -100,7 +101,7 @@ pub(crate) struct EngineInner {
     pub(crate) durable: Option<Durable>,
     pub(crate) events: events::EventBus,
     pub(crate) plugins: plugins::PluginRegistry,
-    pub(crate) pattern_work_cap: i64,
+    pub(crate) search_limits: SearchLimits,
     pub(crate) settings: EngineSettings,
     pub(crate) lifecycle: index_lifecycle::IndexLifecycle,
     pub(crate) memory: memory::MemoryGuard,
@@ -113,10 +114,7 @@ pub(crate) struct EngineInner {
 impl EngineInner {
     pub(crate) fn guard_shutdown(&self) -> Result<()> {
         if self.shut_down.load(Ordering::Acquire) {
-            return Err(NarsilError::new(
-                ErrorCode::INSTANCE_SHUT_DOWN,
-                "This Narsil instance has been shut down",
-            ));
+            return Err(instance_shut_down());
         }
         Ok(())
     }
@@ -221,7 +219,7 @@ impl Narsil {
                 durable,
                 events: events::EventBus::default(),
                 plugins: plugins::PluginRegistry::default(),
-                pattern_work_cap,
+                search_limits: SearchLimits::new(pattern_work_cap),
                 lifecycle: index_lifecycle::IndexLifecycle::new(settings.lifecycle),
                 memory: memory::MemoryGuard::new(settings.memory),
                 rebuild_queue: stale_review::RebuildQueue::default(),
@@ -318,12 +316,15 @@ impl Narsil {
 
     /// Stops the engine, after which every call fails with `INSTANCE_SHUT_DOWN`.
     ///
-    /// A durable engine first flushes every log to the disk and releases its directory, and fails with
-    /// `PERSISTENCE_SAVE_FAILED` where that flush fails; the engine stops either way.
+    /// A search that is still checking pattern tests, phrases, or a paged vector graph when shutdown begins stops
+    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. A durable engine first
+    /// flushes every log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where
+    /// that flush fails; the engine stops either way.
     pub fn shutdown(&self) -> Result<()> {
         if self.inner.shut_down.load(Ordering::Acquire) {
             return Ok(());
         }
+        self.inner.search_limits.stop.stop_every_search();
         self.inner.suggestions.stop(&self.inner);
         if self.inner.shut_down.swap(true, Ordering::AcqRel) {
             return Ok(());

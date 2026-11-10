@@ -14,6 +14,7 @@ use super::vector::{
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
 use crate::error::Result;
+use crate::pattern::SearchLimits;
 
 /// What [`Narsil::preflight`] returns: how many documents a query matches, without a single hit.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +76,7 @@ fn text_count(run: &QueryRun<'_>, counting: &QueryParams) -> Result<u64> {
 fn preflight_count(
     index: &IndexState,
     params: &QueryParams,
-    work_cap: i64,
+    limits: &SearchLimits,
 ) -> Result<PreflightResult> {
     let started = Instant::now();
     let resolved = resolve_vector_text(index, params)?;
@@ -84,7 +85,7 @@ fn preflight_count(
     require_integer_up_to("tolerance", resolved.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", resolved.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, resolved.sort.as_deref())?;
-    let scope = QueryScope::new(index, resolved.filters.as_ref(), work_cap)?;
+    let scope = QueryScope::new(index, resolved.filters.as_ref(), limits)?;
     require_usable_query_fields(index, &resolved)?;
     require_vector_searchable(index, &resolved, plan)?;
     let shape = RunShape {
@@ -133,7 +134,7 @@ impl Narsil {
         preflight_count(
             &*self.inner.open_index(index)?,
             params,
-            self.inner.pattern_work_cap,
+            &self.inner.search_limits,
         )
     }
 }

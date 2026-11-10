@@ -199,6 +199,13 @@ pub(crate) fn fail<T>(code: ErrorCode, message: impl Into<String>) -> Result<T> 
     Err(NarsilError::new(code, message))
 }
 
+pub(crate) fn instance_shut_down() -> NarsilError {
+    NarsilError::new(
+        ErrorCode::INSTANCE_SHUT_DOWN,
+        "This Narsil instance has been shut down",
+    )
+}
+
 pub(crate) fn load_failed<T>(message: impl Into<String>) -> Result<T> {
     fail(ErrorCode::PERSISTENCE_LOAD_FAILED, message)
 }

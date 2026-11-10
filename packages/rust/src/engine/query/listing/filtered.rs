@@ -3,6 +3,7 @@ use super::seek::SegmentMatcher;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::segment::SegmentEntry;
+use crate::pattern::SearchLimits;
 use crate::value::Value;
 
 /// Fails with `SEARCH_INVALID_FILTER` for a listing whose filter is JSON `null`, which a listing checks once the
@@ -21,14 +22,15 @@ pub(crate) fn require_listing_filter(filters: Option<&Value>) -> Result<()> {
 /// for a listing without a filter.
 ///
 /// Fails with `SEARCH_INVALID_FILTER`, `SEARCH_INVALID_FIELD`, or another filter code for a filter that breaks a
-/// rule, before the listing reads a document. The pattern tests of the filter may spend `work_cap` units across
-/// every segment, past which the listing fails with `SEARCH_WORK_CAP_EXCEEDED`.
+/// rule, before the listing reads a document. The pattern tests of the filter may spend the work cap of `limits`
+/// across every segment, past which the listing fails with `SEARCH_WORK_CAP_EXCEEDED`, and they fail with
+/// `INSTANCE_SHUT_DOWN` once the engine shuts down.
 pub(crate) fn segment_matcher<'a>(
     index: &'a IndexState,
     filters: Option<&Value>,
-    work_cap: i64,
+    limits: &SearchLimits,
 ) -> Result<Option<Box<SegmentMatcher<'a>>>> {
-    let scope = QueryScope::new(index, filters, work_cap)?;
+    let scope = QueryScope::new(index, filters, limits)?;
     if !scope.filters() {
         return Ok(None);
     }

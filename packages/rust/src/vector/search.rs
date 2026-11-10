@@ -1,5 +1,6 @@
 use crate::config::Metric;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::pattern::SearchStop;
 use crate::pins::Pin;
 
 use super::build::schedule_build;
@@ -205,6 +206,7 @@ impl VectorField {
         options: &VectorSearchOptions,
         matching: Option<&[&str]>,
         pin: &Pin,
+        stop: &SearchStop,
     ) -> Result<VectorSearchOutcome> {
         options.validate(k)?;
         require_dimension_of(&self.shared, query.len())?;
@@ -220,6 +222,7 @@ impl VectorField {
                     matching,
                     pin,
                     filter_threshold: self.shared.settings.filter_threshold,
+                    stop,
                 },
             );
             hold.want_load();

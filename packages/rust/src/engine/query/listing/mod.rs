@@ -15,6 +15,7 @@ use super::require_within_result_window;
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
 use crate::error::Result;
+use crate::pattern::SearchLimits;
 use crate::value::{Map, Value};
 use constants::MIN_LIST_PAGE_SIZE;
 use filtered::{require_listing_filter, segment_matcher};
@@ -63,10 +64,14 @@ fn list_page_size(limit: Option<usize>) -> Result<usize> {
     Ok(size)
 }
 
-fn listed_page(index: &IndexState, params: &ListParams, work_cap: i64) -> Result<ListResult> {
+fn listed_page(
+    index: &IndexState,
+    params: &ListParams,
+    limits: &SearchLimits,
+) -> Result<ListResult> {
     let started = Instant::now();
     let limit = list_page_size(params.limit)?;
-    let matcher = segment_matcher(index, params.filters.as_ref(), work_cap)?;
+    let matcher = segment_matcher(index, params.filters.as_ref(), limits)?;
     let projection = resolve_projection(params.document.as_ref());
     let binding = list_binding(params.filters.as_ref());
     let anchor = match &params.cursor {
@@ -130,13 +135,14 @@ impl Narsil {
     /// Fails with `SEARCH_RESULT_WINDOW_EXCEEDED` for a `limit` above 10,000, with `SEARCH_INVALID_FILTER` or
     /// `SEARCH_INVALID_FIELD` for a filter that breaks a rule, with `SEARCH_WORK_CAP_EXCEEDED` where the filter's
     /// pattern tests pass the engine's `pattern_work_cap`, with `SEARCH_INVALID_CURSOR` for a cursor that is
-    /// malformed or that a listing with other filters produced, and with `INDEX_NOT_FOUND` where the engine holds
-    /// no index called `index`.
+    /// malformed or that a listing with other filters produced, with `INDEX_NOT_FOUND` where the engine holds no
+    /// index called `index`, and with `INSTANCE_SHUT_DOWN` once the engine shuts down, even part-way through the
+    /// filter's pattern tests.
     pub fn list_documents(&self, index: &str, params: &ListParams) -> Result<ListResult> {
         listed_page(
             &*self.inner.open_index(index)?,
             params,
-            self.inner.pattern_work_cap,
+            &self.inner.search_limits,
         )
     }
 }

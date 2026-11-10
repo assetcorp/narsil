@@ -194,8 +194,9 @@ impl<'s> PatternIndexes<'s> {
         })?;
         match status {
             ffi::NARSIL_OK => Ok(()),
-            ffi::NARSIL_WORK_CAP_EXCEEDED => Err(meter.exceeded()),
-            status => Err(core_refused("a pattern test", status)),
+            status => Err(meter
+                .refusal(status)
+                .unwrap_or_else(|| core_refused("a pattern test", status))),
         }
     }
 }
