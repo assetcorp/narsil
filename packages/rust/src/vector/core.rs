@@ -1,17 +1,12 @@
 use std::cell::RefCell;
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::pins::thread_slot;
 
-use super::constants::THREAD_SLOTS;
 use super::graph::GraphTables;
 use super::store::StoreTables;
-
-const SHARED_THREAD_SLOT: u32 = THREAD_SLOTS - 1;
-
-static CLAIMED_THREAD_SLOTS: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) struct Scratch {
     workspace: *mut ffi::narsil_workspace,
@@ -25,32 +20,17 @@ pub(crate) struct Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         unsafe { ffi::narsil_workspace_destroy(self.workspace) };
-        if self.slot != SHARED_THREAD_SLOT {
-            CLAIMED_THREAD_SLOTS.fetch_and(!(1u64 << self.slot), Ordering::AcqRel);
-        }
-    }
-}
-
-fn claim_thread_slot() -> u32 {
-    let mut seen = CLAIMED_THREAD_SLOTS.load(Ordering::Acquire);
-    loop {
-        let free = (!seen).trailing_zeros();
-        if free >= SHARED_THREAD_SLOT {
-            return SHARED_THREAD_SLOT;
-        }
-        match CLAIMED_THREAD_SLOTS.compare_exchange(
-            seen,
-            seen | (1u64 << free),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return free,
-            Err(now) => seen = now,
-        }
     }
 }
 
 fn created_scratch() -> Result<Scratch> {
+    crate::ffi::layout::core_layout_matches().map_err(|mismatch| {
+        NarsilError::new(
+            ErrorCode::INTERNAL_ERROR,
+            format!("The native core and the Rust bindings disagree on the layout of a structure: {mismatch}"),
+        )
+    })?;
+    let slot = thread_slot()?;
     let mut workspace = ptr::null_mut();
     let status = unsafe { ffi::narsil_workspace_create(&mut workspace) };
     if status != ffi::NARSIL_OK || workspace.is_null() {
@@ -58,7 +38,7 @@ fn created_scratch() -> Result<Scratch> {
     }
     Ok(Scratch {
         workspace,
-        slot: claim_thread_slot(),
+        slot,
         ordinals: Vec::new(),
         distances: Vec::new(),
         batch: Vec::new(),
@@ -120,6 +100,7 @@ impl Scratch {
         metric: u32,
         candidates: usize,
         accepted: Option<Accepted<'_>>,
+        pin: i64,
     ) -> Result<usize> {
         self.ordinals.resize(candidates, 0);
         self.distances.resize(candidates, 0.0);
@@ -140,6 +121,7 @@ impl Scratch {
                     bytes: 0,
                 },
             },
+            pin,
         };
         let mut nearest = ffi::narsil_candidates {
             ordinals: self.ordinals.as_mut_ptr(),
@@ -166,6 +148,7 @@ impl Scratch {
         query: &[f32],
         metric: u32,
         ordinals: &[i32],
+        pin: i64,
     ) -> Result<()> {
         self.scores.resize(ordinals.len(), 0.0);
         if ordinals.is_empty() {
@@ -177,6 +160,7 @@ impl Scratch {
             metric,
             ordinals: ordinals.as_ptr(),
             count: ordinals.len() as u32,
+            pin,
         };
         let status = unsafe {
             ffi::narsil_score(

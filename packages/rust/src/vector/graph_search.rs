@@ -97,11 +97,7 @@ pub(crate) fn search_depths(
 }
 
 fn admitted(request: &GraphQuery<'_>, ordinal: i32) -> bool {
-    ordinal >= 0
-        && request.generation.store.is_live(ordinal as u32)
-        && request
-            .filter
-            .is_none_or(|found| found.has(ordinal as u32))
+    ordinal >= 0 && request.filter.is_none_or(|found| found.has(ordinal as u32))
 }
 
 pub(crate) struct GraphQuery<'a> {
@@ -111,6 +107,7 @@ pub(crate) struct GraphQuery<'a> {
     pub(crate) k: usize,
     pub(crate) options: &'a VectorSearchOptions,
     pub(crate) filter: Option<&'a OrdinalFilter>,
+    pub(crate) pin: i64,
 }
 
 pub(crate) fn graph_hits(
@@ -133,6 +130,7 @@ pub(crate) fn graph_hits(
         metric_code(metric),
         depths.ef.min((request.graph.slots() as usize).max(1)),
         accepted,
+        request.pin,
     )?;
     let minimum = options.min_similarity;
     if !depths.quantised {
@@ -158,6 +156,7 @@ pub(crate) fn graph_hits(
         request.query,
         metric_code(metric),
         &batch,
+        request.pin,
     );
     scratch.batch = batch;
     scored?;

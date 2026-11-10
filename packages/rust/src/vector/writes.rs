@@ -46,7 +46,7 @@ impl VectorField {
     pub(crate) fn remove(&self, doc_id: &str) -> Result<()> {
         {
             let mut writer = self.shared.lock_writer();
-            remove_held(&mut writer, doc_id)?;
+            remove_held(&self.shared, &mut writer, doc_id)?;
         }
         schedule_build(&self.shared);
         Ok(())
@@ -74,20 +74,24 @@ pub(crate) fn insert_held(
         return Ok(());
     }
     writer.revision += 1;
+    let sequence = shared.sequence.next();
     if let Some(ordinal) = previous {
-        retire_previous(writer, ordinal)?;
+        retire_previous(writer, ordinal, sequence)?;
     }
     append(
         shared,
         writer,
         doc_id,
         Held::InMemory(vector),
-        FLAG_CURRENT | FLAG_BUFFERED,
+        Stamp {
+            flags: FLAG_CURRENT | FLAG_BUFFERED,
+            born: sequence,
+        },
     )?;
     Ok(())
 }
 
-pub(crate) fn remove_held(writer: &mut Writer, doc_id: &str) -> Result<()> {
+pub(crate) fn remove_held(shared: &Shared, writer: &mut Writer, doc_id: &str) -> Result<()> {
     let generation = Arc::clone(&writer.generation);
     let Some(ordinal) = generation.ordinal_of(doc_id) else {
         return Ok(());
@@ -97,6 +101,9 @@ pub(crate) fn remove_held(writer: &mut Writer, doc_id: &str) -> Result<()> {
         return Ok(());
     }
     writer.revision += 1;
+    generation
+        .store
+        .stamp_retired(ordinal, shared.sequence.next());
     let counts = &generation.counts;
     if flags & FLAG_REMOVED == 0 {
         Counts::add(&counts.removed, 1);
@@ -132,7 +139,7 @@ fn tombstone_everywhere(writer: &Writer, ordinal: u32) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn retire_previous(writer: &mut Writer, ordinal: u32) -> Result<()> {
+pub(crate) fn retire_previous(writer: &mut Writer, ordinal: u32, sequence: i64) -> Result<()> {
     let generation = Arc::clone(&writer.generation);
     let store = &generation.store;
     let counts = &generation.counts;
@@ -140,6 +147,7 @@ pub(crate) fn retire_previous(writer: &mut Writer, ordinal: u32) -> Result<()> {
     if flags & FLAG_CURRENT == 0 {
         return Ok(());
     }
+    store.stamp_retired(ordinal, sequence);
     if flags & FLAG_REMOVED != 0 {
         Counts::add(&counts.removed, -1);
     }
@@ -156,6 +164,10 @@ pub(crate) fn retire_previous(writer: &mut Writer, ordinal: u32) -> Result<()> {
         Counts::add(&counts.replaced, 1);
         writer.replaced_ordinals.push(ordinal);
         tombstone_everywhere(writer, ordinal)?;
+    } else if !store.may_free(ordinal, store.oldest_pin()) {
+        store.set_flags(ordinal, FLAG_REPLACED);
+        Counts::add(&counts.replaced, 1);
+        writer.replaced_ordinals.push(ordinal);
     } else {
         store.set_flags(ordinal, 0);
         store.set_present(ordinal, false);
@@ -165,13 +177,19 @@ pub(crate) fn retire_previous(writer: &mut Writer, ordinal: u32) -> Result<()> {
     Ok(())
 }
 
+pub(crate) struct Stamp {
+    pub(crate) flags: u8,
+    pub(crate) born: i64,
+}
+
 pub(crate) fn append(
     shared: &Shared,
     writer: &mut Writer,
     doc_id: &str,
     held: Held<'_>,
-    flags: u8,
+    stamp: Stamp,
 ) -> Result<u32> {
+    let flags = stamp.flags;
     let ordinal = writer.generation.store.slots();
     if ordinal >= MAX_VECTOR_ORDINALS {
         return Err(NarsilError::new(
@@ -198,6 +216,12 @@ pub(crate) fn append(
     if flags & FLAG_CURRENT != 0 && store.calibrated() {
         let metric = shared.settings.metric_code();
         with_scratch(|scratch| scratch.quantise(store, metric, &[ordinal as i32]))?;
+    }
+    store.stamp_born(ordinal, stamp.born);
+    if flags & FLAG_CURRENT == 0 {
+        store.stamp_retired(ordinal, stamp.born);
+    } else if let Some(earlier) = generation.ordinal_of(doc_id) {
+        store.set_earlier_ordinal(ordinal, earlier);
     }
     store.set_slots(ordinal + 1);
     let counts = &generation.counts;
@@ -250,11 +274,23 @@ pub(crate) fn ensure_room(shared: &Shared, writer: &mut Writer, slots: usize) {
     shared.publish(writer, next);
 }
 
+pub(crate) fn still_scanned(generation: &Generation, ordinal: u32, oldest_pin: i64) -> bool {
+    if generation.is_buffered(ordinal) {
+        return true;
+    }
+    let placed = generation
+        .graph
+        .as_ref()
+        .is_some_and(|graph| graph.holds_node(ordinal));
+    !placed && generation.store.present(ordinal) && !generation.store.may_free(ordinal, oldest_pin)
+}
+
 pub(crate) fn compacted_buffer(generation: &Generation) -> BufferList {
+    let oldest_pin = generation.store.oldest_pin();
     let held: Vec<u32> = generation
         .buffer
         .ordinals()
-        .filter(|&ordinal| generation.is_buffered(ordinal))
+        .filter(|&ordinal| still_scanned(generation, ordinal, oldest_pin))
         .collect();
     let list = BufferList::with_capacity((held.len() + 1) * 2);
     for ordinal in held {

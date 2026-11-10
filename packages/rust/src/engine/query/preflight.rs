@@ -93,7 +93,7 @@ fn preflight_count(
         offset: 0,
         signature: None,
     };
-    let run = QueryRun::new(index, &resolved, &scope, shape);
+    let run = QueryRun::new(index, &resolved, &scope, shape)?;
     if plan != SearchPlan::Vector {
         require_usable_phrases(
             &run.snapshots.layout.analyser,
@@ -103,7 +103,15 @@ fn preflight_count(
     }
     let (count, count_exact) = match plan {
         SearchPlan::Vector => {
-            let found = vector_hits(index, &resolved, PREFLIGHT_VECTOR_DEPTH, 0, 0, &scope)?;
+            let found = vector_hits(
+                index,
+                &resolved,
+                PREFLIGHT_VECTOR_DEPTH,
+                0,
+                0,
+                &scope,
+                &run.snapshots.pin,
+            )?;
             (found.total_matched, found.exact)
         }
         SearchPlan::Hybrid => {

@@ -84,12 +84,13 @@ pub(crate) fn compact_held(shared: &Shared, writer: &mut Writer) -> Result<()> {
         compact_graph(shared, writer, &graph)?;
     }
     let store = &generation.store;
+    let oldest_pin = store.oldest_pin();
     for ordinal in std::mem::take(&mut writer.removed_ordinals) {
         let flags = store.flags(ordinal);
         if flags & (FLAG_CURRENT | FLAG_REMOVED) != FLAG_CURRENT | FLAG_REMOVED {
             continue;
         }
-        if writer.is_placing(ordinal) {
+        if writer.is_placing(ordinal) || !store.may_free(ordinal, oldest_pin) {
             writer.removed_ordinals.push(ordinal);
             continue;
         }
@@ -110,11 +111,12 @@ pub(crate) fn compact_held(shared: &Shared, writer: &mut Writer) -> Result<()> {
 pub(crate) fn release_replaced(writer: &mut Writer) {
     let generation = Arc::clone(&writer.generation);
     let store = &generation.store;
+    let oldest_pin = store.oldest_pin();
     for ordinal in std::mem::take(&mut writer.replaced_ordinals) {
         if store.flags(ordinal) & FLAG_REPLACED == 0 {
             continue;
         }
-        if writer.is_placing(ordinal) {
+        if writer.is_placing(ordinal) || !store.may_free(ordinal, oldest_pin) {
             writer.replaced_ordinals.push(ordinal);
             continue;
         }

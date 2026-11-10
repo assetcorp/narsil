@@ -11,6 +11,7 @@ use crate::adapters::EmbeddingAdapter;
 use crate::config::IndexConfig;
 use crate::engine::adapter_registry::AdapterRegistry;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::pins::IndexSequence;
 use crate::schema::{BaseType, CompiledSchema};
 use crate::value::{Map, Value};
 use crate::vector::field::VectorField;
@@ -29,6 +30,7 @@ pub(crate) struct IndexVectorField {
 
 /// The vector fields of an index, in schema order, with the adapter binding that fills them from text.
 pub(crate) struct IndexVectors {
+    sequence: Arc<IndexSequence>,
     fields: Vec<IndexVectorField>,
     embedding: Option<EmbeddingBinding>,
     adapters: Arc<AdapterRegistry>,
@@ -44,6 +46,7 @@ impl IndexVectors {
     ) -> Result<IndexVectors> {
         let promotion = config.vector_promotion.as_ref();
         let filter_threshold = promotion.and_then(|found| found.filter_threshold);
+        let sequence = Arc::new(IndexSequence::default());
         let mut fields = Vec::new();
         for field in &schema.fields {
             if field.field_type.base != BaseType::Vector {
@@ -57,10 +60,11 @@ impl IndexVectors {
             )?;
             fields.push(IndexVectorField {
                 path: field.path.clone(),
-                field: Arc::new(VectorField::new(settings)?),
+                field: Arc::new(VectorField::new(settings, Arc::clone(&sequence))?),
             });
         }
         Ok(IndexVectors {
+            sequence,
             fields,
             embedding,
             adapters,
@@ -84,11 +88,16 @@ impl IndexVectors {
         self.fields.is_empty()
     }
 
-    /// Reports whether the vector field at `path` still holds the vector of `doc_id` at `ordinal`, which a search
-    /// scored, so that a write since that search gave the document no other vector.
-    pub(crate) fn holds_version(&self, path: &str, doc_id: &str, ordinal: u32) -> bool {
-        self.field(path)
-            .is_some_and(|field| field.holds_version(doc_id, ordinal))
+    pub(crate) fn sequence(&self) -> &Arc<IndexSequence> {
+        &self.sequence
+    }
+
+    pub(crate) fn publish_writes(&self) {
+        let sequence = self.sequence.next();
+        for entry in &self.fields {
+            entry.field.record_write_sequence(sequence);
+        }
+        self.sequence.publish(sequence);
     }
 
     pub(crate) fn embedding(&self) -> Option<&EmbeddingBinding> {
@@ -161,17 +170,16 @@ impl IndexVectors {
         DocumentVectors::new(vectors)
     }
 
-    /// Returns a copy of each stored vector of `doc_id`, in schema order, with `None` for a field that holds none.
-    pub(crate) fn stored_vectors(&self, doc_id: &str) -> DocumentVectors {
+    pub(crate) fn pinned_vectors(&self, doc_id: &str, pin: i64) -> DocumentVectors {
         DocumentVectors::new(
             self.fields
                 .iter()
-                .map(|entry| entry.field.get_vector(doc_id))
+                .map(|entry| entry.field.pinned_vector(doc_id, pin))
                 .collect(),
         )
     }
 
-    /// Puts vectors that [`IndexVectors::stored_vectors`] returned back into their document, at the end and in
+    /// Puts vectors that [`IndexVectors::pinned_vectors`] returned back into their document, at the end and in
     /// schema order.
     pub(crate) fn attach(&self, vectors: DocumentVectors, document: &mut Map) {
         for (entry, vector) in self.fields.iter().zip(vectors.into_vectors()) {

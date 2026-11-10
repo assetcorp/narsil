@@ -83,7 +83,7 @@ impl VectorCheckpointPlan {
             }
         }
         if !missing.is_empty() {
-            let coder = StoreTables::new(dimension, store.bits, missing.len());
+            let coder = StoreTables::new(dimension, store.bits, missing.len(), None);
             for (slot, &at) in missing.iter().enumerate() {
                 let vector = &vectors[at * dimension..(at + 1) * dimension];
                 coder.write_vector(

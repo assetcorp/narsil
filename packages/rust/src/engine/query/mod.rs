@@ -108,7 +108,7 @@ fn shaped_query(
         offset,
         signature,
     };
-    let run = QueryRun::new(index, params, &scope, shape);
+    let run = QueryRun::new(index, params, &scope, shape)?;
     if search != SearchPlan::Vector {
         require_usable_phrases(
             &run.snapshots.layout.analyser,

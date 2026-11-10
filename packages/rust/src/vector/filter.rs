@@ -39,17 +39,25 @@ impl OrdinalFilter {
 }
 
 impl Generation {
-    /// Returns the filter that admits the live ordinals of this generation that hold one of `doc_ids`.
+    pub(crate) fn pinned_ordinal_of(&self, doc_id: &str, pin: i64) -> Option<u32> {
+        let mut ordinal = self.ordinal_of(doc_id)?;
+        while self.store.born_at(ordinal) > pin {
+            ordinal = self.store.earlier_ordinal(ordinal)?;
+        }
+        Some(ordinal)
+    }
+
     pub(crate) fn filter_of<'a>(
         &self,
         doc_ids: impl IntoIterator<Item = &'a str>,
+        pin: i64,
     ) -> OrdinalFilter {
         let mut filter = OrdinalFilter {
             bits: vec![0; (self.store.slots() as usize).div_ceil(8)],
             ordinals: Vec::new(),
         };
         for doc_id in doc_ids {
-            if let Some(ordinal) = self.live_ordinal_of(doc_id) {
+            if let Some(ordinal) = self.pinned_ordinal_of(doc_id, pin) {
                 filter.admit(ordinal);
             }
         }

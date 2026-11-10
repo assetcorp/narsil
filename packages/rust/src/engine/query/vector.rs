@@ -12,6 +12,7 @@ use crate::engine::index::IndexState;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::{Partition, PartitionSnapshot};
+use crate::pins::Pin;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::util::text::javascript_trim;
@@ -220,6 +221,7 @@ pub(crate) fn vector_leg(
     k: usize,
     rescore_window: Option<usize>,
     matching: Option<&[&str]>,
+    pin: &Pin,
 ) -> Result<VectorLeg> {
     let Some(field) = index.vectors.field(&clause.field) else {
         return Ok(VectorLeg {
@@ -236,7 +238,7 @@ pub(crate) fn vector_leg(
         oversample: clause.oversample,
         rescore_window,
     };
-    let outcome = field.search(query, k, &options, matching)?;
+    let outcome = field.search(query, k, &options, matching, pin)?;
     let returned = outcome.results.len() as u64;
     let partitions = index.partitions();
     let mut hits = Vec::with_capacity(outcome.results.len());
@@ -302,6 +304,7 @@ pub(crate) fn vector_hits(
     offset: usize,
     cursor_depth: usize,
     scope: &QueryScope,
+    pin: &Pin,
 ) -> Result<RankedHits> {
     require_usable_vector_options(params.vector.as_ref())?;
     let Some(clause) = &params.vector else {
@@ -320,7 +323,7 @@ pub(crate) fn vector_hits(
     }
     let matching = id_slices(&matched);
     let k = vector_fetch_depth(limit, offset, cursor_depth)?;
-    let leg = vector_leg(index, clause, query, k, None, matching.as_deref())?;
+    let leg = vector_leg(index, clause, query, k, None, matching.as_deref(), pin)?;
     Ok(RankedHits {
         hits: leg.hits,
         total_matched: leg.matched,

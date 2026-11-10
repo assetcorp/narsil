@@ -1,16 +1,22 @@
 mod blocks;
 
 use std::ptr;
-use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, AtomicU32, AtomicU64, Ordering};
+mod sequences;
+
+use std::sync::atomic::{
+    AtomicI32, AtomicI64, AtomicPtr, AtomicU8, AtomicU32, AtomicU64, Ordering,
+};
 use std::sync::{Arc, OnceLock};
 
 use crate::ffi;
+use crate::pins::IndexSequence;
 
 use super::constants::VECTORS_PER_BLOCK;
 use super::files::{FileList, MappedFile};
 use super::region::{
-    byte_ptr, bytes, copied_bytes, copied_doubles, copied_floats, copied_words, double_ptr,
-    float_ptr, floats, load, load_byte, store, store_byte, unsigned_ptr, word_ptr, words,
+    byte_ptr, bytes, copied_bytes, copied_doubles, copied_floats, copied_sequences, copied_words,
+    double_ptr, float_ptr, floats, load, load_byte, sequence_ptr, sequences, store, store_byte,
+    unsigned_ptr, word_ptr, words,
 };
 
 pub(crate) const FLAG_CURRENT: u8 = 1;
@@ -21,6 +27,7 @@ pub(crate) const FLAG_REPLACED: u8 = 8;
 const STORE_WORD_HELD_DOCUMENTS: usize = ffi::NARSIL_STORE_WORD_LIVE_COUNT;
 const FLOATS_PER_LANE: usize = 4;
 const IN_A_BLOCK: i32 = ffi::NARSIL_VECTOR_IN_A_BLOCK;
+const NO_EARLIER_ORDINAL: i32 = -1;
 
 struct VectorBlock {
     floats: Box<[AtomicU32]>,
@@ -49,6 +56,11 @@ pub(crate) struct StoreTables {
     code_blocks: Box<[AtomicPtr<u8>]>,
     code_owners: Box<[OnceLock<Arc<CodeBlock>>]>,
     files: FileList,
+    born_at: Box<[AtomicI64]>,
+    retired_at: Box<[AtomicI64]>,
+    earlier_ordinal: Box<[AtomicI32]>,
+    write_sequence: AtomicI64,
+    sequence: Option<Arc<IndexSequence>>,
 }
 
 pub(crate) fn record_bytes_of(dimension: usize, bits: u8) -> usize {
@@ -88,8 +100,16 @@ fn empty_owners<T>(count: usize) -> Box<[OnceLock<T>]> {
 }
 
 impl StoreTables {
-    pub(crate) fn new(dimension: usize, bits: u8, capacity: usize) -> StoreTables {
+    pub(crate) fn new(
+        dimension: usize,
+        bits: u8,
+        capacity: usize,
+        sequence: Option<Arc<IndexSequence>>,
+    ) -> StoreTables {
         let blocks = block_count(capacity);
+        let write_sequence = sequence
+            .as_ref()
+            .map_or(crate::pins::FIRST_WRITE_SEQUENCE, |found| found.current());
         StoreTables {
             dimension,
             bits,
@@ -109,6 +129,11 @@ impl StoreTables {
             code_blocks: empty_pointers(blocks),
             code_owners: empty_owners(blocks),
             files: FileList::empty(),
+            born_at: sequences(capacity),
+            retired_at: sequences(capacity),
+            earlier_ordinal: words(capacity, NO_EARLIER_ORDINAL),
+            write_sequence: AtomicI64::new(write_sequence),
+            sequence,
         }
     }
 
@@ -171,10 +196,19 @@ impl StoreTables {
             code_blocks,
             code_owners,
             files: FileList::of(files),
+            born_at: copied_sequences(&self.born_at, capacity),
+            retired_at: copied_sequences(&self.retired_at, capacity),
+            earlier_ordinal: copied_words(&self.earlier_ordinal, capacity, NO_EARLIER_ORDINAL),
+            write_sequence: AtomicI64::new(self.write_sequence.load(Ordering::SeqCst)),
+            sequence: self.sequence.clone(),
         }
     }
 
     pub(crate) fn raw(&self) -> ffi::narsil_store {
+        let (pins, pin_slots) = match &self.sequence {
+            Some(sequence) => (sequence.pins().as_ptr(), sequence.pins().slots()),
+            None => (ptr::null(), 0),
+        };
         ffi::narsil_store {
             header: word_ptr(&self.header),
             dimension: self.dimension as u32,
@@ -194,6 +228,10 @@ impl StoreTables {
             vector_offset: unsigned_ptr(&self.vector_offset),
             files: self.files.raw_ptr(),
             file_count: self.files.len() as u32,
+            born_at: sequence_ptr(&self.born_at),
+            retired_at: sequence_ptr(&self.retired_at),
+            pins,
+            pin_slots,
         }
     }
 

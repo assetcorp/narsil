@@ -2,9 +2,12 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 
 use crate::ffi;
 
-use super::constants::{LOCK_SPIN_ITERATIONS, MIN_ORDINAL_CAPACITY, MIN_UPPER_WORDS, THREAD_SLOTS};
+use crate::pins::{MAX_THREAD_SLOTS, slots_reached};
+
+use super::constants::{LOCK_SPIN_ITERATIONS, MIN_ORDINAL_CAPACITY, MIN_UPPER_WORDS};
 use super::region::{
     byte_ptr, bytes, copied_bytes, copied_words, load, load_byte, store, word_ptr, words,
+    zeroed_words,
 };
 
 const GRAPH_WORD_METRIC: usize = 5;
@@ -69,7 +72,7 @@ impl GraphTables {
             tombstones: bytes(slot_capacity),
             incoming: words(slot_capacity, 0),
             nearest_link_due: bytes(slot_capacity),
-            held: words(THREAD_SLOTS as usize * ffi::NARSIL_HELD_WORDS_PER_THREAD, 0),
+            held: zeroed_words(MAX_THREAD_SLOTS as usize * ffi::NARSIL_HELD_WORDS_PER_THREAD),
             incoming_uncounted: AtomicBool::new(false),
         };
         graph.set_word(ffi::NARSIL_GRAPH_WORD_ENTRY_POINT, NO_NODE);
@@ -130,7 +133,7 @@ impl GraphTables {
             tombstones: copied_bytes(&self.tombstones, slot_capacity),
             incoming: copied_words(&self.incoming, slot_capacity, 0),
             nearest_link_due: copied_bytes(&self.nearest_link_due, slot_capacity),
-            held: words(self.held.len(), 0),
+            held: zeroed_words(self.held.len()),
             incoming_uncounted: AtomicBool::new(self.incoming_uncounted.load(Ordering::Acquire)),
         }
     }
@@ -147,7 +150,7 @@ impl GraphTables {
             incoming: word_ptr(&self.incoming),
             nearest_link_due: byte_ptr(&self.nearest_link_due),
             held_locks: word_ptr(&self.held),
-            thread_slots: THREAD_SLOTS,
+            thread_slots: slots_reached().min(MAX_THREAD_SLOTS),
             wake: None,
             wake_context: std::ptr::null_mut(),
         }
@@ -372,7 +375,7 @@ impl GraphTables {
     pub(crate) fn memory_bytes(&self) -> usize {
         self.slot_capacity * (1 + self.base_stride() * 4 + 4 + 4 + 1 + 4 + 1)
             + self.upper.len() * 4
-            + self.held.len() * 4
+            + slots_reached() as usize * ffi::NARSIL_HELD_WORDS_PER_THREAD * 4
             + self.header.len() * 4
     }
 }

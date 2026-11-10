@@ -291,9 +291,23 @@ pub(crate) fn adopt(shared: &Shared, writer: &mut Writer, graph: &Arc<GraphTable
             lacking.push(ordinal);
         }
     }
-    let buffer = BufferList::with_capacity((lacking.len() + 1) * 2);
+    let oldest_pin = store.oldest_pin();
+    let retired_unplaced: Vec<u32> = generation
+        .buffer
+        .ordinals()
+        .filter(|&ordinal| {
+            !store.is_live(ordinal)
+                && !graph.holds_node(ordinal)
+                && store.present(ordinal)
+                && !store.may_free(ordinal, oldest_pin)
+        })
+        .collect();
+    let buffer = BufferList::with_capacity((lacking.len() + retired_unplaced.len() + 1) * 2);
     for &ordinal in &lacking {
         store.set_flags(ordinal, store.flags(ordinal) | FLAG_BUFFERED);
+        buffer.push(ordinal);
+    }
+    for &ordinal in &retired_unplaced {
         buffer.push(ordinal);
     }
     generation

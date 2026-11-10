@@ -3,7 +3,6 @@ mod analysis_change;
 pub(crate) mod changes;
 mod clear;
 mod constants;
-pub(crate) mod document_writes;
 mod documents;
 pub(crate) mod durable;
 mod engine_config;

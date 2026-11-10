@@ -220,5 +220,6 @@ impl StoreTables {
             + held_code_blocks * code_bytes
             + self.dimension * 4
             + ffi::NARSIL_STORE_HEADER_WORDS * 4
+            + self.sequence_bytes()
     }
 }
