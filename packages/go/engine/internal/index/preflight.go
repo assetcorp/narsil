@@ -8,12 +8,11 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
-func (ix *Index) Preflight(request model.QueryParams) (model.PreflightResult, error) {
-	return ix.PreflightWith(request, QueryOptions{})
-}
-
-func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) (model.PreflightResult, error) {
+func (ix *Index) PreflightWith(ctx context.Context, request model.QueryParams, options QueryOptions) (model.PreflightResult, error) {
 	started := time.Now()
+	if err := ctx.Err(); err != nil {
+		return model.PreflightResult{}, err
+	}
 	if err := requireKnownMode(&request); err != nil {
 		return model.PreflightResult{}, err
 	}
@@ -44,7 +43,8 @@ func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) 
 	if err := ix.analyseQueryTerm(prepared, pass); err != nil {
 		return model.PreflightResult{}, err
 	}
-	pinned, unpin, err := ix.Pin(context.Background())
+	prepared.ctx = ctx
+	pinned, unpin, err := ix.Pin(ctx)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
@@ -65,6 +65,9 @@ func (ix *Index) PreflightWith(request model.QueryParams, options QueryOptions) 
 		found, err = ix.textRanked(prepared, pass)
 	}
 	if err != nil {
+		return model.PreflightResult{}, stoppedSearchFailure(ctx, err)
+	}
+	if err := ctx.Err(); err != nil {
 		return model.PreflightResult{}, err
 	}
 	return model.PreflightResult{Count: found.totalMatched, CountExact: !found.inexact, Elapsed: time.Since(started)}, nil

@@ -1,8 +1,8 @@
 package index
 
 import (
-	"cmp"
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -22,16 +22,16 @@ type listedEntry struct {
 }
 
 type listRequest struct {
-	limit      int
-	anchor     *cursor.PageCursor
-	sort       []model.SortField
-	sorted     bool
-	directions []text.SortDirection
+	limit  int
+	anchor *cursor.PageCursor
+	sort   []model.SortField
+	sorted bool
 }
 
 type listedSet struct {
 	snapshot partition.Snapshot
 	accepted map[string]struct{}
+	matched  [][]uint32
 	filtered bool
 }
 
@@ -43,7 +43,19 @@ func (s *listedSet) accepts(id string) bool {
 	return held
 }
 
-func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterRun) (*listedSet, int, error) {
+func countMatching(snapshot partition.Snapshot, matched [][]uint32) int {
+	count := 0
+	for segment, words := range matched {
+		eachOrdinal(words, func(ordinal uint32) {
+			if _, live := snapshot.IDAt(segment, ordinal); live {
+				count++
+			}
+		})
+	}
+	return count
+}
+
+func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterRun, sorted bool) (*listedSet, int, error) {
 	set := &listedSet{snapshot: snapshot}
 	if filters == nil {
 		return set, snapshot.Count(), nil
@@ -52,8 +64,11 @@ func listedSetOf(snapshot partition.Snapshot, view *query.View, filters *filterR
 	if err != nil {
 		return nil, 0, err
 	}
+	set.filtered, set.matched = true, matched
+	if sorted {
+		return set, countMatching(snapshot, matched), nil
+	}
 	ids := matchingIDs(snapshot, matched)
-	set.filtered = true
 	set.accepted = make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		set.accepted[id] = struct{}{}
@@ -84,51 +99,27 @@ func entriesInIDOrder(set *listedSet, request *listRequest) ([]listedEntry, erro
 	return entries, nil
 }
 
-func entriesInSortOrder(set *listedSet, request *listRequest) ([]listedEntry, error) {
-	fields := sortFieldNames(request.sort)
-	modes := sortModesOf(request.sort)
-	var entries []listedEntry
-	var failure error
-	err := set.snapshot.EachDocument(func(id string, document *codec.Document) bool {
-		if !set.accepts(id) {
-			return true
-		}
-		if failure = codec.DocumentFailure(document); failure != nil {
-			return false
-		}
-		entry := listedEntry{id: id, key: readSortValues(document, fields, modes), document: document}
-		if request.anchor != nil && compareListed(entry, listedEntry{id: request.anchor.Anchor, key: request.anchor.SortKey}, request.directions) <= 0 {
-			return true
-		}
-		entries = append(entries, entry)
-		return true
-	})
-	if err = cmp.Or(err, failure); err != nil {
+func entriesInSortOrder(views []*query.View, snapshots []partition.Snapshot, matched [][][]uint32, request *listRequest) ([]listedEntry, error) {
+	read := sortedRead{fields: request.sort, limit: request.limit + 1, anchor: request.anchor}
+	found, err := sortedEntries(views, snapshots, matched, read)
+	if err != nil {
 		return nil, err
 	}
-	sortListed(entries, request.directions)
-	if len(entries) > request.limit+1 {
-		entries = entries[:request.limit+1]
+	entries := make([]listedEntry, 0, len(found))
+	for _, entry := range found {
+		document, held, err := snapshots[entry.Partition].Document(entry.ID)
+		if err != nil {
+			return nil, err
+		}
+		if held {
+			entries = append(entries, listedEntry{id: entry.ID, key: entry.Key, document: document})
+		}
 	}
 	return entries, nil
 }
 
-func compareListed(left, right listedEntry, directions []text.SortDirection) int {
-	if comparison := text.CompareComparableKeys(left.key, right.key, directions); comparison != 0 {
-		return comparison
-	}
-	return text.CompareCodePoints(left.id, right.id)
-}
-
-func sortListed(entries []listedEntry, directions []text.SortDirection) {
-	sort.SliceStable(entries, func(left, right int) bool { return compareListed(entries[left], entries[right], directions) < 0 })
-}
-
 func (ix *Index) listRequestOf(params *model.ListParams, limit int, signature model.Optional[string], binding string) (*listRequest, error) {
-	request := &listRequest{limit: limit, sort: params.Sort, sorted: params.Sort != nil && signature.IsSet()}
-	if request.sorted {
-		request.directions = sortDirectionsOf(params.Sort)
-	}
+	request := &listRequest{limit: limit, sort: params.Sort, sorted: len(params.Sort) > 0 && signature.IsSet()}
 	if encoded, set := params.Cursor.Get(); set {
 		decoded, err := cursor.DecodePageCursor(encoded)
 		if err != nil {
@@ -149,6 +140,9 @@ func (ix *Index) listEntries(ctx context.Context, params *model.ListParams, requ
 	}
 	defer closeWork()
 	prepared := &preparedQuery{params: model.QueryParams{Filters: params.Filters}, work: work, ctx: ctx}
+	if request.sorted {
+		prepared.params.Sort = request.sort
+	}
 	if err := ix.openReads(prepared, nil); err != nil {
 		return nil, 0, err
 	}
@@ -157,26 +151,37 @@ func (ix *Index) listEntries(ctx context.Context, params *model.ListParams, requ
 	if err != nil {
 		return nil, 0, err
 	}
+	snapshots := prepared.reads.reading.Snapshots
+	var matched [][][]uint32
+	if request.sorted && prepared.filters != nil {
+		matched = make([][][]uint32, len(snapshots))
+	}
 	total := 0
 	var entries []listedEntry
-	for at, snapshot := range prepared.reads.reading.Snapshots {
-		set, count, err := listedSetOf(snapshot, views[at], prepared.filters)
+	for at, snapshot := range snapshots {
+		set, count, err := listedSetOf(snapshot, views[at], prepared.filters, request.sorted)
 		if err != nil {
 			return nil, 0, err
 		}
 		total += count
-		var found []listedEntry
 		if request.sorted {
-			found, err = entriesInSortOrder(set, request)
-		} else {
-			found, err = entriesInIDOrder(set, request)
+			if matched != nil {
+				matched[at] = set.matched
+			}
+			continue
 		}
+		found, err := entriesInIDOrder(set, request)
 		if err != nil {
 			return nil, 0, err
 		}
 		entries = append(entries, found...)
 	}
-	return entries, total, nil
+	if request.sorted {
+		entries, err = entriesInSortOrder(views, snapshots, matched, request)
+		return entries, total, err
+	}
+	slices.SortFunc(entries, func(left, right listedEntry) int { return text.CompareCodePoints(left.id, right.id) })
+	return entries[:min(len(entries), request.limit+1)], total, nil
 }
 
 func (ix *Index) List(ctx context.Context, params model.ListParams) (model.ListResult, error) {
@@ -205,7 +210,6 @@ func (ix *Index) List(ctx context.Context, params model.ListParams) (model.ListR
 	if err != nil {
 		return model.ListResult{}, stoppedSearchFailure(ctx, err)
 	}
-	sortListed(entries, request.directions)
 	result := model.ListResult{Total: total, Documents: []model.ListedDocument{}}
 	if len(entries) > limit {
 		entries = entries[:limit]

@@ -21,7 +21,6 @@ type searcher struct {
 	combineLists []postingList
 	combined     rowColumns
 	rowOfField   []int32
-	everyOrdinal []uint32
 	work         *core.WorkMeter
 	ownMeter     *core.WorkMeter
 	paged        pagedPool
@@ -63,20 +62,6 @@ func (s *searcher) meter(query *KeywordQuery) error {
 	}
 	s.ownMeter, s.work = meter, meter
 	return nil
-}
-
-func (s *searcher) live(segment *Segment) ([]uint32, error) {
-	if segment.Growing != nil || segment.Live != nil {
-		return segment.liveBits()
-	}
-	words := bitsetWords(segment.capacity())
-	if len(s.everyOrdinal) < words {
-		s.everyOrdinal = make([]uint32, max(words, 2*len(s.everyOrdinal)))
-		for at := range s.everyOrdinal {
-			s.everyOrdinal[at] = ^uint32(0)
-		}
-	}
-	return s.everyOrdinal[:words], nil
 }
 
 func validateView(view *View) error {
@@ -223,7 +208,7 @@ func (s *searcher) searchSegment(view *View, index int, query *KeywordQuery, sta
 	}
 	request.PoolDocIDs, request.PoolFrequencies, request.PoolFields = s.poolOf(segment)
 	request.HasFilter, request.Filter = hasFilter, filter
-	live, err := s.live(segment)
+	live, err := segment.liveBits()
 	if err != nil {
 		return nil, err
 	}

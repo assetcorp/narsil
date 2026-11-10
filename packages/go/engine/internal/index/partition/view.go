@@ -105,12 +105,25 @@ func (f *frozenSide) querySegment() query.Segment {
 		SpellingRuns:      &keyword.SpellingRuns,
 		FrozenLengths:     keyword.FieldLengths,
 		FrozenFieldTotals: f.totals,
+		Live:              f.liveBits(),
 		Fields:            frozenIndexes(f.segment),
 	}
 	if f.segment.paged != nil {
 		built.Paged = f.segment.paged
 	}
 	return built
+}
+
+func (f *frozenSide) liveBits() []uint32 {
+	count := f.segment.documentCount()
+	if count == 0 {
+		return make([]uint32, 1)
+	}
+	live := everyOrdinal(count)
+	for word, removed := range f.state.Core.Tombstones[:min(len(live), len(f.state.Core.Tombstones))] {
+		live[word] &^= removed
+	}
+	return live
 }
 
 func (s *side) growingLive() []uint32 {
@@ -126,6 +139,10 @@ func (s *side) refreshView(p *Partition) {
 		FieldNames: append([]string(nil), s.names.names[:s.viewFields]...),
 		Schema:     p.schema,
 		Segments:   make([]query.Segment, 0, len(s.frozen)+1),
+		Built:      query.NewBuiltColumns(),
+	}
+	if s.view != nil {
+		s.view.Built.Release()
 	}
 	for at := range s.frozen {
 		view.Segments = append(view.Segments, s.frozen[at].querySegment())

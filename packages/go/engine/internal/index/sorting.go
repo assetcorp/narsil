@@ -5,7 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/cursor"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
@@ -14,18 +17,6 @@ import (
 
 func quoted(value string) string {
 	return `"` + value + `"`
-}
-
-func sortModeOf(entry model.SortField) text.SortMode {
-	return text.SortModeOf(text.SortDirection(entry.Direction), text.SortMode(entry.Mode))
-}
-
-func sortModesOf(fields []model.SortField) []text.SortMode {
-	modes := make([]text.SortMode, len(fields))
-	for index, entry := range fields {
-		modes[index] = sortModeOf(entry)
-	}
-	return modes
 }
 
 func sortDirectionsOf(fields []model.SortField) []text.SortDirection {
@@ -116,50 +107,143 @@ func requireSortableFields(sort []model.SortField, parsed *schema.Parsed, strict
 	return nil
 }
 
-func documentProperty(container any, key string) (any, bool, bool) {
-	document, isDocument := container.(*codec.Document)
-	if !isDocument {
-		return nil, false, false
-	}
-	value, found := codec.HeldValue(document, key)
-	return value, found, true
+type sortedRead struct {
+	fields []model.SortField
+	limit  int
+	anchor *cursor.PageCursor
 }
 
-func readSortValues(document *codec.Document, fields []string, modes []text.SortMode) []text.SortValue {
-	values := make([]text.SortValue, len(fields))
-	for index, field := range fields {
-		if document == nil {
-			values[index] = text.MissingSortValue()
+func (r sortedRead) request(partitionAt int, snapshot partition.Snapshot) *query.SortRequest {
+	request := &query.SortRequest{Fields: r.fields, Limit: r.limit, IDOf: snapshot.IDAt, Partition: partitionAt}
+	if r.anchor != nil {
+		request.Anchor, request.AnchorID = r.anchor.SortKey, r.anchor.Anchor
+		if request.Anchor == nil {
+			request.Anchor = []text.SortValue{}
+		}
+	}
+	return request
+}
+
+func sortedPages(views []*query.View, snapshots []partition.Snapshot, matched [][][]uint32, read sortedRead) ([][]query.SortedEntry, error) {
+	pages := make([][]query.SortedEntry, 0, len(views)+1)
+	for at, view := range views {
+		request := read.request(at, snapshots[at])
+		if matched != nil {
+			if matched[at] == nil {
+				continue
+			}
+			request.Matched = matched[at]
+		}
+		page, err := query.SortedPage(view, request)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, page)
+	}
+	return pages, nil
+}
+
+func mergedSortedPages(pages [][]query.SortedEntry, read sortedRead) ([]query.SortedEntry, error) {
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return nil, err
+	}
+	defer workspace.Release()
+	return query.MergeSortedEntries(workspace, pages, sortDirectionsOf(read.fields), read.limit)
+}
+
+func sortedEntries(views []*query.View, snapshots []partition.Snapshot, matched [][][]uint32, read sortedRead) ([]query.SortedEntry, error) {
+	pages, err := sortedPages(views, snapshots, matched, read)
+	if err != nil {
+		return nil, err
+	}
+	return mergedSortedPages(pages, read)
+}
+
+func missingSortKey(fields int) []text.SortValue {
+	key := make([]text.SortValue, fields)
+	for at := range key {
+		key[at] = text.MissingSortValue()
+	}
+	return key
+}
+
+func (ix *Index) hitsInSortOrder(prepared *preparedQuery, hits []resultHit) ([]resultHit, map[string][]text.SortValue, error) {
+	keys := make(map[string][]text.SortValue, len(hits))
+	if len(hits) == 0 {
+		return hits, keys, nil
+	}
+	views, err := prepared.reads.views.all()
+	if err != nil {
+		return nil, nil, err
+	}
+	snapshots := prepared.reads.reading.Snapshots
+	matched := make([][][]uint32, len(views))
+	for _, hit := range hits {
+		at := ix.partitionOf(hit.ID)
+		segment, ordinal, found := snapshots[at].Locate(hit.ID)
+		if !found {
 			continue
 		}
-		mode := text.SortModeMin
-		if index < len(modes) && modes[index] != "" {
-			mode = modes[index]
+		if matched[at] == nil {
+			matched[at] = query.MatchedSets(views[at])
 		}
-		raw, found := text.ReadSortField(document, field, documentProperty)
-		if !found {
-			raw = nil
-		}
-		values[index] = text.ToReducedSortValue(raw, mode)
+		query.MarkMatched(matched[at], segment, ordinal)
 	}
-	return values
+	read := sortedRead{fields: prepared.params.Sort, limit: len(hits)}
+	pages, err := sortedPages(views, snapshots, matched, read)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, page := range pages {
+		for _, entry := range page {
+			keys[entry.ID] = entry.Key
+		}
+	}
+	var unplaced []query.SortedEntry
+	byID := make(map[string]resultHit, len(hits))
+	for _, hit := range hits {
+		byID[hit.ID] = hit
+		if _, placed := keys[hit.ID]; !placed {
+			unplaced = append(unplaced, query.SortedEntry{ID: hit.ID, Key: missingSortKey(len(read.fields))})
+		}
+	}
+	slices.SortFunc(unplaced, func(left, right query.SortedEntry) int { return text.CompareCodePoints(left.ID, right.ID) })
+	for _, entry := range unplaced {
+		keys[entry.ID] = entry.Key
+	}
+	merged, err := mergedSortedPages(append(pages, unplaced), read)
+	if err != nil {
+		return nil, nil, err
+	}
+	ordered := make([]resultHit, len(merged))
+	for at, entry := range merged {
+		ordered[at] = byID[entry.ID]
+	}
+	return ordered, keys, nil
 }
 
-func applySorting(hits []resultHit, sort []model.SortField, sortKeyOf func(id string) []text.SortValue) []resultHit {
-	if len(sort) == 0 {
-		return hits
-	}
-	directions := sortDirectionsOf(sort)
-	keys := make(map[string][]text.SortValue, len(hits))
-	for _, hit := range hits {
-		keys[hit.ID] = sortKeyOf(hit.ID)
-	}
-	sorted := append([]resultHit(nil), hits...)
-	slices.SortStableFunc(sorted, func(left, right resultHit) int {
-		if comparison := text.CompareComparableKeys(keys[left.ID], keys[right.ID], directions); comparison != 0 {
-			return comparison
+func (ix *Index) withSortedPage(prepared *preparedQuery, views []*query.View, matched [][][]uint32, result *fanOutResult) error {
+	read := sortedRead{fields: prepared.params.Sort, limit: prepared.offset + prepared.limit + 1}
+	if encoded, set := prepared.params.SearchAfter.Get(); set {
+		parsed, err := cursor.DecodePageCursor(encoded)
+		if err != nil {
+			return err
 		}
-		return text.CompareCodePoints(left.ID, right.ID)
-	})
-	return sorted
+		if err := cursor.RequireMatchingCursor(parsed, encoded, prepared.sortSignature, true, prepared.binding()); err != nil {
+			return err
+		}
+		read.anchor = &parsed
+	}
+	entries, err := sortedEntries(views, prepared.reads.reading.Snapshots, matched, read)
+	if err != nil {
+		return err
+	}
+	result.scored = make([]scoredHit, len(entries))
+	result.sortKeys = make(map[string][]text.SortValue, len(entries))
+	for at, entry := range entries {
+		result.scored[at] = scoredHit{ID: entry.ID}
+		result.sortKeys[entry.ID] = entry.Key
+	}
+	return nil
 }

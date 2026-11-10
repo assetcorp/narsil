@@ -50,6 +50,7 @@ type View struct {
 	FieldNames []string
 	Schema     map[string]schema.ParsedFieldType
 	Segments   []Segment
+	Built      *BuiltColumns
 }
 
 func (s *Segment) valid() bool {
