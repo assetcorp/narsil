@@ -9,11 +9,7 @@ use super::index::IndexState;
 use crate::analysis::{Analyser, ResolvedAnalysis, TokenOptions};
 use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
-use crate::index::segment::SegmentEntry;
-use crate::search::lookup::live_document_frequency;
-use crate::search::words::{
-    live_surface_count, verbatim_occurrences, visit_surfaces_with_prefix, visit_tokens_with_prefix,
-};
+use crate::keyword::expansion::ExpansionSources;
 use crate::util::text::javascript_trim;
 
 const UNSTEMMED_PREFIX: TokenOptions = TokenOptions {
@@ -68,10 +64,6 @@ impl TokenGroup {
         }
     }
 
-    fn holds_surface(&self, surface: &str) -> bool {
-        self.surfaces.iter().any(|(held, _)| held == surface)
-    }
-
     fn absorb(&mut self, other: TokenGroup) {
         self.document_frequency = self
             .document_frequency
@@ -120,73 +112,9 @@ impl GroupList {
         &mut self.groups[at].1
     }
 
-    fn get(&self, token: &str) -> Option<&TokenGroup> {
-        self.at.get(token).map(|at| &self.groups[*at].1)
-    }
-
     fn absorb(&mut self, token: String, group: TokenGroup) {
         self.group(&token).absorb(group);
     }
-}
-
-fn segment_suggestions(
-    entry: &SegmentEntry,
-    surface_prefix: &str,
-    stemmed_prefix: &str,
-) -> Result<GroupList> {
-    let mut groups = GroupList::default();
-    visit_surfaces_with_prefix(entry, surface_prefix, &mut |surface, token, occurrences| {
-        let documents = live_document_frequency(entry, token);
-        if documents == 0 {
-            return;
-        }
-        let group = groups.group(token);
-        if group.surfaces.is_empty() {
-            group.document_frequency = documents;
-        }
-        group.surfaces.push((surface.to_string(), occurrences));
-    });
-    let mut prefixes = vec![surface_prefix];
-    if live_surface_count(entry) == 0
-        && stemmed_prefix != surface_prefix
-        && !stemmed_prefix.is_empty()
-    {
-        prefixes.push(stemmed_prefix);
-    }
-    for prefix in prefixes {
-        let mut tokens = Vec::new();
-        visit_tokens_with_prefix(entry, prefix, &mut |token| tokens.push(token.to_string()));
-        for token in tokens {
-            let occurrences = verbatim_occurrences(entry, &token)?;
-            if occurrences == 0 {
-                continue;
-            }
-            if groups
-                .get(&token)
-                .is_some_and(|group| group.holds_surface(&token))
-            {
-                continue;
-            }
-            let fresh = groups.get(&token).is_none();
-            let group = groups.group(&token);
-            if fresh {
-                group.document_frequency = live_document_frequency(entry, &token);
-            }
-            group.surfaces.push((token.clone(), occurrences));
-        }
-    }
-    Ok(groups)
-}
-
-fn by_documents_then_token(
-    left: &(String, TokenGroup),
-    right: &(String, TokenGroup),
-) -> std::cmp::Ordering {
-    right
-        .1
-        .document_frequency
-        .cmp(&left.1.document_frequency)
-        .then_with(|| left.0.cmp(&right.0))
 }
 
 fn partition_suggestions(
@@ -195,19 +123,23 @@ fn partition_suggestions(
     stemmed_prefix: &str,
     limit: usize,
 ) -> Result<Vec<(String, TokenGroup)>> {
-    let mut merged = GroupList::default();
-    for entry in &snapshot.segments {
-        if entry.live_count() == 0 {
-            continue;
-        }
-        for (token, group) in segment_suggestions(entry, surface_prefix, stemmed_prefix)?.groups {
-            merged.absorb(token, group);
-        }
-    }
-    let mut ranked = merged.groups;
-    ranked.sort_by(by_documents_then_token);
-    ranked.truncate(limit);
-    Ok(ranked)
+    let limit = u32::try_from(limit).unwrap_or(u32::MAX);
+    let suggestions =
+        ExpansionSources::of(snapshot)?.suggest(surface_prefix, stemmed_prefix, limit)?;
+    Ok(suggestions
+        .into_iter()
+        .map(|suggestion| {
+            let group = TokenGroup {
+                document_frequency: u64::from(suggestion.document_frequency),
+                surfaces: suggestion
+                    .spellings
+                    .into_iter()
+                    .map(|(spelling, occurrences)| (spelling, occurrences as u64))
+                    .collect(),
+            };
+            (suggestion.token, group)
+        })
+        .collect())
 }
 
 fn suggestion_limit(limit: Option<usize>) -> usize {

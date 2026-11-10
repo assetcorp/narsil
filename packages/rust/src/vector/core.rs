@@ -87,8 +87,12 @@ fn checked(status: ffi::narsil_status, what: &str) -> Result<()> {
     }
 }
 
-pub(crate) struct Accepted<'a> {
-    pub(crate) bits: &'a [u8],
+pub(crate) struct GraphSearch<'a> {
+    pub(crate) query: &'a [f32],
+    pub(crate) metric: u32,
+    pub(crate) candidates: usize,
+    pub(crate) accepted: Option<&'a [u8]>,
+    pub(crate) pin: i64,
 }
 
 impl Scratch {
@@ -96,32 +100,29 @@ impl Scratch {
         &mut self,
         store: &StoreTables,
         graph: &GraphTables,
-        query: &[f32],
-        metric: u32,
-        candidates: usize,
-        accepted: Option<Accepted<'_>>,
-        pin: i64,
+        search: &GraphSearch<'_>,
     ) -> Result<usize> {
+        let candidates = search.candidates;
         self.ordinals.resize(candidates, 0);
         self.distances.resize(candidates, 0.0);
         let raw_store = store.raw();
         let raw_graph = graph.raw();
         let request = ffi::narsil_search_request {
-            query: query.as_ptr(),
-            metric,
+            query: search.query.as_ptr(),
+            metric: search.metric,
             candidate_count: candidates as u32,
             thread_slot: self.slot,
-            accepted: match accepted {
-                Some(set) => ffi::narsil_ordinal_set {
-                    bits: set.bits.as_ptr(),
-                    bytes: set.bits.len() as u32,
+            accepted: match search.accepted {
+                Some(bits) => ffi::narsil_ordinal_set {
+                    bits: bits.as_ptr(),
+                    bytes: bits.len() as u32,
                 },
                 None => ffi::narsil_ordinal_set {
                     bits: ptr::null(),
                     bytes: 0,
                 },
             },
-            pin,
+            pin: search.pin,
         };
         let mut nearest = ffi::narsil_candidates {
             ordinals: self.ordinals.as_mut_ptr(),

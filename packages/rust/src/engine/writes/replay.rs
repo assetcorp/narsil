@@ -4,6 +4,7 @@ use super::apply_remove;
 use crate::engine::durable::log::PendingLog;
 use crate::engine::index::IndexState;
 use crate::error::Result;
+use crate::index::segment::SegmentEntry;
 use crate::value::Map;
 
 /// Applies an `INDEX` record of the write-ahead log: the document replaces any copy that the index holds, without
@@ -32,8 +33,9 @@ pub(crate) fn place_document(
     let vectors = index.vectors.take_vectors(&mut document, false);
     let indexed = index.index_document(&document)?;
     index.vectors.insert_vectors(id, &vectors)?;
-    let appended =
-        partition.write(|snapshot| snapshot.append(id.to_string(), Arc::new(document), indexed));
+    let freeze = |entry: &SegmentEntry| index.freeze_entry(entry);
+    let appended = partition
+        .write(|snapshot| snapshot.append(id.to_string(), Arc::new(document), indexed, &freeze));
     if appended.is_err() {
         let _ = index.vectors.remove_vectors(id);
     }

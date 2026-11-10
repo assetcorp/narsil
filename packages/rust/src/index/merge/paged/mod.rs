@@ -1,13 +1,16 @@
 mod documents;
 mod lists;
+mod metadata;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::columns::merge_columns;
-use super::inputs::{MergeInput, merge_field_lengths, prepare};
-use super::postings::MergedPostings;
+use super::freeze_segment;
+use super::inputs::{MergeInput, prepare};
+use super::keywords::MergedPostings;
+use super::partial_table::partial_table;
 use super::tail_columns::{InputColumns, input_columns};
-use super::words::{merge_partial_words, merge_surfaces};
 use crate::error::Result;
 use crate::format::keyword_segment::KeywordSegment;
 use crate::format::paged_segment::assemble::{AssembledSection, write_assembled};
@@ -16,15 +19,15 @@ use crate::format::paged_segment::removal_sort::RemovalWriter;
 use crate::format::paged_segment::sink::{ScratchNames, SectionSink};
 use crate::format::paged_segment::{head_of, resident_sections, surface_section};
 use crate::index::constants::MERGE_READ_CACHE_BYTES;
+use crate::index::frozen::FrozenSegment;
 use crate::index::paged::merge_cache_scope;
-use crate::index::segment::SegmentEntry;
+use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::schema::{CompiledSchema, flatten_schema};
 
 use documents::{DocumentSinks, write_documents, write_id_order};
 use lists::{ListSinks, posting_upper_bound, tracks_positions, write_merged_lists};
+use metadata::{PagedStrings, merge_paged_lengths, merge_paged_strings};
 
-/// A merged paged segment ready to assemble: its head, its resident sections, and the sections that wait in
-/// scratch files, which the merge removes once it drops.
 pub(crate) struct PagedMerge {
     head: PagedHead,
     sections: Vec<AssembledSection>,
@@ -35,13 +38,29 @@ impl PagedMerge {
         self.head.document_count
     }
 
-    /// Hands every byte of the merged segment's payload to `write` in order.
     pub(crate) fn write_payload(
         &mut self,
         write: &mut dyn FnMut(&[u8]) -> Result<()>,
     ) -> Result<()> {
         write_assembled(&self.head, &mut self.sections, write)
     }
+}
+
+fn frozen_entries(entries: &[SegmentEntry], schema: &CompiledSchema) -> Result<Vec<SegmentEntry>> {
+    let mut frozen = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match &entry.data {
+            SegmentData::Frozen(_) => frozen.push(entry.clone()),
+            SegmentData::Tail(_) => {
+                let segment = FrozenSegment::new(freeze_segment(entry, schema)?);
+                frozen.push(SegmentEntry::new(
+                    entry.id,
+                    SegmentData::Frozen(Arc::new(segment)),
+                ));
+            }
+        }
+    }
+    Ok(frozen)
 }
 
 fn length_columns(segment: &KeywordSegment) -> Vec<Option<&[u32]>> {
@@ -61,6 +80,7 @@ fn length_columns(segment: &KeywordSegment) -> Vec<Option<&[u32]>> {
 fn resident_columns(
     inputs: &[MergeInput<'_>],
     schema: &CompiledSchema,
+    strings: PagedStrings,
     resident: &mut KeywordSegment,
 ) -> Result<()> {
     let mut per_input: Vec<(InputColumns<'_>, &MergeInput<'_>)> = Vec::with_capacity(inputs.len());
@@ -74,25 +94,19 @@ fn resident_columns(
     resident.enums = columns.enums;
     resident.geopoint = columns.geopoint;
     resident.pattern = columns.pattern;
-    resident.surface_forms = merge_surfaces(inputs)?;
+    resident.surface_forms = strings.surface_forms;
     let token_table = MergedPostings {
         tokens: std::mem::take(&mut resident.tokens),
         token_offsets: std::mem::take(&mut resident.token_offsets),
         ..MergedPostings::default()
     };
-    resident.partial_words = merge_partial_words(inputs, &token_table, schema.partial_fields())?;
+    let partial_words = partial_table(&strings.spellings, &token_table, schema.partial_fields());
     resident.tokens = token_table.tokens;
     resident.token_offsets = token_table.token_offsets;
+    resident.partial_words = partial_words?;
     Ok(())
 }
 
-/// Merges the live documents of `entries` into a paged keyword segment that lists `tombstones`, laid out byte for
-/// byte as a merge into a keyword segment and its paged encoding would lay it out, while holding in memory only
-/// the per-document and per-token tables, a read cache of `MERGE_READ_CACHE_BYTES`, and fixed write buffers. Every
-/// section that grows with the text waits in a scratch file whose path starts with `scratch`.
-///
-/// Raises `PERSISTENCE_SAVE_FAILED` where the merged segment would hold more than its layout can number or a
-/// scratch file fails, and `PARTITION_CORRUPTED` or `PERSISTENCE_LOAD_FAILED` where an input contradicts itself.
 pub(crate) fn merge_paged_segments(
     entries: &[SegmentEntry],
     schema: &CompiledSchema,
@@ -101,18 +115,19 @@ pub(crate) fn merge_paged_segments(
 ) -> Result<PagedMerge> {
     let _cache = merge_cache_scope(MERGE_READ_CACHE_BYTES);
     let names = ScratchNames::new(scratch);
-    let (inputs, document_count, field_names) = prepare(entries)?;
+    let frozen = frozen_entries(entries, schema)?;
+    let (inputs, document_count, field_names) = prepare(&frozen)?;
     let mut resident = KeywordSegment {
         schema: flatten_schema(&schema.definition),
         document_count,
         field_names,
-        field_lengths: merge_field_lengths(&inputs, document_count),
+        field_lengths: merge_paged_lengths(&inputs, document_count)?,
         ..KeywordSegment::default()
     };
     let mut lists = ListSinks {
         postings: SectionSink::open(&names, "postings")?,
         token_totals: SectionSink::open(&names, "tokenTotals")?,
-        positions: match tracks_positions(&inputs) {
+        positions: match tracks_positions(&inputs)? {
             true => Some((
                 SectionSink::open(&names, "positionOffsets")?,
                 SectionSink::open(&names, "positions")?,
@@ -120,9 +135,10 @@ pub(crate) fn merge_paged_segments(
             false => None,
         },
     };
-    let mut removals = RemovalWriter::open(&names, document_count, posting_upper_bound(&inputs))?;
+    let mut removals = RemovalWriter::open(&names, document_count, posting_upper_bound(&inputs)?)?;
     let written = write_merged_lists(
         &inputs,
+        document_count,
         &length_columns(&resident),
         &mut lists,
         &mut removals,
@@ -138,9 +154,16 @@ pub(crate) fn merge_paged_segments(
     let document_blocks = write_documents(&inputs, &schema.vector_paths, &mut documents)?;
     let mut id_order = SectionSink::open(&names, "idOrder")?;
     let id_sample = write_id_order(&inputs, document_count, &mut id_order)?;
+    let strings = merge_paged_strings(
+        &inputs,
+        document_count,
+        &written.tokens,
+        &written.token_offsets,
+        &written.document_frequencies,
+    )?;
     resident.tokens = written.tokens;
     resident.token_offsets = written.token_offsets;
-    resident_columns(&inputs, schema, &mut resident)?;
+    resident_columns(&inputs, schema, strings, &mut resident)?;
     let mut sections: Vec<AssembledSection> =
         resident_sections(&resident, written.sections, document_blocks, id_sample)
             .into_iter()

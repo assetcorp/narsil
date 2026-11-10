@@ -3,26 +3,12 @@ use std::sync::Arc;
 
 use super::derived::DerivedColumns;
 use super::indexed::IndexedDocument;
-use super::spellings::StoredSpellings;
-use super::words::StoredSurfaces;
+use crate::error::Result;
+use crate::keyword::growing::{GrowingSegment, Indexed};
+use crate::keyword::tokens::SegmentFieldTokens;
 use crate::value::{Map, Value};
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TailPosting {
-    pub(crate) document: u32,
-    pub(crate) frequency: u16,
-    pub(crate) field: u16,
-}
-
-#[derive(Default)]
-pub(crate) struct TailTerm {
-    pub(crate) postings: Vec<TailPosting>,
-    pub(crate) positions: Vec<Vec<u32>>,
-    pub(crate) documents: u32,
-    pub(crate) total_frequency: u64,
-}
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TailColumns {
     pub(crate) numeric: BTreeMap<String, Vec<(u32, f64)>>,
     pub(crate) sizes: BTreeMap<String, Vec<(u32, f64)>>,
@@ -32,35 +18,54 @@ pub(crate) struct TailColumns {
     pub(crate) patterns: BTreeMap<String, Vec<(u32, Value)>>,
 }
 
-pub(crate) struct DocumentWords {
-    pub(crate) field_lengths: Vec<(u16, u32)>,
+pub(crate) enum Appended {
+    Stored,
+    SegmentFull(IndexedDocument),
 }
 
-/// The newest documents of a partition, which the writer appends to in place while no search holds them.
-#[derive(Default)]
 pub(crate) struct TailSegment {
     pub(crate) ids: Vec<String>,
     pub(crate) id_lookup: HashMap<String, u32>,
     pub(crate) documents: Vec<Arc<Map>>,
-    pub(crate) terms: BTreeMap<String, TailTerm>,
+    pub(crate) keyword: GrowingSegment,
     pub(crate) field_names: Vec<String>,
     pub(crate) field_slots: HashMap<String, u16>,
-    pub(crate) field_lengths: Vec<Vec<u32>>,
-    pub(crate) words: Vec<DocumentWords>,
-    pub(crate) surfaces: StoredSurfaces,
-    pub(crate) document_surfaces: Vec<Vec<u32>>,
-    pub(crate) spellings: StoredSpellings,
     pub(crate) columns: TailColumns,
     pub(crate) track_positions: bool,
     pub(crate) derived: DerivedColumns,
     name_ranks: Vec<u16>,
 }
 
+impl Clone for TailSegment {
+    fn clone(&self) -> TailSegment {
+        TailSegment {
+            ids: self.ids.clone(),
+            id_lookup: self.id_lookup.clone(),
+            documents: self.documents.clone(),
+            keyword: self.keyword.clone(),
+            field_names: self.field_names.clone(),
+            field_slots: self.field_slots.clone(),
+            columns: self.columns.clone(),
+            track_positions: self.track_positions,
+            derived: DerivedColumns::default(),
+            name_ranks: self.name_ranks.clone(),
+        }
+    }
+}
+
 impl TailSegment {
     pub(crate) fn new(track_positions: bool) -> TailSegment {
         TailSegment {
+            ids: Vec::new(),
+            id_lookup: HashMap::new(),
+            documents: Vec::new(),
+            keyword: GrowingSegment::new(track_positions),
+            field_names: Vec::new(),
+            field_slots: HashMap::new(),
+            columns: TailColumns::default(),
             track_positions,
-            ..TailSegment::default()
+            derived: DerivedColumns::default(),
+            name_ranks: Vec::new(),
         }
     }
 
@@ -72,6 +77,10 @@ impl TailSegment {
         &self.name_ranks
     }
 
+    pub(crate) fn is_removed(&self, ordinal: u32) -> bool {
+        self.keyword.is_retired(ordinal)
+    }
+
     fn field_slot(&mut self, path: &str) -> u16 {
         if let Some(&slot) = self.field_slots.get(path) {
             return slot;
@@ -79,65 +88,86 @@ impl TailSegment {
         let slot = self.field_names.len() as u16;
         self.field_names.push(path.to_string());
         self.field_slots.insert(path.to_string(), slot);
-        self.field_lengths.push(vec![0; self.ids.len()]);
         self.name_ranks = crate::index::fields::name_ranks(&self.field_names);
         slot
     }
 
-    /// Appends a document and its analysis, returning its ordinal in this tail.
+    fn known_fields<'a>(&self, indexed: &'a IndexedDocument) -> Vec<SegmentFieldTokens<'a>> {
+        let mut fields: Vec<SegmentFieldTokens<'a>> = indexed
+            .text
+            .iter()
+            .filter_map(|field| {
+                let slot = *self.field_slots.get(&field.path)?;
+                Some(SegmentFieldTokens {
+                    field: slot,
+                    tokens: &field.tokens,
+                })
+            })
+            .collect();
+        fields.sort_by_key(|field| field.field);
+        fields
+    }
+
     pub(crate) fn append(
         &mut self,
         id: String,
         document: Arc<Map>,
         indexed: IndexedDocument,
-    ) -> u32 {
+    ) -> Result<Appended> {
         let ordinal = self.ids.len() as u32;
+        let mut partial = Vec::new();
+        for field in &indexed.text {
+            let slot = self.field_slot(&field.path);
+            if field.partial {
+                partial.push(slot);
+            }
+        }
+        self.keyword
+            .reserve_fields(ordinal as usize + 1, self.field_names.len())?;
+        for slot in partial {
+            self.keyword.mark_partial(slot as usize);
+        }
+        let fields = self.known_fields(&indexed);
+        if self.keyword.index(ordinal, &fields)? == Indexed::SegmentFull {
+            return Ok(Appended::SegmentFull(indexed));
+        }
         self.id_lookup.insert(id.clone(), ordinal);
         self.ids.push(id);
         self.documents.push(document);
-        for lengths in &mut self.field_lengths {
-            lengths.push(0);
+        self.append_columns(ordinal, indexed);
+        Ok(Appended::Stored)
+    }
+
+    pub(crate) fn remove(&mut self, ordinal: u32, indexed: &IndexedDocument) -> Result<bool> {
+        if ordinal as usize >= self.ids.len() || self.is_removed(ordinal) {
+            return Ok(false);
         }
-        let mut field_lengths = Vec::with_capacity(indexed.text.len());
-        for field in indexed.text {
-            let slot = self.field_slot(&field.path);
-            self.field_lengths[slot as usize][ordinal as usize] = field.length;
-            field_lengths.push((slot, field.length));
-            for occurrence in field.terms {
-                let term = self.terms.entry(occurrence.term).or_default();
-                let first_for_document = term
-                    .postings
-                    .last()
-                    .is_none_or(|posting| posting.document != ordinal);
-                if first_for_document {
-                    term.documents += 1;
-                }
-                term.total_frequency += u64::from(occurrence.frequency);
-                term.postings.push(TailPosting {
-                    document: ordinal,
-                    frequency: occurrence.frequency,
-                    field: slot,
-                });
-                if self.track_positions {
-                    term.positions.push(occurrence.positions);
-                }
+        let fields = self.known_fields(indexed);
+        self.keyword.remove(ordinal, &fields)?;
+        Ok(true)
+    }
+
+    fn append_columns(&mut self, ordinal: u32, indexed: IndexedDocument) {
+        for (path, values) in indexed.numeric {
+            let column = self.columns.numeric.entry(path).or_default();
+            column.extend(values.into_iter().map(|value| (ordinal, value)));
+        }
+        for (path, size) in indexed.sizes {
+            self.columns
+                .sizes
+                .entry(path)
+                .or_default()
+                .push((ordinal, size));
+        }
+        for (path, values) in indexed.booleans {
+            let column = self.columns.booleans.entry(path).or_default();
+            if values.contains(&true) {
+                column.0.push(ordinal);
+            }
+            if values.contains(&false) {
+                column.1.push(ordinal);
             }
         }
-        let mut surface_slots = Vec::with_capacity(indexed.surfaces.len());
-        for entry in &indexed.surfaces {
-            surface_slots.extend(self.surfaces.add(
-                &entry.surface,
-                &entry.token,
-                u64::from(entry.count),
-            ));
-        }
-        self.document_surfaces.push(surface_slots);
-        for entry in &indexed.spellings {
-            self.spellings
-                .add(&entry.spelling, &entry.token, u64::from(entry.count));
-        }
-        self.words.push(DocumentWords { field_lengths });
-        self.append_columns(ordinal, indexed.numeric, indexed.sizes, indexed.booleans);
         for (path, values) in indexed.enums {
             let column = self.columns.enums.entry(path).or_default();
             for value in values {
@@ -161,36 +191,6 @@ impl TailSegment {
                 .or_default()
                 .push((ordinal, value));
         }
-        ordinal
-    }
-
-    fn append_columns(
-        &mut self,
-        ordinal: u32,
-        numeric: Vec<(String, Vec<f64>)>,
-        sizes: Vec<(String, f64)>,
-        booleans: Vec<(String, Vec<bool>)>,
-    ) {
-        for (path, values) in numeric {
-            let column = self.columns.numeric.entry(path).or_default();
-            column.extend(values.into_iter().map(|value| (ordinal, value)));
-        }
-        for (path, size) in sizes {
-            self.columns
-                .sizes
-                .entry(path)
-                .or_default()
-                .push((ordinal, size));
-        }
-        for (path, values) in booleans {
-            let column = self.columns.booleans.entry(path).or_default();
-            if values.contains(&true) {
-                column.0.push(ordinal);
-            }
-            if values.contains(&false) {
-                column.1.push(ordinal);
-            }
-        }
     }
 
     pub(crate) fn ordinal_of(&self, id: &str) -> Option<u32> {
@@ -198,8 +198,10 @@ impl TailSegment {
     }
 
     pub(crate) fn field_length_column(&self, field: u16) -> &[u32] {
-        self.field_lengths
-            .get(field as usize)
-            .map_or(&[], Vec::as_slice)
+        self.keyword.field_length_column(field as usize)
+    }
+
+    pub(crate) fn field_length(&self, field: u16, ordinal: u32) -> u32 {
+        self.keyword.field_length(field as usize, ordinal)
     }
 }

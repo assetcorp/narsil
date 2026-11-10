@@ -72,7 +72,7 @@ pub(super) fn remove_replaced<'a>(
     ids: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
     let partitions = index.partitions();
-    let analyse = |document: &Map| index.index_document(document).ok();
+    let analyse = |document: &Map| index.index_document(document);
     for id in ids {
         if let Some(at) = index.locate(&partitions, id)? {
             partitions[at].write(|snapshot| snapshot.remove(id, &analyse))?;

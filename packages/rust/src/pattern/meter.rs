@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
 use super::constants::{DEFAULT_PATTERN_WORK_CAP, PATTERN_WORK_FLUSH_UNITS};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::ffi;
 
 pub(crate) struct WorkMeter {
     cap: i64,
     spent: AtomicI64,
+    stop: AtomicU32,
     prepared_typo_tests: Mutex<HashSet<String>>,
 }
 
@@ -31,8 +33,22 @@ impl WorkMeter {
         WorkMeter {
             cap,
             spent: AtomicI64::new(0),
+            stop: AtomicU32::new(0),
             prepared_typo_tests: Mutex::new(HashSet::new()),
         }
+    }
+
+    pub(crate) fn native(&self) -> ffi::narsil_work_meter {
+        ffi::narsil_work_meter {
+            spent: self.spent.as_ptr(),
+            cap: self.cap,
+            stop: self.stop.as_ptr(),
+            deadline: 0,
+        }
+    }
+
+    pub(crate) fn exceeded(&self) -> NarsilError {
+        cap_exceeded(self.cap)
     }
 
     pub(crate) fn spent(&self) -> i64 {

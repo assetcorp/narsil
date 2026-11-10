@@ -4,7 +4,6 @@ pub(crate) const PREFLIGHT_VECTOR_DEPTH: usize = 1_000;
 pub(crate) const DEFAULT_FUZZY_PREFIX_LENGTH: u32 = 2;
 pub(crate) const MAX_TOLERANCE: u32 = 10;
 pub(crate) const MAX_PREFIX_LENGTH: u32 = 1024;
-pub(crate) const PREFIX_MAX_EXPANSIONS: usize = 50;
 pub(crate) const PARTIAL_WORDS_ADDED_PER_QUERY: usize = 50;
 pub(crate) const PARTIAL_WORD_MIN_CODE_POINTS: usize = 3;
 pub(crate) const DEFAULT_RANK_CONSTANT: f64 = 60.0;

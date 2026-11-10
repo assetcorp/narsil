@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use super::doc_ids::OrdinalNames;
+use crate::search::rankings::score_then_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VectorHit {
@@ -9,18 +10,8 @@ pub(crate) struct VectorHit {
     pub(crate) ordinal: u32,
 }
 
-fn ordered_score(score: f64) -> f64 {
-    if score.is_nan() {
-        f64::NEG_INFINITY
-    } else {
-        score
-    }
-}
-
 pub(crate) fn best_first(left: (f64, &str), right: (f64, &str)) -> Ordering {
-    ordered_score(right.0)
-        .total_cmp(&ordered_score(left.0))
-        .then_with(|| left.1.cmp(right.1))
+    score_then_id(left, right)
 }
 
 pub(crate) struct Ranked<'n> {

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use super::frozen::FrozenSegment;
 use super::indexed::IndexedDocument;
-use super::spellings::StoredSpellings;
 use super::tail::TailSegment;
-use super::words::{RemovedWords, StoredSurfaces};
 use crate::error::Result;
+use crate::keyword::frozen_state::FrozenState;
+use crate::keyword::tokens::{PackedTokens, SegmentFieldTokens};
 use crate::value::Map;
 
 #[derive(Clone)]
@@ -15,14 +15,11 @@ pub(crate) enum SegmentData {
     Tail(Arc<TailSegment>),
 }
 
-/// One segment of a partition as a search sees it: its data and the ordinals that later writes removed from it.
 #[derive(Clone)]
 pub(crate) struct SegmentEntry {
     pub(crate) id: u64,
     pub(crate) data: SegmentData,
-    pub(crate) tombstones: Arc<Vec<u32>>,
-    pub(crate) removed: u32,
-    pub(crate) removed_words: Arc<RemovedWords>,
+    pub(crate) state: Option<Arc<FrozenState>>,
 }
 
 pub(crate) fn bit_is_set(words: &[u32], ordinal: u32) -> bool {
@@ -39,29 +36,41 @@ pub(crate) fn set_bit(words: &mut Vec<u32>, ordinal: u32) {
     words[word] |= 1 << (ordinal & 31);
 }
 
+fn frozen_fields(
+    segment: &FrozenSegment,
+    removed: &IndexedDocument,
+) -> Result<Vec<(u16, PackedTokens)>> {
+    let partial = segment.view.partial_fields();
+    let mut fields = Vec::new();
+    for field in &removed.text {
+        let Some(slot) = segment
+            .field_names()
+            .iter()
+            .position(|name| *name == field.path)
+        else {
+            continue;
+        };
+        let tokens = if partial.get(slot).copied().unwrap_or(0) == 1 {
+            field.tokens.clone()
+        } else {
+            field.tokens.holding_surfaces()?
+        };
+        fields.push((slot as u16, tokens));
+    }
+    fields.sort_by_key(|(slot, _)| *slot);
+    Ok(fields)
+}
+
 impl SegmentEntry {
     pub(crate) fn new(id: u64, data: SegmentData) -> SegmentEntry {
-        SegmentEntry {
-            id,
-            data,
-            tombstones: Arc::new(Vec::new()),
-            removed: 0,
-            removed_words: Arc::new(RemovedWords::default()),
-        }
-    }
-
-    pub(crate) fn stored_surfaces(&self) -> &StoredSurfaces {
-        match &self.data {
-            SegmentData::Frozen(segment) => &segment.surfaces,
-            SegmentData::Tail(tail) => &tail.surfaces,
-        }
-    }
-
-    pub(crate) fn stored_spellings(&self) -> &StoredSpellings {
-        match &self.data {
-            SegmentData::Frozen(segment) => &segment.spellings,
-            SegmentData::Tail(tail) => &tail.spellings,
-        }
+        let state = match &data {
+            SegmentData::Frozen(segment) => Some(Arc::new(FrozenState::new(
+                &segment.view,
+                segment.capacity(),
+            ))),
+            SegmentData::Tail(_) => None,
+        };
+        SegmentEntry { id, data, state }
     }
 
     pub(crate) fn capacity(&self) -> u32 {
@@ -72,43 +81,57 @@ impl SegmentEntry {
     }
 
     pub(crate) fn live_count(&self) -> u32 {
-        self.capacity().saturating_sub(self.removed)
+        match &self.data {
+            SegmentData::Frozen(segment) => segment
+                .capacity()
+                .saturating_sub(self.state.as_ref().map_or(0, |state| state.removed())),
+            SegmentData::Tail(tail) => tail.keyword.total_documents(),
+        }
     }
 
     pub(crate) fn is_removed(&self, ordinal: u32) -> bool {
-        bit_is_set(&self.tombstones, ordinal)
+        match &self.data {
+            SegmentData::Frozen(_) => self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.is_removed(ordinal)),
+            SegmentData::Tail(tail) => tail.is_removed(ordinal),
+        }
     }
 
-    /// Removes the document at `ordinal`, taking the words of `words`, its analysis, out of the segment's counts.
-    ///
-    /// A paged segment takes the document's terms from its removal entry instead, which it reads before it marks
-    /// the document removed, so that a damaged entry leaves the segment unchanged.
-    pub(crate) fn remove(&mut self, ordinal: u32, words: Option<&IndexedDocument>) -> Result<bool> {
+    pub(crate) fn removed_bits(&self) -> &[u32] {
+        match &self.data {
+            SegmentData::Frozen(_) => self.state.as_ref().map_or(&[], |state| state.tombstones()),
+            SegmentData::Tail(tail) => tail.keyword.retired(),
+        }
+    }
+
+    pub(crate) fn remove(&mut self, ordinal: u32, words: &IndexedDocument) -> Result<bool> {
         if ordinal >= self.capacity() || self.is_removed(ordinal) {
             return Ok(false);
         }
-        let entry_terms = match &self.data {
-            SegmentData::Frozen(segment) => segment.removal_entry(ordinal)?,
-            SegmentData::Tail(_) => None,
-        };
-        set_bit(Arc::make_mut(&mut self.tombstones), ordinal);
-        self.removed += 1;
-        let stored = match &self.data {
-            SegmentData::Frozen(segment) => &segment.surfaces,
-            SegmentData::Tail(tail) => &tail.surfaces,
-        };
-        let removed_words = Arc::make_mut(&mut self.removed_words);
-        match (entry_terms, words) {
-            (Some(terms), words) => {
-                removed_words.record_entry_terms(terms);
-                if let Some(words) = words {
-                    removed_words.record_surfaces(words, stored);
-                }
+        match &mut self.data {
+            SegmentData::Tail(tail) => Arc::make_mut(tail).remove(ordinal, words),
+            SegmentData::Frozen(segment) => {
+                let owned = frozen_fields(segment, words)?;
+                let fields: Vec<SegmentFieldTokens<'_>> = owned
+                    .iter()
+                    .map(|(slot, tokens)| SegmentFieldTokens {
+                        field: *slot,
+                        tokens,
+                    })
+                    .collect();
+                let held = self.state.get_or_insert_with(|| {
+                    Arc::new(FrozenState::new(&segment.view, segment.capacity()))
+                });
+                let state = Arc::make_mut(held);
+                segment.with_paged_removals(|paged| {
+                    let removed = state.remove(&segment.view, ordinal, &fields, paged)?;
+                    state.settle(&segment.view, paged)?;
+                    Ok(removed)
+                })
             }
-            (None, Some(words)) => removed_words.record(words, stored),
-            (None, None) => {}
         }
-        Ok(true)
     }
 
     pub(crate) fn ordinal_of(&self, id: &str) -> Result<Option<u32>> {
@@ -151,16 +174,14 @@ impl SegmentEntry {
                 })
                 .collect(),
             SegmentData::Tail(tail) => tail
-                .words
-                .get(ordinal as usize)
-                .map(|words| {
-                    words
-                        .field_lengths
-                        .iter()
-                        .map(|&(field, length)| (tail.field_names[field as usize].clone(), length))
-                        .collect()
+                .field_names
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, name)| {
+                    let length = tail.field_length(slot as u16, ordinal);
+                    (length > 0).then(|| (name.clone(), length))
                 })
-                .unwrap_or_default(),
+                .collect(),
         }
     }
 

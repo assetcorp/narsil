@@ -1,4 +1,3 @@
-use crate::error::Result;
 use crate::pattern::WorkMeter;
 use crate::search::phrase::PhraseWork;
 
@@ -15,7 +14,7 @@ impl<'meter> MeteredWork<'meter> {
 }
 
 impl PhraseWork for MeteredWork<'_> {
-    fn add(&mut self, units: u64) -> Result<()> {
-        self.meter.add(units.min(i64::MAX as u64) as i64)
+    fn meter(&self) -> &WorkMeter {
+        self.meter
     }
 }

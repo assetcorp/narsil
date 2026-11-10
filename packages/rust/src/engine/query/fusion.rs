@@ -9,6 +9,7 @@ use super::params::{HybridConfig, HybridStrategy};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
+use crate::search::rankings::score_then_id;
 
 /// The fusion settings of a hybrid query once the engine has checked them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,20 +87,9 @@ pub(crate) fn require_within_hybrid_depth(
     ))
 }
 
-fn ordered_score(score: f64) -> f64 {
-    if score.is_nan() {
-        f64::NEG_INFINITY
-    } else {
-        score
-    }
-}
-
 /// Orders fused hits best first, then by document ID in code point order.
 pub(crate) fn fused_order(left: &KeywordHit, right: &KeywordHit) -> Ordering {
-    ordered_score(right.score)
-        .partial_cmp(&ordered_score(left.score))
-        .unwrap_or(Ordering::Equal)
-        .then_with(|| left.id.cmp(&right.id))
+    score_then_id((left.score, &left.id), (right.score, &right.id))
 }
 
 /// Fuses ranked lists by reciprocal rank, adding 1 / (k + rank) for each list that holds a document.

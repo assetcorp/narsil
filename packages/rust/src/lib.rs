@@ -13,6 +13,7 @@ mod filters;
 mod format;
 mod geo;
 mod index;
+mod keyword;
 mod ordering;
 mod pattern;
 mod pins;

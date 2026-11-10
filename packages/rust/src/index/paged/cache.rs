@@ -1,8 +1,12 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::ptr;
 use std::sync::Arc;
 
 use super::lists::{PostingList, PostingPositions};
+use super::page_cache::{PageCache, page_slots_within, slot_bytes};
+use crate::error::{ErrorCode, NarsilError, Result};
+use crate::ffi;
 use crate::index::constants::{LARGEST_CACHED_ENTRY_PARTS, THREAD_READ_CACHE_BYTES};
 
 /// What a thread's read cache holds for one paged segment file, each checked once as it entered the cache.
@@ -38,6 +42,8 @@ struct ReadCache {
     tick: u64,
     entries: HashMap<Key, Entry>,
     order: BTreeMap<u64, Key>,
+    page_slots: usize,
+    pages: Option<PageCache>,
 }
 
 impl ReadCache {
@@ -99,12 +105,15 @@ impl ReadCache {
 
 impl ReadCache {
     fn with_capacity(capacity: usize) -> ReadCache {
+        let page_slots = page_slots_within(capacity);
         ReadCache {
-            capacity,
+            capacity: capacity.saturating_sub(page_slots * slot_bytes()),
             held: 0,
             tick: 0,
             entries: HashMap::new(),
             order: BTreeMap::new(),
+            page_slots,
+            pages: None,
         }
     }
 }
@@ -155,11 +164,44 @@ pub(crate) fn remember(file: u64, kind: Kind, entry: u64, value: Cached, bytes: 
     CACHE.with(|cache| cache.borrow_mut().put((file, kind, entry), value, bytes));
 }
 
-/// Drops what this thread's cache holds for `file`; another thread's cache drops it as newer reads push it out.
-pub(crate) fn release(file: u64) {
+pub(crate) fn with_page_cache<T>(
+    read: impl FnOnce(*mut ffi::narsil_page_cache) -> Result<T>,
+) -> Result<T> {
+    let mut pending = Some(read);
+    let mut result = None;
+    let _ = CACHE.try_with(|cache| {
+        let Ok(mut held) = cache.try_borrow_mut() else {
+            return;
+        };
+        let Some(read) = pending.take() else {
+            return;
+        };
+        let slots = held.page_slots;
+        let mut raw = held
+            .pages
+            .get_or_insert_with(|| PageCache::with_slots(slots))
+            .raw();
+        result = Some(read(&mut raw));
+    });
+    if let Some(read) = pending.take() {
+        return read(ptr::null_mut());
+    }
+    match result {
+        Some(result) => result,
+        None => Err(NarsilError::new(
+            ErrorCode::INTERNAL_ERROR,
+            "A paged read lost its page cache",
+        )),
+    }
+}
+
+pub(crate) fn release(file: u64, identity: u64) {
     let _ = CACHE.try_with(|cache| {
         if let Ok(mut cache) = cache.try_borrow_mut() {
             cache.release_file(file);
+            if let Some(pages) = cache.pages.as_mut() {
+                pages.release(identity);
+            }
         }
     });
 }

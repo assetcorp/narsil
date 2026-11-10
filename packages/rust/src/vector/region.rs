@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
+use crate::util::zeroed::zeroed_slice;
+
 pub(crate) fn sequences(len: usize) -> Box<[AtomicI64]> {
-    let zeroed = Box::<[AtomicI64]>::new_zeroed_slice(len);
-    unsafe { zeroed.assume_init() }
+    zeroed_slice(len)
 }
 
 pub(crate) fn copied_sequences(from: &[AtomicI64], len: usize) -> Box<[AtomicI64]> {
@@ -18,8 +19,7 @@ pub(crate) fn sequence_ptr(words: &[AtomicI64]) -> *const i64 {
 }
 
 pub(crate) fn zeroed_words(len: usize) -> Box<[AtomicI32]> {
-    let zeroed = Box::<[AtomicI32]>::new_zeroed_slice(len);
-    unsafe { zeroed.assume_init() }
+    zeroed_slice(len)
 }
 
 pub(crate) fn words(len: usize, value: i32) -> Box<[AtomicI32]> {

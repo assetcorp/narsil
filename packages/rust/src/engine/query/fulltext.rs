@@ -246,7 +246,7 @@ pub(crate) fn partition_terms(
     search: &TextSearch<'_>,
 ) -> Result<BTreeSet<String>> {
     let resolved = resolve_term_groups(snapshot, &search.text.expansion)?;
-    Ok(candidate_terms(snapshot, &keyword_query(search, &resolved)))
+    candidate_terms(snapshot, &keyword_query(search, &resolved))
 }
 
 /// Searches one partition's text, then applies the term match policy and the minimum score. Where `filter` holds
@@ -286,7 +286,7 @@ pub(crate) fn search_partition_text(
     let stats = match search.global {
         Some(global) => global.stats(),
         None => {
-            local = partition_query_stats(snapshot, &query);
+            local = partition_query_stats(snapshot, &query)?;
             &local
         }
     };

@@ -41,11 +41,6 @@ impl Marker<'_> {
         accepts: impl Fn(&Self, usize) -> bool + Copy,
     ) -> Result<()> {
         match list {
-            TermList::Tail(postings) => {
-                for posting in postings {
-                    self.mark(posting.document, posting.field, accepts);
-                }
-            }
             TermList::Pool { start, length, .. } => {
                 let Some(pool) = segment_pool(self.entry) else {
                     return Ok(());
@@ -85,7 +80,7 @@ impl Marker<'_> {
         let tokens =
             std::iter::once(member.token.as_str()).chain(synonyms.iter().map(String::as_str));
         for token in tokens {
-            if let Some(list) = lookup(self.entry, token) {
+            if let Some(list) = lookup(self.entry, token)? {
                 self.mark_list(list, accepts)?;
             }
         }
@@ -127,7 +122,7 @@ pub(crate) fn match_partition(
             false => {
                 let marks: Vec<u8> = searchable.iter().map(|mark| u8::from(*mark)).collect();
                 match match_phrases(entry, query.phrases, &marks, filter, work)? {
-                    Some(found) if found.matched.iter().any(|&word| word != 0) => Some(found),
+                    found if found.matched.iter().any(|&word| word != 0) => Some(found),
                     _ => continue,
                 }
             }
@@ -147,7 +142,7 @@ pub(crate) fn match_partition(
         };
         for token in query.tokens {
             let group = query.group_of(token);
-            for found in typo_tokens_for(entry, token, group, query) {
+            for found in typo_tokens_for(entry, token, group, query)? {
                 marker.mark_list(found.list, any_field)?;
             }
             if let Some(group) = group {

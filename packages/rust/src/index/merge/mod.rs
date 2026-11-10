@@ -1,11 +1,12 @@
 mod columns;
 mod documents;
 mod inputs;
+mod keywords;
 mod paged;
+mod partial_table;
 mod pattern;
-mod postings;
+mod sources;
 mod tail_columns;
-mod words;
 
 pub(crate) use paged::merge_paged_segments;
 
@@ -18,10 +19,10 @@ use crate::schema::{CompiledSchema, flatten_schema};
 
 use columns::merge_columns;
 use documents::merge_documents;
-use inputs::{merge_field_lengths, prepare};
-use postings::merge_postings;
+use inputs::prepare;
+use keywords::merge_keywords;
+use partial_table::partial_table;
 use tail_columns::{InputColumns, input_columns};
-use words::{merge_partial_words, merge_surfaces};
 
 fn materialised_entries(entries: &[SegmentEntry]) -> Result<Option<Vec<SegmentEntry>>> {
     let holds_paged = entries.iter().any(
@@ -58,16 +59,19 @@ pub(crate) fn merge_segments(
     let entries = materialised.as_deref().unwrap_or(entries);
     let (inputs, document_count, field_names) = prepare(entries)?;
     let table = merge_documents(&inputs, document_count, &schema.vector_paths)?;
-    let postings = merge_postings(&inputs)?;
-    let field_lengths = merge_field_lengths(&inputs, document_count);
+    let keywords = merge_keywords(&inputs, document_count, &field_names)?;
     let mut per_input: Vec<(InputColumns<'_>, &inputs::MergeInput<'_>)> =
         Vec::with_capacity(inputs.len());
     for input in &inputs {
         per_input.push((input_columns(input.entry, schema)?, input));
     }
     let columns = merge_columns(&per_input)?;
-    let surface_forms = merge_surfaces(&inputs)?;
-    let partial_words = merge_partial_words(&inputs, &postings, schema.partial_fields())?;
+    let partial_words = partial_table(
+        &keywords.spellings,
+        &keywords.postings,
+        schema.partial_fields(),
+    )?;
+    let postings = keywords.postings;
     Ok(KeywordSegment {
         schema: flatten_schema(&schema.definition),
         tombstones: Vec::new(),
@@ -86,14 +90,14 @@ pub(crate) fn merge_segments(
         posting_frequencies: postings.posting_frequencies,
         posting_fields: postings.posting_fields,
         positions: postings.positions,
-        field_lengths,
+        field_lengths: keywords.field_lengths,
         numeric: columns.numeric,
         sizes: columns.sizes,
         boolean: columns.boolean,
         enums: columns.enums,
         geopoint: columns.geopoint,
         pattern: columns.pattern,
-        surface_forms,
+        surface_forms: keywords.surface_forms,
         partial_words,
         write_records: None,
     })

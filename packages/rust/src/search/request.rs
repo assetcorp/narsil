@@ -157,24 +157,6 @@ impl RequestBuilder {
                 self.push_list(flags, start, length, first, second);
                 self.labels.push(label.to_string());
             }
-            TermList::Tail(postings) => {
-                let start = self.pool_documents.len();
-                for posting in postings {
-                    self.pool_documents.push(posting.document);
-                    self.pool_fields.push(posting.field);
-                    self.pool_frequencies.push(posting.frequency);
-                }
-                let ordered = postings
-                    .windows(2)
-                    .all(|pair| pair[0].document <= pair[1].document);
-                let flags = if ordered {
-                    ffi::NARSIL_KEYWORD_LIST_ORDERED
-                } else {
-                    0
-                };
-                self.push_list(flags, start, postings.len(), first, second);
-                self.labels.push(label.to_string());
-            }
         }
         Ok(())
     }

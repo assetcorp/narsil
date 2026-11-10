@@ -19,7 +19,8 @@ use crate::engine::index::IndexState;
 use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::set_bit;
-use crate::search::keyword::{KeywordHit, hit_order};
+use crate::search::keyword::KeywordHit;
+use crate::search::rankings::merge_rankings;
 use crate::value::Map;
 
 pub(crate) struct QueryRun<'q> {
@@ -93,7 +94,7 @@ fn global_stats(
     for snapshot in snapshots {
         terms.append(&mut partition_terms(snapshot, search)?);
     }
-    Ok(GlobalStats::of(snapshots, terms))
+    GlobalStats::of(snapshots, terms)
 }
 
 pub(crate) fn search_text(
@@ -133,13 +134,14 @@ pub(crate) fn search_text(
         let filter = scope.partition_filter(snapshot)?;
         search_partition_text(snapshot, &search, filter.as_ref(), &mut work)
     });
+    let mut lists = Vec::new();
     for found in answers {
         let found = found?;
-        outcome.hits.extend(found.hits);
+        lists.push(found.hits);
         outcome.total_matched += found.total_matched;
         outcome.matched.push(found.matched);
     }
-    outcome.hits.sort_by(hit_order);
+    outcome.hits = merge_rankings(lists, None)?;
     Ok(outcome)
 }
 

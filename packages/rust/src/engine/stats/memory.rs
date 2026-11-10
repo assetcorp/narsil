@@ -147,36 +147,10 @@ fn tail_bytes(tail: &TailSegment) -> usize {
         .fold(array_bytes(&tail.documents), |total, document| {
             total.saturating_add(document_bytes(document))
         });
-    let terms = tail.terms.iter().fold(0usize, |total, (token, term)| {
-        let positions = term
-            .positions
-            .iter()
-            .fold(array_bytes(&term.positions), |sum, list| {
-                sum.saturating_add(array_bytes(list))
-            });
-        total
-            .saturating_add(text_bytes(token))
-            .saturating_add(array_bytes(&term.postings))
-            .saturating_add(positions)
-    });
-    let lengths = tail
-        .field_lengths
-        .iter()
-        .fold(array_bytes(&tail.field_lengths), |total, lengths| {
-            total.saturating_add(array_bytes(lengths))
-        });
-    let words = tail
-        .words
-        .iter()
-        .fold(array_bytes(&tail.words), |total, words| {
-            total.saturating_add(array_bytes(&words.field_lengths))
-        });
     [
         ids,
         documents,
-        terms,
-        lengths,
-        words,
+        tail.keyword.bytes(),
         texts_bytes(&tail.field_names),
     ]
     .into_iter()
@@ -185,10 +159,12 @@ fn tail_bytes(tail: &TailSegment) -> usize {
 
 fn segment_bytes(entry: &SegmentEntry) -> usize {
     let held = match &entry.data {
-        SegmentData::Frozen(segment) => payload_bytes(&segment.payload),
+        SegmentData::Frozen(segment) => {
+            payload_bytes(&segment.payload).saturating_add(segment.view.bytes())
+        }
         SegmentData::Tail(tail) => tail_bytes(tail),
     };
-    held.saturating_add(array_bytes(entry.tombstones.as_ref()))
+    held.saturating_add(entry.state.as_ref().map_or(0, |state| state.bytes()))
 }
 
 /// Returns an estimate of the heap bytes that one partition's segments hold: the documents, IDs, terms, postings,

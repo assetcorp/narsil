@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::error::Result;
+use crate::util::zeroed::zeroed_slice;
 
 pub(crate) use constants::{FIRST_WRITE_SEQUENCE, LOADED_SEQUENCE, MAX_THREAD_SLOTS, NO_HELD_PIN};
 pub(crate) use slots::{slots_reached, thread_slot};
@@ -14,15 +15,10 @@ pub(crate) struct PinTable {
     entries: Box<[AtomicI64]>,
 }
 
-fn zeroed_sequences(count: usize) -> Box<[AtomicI64]> {
-    let zeroed = Box::<[AtomicI64]>::new_zeroed_slice(count);
-    unsafe { zeroed.assume_init() }
-}
-
 impl PinTable {
     fn new() -> PinTable {
         PinTable {
-            entries: zeroed_sequences(MAX_THREAD_SLOTS as usize),
+            entries: zeroed_slice(MAX_THREAD_SLOTS as usize),
         }
     }
 

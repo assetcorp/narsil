@@ -16,8 +16,6 @@ const EMPTY_POOL: Pool<'static> = Pool {
     fields: &[],
 };
 
-/// Returns the pool that the segment's lists point into, or `None` for a tail or a paged segment, whose postings
-/// the builder copies.
 pub(crate) fn segment_pool(entry: &SegmentEntry) -> Option<Pool<'_>> {
     match &entry.data {
         SegmentData::Frozen(segment) if segment.paged.is_some() => None,
@@ -26,11 +24,17 @@ pub(crate) fn segment_pool(entry: &SegmentEntry) -> Option<Pool<'_>> {
             frequencies: &segment.payload.posting_frequencies,
             fields: &segment.payload.posting_fields,
         }),
-        SegmentData::Tail(_) => None,
+        SegmentData::Tail(tail) => {
+            let postings = &tail.keyword.postings;
+            Some(Pool {
+                documents: &postings.doc_ids,
+                frequencies: &postings.frequencies,
+                fields: &postings.field_indices,
+            })
+        }
     }
 }
 
-/// Returns the pool of a request built for `entry`, which for a tail is the copy that the builder holds.
 pub(crate) fn request_pool<'a>(entry: &'a SegmentEntry, builder: &'a RequestBuilder) -> Pool<'a> {
     segment_pool(entry).unwrap_or(Pool {
         documents: &builder.pool_documents,
@@ -110,14 +114,6 @@ pub(crate) fn field_scoring<'a>(
 
 fn rows_of(entry: &SegmentEntry, list: TermList<'_>) -> Result<Vec<Row>> {
     match list {
-        TermList::Tail(postings) => Ok(postings
-            .iter()
-            .map(|posting| Row {
-                document: posting.document,
-                field: posting.field,
-                frequency: f64::from(posting.frequency),
-            })
-            .collect()),
         TermList::Pool { start, length, .. } => {
             let pool = segment_pool(entry).unwrap_or(EMPTY_POOL);
             Ok((start..start + length)
@@ -188,15 +184,17 @@ fn plan_group(
             .as_deref()
             .filter(|_| member.token == group.token);
         let Some(synonyms) = synonyms else {
-            if let Some(list) = lookup(entry, &member.token) {
+            if let Some(list) = lookup(entry, &member.token)? {
                 builder.term_list(list, member.factor, member.partial_factor, &member.token)?;
             }
             continue;
         };
-        let lists: Vec<TermList<'_>> = std::iter::once(member.token.as_str())
-            .chain(synonyms.iter().map(String::as_str))
-            .filter_map(|token| lookup(entry, token))
-            .collect();
+        let mut lists: Vec<TermList<'_>> = Vec::new();
+        for token in
+            std::iter::once(member.token.as_str()).chain(synonyms.iter().map(String::as_str))
+        {
+            lists.extend(lookup(entry, token)?);
+        }
         match lists.as_slice() {
             [] => {}
             [list] => {
@@ -225,8 +223,8 @@ pub(crate) fn plan_segment(
     for (term, token) in query.tokens.iter().enumerate() {
         let group = query.group_of(token);
         builder.term_slot(term as u32);
-        for found in typo_tokens_for(entry, token, group, query) {
-            builder.term_list(found.list, stats.frequency(found.token), 0.0, found.token)?;
+        for found in typo_tokens_for(entry, token, group, query)? {
+            builder.term_list(found.list, stats.frequency(&found.token), 0.0, &found.token)?;
         }
         if let Some(group) = group {
             plan_group(entry, stats, builder, group, term as u32)?;

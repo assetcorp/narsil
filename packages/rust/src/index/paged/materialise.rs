@@ -45,7 +45,9 @@ impl PagedSections {
         out.id_offsets = vec![0];
         out.document_offsets = vec![0];
         let mut records = self.holds_write_records().then(WriteRecords::default);
+        let token_count = out.token_count();
         for ordinal in 0..out.document_count {
+            self.removal(ordinal, token_count)?;
             out.ids.extend_from_slice(self.id(ordinal)?.as_bytes());
             out.id_offsets.push(as_u32(out.ids.len(), "ID bytes")?);
             out.documents

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::params::QueryParams;
 use crate::config::ScoringMode;
 use crate::engine::index::IndexState;
+use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::search::stats::{QueryStats, partition_frequency};
 
@@ -31,7 +32,10 @@ pub(crate) struct GlobalStats {
 
 impl GlobalStats {
     /// Sums the live documents and field lengths of `snapshots`, and the live documents that hold each of `terms`.
-    pub(crate) fn of(snapshots: &[Arc<PartitionSnapshot>], terms: BTreeSet<String>) -> GlobalStats {
+    pub(crate) fn of(
+        snapshots: &[Arc<PartitionSnapshot>],
+        terms: BTreeSet<String>,
+    ) -> Result<GlobalStats> {
         let mut documents = 0u64;
         let mut field_totals: BTreeMap<String, f64> = BTreeMap::new();
         for snapshot in snapshots {
@@ -49,21 +53,21 @@ impl GlobalStats {
         };
         let mut frequencies = HashMap::with_capacity(terms.len());
         for term in terms {
-            let total: u64 = snapshots
-                .iter()
-                .map(|snapshot| partition_frequency(snapshot, &term))
-                .sum();
+            let mut total = 0u64;
+            for snapshot in snapshots {
+                total += partition_frequency(snapshot, &term)?;
+            }
             if total > 0 {
                 frequencies.insert(term, total as f64);
             }
         }
-        GlobalStats {
+        Ok(GlobalStats {
             stats: QueryStats {
                 total_documents: documents as f64,
                 averages,
                 frequencies,
             },
-        }
+        })
     }
 
     /// Returns the statistics that every partition scores the query with, which hold every term that the query

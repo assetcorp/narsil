@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use super::cursor::{PageCursor, decode_page_cursor, encode_page_cursor, require_matching_cursor};
 use super::gather::QueryRun;
+use super::page_start::{AnchorBits, page_start};
 use super::params::Pin;
 use super::ranked::{Ranked, owned_key};
 use super::results::Hit;
@@ -80,21 +81,18 @@ fn orders_after_anchor(
     anchor: &PageCursor,
     sort: Option<&SortPlan<'_>>,
 ) -> Result<bool> {
-    if let (Some(plan), Some(anchor_key)) = (sort, &anchor.sort_key) {
-        let key = owned_key(run, plan, hit.location)?;
-        let theirs: Vec<OwnedSortValue> =
-            anchor_key.iter().map(OwnedSortValue::of_cursor).collect();
-        let own: Vec<_> = key.iter().map(OwnedSortValue::borrowed).collect();
-        let theirs: Vec<_> = theirs.iter().map(OwnedSortValue::borrowed).collect();
-        return Ok(plan
-            .compare(&own, &theirs)
-            .then_with(|| hit.id.as_str().cmp(anchor.anchor.as_str()))
-            == Ordering::Greater);
-    }
-    let Some(score) = anchor.score else {
-        return Ok(true);
+    let by_sort = match (sort, &anchor.sort_key) {
+        (Some(plan), Some(anchor_key)) => {
+            let key = owned_key(run, plan, hit.location)?;
+            let theirs: Vec<OwnedSortValue> =
+                anchor_key.iter().map(OwnedSortValue::of_cursor).collect();
+            let own: Vec<_> = key.iter().map(OwnedSortValue::borrowed).collect();
+            let theirs: Vec<_> = theirs.iter().map(OwnedSortValue::borrowed).collect();
+            plan.compare(&own, &theirs)
+        }
+        _ => Ordering::Equal,
     };
-    Ok(hit.score < score || (hit.score == score && hit.id.as_str() > anchor.anchor.as_str()))
+    Ok(by_sort.then_with(|| hit.id.as_str().cmp(anchor.anchor.as_str())) == Ordering::Greater)
 }
 
 fn first_after_anchor(
@@ -103,12 +101,15 @@ fn first_after_anchor(
     anchor: &PageCursor,
     sort: Option<&SortPlan<'_>>,
 ) -> Result<usize> {
-    for (at, hit) in hits.iter().enumerate() {
+    let sorted = sort.is_some() && anchor.sort_key.is_some();
+    let mut after = AnchorBits::new(hits.len());
+    for (position, hit) in hits.iter().enumerate() {
         if orders_after_anchor(run, hit, anchor, sort)? {
-            return Ok(at);
+            after.mark(position);
         }
     }
-    Ok(hits.len())
+    let scores: Option<Vec<f64>> = (!sorted).then(|| hits.iter().map(|hit| hit.score).collect());
+    page_start(hits.len(), scores.as_deref(), &after, anchor.score)
 }
 
 pub(crate) fn paginate(

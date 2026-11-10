@@ -162,6 +162,32 @@ fn hostile_cursor_queries() -> Vec<(Value, usize)> {
             unsorted,
             &forged(r#"{"v":4,"a":"x","s":1,"d":0,"q":"00000000"}"#),
         ),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":5,"a":"x","s":"NaN","q":"00000000"}"#),
+        ),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":5,"a":"x","s":"-Infinity","d":4,"q":"00000000"}"#),
+        ),
+        with_cursor(unsorted, &forged(r#"{"v":5,"a":"x","s":1,"q":"00000000"}"#)),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":5,"a":"x","s":"inf","q":"00000000"}"#),
+        ),
+        with_cursor(unsorted, &forged(r#"{"v":5,"a":"x","q":"00000000"}"#)),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":5,"a":"x","s":"Infinity","k":[1],"o":"[]","q":"00000000"}"#),
+        ),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":4,"a":"x","s":"NaN","q":"00000000"}"#),
+        ),
+        with_cursor(
+            unsorted,
+            &forged(r#"{"v":6,"a":"x","s":"NaN","q":"00000000"}"#),
+        ),
         with_cursor(unsorted, &forged(r#"[1,2]"#)),
         with_cursor(unsorted, "eyJ2Ijo0LCJhIjoieCIsInMiOjEsInEiOiIwMDAwMDAwMCJ9"),
         with_cursor(
