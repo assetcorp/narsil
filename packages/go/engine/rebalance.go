@@ -14,13 +14,17 @@ import (
 
 const hookOnPartitionSplit hookName = "onPartitionSplit"
 
+func rebalancePartitionLimit(config model.IndexConfig) (int, bool) {
+	return config.Partitions.MaxPartitions.Or(schema.DefaultMaxPartitions), true
+}
+
 func validateRebalanceTarget(config model.IndexConfig, target int) error {
 	if target <= 0 {
 		return narsilerr.New(narsilerr.CodePartitionCapacityExceeded,
 			"Target partition count must be a positive integer, got "+strconv.Itoa(target),
 			map[string]any{"targetPartitionCount": target})
 	}
-	if maximum := config.Partitions.MaxPartitions.Or(schema.DefaultMaxPartitions); target > maximum {
+	if maximum, limited := rebalancePartitionLimit(config); limited && target > maximum {
 		return narsilerr.New(narsilerr.CodePartitionCapacityExceeded,
 			"Target partition count ("+strconv.Itoa(target)+") is above the maximum of "+strconv.Itoa(maximum)+" partitions",
 			map[string]any{"targetPartitionCount": target, "maxPartitions": maximum})
