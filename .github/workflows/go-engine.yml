@@ -126,7 +126,10 @@ jobs:
             runner: windows-11-arm
             go: stable
             race: false
-            zig-target: aarch64-windows-gnu
+            llvm-mingw-release: '20261104'
+            llvm-mingw-archive: llvm-mingw-20261104-ucrt-aarch64
+            llvm-mingw-sha256: 7d7f8387a8706639b0b47a629d6e23f8b3ef9acce67e9832b8cd4c5bb2816eab
+            llvm-mingw-cc: aarch64-w64-mingw32-clang
 
     defaults:
       run:
@@ -160,15 +163,24 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
 
-      - name: Setup Zig
-        if: matrix.zig-target
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.16.0
-
-      - name: Use Zig as the C compiler
-        if: matrix.zig-target
-        run: echo "CC=zig cc -target ${{ matrix.zig-target }}" >> "$GITHUB_ENV"
+      - name: Use llvm-mingw as the C compiler
+        if: matrix.llvm-mingw-archive
+        shell: pwsh
+        env:
+          LLVM_MINGW_RELEASE: ${{ matrix.llvm-mingw-release }}
+          LLVM_MINGW_ARCHIVE: ${{ matrix.llvm-mingw-archive }}
+          LLVM_MINGW_SHA256: ${{ matrix.llvm-mingw-sha256 }}
+          LLVM_MINGW_CC: ${{ matrix.llvm-mingw-cc }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "$env:LLVM_MINGW_ARCHIVE.zip"
+          Invoke-WebRequest -Uri "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_RELEASE/$env:LLVM_MINGW_ARCHIVE.zip" -OutFile $archive -MaximumRetryCount 5 -RetryIntervalSec 5
+          $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if ($digest -ne $env:LLVM_MINGW_SHA256) { throw "The llvm-mingw archive has the digest $digest, while the workflow pins $env:LLVM_MINGW_SHA256" }
+          & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw "tar could not extract the llvm-mingw archive" }
+          Join-Path $env:RUNNER_TEMP "$env:LLVM_MINGW_ARCHIVE\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "CC=$env:LLVM_MINGW_CC" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & (Join-Path $env:RUNNER_TEMP "$env:LLVM_MINGW_ARCHIVE\bin\$env:LLVM_MINGW_CC.exe") --version
 
       - name: Test with the race detector
         if: matrix.race
