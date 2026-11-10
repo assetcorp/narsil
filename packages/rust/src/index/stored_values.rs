@@ -1,9 +1,10 @@
 use std::borrow::Cow;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use super::constants::MAX_CACHED_FIELD_COLUMNS;
 use super::derived::DerivedColumns;
 use super::frozen::FrozenSegment;
+use super::published::Published;
 use crate::error::Result;
 use crate::value::{Map, Value};
 
@@ -13,38 +14,28 @@ pub(crate) type FieldColumn = Arc<[Option<Value>]>;
 
 #[derive(Default)]
 pub(crate) struct StoredValues {
-    columns: RwLock<Vec<(String, FieldColumn)>>,
+    columns: Published<(String, FieldColumn)>,
     pub(crate) derived: DerivedColumns,
 }
 
 impl StoredValues {
-    fn cached(&self, path: &str) -> Option<FieldColumn> {
-        let columns = self.columns.read().ok()?;
-        columns
-            .iter()
-            .find(|(held, _)| held == path)
-            .map(|(_, column)| column.clone())
-    }
-
     fn column(
         &self,
         path: &str,
         build: impl FnOnce() -> Result<Vec<Option<Value>>>,
     ) -> Result<FieldColumn> {
-        if let Some(column) = self.cached(path) {
-            return Ok(column);
+        if let Some((_, column)) = self.columns.find(|(held, _)| held == path) {
+            return Ok(Arc::clone(column));
         }
         let built: FieldColumn = build()?.into();
-        let Ok(mut columns) = self.columns.write() else {
-            return Ok(built);
-        };
-        if let Some((_, column)) = columns.iter().find(|(held, _)| held == path) {
-            return Ok(column.clone());
+        match self.columns.publish(
+            (path.to_string(), Arc::clone(&built)),
+            |(held, _)| held == path,
+            MAX_CACHED_FIELD_COLUMNS,
+        ) {
+            Ok((_, winner)) => Ok(Arc::clone(winner)),
+            Err(_) => Ok(built),
         }
-        if columns.len() < MAX_CACHED_FIELD_COLUMNS {
-            columns.push((path.to_string(), built.clone()));
-        }
-        Ok(built)
     }
 }
 

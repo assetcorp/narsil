@@ -1,11 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use super::derived::DerivedColumns;
+use super::core_values::CoreStoredValues;
+use super::derived::{DerivedColumns, KeptColumns};
 use super::indexed::IndexedDocument;
+use super::stored_values::path_value;
 use crate::error::Result;
 use crate::keyword::growing::{GrowingSegment, Indexed};
 use crate::keyword::tokens::SegmentFieldTokens;
+use crate::ordering::{SortValues, push_reduced};
 use crate::value::{Map, Value};
 
 #[derive(Default, Clone)]
@@ -47,14 +50,14 @@ impl Clone for TailSegment {
             field_slots: self.field_slots.clone(),
             columns: self.columns.clone(),
             track_positions: self.track_positions,
-            derived: DerivedColumns::default(),
+            derived: self.derived.clone(),
             name_ranks: self.name_ranks.clone(),
         }
     }
 }
 
 impl TailSegment {
-    pub(crate) fn new(track_positions: bool) -> TailSegment {
+    pub(crate) fn new(track_positions: bool, kept: &KeptColumns) -> TailSegment {
         TailSegment {
             ids: Vec::new(),
             id_lookup: HashMap::new(),
@@ -64,9 +67,47 @@ impl TailSegment {
             field_slots: HashMap::new(),
             columns: TailColumns::default(),
             track_positions,
-            derived: DerivedColumns::default(),
+            derived: DerivedColumns::kept_by(kept),
             name_ranks: Vec::new(),
         }
+    }
+
+    fn keep_derived(&mut self) -> Result<()> {
+        let length = self.documents.len();
+        let documents = &self.documents;
+        let numeric = &self.columns.numeric;
+        let live_count = self.keyword.total_documents() as usize;
+        self.derived
+            .stored_values
+            .keep(length, |path, column, range| {
+                for ordinal in range {
+                    column.push(path_value(&documents[ordinal], path).as_deref())?;
+                }
+                Ok(())
+            })?;
+        self.derived
+            .sorted_numbers
+            .keep(length, |field, sorted, range| {
+                let entries = numeric.get(field).map_or(&[][..], Vec::as_slice);
+                sorted.add_range(entries, range);
+                Ok(())
+            })?;
+        self.derived
+            .sort_columns
+            .keep(length, |(path, mode), column, range| {
+                let rebuilds = range.start == 0;
+                let mut stored = CoreStoredValues::default();
+                let mut values = SortValues::default();
+                for (at, ordinal) in range.enumerate() {
+                    stored.push(path_value(&documents[ordinal], path).as_deref())?;
+                    push_reduced(&stored, at as u32, *mode, &mut values)?;
+                }
+                column.append(&values)?;
+                match rebuilds {
+                    true => column.rebuild(),
+                    false => column.settle(live_count),
+                }
+            })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -135,6 +176,7 @@ impl TailSegment {
         self.ids.push(id);
         self.documents.push(document);
         self.append_columns(ordinal, indexed);
+        self.keep_derived().ok();
         Ok(Appended::Stored)
     }
 

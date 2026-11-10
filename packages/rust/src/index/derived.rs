@@ -1,36 +1,55 @@
 use std::ops::Range;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use super::constants::MAX_CACHED_DERIVED_COLUMNS;
 use super::core_values::CoreStoredValues;
+use super::published::Published;
 use super::segment::{SegmentData, SegmentEntry};
 use crate::engine::SortMode;
 use crate::error::Result;
-use crate::ordering::KeyColumn;
+use crate::ordering::SortColumn;
 
 pub(crate) trait DerivedColumn: Clone + Default {
     fn len(&self) -> usize;
 }
 
-impl DerivedColumn for KeyColumn {
+impl DerivedColumn for SortColumn {
     fn len(&self) -> usize {
-        KeyColumn::len(self)
+        SortColumn::len(self)
     }
 }
 
 pub(crate) struct ColumnCache<K, C> {
-    columns: Mutex<Vec<(K, Arc<C>)>>,
+    columns: Published<(K, Arc<C>)>,
+    kept: Option<Arc<Published<K>>>,
 }
 
 impl<K, C> Default for ColumnCache<K, C> {
     fn default() -> ColumnCache<K, C> {
         ColumnCache {
-            columns: Mutex::new(Vec::new()),
+            columns: Published::default(),
+            kept: None,
         }
     }
 }
 
-impl<K, C: DerivedColumn> ColumnCache<K, C> {
+impl<K: Clone, C> Clone for ColumnCache<K, C> {
+    fn clone(&self) -> ColumnCache<K, C> {
+        ColumnCache {
+            columns: self.columns.clone(),
+            kept: self.kept.clone(),
+        }
+    }
+}
+
+impl<K: PartialEq + Clone, C: DerivedColumn> ColumnCache<K, C> {
+    fn kept_by(kept: &Arc<Published<K>>) -> ColumnCache<K, C> {
+        ColumnCache {
+            columns: Published::default(),
+            kept: Some(Arc::clone(kept)),
+        }
+    }
+
     pub(crate) fn column(
         &self,
         matches: impl Fn(&K) -> bool,
@@ -38,35 +57,57 @@ impl<K, C: DerivedColumn> ColumnCache<K, C> {
         length: usize,
         grow: impl Fn(&mut C, Range<usize>) -> Result<()>,
     ) -> Result<Arc<C>> {
-        let built = || -> Result<Arc<C>> {
-            let mut column = C::default();
-            grow(&mut column, 0..length)?;
-            Ok(Arc::new(column))
-        };
-        let Ok(mut columns) = self.columns.lock() else {
-            return built();
-        };
-        if let Some((_, column)) = columns.iter_mut().find(|(held, _)| matches(held)) {
-            let held = column.len();
-            if held > length {
-                *column = built()?;
-            } else if held < length {
-                match Arc::get_mut(column) {
-                    Some(owned) => grow(owned, held..length)?,
-                    None => {
-                        let mut copy = C::clone(column);
-                        grow(&mut copy, held..length)?;
-                        *column = Arc::new(copy);
-                    }
-                }
+        if let Some((_, held)) = self.columns.find(|(held, _)| matches(held)) {
+            if held.len() == length {
+                return Ok(Arc::clone(held));
             }
-            return Ok(column.clone());
+            if held.len() < length {
+                let mut copy = C::clone(held);
+                grow(&mut copy, held.len()..length)?;
+                return Ok(Arc::new(copy));
+            }
         }
-        let column = built()?;
-        if columns.len() < MAX_CACHED_DERIVED_COLUMNS {
-            columns.push((key(), column.clone()));
+        let mut column = C::default();
+        grow(&mut column, 0..length)?;
+        let column = Arc::new(column);
+        match &self.kept {
+            Some(kept) => {
+                let _ = kept.publish(key(), &matches, MAX_CACHED_DERIVED_COLUMNS);
+                Ok(column)
+            }
+            None => match self.columns.publish(
+                (key(), Arc::clone(&column)),
+                |(held, _)| matches(held),
+                MAX_CACHED_DERIVED_COLUMNS,
+            ) {
+                Ok((_, winner)) => Ok(Arc::clone(winner)),
+                Err(_) => Ok(column),
+            },
         }
-        Ok(column)
+    }
+
+    pub(crate) fn keep(
+        &mut self,
+        length: usize,
+        grow: impl Fn(&K, &mut C, Range<usize>) -> Result<()>,
+    ) -> Result<()> {
+        if let Some(kept) = &self.kept {
+            let missing: Vec<K> = kept
+                .iter()
+                .filter(|key| self.columns.find(|(held, _)| held == *key).is_none())
+                .cloned()
+                .collect();
+            for key in missing {
+                self.columns.push_held((key, Arc::new(C::default())));
+            }
+        }
+        self.columns.try_for_each_held(|(key, column)| {
+            let held = column.len();
+            match held < length {
+                true => grow(key, Arc::make_mut(column), held..length),
+                false => Ok(()),
+            }
+        })
     }
 }
 
@@ -102,6 +143,12 @@ impl SortedNumbers {
         self.ordinals = ordinals;
         self.covered = covered;
     }
+
+    pub(crate) fn add_range(&mut self, entries: &[(u32, f64)], range: Range<usize>) {
+        let start = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.start);
+        let end = entries.partition_point(|(ordinal, _)| (*ordinal as usize) < range.end);
+        self.add(&entries[start..end], range.end);
+    }
 }
 
 impl DerivedColumn for SortedNumbers {
@@ -110,11 +157,28 @@ impl DerivedColumn for SortedNumbers {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
+pub(crate) struct KeptColumns {
+    sort_columns: Arc<Published<(String, SortMode)>>,
+    sorted_numbers: Arc<Published<String>>,
+    stored_values: Arc<Published<String>>,
+}
+
+#[derive(Default, Clone)]
 pub(crate) struct DerivedColumns {
-    pub(crate) sort_keys: ColumnCache<(String, SortMode), KeyColumn>,
+    pub(crate) sort_columns: ColumnCache<(String, SortMode), SortColumn>,
     pub(crate) sorted_numbers: ColumnCache<String, SortedNumbers>,
     pub(crate) stored_values: ColumnCache<String, CoreStoredValues>,
+}
+
+impl DerivedColumns {
+    pub(crate) fn kept_by(kept: &KeptColumns) -> DerivedColumns {
+        DerivedColumns {
+            sort_columns: ColumnCache::kept_by(&kept.sort_columns),
+            sorted_numbers: ColumnCache::kept_by(&kept.sorted_numbers),
+            stored_values: ColumnCache::kept_by(&kept.stored_values),
+        }
+    }
 }
 
 impl SegmentEntry {

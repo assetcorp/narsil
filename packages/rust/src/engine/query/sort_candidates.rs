@@ -1,173 +1,159 @@
-use std::borrow::Cow;
-use std::cmp::Ordering;
 use std::sync::Arc;
 
-use super::documents::{FieldReader, Location, matched_ordinals};
+use super::documents::{Location, matched_ordinals};
 use super::facets::MatchedSegment;
-use super::params::SortMode;
 use super::sort_keys::SortPlan;
 use crate::error::Result;
-use crate::index::segment::SegmentEntry;
-use crate::ordering::{KeyColumn, SortKey, SortValue, compare_keys};
+use crate::ffi;
+use crate::ordering::{
+    KeyBatch, OwnedSortValue, SelectRequest, SortColumn, SortValues, padded, sort_select,
+};
 
-pub(crate) struct Candidate<'s> {
-    pub(crate) id: Cow<'s, str>,
-    pub(crate) location: Location,
-    pub(crate) key_at: usize,
+pub(crate) struct SortAnchor {
+    pub(crate) id: String,
+    pub(crate) key: Vec<OwnedSortValue>,
+    values: SortValues,
 }
 
-pub(crate) struct Gathered<'s> {
-    pub(crate) keys: Vec<SortValue<'s>>,
-    pub(crate) candidates: Vec<Candidate<'s>>,
-}
-
-pub(crate) struct SortAnchor<'a> {
-    pub(crate) id: &'a str,
-    pub(crate) keys: Vec<SortKey>,
-}
-
-impl SortAnchor<'_> {
-    pub(crate) fn of<'a>(id: &'a str, values: &[SortValue<'_>], width: usize) -> SortAnchor<'a> {
-        SortAnchor {
-            id,
-            keys: (0..width)
-                .map(|at| SortKey::of(values.get(at).copied().unwrap_or(SortValue::Missing)))
-                .collect(),
+impl SortAnchor {
+    pub(crate) fn of(id: String, key: Vec<OwnedSortValue>, width: usize) -> Result<SortAnchor> {
+        let mut values = SortValues::default();
+        for at in 0..width {
+            values.push(key.get(at).unwrap_or(&OwnedSortValue::Missing))?;
         }
+        Ok(SortAnchor {
+            id,
+            key: (0..width).map(|at| values.value(at)).collect(),
+            values,
+        })
     }
 }
 
-fn key_column(entry: &SegmentEntry, path: &str, mode: SortMode) -> Result<Arc<KeyColumn>> {
-    entry.derived().sort_keys.column(
-        |(held_path, held_mode)| held_path == path && *held_mode == mode,
-        || (path.to_string(), mode),
-        entry.capacity() as usize,
-        |column, range| {
-            let reader = FieldReader::of(entry, path)?;
-            column
-                .extend(range.map(|ordinal| SortKey::of_stored(reader.get(ordinal as u32), mode)));
-            Ok(())
-        },
-    )
+pub(crate) struct Selected {
+    pub(crate) id: String,
+    pub(crate) location: Location,
+    pub(crate) key: Vec<OwnedSortValue>,
 }
 
-pub(crate) fn key_columns(
-    entry: &SegmentEntry,
-    plan: &SortPlan<'_>,
-) -> Result<Vec<Arc<KeyColumn>>> {
-    plan.fields
-        .iter()
-        .zip(&plan.modes)
-        .map(|(path, mode)| key_column(entry, path, *mode))
-        .collect()
+struct SegmentColumns<'s> {
+    segment: &'s MatchedSegment<'s>,
+    columns: Vec<Arc<SortColumn>>,
 }
 
-fn compare_rows(
-    columns: &[Arc<KeyColumn>],
-    plan: &SortPlan<'_>,
-    left: u32,
-    right: u32,
-) -> Ordering {
-    columns
-        .iter()
-        .zip(&plan.directions)
-        .map(|(column, direction)| column.compare_at(left, right, *direction))
-        .find(|comparison| *comparison != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
+impl SegmentColumns<'_> {
+    fn selected(&self, ordinal: u32) -> Result<Selected> {
+        Ok(Selected {
+            id: self.segment.entry.id_of(ordinal)?.into_owned(),
+            location: Location {
+                partition: self.segment.partition,
+                segment: self.segment.segment,
+                ordinal,
+            },
+            key: self
+                .columns
+                .iter()
+                .map(|column| column.value(ordinal))
+                .collect(),
+        })
+    }
 }
 
 fn after_anchor(
-    columns: &[Arc<KeyColumn>],
+    page: Vec<Selected>,
     plan: &SortPlan<'_>,
-    entry: &SegmentEntry,
-    ordinal: u32,
-    anchor: &SortAnchor<'_>,
-) -> Result<bool> {
-    let by_key = columns
-        .iter()
-        .zip(&anchor.keys)
-        .zip(&plan.directions)
-        .map(|((column, key), direction)| compare_keys(column.key(ordinal), key, *direction))
-        .find(|comparison| *comparison != Ordering::Equal)
-        .unwrap_or(Ordering::Equal);
-    Ok(match by_key {
-        Ordering::Equal => *entry.id_of(ordinal)? > *anchor.id,
-        comparison => comparison == Ordering::Greater,
-    })
-}
-
-fn first_tied_by_id(entry: &SegmentEntry, tied: Vec<u32>, open: usize) -> Result<Vec<u32>> {
-    let mut named = tied
-        .into_iter()
-        .map(|ordinal| Ok((entry.id_of(ordinal)?, ordinal)))
-        .collect::<Result<Vec<(Cow<'_, str>, u32)>>>()?;
-    named.select_nth_unstable_by(open - 1, |left, right| left.0.cmp(&right.0));
-    named.truncate(open);
-    Ok(named.into_iter().map(|(_, ordinal)| ordinal).collect())
-}
-
-fn first_rows(
-    mut ordinals: Vec<u32>,
-    wanted: usize,
-    columns: &[Arc<KeyColumn>],
-    plan: &SortPlan<'_>,
-    entry: &SegmentEntry,
-) -> Result<Vec<u32>> {
-    if wanted == 0 {
-        return Ok(Vec::new());
+    anchor: &SortAnchor,
+) -> Result<Vec<Selected>> {
+    let mut batch = KeyBatch::new(plan.width());
+    batch.push_key(&anchor.key)?;
+    for selected in &page {
+        batch.push_key(&selected.key)?;
     }
-    if ordinals.len() <= wanted {
-        return Ok(ordinals);
-    }
-    let by_key = |left: &u32, right: &u32| compare_rows(columns, plan, *left, *right);
-    ordinals.select_nth_unstable_by(wanted - 1, by_key);
-    let boundary = ordinals[wanted - 1];
-    let (mut ahead, tied): (Vec<u32>, Vec<u32>) = ordinals
+    let ranked = batch.ranked()?;
+    Ok(page
         .into_iter()
-        .filter(|ordinal| by_key(ordinal, &boundary) != Ordering::Greater)
-        .partition(|ordinal| by_key(ordinal, &boundary) == Ordering::Less);
-    let open = wanted.saturating_sub(ahead.len());
-    let mut kept = match tied.len() > open && open > 0 {
-        true => first_tied_by_id(entry, tied, open)?,
-        false => tied.into_iter().take(open).collect(),
-    };
-    ahead.append(&mut kept);
-    Ok(ahead)
+        .enumerate()
+        .filter(
+            |(at, selected)| match ranked.compare(at + 1, 0, &plan.directions) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Equal => selected.id > anchor.id,
+                std::cmp::Ordering::Less => false,
+            },
+        )
+        .map(|(_, selected)| selected)
+        .collect())
 }
 
-pub(crate) fn gather_segment<'s>(
-    gathered: &mut Gathered<'s>,
-    segment: &MatchedSegment<'s>,
-    columns: &'s [Arc<KeyColumn>],
-    plan: &SortPlan<'_>,
-    anchor: Option<&SortAnchor<'_>>,
-    wanted: usize,
-) -> Result<()> {
-    let entry = segment.entry;
-    let mut ordinals = Vec::new();
-    for ordinal in matched_ordinals(&segment.words) {
-        let keeps = match anchor {
-            None => true,
-            Some(anchor) => after_anchor(columns, plan, entry, ordinal, anchor)?,
-        };
-        if keeps {
-            ordinals.push(ordinal);
+fn unsorted(held: &SegmentColumns<'_>, anchor: Option<&SortAnchor>) -> Result<Vec<Selected>> {
+    let mut page = Vec::new();
+    for ordinal in matched_ordinals(&held.segment.words) {
+        let selected = held.selected(ordinal)?;
+        if anchor.is_none_or(|anchor| selected.id > anchor.id) {
+            page.push(selected);
         }
     }
-    for ordinal in first_rows(ordinals, wanted, columns, plan, entry)? {
-        let key_at = gathered.keys.len();
-        gathered
-            .keys
-            .extend(columns.iter().map(|column| column.key(ordinal).value()));
-        gathered.candidates.push(Candidate {
-            id: entry.id_of(ordinal)?,
-            location: Location {
-                partition: segment.partition,
-                segment: segment.segment,
-                ordinal,
-            },
-            key_at,
-        });
+    Ok(page)
+}
+
+pub(crate) fn select_segment(
+    segment: &MatchedSegment<'_>,
+    plan: &SortPlan<'_>,
+    anchor: Option<&SortAnchor>,
+    wanted: usize,
+) -> Result<Vec<Selected>> {
+    let entry = segment.entry;
+    let held = SegmentColumns {
+        segment,
+        columns: plan
+            .fields
+            .iter()
+            .zip(&plan.modes)
+            .map(|(path, mode)| entry.sort_column(path, *mode))
+            .collect::<Result<Vec<Arc<SortColumn>>>>()?,
+    };
+    if held.columns.is_empty() {
+        return unsorted(&held, anchor);
     }
-    Ok(())
+    let capacity = entry.capacity() as usize;
+    if capacity == 0 || wanted == 0 {
+        return Ok(Vec::new());
+    }
+    let views: Vec<ffi::narsil_sort_column> =
+        held.columns.iter().map(|column| column.view()).collect();
+    let filter = padded(&segment.words, capacity);
+    let live = entry.live_bits();
+    let descending = plan.descending();
+    let anchor_ranks = match anchor {
+        Some(anchor) => Some(
+            held.columns
+                .iter()
+                .enumerate()
+                .map(|(at, column)| column.anchor_rank(&anchor.values, at))
+                .collect::<Result<Vec<i32>>>()?,
+        ),
+        None => None,
+    };
+    let mut requested = wanted.min(capacity);
+    loop {
+        let ordinals = sort_select(&SelectRequest {
+            columns: &views,
+            descending: &descending,
+            filter: &filter,
+            live: &live,
+            limit: u32::try_from(requested).unwrap_or(u32::MAX),
+            anchor: anchor_ranks
+                .as_deref()
+                .zip(anchor.map(|anchor| &anchor.values)),
+        })?;
+        let mut page = ordinals
+            .iter()
+            .map(|ordinal| held.selected(*ordinal))
+            .collect::<Result<Vec<Selected>>>()?;
+        if let Some(anchor) = anchor {
+            page = after_anchor(page, plan, anchor)?;
+        }
+        if page.len() >= wanted || ordinals.len() < requested || requested >= capacity {
+            return Ok(page);
+        }
+        requested = capacity.min((requested * 2).max(requested + wanted - page.len()));
+    }
 }

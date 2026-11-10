@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
+use super::derived::KeptColumns;
 use super::frozen::FrozenSegment;
 use super::indexed::IndexedDocument;
 use super::segment::{SegmentData, SegmentEntry};
@@ -48,6 +49,7 @@ pub(crate) struct PartitionSnapshot {
     pub(crate) stats: PartitionStats,
     pub(crate) next_segment_id: u64,
     pub(crate) track_positions: bool,
+    pub(crate) kept_columns: KeptColumns,
 }
 
 impl PartitionSnapshot {
@@ -57,6 +59,7 @@ impl PartitionSnapshot {
             stats: PartitionStats::default(),
             next_segment_id: 0,
             track_positions,
+            kept_columns: KeptColumns::default(),
         }
     }
 
@@ -99,7 +102,7 @@ impl PartitionSnapshot {
         };
         if !reusable {
             let id = self.allocate_segment_id();
-            let tail = TailSegment::new(self.track_positions);
+            let tail = TailSegment::new(self.track_positions, &self.kept_columns);
             self.segments
                 .push(SegmentEntry::new(id, SegmentData::Tail(Arc::new(tail))));
         }

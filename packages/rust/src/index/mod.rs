@@ -7,6 +7,8 @@ pub(crate) mod indexed;
 pub(crate) mod merge;
 pub(crate) mod paged;
 pub(crate) mod partition;
+pub(crate) mod published;
 pub(crate) mod segment;
+pub(crate) mod sort_columns;
 pub(crate) mod stored_values;
 pub(crate) mod tail;

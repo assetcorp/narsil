@@ -140,6 +140,13 @@ impl CoreStoredValues {
         }
     }
 
+    pub(crate) fn units(&self, start: u32, length: u32) -> &[u16] {
+        let start = start as usize;
+        self.units
+            .get(start..start + length as usize)
+            .unwrap_or(&[])
+    }
+
     pub(crate) fn element_count(&self) -> usize {
         self.kinds.len()
     }

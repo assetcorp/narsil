@@ -1,11 +1,13 @@
 use std::borrow::Cow;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
+use super::constants::PUBLISHED_TOTALS_LIMIT;
 use super::fields::name_ranks;
 use super::paged::{PagedSections, PostingList, PostingPositions};
+use super::published::Published;
 use super::stored_values::StoredValues;
-use crate::error::Result;
+use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::format::keyword_segment::KeywordSegment;
 use crate::keyword::frozen::FrozenView;
@@ -23,7 +25,7 @@ pub(crate) struct FrozenSegment {
     length_columns: Vec<Option<usize>>,
     ordered_postings: Vec<bool>,
     term_totals: Vec<f64>,
-    paged_totals: OnceLock<Vec<f64>>,
+    paged_totals: Published<Vec<f64>>,
     pub(crate) stored_values: StoredValues,
 }
 
@@ -94,7 +96,7 @@ impl FrozenSegment {
             length_columns,
             ordered_postings,
             term_totals,
-            paged_totals: OnceLock::new(),
+            paged_totals: Published::default(),
             stored_values: StoredValues::default(),
         }
     }
@@ -112,12 +114,21 @@ impl FrozenSegment {
         let Some(paged) = &self.paged else {
             return Ok(&self.term_totals);
         };
-        if let Some(held) = self.paged_totals.get() {
+        if let Some(held) = self.paged_totals.find(|_| true) {
             return Ok(held);
         }
         let mut totals = vec![0f64; self.payload.token_count()];
         paged.totals(0, &mut totals)?;
-        Ok(self.paged_totals.get_or_init(|| totals))
+        match self
+            .paged_totals
+            .publish(totals, |_| true, PUBLISHED_TOTALS_LIMIT)
+        {
+            Ok(winner) => Ok(winner),
+            Err(_) => Err(NarsilError::new(
+                ErrorCode::INTERNAL_ERROR,
+                "The paged term totals could not be published",
+            )),
+        }
     }
 
     /// Reports whether the postings of the token at `token` never go back to a lower document ordinal.
