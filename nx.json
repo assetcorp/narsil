@@ -14,7 +14,8 @@
     "projects": [
       "narsil-ts",
       "narsil-embeddings-transformers",
-      "narsil-certutil"
+      "narsil-certutil",
+      "narsil-rust"
     ],
     "projectsRelationship": "independent",
     "releaseTagPattern": "{projectName}@v{version}",
