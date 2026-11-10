@@ -4,6 +4,7 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_paged.h"
+#include "../allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -15,7 +16,7 @@ enum { OFFSET_HIGH_SHIFT = 32 };
 narsil_status paged_open(narsil_paged_file *file, const char *path) {
   int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
   if (length <= 0 || (size_t)length > SIZE_MAX / sizeof(WCHAR)) { return NARSIL_PAGE_UNREADABLE; }
-  WCHAR *wide = calloc((size_t)length, sizeof *wide);
+  WCHAR *wide = core_allocate_zeroed((size_t)length, sizeof *wide);
   if (wide == NULL) { return NARSIL_OUT_OF_MEMORY; }
   if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, length) != length) {
     free(wide);

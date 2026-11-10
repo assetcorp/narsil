@@ -1,6 +1,7 @@
 #include "pools.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -38,8 +39,8 @@ narsil_status segment_pool_reserve(segment_pool_plan *plan, size_t capacity) {
       used > (SIZE_MAX - (held * sizeof(segment_slice))) / sizeof(uint32_t)) {
     return NARSIL_OUT_OF_MEMORY;
   }
-  segment_slice *slices = malloc(held * sizeof *slices);
-  uint32_t *slots = malloc(used * sizeof *slots);
+  segment_slice *slices = core_allocate(held * sizeof *slices);
+  uint32_t *slots = core_allocate(used * sizeof *slots);
   if (slices == NULL || slots == NULL) {
     free(slices);
     free(slots);

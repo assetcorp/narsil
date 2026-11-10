@@ -1,6 +1,7 @@
 #include "split.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "languages.h"
 #include "text.h"
 #include "unicode.h"
@@ -44,7 +45,7 @@ int narsil_spans_push(narsil_spans *spans, narsil_span span) {
       if (capacity > (SIZE_MAX / sizeof(narsil_span)) / 2) { return NARSIL_OUT_OF_MEMORY; }
       capacity *= 2;
     }
-    narsil_span *grown = realloc(spans->spans, capacity * sizeof(narsil_span));
+    narsil_span *grown = core_reallocate(spans->spans, capacity * sizeof(narsil_span));
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     spans->spans = grown;
     spans->capacity = capacity;

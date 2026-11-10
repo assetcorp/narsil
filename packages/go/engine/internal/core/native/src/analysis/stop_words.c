@@ -1,6 +1,7 @@
 #include "stop_words.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "text.h"
 
 #include <stddef.h>
@@ -48,9 +49,9 @@ int narsil_stop_words_build(narsil_stop_words *set, const uint16_t *units, const
   size_t total = offsets[count];
   uint32_t slots = MIN_SLOTS;
   while (slots < count * 2U) { slots *= 2U; }
-  set->units = malloc((total == 0 ? 1 : total) * sizeof(uint16_t));
-  set->offsets = malloc(((size_t)count + 1) * sizeof(uint32_t));
-  set->slots = calloc(slots, sizeof(uint32_t));
+  set->units = core_allocate((total == 0 ? 1 : total) * sizeof(uint16_t));
+  set->offsets = core_allocate(((size_t)count + 1) * sizeof(uint32_t));
+  set->slots = core_allocate_zeroed(slots, sizeof(uint32_t));
   if (set->units == NULL || set->offsets == NULL || set->slots == NULL) {
     narsil_stop_words_release(set);
     return NARSIL_OUT_OF_MEMORY;
