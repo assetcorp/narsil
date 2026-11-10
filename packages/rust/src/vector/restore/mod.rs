@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::graph_part::GraphParts;
 use crate::format::vector_file::VectorFile;
+use crate::pins::LOADED_SEQUENCE;
 
 use super::disk::is_dead;
 use super::field::{Generation, NO_DRIFT_CHECK, Shared, VectorField, Writer};
@@ -177,7 +178,7 @@ impl VectorRestore {
                 },
                 _ => Held::InMemory(vector),
             };
-            let loaded_at = shared.sequence.current();
+            let loaded_at = LOADED_SEQUENCE;
             if dead {
                 let stamp = Stamp {
                     flags: FLAG_REPLACED,
