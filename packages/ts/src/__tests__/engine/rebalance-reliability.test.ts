@@ -11,7 +11,7 @@ import { createMockAdapter } from '../embedding/fixtures'
 
 const schema = { title: 'string' as const, category: 'string' as const }
 
-const indexConfig: IndexConfig = { schema, language: 'english' }
+const indexConfig: IndexConfig = { schema, language: 'english', partitions: { maxPartitions: 4 } }
 
 function seedDocs(count: number): Array<Record<string, unknown>> {
   const docs: Array<Record<string, unknown>> = []
@@ -122,6 +122,7 @@ describe('rebalance write buffering', () => {
       await embedded.createIndex('articles', {
         schema: { title: 'string', embedding: 'vector[8]' },
         embedding: { adapter, fields: { embedding: ['title'] } },
+        partitions: { maxPartitions: 2 },
       })
       const docs: Array<Record<string, unknown>> = []
       for (let i = 0; i < 2500; i++) {
@@ -148,6 +149,7 @@ describe('rebalance write buffering', () => {
       partitions: { maxDocsPerPartition: 2500 },
     })
     await narsil.insertBatch('bounded', seedDocs(2500))
+    await narsil.updatePartitionConfig('bounded', { maxPartitions: 2 })
 
     const rebalancePromise = narsil.rebalance('bounded', 2)
     await expect(
@@ -198,6 +200,7 @@ describe('rebalance write buffering', () => {
     await narsil.insert('watched', { id: 'beyond', title: 'beyond doc', category: 'edge' })
     expect(events).toHaveLength(1)
 
+    await narsil.updatePartitionConfig('watched', { maxPartitions: 2 })
     await narsil.rebalance('watched', 2)
     await narsil.insertBatch(
       'watched',

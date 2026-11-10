@@ -140,6 +140,7 @@ describe('worker resynchronisation after a rebalance', () => {
       await engine.insert('products', { id: `early-${i}`, title: `wireless device ${i}`, category: 'early' })
     }
 
+    await engine.updatePartitionConfig('products', { maxPartitions: 3 })
     await engine.rebalance('products', 3)
     expect(engine.getStats('products').partitionCount).toBe(3)
 
@@ -188,6 +189,7 @@ describe('worker resynchronisation after a rebalance', () => {
     await waitFor(() => promoted || failures.length > 0)
     expect(failures).toEqual([])
     expect(promoted).toBe(true)
+    await engine.updatePartitionConfig('readings', { maxPartitions: 2 })
     await engine.rebalance('readings', 2)
     await engine.update('readings', 'reading', { title: 'forest' })
     const ranked = await engine.query('readings', { vector: { field: 'embedding', text: 'shore' } })

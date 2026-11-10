@@ -9,7 +9,7 @@ import "C"
 
 import "fmt"
 
-const ExpectedABIVersion = 8
+const ExpectedABIVersion = C.NARSIL_CORE_ABI_VERSION
 
 type Status int
 
@@ -20,6 +20,12 @@ const (
 	StatusNeedsRoom         Status = C.NARSIL_NEEDS_ROOM
 	StatusGraphNotHeldAlone Status = C.NARSIL_GRAPH_NOT_HELD_ALONE
 	StatusFileUnreadable    Status = C.NARSIL_FILE_UNREADABLE
+	StatusWorkCapExceeded   Status = C.NARSIL_WORK_CAP_EXCEEDED
+	StatusStopped           Status = C.NARSIL_STOPPED
+	StatusSegmentFull       Status = C.NARSIL_SEGMENT_FULL
+	StatusPageCorrupt       Status = C.NARSIL_PAGE_CORRUPT
+	StatusPageUnreadable    Status = C.NARSIL_PAGE_UNREADABLE
+	StatusPageInvalid       Status = C.NARSIL_PAGE_INVALID
 )
 
 type StatusError struct {
@@ -45,6 +51,18 @@ func (s Status) String() string {
 		return "graphNotHeldAlone"
 	case StatusFileUnreadable:
 		return "fileUnreadable"
+	case StatusWorkCapExceeded:
+		return "workCapExceeded"
+	case StatusStopped:
+		return "stopped"
+	case StatusSegmentFull:
+		return "segmentFull"
+	case StatusPageCorrupt:
+		return "pageCorrupt"
+	case StatusPageUnreadable:
+		return "pageUnreadable"
+	case StatusPageInvalid:
+		return "pageInvalid"
 	}
 	return fmt.Sprintf("status(%d)", int(s))
 }

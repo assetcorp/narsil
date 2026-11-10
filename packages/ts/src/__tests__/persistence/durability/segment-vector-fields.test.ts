@@ -217,6 +217,7 @@ describe('vector fields in a segmented checkpoint', () => {
     const papers = []
     for (let i = 0; i < 90; i += 1) papers.push({ id: `p${i}`, title: `Paper ${i}`, embedding: embeddingFor(i) })
     expect((await writer.insertBatch('papers', papers.slice(0, 60))).failed).toEqual([])
+    await writer.updatePartitionConfig('papers', { maxPartitions: 3 })
     await writer.rebalance('papers', 3)
     expect((await writer.insertBatch('papers', papers.slice(60))).failed).toEqual([])
     await writer.optimizeVectors('papers', 'embedding')
