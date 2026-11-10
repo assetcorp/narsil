@@ -123,6 +123,7 @@ jobs:
             runner: windows-latest
           - label: win32-arm64
             runner: windows-11-arm
+            reference-node-architecture: x64
 
     steps:
       - name: Checkout
@@ -135,6 +136,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          architecture: ${{ matrix.reference-node-architecture }}
           cache: pnpm
 
       - name: Install the TypeScript engine's and the conformance tools' dependencies
@@ -162,4 +164,4 @@ jobs:
 
       - name: Test
         working-directory: packages/rust
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
