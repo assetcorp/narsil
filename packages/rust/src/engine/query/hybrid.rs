@@ -1,25 +1,14 @@
 use std::collections::HashSet;
 
 use super::constants::HYBRID_RESCORE_WINDOW;
-use super::fusion::{
-    Fusion, fixed_hybrid_depth, linear_combination, reciprocal_rank_fusion,
-    require_within_hybrid_depth, resolve_fusion,
-};
+use super::fusion::{fixed_hybrid_depth, fuse, require_within_hybrid_depth, resolve_fusion};
 use super::gather::{QueryRun, text_ranked};
-use super::params::{HybridStrategy, QueryParams};
+use super::params::QueryParams;
 use super::vector::{
     RankedHits, VectorLeg, filter_snapshots, id_slices, require_usable_vector_options,
     vector_fetch_depth, vector_leg,
 };
 use crate::error::Result;
-use crate::search::keyword::KeywordHit;
-
-fn fused(fusion: Fusion, text: &[KeywordHit], vector: &[KeywordHit]) -> Vec<KeywordHit> {
-    match fusion.strategy {
-        HybridStrategy::Rrf => reciprocal_rank_fusion([text, vector], fusion.k),
-        HybridStrategy::Linear => linear_combination(text, vector, fusion.alpha),
-    }
-}
 
 fn text_only(text: RankedHits) -> RankedHits {
     RankedHits {
@@ -71,7 +60,7 @@ fn paged_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<RankedHits> {
         matching.as_deref(),
         &run.snapshots.pin,
     )?;
-    let mut hits = fused(fusion, &text.hits, &vector.hits);
+    let mut hits = fuse(fusion, &text.hits, &vector.hits)?;
     if let Some(threshold) = score_floor(params) {
         hits.retain(|hit| hit.score >= threshold);
     }
@@ -139,7 +128,7 @@ fn fixed_depth_hits(run: &QueryRun<'_>, depth: usize, cursor_depth: usize) -> Re
         &run.snapshots.pin,
     )?;
     let text_ranked_hits = &text.hits[..text.hits.len().min(depth)];
-    let mut hits = fused(fusion, text_ranked_hits, &vector.hits);
+    let mut hits = fuse(fusion, text_ranked_hits, &vector.hits)?;
     let threshold = score_floor(params);
     if let Some(threshold) = threshold {
         hits.retain(|hit| hit.score >= threshold);

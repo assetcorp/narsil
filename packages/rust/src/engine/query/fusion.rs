@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use super::constants::{
@@ -7,9 +6,11 @@ use super::constants::{
 };
 use super::params::{HybridConfig, HybridStrategy};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::ffi;
+use crate::keyword::workspace::with_workspace;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
-use crate::search::rankings::score_then_id;
+use crate::search::rankings::id_ranks;
 
 /// The fusion settings of a hybrid query once the engine has checked them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,96 +88,113 @@ pub(crate) fn require_within_hybrid_depth(
     ))
 }
 
-/// Orders fused hits best first, then by document ID in code point order.
-pub(crate) fn fused_order(left: &KeywordHit, right: &KeywordHit) -> Ordering {
-    score_then_id((left.score, &left.id), (right.score, &right.id))
+fn unfusable(status: ffi::narsil_status) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::CONFIG_INVALID,
+        format!("The hybrid rankings cannot be fused, as the native core returned status {status}"),
+    )
 }
 
-/// Fuses ranked lists by reciprocal rank, adding 1 / (k + rank) for each list that holds a document.
-pub(crate) fn reciprocal_rank_fusion(lists: [&[KeywordHit]; 2], k: f64) -> Vec<KeywordHit> {
-    let mut positions: HashMap<&str, usize> = HashMap::new();
-    let mut fused: Vec<KeywordHit> = Vec::new();
-    for list in lists {
-        for (rank, hit) in list.iter().enumerate() {
-            let contribution = 1.0 / (k + rank as f64 + 1.0);
-            match positions.get(hit.id.as_str()) {
-                Some(&at) => {
-                    if let Some(entry) = fused.get_mut(at) {
-                        entry.score += contribution;
-                    }
-                }
-                None => {
-                    positions.insert(&hit.id, fused.len());
-                    fused.push(KeywordHit {
-                        id: hit.id.clone(),
-                        score: contribution,
-                        components: hit.components.clone(),
-                    });
-                }
-            }
-        }
-    }
-    fused.sort_by(fused_order);
-    fused
+struct Legs {
+    entries: Vec<KeywordHit>,
+    text_keys: Vec<u32>,
+    text_scores: Vec<f64>,
+    vector_keys: Vec<u32>,
+    vector_scores: Vec<f64>,
 }
 
-fn min_max_normalised(hits: &[KeywordHit]) -> HashMap<&str, f64> {
-    let Some(first) = hits.first() else {
-        return HashMap::new();
-    };
-    let (mut low, mut high) = (first.score, first.score);
-    for hit in hits {
-        if hit.score < low {
-            low = hit.score;
-        }
-        if hit.score > high {
-            high = hit.score;
-        }
-    }
-    let range = high - low;
-    hits.iter()
-        .map(|hit| {
-            let score = if range == 0.0 {
-                1.0
-            } else {
-                (hit.score - low) / range
-            };
-            (hit.id.as_str(), score)
-        })
-        .collect()
-}
-
-/// Fuses a text ranking and a vector ranking by a weighted sum of their min-max normalised scores, where `alpha`
-/// weighs the vector side.
-pub(crate) fn linear_combination(
-    text: &[KeywordHit],
-    vector: &[KeywordHit],
-    alpha: f64,
-) -> Vec<KeywordHit> {
-    let text_scores = min_max_normalised(text);
-    let vector_scores = min_max_normalised(vector);
-    let mut seen: HashMap<&str, ()> = HashMap::with_capacity(text.len() + vector.len());
-    let mut fused = Vec::with_capacity(text.len() + vector.len());
-    for (hit, from_text) in text
+fn keyed_legs(fusion: Fusion, text: &[KeywordHit], vector: &[KeywordHit]) -> Legs {
+    let mut keys: HashMap<&str, u32> = HashMap::with_capacity(text.len() + vector.len());
+    let mut entries = Vec::with_capacity(text.len() + vector.len());
+    let mut text_keys = Vec::with_capacity(text.len());
+    let mut vector_keys = Vec::with_capacity(vector.len());
+    let sides = text
         .iter()
         .map(|hit| (hit, true))
-        .chain(vector.iter().map(|hit| (hit, false)))
-    {
-        if seen.insert(hit.id.as_str(), ()).is_some() {
-            continue;
+        .chain(vector.iter().map(|hit| (hit, false)));
+    for (hit, from_text) in sides {
+        let next = entries.len() as u32;
+        let key = *keys.entry(hit.id.as_str()).or_insert(next);
+        if key == next {
+            let components = match (fusion.strategy, from_text) {
+                (HybridStrategy::Linear, false) => Some(ScoreComponents::default()),
+                _ => hit.components.clone(),
+            };
+            entries.push(KeywordHit {
+                id: hit.id.clone(),
+                score: 0.0,
+                components,
+            });
         }
-        let text_score = text_scores.get(hit.id.as_str()).copied().unwrap_or(0.0);
-        let vector_score = vector_scores.get(hit.id.as_str()).copied().unwrap_or(0.0);
-        let components = match from_text {
-            true => hit.components.clone(),
-            false => Some(ScoreComponents::default()),
-        };
-        fused.push(KeywordHit {
-            id: hit.id.clone(),
-            score: alpha * vector_score + (1.0 - alpha) * text_score,
-            components,
-        });
+        match from_text {
+            true => text_keys.push(key),
+            false => vector_keys.push(key),
+        }
     }
-    fused.sort_by(fused_order);
-    fused
+    Legs {
+        entries,
+        text_keys,
+        text_scores: text.iter().map(|hit| hit.score).collect(),
+        vector_keys,
+        vector_scores: vector.iter().map(|hit| hit.score).collect(),
+    }
+}
+
+fn leg_of(keys: &[u32], scores: &[f64]) -> ffi::narsil_fusion_leg {
+    ffi::narsil_fusion_leg {
+        keys: keys.as_ptr(),
+        scores: scores.as_ptr(),
+        count: keys.len() as u32,
+    }
+}
+
+/// Fuses a text ranking and a vector ranking on the native core, by reciprocal rank or by a weighted sum of
+/// normalised scores, best first and then by document ID in code point order.
+pub(crate) fn fuse(
+    fusion: Fusion,
+    text: &[KeywordHit],
+    vector: &[KeywordHit],
+) -> Result<Vec<KeywordHit>> {
+    let capacity = text.len() + vector.len();
+    if u32::try_from(capacity).is_err() {
+        return Err(unfusable(ffi::NARSIL_INVALID_ARGUMENT));
+    }
+    let legs = keyed_legs(fusion, text, vector);
+    let ranks = id_ranks(&legs.entries);
+    let mut keys = vec![0u32; capacity];
+    let mut scores = vec![0f64; capacity];
+    let request = ffi::narsil_fusion_request {
+        strategy: match fusion.strategy {
+            HybridStrategy::Rrf => ffi::NARSIL_FUSION_RRF,
+            HybridStrategy::Linear => ffi::NARSIL_FUSION_LINEAR,
+        },
+        rank_constant: fusion.k,
+        alpha: fusion.alpha,
+        text: leg_of(&legs.text_keys, &legs.text_scores),
+        vector: leg_of(&legs.vector_keys, &legs.vector_scores),
+        id_ranks: ranks.as_ptr(),
+        key_count: ranks.len() as u32,
+    };
+    let mut output = ffi::narsil_fusion_output {
+        keys: keys.as_mut_ptr(),
+        scores: scores.as_mut_ptr(),
+        capacity: capacity as u32,
+        count: 0,
+    };
+    let status = with_workspace(|workspace| {
+        Ok(unsafe { ffi::narsil_fuse(workspace, &request, &mut output) })
+    })?;
+    if status != ffi::NARSIL_OK {
+        return Err(unfusable(status));
+    }
+    let found = output.count as usize;
+    let mut held: Vec<Option<KeywordHit>> = legs.entries.into_iter().map(Some).collect();
+    let mut fused = Vec::with_capacity(found);
+    for (&key, &score) in keys.iter().zip(&scores).take(found) {
+        if let Some(mut hit) = held.get_mut(key as usize).and_then(Option::take) {
+            hit.score = score;
+            fused.push(hit);
+        }
+    }
+    Ok(fused)
 }
