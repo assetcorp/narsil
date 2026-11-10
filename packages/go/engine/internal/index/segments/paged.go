@@ -17,7 +17,7 @@ type Paged struct {
 	Removals *core.FrozenPagedRemovals
 	Postings core.PageSection
 	totals   atomic.Pointer[[]float64]
-	path     string
+	path     atomic.Pointer[string]
 	source   *paged.NativeFile
 	reader   *paged.Reader
 
@@ -35,7 +35,8 @@ func valuesOf(column keyword.Uint32s) []uint32 {
 }
 
 func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache) (*Paged, error) {
-	opened := &Paged{path: path}
+	opened := &Paged{}
+	opened.path.Store(&path)
 	opened.holds.Store(1)
 	file, err := storage.OpenForReading(path)
 	if err != nil {
@@ -126,6 +127,23 @@ func (p *Paged) Hold() bool {
 			return true
 		}
 	}
+}
+
+func (p *Paged) Suspend() error {
+	return p.source.Suspend()
+}
+
+func (p *Paged) Resume(relocate func(path string) string) error {
+	path := relocate(p.Path())
+	file, err := storage.OpenForReading(path)
+	if err != nil {
+		return err
+	}
+	if err := p.source.Resume(file, path); err != nil {
+		return err
+	}
+	p.path.Store(&path)
+	return nil
 }
 
 func (p *Paged) Close() {

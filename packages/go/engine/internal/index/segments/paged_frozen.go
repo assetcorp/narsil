@@ -29,7 +29,10 @@ func (p *Paged) FieldSchema() map[string]string {
 }
 
 func (p *Paged) Path() string {
-	return p.path
+	if path := p.path.Load(); path != nil {
+		return *path
+	}
+	return ""
 }
 
 func (p *Paged) Tombstones() []string {

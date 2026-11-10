@@ -1,6 +1,8 @@
 package partition
 
 import (
+	"slices"
+
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -40,6 +42,18 @@ func (s Selection) Keeping(keep func(ordinal uint32) bool) Selection {
 	narrowed := s
 	narrowed.Source.Keep = keep
 	return narrowed
+}
+
+func (p *Partition) PagedSegments(_ *Write) []*segments.Paged {
+	var held []*segments.Paged
+	for _, side := range p.sides {
+		for _, frozen := range side.frozen {
+			if frozen.segment.paged != nil && !slices.Contains(held, frozen.segment.paged) {
+				held = append(held, frozen.segment.paged)
+			}
+		}
+	}
+	return held
 }
 
 func (s Snapshot) GrowingCount() int {

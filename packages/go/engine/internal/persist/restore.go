@@ -285,16 +285,27 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 			return nil, closeErr
 		}
 	}
-	if err := staging.commit(ctx); err != nil {
+	suspended := handle.Index.SuspendPagedFiles()
+	if suspended == nil {
+		suspended = staging.commit(ctx)
+		if suspended != nil {
+			_ = handle.Index.ResumePagedFiles(nil)
+		}
+	}
+	if suspended != nil {
 		if replaces {
 			_ = manager.register(manager.newDurable(previous.handle, previousApplied))
 		}
-		return nil, err
+		return nil, suspended
 	}
 	if err := staging.finish(ctx); err != nil {
 		manager.markFatal(err)
 	}
-	if relocate := staging.relocation(ctx); relocate != nil {
+	relocate := staging.relocation(ctx)
+	if err := handle.Index.ResumePagedFiles(relocate); err != nil {
+		manager.markFatal(err)
+	}
+	if relocate != nil {
 		for _, field := range handle.vectorFields() {
 			if err := field.RelocateVectorFiles(relocate); err != nil {
 				manager.markFatal(err)

@@ -2,6 +2,8 @@ package index
 
 import (
 	"context"
+	"errors"
+	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
@@ -45,6 +47,58 @@ func (ix *Index) HeldPagedSegments(ctx context.Context, partitionID int) (map[st
 		}
 	}
 	return held, nil
+}
+
+func (ix *Index) pagedSegments() ([]*segments.Paged, error) {
+	var held []*segments.Paged
+	err := ix.Write(func(w *Write) error {
+		for _, partition := range ix.partitions {
+			for _, paged := range partition.PagedSegments(w.write) {
+				if !slices.Contains(held, paged) {
+					held = append(held, paged)
+				}
+			}
+		}
+		return nil
+	})
+	return held, err
+}
+
+func samePagedPath(path string) string {
+	return path
+}
+
+func (ix *Index) SuspendPagedFiles() error {
+	held, err := ix.pagedSegments()
+	if err != nil {
+		return err
+	}
+	for at, paged := range held {
+		if err := paged.Suspend(); err != nil {
+			for _, suspended := range held[:at] {
+				_ = suspended.Resume(samePagedPath)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (ix *Index) ResumePagedFiles(relocate func(path string) string) error {
+	if relocate == nil {
+		relocate = samePagedPath
+	}
+	held, err := ix.pagedSegments()
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, paged := range held {
+		if err := paged.Resume(relocate); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (ix *Index) PrepareAdoption(partitionID int, paged []*segments.Paged, kept []bool) (*partition.Adoption, error) {

@@ -18,7 +18,7 @@ func (p *Paged) TermTotals() ([]float64, error) {
 	}
 	if section.Length != int64(count)*pagedTermTotalBytes {
 		return nil, narsilerr.New(narsilerr.CodePersistenceLoadFailed,
-			`The term totals of "`+p.path+`" have the wrong length`, map[string]any{"path": p.path})
+			`The term totals of "`+p.Path()+`" have the wrong length`, map[string]any{"path": p.Path()})
 	}
 	totals := make([]float64, count)
 	if count > 0 {

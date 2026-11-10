@@ -20,7 +20,7 @@ func (p *Paged) pageFailure(err error) error {
 	if !errors.As(err, &fault) {
 		return err
 	}
-	return vector.PageFailure(fault, p.path, p.sectionNameAt(fault.Fault.Section))
+	return vector.PageFailure(fault, p.Path(), p.sectionNameAt(fault.Fault.Section))
 }
 
 func (s *State) failure(err error) error {

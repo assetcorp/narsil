@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
@@ -16,6 +17,7 @@ type PageSource interface {
 }
 
 type NativeFile struct {
+	mu     sync.RWMutex
 	file   *os.File
 	native *core.PagedFile
 	path   string
@@ -42,7 +44,47 @@ func OpenNativeFile(file *os.File, path string) (*NativeFile, error) {
 }
 
 func (file *NativeFile) ReadAt(target []byte, offset int64) (int, error) {
+	file.mu.RLock()
+	defer file.mu.RUnlock()
+	if file.file == nil {
+		return 0, os.ErrClosed
+	}
 	return file.file.ReadAt(target, offset)
+}
+
+func (file *NativeFile) Suspend() error {
+	file.mu.Lock()
+	defer file.mu.Unlock()
+	if file.file == nil {
+		return os.ErrClosed
+	}
+	if err := file.native.Suspend(); err != nil {
+		return err
+	}
+	err := file.file.Close()
+	file.file = nil
+	return err
+}
+
+func (file *NativeFile) Resume(opened *os.File, path string) error {
+	file.mu.Lock()
+	defer file.mu.Unlock()
+	info, err := opened.Stat()
+	if err == nil && info.Size() != file.size {
+		err = core.ErrPagedFileChanged
+	}
+	if err == nil && file.file != nil {
+		err = os.ErrExist
+	}
+	if err == nil {
+		err = file.native.Resume(path)
+	}
+	if err != nil {
+		_ = opened.Close()
+		return cannotOpen(path, err)
+	}
+	file.file, file.path = opened, path
+	return nil
 }
 
 func (file *NativeFile) Size() int64 {
@@ -68,14 +110,24 @@ func (file *NativeFile) ReadPage(section Section, page int64, target []byte) err
 	err = workspace.ReadPage(nil, file.PageSection(section), uint64(page), target)
 	var fault *core.PageError
 	if errors.As(err, &fault) {
-		return vector.PageFailure(fault, file.path, section.Name)
+		file.mu.RLock()
+		path := file.path
+		file.mu.RUnlock()
+		return vector.PageFailure(fault, path, section.Name)
 	}
 	return err
 }
 
 func (file *NativeFile) Close() error {
+	file.mu.Lock()
+	defer file.mu.Unlock()
 	file.native.Close()
-	return file.file.Close()
+	if file.file == nil {
+		return nil
+	}
+	err := file.file.Close()
+	file.file = nil
+	return err
 }
 
 func readPageOf(source io.ReaderAt, section Section, page int64, target []byte, key string) error {
