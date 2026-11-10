@@ -102,6 +102,7 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err != nil {
 		return err
 	}
+	defer n.retireReplaced(entry, live, built)
 	step := func() error {
 		if err := side.proceed(); err != nil {
 			return err

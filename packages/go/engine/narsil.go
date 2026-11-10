@@ -22,6 +22,7 @@ type Narsil struct {
 
 	lifeMu   sync.Mutex
 	active   int
+	retired  retirements
 	closed   bool
 	drained  chan struct{}
 	shutdown sync.Once
@@ -113,16 +114,19 @@ func (n *Narsil) enter() (func(), error) {
 		return nil, narsilerr.New(narsilerr.CodeInstanceShutDown, "This Narsil instance has been shut down", nil)
 	}
 	n.active++
-	return n.leave, nil
+	generation := n.retired.enter()
+	return func() { n.leave(generation) }, nil
 }
 
-func (n *Narsil) leave() {
+func (n *Narsil) leave(generation uint64) {
 	n.lifeMu.Lock()
-	defer n.lifeMu.Unlock()
 	n.active--
+	released := n.retired.leave(generation)
 	if n.closed && n.active == 0 {
 		close(n.drained)
 	}
+	n.lifeMu.Unlock()
+	releaseIndexes(released)
 }
 
 // Shutdown stops the engine: it refuses new calls with CodeInstanceShutDown,
