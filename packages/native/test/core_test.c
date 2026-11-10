@@ -708,7 +708,7 @@ int main(int argc, char **argv) {
     return finish();
   }
   if (argc > 1 && strcmp(argv[1], ALLOCATION_FAILURES_ONLY) == 0) {
-    allocation_failure_checks();
+    allocation_failure_checks(argc > 2 ? argv[2] : NULL, argc > 3 ? argv[3] : NULL);
     return finish();
   }
   narsil_workspace *workspace = NULL;

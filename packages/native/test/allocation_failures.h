@@ -20,7 +20,7 @@ typedef struct {
 uint64_t digest_bytes(uint64_t digest, const void *bytes, size_t length);
 uint64_t digest_word(uint64_t digest, uint64_t word);
 void refuse_each_allocation(const failing_call *call);
-void allocation_failure_checks(void);
+void allocation_failure_checks(const char *part, const char *parts);
 
 void analysis_allocation_failures(void);
 void graph_allocation_failures(void);

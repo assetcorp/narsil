@@ -89,29 +89,17 @@ typedef struct {
 } segment_fixture;
 
 static narsil_term_table string_table(test_strings *strings) {
-  strings->header[2] = SLOTS;
   return (narsil_term_table){strings->header,  HEADER_WORDS, strings->slots, SLOTS, strings->offsets, TERMS,
                              strings->lengths, TERMS,        strings->next,  TERMS, strings->heads,   HEADS,
                              strings->units,   UNITS};
 }
 
-static segment_fixture *create_segment(void) {
-  segment_fixture *data = calloc(1, sizeof *data);
-  if (data == NULL) { return NULL; }
-  for (size_t index = 0; index < CLASSES; index++) {
-    data->sizes[index] = UINT32_C(1) << index;
-    data->posting_free[index] = UINT32_MAX;
-    data->run_free[index] = UINT32_MAX;
-  }
-  data->position_allocation[0] = 1;
-  data->partial[0] = 1;
-  data->partial[1] = 1;
+static void point_at_own_arrays(segment_fixture *data) {
   data->surface_table =
       (narsil_surface_table){string_table(&data->surfaces), data->surface_tokens, data->surface_counts, TERMS};
   data->spelling_table.entries =
       (narsil_surface_table){string_table(&data->spellings), data->spelling_tokens, data->spelling_counts, TERMS};
   data->spelling_table.code_points = data->spelling_points;
-  data->run_header[2] = RUN_SLOTS;
   data->spelling_table.runs = (narsil_run_table){data->run_header,
                                                  data->run_slots,
                                                  RUN_SLOTS,
@@ -144,6 +132,32 @@ static segment_fixture *create_segment(void) {
       .partial_fields = data->partial,
       .ordinal_capacity = ORDINALS,
       .field_count = FIELDS};
+}
+
+static segment_fixture *create_segment(void) {
+  segment_fixture *data = calloc(1, sizeof *data);
+  if (data == NULL) { return NULL; }
+  for (size_t index = 0; index < CLASSES; index++) {
+    data->sizes[index] = UINT32_C(1) << index;
+    data->posting_free[index] = UINT32_MAX;
+    data->run_free[index] = UINT32_MAX;
+  }
+  data->position_allocation[0] = 1;
+  data->partial[0] = 1;
+  data->partial[1] = 1;
+  data->terms.header[2] = SLOTS;
+  data->surfaces.header[2] = SLOTS;
+  data->spellings.header[2] = SLOTS;
+  data->run_header[2] = RUN_SLOTS;
+  point_at_own_arrays(data);
+  return data;
+}
+
+static segment_fixture *copy_segment(const segment_fixture *source) {
+  segment_fixture *data = source == NULL ? NULL : malloc(sizeof *data);
+  if (data == NULL) { return NULL; }
+  memcpy(data, source, sizeof *data);
+  point_at_own_arrays(data);
   return data;
 }
 
@@ -619,11 +633,11 @@ static segment_fixture *indexed_segment(uint32_t documents) {
   return data;
 }
 
-static void *prepare_segment_for_a_document(void) { return indexed_segment(REFUSED_DOCUMENTS - 1); }
+static segment_fixture *segment_for_a_document(void) { return indexed_segment(REFUSED_DOCUMENTS - 1); }
 
-static void *prepare_full_segment(void) { return indexed_segment(REFUSED_DOCUMENTS); }
+static segment_fixture *full_segment(void) { return indexed_segment(REFUSED_DOCUMENTS); }
 
-static void *prepare_segment_to_compact(void) {
+static segment_fixture *segment_to_compact(void) {
   segment_fixture *data = create_segment();
   narsil_workspace *workspace = NULL;
   if (data == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
@@ -655,6 +669,30 @@ static void *prepare_segment_to_compact(void) {
   }
   return data;
 }
+
+enum { SEGMENT_FOR_A_DOCUMENT, FULL_SEGMENT, SEGMENT_TO_COMPACT, BUILT_SEGMENTS };
+
+static segment_fixture *built_segments[BUILT_SEGMENTS];
+
+static segment_fixture *copy_of_built_segment(size_t segment, segment_fixture *(*build)(void)) {
+  if (built_segments[segment] == NULL) { built_segments[segment] = build(); }
+  return copy_segment(built_segments[segment]);
+}
+
+static void release_built_segments(void) {
+  for (size_t segment = 0; segment < BUILT_SEGMENTS; segment++) {
+    free(built_segments[segment]);
+    built_segments[segment] = NULL;
+  }
+}
+
+static void *prepare_segment_for_a_document(void) {
+  return copy_of_built_segment(SEGMENT_FOR_A_DOCUMENT, segment_for_a_document);
+}
+
+static void *prepare_full_segment(void) { return copy_of_built_segment(FULL_SEGMENT, full_segment); }
+
+static void *prepare_segment_to_compact(void) { return copy_of_built_segment(SEGMENT_TO_COMPACT, segment_to_compact); }
 
 static narsil_status index_last_document(narsil_workspace *workspace, void *opaque) {
   return index_refused_document(workspace, opaque, REFUSED_DOCUMENTS - 1);
@@ -694,7 +732,7 @@ typedef struct {
 static void *prepare_expansion(void) {
   expansion_inputs *inputs = calloc(1, sizeof *inputs);
   if (inputs == NULL) { return NULL; }
-  inputs->data = indexed_segment(REFUSED_DOCUMENTS);
+  inputs->data = prepare_full_segment();
   if (inputs->data == NULL) {
     free(inputs);
     return NULL;
@@ -759,6 +797,7 @@ void segment_allocation_failures(void) {
        release_expansion},
   };
   for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
+  release_built_segments();
 }
 
 void segment_write_checks(narsil_workspace *workspace) {

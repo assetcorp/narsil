@@ -111,21 +111,9 @@ static test_fixture *graph_with_removals(void) {
   return fixture;
 }
 
-static void *prepare_linked_graph(void) {
-  restart_random();
-  return holding(build_fixture(0));
-}
+static test_fixture *graph_without_one_node(void) { return placed_graph(LAST_PLACED_NODE); }
 
-static void *prepare_quantised_graph(void) {
-  restart_random();
-  return holding(build_fixture(QUANTISED_BITS));
-}
-
-static void *prepare_graph_without_one_node(void) { return holding(placed_graph(LAST_PLACED_NODE)); }
-
-static void *prepare_graph_with_removals(void) { return holding(graph_with_removals()); }
-
-static void *prepare_compacted_graph(void) {
+static test_fixture *compacted_graph(void) {
   test_fixture *fixture = graph_with_removals();
   narsil_workspace *workspace = NULL;
   if (fixture == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
@@ -139,8 +127,42 @@ static void *prepare_compacted_graph(void) {
     release_fixture(fixture);
     return NULL;
   }
-  return holding(fixture);
+  return fixture;
 }
+
+enum { GRAPH_WITHOUT_ONE_NODE, GRAPH_WITH_REMOVALS, COMPACTED_GRAPH, BUILT_GRAPHS };
+
+static test_fixture *built_graphs[BUILT_GRAPHS];
+
+static void *copy_of_built_graph(size_t graph, test_fixture *(*build)(void)) {
+  if (built_graphs[graph] == NULL) { built_graphs[graph] = build(); }
+  return holding(copy_fixture(built_graphs[graph]));
+}
+
+static void release_built_graphs(void) {
+  for (size_t graph = 0; graph < BUILT_GRAPHS; graph++) {
+    if (built_graphs[graph] != NULL) { release_fixture(built_graphs[graph]); }
+    built_graphs[graph] = NULL;
+  }
+}
+
+static void *prepare_linked_graph(void) {
+  restart_random();
+  return holding(build_fixture(0));
+}
+
+static void *prepare_quantised_graph(void) {
+  restart_random();
+  return holding(build_fixture(QUANTISED_BITS));
+}
+
+static void *prepare_graph_without_one_node(void) {
+  return copy_of_built_graph(GRAPH_WITHOUT_ONE_NODE, graph_without_one_node);
+}
+
+static void *prepare_graph_with_removals(void) { return copy_of_built_graph(GRAPH_WITH_REMOVALS, graph_with_removals); }
+
+static void *prepare_compacted_graph(void) { return copy_of_built_graph(COMPACTED_GRAPH, compacted_graph); }
 
 static void *prepare_uncalibrated_records(void) {
   restart_random();
@@ -260,4 +282,5 @@ void graph_allocation_failures(void) {
       {"a quantisation", prepare_calibrated_records, quantise_records, digest_of_graph, release_graph},
   };
   for (size_t at = 0; at < sizeof calls / sizeof calls[0]; at++) { refuse_each_allocation(&calls[at]); }
+  release_built_graphs();
 }
