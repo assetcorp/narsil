@@ -1,23 +1,9 @@
 use crate::error::Result;
-use crate::format::graph_part::{GraphPart, NumberedGraph, VECTOR_GRAPH_PART_VECTORS};
+use crate::format::graph_part::{GraphPart, VECTOR_GRAPH_PART_VECTORS};
 
-use super::super::build::connect_unreached;
 use super::super::field::{Shared, Writer};
-use super::super::graph::GraphTables;
 use super::super::numbered::{NO_ORDINAL, Numbering, serialise_parts};
 use super::{SavedVectorFile, is_carried};
-
-fn copied_with_every_placement_connected(
-    writer: &Writer,
-    graph: &GraphTables,
-    numbering: &Numbering<'_>,
-) -> Result<Vec<NumberedGraph>> {
-    let _no_placement = graph.placements.hold_placements_back();
-    if graph.placements.placed_since_connect() {
-        connect_unreached(writer, graph)?;
-    }
-    Ok(serialise_parts(graph, numbering, VECTOR_GRAPH_PART_VECTORS))
-}
 
 pub(super) fn graph_parts_of(
     shared: &Shared,
@@ -57,7 +43,7 @@ pub(super) fn graph_parts_of(
         ordinal_of_number: &ordinal_of_number,
     };
     let shuffled = shared.history.shuffled_build_count();
-    let parts = copied_with_every_placement_connected(writer, graph, &numbering)?;
+    let parts = serialise_parts(graph, &numbering, VECTOR_GRAPH_PART_VECTORS);
     Ok(Some(
         parts
             .into_iter()

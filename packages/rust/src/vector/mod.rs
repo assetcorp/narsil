@@ -13,7 +13,6 @@ mod graph;
 mod graph_search;
 pub(crate) mod maintenance;
 mod numbered;
-mod placement_gate;
 pub(crate) mod ranking;
 mod region;
 pub(crate) mod restore;

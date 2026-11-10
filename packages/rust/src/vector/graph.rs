@@ -5,7 +5,6 @@ use crate::ffi;
 use crate::pins::{MAX_THREAD_SLOTS, slots_reached};
 
 use super::constants::{LOCK_SPIN_ITERATIONS, MIN_ORDINAL_CAPACITY, MIN_UPPER_WORDS};
-use super::placement_gate::PlacementGate;
 use super::region::{
     byte_ptr, bytes, copied_bytes, copied_words, load, load_byte, store, word_ptr, words,
     zeroed_words,
@@ -32,7 +31,6 @@ pub(crate) struct GraphTables {
     nearest_link_due: Box<[AtomicU8]>,
     held: Box<[AtomicI32]>,
     incoming_uncounted: AtomicBool,
-    pub(crate) placements: PlacementGate,
 }
 
 pub(crate) struct HeldAlone<'a> {
@@ -76,7 +74,6 @@ impl GraphTables {
             nearest_link_due: bytes(slot_capacity),
             held: zeroed_words(MAX_THREAD_SLOTS as usize * ffi::NARSIL_HELD_WORDS_PER_THREAD),
             incoming_uncounted: AtomicBool::new(false),
-            placements: PlacementGate::new(),
         };
         graph.set_word(ffi::NARSIL_GRAPH_WORD_ENTRY_POINT, NO_NODE);
         graph.set_word(ffi::NARSIL_GRAPH_WORD_TOP_LAYER, NO_NODE);
@@ -138,7 +135,6 @@ impl GraphTables {
             nearest_link_due: copied_bytes(&self.nearest_link_due, slot_capacity),
             held: zeroed_words(self.held.len()),
             incoming_uncounted: AtomicBool::new(self.incoming_uncounted.load(Ordering::Acquire)),
-            placements: self.placements.carried(),
         }
     }
 

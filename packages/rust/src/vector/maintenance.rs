@@ -173,7 +173,7 @@ fn plan_optimisation(shared: &Shared, writer: &mut Writer) -> Result<Option<supe
         .into_iter()
         .filter(|&ordinal| !graph.holds_live_node(ordinal) || generation.is_buffered(ordinal))
         .collect();
-    Ok(Some(grow_plan(graph, missing)))
+    Ok(Some(grow_plan(writer, graph, missing)))
 }
 
 impl VectorField {
@@ -253,12 +253,11 @@ impl VectorField {
             .graph
             .as_ref()
             .map_or(0, |graph| graph.memory_bytes());
-        let fresh_bytes = {
+        let building_bytes = {
             let writer = self.shared.lock_writer();
             writer
                 .job
                 .as_ref()
-                .filter(|job| job.fresh)
                 .and_then(|job| job.graph.as_ref())
                 .map_or(0, |graph| graph.memory_bytes())
         };
@@ -271,7 +270,7 @@ impl VectorField {
             + generation.store.memory_bytes()
             + generation.ids.memory_bytes()
             + graph_bytes
-            + fresh_bytes
+            + building_bytes
             + scratch_bytes
     }
 }

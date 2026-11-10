@@ -13,7 +13,7 @@ use super::disk::release_pending_locations;
 use super::field::{Shared, Writer};
 use super::graph::{GraphTables, upper_words_of};
 use super::writes::compacted_buffer;
-use placement::{adopt, place_batch};
+use placement::{adopt, place_batch, publish_grown};
 
 pub(crate) use placement::connect_unreached;
 
@@ -31,6 +31,7 @@ pub(crate) struct BuildJob {
 
 pub(crate) struct Plan {
     graph: Arc<GraphTables>,
+    source: Option<Arc<GraphTables>>,
     order: Vec<u32>,
     fresh: bool,
 }
@@ -230,12 +231,18 @@ fn plan_background_build(shared: &Shared, writer: &mut Writer) -> Result<Option<
         );
         return Ok(None);
     }
-    Ok(Some(grow_plan(graph, order)))
+    Ok(Some(grow_plan(writer, graph, order)))
 }
 
-pub(crate) fn grow_plan(graph: Arc<GraphTables>, order: Vec<u32>) -> Plan {
+pub(crate) fn grow_plan(writer: &mut Writer, source: Arc<GraphTables>, order: Vec<u32>) -> Plan {
+    let graph = Arc::new(source.copied(source.slot_capacity(), source.upper_capacity()));
+    writer.job = Some(BuildJob {
+        graph: Some(Arc::clone(&graph)),
+        fresh: false,
+    });
     Plan {
         graph,
+        source: Some(source),
         order,
         fresh: false,
     }
@@ -263,6 +270,7 @@ pub(crate) fn fresh_plan(shared: &Shared, writer: &mut Writer) -> Plan {
     });
     Plan {
         graph,
+        source: None,
         order,
         fresh: true,
     }
@@ -276,16 +284,20 @@ fn threads_for(count: usize) -> usize {
 }
 
 fn still_current(writer: &Writer, plan: &Plan) -> bool {
-    let held = if plan.fresh {
+    let job_holds = writer
+        .job
+        .as_ref()
+        .filter(|job| job.fresh == plan.fresh)
+        .and_then(|job| job.graph.as_ref())
+        .is_some_and(|graph| Arc::ptr_eq(graph, &plan.graph));
+    let source_published = plan.source.as_ref().is_none_or(|source| {
         writer
-            .job
+            .generation
+            .graph
             .as_ref()
-            .filter(|job| job.fresh)
-            .and_then(|job| job.graph.as_ref())
-    } else {
-        writer.generation.graph.as_ref()
-    };
-    held.is_some_and(|graph| Arc::ptr_eq(graph, &plan.graph))
+            .is_some_and(|graph| Arc::ptr_eq(graph, source))
+    });
+    job_holds && source_published
 }
 
 pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
@@ -302,7 +314,6 @@ pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
             Ok(false) => return Ok(false),
             Err(error) => {
                 abandon(shared, &plan);
-                reconnect_part_grown(shared, &plan);
                 return Err(error);
             }
         }
@@ -311,29 +322,20 @@ pub(crate) fn carry_out(shared: &Shared, mut plan: Plan) -> Result<bool> {
     if !still_current(&writer, &plan) {
         return Ok(false);
     }
-    connect_unreached(&writer, &plan.graph)?;
+    if let Err(error) = connect_unreached(&writer, &plan.graph) {
+        writer.job = None;
+        return Err(error);
+    }
     if plan.fresh {
         adopt(shared, &mut writer, &plan.graph);
         release_pending_locations(shared, &mut writer)?;
+    } else {
+        publish_grown(shared, &mut writer, &plan.graph);
     }
     Ok(true)
 }
 
-fn reconnect_part_grown(shared: &Shared, plan: &Plan) {
-    if plan.fresh {
-        return;
-    }
-    let writer = shared.lock_writer();
-    if still_current(&writer, plan) && connect_unreached(&writer, &plan.graph).is_err() {
-        plan.graph
-            .set_word(crate::ffi::NARSIL_GRAPH_WORD_UNLINKED_NODES, 1);
-    }
-}
-
 fn abandon(shared: &Shared, plan: &Plan) {
-    if !plan.fresh {
-        return;
-    }
     let mut writer = shared.lock_writer();
     if still_current(&writer, plan) {
         writer.job = None;
