@@ -22,11 +22,11 @@ func (f *Field) heldOrdinalOf(vector plannedVector, pinned bool) (int32, bool) {
 	return f.store.ordinalOf(vector.docID)
 }
 
-func (f *Field) readPlannedVector(ordinal int32, target []float32, pinned bool) (bool, error) {
+func (f *Field) readPlannedVector(ordinal int32, target []float32, pinned bool) bool {
 	if pinned {
 		return f.store.readPinnedVector(ordinal, target)
 	}
-	return f.store.readVector(f.store.tables, ordinal, target), nil
+	return f.store.readVector(f.store.tables, ordinal, target)
 }
 
 func vectorBytes(vectors []float32) []byte {
@@ -64,11 +64,7 @@ func (f *Field) readPlannedFile(ctx context.Context, plan *CheckpointPlan, plann
 		if !known {
 			continue
 		}
-		read, err := f.readPlannedVector(held, vectors[position*dimension:(position+1)*dimension], plan.pinsRetired)
-		if err != nil {
-			return NewVectorFile{}, err
-		}
-		if !read {
+		if !f.readPlannedVector(held, vectors[position*dimension:(position+1)*dimension], plan.pinsRetired) {
 			continue
 		}
 		magnitudes[position] = f.store.magnitude(held)

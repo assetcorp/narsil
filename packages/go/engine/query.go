@@ -70,17 +70,18 @@ func (entry *indexEntry) embedQueryText(ctx context.Context, params model.QueryP
 	return params, nil
 }
 
-func (entry *indexEntry) attachHitVectors(result *model.QueryResult, requested model.DocumentProjection) {
+func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
+	requested model.DocumentProjection) {
 	if len(entry.vectorPaths) == 0 {
 		return
 	}
 	shown := projection.Resolve(requested)
 	for _, hit := range result.Hits {
-		entry.attachVectors(hit.Document, hit.ID, shown)
+		entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown)
 	}
 	for _, group := range result.Groups {
 		for _, hit := range group.Hits {
-			entry.attachVectors(hit.Document, hit.ID, shown)
+			entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown)
 		}
 	}
 }
@@ -116,6 +117,11 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 	if err != nil {
 		return model.QueryResult{}, err
 	}
+	ctx, unpin, err := entry.pinVectors(ctx, resolved.Vector != nil)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer unpin()
 	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.QueryResult, error) {
 		if resolved.Rerank != nil {
 			return target.QueryReranked(ctx, resolved, n.rerank.maxWindow, n.rerankScorer, options)
@@ -126,7 +132,7 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 		return model.QueryResult{}, err
 	}
 	result.AnalysisStale = stale
-	entry.attachHitVectors(&result, resolved.Document)
+	entry.attachHitVectors(ctx, &result, resolved.Document)
 	observed := result
 	observed.Hits = append([]model.Hit(nil), result.Hits...)
 	_ = n.plugins.search(ctx, hookAfterSearch, &model.SearchContext{IndexName: indexName, Params: &resolved, Results: &observed})

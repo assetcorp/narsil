@@ -110,7 +110,7 @@ func (f *Field) PlanCheckpoint(ctx context.Context, request CheckpointPlanReques
 		plan.graphParts, plan.partsToWrite = parts, parts
 	}
 	if request.PinsRetiredVectors {
-		f.store.pins.pin()
+		f.store.holdFreedVectors()
 	}
 	return plan, nil
 }
@@ -187,7 +187,7 @@ func (p *CheckpointPlan) Release() {
 		return
 	}
 	p.field.writeMu.Lock()
-	p.store.pins.unpin()
+	p.store.releaseFreedVectors()
 	p.field.writeMu.Unlock()
 }
 

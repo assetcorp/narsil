@@ -12,7 +12,6 @@ const (
 	graphWordRetired           = 6
 	graphWordIncomingUncounted = 35
 	graphHeaderBytes           = core.GraphHeaderWords * 4
-	heldLockBytes              = graphThreadSlots * core.HeldWordsPerThread * 4
 	graphLockHeldAlone         = -1
 	noEntryPoint               = -1
 	upperWordsAddressable      = math.MaxInt32
@@ -39,27 +38,29 @@ type graphMemory struct {
 	tombstones     *growable
 	incoming       *growable
 	nearestLinkDue *growable
-	heldLocks      *growable
+	slotTable      *Slots
 	native         *core.Graph
 	resource       *sharedResource
 	lineage        *graphLineage
 }
 
 type graphLineage struct {
-	created int64
+	created  int64
+	alsoScan atomic.Pointer[[]int32]
 }
 
 func perOrdinalMax(bytesPerOrdinal int) uintptr {
 	return uintptr(MaxVectorOrdinals) * uintptr(bytesPerOrdinal)
 }
 
-func newGraphMemory(shape graphShape) (*graphMemory, error) {
+func newGraphMemory(shape graphShape, slots *Slots) (*graphMemory, error) {
 	graph := &graphMemory{
 		shape:        shape,
 		level0Stride: shape.mMax0 + core.ListWordsOverNeighbours,
 		upperStride:  shape.m + core.ListWordsOverNeighbours,
 		multiplier:   levelMultiplier(shape.m),
 		lineage:      &graphLineage{},
+		slotTable:    slots.retain(),
 	}
 	regions := []struct {
 		target  **growable
@@ -75,12 +76,11 @@ func newGraphMemory(shape graphShape) (*graphMemory, error) {
 		{&graph.tombstones, vectorStoreInitialCapacity, perOrdinalMax(1)},
 		{&graph.incoming, vectorStoreInitialCapacity * 4, perOrdinalMax(4)},
 		{&graph.nearestLinkDue, vectorStoreInitialCapacity, perOrdinalMax(1)},
-		{&graph.heldLocks, heldLockBytes, heldLockBytes},
 	}
 	for _, region := range regions {
 		memory, err := newGrowable(region.initial, region.max)
 		if err != nil {
-			graph.releaseRegions()
+			graph.free()
 			return nil, err
 		}
 		*region.target = memory
@@ -93,7 +93,7 @@ func newGraphMemory(shape graphShape) (*graphMemory, error) {
 	graph.word(graphWordMetric).Store(int32(shape.metric))
 	native, err := core.NewGraph(graph.regions())
 	if err != nil {
-		graph.releaseRegions()
+		graph.free()
 		return nil, coreFailure("attachGraph", err)
 	}
 	graph.native = native
@@ -113,14 +113,14 @@ func (g *graphMemory) regions() core.GraphRegions {
 		Tombstones:     g.tombstones.pointer(),
 		Incoming:       g.incoming.pointer(),
 		NearestLinkDue: g.nearestLinkDue.pointer(),
-		HeldLocks:      g.heldLocks.pointer(),
-		ThreadSlots:    graphThreadSlots,
+		HeldLocks:      g.slotTable.heldLocks.Pointer(),
+		ThreadSlots:    threadSlotCapacity,
 	}
 }
 
 func (g *graphMemory) every() []*growable {
 	return []*growable{g.header, g.nodeLevels, g.level0, g.upperBase, g.upper, g.locks, g.tombstones,
-		g.incoming, g.nearestLinkDue, g.heldLocks}
+		g.incoming, g.nearestLinkDue}
 }
 
 func (g *graphMemory) releaseRegions() {
@@ -137,6 +137,10 @@ func (g *graphMemory) free() {
 		g.native = nil
 	}
 	g.releaseRegions()
+	if g.slotTable != nil {
+		g.slotTable.resource.drop()
+		g.slotTable = nil
+	}
 }
 
 func (g *graphMemory) word(index int) *atomic.Int32 {
@@ -281,7 +285,7 @@ func (g *graphMemory) releaseHold() {
 }
 
 func (g *graphMemory) clone() (*graphMemory, error) {
-	copied, err := newGraphMemory(g.shape)
+	copied, err := newGraphMemory(g.shape, g.slotTable)
 	if err != nil {
 		return nil, err
 	}

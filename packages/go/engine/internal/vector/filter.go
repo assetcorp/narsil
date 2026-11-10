@@ -67,7 +67,7 @@ func liveOrdinal(store *storeMemory, ordinal int32) bool {
 	return store.table.flags(ordinal)&(ordinalHoldsDocument|ordinalRemoved) == ordinalHoldsDocument
 }
 
-func filterOf(current *layout, filter *Filter) *ordinalFilter {
+func filterOf(current *layout, filter *Filter, pin int64) *ordinalFilter {
 	if filter == nil {
 		return nil
 	}
@@ -76,8 +76,8 @@ func filterOf(current *layout, filter *Filter) *ordinalFilter {
 	accepted := newOrdinalFilter(slots)
 	if !filter.byPartitions {
 		for _, docID := range filter.docIDs {
-			ordinal, held := store.ordinalOf(docID)
-			if held && ordinal < slots && liveOrdinal(store, ordinal) {
+			ordinal, held := store.admittedOrdinalOf(docID, pin)
+			if held && ordinal < slots {
 				accepted.add(ordinal)
 			}
 		}
@@ -87,7 +87,7 @@ func filterOf(current *layout, filter *Filter) *ordinalFilter {
 		return accepted
 	}
 	for ordinal := range slots {
-		if !liveOrdinal(store, ordinal) {
+		if !store.admits(ordinal, pin) {
 			continue
 		}
 		if _, wanted := filter.partitions[store.table.partition(ordinal)]; wanted {

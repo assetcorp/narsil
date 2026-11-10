@@ -8,11 +8,16 @@ import (
 )
 
 func (entry *indexEntry) attachVectors(document model.Document, id string, shown projection.Projection) {
+	entry.attachVectorsUnder(context.Background(), document, id, shown)
+}
+
+func (entry *indexEntry) attachVectorsUnder(ctx context.Context, document model.Document, id string,
+	shown projection.Projection) {
 	if len(entry.vectorPaths) == 0 || document == nil {
 		return
 	}
 	shown.CopyVectorsInto(document, entry.vectorPaths, func(path string) ([]float32, bool) {
-		return entry.handle.Vectors[path].GetVector(id)
+		return entry.handle.Vectors[path].GetVectorUnder(ctx, id)
 	})
 }
 

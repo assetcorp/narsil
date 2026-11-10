@@ -183,9 +183,18 @@ func buildVectorFields(indexName string, parsed *schema.Parsed, promotion *model
 	if promotion != nil && promotion.Storage != "" {
 		storage = promotion.Storage
 	}
-	for _, path := range sortedVectorPaths(parsed) {
+	paths := sortedVectorPaths(parsed)
+	if len(paths) == 0 {
+		return fields, nil
+	}
+	slots, err := vector.NewSlots()
+	if err != nil {
+		return nil, err
+	}
+	defer slots.Close()
+	for _, path := range paths {
 		field, err := vector.New(vector.Config{FieldName: path, IndexName: indexName,
-			Dimension: parsed.VectorFields()[path], Index: promotion, Storage: storage})
+			Dimension: parsed.VectorFields()[path], Index: promotion, Storage: storage, Slots: slots})
 		if err != nil {
 			disposeFields(fields)
 			return nil, err

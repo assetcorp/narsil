@@ -40,9 +40,10 @@ const (
 	driftCheckGrowthFactor      = 2
 	recalibrationDriftRatio     = 2.5
 	recalibrationChunkVectors   = 512
-	graphThreadSlots            = 2
-	writerThreadSlot            = 0
-	searchThreadSlot            = 1
+	MaxSearchThreadSlots        = 65_536
+	maxWriterThreadSlots        = 4_096
+	threadSlotCommitChunk       = 512
+	loadedWriteSequence         = 1
 
 	estimatedCompactPerTombstone   = 0.05
 	estimatedOptimizePerVector     = 0.15
@@ -59,6 +60,8 @@ const (
 	diskAdoptionYieldInterval      = 4096
 	searchScratchInitialCandidates = 256
 	initialReachQueue              = 4096
+	readerWaitFirstDelay           = 2 * time.Microsecond
+	readerWaitMaxDelay             = time.Millisecond
 )
 
 const (

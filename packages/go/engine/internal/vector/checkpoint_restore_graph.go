@@ -5,7 +5,7 @@ import (
 )
 
 func (f *Field) releaseReplacedLocked() {
-	for _, ordinal := range f.store.releaseReplacedVectors() {
+	for _, ordinal := range f.store.releaseFreeableReplaced(f.slots.oldestPin(), f.graphsHoldNode) {
 		f.clearCodes(ordinal)
 	}
 }
@@ -55,7 +55,7 @@ func graphShapeOf(first payload.NumberedGraph) graphShape {
 
 func (r *CheckpointRestore) loadedGraph(ordinalOfNumber []int32) (*graphMemory, error) {
 	f := r.field
-	graph, err := newGraphMemory(graphShapeOf(r.graph.Graphs[0].Parts[0]))
+	graph, err := newGraphMemory(graphShapeOf(r.graph.Graphs[0].Parts[0]), f.slots)
 	if err != nil {
 		return nil, err
 	}

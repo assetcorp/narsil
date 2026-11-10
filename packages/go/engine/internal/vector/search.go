@@ -90,13 +90,18 @@ func (f *Field) Search(ctx context.Context, query []float32, k int, options Sear
 		return emptyOutcome(), nil
 	}
 	defer current.done()
+	lease, release, err := f.slots.searchLease(ctx)
+	if err != nil {
+		return SearchOutcome{}, err
+	}
+	defer release()
 	f.nudgeBuild()
-	return f.searchLayout(ctx, current, query, k, options)
+	return f.searchLayout(ctx, current, lease, query, k, options)
 }
 
-func (f *Field) searchLayout(ctx context.Context, current *layout, query []float32, k int,
+func (f *Field) searchLayout(ctx context.Context, current *layout, lease *Lease, query []float32, k int,
 	options SearchOptions) (SearchOutcome, error) {
-	accepted := filterOf(current, options.Filter)
+	accepted := filterOf(current, options.Filter, lease.pin)
 	if liveSizeOf(current) <= 0 || (accepted != nil && accepted.count == 0) {
 		return emptyOutcome(), nil
 	}
@@ -104,7 +109,8 @@ func (f *Field) searchLayout(ctx context.Context, current *layout, query []float
 		return fetchedOutcome(current, []ScoredResult{}, options.MinSimilarity, accepted), nil
 	}
 	metric, _ := nativeMetricOf(options.Metric)
-	request := scanRequest{query: query, metric: options.Metric, nativeMetric: metric, minSimilarity: options.MinSimilarity}
+	request := scanRequest{query: query, metric: options.Metric, nativeMetric: metric,
+		minSimilarity: options.MinSimilarity, pin: lease.pin}
 	scratch, err := acquireSearchScratch()
 	if err != nil {
 		return SearchOutcome{}, err
@@ -122,18 +128,23 @@ func (f *Field) searchLayout(ctx context.Context, current *layout, query []float
 		}
 		return SearchOutcome{Results: tally.results(), Matched: tally.matched, MatchedExact: true}, nil
 	}
-	graphResults, err := f.graphResults(current, request, k, options, accepted, scratch)
+	var outside *scanTally
+	if current.store.unplacedCount.Load()+current.store.retiredScans.Load() > 0 || graph.lineage.alsoScan.Load() != nil {
+		outside, err = f.scanOrdinals(ctx, current, request, k, scratch, outsideTheGraph(current, accepted))
+		if err != nil {
+			return SearchOutcome{}, err
+		}
+	}
+	lease.enter(graph)
+	graphResults, err := f.graphResults(current, lease.slot, request, k, options, accepted, scratch)
+	lease.leave()
 	if err != nil {
 		return SearchOutcome{}, err
 	}
-	if current.store.unplacedCount.Load() == 0 {
+	if outside == nil {
 		return fetchedOutcome(current, graphResults, options.MinSimilarity, accepted), nil
 	}
-	tally, err := f.scanOrdinals(ctx, current, request, k, scratch, unplacedOrdinals(current, accepted))
-	if err != nil {
-		return SearchOutcome{}, err
-	}
-	return fetchedOutcome(current, mergeResults(graphResults, tally.results(), k), options.MinSimilarity, accepted), nil
+	return fetchedOutcome(current, mergeResults(graphResults, outside.results(), k), options.MinSimilarity, accepted), nil
 }
 
 func (f *Field) filterIsNarrow(graph *graphMemory, accepted *ordinalFilter) bool {
@@ -148,13 +159,13 @@ func (f *Field) filterIsNarrow(graph *graphMemory, accepted *ordinalFilter) bool
 	return selectivity < f.config.filterThreshold
 }
 
-func (f *Field) graphResults(current *layout, request scanRequest, k int, options SearchOptions,
+func (f *Field) graphResults(current *layout, slot uint32, request scanRequest, k int, options SearchOptions,
 	accepted *ordinalFilter, scratch *searchScratch) ([]ScoredResult, error) {
 	if graphIsEmpty(current.graph) {
 		return []ScoredResult{}, nil
 	}
 	depths := f.depthsFor(current, k, options)
-	count, err := f.traverse(current, request, depths, accepted, scratch)
+	count, err := f.traverse(current, slot, request, depths, accepted, scratch)
 	if err != nil {
 		return nil, err
 	}

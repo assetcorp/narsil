@@ -1,64 +1,74 @@
 package vector
 
-import "github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
+import (
+	"sync/atomic"
+	"unsafe"
+)
 
-type retiredPins struct {
-	count   int
-	lost    bool
-	retired map[int32]struct{}
+const storeWordWriteSequence = 12
+
+func sequenceWord(region *growable, ordinal int32) *atomic.Int64 {
+	return (*atomic.Int64)(unsafe.Add(region.pointer(), uintptr(ordinal)*8))
 }
 
-func (p *retiredPins) pin() {
-	p.count++
+func (s *storeMemory) writeSequence() *atomic.Int64 {
+	return (*atomic.Int64)(unsafe.Add(s.head.header.pointer(), storeWordWriteSequence*4))
 }
 
-func (p *retiredPins) unpin() {
-	if p.count == 0 {
-		return
-	}
-	p.count--
-	if p.count > 0 {
-		return
-	}
-	clear(p.retired)
-	p.lost = false
+func (s *storeMemory) bornAt(ordinal int32) int64 {
+	return sequenceWord(s.born, ordinal).Load()
 }
 
-func (p *retiredPins) note(ordinal int32) {
-	if p.count > 0 {
-		p.retired[ordinal] = struct{}{}
-	}
+func (s *storeMemory) retiredAt(ordinal int32) int64 {
+	return sequenceWord(s.retired, ordinal).Load()
 }
 
-func (p *retiredPins) holds(ordinal int32) bool {
-	_, held := p.retired[ordinal]
-	return held
+func (s *storeMemory) stampBorn(ordinal int32, sequence int64) {
+	sequenceWord(s.born, ordinal).Store(sequence)
 }
 
-func (p *retiredPins) forget() {
-	clear(p.retired)
-	if p.count > 0 {
-		p.lost = true
-	}
+func (s *storeMemory) stampRetired(ordinal int32, sequence int64) {
+	sequenceWord(s.retired, ordinal).CompareAndSwap(0, sequence)
 }
 
-func (p *retiredPins) requireIntact() error {
-	if !p.lost {
-		return nil
+func (s *storeMemory) admits(ordinal int32, pin int64) bool {
+	if ordinal < 0 || ordinal >= s.slots() {
+		return false
 	}
-	return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-		"The vector store was emptied while a checkpoint read the vectors it captured, so the checkpoint stops", nil)
+	if retired := s.retiredAt(ordinal); retired != 0 && retired <= pin {
+		return false
+	}
+	born := s.bornAt(ordinal)
+	return born != 0 && born <= pin
 }
 
-func (s *storeMemory) keptOrdinals() map[int32]struct{} {
-	kept := make(map[int32]struct{}, len(s.replaced)+len(s.pins.retired))
-	for ordinal := range s.replaced {
-		kept[ordinal] = struct{}{}
+func (s *storeMemory) freeable(ordinal int32, oldestPin int64) bool {
+	if ordinal < 0 || ordinal >= s.slots() {
+		return false
 	}
-	for ordinal := range s.pins.retired {
-		kept[ordinal] = struct{}{}
+	retired := s.retiredAt(ordinal)
+	return retired > 0 && retired <= oldestPin
+}
+
+func (s *storeMemory) admittedOrdinalOf(docID string, pin int64) (int32, bool) {
+	ordinal, held := s.ordinalOf(docID)
+	for held && ordinal >= 0 {
+		if s.admits(ordinal, pin) {
+			return ordinal, true
+		}
+		ordinal, held = s.table.previous(ordinal)
 	}
-	return kept
+	return 0, false
+}
+
+func (s *storeMemory) publishSequence(sequence int64) {
+	word := s.writeSequence()
+	for {
+		seen := word.Load()
+		if seen >= sequence || word.CompareAndSwap(seen, sequence) {
+			return
+		}
+	}
 }
 
 func (s *storeMemory) readStoredVector(tables *storeTables, ordinal int32, target []float32) bool {
@@ -76,12 +86,31 @@ func (s *storeMemory) readStoredVector(tables *storeTables, ordinal int32, targe
 	return true
 }
 
-func (s *storeMemory) readPinnedVector(ordinal int32, target []float32) (bool, error) {
-	if err := s.pins.requireIntact(); err != nil {
-		return false, err
+func (s *storeMemory) holdFreedVectors() {
+	s.freedHolds++
+}
+
+func (s *storeMemory) releaseFreedVectors() {
+	if s.freedHolds == 0 {
+		return
 	}
-	if !s.readable(ordinal) && !s.pins.holds(ordinal) {
-		return false, nil
+	s.freedHolds--
+	if s.freedHolds == 0 {
+		clear(s.freedHeld)
 	}
-	return s.readStoredVector(s.tables, ordinal, target), nil
+}
+
+func (s *storeMemory) noteFreed(ordinal int32) {
+	if s.freedHolds > 0 {
+		s.freedHeld[ordinal] = struct{}{}
+	}
+}
+
+func (s *storeMemory) keepsFreedVector(ordinal int32) bool {
+	_, kept := s.freedHeld[ordinal]
+	return kept
+}
+
+func (s *storeMemory) readPinnedVector(ordinal int32, target []float32) bool {
+	return (s.holdsVector(ordinal) || s.keepsFreedVector(ordinal)) && s.readStoredVector(s.tables, ordinal, target)
 }

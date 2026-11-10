@@ -29,7 +29,9 @@ func newPlannedCodeStore(dimension int, bits uint32, centroid []float64, slots i
 	presentAt := alignUp(magnitudesAt + uintptr(slots)*8)
 	vectorsAt := alignUp(presentAt + uintptr(slots))
 	recordsAt := alignUp(vectorsAt + uintptr(slots)*vectorStride)
-	total := recordsAt + uintptr(slots)*recordBytes
+	bornAt := alignUp(recordsAt + uintptr(slots)*recordBytes)
+	retiredAt := bornAt + uintptr(slots)*8
+	total := retiredAt + uintptr(slots)*8
 	block, err := core.AllocateBlock(total)
 	if err != nil {
 		return nil, regionFailure(err, total, total)
@@ -63,6 +65,8 @@ func newPlannedCodeStore(dimension int, bits uint32, centroid []float64, slots i
 		VectorStrideFloats: uint32(vectorStride / 4),
 		Magnitudes:         unsafe.Add(base, magnitudesAt),
 		Present:            planned.present,
+		BornAt:             unsafe.Add(base, bornAt),
+		RetiredAt:          unsafe.Add(base, retiredAt),
 	})
 	if err != nil {
 		block.Free()

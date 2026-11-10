@@ -36,7 +36,7 @@ type coldView struct {
 type coldHold struct {
 	field    ColdVectorField
 	view     *coldView
-	writes   []func() error
+	writes   []func(sequence int64) error
 	loaded   chan struct{}
 	failure  error
 	wanted   chan struct{}
@@ -157,14 +157,16 @@ func (f *Field) loadCold(ctx context.Context, hold *coldHold, load ColdFieldLoad
 }
 
 func (f *Field) endColdHold(hold *coldHold) error {
-	f.setCold(nil)
-	f.coldViewNow.Store(nil)
 	var failure error
+	replayed := max(f.slots.Sequence(), loadedWriteSequence)
 	for _, write := range hold.writes {
-		if err := write(); err != nil && failure == nil {
+		if err := write(replayed); err != nil && failure == nil {
 			failure = err
 		}
 	}
+	f.store.publishSequence(replayed)
+	f.setCold(nil)
+	f.coldViewNow.Store(nil)
 	hold.field.Close()
 	hold.cancel()
 	return failure
