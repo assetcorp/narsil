@@ -34,7 +34,7 @@ fn sextet(byte: u8) -> Option<u32> {
 /// Decodes padded base64 and returns `None` unless re-encoding the bytes gives back exactly `text`.
 pub(crate) fn decode_exact(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);

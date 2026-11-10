@@ -464,7 +464,7 @@ fn searches_beside_writes_return_whole_documents_with_correct_scores() {
                             .collect();
                         assert_eq!(stored, vector_of(number), "the vector of {}", hit.id);
                         assert!(hit.document.get("title").is_some());
-                        if round % 2 == 0 {
+                        if round.is_multiple_of(2) {
                             let wanted = cosine(&target, &stored);
                             let score = hit.score.expect("a score");
                             assert!(

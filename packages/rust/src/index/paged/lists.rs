@@ -5,6 +5,7 @@ use super::cache::{Cached, Kind, cached, remember};
 use crate::error::{Result, load_failed};
 use crate::ffi;
 use crate::format::paged_segment::POSTING_WIDTH_BYTES;
+use crate::util::bytes::le_values;
 
 #[derive(Debug, Default)]
 pub(crate) struct PostingList {
@@ -34,15 +35,11 @@ impl PostingPositions {
 }
 
 fn u32s(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    le_values(bytes, u32::from_le_bytes)
 }
 
 fn u16s(bytes: &[u8]) -> impl Iterator<Item = u16> + '_ {
-    bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+    le_values(bytes, u16::from_le_bytes)
 }
 
 impl PagedSections {

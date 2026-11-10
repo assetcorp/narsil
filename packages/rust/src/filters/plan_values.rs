@@ -166,12 +166,12 @@ fn comparisons(
             });
         }
     }
-    if let Some(Value::Array(bounds)) = tests.get("between") {
-        if let [Value::Number(low), Value::Number(high)] = bounds.as_slice() {
-            Pushed::of(field, false).push(program, joined, |program| {
-                program.test_numbers(target, ffi::NARSIL_FILTER_BETWEEN, &[*low, *high])
-            });
-        }
+    if let Some(Value::Array(bounds)) = tests.get("between")
+        && let [Value::Number(low), Value::Number(high)] = bounds.as_slice()
+    {
+        Pushed::of(field, false).push(program, joined, |program| {
+            program.test_numbers(target, ffi::NARSIL_FILTER_BETWEEN, &[*low, *high])
+        });
     }
     for (operator, exclude) in [("eq", false), ("ne", true)] {
         if let Some(Value::Number(value)) = tests.get(operator) {

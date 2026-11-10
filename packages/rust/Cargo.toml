@@ -2,7 +2,7 @@
 name = "delali-narsil"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Create, change, and search a Narsil index inside a Rust program, with full-text, vector, and hybrid search on Narsil's native core."
 license = "Apache-2.0"
 repository = "https://github.com/assetcorp/narsil"

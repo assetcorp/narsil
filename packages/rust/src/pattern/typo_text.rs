@@ -26,8 +26,10 @@ fn keep_distinct_run(runs: &mut Vec<u32>, folded: &[u32], at: usize) {
         return;
     };
     if !runs
-        .chunks_exact(PATTERN_RUN_CODE_POINTS)
-        .any(|kept| kept == run)
+        .as_chunks::<PATTERN_RUN_CODE_POINTS>()
+        .0
+        .iter()
+        .any(|kept| kept[..] == *run)
     {
         runs.extend_from_slice(run);
     }

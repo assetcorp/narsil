@@ -3,6 +3,7 @@ use crate::format::envelope::HEADER_BYTES;
 use crate::format::file_sections::{RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES, binary_header_bytes};
 use crate::format::manifest_refs::FileRef;
 use crate::format::paged_segment::head::{PagedSection, decode_sections};
+use crate::util::bytes::le_values;
 use crate::util::hash::crc32;
 use crate::value::{Map, Value, decode_value};
 
@@ -249,10 +250,7 @@ fn node_offsets(
             "The head of \"{key}\" holds the wrong number of offsets"
         ));
     }
-    let offsets: Vec<u32> = bytes
-        .chunks_exact(UINT32_BYTES)
-        .map(|value| u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
-        .collect();
+    let offsets: Vec<u32> = le_values(bytes, u32::from_le_bytes).collect();
     if offsets.windows(2).any(|pair| pair[1] < pair[0]) {
         return load_failed(format!(
             "The head of \"{key}\" holds descending node offsets"

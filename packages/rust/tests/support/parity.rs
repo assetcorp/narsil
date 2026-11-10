@@ -173,10 +173,14 @@ pub fn dataset_vectors() -> Vec<Vec<f32>> {
     let bytes = std::fs::read(&path)
         .unwrap_or_else(|error| panic!("{} is unreadable: {error}", path.display()));
     bytes
-        .chunks_exact(DATASET_VECTOR_DIMENSION * FLOAT32_BYTES)
+        .as_chunks::<{ DATASET_VECTOR_DIMENSION * FLOAT32_BYTES }>()
+        .0
+        .iter()
         .map(|row| {
-            row.chunks_exact(FLOAT32_BYTES)
-                .map(|element| f32::from_le_bytes([element[0], element[1], element[2], element[3]]))
+            row.as_chunks::<FLOAT32_BYTES>()
+                .0
+                .iter()
+                .map(|element| f32::from_le_bytes(*element))
                 .collect()
         })
         .collect()

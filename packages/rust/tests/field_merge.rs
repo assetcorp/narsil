@@ -21,7 +21,7 @@ fn document(at: usize) -> Map {
         r#"{{"id": "doc-{at:03}", "title": "item {at}", "code": "Ab-{}-Cd{}", "category": "{category}", "price": {price}, "active": {}, "location": {{"lat": {}, "lon": {}}}}}"#,
         at % 9,
         at % 4,
-        at % 3 == 0,
+        at.is_multiple_of(3),
         (at as f64 * 13.0) % 180.0 - 90.0,
         (at as f64 * 29.0) % 360.0 - 180.0,
     );

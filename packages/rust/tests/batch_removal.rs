@@ -173,7 +173,7 @@ fn a_batch_removal_leaves_every_search_as_single_removals_would() {
     let mut listed: Vec<String> = ids
         .iter()
         .enumerate()
-        .filter(|(at, _)| *at as u64 % KEPT_STRIDE != 0)
+        .filter(|(at, _)| !(*at as u64).is_multiple_of(KEPT_STRIDE))
         .map(|(_, id)| id.clone())
         .collect();
     listed.insert(3, "entry-never-written".to_string());

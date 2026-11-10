@@ -208,7 +208,7 @@ fn close_child_writer() {
             .expect("the child writes");
         writeln!(out, "ACK {step}").expect("the child reports");
         out.flush().expect("the child flushes");
-        if step % WRITES_BETWEEN_CHILD_CLOSES == 0 {
+        if step.is_multiple_of(WRITES_BETWEEN_CHILD_CLOSES) {
             engine
                 .close_index(INDEX)
                 .expect("the child closes the index");

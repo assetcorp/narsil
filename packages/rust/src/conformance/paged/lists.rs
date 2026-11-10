@@ -9,22 +9,20 @@ use crate::error::Result;
 use crate::format::paged_segment::{
     BLOCK_SUMMARY_BYTES, DOCUMENT_BLOCK_BYTES, MAX_DOCUMENT_BLOCK_RAW_BYTES, POSTING_WIDTH_BYTES,
 };
-use crate::util::bytes::u32_list;
+use crate::util::bytes::{le_u32 as u32_at, le_values, u32_list};
 use crate::value::{Decoder, Map, Value};
-
-fn u32_at(record: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([record[at], record[at + 1], record[at + 2], record[at + 3]])
-}
 
 /// Returns the JSON form of the `blockSummaries` section: one entry per posting block.
 pub(super) fn block_summaries_form(bytes: &[u8]) -> Result<Value> {
-    if bytes.len() % BLOCK_SUMMARY_BYTES != 0 {
+    if !bytes.len().is_multiple_of(BLOCK_SUMMARY_BYTES) {
         return Err(form_error(format!(
             "the {WHAT} holds a partial block summary"
         )));
     }
     let summaries = bytes
-        .chunks_exact(BLOCK_SUMMARY_BYTES)
+        .as_chunks::<BLOCK_SUMMARY_BYTES>()
+        .0
+        .iter()
         .map(|record| {
             let mut length = [0u8; 8];
             length.copy_from_slice(&record[6..14]);
@@ -50,9 +48,7 @@ pub(super) fn block_summaries_form(bytes: &[u8]) -> Result<Value> {
 }
 
 fn u16s(bytes: &[u8]) -> impl Iterator<Item = u16> + '_ {
-    bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+    le_values(bytes, u16::from_le_bytes)
 }
 
 /// Puts the postings of every token into `forms` as the `postingDocuments`, `postingFrequencies`, and
@@ -112,13 +108,13 @@ fn inflated(compressed: &[u8], raw_length: u32, block: usize) -> Result<Vec<u8>>
 pub(super) fn documents_form(sections: &Sections<'_>) -> Result<Value> {
     let blocks = sections.named("documentBlocks")?;
     let compressed = sections.named("documents")?;
-    if blocks.len() % DOCUMENT_BLOCK_BYTES != 0 {
+    if !blocks.len().is_multiple_of(DOCUMENT_BLOCK_BYTES) {
         return Err(form_error(format!(
             "the {WHAT} holds a partial document block"
         )));
     }
     let count = sections.head.document_count as usize;
-    let records: Vec<&[u8]> = blocks.chunks_exact(DOCUMENT_BLOCK_BYTES).collect();
+    let (records, _) = blocks.as_chunks::<DOCUMENT_BLOCK_BYTES>();
     let mut documents = Vec::with_capacity(count);
     for (block, record) in records.iter().enumerate() {
         let first = u32_at(record, 0) as usize;

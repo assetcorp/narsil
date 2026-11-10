@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
+use crate::util::bytes::le_values;
 
 pub(crate) struct MappedFile {
     raw: ffi::narsil_vector_file,
@@ -67,8 +68,8 @@ impl MappedFile {
         let bytes = unsafe {
             std::slice::from_raw_parts(self.raw.bytes.add(offset as usize), wanted as usize)
         };
-        for (value, chunk) in out.iter_mut().zip(bytes.chunks_exact(4)) {
-            *value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (value, number) in out.iter_mut().zip(le_values(bytes, f32::from_le_bytes)) {
+            *value = number;
         }
         true
     }

@@ -90,7 +90,7 @@ pub fn document_of(prefix: &str, seed: u64) -> (String, Map) {
     ];
     document.insert("tags", Value::Array(tags));
     document.insert("price", Value::Number(seed as f64 * 1.25 + 0.1));
-    document.insert("stocked", Value::Bool(seed % 3 == 0));
+    document.insert("stocked", Value::Bool(seed.is_multiple_of(3)));
     if seed % 4 != 1 {
         let values = embedding_of(seed)
             .into_iter()

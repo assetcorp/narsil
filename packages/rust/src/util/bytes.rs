@@ -1,25 +1,21 @@
 use std::ops::Range;
 
 use crate::error::{Result, load_failed};
+use crate::value::Value;
 
 macro_rules! little_endian_lists {
     ($($kind:ty, $shown:literal, $list:ident, $bytes:ident;)*) => {
         $(
             pub(crate) fn $list(bytes: &[u8], what: &str) -> Result<Vec<$kind>> {
                 const WIDTH: usize = std::mem::size_of::<$kind>();
-                if bytes.len() % WIDTH != 0 {
+                if !bytes.len().is_multiple_of(WIDTH) {
                     return load_failed(format!(
                         "{what} holds {} bytes, which is not a whole number of {} values",
                         bytes.len(),
                         $shown
                     ));
                 }
-                Ok(bytes
-                    .chunks_exact(WIDTH)
-                    .map(|chunk| {
-                        <$kind>::from_le_bytes(<[u8; WIDTH]>::try_from(chunk).unwrap_or_default())
-                    })
-                    .collect())
+                Ok(le_values::<WIDTH, $kind>(bytes, <$kind>::from_le_bytes).collect())
             }
 
             pub(crate) fn $bytes(values: &[$kind]) -> Vec<u8> {
@@ -39,6 +35,25 @@ little_endian_lists! {
     u64, "uint64", u64_list, u64_bytes;
     f64, "float64", f64_list, f64_bytes;
     f32, "float32", f32_list, f32_bytes;
+}
+
+pub(crate) fn le_values<'a, const WIDTH: usize, T: 'a>(
+    bytes: &'a [u8],
+    decode: fn([u8; WIDTH]) -> T,
+) -> impl Iterator<Item = T> + 'a {
+    bytes
+        .as_chunks::<WIDTH>()
+        .0
+        .iter()
+        .map(move |chunk| decode(*chunk))
+}
+
+pub(crate) fn float32_array(bytes: &[u8]) -> Value {
+    Value::Array(
+        le_values(bytes, f32::from_le_bytes)
+            .map(|number| Value::Number(f64::from(number)))
+            .collect(),
+    )
 }
 
 pub(crate) fn le_u32(bytes: &[u8], at: usize) -> u32 {

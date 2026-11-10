@@ -130,7 +130,7 @@ pub(super) fn write_id_order(
             }
         }
         id_order.write_u32(targets.get(at).copied().unwrap_or(0))?;
-        if position % ID_SAMPLE_INTERVAL as u64 == 0 {
+        if position.is_multiple_of(ID_SAMPLE_INTERVAL as u64) {
             sample.push((position, id.clone()));
         }
         position += 1;

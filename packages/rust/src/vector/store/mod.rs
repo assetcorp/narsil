@@ -70,15 +70,15 @@ pub(crate) fn record_bytes_of(dimension: usize, bits: u8) -> usize {
 }
 
 pub(crate) fn magnitude_of(vector: &[f32]) -> f64 {
-    let whole = vector.len() - vector.len() % FLOATS_PER_LANE;
+    let (chunks, rest) = vector.as_chunks::<FLOATS_PER_LANE>();
     let mut lanes = [0f32; FLOATS_PER_LANE];
-    for chunk in vector[..whole].chunks_exact(FLOATS_PER_LANE) {
+    for chunk in chunks {
         for (lane, value) in lanes.iter_mut().zip(chunk) {
             *lane += value * value;
         }
     }
     let mut sum = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
-    for value in &vector[whole..] {
+    for value in rest {
         sum += value * value;
     }
     f64::from(sum.sqrt())

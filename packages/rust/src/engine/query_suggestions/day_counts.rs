@@ -310,7 +310,7 @@ impl DayCounts {
 
     fn allocate_block(&mut self) -> u32 {
         let block = self.blocks;
-        if block as usize % PAIR_PAGE_BLOCKS == 0 {
+        if (block as usize).is_multiple_of(PAIR_PAGE_BLOCKS) {
             self.pair_pages
                 .push(vec![0u16; PAIR_PAGE_BLOCKS * PAIR_BLOCK_SLOTS].into_boxed_slice());
             self.link_pages
