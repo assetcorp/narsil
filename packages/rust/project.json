@@ -1,5 +1,10 @@
 {
   "name": "narsil-rust",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/cargo-version-actions.js"
+    }
+  },
   "targets": {
     "lint": {
       "executor": "nx:run-commands",
