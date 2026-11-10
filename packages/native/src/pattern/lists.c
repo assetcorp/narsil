@@ -1,20 +1,20 @@
 #include "internal.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "constants.h"
 #include "runs.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 static narsil_status reserve_lists(pattern_scratch *scratch, size_t branches) {
   if (branches > SIZE_MAX / PATTERN_SHORTLIST_RUNS / sizeof *scratch->lists) { return NARSIL_OUT_OF_MEMORY; }
   size_t count = branches * PATTERN_SHORTLIST_RUNS;
   if (count > scratch->list_capacity) {
-    pattern_list *lists = realloc(scratch->lists, count * sizeof *lists);
+    pattern_list *lists = core_reallocate(scratch->lists, count * sizeof *lists);
     if (lists == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->lists = lists;
     scratch->list_capacity = count;

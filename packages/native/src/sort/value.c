@@ -2,6 +2,7 @@
 #include "../../include/narsil_sort.h"
 #include "../../include/narsil_stored_values.h"
 
+#include "../allocation.h"
 #include "../internal.h"
 #include "../regions.h"
 #include "../stored_values/values.h"
@@ -103,7 +104,7 @@ static narsil_status reserve(sort_scratch *scratch, uint32_t needed) {
   size_t capacity = grown_capacity(scratch->capacity == 0 ? 1 : scratch->capacity, needed);
   if (capacity > SIZE_MAX / (2 * sizeof(double))) { return NARSIL_INVALID_ARGUMENT; }
   size_t bytes = capacity * 2 * sizeof(double);
-  double *allocation = malloc(bytes);
+  double *allocation = core_allocate(bytes);
   if (allocation == NULL) { return NARSIL_OUT_OF_MEMORY; }
   free(scratch->allocation);
   scratch->allocation = allocation;

@@ -1,3 +1,4 @@
+#include "allocation_failures.h"
 #include "fixture.h"
 
 #include "../include/narsil_core.h"
@@ -7,6 +8,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum { ORDINAL_COUNT = 16, VALUE_COUNT = 13, HIT_COUNT = 16, GROUP_COUNT = 10, FIRST_NAN = 3, SECOND_NAN = 4 };
@@ -142,6 +144,27 @@ static void corrupt_group_values(narsil_workspace *workspace, group_fixture *fix
   for (uint32_t at = 0; at < fixture->output.count; at++) {
     check(fixture->heads[at] != 0, "a corrupt first member cannot supply a group head");
   }
+}
+
+static void *prepare_refused_groups(void) {
+  group_fixture *fixture = calloc(1, sizeof *fixture);
+  if (fixture != NULL) { prepare(fixture); }
+  return fixture;
+}
+
+static narsil_status group_refused_hits(narsil_workspace *workspace, void *opaque) {
+  group_fixture *fixture = opaque;
+  return narsil_group_hits(workspace, &fixture->request, &fixture->output);
+}
+
+static uint64_t digest_refused_groups(const void *opaque) {
+  const group_fixture *fixture = opaque;
+  return digest_word(digest_bytes(DIGEST_START, fixture, offsetof(group_fixture, values)), fixture->output.count);
+}
+
+void group_allocation_failures(void) {
+  const failing_call call = {"grouped hits", prepare_refused_groups, group_refused_hits, digest_refused_groups, free};
+  refuse_each_allocation(&call);
 }
 
 void group_checks(narsil_workspace *workspace) {

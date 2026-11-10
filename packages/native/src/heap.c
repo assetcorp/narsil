@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include "../include/narsil_core.h"
+#include "allocation.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -12,10 +13,10 @@ narsil_status heap_reserve(distance_heap *heap, uint32_t capacity) {
   if (capacity <= heap->capacity) { return NARSIL_OK; }
   uint32_t held = heap->capacity == 0 ? INITIAL_HEAP_CAPACITY : heap->capacity;
   uint32_t next = grown_capacity(held, capacity);
-  int32_t *ordinals = realloc(heap->ordinals, (size_t)next * sizeof *ordinals);
+  int32_t *ordinals = core_reallocate(heap->ordinals, (size_t)next * sizeof *ordinals);
   if (ordinals == NULL) { return NARSIL_OUT_OF_MEMORY; }
   heap->ordinals = ordinals;
-  double *distances = realloc(heap->distances, (size_t)next * sizeof *distances);
+  double *distances = core_reallocate(heap->distances, (size_t)next * sizeof *distances);
   if (distances == NULL) { return NARSIL_OUT_OF_MEMORY; }
   heap->distances = distances;
   heap->capacity = next;

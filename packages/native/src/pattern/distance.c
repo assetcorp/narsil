@@ -1,13 +1,13 @@
 #include "typo.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "../work/tally.h"
 #include "text.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 narsil_status pattern_typo_reserve(pattern_typo *typo) {
   size_t length = typo->case_fold != 0 ? typo->folded.length : typo->raw.length;
@@ -17,7 +17,7 @@ narsil_status pattern_typo_reserve(pattern_typo *typo) {
   int status = narsil_code_points_reserve(&typo->value, slots);
   if (status != NARSIL_OK) { return (narsil_status)status; }
   if (slots > typo->row_capacity) {
-    uint32_t *rows = realloc(typo->rows, slots * 2 * sizeof *rows);
+    uint32_t *rows = core_reallocate(typo->rows, slots * 2 * sizeof *rows);
     if (rows == NULL) { return NARSIL_OUT_OF_MEMORY; }
     typo->rows = rows;
     typo->row_capacity = slots;

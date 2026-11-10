@@ -6,10 +6,14 @@ import {
   CORE_FLAGS,
   coreSources,
   LANGUAGE_FLAGS,
+  MEMORY_SANITISERS,
   NODE_API_FLAGS,
   nodeApiHeaderDirectory,
   POSITION_INDEPENDENT_FLAGS,
   packageDirectory,
+  SANITISER_FLAGS,
+  sanitisedBindingDirectory,
+  TEST_FLAGS,
   WINDOWS_NODE_API_FLAGS,
   warningFlags,
   writeCompileDatabase,
@@ -18,6 +22,7 @@ import {
 const platformPackagesDirectory = join(packageDirectory, 'npm')
 const BINARY_NAME = 'narsil-core.node'
 const SSE2_ONLY_FLAG = '-DNARSIL_SSE2_ONLY'
+const SANITISED_FLAGS = [...TEST_FLAGS, `-fsanitize=${MEMORY_SANITISERS}`, ...SANITISER_FLAGS, '-Wl,-z,nodelete']
 
 const TARGETS = {
   'darwin-arm64': { package: 'darwin-arm64', appleArchitecture: 'arm64' },
@@ -44,13 +49,14 @@ function compilerFor(target, useHostCompiler) {
   return { command: 'zig', prefix: ['cc', '-target', target.zigTriple], linkFlags: [] }
 }
 
-function commandFor(target, outputPath, { useHostCompiler, sse2Only }) {
+function commandFor(target, outputPath, { useHostCompiler, sse2Only, sanitised }) {
   const { command, prefix, linkFlags } = compilerFor(target, useHostCompiler)
   const args = [
     ...prefix,
     ...linkFlags,
     ...LANGUAGE_FLAGS,
     ...CORE_FLAGS,
+    ...(sanitised ? SANITISED_FLAGS : []),
     ...(sse2Only ? [SSE2_ONLY_FLAG] : []),
     ...(target.windows ? [] : POSITION_INDEPENDENT_FLAGS),
     ...NODE_API_FLAGS,
@@ -75,12 +81,22 @@ if (!target) {
   process.exit(2)
 }
 
-const outputDirectory = join(platformPackagesDirectory, target.package, target.libcDirectory ?? '')
+const sanitised = flags.includes('--sanitised')
+const useHostCompiler = flags.includes('--host-compiler')
+if (sanitised && (process.platform !== 'linux' || !useHostCompiler || requested !== hostTarget())) {
+  console.error('build.mjs builds the sanitised core only for this Linux host, with --host-compiler.')
+  process.exit(2)
+}
+
+const outputDirectory = sanitised
+  ? sanitisedBindingDirectory
+  : join(platformPackagesDirectory, target.package, target.libcDirectory ?? '')
 mkdirSync(outputDirectory, { recursive: true })
 const outputPath = join(outputDirectory, BINARY_NAME)
 const { command, args } = commandFor(target, outputPath, {
-  useHostCompiler: flags.includes('--host-compiler'),
+  useHostCompiler,
   sse2Only: flags.includes('--sse2-only'),
+  sanitised,
 })
 
 try {

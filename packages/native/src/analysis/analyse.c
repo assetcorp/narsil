@@ -1,5 +1,6 @@
 #include "../../include/narsil_analysis.h"
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../languages/snowball/api.h"
 #include "analyser.h"
 #include "languages.h"
@@ -23,11 +24,11 @@ narsil_status narsil_analyser_create(narsil_analyser **analyser) {
   if (analyser == NULL) { return NARSIL_INVALID_ARGUMENT; }
   *analyser = NULL;
   if (narsil_unicode_prepare() != NARSIL_OK) { return NARSIL_OUT_OF_MEMORY; }
-  narsil_analyser *created = calloc(1, sizeof(narsil_analyser));
+  narsil_analyser *created = core_allocate_zeroed(1, sizeof(narsil_analyser));
   if (created == NULL) { return NARSIL_OUT_OF_MEMORY; }
-  created->snowball = (struct SN_env **)calloc(narsil_language_table_length, sizeof(struct SN_env *));
-  created->default_stop_words = calloc(narsil_language_table_length, sizeof(narsil_stop_words));
-  created->default_stop_words_built = calloc(narsil_language_table_length, sizeof(uint8_t));
+  created->snowball = (struct SN_env **)core_allocate_zeroed(narsil_language_table_length, sizeof(struct SN_env *));
+  created->default_stop_words = core_allocate_zeroed(narsil_language_table_length, sizeof(narsil_stop_words));
+  created->default_stop_words_built = core_allocate_zeroed(narsil_language_table_length, sizeof(uint8_t));
   if (created->snowball == NULL || created->default_stop_words == NULL || created->default_stop_words_built == NULL) {
     narsil_analyser_destroy(created);
     return NARSIL_OUT_OF_MEMORY;
@@ -68,7 +69,7 @@ narsil_status narsil_stop_word_set_create(const uint16_t *units, const uint32_t 
     return NARSIL_INVALID_ARGUMENT;
   }
   *set = NULL;
-  narsil_stop_word_set *created = calloc(1, sizeof(narsil_stop_word_set));
+  narsil_stop_word_set *created = core_allocate_zeroed(1, sizeof(narsil_stop_word_set));
   if (created == NULL) { return NARSIL_OUT_OF_MEMORY; }
   int status = narsil_stop_words_build(&created->words, units, offsets, count);
   if (status != NARSIL_OK) {
@@ -128,7 +129,7 @@ static int push_token(narsil_analyser *analyser, uint32_t position, narsil_span 
       if (capacity > UINT32_MAX / 2) { return NARSIL_OUT_OF_MEMORY; }
       capacity *= 2;
     }
-    narsil_token *grown = realloc(analyser->tokens, (size_t)capacity * sizeof(narsil_token));
+    narsil_token *grown = core_reallocate(analyser->tokens, (size_t)capacity * sizeof(narsil_token));
     if (grown == NULL) { return NARSIL_OUT_OF_MEMORY; }
     analyser->tokens = grown;
     analyser->token_capacity = capacity;

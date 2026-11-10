@@ -53,6 +53,8 @@ int read_segment_arrays(napi_env env, const napi_value *handles, const napi_type
                         void **data, size_t *lengths);
 int read_segment_optional(napi_env env, const segment_handles *handles, node_segment *segment);
 int define_segments(napi_env env, napi_value exports);
+struct segment_view;
+void release_segment_view(napi_env env, struct segment_view *view);
 int prepare_segment_fields(napi_env env, napi_value list, field_handles *fields, uint32_t count);
 int read_segment_fields(napi_env env, const field_handles *handles, narsil_field_tokens *fields, uint32_t count);
 napi_value remove_frozen_document(napi_env env, napi_callback_info info);

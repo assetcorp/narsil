@@ -1,6 +1,7 @@
 #include "factors.h"
 
 #include "../../include/narsil_core.h"
+#include "../allocation.h"
 #include "../analysis/text.h"
 #include "ast.h"
 #include "constants.h"
@@ -9,7 +10,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 static narsil_status flush_factor(pattern_factors *scratch) {
   if (scratch->points.length - scratch->start >= PATTERN_RUN_POINTS) {
@@ -76,7 +76,7 @@ static narsil_status sample_factors(pattern_factors *scratch, pattern_runs *runs
   size_t count = scratch->ends.length;
   if (count > scratch->list_capacity) {
     if (count > SIZE_MAX / sizeof *scratch->lists) { return NARSIL_OUT_OF_MEMORY; }
-    pattern_list *lists = realloc(scratch->lists, count * sizeof *lists);
+    pattern_list *lists = core_reallocate(scratch->lists, count * sizeof *lists);
     if (lists == NULL) { return NARSIL_OUT_OF_MEMORY; }
     scratch->lists = lists;
     scratch->list_capacity = count;

@@ -2,6 +2,9 @@
  * Copied from runtime/utilities.c by the Snowball compiler 3.1.1, with each symbol widened to a
  * UTF-16 code unit so that the stemmer reads the same units as the TypeScript stemmer.
  *
+ * Each malloc and realloc call goes through core_allocate and core_reallocate in src/allocation.h, so that the
+ * allocation-failure test in packages/native/test can refuse it.
+ *
  * Snowball is BSD-3-Clause, copyright (c) 2001, Dr Martin Porter and contributors. The NOTICE file at the root
  * of the repository carries the licence. Source from https://github.com/snowballstem/snowball.git at
  * 6772636350acfd63797e8cd24ff86c70fd2df6fc, verified against https://github.com/snowballstem/snowball-data.git at
@@ -14,6 +17,8 @@
 #pragma GCC diagnostic ignored "-Wcast-align"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #endif
+
+#include "../../allocation.h"
 
 
 #include <stdio.h>
@@ -50,7 +55,7 @@ typedef int sizeof_symbol_divides_head[(HEAD % sizeof(symbol) == 0) ? 1 : -1];
 
 extern symbol * create_s(void) {
     symbol * p;
-    void * mem = malloc(HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
+    void * mem = core_allocate(HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
     if (mem == NULL)
         SNOWBALL_RETURN_OR_THROW(NULL, std::bad_alloc());
     p = (symbol *) (HEAD + (char *) mem);
@@ -579,7 +584,7 @@ extern int find_among_b(struct SN_env * z, const struct among * v, int v_size,
  */
 static int increase_size(symbol ** p, int n) {
     int new_size = n + 20;
-    void * mem = realloc((char *) *p - HEAD,
+    void * mem = core_reallocate((char *) *p - HEAD,
                          HEAD + (new_size + 1) * sizeof(symbol));
     symbol * q;
     if (mem == NULL) return -1;
