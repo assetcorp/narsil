@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -41,13 +42,13 @@ type mergeSnapshot struct {
 	sources []segments.Source
 }
 
-func (s *side) snapshotMerge(positions []int) mergeSnapshot {
+func (s *side) snapshotMerge(positions []int, limits fields.Limits) mergeSnapshot {
 	snapshot := mergeSnapshot{}
 	for _, position := range positions {
 		held := s.frozen[position]
 		snapshot.inputs = append(snapshot.inputs, held.segment)
 		snapshot.sources = append(snapshot.sources, segments.Source{Segment: len(snapshot.sources),
-			Frozen: held.segment.frozen, State: held.state.Clone()})
+			Frozen: held.segment.frozen, State: held.state.Clone(), StoredColumn: held.segment.storedColumn(limits)})
 	}
 	return snapshot
 }
@@ -87,7 +88,7 @@ func (p *Partition) Merge(sides *Sides, pick func(sizes []SegmentSize) []int) (b
 		read.Release()
 		return false, nil
 	}
-	snapshot := held.snapshotMerge(positions)
+	snapshot := held.snapshotMerge(positions, p.settings.Limits)
 	read.Release()
 	w, err := core.AcquireWorkspace()
 	if err != nil {

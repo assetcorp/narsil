@@ -80,6 +80,13 @@ func (f *frozenSegment) storedSource(path string, limits fields.Limits) (fields.
 	}
 }
 
+func (f *frozenSegment) storedColumn(limits fields.Limits) func(path string) (*core.StoredValueSlices, error) {
+	return func(path string) (*core.StoredValueSlices, error) {
+		_, slices, err := f.storedSource(path, limits)
+		return slices, err
+	}
+}
+
 func everyOrdinal(count uint32) []uint32 {
 	words := max(1, (uint64(count)+31)>>5)
 	live := make([]uint32, words)
