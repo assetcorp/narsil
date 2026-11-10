@@ -80,7 +80,59 @@ function fieldStatus(engine: Narsil) {
   return field
 }
 
+async function openSettledPassages(engine: Narsil): Promise<Passage[]> {
+  await engine.createIndex(INDEX, {
+    schema: { title: 'string', [FIELD]: `vector[${DIMENSION}]` },
+    vectorPromotion: {
+      threshold: PROMOTION_THRESHOLD,
+      quantization: 'none',
+      hnswConfig: { m: GRAPH_DEGREE, efConstruction: PLACEMENT_DEPTH, metric: 'euclidean' },
+    },
+  })
+  const settled = passagesFrom(0, SETTLED_PASSAGES)
+  expect((await engine.insertBatch(INDEX, settled)).failed).toEqual([])
+  await waitFor(async () => {
+    const field = fieldStatus(engine)
+    return field.graphCount === 1 && field.bufferSize === 0 && !field.building
+  }, SETTLE_TIMEOUT_MS)
+  return settled
+}
+
 describe('a growth pass on a node whose memory gate refuses a second graph', () => {
+  it(
+    'places a vector that an optimise call left waiting below the promotion threshold once the gate admits the copy',
+    async () => {
+      const engine = await createNarsil({ workers: { enabled: false } })
+      let refusing = true
+      const stopAdmitting = addBackgroundAdmission(() => !refusing)
+      try {
+        const settled = await openSettledPassages(engine)
+        const acknowledged = new Map(settled.map(passage => [passage.id, passage.embedding]))
+        const [late] = passagesFrom(SETTLED_PASSAGES, 1)
+        expect((await engine.insertBatch(INDEX, [late])).failed).toEqual([])
+        acknowledged.set(late.id, late.embedding)
+
+        await engine.optimizeVectors(INDEX, FIELD)
+        const waiting = fieldStatus(engine)
+        expect(waiting.waitingForMemory).toBe(true)
+        expect(waiting.bufferSize).toBe(1)
+        expect(await answersMissingFromAnExactScan(engine, acknowledged, [late])).toEqual([])
+
+        refusing = false
+        await waitFor(async () => {
+          const field = fieldStatus(engine)
+          return !field.waitingForMemory && !field.building
+        }, SETTLE_TIMEOUT_MS)
+        expect(fieldStatus(engine).bufferSize).toBe(0)
+        expect(await answersMissingFromAnExactScan(engine, acknowledged, [late])).toEqual([])
+      } finally {
+        stopAdmitting()
+        await engine.shutdown()
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
+
   it(
     'keeps arriving vectors in the buffer, answers exactly while they wait, and places them once the gate admits the copy',
     async () => {
@@ -92,20 +144,7 @@ describe('a growth pass on a node whose memory gate refuses a second graph', () 
         return !refusing
       })
       try {
-        await engine.createIndex(INDEX, {
-          schema: { title: 'string', [FIELD]: `vector[${DIMENSION}]` },
-          vectorPromotion: {
-            threshold: PROMOTION_THRESHOLD,
-            quantization: 'none',
-            hnswConfig: { m: GRAPH_DEGREE, efConstruction: PLACEMENT_DEPTH, metric: 'euclidean' },
-          },
-        })
-        const settled = passagesFrom(0, SETTLED_PASSAGES)
-        expect((await engine.insertBatch(INDEX, settled)).failed).toEqual([])
-        await waitFor(async () => {
-          const field = fieldStatus(engine)
-          return field.graphCount === 1 && field.bufferSize === 0 && !field.building
-        }, SETTLE_TIMEOUT_MS)
+        const settled = await openSettledPassages(engine)
 
         const acknowledged = new Map(settled.map(passage => [passage.id, passage.embedding]))
         const arriving = passagesFrom(SETTLED_PASSAGES, ARRIVING_PASSAGES)
