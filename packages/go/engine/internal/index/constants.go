@@ -25,10 +25,11 @@ const (
 )
 
 const (
-	compactionSegmentTrigger = 8
-	segmentsPerMerge         = 8
-	maxCompactionRounds      = 64
-	idleMergeDelay           = time.Second
+	InPlaceWriteChunkDocuments = 256
+	compactionSegmentTrigger   = 8
+	segmentsPerMerge           = 8
+	maxCompactionRounds        = 64
+	idleMergeDelay             = time.Second
 )
 
 const (

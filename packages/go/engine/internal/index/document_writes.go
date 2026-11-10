@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
@@ -108,8 +109,21 @@ func (w *Write) ApplyBatch(b *Batch, vectors []vector.NamedField) error {
 }
 
 func (ix *Index) Apply(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField) ([]error, error) {
-	batch := ix.PrepareBatch(kind, writes)
-	err := ix.Write(func(w *Write) error { return w.ApplyBatch(batch, vectors) })
+	if len(vectors) > 0 {
+		batch := ix.PrepareBatch(kind, writes)
+		err := ix.Write(func(w *Write) error { return w.ApplyBatch(batch, vectors) })
+		ix.noteGrowth()
+		return batch.Failures, err
+	}
+	failures := make([]error, 0, len(writes))
+	var err error
+	for start := 0; start < len(writes) && err == nil; start += InPlaceWriteChunkDocuments {
+		batch := ix.PrepareBatch(kind, writes[start:min(start+InPlaceWriteChunkDocuments, len(writes))])
+		err = ix.sides.WriteInPlace(func(write *partition.Write) error {
+			return (&Write{ix: ix, write: write}).ApplyBatch(batch, nil)
+		})
+		failures = append(failures, batch.Failures...)
+	}
 	ix.noteGrowth()
-	return batch.Failures, err
+	return failures[:len(writes)], err
 }
