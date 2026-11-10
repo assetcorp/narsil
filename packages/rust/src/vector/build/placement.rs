@@ -72,10 +72,14 @@ fn count_incoming_when_uncounted(writer: &Writer, graph: &GraphTables) -> Result
     Ok(())
 }
 
-pub(crate) fn connect_unlinked(writer: &Writer, graph: &GraphTables) -> Result<()> {
+fn connect_unlinked(writer: &Writer, graph: &GraphTables) -> Result<()> {
     if graph.word(ffi::NARSIL_GRAPH_WORD_UNLINKED_NODES) == 0 {
         return Ok(());
     }
+    connect_unreached(writer, graph)
+}
+
+pub(crate) fn connect_unreached(writer: &Writer, graph: &GraphTables) -> Result<()> {
     let _alone = graph.hold_alone();
     let store = &writer.generation.store;
     with_scratch(|scratch| scratch.connect(store, graph, graph.metric, &[]))?;
