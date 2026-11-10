@@ -21,13 +21,10 @@ func (f *Field) placeChunk(graph *graphMemory, docIDs []string, admit admitDocum
 		if !held {
 			continue
 		}
-		next, inserted, err := f.insertOrdinal(graph, ordinal, false)
+		next, _, err := f.insertOrdinal(graph, ordinal, false)
 		graph = next
 		if err != nil {
 			return graph, placed, false, err
-		}
-		if graph == f.graph {
-			f.builds.connectPending = f.builds.connectPending || inserted
 		}
 		placed++
 	}
@@ -50,39 +47,17 @@ func (f *Field) leaveBufferOnceConnected(connected *graphMemory, docIDs []string
 	}
 }
 
-func (f *Field) currentOfLineage(graph *graphMemory, published bool) (*graphMemory, bool) {
-	if !published {
-		return graph, true
-	}
-	if f.graph == nil || f.graph.lineage != graph.lineage {
-		return graph, false
-	}
-	return f.graph, true
-}
-
 func (f *Field) insertLocally(ctx context.Context, graph *graphMemory, docIDs []string,
 	admit admitDocument) (*graphMemory, bool, error) {
-	f.writeMu.Lock()
-	published := graph == f.graph
-	f.writeMu.Unlock()
 	placed := 0
 	for start := range docIDs {
 		if err := ctx.Err(); err != nil {
 			return graph, false, err
 		}
-		chunk := docIDs[start : start+1]
 		f.writeMu.Lock()
-		target, current := f.currentOfLineage(graph, published)
-		if !current {
-			f.writeMu.Unlock()
-			return graph, false, nil
-		}
-		next, count, open, err := f.placeChunk(target, chunk, admit)
+		next, count, open, err := f.placeChunk(graph, docIDs[start:start+1], admit)
 		graph = next
 		placed += count
-		if count > 0 {
-			f.revision.Add(1)
-		}
 		f.writeMu.Unlock()
 		if err != nil || !open {
 			return graph, false, err
@@ -96,34 +71,8 @@ func (f *Field) insertLocally(ctx context.Context, graph *graphMemory, docIDs []
 	if placed == 0 {
 		return graph, true, nil
 	}
-	latest, current := f.currentOfLineage(graph, published)
-	if !current {
-		return latest, false, nil
-	}
-	connected, err := f.connectUnreached(latest)
-	if err != nil {
-		return connected, false, err
-	}
-	f.revision.Add(1)
-	if published {
-		f.builds.connectPending = false
-		f.leaveBufferOnceConnected(connected, docIDs)
-	}
-	return connected, true, nil
-}
-
-func (f *Field) connectBeforeCopying() error {
-	if !f.builds.connectPending {
-		return nil
-	}
-	if f.graph != nil {
-		if _, err := f.connectUnreached(f.graph); err != nil {
-			return err
-		}
-		f.revision.Add(1)
-	}
-	f.builds.connectPending = false
-	return nil
+	connected, err := f.connectUnreached(graph)
+	return connected, err == nil, err
 }
 
 func (f *Field) promoteToGraph(ctx context.Context) error {
@@ -172,6 +121,7 @@ func (f *Field) buildGraphFromStore(ctx context.Context) (bool, error) {
 	}
 	if err := f.adoptGraph(built); err != nil {
 		f.writeMu.Unlock()
+		built.resource.drop()
 		return false, err
 	}
 	f.shuffledBuildCount = built.size()
@@ -235,29 +185,4 @@ func (f *Field) bufferWhatTheGraphLacks(graph *graphMemory) {
 			f.buffer.add(f.store, docID)
 		}
 	}
-}
-
-func (f *Field) growGraph(ctx context.Context, graph *graphMemory, snapshot []string) error {
-	f.writeMu.Lock()
-	needsCalibration := f.quantises() && !f.calibrated()
-	f.writeMu.Unlock()
-	if needsCalibration {
-		calibrated, err := f.calibrateBeforeBuild(ctx)
-		if err != nil || !calibrated {
-			return err
-		}
-	}
-	lineage := graph.lineage
-	admit := func(docID string) bool {
-		if f.graph == nil || f.graph.lineage != lineage {
-			return false
-		}
-		if f.tombstones.has(docID) || !f.store.has(docID) {
-			f.buffer.delete(f.store, docID)
-			return false
-		}
-		return true
-	}
-	_, _, err := f.insertLocally(ctx, graph, snapshot, admit)
-	return err
 }
