@@ -26,6 +26,7 @@ pub(crate) struct MaintenanceStatus {
     pub(crate) buffer_size: u64,
     pub(crate) building: bool,
     pub(crate) waiting_for_memory: bool,
+    pub(crate) loading_from_files: bool,
     pub(crate) estimated_compact_ms: u64,
     pub(crate) estimated_optimize_ms: u64,
 }
@@ -176,11 +177,15 @@ fn plan_optimisation(shared: &Shared, writer: &mut Writer) -> Result<Option<supe
 
 impl VectorField {
     pub(crate) fn compact(&self) -> Result<()> {
+        if self.shared.is_cold() {
+            return Ok(());
+        }
         let mut writer = self.shared.lock_writer();
         compact_held(&self.shared, &mut writer)
     }
 
     pub(crate) fn optimize(&self) -> Result<()> {
+        self.until_loaded()?;
         {
             let _gate = lock_gate(&self.shared);
             let plan = {
@@ -195,8 +200,10 @@ impl VectorField {
         Ok(())
     }
 
-    pub(crate) fn wait_for_builds(&self) {
+    pub(crate) fn wait_for_builds(&self) -> Result<()> {
+        self.until_loaded()?;
         wait_for_builds(&self.shared);
+        Ok(())
     }
 
     pub(crate) fn maintenance_status(&self) -> MaintenanceStatus {
@@ -220,16 +227,18 @@ impl VectorField {
             }
         };
         let optimised = if rebuilds { held } else { buffered };
+        let cold = shared.is_cold();
         MaintenanceStatus {
             tombstone_ratio: if graph_nodes > 0 {
                 tombstoned as f64 / graph_nodes as f64
             } else {
                 0.0
             },
-            graph_count: u32::from(generation.graph.is_some()),
+            graph_count: u32::from(cold || generation.graph.is_some()),
             buffer_size: buffered,
             building: building(shared),
             waiting_for_memory: false,
+            loading_from_files: cold || shared.restoring.load(Ordering::Acquire),
             estimated_compact_ms: (tombstoned as f64 * ESTIMATED_MS_PER_TOMBSTONE * scale).round()
                 as u64,
             estimated_optimize_ms: (optimised as f64 * ESTIMATED_MS_PER_VECTOR_REBUILD * scale)
@@ -253,7 +262,12 @@ impl VectorField {
                 .map_or(0, |graph| graph.memory_bytes())
         };
         let scratch_bytes = with_scratch(|scratch| Ok(scratch.workspace_bytes())).unwrap_or(0);
-        generation.store.memory_bytes()
+        let cold_bytes = self
+            .shared
+            .cold_hold()
+            .map_or(0, |hold| hold.memory_bytes());
+        cold_bytes
+            + generation.store.memory_bytes()
             + generation.ids.memory_bytes()
             + graph_bytes
             + fresh_bytes

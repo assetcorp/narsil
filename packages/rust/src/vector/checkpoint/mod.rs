@@ -216,6 +216,7 @@ impl VectorField {
         listed_keys: Option<&[String]>,
         rewrites_graph: bool,
     ) -> Result<VectorCheckpointPlan> {
+        self.until_loaded()?;
         let shared = &self.shared;
         let writer = shared.lock_writer();
         let generation = Arc::clone(&writer.generation);

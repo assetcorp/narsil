@@ -170,13 +170,13 @@ impl IndexVectors {
         DocumentVectors::new(vectors)
     }
 
-    pub(crate) fn pinned_vectors(&self, doc_id: &str, pin: i64) -> DocumentVectors {
-        DocumentVectors::new(
-            self.fields
-                .iter()
-                .map(|entry| entry.field.pinned_vector(doc_id, pin))
-                .collect(),
-        )
+    pub(crate) fn pinned_vectors(&self, doc_id: &str, pin: i64) -> Result<DocumentVectors> {
+        let vectors: Result<Vec<Option<Vec<f32>>>> = self
+            .fields
+            .iter()
+            .map(|entry| entry.field.pinned_vector(doc_id, pin))
+            .collect();
+        vectors.map(DocumentVectors::new)
     }
 
     /// Puts vectors that [`IndexVectors::pinned_vectors`] returned back into their document, at the end and in

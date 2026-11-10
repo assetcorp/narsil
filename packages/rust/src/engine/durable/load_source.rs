@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use super::backing::Backing;
 use crate::durability::checkpoint_store::{CheckpointStore, read_listed_payload};
 use crate::error::Result;
-use crate::format::envelope::{ENVELOPE_VERSION_BYTE, HEADER_BYTES, read_header};
+use crate::format::envelope::ENVELOPE_VERSION_BYTE;
 use crate::format::manifest_refs::FileRef;
 
 /// Where a checkpoint's files come from while an index loads them: the engine's own store, or a store that holds
@@ -25,9 +25,7 @@ pub(crate) trait CheckpointSource {
     /// directory that an index can read a file from by position.
     fn envelope_version(&self, key: &str) -> Result<Option<u8>>;
 
-    /// Reports whether a stored file holds its payload uncompressed in a directory that an index can read it from
-    /// by position.
-    fn holds_raw_payload(&self, key: &str) -> Result<bool>;
+    fn source_for_a_later_read(&self) -> Option<Box<dyn CheckpointSource + Send>>;
 }
 
 impl CheckpointSource for Backing {
@@ -53,12 +51,8 @@ impl CheckpointSource for Backing {
         Ok(byte.first().copied())
     }
 
-    fn holds_raw_payload(&self, key: &str) -> Result<bool> {
-        if Backing::path_of(self, key)?.is_none() {
-            return Ok(false);
-        }
-        let header = self.files().read_range(key, 0, HEADER_BYTES as u64)?;
-        Ok(!read_header(&header)?.compressed)
+    fn source_for_a_later_read(&self) -> Option<Box<dyn CheckpointSource + Send>> {
+        Some(Box::new(self.clone()))
     }
 }
 
@@ -85,7 +79,7 @@ impl CheckpointSource for StagedSource<'_> {
         Ok(None)
     }
 
-    fn holds_raw_payload(&self, _key: &str) -> Result<bool> {
-        Ok(false)
+    fn source_for_a_later_read(&self) -> Option<Box<dyn CheckpointSource + Send>> {
+        None
     }
 }

@@ -35,18 +35,30 @@ pub(crate) fn require_dimension_of(shared: &Shared, length: usize) -> Result<()>
 impl VectorField {
     pub(crate) fn insert(&self, doc_id: &str, vector: &[f32]) -> Result<()> {
         require_dimension_of(&self.shared, vector.len())?;
+        let sequence = self.shared.sequence.next();
+        if let Some(hold) = self.shared.cold_hold()
+            && hold.insert(doc_id, vector, sequence)?
+        {
+            return Ok(());
+        }
         {
             let mut writer = self.shared.lock_writer();
-            insert_held(&self.shared, &mut writer, doc_id, vector)?;
+            insert_stamped(&self.shared, &mut writer, doc_id, vector, sequence)?;
         }
         schedule_build(&self.shared);
         Ok(())
     }
 
     pub(crate) fn remove(&self, doc_id: &str) -> Result<()> {
+        let sequence = self.shared.sequence.next();
+        if let Some(hold) = self.shared.cold_hold()
+            && hold.remove(doc_id, sequence)?
+        {
+            return Ok(());
+        }
         {
             let mut writer = self.shared.lock_writer();
-            remove_held(&self.shared, &mut writer, doc_id)?;
+            remove_stamped(&mut writer, doc_id, sequence)?;
         }
         schedule_build(&self.shared);
         Ok(())
@@ -61,11 +73,12 @@ fn holds_this_vector_already(store: &StoreTables, ordinal: u32, vector: &[f32]) 
     store.read_vector(ordinal, &mut held) && held.iter().zip(vector).all(|(a, b)| a == b)
 }
 
-pub(crate) fn insert_held(
+pub(crate) fn insert_stamped(
     shared: &Shared,
     writer: &mut Writer,
     doc_id: &str,
     vector: &[f32],
+    sequence: i64,
 ) -> Result<()> {
     let previous = writer.generation.ordinal_of(doc_id);
     if let Some(ordinal) = previous
@@ -74,7 +87,6 @@ pub(crate) fn insert_held(
         return Ok(());
     }
     writer.revision += 1;
-    let sequence = shared.sequence.next();
     if let Some(ordinal) = previous {
         retire_previous(writer, ordinal, sequence)?;
     }
@@ -91,7 +103,7 @@ pub(crate) fn insert_held(
     Ok(())
 }
 
-pub(crate) fn remove_held(shared: &Shared, writer: &mut Writer, doc_id: &str) -> Result<()> {
+pub(crate) fn remove_stamped(writer: &mut Writer, doc_id: &str, sequence: i64) -> Result<()> {
     let generation = Arc::clone(&writer.generation);
     let Some(ordinal) = generation.ordinal_of(doc_id) else {
         return Ok(());
@@ -101,9 +113,7 @@ pub(crate) fn remove_held(shared: &Shared, writer: &mut Writer, doc_id: &str) ->
         return Ok(());
     }
     writer.revision += 1;
-    generation
-        .store
-        .stamp_retired(ordinal, shared.sequence.next());
+    generation.store.stamp_retired(ordinal, sequence);
     let counts = &generation.counts;
     if flags & FLAG_REMOVED == 0 {
         Counts::add(&counts.removed, 1);

@@ -1,6 +1,7 @@
 mod build;
 mod calibration;
 pub(crate) mod checkpoint;
+pub(crate) mod cold;
 pub(crate) mod constants;
 mod core;
 pub(crate) mod disk;
