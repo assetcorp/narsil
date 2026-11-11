@@ -119,6 +119,90 @@
       { "term": "river", "rerank": { "adapter": "none", "fields": ["title"] } }
     ]
   ],
+  ["query", ["docs", { "term": "river", "rerank": "rank" }]],
+  ["query", ["docs", { "term": "river", "rerank": { "fields": ["title"] } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": 1, "fields": ["title"] } }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "rerank": { "adapter": "rank" } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": "rank", "fields": "title" } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": "rank", "fields": [1] } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "query": 1 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": -1 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 1.5 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": true }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 1e30 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 2 }
+      }
+    ]
+  ],
   ["query", ["docs", { "term": "river", "bm25": { "k1": -1 } }]],
   ["query", ["docs", { "term": "river", "bm25": { "b": 2 } }]],
   ["query", ["missing", { "term": "river" }]],

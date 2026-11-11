@@ -1,14 +1,15 @@
 use narsil::{
-    AdapterSetting, Bm25Params, DocumentProjection, IndexConfig, QueryParams, ScoringMode,
-    SortDirection, SortMode, StopWords, StopWordsSetting, Storage, SynonymRule, TermMatch,
-    TokenizerSetting,
+    AdapterSetting, Bm25Params, DocumentProjection, ErrorCode, IndexConfig, NarsilError,
+    QueryParams, ScoringMode, SortDirection, SortMode, StopWords, StopWordsSetting, Storage,
+    SynonymRule, TermMatch, TokenizerSetting,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
 use super::query::{HYBRID_STRATEGIES, METRICS, SCORING_MODES, SEARCH_MODES, SORT_MODES};
 use super::value::value_to_py;
-use crate::callbacks::functions::GroupReducerHandle;
+use crate::callbacks::reducer::GroupReducerHandle;
+use crate::errors::to_py_err;
 
 fn name_of<T: PartialEq + Copy>(choices: &[(&'static str, T)], wanted: T) -> &'static str {
     choices
@@ -111,12 +112,13 @@ fn sorting<'py>(py: Python<'py>, params: &QueryParams, dict: &Bound<'py, PyDict>
         set_some(&entry, "maxPerGroup", group.max_per_group)?;
         set_some(&entry, "limit", group.limit)?;
         if let Some(reduce) = &group.reduce {
-            entry.set_item(
-                "reduce",
-                GroupReducerHandle {
-                    reducer: reduce.clone(),
-                },
-            )?;
+            let handle = GroupReducerHandle::of(py, reduce).ok_or_else(|| {
+                to_py_err(NarsilError::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    "The query's reducer has no Python functions to hand to the plugin",
+                ))
+            })?;
+            entry.set_item("reduce", handle)?;
         }
         dict.set_item("group", entry)?;
     }

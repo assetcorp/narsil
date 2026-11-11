@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from os import PathLike
-from typing import IO, Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from narsil._errors import NarsilError
+from narsil._protocols import BinaryReader, BinaryWriter
 
-Destination = str | PathLike[str] | IO[bytes] | None
+Destination = str | PathLike[str] | BinaryWriter | None
 """This type tells a snapshot or an export where its bytes go. With ``None``, the call returns the bytes; with a
-path, the engine writes them to that file; and with a binary file object, the engine passes them to its ``write``
-method."""
+path, the engine writes them to that file; and with a binary file or any other object that has a ``write`` method,
+the engine passes them to that method. When ``write`` returns a count smaller than the bytes that it received,
+the engine passes the rest in the next call, and when it returns anything other than ``None`` or a count from 1 to
+that size, the call raises ``NarsilError`` with the code ``PERSISTENCE_SAVE_FAILED``."""
 
-Source = bytes | bytearray | memoryview | str | PathLike[str] | IO[bytes]
+Source = bytes | bytearray | memoryview | str | PathLike[str] | BinaryReader
 """This type gives a restore or an import its bytes, as the bytes themselves, a path to a file, or a binary file
-object."""
+or any other object whose ``read(size)`` method returns bytes."""
 
 Document = dict[str, Any]
 """A stored document maps its field names to strings, numbers, booleans, lists, nested dicts, and ``None``."""

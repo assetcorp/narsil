@@ -25,6 +25,11 @@ BYTE_ARGUMENTS = {"restore", "importDocuments"}
 PYTHON_METHODS = {"importDocuments": "import_documents"}
 
 
+class EvenScores:
+    def score(self, query: str, documents: list[str]) -> list[float]:
+        return [1.0 for _ in documents]
+
+
 def typescript_outcomes() -> list[str]:
     prepared = os.environ.get(PREPARED_REFERENCE_VARIABLE)
     if prepared:
@@ -51,6 +56,7 @@ def python_name(method: str) -> str:
 def python_outcome(method: str, arguments: list[Any]) -> str:
     passed = [arguments[0], arguments[1].encode()] if method in BYTE_ARGUMENTS else arguments
     with Narsil() as engine:
+        engine.register_rerank_adapter("rank", EvenScores())
         engine.create_index("docs", {"schema": SCHEMA})
         engine.insert_batch("docs", SEED)
         try:

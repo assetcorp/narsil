@@ -286,6 +286,21 @@ def rerank_allowed() -> Outcome:
     return finish(engine, outer, inner.outcomes)
 
 
+def listener_off_refused() -> Outcome:
+    holder: list[Narsil] = []
+    listener: list[int] = []
+    inner = Once(lambda: holder[0].off(listener[0]))
+    engine = Narsil()
+    holder.append(engine)
+    engine.create_index(INDEX, {"schema": SCHEMA, "tokenizer": Words(inner)})
+    events: list[object] = []
+    listener.append(engine.on("write", events.append))
+    outer = outcome_of(lambda: engine.insert(INDEX, note("outer words"), "outer"))
+    removed = engine.off(listener[0])
+    engine.insert(INDEX, note("later words"), "later")
+    return {**finish(engine, outer, inner.outcomes), "removed": removed, "events": len(events)}
+
+
 SCENARIOS: dict[str, Callable[[], Outcome]] = {
     "tokenizer_refused": tokenizer_refused,
     "tokenizer_propagated": tokenizer_propagated,
@@ -298,6 +313,7 @@ SCENARIOS: dict[str, Callable[[], Outcome]] = {
     "plugin_hook_allowed": plugin_hook_allowed,
     "listener_allowed": listener_allowed,
     "rerank_allowed": rerank_allowed,
+    "listener_off_refused": listener_off_refused,
 }
 
 

@@ -15,7 +15,15 @@ from narsil._native import (
     QuerySuggestions,
     StaleRebuild,
 )
-from narsil._protocols import EmbeddingAdapter, EmbeddingPurpose, PersistenceAdapter, RerankAdapter, Tokenizer
+from narsil._protocols import (
+    BinaryReader,
+    BinaryWriter,
+    EmbeddingAdapter,
+    EmbeddingPurpose,
+    PersistenceAdapter,
+    RerankAdapter,
+    Tokenizer,
+)
 from narsil._types import (
     BatchFailure,
     BatchResult,
@@ -46,6 +54,8 @@ __all__ = [
     "AsyncQuerySuggestions",
     "BatchFailure",
     "BatchResult",
+    "BinaryReader",
+    "BinaryWriter",
     "Destination",
     "Document",
     "EmbeddingAdapter",

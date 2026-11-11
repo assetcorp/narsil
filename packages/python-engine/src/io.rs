@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use narsil::{ErrorCode, NarsilError};
 use pyo3::buffer::PyBuffer;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyInt, PyString};
+use pyo3::types::{PyBool, PyBytes, PyInt, PyString};
 
 use crate::constants::STREAM_BUFFER_BYTES;
 use crate::errors::config_invalid;
@@ -110,17 +110,30 @@ impl Write for PythonWriter {
                 .bind(py)
                 .call_method1("write", (PyBytes::new(py, buffer),))
                 .map_err(python_io_error)?;
-            if written.is_instance_of::<PyInt>() {
-                let count: usize = written.extract().map_err(python_io_error)?;
-                return Ok(count.min(buffer.len()));
+            if written.is_none() {
+                if is_raw_stream(self.file.bind(py))? {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "the nonblocking stream accepted none of the bytes",
+                    ));
+                }
+                return Ok(buffer.len());
             }
-            if written.is_none() && is_raw_stream(self.file.bind(py))? {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "the nonblocking stream accepted none of the bytes",
-                ));
-            }
-            Ok(buffer.len())
+            let count = (written.is_instance_of::<PyInt>() && !written.is_instance_of::<PyBool>())
+                .then(|| written.extract::<usize>().ok())
+                .flatten()
+                .filter(|count| *count <= buffer.len() && (*count > 0 || buffer.is_empty()));
+            count.ok_or_else(|| {
+                let shown = written
+                    .repr()
+                    .map(|text| text.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "an object".to_string());
+                io::Error::other(format!(
+                    "write() returned {shown} for {} bytes, where it returns None or the number of bytes that it wrote, from 1 to {}",
+                    buffer.len(),
+                    buffer.len()
+                ))
+            })
         })
         .unwrap_or_else(|| Err(finalizing()))
     }

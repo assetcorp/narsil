@@ -45,6 +45,20 @@ class Tokenizer(Protocol):
 
 
 @runtime_checkable
+class BinaryWriter(Protocol):
+    """A binary writer receives the bytes of a snapshot or an export through ``write``, as a binary file does."""
+
+    def write(self, data: bytes, /) -> object: ...
+
+
+@runtime_checkable
+class BinaryReader(Protocol):
+    """A binary reader gives a restore or an import its bytes through ``read(size)``, as a binary file does."""
+
+    def read(self, size: int, /) -> bytes: ...
+
+
+@runtime_checkable
 class PersistenceAdapter(Protocol):
     """A persistence adapter stores the files of an engine under string keys.
 

@@ -8,8 +8,9 @@ mod io;
 use pyo3::PyTypeInfo;
 use pyo3::prelude::*;
 
-use crate::callbacks::functions::{GroupReducerHandle, PyStaleRebuild};
+use crate::callbacks::functions::PyStaleRebuild;
 use crate::callbacks::persistence::{PyFilesystemPersistence, PyMemoryPersistence};
+use crate::callbacks::reducer::GroupReducerHandle;
 use crate::engine::{PyNarsil, PyQuerySuggestions};
 use crate::errors::PyNarsilError;
 
