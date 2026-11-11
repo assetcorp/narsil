@@ -135,7 +135,12 @@ export interface ClusterLocalEngine extends Narsil {
     partitionIds: number[],
     scope?: QueryStatsRequestScope,
   ): Promise<PartitionQueryStats>
-  partitionStatsForRead(indexName: string): Promise<PartitionStatsResult[]>
+  partitionStatsForRead(indexName: string): Promise<PartitionStatsForRead>
+}
+
+export interface PartitionStatsForRead {
+  partitions: PartitionStatsResult[]
+  vectorSavedBytes: number | undefined
 }
 
 /**
@@ -298,7 +303,12 @@ export async function createClusterLocalEngine(
     partitionStatsForRead: async (indexName: string) => {
       const release = await core.indexState.acquire(indexName)
       try {
-        return core.requireManager(indexName).getPartitionStats()
+        const stats = core.requireManager(indexName).getPartitionStats()
+        const durable = core.durability?.manager
+        return {
+          partitions: durable?.withPartitionStoredSizes?.(indexName, stats) ?? stats,
+          vectorSavedBytes: durable?.vectorSavedBytes?.(indexName),
+        }
       } finally {
         release()
       }

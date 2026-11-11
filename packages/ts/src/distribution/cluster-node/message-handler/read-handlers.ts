@@ -16,6 +16,7 @@ import {
 import type { ListEntryWire, RespondFn, TransportMessage } from '../../transport/types'
 import { refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
+import { localCountAnswer } from '../reads/count-answer'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleCount(
@@ -24,17 +25,8 @@ export async function handleCount(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateCountPayload(decode(message.payload))
-  const requested = new Set(payload.partitionIds)
-  const partitions = (await deps.engine.partitionStatsForRead(payload.indexName))
-    .filter(partition => requested.has(partition.partitionId))
-    .map(partition => ({
-      partitionId: partition.partitionId,
-      documentCount: partition.documentCount,
-      estimatedMemoryBytes: partition.estimatedMemoryBytes,
-    }))
-  const language = deps.engine.getStats(payload.indexName).language
-
-  await respond(createCountResultMessage({ partitions, language }, deps.nodeId, message.requestId))
+  const answer = await localCountAnswer(deps.engine, payload.indexName, payload.partitionIds)
+  await respond(createCountResultMessage(answer, deps.nodeId, message.requestId))
 }
 
 export async function handleList(

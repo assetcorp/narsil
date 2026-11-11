@@ -24,18 +24,32 @@ export interface IndexStats {
    * The files that the index's current checkpoint lists hold this many bytes:
    * the segment files of every partition, the vector files, and the graph
    * parts. The figure changes only when a checkpoint commits, so an unchanged
-   * index reports the same size before and after a restart. An index that
-   * saves nothing reports no figure, and so does an index that lifecycle
-   * settings kept closed since this engine started.
+   * index reports the same size before and after a restart. A closed index
+   * reports the size that its last checkpoint recorded, and an index that
+   * saves nothing reports no figure. In a cluster, the figure covers the copy
+   * of each partition that the stats call read.
    */
   savedBytes?: number
   /**
    * The index's write-ahead log and the history that it keeps for device sync
    * hold this many bytes. The figure grows with every write, and it falls when
-   * the engine deletes log or history files. It is absent whenever
-   * {@link IndexStats.savedBytes} is absent.
+   * the engine deletes log or history files. A closed index reports no figure,
+   * and neither does an index that saves nothing.
    */
   logBytes?: number
+  /**
+   * A cluster adds up {@link IndexStats.savedBytes} over every copy of every
+   * partition, which shows the disk space that the index takes across all of
+   * its nodes. The figure is absent outside a cluster, and it is absent
+   * whenever a copy fails to answer or reports no saved size.
+   */
+  savedBytesOfEveryCopy?: number
+  /**
+   * A cluster adds up {@link IndexStats.logBytes} over every copy of every
+   * partition. The figure is absent outside a cluster, and it is absent
+   * whenever a copy fails to answer or reports no log size.
+   */
+  logBytesOfEveryCopy?: number
   /** The index analyses text with this language module. */
   language: string
   /** The index was created with this field layout. */
@@ -97,4 +111,16 @@ export interface PartitionStatsResult {
   savedBytes?: number
   /** This partition's write-ahead log files and device-sync history files hold this many bytes. */
   logBytes?: number
+  /**
+   * A cluster adds up {@link PartitionStatsResult.savedBytes} over every copy
+   * of this partition. The figure is absent outside a cluster, and it is
+   * absent whenever a copy fails to answer or reports no saved size.
+   */
+  savedBytesOfEveryCopy?: number
+  /**
+   * A cluster adds up {@link PartitionStatsResult.logBytes} over every copy of
+   * this partition. The figure is absent outside a cluster, and it is absent
+   * whenever a copy fails to answer or reports no log size.
+   */
+  logBytesOfEveryCopy?: number
 }

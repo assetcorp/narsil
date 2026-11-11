@@ -7,10 +7,11 @@ export interface PartitionStoredBytes {
 
 export interface StoredBytes {
   bytes: number
+  vectorBytes: number
   partitions: PartitionStoredBytes[]
 }
 
-export const NOTHING_SAVED: StoredBytes = { bytes: 0, partitions: [] }
+export const NOTHING_SAVED: StoredBytes = { bytes: 0, vectorBytes: 0, partitions: [] }
 
 export function savedBytesOfManifest(manifest: SegmentManifest): StoredBytes {
   let bytes = 0
@@ -21,11 +22,12 @@ export function savedBytesOfManifest(manifest: SegmentManifest): StoredBytes {
     partitions.push({ partitionId: partition.partitionId, bytes: partitionBytes })
     bytes += partitionBytes
   }
+  let vectorBytes = 0
   for (const field of manifest.vectors) {
-    for (const file of field.files) bytes += file.bytes
-    for (const part of field.graphParts) bytes += part.bytes
+    for (const file of field.files) vectorBytes += file.bytes
+    for (const part of field.graphParts) vectorBytes += part.bytes
   }
-  return { bytes, partitions }
+  return { bytes: bytes + vectorBytes, vectorBytes, partitions }
 }
 
 export interface StoredSize {

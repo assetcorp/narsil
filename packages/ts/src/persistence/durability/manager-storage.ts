@@ -39,6 +39,7 @@ export interface IndexStorageAccessDeps {
 export interface StoredBytesAccess {
   storedSize(indexName: string, recordedSavedBytes?: number): StoredSize
   withPartitionStoredSizes(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
+  vectorSavedBytes(indexName: string): number | undefined
   measureRestoredStorage(indexName: string): Promise<void>
 }
 
@@ -115,6 +116,9 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
         savedBytes: saved.get(partition.partitionId) ?? 0,
         logBytes: logBytes.partitionBytesOf(indexName, partition.partitionId),
       }))
+    },
+    vectorSavedBytes(indexName) {
+      return sizeIsKnown(indexName) ? (savedBytes.of(indexName)?.vectorBytes ?? 0) : undefined
     },
     async measureRestoredStorage(indexName) {
       const decoded = await readSegmentManifest(directoryCheckpointStore(directory), indexName)

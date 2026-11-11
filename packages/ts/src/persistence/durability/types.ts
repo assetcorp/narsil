@@ -120,6 +120,7 @@ export interface DurabilityManager {
   measureRestoredStorage?(indexName: string): Promise<void>
   storedSize?(indexName: string, recordedSavedBytes?: number): StoredSize
   withPartitionStoredSizes?(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
+  vectorSavedBytes?(indexName: string): number | undefined
   syncStorage?(): SyncStorage
   historyStorage?(): HistoryStorage
   removeQueryHistory?(indexName: string): Promise<void>
