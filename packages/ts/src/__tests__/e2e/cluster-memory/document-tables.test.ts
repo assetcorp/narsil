@@ -27,6 +27,10 @@ const TABLES_PER_DOCUMENT_ON_ONE_PARTITION = 3
 const DOUBLING_BYTES = TABLES_PER_DOCUMENT_ON_ONE_PARTITION * DOUBLED_TABLE_BYTES
 const CHURNED_TABLE_ENTRIES = 40_000
 const REPLACEMENTS_BEFORE_DOUBLING = 25_537
+const REMOVED_TO_A_QUARTER = 49_152
+const REBUILT_TABLE_BYTES = 1_835_048
+const REBUILDING_BYTES = TABLES_PER_DOCUMENT_ON_ONE_PARTITION * REBUILT_TABLE_BYTES
+const ROOM_LEFT_BELOW_REBUILDING_BYTES = 4 * 1_048_576
 
 function itemId(serial: number): string {
   return `item-${serial}`
@@ -82,8 +86,8 @@ async function countOf(base: string): Promise<unknown> {
   return (await request(base, 'GET', `/indexes/${CATALOGUE_INDEX}/count`)).body.count
 }
 
-async function leaveHeapRoom(base: string): Promise<void> {
-  const targetBytes = HEAP_BLOCK_FRACTION * HEAP_LIMIT_BYTES - ROOM_LEFT_BYTES
+async function leaveHeapRoom(base: string, roomLeftBytes = ROOM_LEFT_BYTES): Promise<void> {
+  const targetBytes = HEAP_BLOCK_FRACTION * HEAP_LIMIT_BYTES - roomLeftBytes
   for (let round = 0; round < BALLAST_TOP_UP_ROUNDS; round++) {
     const response = await fetch(`${base}/indexes`, {
       headers: { 'x-narsil-test-ballast': String(targetBytes / HEAP_LIMIT_BYTES) },
@@ -97,18 +101,12 @@ async function leaveHeapRoom(base: string): Promise<void> {
   }
 }
 
-async function expectDoublingWriteRefused(base: string, admitted: number, refused: number): Promise<void> {
-  const before = await request(base, 'POST', `/indexes/${CATALOGUE_INDEX}/documents`, {
-    id: itemId(admitted),
-    document: { title: `Oak chair ${admitted}` },
-  })
-  expect(before.status, `the write that fills the table: ${JSON.stringify(before.body)}`).toBe(201)
-
+async function expectTableWriteRefused(base: string, refused: number, tableBytes: number): Promise<void> {
   const crossing = await request(base, 'POST', `/indexes/${CATALOGUE_INDEX}/documents`, {
     id: itemId(refused),
     document: { title: `Oak chair ${refused}` },
   })
-  expect(crossing.status, `the write that doubles the table: ${JSON.stringify(crossing.body)}`).toBe(429)
+  expect(crossing.status, `the write that replaces the tables: ${JSON.stringify(crossing.body)}`).toBe(429)
   const { code, details } = errorOf(crossing)
   expect(code).toBe('CLUSTER_WRITE_BLOCKED')
   expect(details.reason).toBe('write_would_fill_memory')
@@ -119,10 +117,18 @@ async function expectDoublingWriteRefused(base: string, admitted: number, refuse
     (details.youngHeapBytes as number) -
     (details.projectedBytes as number)
   expect(room, 'the refused document alone fits the heap room').toBeGreaterThanOrEqual(documentBytes)
-  expect(room, 'the heap room holds the document and every doubled table').toBeLessThan(documentBytes + DOUBLING_BYTES)
-
-  expect((await request(base, 'GET', `/indexes/${CATALOGUE_INDEX}/documents/${itemId(admitted)}`)).status).toBe(200)
+  expect(room, 'the heap room holds the document and every new table').toBeLessThan(documentBytes + tableBytes)
   expect((await request(base, 'GET', `/indexes/${CATALOGUE_INDEX}/documents/${itemId(refused)}`)).status).toBe(404)
+}
+
+async function expectDoublingWriteRefused(base: string, admitted: number, refused: number): Promise<void> {
+  const before = await request(base, 'POST', `/indexes/${CATALOGUE_INDEX}/documents`, {
+    id: itemId(admitted),
+    document: { title: `Oak chair ${admitted}` },
+  })
+  expect(before.status, `the write that fills the table: ${JSON.stringify(before.body)}`).toBe(201)
+  await expectTableWriteRefused(base, refused, DOUBLING_BYTES)
+  expect((await request(base, 'GET', `/indexes/${CATALOGUE_INDEX}/documents/${itemId(admitted)}`)).status).toBe(200)
 }
 
 describe('a cluster node near its memory limit, holding an index whose document tables are full', () => {
@@ -184,6 +190,24 @@ describe('a cluster node near its memory limit, holding an index whose document 
     )
 
     expect(await countOf(started.base)).toBe(CHURNED_TABLE_ENTRIES - 1)
+    expect(started.exited(), started.output()).toBe(false)
+  }, 600_000)
+
+  it('refuses the first write after removing three quarters of a full table, which rebuilds every document table at its size', async () => {
+    if (container === null) throw new Error('etcd never started')
+    const started = await startCatalogueNode(container.endpoint)
+    node = started
+
+    await insertItems(started.base, serials(0, FULL_TABLE_ENTRIES))
+    for (let next = 0; next < REMOVED_TO_A_QUARTER; next += BATCH_DOCUMENTS) {
+      await removeItems(started.base, serials(next, Math.min(BATCH_DOCUMENTS, REMOVED_TO_A_QUARTER - next)))
+    }
+    expect(await countOf(started.base)).toBe(FULL_TABLE_ENTRIES - REMOVED_TO_A_QUARTER)
+
+    await leaveHeapRoom(started.base, ROOM_LEFT_BELOW_REBUILDING_BYTES)
+    await expectTableWriteRefused(started.base, FULL_TABLE_ENTRIES, REBUILDING_BYTES)
+
+    expect(await countOf(started.base)).toBe(FULL_TABLE_ENTRIES - REMOVED_TO_A_QUARTER)
     expect(started.exited(), started.output()).toBe(false)
   }, 600_000)
 })
