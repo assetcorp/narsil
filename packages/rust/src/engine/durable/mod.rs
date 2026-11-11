@@ -16,8 +16,10 @@ pub(crate) mod load_source;
 pub(crate) mod log;
 pub(crate) mod metadata;
 mod recover;
+mod removed_documents;
 mod residency;
 mod restored;
+pub(crate) mod saved_size;
 mod schedule;
 pub(crate) mod switch;
 

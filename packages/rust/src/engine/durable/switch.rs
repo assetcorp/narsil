@@ -49,6 +49,7 @@ pub(crate) fn checkpoint_switch(
         .map_err(SwitchFailure::AtCommit)?;
     built.read_paged_from(backing);
     log.remember(built.metadata.clone());
+    log.record_saved(built.saved.clone());
     log.checkpointed();
     built.apply(&partitions);
     Ok(())
