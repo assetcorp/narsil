@@ -163,11 +163,43 @@ fn a_restore_warning_listener_that_drops_the_restored_index_is_refused_and_the_r
         .expect("the index with suggestions on is archived");
 
     let keyless = Arc::new(Narsil::open(NarsilConfig::default()).expect("the engine opens"));
+    keyless
+        .restore(INDEX, &mut archive.as_slice())
+        .expect("the first restore installs the index");
+    keyless
+        .query_suggestions()
+        .add_suggestion(
+            INDEX,
+            &ManualQuerySuggestion {
+                group: "web".into(),
+                query: "amber".into(),
+                count: None,
+            },
+        )
+        .expect("a manual suggestion is added");
+    let suggestion_indexes = |engine: &Narsil| -> Vec<String> {
+        engine
+            .list_indexes()
+            .into_iter()
+            .map(|info| info.name)
+            .filter(|name| name != INDEX)
+            .collect()
+    };
+    let before = suggestion_indexes(&keyless);
+    assert!(
+        !before.is_empty(),
+        "the manual suggestion lives in a suggestions index"
+    );
+
+    let armed = Arc::new(AtomicBool::new(true));
     let (listener_answer, listener_answers) = channel();
     let listener_answer = Mutex::new(listener_answer);
     let listener_engine = Arc::downgrade(&keyless);
+    let listening = Arc::clone(&armed);
     keyless.on(NarsilEventKind::QuerySuggestionsWarning, move |_| {
-        if let Some(engine) = listener_engine.upgrade() {
+        if listening.swap(false, Ordering::AcqRel)
+            && let Some(engine) = listener_engine.upgrade()
+        {
             let refused = engine.drop_index(INDEX).err().map(|error| error.code());
             let _ = listener_answer
                 .lock()
@@ -193,5 +225,10 @@ fn a_restore_warning_listener_that_drops_the_restored_index_is_refused_and_the_r
     assert!(
         keyless.list_indexes().iter().any(|info| info.name == INDEX),
         "the refused drop leaves the restored index in place"
+    );
+    assert_eq!(
+        suggestion_indexes(&keyless),
+        before,
+        "the refused drop leaves every suggestions index of the source in place"
     );
 }

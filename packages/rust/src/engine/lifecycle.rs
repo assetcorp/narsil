@@ -189,6 +189,7 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
     }
     let config = {
         let _writes = engine.suggestions.write_turns.take(name)?;
+        engine.names.refuse_held_by_this_thread(name)?;
         drop_suggestion_indexes_of(engine, name)?;
         drop_unannounced(engine, name)?
     };
