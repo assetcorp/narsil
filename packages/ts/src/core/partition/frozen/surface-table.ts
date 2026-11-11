@@ -7,7 +7,7 @@ export interface SurfaceTableData {
   counts: Uint32Array
 }
 
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 export function encodeSurfaceTable(forms: SerializedSurfaceForms): SurfaceTableData {
   const surfaceThenToken: string[] = []

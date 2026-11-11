@@ -1,4 +1,5 @@
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
+import type { ErrorCode } from '../../../errors'
 import type { PersistenceAdapter } from '../../../types/adapters'
 import type { DurableDirectory } from '../durable-filesystem'
 

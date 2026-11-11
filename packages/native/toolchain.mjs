@@ -2,11 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { devNull } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const packageDirectory = dirname(fileURLToPath(import.meta.url))
 export const buildDirectory = join(packageDirectory, 'build')
+export const sanitisedBindingDirectory = join(buildDirectory, 'sanitised')
 export const TEST_LINK_FLAGS = ['-pthread']
 
 export const LANGUAGE_FLAGS = ['-std=c11', '-ffp-contract=off', '-D_POSIX_C_SOURCE=200809L']
@@ -15,6 +16,8 @@ export const POSITION_INDEPENDENT_FLAGS = ['-fPIC']
 export const NODE_API_FLAGS = ['-DNAPI_VERSION=8']
 export const WINDOWS_NODE_API_FLAGS = ['-DNAPI_EXTERN=']
 export const TEST_FLAGS = ['-O1', '-g']
+export const MEMORY_SANITISERS = 'address,undefined'
+export const SANITISER_FLAGS = ['-fno-sanitize-recover=undefined', '-fno-omit-frame-pointer']
 
 const WARNING_FLAGS = [
   '-Wall',
@@ -37,18 +40,41 @@ const WARNING_FLAGS = [
 
 const GCC_ONLY_WARNING_FLAGS = ['-Wcast-align=strict', '-Wtrampolines', '-Wbidi-chars=any']
 
-const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test']
+const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test', 'fuzz']
+export const FUZZ_SUPPORT_FILES = [
+  'input.c',
+  'file.c',
+  'stored_values.c',
+  'segment.c',
+  'terms.c',
+  'frozen_segment.c',
+  'frozen_spellings.c',
+  'replay.c',
+]
+const GENERATED_DIRECTORIES = [
+  join('src', 'languages', 'data'),
+  join('src', 'languages', 'snowball'),
+  join('src', 'unicode'),
+]
 
 function cFilesIn(directory, extensions) {
   if (!existsSync(join(packageDirectory, directory))) return []
-  return readdirSync(join(packageDirectory, directory))
+  return readdirSync(join(packageDirectory, directory), { recursive: true })
     .filter(name => extensions.some(extension => name.endsWith(extension)))
     .sort()
     .map(name => join(packageDirectory, directory, name))
 }
 
+function isGenerated(file) {
+  return GENERATED_DIRECTORIES.some(directory => file.startsWith(join(packageDirectory, directory, '')))
+}
+
 export function coreSources() {
   return cFilesIn('src', ['.c'])
+}
+
+export function lintedCoreSources() {
+  return coreSources().filter(file => !isGenerated(file))
 }
 
 export function testSources() {
@@ -59,8 +85,18 @@ export function addonSources() {
   return cFilesIn('node', ['.c'])
 }
 
+export function fuzzSources() {
+  return cFilesIn('fuzz', ['.c'])
+}
+
+export function fuzzTargets() {
+  return fuzzSources().filter(file => !FUZZ_SUPPORT_FILES.some(name => file.endsWith(join('fuzz', name))))
+}
+
 export function formattedFiles() {
-  return FORMATTED_DIRECTORIES.flatMap(directory => cFilesIn(directory, ['.c', '.h']))
+  return FORMATTED_DIRECTORIES.flatMap(directory => cFilesIn(directory, ['.c', '.h'])).filter(
+    file => !isGenerated(file),
+  )
 }
 
 export function nodeApiHeaderDirectory() {
@@ -84,7 +120,11 @@ function appleSdkFlags() {
 }
 
 function compileCommand(file, flags) {
-  const object = join(buildDirectory, 'objects', `${basename(file, '.c')}.o`)
+  const object = join(
+    buildDirectory,
+    'objects',
+    `${relative(packageDirectory, file).replace(/\.c$/, '').replaceAll(sep, '-')}.o`,
+  )
   return { directory: packageDirectory, file, arguments: ['cc', ...flags, '-c', file, '-o', object] }
 }
 
@@ -100,7 +140,7 @@ export function writeCompileDatabase() {
   const commands = [...coreSources(), ...addonSources()].map(file =>
     compileCommand(file, [...CORE_FLAGS, ...POSITION_INDEPENDENT_FLAGS, ...shared]),
   )
-  for (const file of testSources()) {
+  for (const file of [...testSources(), ...fuzzSources()]) {
     commands.push(compileCommand(file, [...TEST_FLAGS, ...shared]))
   }
   mkdirSync(buildDirectory, { recursive: true })

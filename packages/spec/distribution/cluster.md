@@ -234,7 +234,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows, which is 1.2 for this specification. A node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.4 for this specification. A node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -633,6 +633,17 @@ IndexSettings {
   partitionConfig:   PartitionSnapshotLimits      (optional; maxDocsPerPartition and watermark alone)
   embedding:         EmbeddingSnapshotConfig      (optional)
   synonyms:          SynonymSetRef                (optional; where the coordinator holds the synonym set)
+  sync:              SyncSetting                  (optional; see The Sync Setting in sync.md)
+  syncActive:        boolean                      (optional; true once a device asks for the snapshot)
+  syncEpoch:         string                       (optional; the index epoch)
+  querySuggestions:  QuerySuggestionsSetting      (optional; see The Setting in query-suggestions.md)
+  bannedQueries:     List<string>                 (optional)
+  querySuggestionsSource: QuerySuggestionsSource  (optional; marks a suggestions index)
+}
+
+QuerySuggestionsSource {
+  index: string
+  group: string
 }
 
 SynonymSetRef {
@@ -661,11 +672,11 @@ AnalysisFailure {
 }
 ```
 
-Every other write of the index metadata must keep these members unchanged.
+Every other write of the index metadata must keep `pendingAnalysis`, `analysisFailure`, `sync`, `syncActive`, `syncEpoch`, `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` unchanged.
 
 The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
-The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index configuration payload](../envelope.md#index-configuration-payload), except `synonyms`, which references the set that [Synonym Set Storage](#synonym-set-storage) defines, because a set can outgrow one coordinator value. Six rules govern the settings:
+The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index configuration payload](../envelope.md#index-configuration-payload), except `synonyms`, which references the set that [Synonym Set Storage](#synonym-set-storage) defines, because a set can outgrow one coordinator value. [sync.md](../sync.md) defines `sync` and `syncActive`, which the index configuration payload leaves out, and [query-suggestions.md](../query-suggestions.md) defines `querySuggestions`, `bannedQueries`, and `querySuggestionsSource`. Six rules govern the settings:
 
 - The creating node must write `language` in every case, while it must write each other key only when the index configuration sets that option.
 - The creating node must leave `maxPartitions` out of `partitionConfig`, because `partitionCount` sets the number of partitions. [Capacity in a Cluster](../partitioning.md#capacity-in-a-cluster) defines how each node enforces the other two limits.
@@ -685,6 +696,27 @@ _narsil/index/{indexName}/config
 The encoded set is the MessagePack encoding of the `List<SynonymRule>` that the caller wrote, as [Synonyms](../algorithms.md#synonyms) defines. A node must split the encoded set, in order, into chunks of at most 1,048,576 bytes, so that each write stays inside the request size that etcd accepts by default. It must store chunk `i` under `_narsil/synonyms/{indexUuid}/{generation}/{i}` with `compareAndSet(key, absent, chunk)`, so that no writer can change a stored chunk. Every stored copy takes a fresh `generation`, so that a node that deletes a replaced copy can never delete a copy that another node stored.
 
 A node that reads the set must join the chunks in order. Where a chunk is absent, the node must read the index metadata again, because a replacement can delete the chunks of the copy that the node read first. It must raise `CONTROLLER_METADATA_INVALID` where the metadata still references that generation, where the joined bytes disagree with `byteLength` or `digest`, or where the set breaks the shape or the limits in [Synonyms](../algorithms.md#synonyms), as it rejects any other malformed key of `settings`.
+
+### Query Suggestions State
+
+The node that holds the controller lease stores the outcome of the latest [popular query suggestions](../query-suggestions.md) build of an index as this MessagePack map, under `_narsil/query-suggestions/{indexName}/build`:
+
+```text
+BuildRecord {
+  buildId:   string                          (a UUID v4)
+  trigger:   string                          ("schedule", "missed", or "caller")
+  status:    string                          ("running", "completed", "failed", or "skipped")
+  startedAt: uint64                          (milliseconds since the Unix epoch)
+  endedAt:   uint64 or absent
+  published: uint32
+  removed:   uint32
+  discarded: uint32
+  sourcesDigest: bytes                       (32 bytes)
+  errorCode: string or absent
+}
+```
+
+`sourcesDigest` is the SHA-256 of the MessagePack encoding of a list that holds one `[nodeId, key, savedAt]` array for each file that the build merged, sorted by node ID and then by key, comparing UTF-8 bytes. A single node holds no node ID, so it uses the empty string. The digest keeps the record at one size however many files the history holds, so that the record stays far inside the request size that etcd accepts. The controller writes the record with compareAndSet when a build starts and again when it ends, so that a node that takes over the lease finds the latest build. Dropping the index deletes the key.
 
 ### Index Creation Flow
 
@@ -762,6 +794,8 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
    registered nodes, so a dead node holds nothing up. It then writes
    the pending settings as current, the generation as
    analysisGeneration, and no pendingAnalysis, with one compareAndSet.
+   For an index with sync on, that compareAndSet also writes a new
+   syncEpoch and clears syncActive.
 
 5. Where a node refuses for memory or for a name with no registration,
    the controller writes no pendingAnalysis and an analysisFailure
@@ -799,6 +833,9 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
    schema and settings, the new partitionCount, and the current
    replicationFactor, and it allocates that index through the
    creation flow.
+   The controller writes no sync, syncActive, or syncEpoch into the
+   settings of the generation, because every copy of the generation
+   follows those members of the index name that it serves.
 3. Once every partition of the generation is ACTIVE, the controller
    sends cluster.reshard_start to the primary of each partition of
    the current generation. That primary takes a snapshot of its
@@ -820,11 +857,13 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
    waits for the writes that it has already accepted, and answers
    with its last sequence number.
 6. Once each recorded forwarded sequence number reaches the one
-   that its primary answered, the controller writes the allocation
-   table of the index name with generation set to the generation's
-   name and no assignments, using the version of the stored table
-   as the expected version. That one write moves every read and
-   write onto the generation.
+   that its primary answered, the controller, for an index with sync
+   on, writes a new syncEpoch and clears syncActive in the index
+   metadata of the name with compareAndSet. It then writes the
+   allocation table of the index name with generation set to the
+   generation's name and no assignments, using the version of the
+   stored table as the expected version. That one write moves every
+   read and write onto the generation.
 7. The current generation then goes through the deletion flow. The
    controller keeps the schema and the index metadata stored under
    the index name, so that the name stays taken, and it deletes the
@@ -921,6 +960,8 @@ Deleting an index reverses the creation flow, and the controller drives the tear
 ```
 
 A drop of an index name whose table carries a `generation` drops that generation through the same flow, and a drop during a partition count change aborts the change first.
+
+Deleting an index first deletes, through this flow, every index whose `querySuggestionsSource.index` holds its name, and then the index itself, so that a crash between the two leaves the source in place for the caller to drop again. Each node deletes `_query-counts/<indexName>/` when its watch delivers the deletion or a setting with the feature off, as [In a Cluster](../query-suggestions.md#in-a-cluster) defines.
 
 A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
 

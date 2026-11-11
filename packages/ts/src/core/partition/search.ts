@@ -2,6 +2,7 @@ import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetIsEmpty, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
+import { fieldRun, orderRunByFieldName } from './field-order'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
 import {
   computeGroupContributions,
@@ -13,9 +14,9 @@ import {
   typoMatchesFor,
 } from './group-scoring'
 import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
-import type { PhraseRows } from './phrase-matching'
+import type { PhraseMatches, PhraseRows } from './phrase-matching'
 import { postingColumns } from './posting-columns'
-import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
+import { addScore, beginScoring, createScoreBuffer, topKFromBuffer } from './score-buffer'
 import {
   type GroupContribution,
   mergeGroupComponents,
@@ -24,11 +25,24 @@ import {
   type ScoreComponents,
 } from './scoring'
 import { prunableSingleTermList, singleTermTopK } from './single-term-topk'
+import { termCoverage } from './term-coverage'
 import type { PartitionReadState } from './utils'
 
 export { prunableSingleTermList } from './single-term-topk'
 
 type ResolvedMatch = ResolvedTokenPostings['matches'][number]
+
+export type NativeKeywordSearch = (
+  state: PartitionReadState,
+  params: InternalSearchParams,
+  phraseMatches: PhraseMatches | null,
+) => InternalSearchResult | null
+
+let nativeKeywordSearch: NativeKeywordSearch | null = null
+
+export function installNativeKeywordSearch(search: NativeKeywordSearch): void {
+  nativeKeywordSearch = search
+}
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
@@ -61,16 +75,12 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
   const scoresAreZero = totalDocs === 0
 
-  if (state.scoreBuffer === null) state.scoreBuffer = createScoreBuffer(state.docStore.internalIdCapacity())
-  const scoreBuffer = state.scoreBuffer
-  beginScoring(scoreBuffer, state.docStore.internalIdCapacity())
-  const components = collectComponents ? new Map<number, ScoreComponents>() : null
   const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
   const fieldNames = state.fieldNameTable.names
   const resolver = state.docStore.resolver()
   const fieldScoring = loadFieldScoring(state, fields, boost, avgFieldLengths, bm25Params)
-  const { searchable, boosts, averageLengths, lengthColumns, k1s, bs, boundPairs } = fieldScoring
+  const { searchable, boosts, averageLengths, lengthColumns, k1s, bs, boundPairs, nameRanks } = fieldScoring
   const onePair = boundPairs.length === 2
   const onlyK1 = boundPairs[0]
   const onlyB = boundPairs[1]
@@ -90,7 +100,15 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   if (phraseMatches !== null && bitsetIsEmpty(phraseMatches.matched)) {
     return { scored: [], totalMatched: 0 }
   }
+  const inTheCore = nativeKeywordSearch?.(state, params, phraseMatches)
+  if (inTheCore) return inTheCore
   const filterBitset = phraseMatches?.matched ?? params.filterBitset
+
+  if (state.scoreBuffer === null) state.scoreBuffer = createScoreBuffer(state.docStore.internalIdCapacity())
+  const scoreBuffer = state.scoreBuffer
+  beginScoring(scoreBuffer, state.docStore.internalIdCapacity())
+  const components = collectComponents ? new Map<number, ScoreComponents>() : null
+  const coverage = termCoverage(state.docStore.internalIdCapacity(), queryTokens.length, termMatch)
 
   function documentFrequency(token: string, list: PostingListView): number {
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
@@ -101,27 +119,38 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     for (let entry = 0; entry < rows.phrase.tokens.length; entry++) {
       idf += computeIDF(documentFrequency(rows.phrase.tokens[entry], rows.lists[entry]), totalDocs)
     }
-    for (let row = 0; row < rows.docIds.length; row++) {
-      const internalId = rows.docIds.values[row]
-      if (!bitsetHas(matched, internalId)) continue
-      const fieldIndex = rows.fieldIndices.values[row]
-      const frequency = rows.frequencies.values[row]
-      const avgLen = averageLengths[fieldIndex]
-      const fieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
-      const score = scoresAreZero
-        ? 0
-        : computeBM25WithIDF(
-            frequency,
-            idf,
-            fieldLength,
-            avgLen,
-            onePair ? onlyK1 : k1s[fieldIndex],
-            onePair ? onlyB : bs[fieldIndex],
-          )
-      addScore(scoreBuffer, internalId, score * boosts[fieldIndex])
-      if (components !== null) {
-        recordComponents(components, internalId, fieldNames[fieldIndex], rows.phrase.key, frequency, fieldLength, idf)
-      }
+    for (let start = 0; start < rows.docIds.length; start += fieldRun.length) {
+      const entries = orderRunByFieldName(
+        rows.docIds.values,
+        rows.fieldIndices.values,
+        nameRanks,
+        start,
+        rows.docIds.length,
+      )
+      for (let at = 0; at < fieldRun.length; at++) scorePhraseRow(rows, matched, entries[at], idf)
+    }
+  }
+
+  function scorePhraseRow(rows: PhraseRows, matched: Uint32Array, row: number, idf: number): void {
+    const internalId = rows.docIds.values[row]
+    if (!bitsetHas(matched, internalId)) return
+    const fieldIndex = rows.fieldIndices.values[row]
+    const frequency = rows.frequencies.values[row]
+    const avgLen = averageLengths[fieldIndex]
+    const fieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
+    const score = scoresAreZero
+      ? 0
+      : computeBM25WithIDF(
+          frequency,
+          idf,
+          fieldLength,
+          avgLen,
+          onePair ? onlyK1 : k1s[fieldIndex],
+          onePair ? onlyB : bs[fieldIndex],
+        )
+    addScore(scoreBuffer, internalId, score * boosts[fieldIndex])
+    if (components !== null) {
+      recordComponents(components, internalId, fieldNames[fieldIndex], rows.phrase.key, frequency, fieldLength, idf)
     }
   }
 
@@ -139,6 +168,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   }
 
   function mergeGroupContribution(internalId: number, contribution: GroupContribution): void {
+    coverage?.mark(internalId)
     addScore(scoreBuffer, internalId, contribution.score)
     if (components !== null) mergeGroupComponents(components, internalId, contribution)
   }
@@ -148,13 +178,23 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     return { token, docFreq, idf: computeIDF(docFreq, totalDocs), postingList }
   }
 
-  function scorePostings(match: ResolvedMatch, onlyScored: boolean): void {
+  function scorePostings(match: ResolvedMatch, only: Uint32Array | null): void {
     const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
       match.postingList,
     )
-    if (!onlyScored && !hasDeleted && filterBitset === undefined && components === null) {
-      for (let pi = 0; pi < count; pi++) {
-        const internalId = docIds[pi]
+    let runStart = 0
+    let runEnd = 0
+    if (only === null && !hasDeleted && filterBitset === undefined && components === null && coverage === null) {
+      for (let at = 0; at < count; at++) {
+        const internalId = docIds[at]
+        let pi = at
+        if (at < runEnd) {
+          pi = fieldRun.entries[at - runStart]
+        } else if (at + 1 < count && docIds[at + 1] === internalId) {
+          pi = orderRunByFieldName(docIds, fieldNameIndices, nameRanks, at, count)[0]
+          runStart = at
+          runEnd = at + fieldRun.length
+        }
         const fieldIndex = fieldNameIndices[pi]
         if (searchable[fieldIndex] === 0) continue
         const avgLen = averageLengths[fieldIndex]
@@ -174,13 +214,22 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       return
     }
 
-    for (let pi = 0; pi < count; pi++) {
-      const internalId = docIds[pi]
+    for (let at = 0; at < count; at++) {
+      const internalId = docIds[at]
       if (hasDeleted && deletedDocs.has(internalId)) continue
       if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-      if (onlyScored && !hasScore(scoreBuffer, internalId)) continue
+      if (only !== null && !bitsetHas(only, internalId)) continue
+      let pi = at
+      if (at < runEnd) {
+        pi = fieldRun.entries[at - runStart]
+      } else if (at + 1 < count && docIds[at + 1] === internalId) {
+        pi = orderRunByFieldName(docIds, fieldNameIndices, nameRanks, at, count)[0]
+        runStart = at
+        runEnd = at + fieldRun.length
+      }
       const fieldIndex = fieldNameIndices[pi]
       if (searchable[fieldIndex] === 0) continue
+      coverage?.mark(internalId)
       const termFrequency = termFrequencies[pi]
       const avgLen = averageLengths[fieldIndex]
       const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
@@ -210,10 +259,10 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     }
   }
 
-  function scoreGroup(group: ResolvedTokenPostings['group'], onlyScored: boolean): void {
+  function scoreGroup(group: ResolvedTokenPostings['group'], only: Uint32Array | null): void {
     if (group === null) return
     for (const [internalId, contribution] of computeGroupContributions(groupContext, group, collectComponents)) {
-      if (onlyScored && !hasScore(scoreBuffer, internalId)) continue
+      if (only !== null && !bitsetHas(only, internalId)) continue
       mergeGroupContribution(internalId, contribution)
     }
   }
@@ -258,20 +307,30 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       resolved.push({ token: qt.token, matches, totalPostings, group: groupMatches })
     }
 
-    resolved.sort((a, b) => a.totalPostings - b.totalPostings)
+    let anchor = resolved[0]
+    for (const term of resolved) if (term.totalPostings < anchor.totalPostings) anchor = term
+    for (const match of anchor.matches) scorePostings(match, null)
+    scoreGroup(anchor.group, null)
+    const anchorDocuments = createBitSet(state.docStore.internalIdCapacity())
+    for (let index = 0; index < scoreBuffer.touchedCount; index++) {
+      bitsetSet(anchorDocuments, scoreBuffer.touched[index])
+    }
+    beginScoring(scoreBuffer, state.docStore.internalIdCapacity())
+    components?.clear()
 
-    for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
-      const onlyScored = tokenIndex > 0
-      for (const match of resolved[tokenIndex].matches) scorePostings(match, onlyScored)
-      scoreGroup(resolved[tokenIndex].group, onlyScored)
+    for (const term of resolved) {
+      coverage?.nextTerm()
+      for (const match of term.matches) scorePostings(match, anchorDocuments)
+      scoreGroup(term.group, anchorDocuments)
     }
   } else {
     for (const qt of queryTokens) {
+      coverage?.nextTerm()
       const group = termGroupOf(termGroups, qt.token)
       for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
-        scorePostings(resolveMatch(m.token, m.postingList), false)
+        scorePostings(resolveMatch(m.token, m.postingList), null)
       }
-      if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), false)
+      if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), null)
     }
   }
 
@@ -279,6 +338,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     for (const rows of phraseMatches.rows) scorePhraseRows(rows, phraseMatches.matched)
   }
 
+  coverage?.retainCovered(scoreBuffer)
   const totalMatched = scoreBuffer.touchedCount
   const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
   const scored = topKFromBuffer(scoreBuffer, k, resolver, components)

@@ -1,8 +1,7 @@
+import { magnitude, toDistance, toScore } from '#platform/vector-host'
 import { createBoundedMaxHeap } from '../../core/heap'
 import type { VectorMetric } from '../brute-force'
-import type { FilterSubset } from '../filter-ordinals'
-import { toDistance, toScore } from '../hnsw/shared'
-import { magnitude } from '../similarity'
+import type { FilterSubset } from '../ordinal-filter'
 import { beginCheckpointRestore, type CheckpointRestoreShape, type VectorCheckpointRestore } from './checkpoint-restore'
 import { highScoreFirst, mergeResults } from './merge-results'
 import type {
@@ -13,13 +12,38 @@ import type {
   VectorSearchOutcome,
 } from './shared'
 
+export interface ColdFieldClaims {
+  slots: number
+  docIdBytes: number
+}
+
+export interface HeldVector {
+  vector: Float32Array
+  partitionId: number | undefined
+}
+
+export interface HeldRemoval {
+  queuedAt: number
+  copy: HeldVector | number
+}
+
+export interface HeldReplacement {
+  copy: HeldVector | number
+  inserted: HeldVector
+  queuedAt: number[]
+  reserved: ColdFieldClaims
+}
+
 export interface ColdVectorHold {
   readonly field: ColdVectorField
   readonly loaded: Promise<void>
-  readonly written: Map<string, { vector: Float32Array; partitionId: number | undefined }>
+  readonly written: Map<string, HeldVector>
   readonly removedNumbers: Set<number>
   readonly removedIds: Set<string>
+  readonly removals: Map<string, HeldRemoval>
+  readonly replacements: Map<string, HeldReplacement[]>
   readonly writes: Array<() => void>
+  readonly reserved: ColdFieldClaims
   readonly loadWanted: () => void
   live: number
 }
@@ -43,7 +67,10 @@ export function beginColdHold(
     written: new Map(),
     removedNumbers: new Set(),
     removedIds: new Set(),
+    removals: new Map(),
+    replacements: new Map(),
     writes: [],
+    reserved: { slots: 0, docIdBytes: 0 },
     live: field.liveCount,
   }
   state.cold = hold
@@ -54,7 +81,12 @@ export function endColdHold(state: VectorIndexState): void {
   const hold = state.cold
   if (hold === null) return
   state.cold = null
-  for (const write of hold.writes) write()
+  try {
+    for (const write of hold.writes) write()
+  } catch (error) {
+    state.cold = hold
+    throw error
+  }
   hold.field.close()
 }
 
@@ -89,42 +121,12 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     shape => beginCheckpointRestore(state, shape),
     () => state.cold === hold,
     loadingWanted,
-  ).then(
-    () => {
-      if (state.cold === hold) endColdHold(state)
-      finished()
-    },
-    error => failed(error),
   )
+    .then(() => {
+      if (state.cold === hold) endColdHold(state)
+    })
+    .then(finished, failed)
   loaded.catch(() => undefined)
-}
-
-function retireOlderCopy(hold: ColdVectorHold, docId: string): boolean {
-  if (hold.written.delete(docId)) return true
-  if (hold.removedIds.has(docId)) return false
-  const number = hold.field.numberOf(docId)
-  if (number === undefined) return false
-  hold.removedIds.add(docId)
-  hold.removedNumbers.add(number)
-  return true
-}
-
-export function coldInsert(
-  hold: ColdVectorHold,
-  docId: string,
-  vector: Float32Array,
-  partitionId: number | undefined,
-): boolean {
-  const replaced = retireOlderCopy(hold, docId)
-  if (!replaced) hold.live += 1
-  hold.written.set(docId, { vector: vector.slice(), partitionId })
-  return replaced
-}
-
-export function coldRemove(hold: ColdVectorHold, docId: string): boolean {
-  const removed = retireOlderCopy(hold, docId)
-  if (removed) hold.live -= 1
-  return removed
 }
 
 export function coldHas(hold: ColdVectorHold, docId: string): boolean {

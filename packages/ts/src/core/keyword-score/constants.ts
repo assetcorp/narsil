@@ -1,0 +1,4 @@
+export const KEYWORD_FIRST_SLOTS = 16
+export const KEYWORD_FIRST_LISTS = 64
+export const KEYWORD_FIRST_ROWS = 1024
+export const KEYWORD_INSERTION_SORT_ROWS = 16

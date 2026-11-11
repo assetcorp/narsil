@@ -165,6 +165,7 @@ async function searchCluster<T>(
     heldBm25RoutingFor(deps, settingName, params) ?? (await bm25RoutingFor(deps, settingName, params))
   wireParams.analysisGeneration =
     deps.analysisView.held(indexName) ?? (await deps.analysisView.generationFor(indexName))
+  const pinPresence = await readPinPresence(deps, indexName, params, allocation)
   const queryDeps = {
     transport: deps.config.transport,
     sourceNodeId: deps.nodeId,
@@ -172,6 +173,7 @@ async function searchCluster<T>(
     resolveNodeTargets: deps.resolveNodeTargets,
     listNodes: () => deps.config.coordinator.listNodes(),
     carriesBm25,
+    pinnedDocuments: pinPresence === null ? undefined : new Set([...pinPresence.stored, ...pinPresence.unverifiable]),
   }
   const distributed = await distributedQuery(
     indexName,
@@ -188,7 +190,6 @@ async function searchCluster<T>(
     )
     for (const [docId, document] of found) documents.set(docId, applyProjection(document, projection) as T)
   }
-  const pinPresence = await readPinPresence(deps, indexName, params, allocation)
   const scored = dropUnstoredPinnedEntries(distributed, pinPresence)
   const pins = countStoredPinsFromOutside(distributed, pinPresence)
   let countExact = distributedCountIsExact(params, distributed.coverage)
@@ -209,6 +210,10 @@ async function searchCluster<T>(
   )
   if (groups !== undefined) {
     result.groups = groups
+  }
+  if (wireParams.sort !== null && wireParams.sort.length > 0 && params.includeScores !== true) {
+    for (const hit of result.hits) hit.score = undefined
+    for (const group of groups ?? []) for (const hit of group.hits) hit.score = undefined
   }
   return result
 }

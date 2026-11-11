@@ -1,11 +1,16 @@
-import { generateId } from '../core/id-generator'
-import { ErrorCodes, NarsilError } from '../errors'
-import { mergePartitionStats } from '../partitioning/distributed-scoring'
+import {
+  ErrorCodes,
+  FOREIGN_STATS_TTL_MS,
+  generateId,
+  mergePartitionStats,
+  NarsilError,
+  STATISTICS_BROADCAST_INTERVAL_MS,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import type { InvalidationAdapter, InvalidationEvent, PartitionStatistics } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { GlobalStatistics } from '../types/internal'
-import { FOREIGN_STATS_TTL_MS, STATISTICS_BROADCAST_INTERVAL_MS } from './constants'
+import type { IndexRegistryEntry } from './registry-entry'
 
 export interface InvalidationIntegrationDeps {
   adapter: InvalidationAdapter
@@ -19,7 +24,7 @@ export interface InvalidationIntegrationDeps {
 export interface InvalidationIntegration {
   readonly instanceId: string
   publishPartitions(indexName: string, partitions: number[]): Promise<void>
-  broadcastStats(indexName: string): GlobalStatistics | undefined
+  broadcastStats(indexName: string, tokens: ReadonlySet<string>): GlobalStatistics | undefined
   start(): Promise<void>
   shutdown(): Promise<void>
 }
@@ -29,7 +34,8 @@ export type EngineInvalidationDeps = Omit<InvalidationIntegrationDeps, 'adapter'
 export function createInvalidationFromConfig(
   config: NarsilConfig | undefined,
   tierKind: 'wal' | 'snapshot' | null,
-  deps: EngineInvalidationDeps,
+  deps: Omit<EngineInvalidationDeps, 'listBroadcastIndexNames'>,
+  indexRegistry: ReadonlyMap<string, IndexRegistryEntry>,
 ): InvalidationIntegration | null {
   if (config?.invalidation === undefined) {
     return null
@@ -44,6 +50,13 @@ export function createInvalidationFromConfig(
     adapter: config.invalidation,
     instanceId: generateId(),
     ...deps,
+    listBroadcastIndexNames() {
+      const indexes: string[] = []
+      for (const [name, entry] of indexRegistry) {
+        if (entry.config.defaultScoring === 'broadcast') indexes.push(name)
+      }
+      return indexes
+    },
   })
 }
 
@@ -113,7 +126,7 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       if (manager === undefined) {
         continue
       }
-      const aggregate = manager.getAggregateStats()
+      const aggregate = manager.statisticsMessage()
       try {
         await adapter.publish({
           type: 'statistics',
@@ -151,12 +164,12 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       }
     },
 
-    broadcastStats(indexName: string): GlobalStatistics | undefined {
+    broadcastStats(indexName: string, tokens: ReadonlySet<string>): GlobalStatistics | undefined {
       const manager = getManager(indexName)
       if (manager === undefined) {
         return undefined
       }
-      const own = manager.getAggregateStats()
+      const own = manager.getAggregateStats(tokens)
       const entries = foreignStats.get(indexName)
       if (entries === undefined || entries.size === 0) {
         return mergePartitionStats([own])
@@ -164,9 +177,14 @@ export function createInvalidationIntegration(deps: InvalidationIntegrationDeps)
       pruneStaleForeignStats(entries)
       const combined = [own]
       for (const [, entry] of entries) {
+        const docFrequencies: Record<string, number> = Object.create(null)
+        for (const token of tokens) {
+          if (Object.hasOwn(entry.stats.docFrequencies, token))
+            docFrequencies[token] = entry.stats.docFrequencies[token]
+        }
         combined.push({
           totalDocuments: entry.stats.totalDocs,
-          docFrequencies: entry.stats.docFrequencies,
+          docFrequencies,
           totalFieldLengths: entry.stats.totalFieldLengths,
         })
       }

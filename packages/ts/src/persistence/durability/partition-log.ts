@@ -57,5 +57,6 @@ export async function restartPartitionLog(
   const registry = manager.partitionRegistry
   if (registry === undefined || manager.checkpointFromMemory === undefined) return
   await replacePartitionLog(registry, indexName, partitionId, position)
+  await manager.syncStorage?.().removeHistory(indexName, partitionId)
   await manager.checkpointFromMemory(indexName)
 }

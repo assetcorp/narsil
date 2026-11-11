@@ -233,7 +233,7 @@ function normalize(token: string): string {
  */
 export const portuguese: LanguageModule = {
   name: 'portuguese',
-  revision: 'c0a0c5c97ab9ca6e',
+  revision: '3cbe1faba2116a37',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

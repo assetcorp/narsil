@@ -1,11 +1,17 @@
-import { extractVectorFieldsFromSchema } from '../../schema/validator'
+import {
+  alreadyPresentOnWorker,
+  LOAD_BUFFER_YIELD_INTERVAL,
+  MAX_PENDING_REPLICATION_DOCUMENTS,
+  prepareDocumentVectors,
+  REPLICATION_WINDOW,
+  toError,
+  yieldToEventLoop,
+} from '#platform/worker-copies-host'
 import type { AnyDocument } from '../../types/schema'
+import { executeRetained } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
-import { prepareDocumentVectors } from '../vector-coordinator'
-import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
-import { alreadyPresentOnWorker } from './eligibility'
-import { yieldToEventLoop } from './turn'
-import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
+import { releasePublicationOf, retainPublicationOf } from './publication-code'
+import type { CopyTransition, OrchestratorState, ReplicationQueue, ReplicationRun, SegmentLedgerEntry } from './types'
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
@@ -13,13 +19,20 @@ export async function dispatchToWorkers(state: OrchestratorState, action: Worker
   const executors = 'indexName' in action ? pool.executorsHolding(action.indexName) : pool.getAllExecutors()
   if ('indexName' in action && !state.scaledOutIndexes.has(action.indexName)) return
 
-  const results = await Promise.allSettled(executors.map(workerExecutor => workerExecutor.execute(action)))
+  const results = await Promise.allSettled(
+    executors.map(workerExecutor => {
+      const release = retainPublicationOf(action)
+      return release === undefined ? workerExecutor.execute(action) : executeRetained(workerExecutor, action, release)
+    }),
+  )
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
     if (result.status === 'rejected') {
-      if (action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
+      if (action.publication === undefined && action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
         continue
       }
+      if (action.publication !== undefined) pool.retire(executors[i], toError(result.reason))
       console.warn('Worker replication failed:', result.reason)
     }
   }
@@ -41,23 +54,26 @@ function documentWeight(action: WorkerAction): number {
     return total
   }
   if (action.type === 'swapSegments') {
-    return action.snapshot.documentCount
+    let total = 0
+    for (const snapshot of action.snapshots) total += snapshot.documentCount
+    return total
   }
   return 1
 }
 
-function vectorFieldPathsOf(state: OrchestratorState, indexName: string): Set<string> {
-  const entry = state.indexRegistry.get(indexName)
-  if (entry === undefined) return new Set()
-  return new Set(extractVectorFieldsFromSchema(entry.config.schema).keys())
+const NO_VECTOR_FIELDS: ReadonlySet<string> = new Set()
+
+function vectorFieldPathsOf(state: OrchestratorState, indexName: string): ReadonlySet<string> {
+  return state.indexRegistry.get(indexName)?.vectorFieldPaths ?? NO_VECTOR_FIELDS
 }
 
-function withoutVectors(document: AnyDocument, fieldPaths: Set<string>): AnyDocument {
+function withoutVectors(document: AnyDocument, fieldPaths: ReadonlySet<string>): AnyDocument {
+  if (fieldPaths.size === 0) return document
   return prepareDocumentVectors(document as Record<string, unknown>, fieldPaths).partitionDoc as AnyDocument
 }
 
 export function detachCallerDocuments(state: OrchestratorState, action: WorkerAction): WorkerAction {
-  if (!('indexName' in action)) return action
+  if (action.type !== 'insert' && action.type !== 'update' && action.type !== 'mergeSegments') return action
   const fieldPaths = vectorFieldPathsOf(state, action.indexName)
   if (action.type === 'insert') {
     const stripped = withoutVectors(action.document, fieldPaths)
@@ -68,17 +84,14 @@ export function detachCallerDocuments(state: OrchestratorState, action: WorkerAc
     const stripped = withoutVectors(action.document, fieldPaths)
     return { ...action, document: stripped !== action.document ? stripped : structuredClone(stripped) }
   }
-  if (action.type === 'mergeSegments') {
-    return {
-      ...action,
-      segments: action.segments.map(segment => {
-        const documents = segment.documents.map(document => withoutVectors(document, fieldPaths))
-        const cloned = action.skipClone === true || fieldPaths.size > 0 ? documents : structuredClone(documents)
-        return { ...segment, documents: cloned }
-      }),
-    }
+  return {
+    ...action,
+    segments: action.segments.map(segment => {
+      const documents = segment.documents.map(document => withoutVectors(document, fieldPaths))
+      const cloned = action.skipClone === true || fieldPaths.size > 0 ? documents : structuredClone(documents)
+      return { ...segment, documents: cloned }
+    }),
   }
-  return action
 }
 
 function partitionLedger(state: OrchestratorState, indexName: string, partitionId: number): SegmentLedgerEntry[] {
@@ -96,6 +109,10 @@ function partitionLedger(state: OrchestratorState, indexName: string, partitionI
 }
 
 function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction): void {
+  if (action.type === 'clear') {
+    state.segmentLedger.delete(action.indexName)
+    return
+  }
   if (action.type === 'attachSegments') {
     for (const segment of action.segments) {
       partitionLedger(state, action.indexName, segment.partitionId).push({
@@ -116,7 +133,9 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
     const entries = partitionLedger(state, action.indexName, action.partitionId)
     const dropped = new Set(action.dropSegmentIds)
     const kept = entries.filter(entry => !dropped.has(entry.segmentId))
-    kept.push({ segmentId: action.snapshot.segmentId, documentCount: action.snapshot.documentCount })
+    for (const snapshot of action.snapshots) {
+      kept.push({ segmentId: snapshot.segmentId, documentCount: snapshot.documentCount })
+    }
     entries.length = 0
     entries.push(...kept)
   }
@@ -125,15 +144,44 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
 function queueFor(state: OrchestratorState, indexName: string): ReplicationQueue {
   let queue = state.replicationQueues.get(indexName)
   if (queue === undefined) {
-    queue = { tail: Promise.resolve(), inFlight: [], pendingActions: 0, pendingDocuments: 0, drainWaiters: [] }
+    queue = {
+      tail: Promise.resolve(),
+      oldestRun: undefined,
+      newestRun: undefined,
+      runsInFlight: 0,
+      pendingActions: 0,
+      pendingDocuments: 0,
+      drainWaiters: [],
+    }
     state.replicationQueues.set(indexName, queue)
   }
   return queue
 }
 
 function dispatchGate(queue: ReplicationQueue): Promise<void> {
-  if (queue.inFlight.length < REPLICATION_WINDOW) return Promise.resolve()
-  return queue.inFlight[queue.inFlight.length - REPLICATION_WINDOW]
+  if (queue.runsInFlight < REPLICATION_WINDOW) return Promise.resolve()
+  let run = queue.newestRun
+  for (let step = 1; step < REPLICATION_WINDOW && run !== undefined; step++) run = run.older
+  return run?.done ?? Promise.resolve()
+}
+
+function appendRun(queue: ReplicationQueue, done: Promise<void>): ReplicationRun {
+  const run: ReplicationRun = { done, older: queue.newestRun, newer: undefined }
+  if (queue.newestRun === undefined) queue.oldestRun = run
+  else queue.newestRun.newer = run
+  queue.newestRun = run
+  queue.runsInFlight += 1
+  return run
+}
+
+function removeRun(queue: ReplicationQueue, run: ReplicationRun): void {
+  if (run.older === undefined) queue.oldestRun = run.newer
+  else run.older.newer = run.newer
+  if (run.newer === undefined) queue.newestRun = run.older
+  else run.newer.older = run.older
+  run.older = undefined
+  run.newer = undefined
+  queue.runsInFlight -= 1
 }
 
 export function enqueueReplication(state: OrchestratorState, indexName: string, action: WorkerAction): void {
@@ -142,14 +190,21 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   const queue = queueFor(state, indexName)
   queue.pendingActions += 1
   queue.pendingDocuments += weight
-  const run: Promise<void> = dispatchGate(queue).then(async () => {
+  const gate = dispatchGate(queue)
+  const entry = appendRun(queue, gate)
+  const run: Promise<void> = gate.then(async () => {
     try {
+      if (action.publication !== undefined) {
+        const manager = state.executor.getManager(indexName)
+        await manager?.publication.afterQueuedWrites()
+        if (state.executor.getManager(indexName) !== manager) return
+      }
       await dispatchToWorkers(state, action)
     } catch (err) {
       console.warn('Worker replication failed:', err)
     } finally {
-      const at = queue.inFlight.indexOf(run)
-      if (at !== -1) queue.inFlight.splice(at, 1)
+      releasePublicationOf(action)
+      removeRun(queue, entry)
       queue.pendingActions -= 1
       queue.pendingDocuments -= weight
       if (queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS && queue.drainWaiters.length > 0) {
@@ -160,7 +215,7 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
       }
     }
   })
-  queue.inFlight.push(run)
+  entry.done = run
   queue.tail = run
 }
 
@@ -185,20 +240,9 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
     await dispatchToWorkers(state, action)
     return
   }
-  if (!copiesWillReceive(state, action.indexName)) return
-
-  const detached = detachCallerDocuments(state, action)
-  const loading = state.copyLoadBuffers.get(action.indexName)
-  if (loading !== undefined) {
-    queueForCopies(state, detached)
-    if (loading.length % LOAD_BUFFER_YIELD_INTERVAL === 0) await yieldToEventLoop()
-    return
-  }
-  const queue = state.replicationQueues.get(action.indexName)
-  if (queue !== undefined && queue.pendingDocuments + documentWeight(detached) > MAX_PENDING_REPLICATION_DOCUMENTS) {
-    await new Promise<void>(resume => queue.drainWaiters.push(resume))
-  }
-  queueForCopies(state, detached)
+  recordMainWrite(state, action)
+  const waiting = replicationRoomWait(state, action.indexName)
+  if (waiting !== null) await waiting
 }
 
 export function queueForCopies(state: OrchestratorState, action: WorkerAction): void {
@@ -208,12 +252,53 @@ export function queueForCopies(state: OrchestratorState, action: WorkerAction): 
     loading.push(action)
     return
   }
-  if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) return
+  if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) {
+    releasePublicationOf(action)
+    return
+  }
   enqueueReplication(state, action.indexName, action)
 }
 
+function recordMainWrite(state: OrchestratorState, action: WorkerAction): void {
+  if (!('indexName' in action) || !copiesWillReceive(state, action.indexName)) return
+  queueForCopies(state, detachCallerDocuments(state, action))
+}
+
+function replicationRoomWait(state: OrchestratorState, indexName: string): Promise<void> | null {
+  const loading = state.copyLoadBuffers.get(indexName)
+  if (loading !== undefined) {
+    const lastYield = state.copyLoadBufferYieldMarks.get(loading) ?? 0
+    if (loading.length - lastYield < LOAD_BUFFER_YIELD_INTERVAL) return null
+    state.copyLoadBufferYieldMarks.set(loading, loading.length)
+    return yieldToEventLoop()
+  }
+  const queue = state.replicationQueues.get(indexName)
+  if (queue === undefined || queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS) return null
+  return new Promise<void>(resume => queue.drainWaiters.push(resume))
+}
+
 function settled(queue: ReplicationQueue): Promise<void> {
-  return Promise.all([...queue.inFlight, queue.tail]).then(() => undefined)
+  const runs: Promise<void>[] = [queue.tail]
+  for (let run = queue.oldestRun; run !== undefined; run = run.newer) runs.push(run.done)
+  return Promise.all(runs).then(() => undefined)
+}
+
+export function publicationCapacityWait(state: OrchestratorState, indexName: string): Promise<void> | null {
+  const waiting = replicationRoomWait(state, indexName)
+  return waiting === null ? null : awaitPublicationCapacity(state, indexName, waiting)
+}
+
+async function awaitPublicationCapacity(
+  state: OrchestratorState,
+  indexName: string,
+  first: Promise<void>,
+): Promise<void> {
+  await first
+  for (;;) {
+    const waiting = replicationRoomWait(state, indexName)
+    if (waiting === null) return
+    await waiting
+  }
 }
 
 export async function awaitReplicationIdle(state: OrchestratorState, indexName?: string): Promise<void> {

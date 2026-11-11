@@ -41,7 +41,7 @@ export function createIndexLoads(vectorIndexesOf: (indexName: string) => Map<str
 
 export interface SwitchTurn {
   mayStart(): boolean
-  swap(): boolean
+  swap(): boolean | Promise<boolean>
   checkpoint(): Promise<void>
   afterSettling(): void
 }
@@ -52,7 +52,7 @@ export async function switchInTurn(turns: CheckpointTurns, turn: SwitchTurn): Pr
     joinsInFlight: false,
     mayStart: turn.mayStart,
     perform: async () => {
-      swapped = turn.swap()
+      swapped = await turn.swap()
       if (swapped) await turn.checkpoint()
     },
     afterSettling: turn.afterSettling,

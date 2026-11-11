@@ -13,6 +13,7 @@ import {
   MAX_PINNED_POSITION,
   MAX_PREFIX_LENGTH,
   MAX_TERMS_COUNT,
+  MIN_EF_SEARCH,
   MIN_HYBRID_K,
   MIN_OVERSAMPLE,
 } from '../constants'
@@ -229,10 +230,10 @@ export function validateVectorMetricParam(value: unknown): void {
 }
 
 export function validateEfSearchParam(value: unknown): void {
-  if (!isInteger(value) || value < 1 || value > MAX_EF_SEARCH) {
+  if (!isInteger(value) || value < MIN_EF_SEARCH || value > MAX_EF_SEARCH) {
     throwInvalid(
       CONFIG_INVALID,
-      `Invalid SearchPayload: "params.vector.efSearch" must be an integer between 1 and ${MAX_EF_SEARCH}`,
+      `Invalid SearchPayload: "params.vector.efSearch" must be an integer between ${MIN_EF_SEARCH} and ${MAX_EF_SEARCH}`,
     )
   }
 }

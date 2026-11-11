@@ -48,7 +48,7 @@ describe.skipIf(!built)('a rebuild that meets a segment compaction on a worker c
   async function snapshotUnderFirstRevision(corpus: OracleCorpus, random: () => number): Promise<Uint8Array> {
     registerRevision(FIRST_REVISION)
     const writer = await createNarsil({ workers: { enabled: false } })
-    await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
+    await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE, partitions: { maxPartitions: PARTITIONS } })
     const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
     await writer.insertBatch('prose', documents)
     for (const document of documents) corpus.write(document.id, document.title, FIRST_REVISION)

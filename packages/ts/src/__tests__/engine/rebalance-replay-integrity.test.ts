@@ -5,7 +5,7 @@ import type { IndexConfig } from '../../types/schema'
 
 const schema = { title: 'string' as const, category: 'string' as const }
 
-const indexConfig: IndexConfig = { schema, language: 'english' }
+const indexConfig: IndexConfig = { schema, language: 'english', partitions: { maxPartitions: 3 } }
 
 function seedDocs(count: number): Array<Record<string, unknown>> {
   const docs: Array<Record<string, unknown>> = []

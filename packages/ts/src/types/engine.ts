@@ -14,12 +14,28 @@ import type {
   PreflightResult,
   QueryResult,
   SuggestResult,
-  VectorMaintenanceResult,
 } from './results'
 import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
 import type { ListParams, QueryParams, SuggestParams } from './search'
+import type { SyncOperations } from './sync'
 import type { SynonymOperations } from './synonym-operations'
+import type { VectorMaintenanceOperations } from './vector-maintenance-operations'
 import type { DocumentWriteOperations } from './writes'
+
+/**
+ * What {@link Narsil.snapshot} adds to the archive beyond the checkpoint.
+ *
+ * @public
+ */
+export interface SnapshotOptions {
+  /**
+   * Set this to add the index's popular query history, which holds raw
+   * searches, so that a restore on a node with the same key keeps the counts.
+   * Defaults to false, because a backup that holds history can keep searches
+   * past their retention.
+   */
+  queryHistory?: boolean
+}
 
 /**
  * The search engine, and everything you do with it.
@@ -27,9 +43,11 @@ import type { DocumentWriteOperations } from './writes'
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
  * with {@link createNarsil}. Its write, open and close, synonym, analysis, BM25,
- * and adapter registration methods come from {@link DocumentWriteOperations},
- * {@link IndexLifecycleOperations}, {@link SynonymOperations},
- * {@link AnalysisOperations}, {@link BM25Operations}, and
+ * device sync, vector maintenance, and adapter registration methods come from
+ * {@link DocumentWriteOperations}, {@link IndexLifecycleOperations},
+ * {@link SynonymOperations}, {@link AnalysisOperations},
+ * {@link BM25Operations}, {@link SyncOperations},
+ * {@link VectorMaintenanceOperations}, and
  * {@link AdapterRegistrationOperations}.
  *
  * @public
@@ -40,6 +58,8 @@ export interface Narsil
     SynonymOperations,
     AnalysisOperations,
     BM25Operations,
+    SyncOperations,
+    VectorMaintenanceOperations,
     AdapterRegistrationOperations {
   /**
    * Creates an index you can insert documents into and query.
@@ -217,10 +237,12 @@ export interface Narsil
    * memory.
    *
    * @param indexName - The index to stream.
+   * @param options - Set `queryHistory` to add the index's popular query
+   * history, which holds raw searches, after the checkpoint's files.
    * @returns A stream of the archive's bytes, which you can write to a file or
    * send over a network.
    */
-  snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>
+  snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>>
   /**
    * Creates an index from a snapshot under the name that you pass, replacing
    * any index of that name.
@@ -314,7 +336,11 @@ export interface Narsil
    * that arrive while the work runs, replaying them in order once it finishes.
    *
    * @param indexName - The index to rebalance.
-   * @param targetPartitionCount - Partitions the index ends up with.
+   * @param targetPartitionCount - Partitions the index ends up with, at most
+   * the index's `maxPartitions`, which defaults to 1. Raise that limit first
+   * with {@link Narsil.updatePartitionConfig}.
+   * @throws A `NarsilError` with `PARTITION_CAPACITY_EXCEEDED` when
+   * `targetPartitionCount` is above `maxPartitions`.
    */
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   /**
@@ -334,39 +360,6 @@ export interface Narsil
    * per worker once the engine has promoted.
    */
   getMemoryStats(): Promise<MemoryStats>
-  /**
-   * Rebuilds a vector field's graph without the tombstones removed documents
-   * left behind, which returns the memory they held and speeds searches up.
-   *
-   * Read {@link Narsil.vectorMaintenanceStatus} first to see whether the work
-   * is worth its cost.
-   *
-   * @param indexName - The index holding the field.
-   * @param fieldName - The vector field to compact. Omit it to compact every
-   * vector field in the index.
-   */
-  compactVectors(indexName: string, fieldName?: string): Promise<void>
-  /**
-   * Rebuilds a vector field's graph from scratch, which recovers the recall a
-   * long run of inserts and removals costs.
-   *
-   * This is heavier than {@link Narsil.compactVectors} and gives a better
-   * graph, so run it once a search starts missing documents it should find,
-   * rather than on a schedule.
-   *
-   * @param indexName - The index holding the field.
-   * @param fieldName - The vector field to rebuild. Omit it to rebuild every
-   * vector field in the index.
-   */
-  optimizeVectors(indexName: string, fieldName?: string): Promise<void>
-  /**
-   * Reports the state of each vector field in an index, and what compaction or
-   * optimisation would cost.
-   *
-   * @param indexName - The index to describe.
-   * @returns One entry per vector field, or an empty list while the index is closed.
-   */
-  vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
   /**
    * Starts delivering one kind of engine event to your listener.
    *

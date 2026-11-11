@@ -1,6 +1,7 @@
 import type { BM25Params } from '../../types/schema'
 import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../constants'
 import { computeBM25WithIDF } from '../scorer'
+import { fieldNameRanks } from './field-order'
 import type { PartitionReadState } from './read-state'
 
 export interface FieldScoring {
@@ -11,6 +12,7 @@ export interface FieldScoring {
   k1s: Float64Array
   bs: Float64Array
   boundPairs: number[]
+  nameRanks: Uint32Array
 }
 
 const NO_FIELD_VALUES = new Float64Array(0)
@@ -48,6 +50,7 @@ export function loadFieldScoring(
     k1s: perField === undefined ? NO_FIELD_VALUES : new Float64Array(fieldCount),
     bs: perField === undefined ? NO_FIELD_VALUES : new Float64Array(fieldCount),
     boundPairs: [k1, b],
+    nameRanks: fieldNameRanks(fieldNames),
   }
   for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
     const fieldName = fieldNames[fieldIndex]

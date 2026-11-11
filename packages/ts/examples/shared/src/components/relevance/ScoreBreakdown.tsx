@@ -43,7 +43,7 @@ export function ScoreBreakdown({ recomputedHits, fields }: ScoreBreakdownProps) 
       <div className="max-h-96 overflow-y-auto">
         {recomputedHits.slice(0, 20).map(item => {
           const doc = item.hit.document
-          const title = String(doc.title ?? doc.id ?? item.hit.id)
+          const title = String(doc.title ?? doc.name ?? item.hit.id)
           const maxFieldScore = Math.max(...Object.values(item.fieldScores), 0.001)
 
           return (

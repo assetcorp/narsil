@@ -1,4 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
+import { newSyncEpoch } from '../../sync/epoch'
 import type { IndexMetadataSnapshot } from './index-metadata'
 import { type AnalysisFailure, isRecord, type PendingClusterAnalysis } from './index-settings'
 
@@ -50,6 +52,7 @@ export function metadataPublishingAnalysis(
     ...(pending.tokenizer !== undefined ? { tokenizer: pending.tokenizer } : {}),
     ...(pending.stopWords !== undefined ? { stopWords: pending.stopWords } : {}),
     ...(pending.stopWordList !== undefined ? { stopWordList: pending.stopWordList } : {}),
+    ...(isRecord(rest.sync) && rest.sync.enabled === true ? { syncActive: false, syncEpoch: newSyncEpoch() } : {}),
   })
 }
 

@@ -2,6 +2,7 @@ import type { FrozenSegment } from '../../core/partition/frozen'
 import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../serialization/keyword-segment/types'
+import type { PersistenceAdapter } from '../../types/adapters'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { HeldCheckpointReport } from '../../types/memory'
@@ -13,8 +14,13 @@ import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
 import type { RestoreStaging } from './restore-staging'
+import type { SyncStorage } from './sync/storage'
 
 export type { DurabilityConfig, TermStart }
+
+export type HistoryStorage =
+  | { kind: 'directory'; directory: DurableDirectory }
+  | { kind: 'adapter'; adapter: PersistenceAdapter }
 
 export interface WriteRecordKeeper {
   resetPartition(indexName: string, partitionId: number): void
@@ -52,6 +58,8 @@ export interface IndexDurabilityHooks {
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
+  keepsSyncHistory?(indexName: string): boolean
+  onHistoryMoved?(indexName: string): void
   writeRecords?: WriteRecordKeeper
 }
 
@@ -101,12 +109,15 @@ export interface DurabilityManager {
   /** Writes each partition as it stands in memory, so a checkpoint that
    * rebuilt its terms replaces what earlier segments hold. */
   checkpointFromMemory?(indexName: string): Promise<void>
-  checkpointAfterSwitch?(indexName: string, swap: () => boolean): Promise<boolean>
+  checkpointAfterSwitch?(indexName: string, swap: () => boolean | Promise<boolean>): Promise<boolean>
   checkpointAfterInFlight(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
+  syncStorage?(): SyncStorage
+  historyStorage?(): HistoryStorage
+  removeQueryHistory?(indexName: string): Promise<void>
   removeIndex(indexName: string): Promise<void>
   unloadIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>

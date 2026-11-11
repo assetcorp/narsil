@@ -52,6 +52,7 @@ export interface RouteContext {
   abort: ResponseAbort
   /** The request's method, path, headers, and peer address, captured where an admission hook runs. */
   hookContext: RequestContext | null
+  requestHeaders: Readonly<Record<string, string>>
 }
 
 export type RouteHandler = (ctx: RouteContext) => Promise<void> | void
@@ -66,6 +67,8 @@ export interface RouteOptions {
   /** Skips the auth hook and the concurrency gate. Used for liveness and
    * readiness probes, which must answer regardless of auth or load. */
   skipHooks?: boolean
+  headers?: readonly string[]
+  capturesContext?: boolean
 }
 
 function decodePathParameter(raw: string): string | null {
@@ -77,9 +80,23 @@ function decodePathParameter(raw: string): string | null {
   }
 }
 
+const NO_HEADERS: Readonly<Record<string, string>> = Object.freeze({})
+
+function capturedHeaders(req: HttpRequest, names: readonly string[] | undefined): Readonly<Record<string, string>> {
+  if (names === undefined || names.length === 0) return NO_HEADERS
+  const headers: Record<string, string> = {}
+  for (const name of names) {
+    const value = req.getHeader(name)
+    if (value !== '') headers[name] = value
+  }
+  return headers
+}
+
 export type Authorizer = (context: RequestContext) => Promise<Authorization>
 
-export type Authorization = { allowed: true } | { allowed: false; denial: RequestDenial | null }
+export type Authorization =
+  | { allowed: true; expiresAt: number | null }
+  | { allowed: false; denial: RequestDenial | null }
 
 export interface RunnerDeps {
   authorize?: Authorizer
@@ -155,12 +172,20 @@ function isDenial(value: unknown): value is RequestDenial {
   return typeof value === 'object' && value !== null && 'status' in value
 }
 
+function expiryOf(value: unknown): number | null | undefined {
+  if (typeof value !== 'object' || value === null || !('expiresAt' in value)) return null
+  const { expiresAt } = value as { expiresAt: unknown }
+  return typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : undefined
+}
+
 export function authorizerFor(hook: OnRequestHook): Authorizer {
   return async context => {
     try {
       const result = await hook(context)
       if (isDenial(result)) return { allowed: false, denial: result }
-      return { allowed: true }
+      const expiresAt = expiryOf(result)
+      if (expiresAt === undefined) return { allowed: false, denial: null }
+      return { allowed: true, expiresAt }
     } catch {
       return { allowed: false, denial: null }
     }
@@ -205,10 +230,11 @@ export function createRouteRunner(deps: RunnerDeps) {
       }
       const query = new URLSearchParams(req.getQuery() ?? '')
       const contentType = req.getHeader('content-type')
+      const requestHeaders = capturedHeaders(req, opts.headers)
       const declaredBytes = needsBody ? declaredBodyBytes(req.getHeader('content-length')) : null
 
       let hookContext: RequestContext | null = null
-      if (useHook) {
+      if (useHook || opts.capturesContext === true) {
         const headers: Record<string, string> = {}
         req.forEach((key, value) => {
           headers[key] = value
@@ -243,7 +269,9 @@ export function createRouteRunner(deps: RunnerDeps) {
           })
         : Promise.resolve<Buffer | null>(null)
       const hookPromise: Promise<Authorization> =
-        hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
+        hookContext !== null && authorize !== undefined
+          ? authorize(hookContext)
+          : Promise.resolve<Authorization>({ allowed: true, expiresAt: null })
       const spoolPromise =
         opts.spoolsBody === true
           ? spoolBody(
@@ -275,7 +303,18 @@ export function createRouteRunner(deps: RunnerDeps) {
             return
           }
           try {
-            await handler({ res, params, query, contentType, rawBody, bodyRefusal, spooledBody, abort, hookContext })
+            await handler({
+              res,
+              params,
+              query,
+              contentType,
+              rawBody,
+              bodyRefusal,
+              spooledBody,
+              abort,
+              hookContext,
+              requestHeaders,
+            })
           } catch (err) {
             if (!abort.aborted) {
               sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')

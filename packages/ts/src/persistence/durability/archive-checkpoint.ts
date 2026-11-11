@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { DurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { directoryRestoreStorage } from './restore-directory'

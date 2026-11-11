@@ -2,7 +2,8 @@ import type { VectorMetric } from '../brute-force'
 import type { OrdinalHit } from '../hnsw/search'
 import { type HNSWSearchState, toScore } from '../hnsw/shared'
 import { type DistanceList, ensureListCapacity } from '../hnsw/workspace'
-import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { ordinalFilterHas } from '../ordinal-membership'
 import { stopUsingTheNativeSearchCore } from './backend'
 import type { NativeField } from './field'
 import { type NativeStore, nativeMetricCode, nativeScores, reserveOrdinals } from './store'
@@ -21,6 +22,7 @@ export function nativeTraverse(
   candidateCount: number,
   metric: VectorMetric,
   filter: OrdinalFilter | undefined,
+  pin: number,
   candidates: DistanceList,
 ): boolean {
   const store = field.store
@@ -33,6 +35,7 @@ export function nativeTraverse(
       query,
       nativeMetricCode(metric),
       candidateCount,
+      pin,
       state.locks.threadSlot,
       store.ordinals,
       store.distances,
@@ -55,6 +58,7 @@ export function nativeRescoredHits(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter | undefined,
+  pin: number,
 ): OrdinalHit[] | null {
   const nearest = Math.min(candidates.size, depth)
   reserveOrdinals(store, nearest)
@@ -66,7 +70,7 @@ export function nativeRescoredHits(
     ordinals[kept++] = ord
   }
 
-  const distances = nativeScores(store, query, metric, kept)
+  const distances = nativeScores(store, query, metric, kept, pin)
   if (distances === null) return null
 
   const hits: OrdinalHit[] = []

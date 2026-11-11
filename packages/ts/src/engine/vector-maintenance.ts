@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/vector-host'
 import type { PartitionManager } from '../partitioning/manager'
 import type { VectorMaintenanceResult } from '../types/results'
 import type { VectorIndex } from '../vector/vector-index'

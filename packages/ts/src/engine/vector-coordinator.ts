@@ -5,15 +5,21 @@ import type { VectorIndex } from '../vector/vector-index'
 export function extractVectorFromDoc(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   const value = getNestedValue(document, fieldPath)
   if (value === undefined || value === null) return null
-  if (value instanceof Float32Array) return value
+  if (value instanceof Float32Array) return holdsOnlyFiniteFloats(value) ? value : null
   if (!Array.isArray(value)) return null
-  const arr = new Float32Array(value.length)
   for (let i = 0; i < value.length; i++) {
-    const n = value[i]
-    if (typeof n !== 'number' || !Number.isFinite(n)) return null
-    arr[i] = n
+    if (typeof value[i] !== 'number') return null
   }
-  return arr
+  const vector = new Float32Array(value)
+  return holdsOnlyFiniteFloats(vector) ? vector : null
+}
+
+function holdsOnlyFiniteFloats(vector: Float32Array): boolean {
+  const length = vector.length
+  for (let i = 0; i < length; i++) {
+    if (vector[i] - vector[i] !== 0) return false
+  }
+  return true
 }
 
 export function deleteNestedValue(obj: Record<string, unknown>, path: string): void {
@@ -59,7 +65,7 @@ export function validateVectorDimensions(
 
 export function prepareDocumentVectors(
   document: Record<string, unknown>,
-  vectorFieldPaths: Set<string>,
+  vectorFieldPaths: ReadonlySet<string>,
 ): { partitionDoc: Record<string, unknown>; extractedVectors: Map<string, Float32Array> } {
   if (vectorFieldPaths.size === 0) {
     return { partitionDoc: document, extractedVectors: new Map() }

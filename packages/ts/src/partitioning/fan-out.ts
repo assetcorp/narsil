@@ -2,12 +2,13 @@ import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { FacetMatchSet, PartitionIndex } from '../core/partition'
 import { kWayMerge } from '../core/partition/scored-merge'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
+import type { RankedPage } from '../engine/query/assemble'
 import { everyValueFacetConfig, mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { FacetResult } from '../types/results'
-import type { SchemaDefinition, ScoringMode } from '../types/schema'
+import type { AnyDocument, SchemaDefinition, ScoringMode } from '../types/schema'
 import type { FacetConfig, QueryParams } from '../types/search'
 import { collectQueryTermStats } from './distributed-scoring'
 import type { PartitionManager } from './manager'
@@ -26,6 +27,8 @@ export interface FanOutResult {
   matchedExact?: boolean
   facets?: Record<string, FacetResult>
   patternWorkSpent?: number
+  documents?: ReadonlyMap<string, AnyDocument>
+  page?: RankedPage<AnyDocument>
 }
 
 interface PartitionSearchOutcome {
@@ -91,6 +94,7 @@ export async function fanOutQuery(
 
   if (config.dispatcher) {
     outcomes = await dispatchWithDispatcher(partitions, params, language, schema, options, config.dispatcher)
+    options.turns?.afterYield()
     if (params.facets) {
       facets = collectAndMergeFacets(outcomes, params.facets, schema)
     }
@@ -98,8 +102,12 @@ export async function fanOutQuery(
     outcomes = []
     const partitionFacets: Array<Record<string, FacetResult>> = []
     const everyValue = params.facets ? everyValueFacetConfig(params.facets) : undefined
+    const turns = options.turns
     for (const partition of partitions) {
-      if (turnIsSpent()) await yieldTurn()
+      if (turnIsSpent()) {
+        await yieldTurn()
+        turns?.afterYield()
+      }
       options.patternWork?.clock?.check()
       const result = dispatchSinglePartition(partition, params, language, schema, options)
       if (everyValue) {

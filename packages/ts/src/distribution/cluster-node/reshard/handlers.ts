@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import { MAX_PARTITION_COUNT } from '../../constants'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import { createForwardBatchResultMessage } from '../../replication/codec'

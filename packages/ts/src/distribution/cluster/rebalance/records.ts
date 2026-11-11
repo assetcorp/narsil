@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import { HIDDEN_GENERATION_PREFIX, RESHARD_RECORD_CAS_ATTEMPTS } from '../constants'

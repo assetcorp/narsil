@@ -82,7 +82,16 @@ describe.each(ENGINE_KINDS.map((kind, index) => ({ name: kind.name, index })))('
 
     expect(header.format).toBe('narsil-export')
     expect(header.version).toBe(1)
-    expect((header.index as Record<string, unknown>).schema).toEqual(CONFIG.schema)
+    expect((header.index as Record<string, unknown>).schema).toEqual({
+      title: 'string',
+      price: 'number',
+      inStock: 'boolean',
+      category: 'enum',
+      location: 'geopoint',
+      'meta.maker': 'string',
+      'meta.ratings': 'number[]',
+      embedding: 'vector[3]',
+    })
     expect(lines.map(line => line.id).sort()).toEqual([...documents.keys()].sort())
     for (const line of lines) {
       const expected = documents.get(line.id as string)

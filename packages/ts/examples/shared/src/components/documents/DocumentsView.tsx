@@ -1,5 +1,6 @@
 import type { ListedDocument, ListResult } from '@delali/narsil'
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { Pencil } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDisplayFields } from '../../hooks/use-display-fields'
 import { DOCUMENT_PAGE_SIZE, type DocumentBrowser } from '../../hooks/use-document-browser'
@@ -9,9 +10,11 @@ import { useActiveIndex, useIndexWorkspace } from '../../workspace'
 import { IndexSelector } from '../IndexSelector'
 import { Pagination } from '../Pagination'
 import { ResultDetail } from '../search/ResultDetail'
+import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Skeleton } from '../ui/skeleton'
 import { buildDocumentColumns, collectFieldPaths } from './columns'
+import { DocumentEditor } from './DocumentEditor'
 import { DocumentTable } from './DocumentTable'
 import { DocumentToolbar } from './DocumentToolbar'
 import { FilterPanel } from './FilterPanel'
@@ -49,6 +52,7 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
   const displayFields = useDisplayFields(activeIndexName)
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false)
   const [selected, setSelected] = useState<ListedDocument | null>(null)
+  const [editing, setEditing] = useState<{ documentId: string | null } | null>(null)
 
   const { hideColumns, recordCursor } = browser
   const vectorPaths = schema.vectorPaths
@@ -91,6 +95,24 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
     setIsFilterPanelOpen(open => !open)
   }, [])
 
+  const handleNewDocument = useCallback(() => {
+    setEditing({ documentId: null })
+  }, [])
+
+  const handleEditSelected = useCallback(() => {
+    if (selected === null) return
+    setEditing({ documentId: selected.id })
+    setSelected(null)
+  }, [selected])
+
+  const handleEditorOpenChange = useCallback((open: boolean) => {
+    if (!open) setEditing(null)
+  }, [])
+
+  const handleEditorDone = useCallback(() => {
+    setEditing(null)
+  }, [])
+
   if (activeIndexName === null) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
@@ -125,6 +147,7 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
 
       <DocumentToolbar
         table={table}
+        onNewDocument={handleNewDocument}
         activeFilterCount={browser.activeFilterCount}
         isFilterPanelOpen={isFilterPanelOpen}
         onFilterPanelToggle={handleFilterPanelToggle}
@@ -134,7 +157,13 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
 
       {isFilterPanelOpen ? (
         <div className="mb-4 rounded-lg border bg-card p-4 shadow-xs">
-          <FilterPanel fields={schema.fields} rules={browser.rules} onChange={browser.setRules} />
+          <FilterPanel
+            fields={schema.fields}
+            rules={browser.rules}
+            join={browser.join}
+            onChange={browser.setRules}
+            onJoinChange={browser.setJoin}
+          />
         </div>
       ) : null}
 
@@ -184,7 +213,35 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
             <SheetTitle className="truncate">{selectedTitle}</SheetTitle>
             <SheetDescription>Every stored field for this document.</SheetDescription>
           </SheetHeader>
-          <div className="px-4 pb-6">{selected === null ? null : <ResultDetail hit={selected} />}</div>
+          <div className="flex flex-col gap-4 px-4 pb-6">
+            <Button type="button" variant="outline" size="sm" className="self-start" onClick={handleEditSelected}>
+              <Pencil className="size-3.5" />
+              Edit document
+            </Button>
+            {selected === null ? null : <ResultDetail hit={selected} />}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={editing !== null} onOpenChange={handleEditorOpenChange}>
+        <SheetContent side="right" className="overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle className="truncate">
+              {editing === null || editing.documentId === null ? 'New document' : `Edit ${editing.documentId}`}
+            </SheetTitle>
+            <SheetDescription>Saving replaces the whole document under its ID.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-6">
+            {editing === null ? null : (
+              <DocumentEditor
+                key={editing.documentId ?? 'new'}
+                indexName={activeIndexName}
+                documentId={editing.documentId}
+                vectorPaths={vectorPaths}
+                onDone={handleEditorDone}
+              />
+            )}
+          </div>
         </SheetContent>
       </Sheet>
     </div>

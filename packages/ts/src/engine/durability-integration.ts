@@ -1,15 +1,25 @@
-import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
-import { fnv1a } from '../core/hash'
+import { encodeDocument, fnv1a, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/storage-host'
 import type { ReplicationOperation } from '../distribution/replication/types'
+import { metadataPartitionCount } from '../partitioning/manager/checkpoint-prefix'
+import { admitDurableWrite } from '../partitioning/wal-routing'
+import type { QueuedWrite } from '../partitioning/write-ahead-queue'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
+import { deferMutationPublication } from '../persistence/durability/deferred-mutations'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
-import type { CheckpointPublisher, IndexDurabilityHooks, MutationRecord } from '../persistence/durability/types'
-import { encodeDocument } from '../serialization/document-encoding'
+import type {
+  CheckpointPublisher,
+  IndexDurabilityHooks,
+  MutationOutcome,
+  MutationRecord,
+} from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
 import { type MetadataConfig, metadataFromConfig } from './durability-metadata'
+import type { ApplyMutation } from './mutations/context'
+
+export type { ApplyMutation } from './mutations/context'
 
 export type DurabilityTier =
   | { kind: 'wal'; config: DurabilityConfig }
@@ -20,8 +30,6 @@ export interface DurableWrite {
   partitionId: number
   seqNo: number
 }
-
-export type ApplyMutation = () => void | Promise<void>
 
 export interface DurableMutation {
   docId: string
@@ -58,6 +66,8 @@ export interface DurabilityIntegrationHooks {
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
   onCheckpointHeld?: IndexDurabilityHooks['onCheckpointHeld']
   onFatalError: IndexDurabilityHooks['onFatalError']
+  keepsSyncHistory?: IndexDurabilityHooks['keepsSyncHistory']
+  onHistoryMoved?: IndexDurabilityHooks['onHistoryMoved']
   checkpointPublisher?: CheckpointPublisher
 }
 
@@ -70,7 +80,13 @@ function buildMetadata(
   if (config === undefined) {
     return undefined
   }
-  return metadataFromConfig(indexName, config, hooks.getManager(indexName)?.partitionCount, documentCount)
+  const manager = hooks.getManager(indexName)
+  return metadataFromConfig(
+    indexName,
+    config,
+    manager === undefined ? undefined : metadataPartitionCount(manager),
+    documentCount,
+  )
 }
 
 export function createDurabilityIntegration(
@@ -97,18 +113,14 @@ export function createDurabilityIntegration(
     onLayoutUpgrade: hooks.onLayoutUpgrade,
     onCheckpointHeld: hooks.onCheckpointHeld,
     onFatalError: hooks.onFatalError,
+    ...(hooks.keepsSyncHistory === undefined ? {} : { keepsSyncHistory: hooks.keepsSyncHistory }),
+    ...(hooks.onHistoryMoved === undefined ? {} : { onHistoryMoved: hooks.onHistoryMoved }),
   }
 
   const manager =
     tier.kind === 'wal'
       ? createDurabilityManager(tier.config, managerHooks)
       : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks, hooks.checkpointPublisher)
-
-  function partitionFor(indexName: string, docId: string): number {
-    const partitionManager = hooks.getManager(indexName)
-    const partitionCount = partitionManager?.partitionCount ?? 1
-    return fnv1a(docId) % Math.max(1, partitionCount)
-  }
 
   async function recordMutation(
     indexName: string,
@@ -117,16 +129,29 @@ export function createDurabilityIntegration(
     document: Uint8Array | null,
     apply: ApplyMutation,
   ): Promise<DurableWrite> {
-    const partitionId = partitionFor(indexName, docId)
-    const seqNo = await manager.recordMutation({
-      indexName,
-      partitionId,
-      operation,
-      documentId: docId,
-      document,
-      apply,
+    return admitDurableWrite(hooks.getManager(indexName), async partitionCount => {
+      const partitionId = fnv1a(docId) % partitionCount
+      let queued: QueuedWrite | undefined
+      try {
+        const record: MutationRecord = {
+          indexName,
+          partitionId,
+          operation,
+          documentId: docId,
+          document,
+          async apply() {
+            queued = (await apply()) ?? undefined
+            if (queued !== undefined) deferMutationPublication(record)
+          },
+        }
+        const seqNo = await manager.recordMutation(record)
+        queued?.commit(partitionId, partitionCount, seqNo)
+        return { indexName, partitionId, seqNo }
+      } catch (error) {
+        queued?.fail(error)
+        throw error
+      }
     })
-    return { indexName, partitionId, seqNo }
   }
 
   return {
@@ -146,31 +171,50 @@ export function createDurabilityIntegration(
       const records: MutationRecord[] = []
       const outcomes: DurableWriteOutcome[] = new Array(mutations.length)
       const recordPositions: number[] = []
+      const queued: (QueuedWrite | undefined)[] = []
       for (let i = 0; i < mutations.length; i++) {
         if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
         const mutation = mutations[i]
         try {
-          records.push({
+          const record: MutationRecord = {
             indexName,
-            partitionId: partitionFor(indexName, mutation.docId),
+            partitionId: 0,
             operation: mutation.document === null ? 'DELETE' : 'INDEX',
             documentId: mutation.docId,
             document: mutation.document === null ? null : encodeDocument(mutation.document),
-            apply: mutation.apply,
-          })
+            async apply() {
+              queued[i] = (await mutation.apply()) ?? undefined
+              if (queued[i] !== undefined) deferMutationPublication(record)
+            },
+          }
+          records.push(record)
           recordPositions.push(i)
         } catch (error) {
           outcomes[i] = { ok: false, error }
         }
       }
-      const recorded = await manager.recordMutations(records)
-      for (let i = 0; i < recorded.length; i++) {
-        const outcome = recorded[i]
-        outcomes[recordPositions[i]] = outcome.ok
-          ? { ok: true, write: { indexName, partitionId: records[i].partitionId, seqNo: outcome.seqNo } }
-          : outcome
-      }
-      return outcomes
+      return admitDurableWrite(hooks.getManager(indexName), async partitionCount => {
+        let recorded: MutationOutcome[]
+        try {
+          for (const record of records) {
+            record.partitionId = fnv1a(record.documentId) % partitionCount
+          }
+          recorded = await manager.recordMutations(records)
+        } catch (error) {
+          for (const entry of queued) entry?.fail(error)
+          throw error
+        }
+        for (let i = 0; i < recorded.length; i++) {
+          const outcome = recorded[i]
+          const entry = queued[recordPositions[i]]
+          if (outcome.ok) entry?.commit(records[i].partitionId, partitionCount, outcome.seqNo)
+          else entry?.fail(outcome.error)
+          outcomes[recordPositions[i]] = outcome.ok
+            ? { ok: true, write: { indexName, partitionId: records[i].partitionId, seqNo: outcome.seqNo } }
+            : outcome
+        }
+        return outcomes
+      })
     },
     recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite> {
       return recordMutation(indexName, docId, 'DELETE', null, apply)

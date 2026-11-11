@@ -11,6 +11,16 @@ const UTF8_BYTES_PER_UTF16_UNIT = 3
 const encoder = new TextEncoder()
 const lookupKeyBytes = new Uint8Array(LOOKUP_KEY_SCRATCH_BYTES)
 
+export function compareBytes(blob: Uint8Array, start: number, end: number, query: Uint8Array): number {
+  const length = end - start
+  const shared = length < query.length ? length : query.length
+  for (let i = 0; i < shared; i++) {
+    const diff = blob[start + i] - query[i]
+    if (diff !== 0) return diff
+  }
+  return length - query.length
+}
+
 export function encodeLookupKey(text: string): Uint8Array {
   if (text.length * UTF8_BYTES_PER_UTF16_UNIT > LOOKUP_KEY_SCRATCH_BYTES) return encoder.encode(text)
   const { written } = encoder.encodeInto(text, lookupKeyBytes)

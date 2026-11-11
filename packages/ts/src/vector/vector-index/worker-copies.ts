@@ -1,19 +1,16 @@
-import type { VectorMetric } from '../brute-force'
-import type { GraphSearchOptions, HNSWIndex } from '../hnsw'
-import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
-import { sharedMemoryAvailable } from '../shared-buffers/growable'
-import type { WorkerCopyCodes, WorkerCopySnapshot } from '../worker-copy'
-import { WORKER_COPY_MIN_VECTORS } from './constants'
 import {
   assignStorePartitions,
   fieldHandlesOf,
   liveSize,
-  type SharedCopyHost,
+  sharedMemoryAvailable,
   threadsHoldCurrentLayout,
-  type VectorIndexState,
-  type VectorScoredResult,
-  type WorkerCopyMode,
-} from './shared'
+  WORKER_COPY_MIN_VECTORS,
+} from '#platform/vector-host'
+import type { VectorMetric } from '../brute-force'
+import type { GraphSearchOptions, HNSWIndex } from '../hnsw'
+import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
+import type { WorkerCopyCodes, WorkerCopySnapshot } from '../worker-copy'
+import type { SharedCopyHost, VectorIndexState, VectorScoredResult, WorkerCopyMode } from './shared'
 
 let handleCounter = 0
 

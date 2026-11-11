@@ -12,8 +12,10 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
-import type { DiskAdoptionAction, WorkerAction } from '../../workers/protocol'
+import type { DiskAdoptionAction, WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
+
+export type PublicationGrowth = 'liveTail' | 'segments' | 'none'
 
 export interface RequestThreadListener {
   onWorkerReady(workerId: number, executor: Executor): Promise<void>
@@ -21,10 +23,17 @@ export interface RequestThreadListener {
   onWorkerGone(workerId: number): void
 }
 
+export interface IdleMergeTimer {
+  timer: ReturnType<typeof setTimeout>
+  dueAt: number
+}
+
 export interface WorkerOrchestrator {
   scaleOutReadyIndexes(): Promise<void>
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
+  publishToWorkers(action: WorkerAction): Promise<void> | undefined
+  settlePublications(indexName: string, growth?: PublicationGrowth): Promise<void> | undefined
   awaitReplication(indexName?: string): Promise<void>
   queueDiskAdoption(action: DiskAdoptionAction): void
   awaitWrites(indexName: string): Promise<void>
@@ -34,8 +43,6 @@ export interface WorkerOrchestrator {
   isIndexBusy(indexName: string): boolean
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
-  holdUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
-  releaseUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
   searchViaWorker(
     indexName: string,
     params: QueryParams,
@@ -43,6 +50,7 @@ export interface WorkerOrchestrator {
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
     bm25: BM25Params | undefined,
+    reads?: WorkerHitReads,
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
   mainCopyQueries(): MainCopyQueries
@@ -76,12 +84,21 @@ export type IndexRegistry = Map<
     language: LanguageModule
     embeddingAdapter: EmbeddingAdapter | null
     synonyms: Uint8Array | null
+    vectorFieldPaths: Set<string>
   }
 >
 
+export interface ReplicationRun {
+  done: Promise<void>
+  older: ReplicationRun | undefined
+  newer: ReplicationRun | undefined
+}
+
 export interface ReplicationQueue {
   tail: Promise<void>
-  inFlight: Promise<void>[]
+  oldestRun: ReplicationRun | undefined
+  newestRun: ReplicationRun | undefined
+  runsInFlight: number
   pendingActions: number
   pendingDocuments: number
   drainWaiters: Array<() => void>
@@ -122,18 +139,18 @@ export interface OrchestratorState {
   readonly desyncedIndexes: Set<string>
   readonly copyReleaseHolds: Map<string, CopyReleaseHold>
   readonly copyLoadBuffers: Map<string, WorkerAction[]>
+  readonly copyLoadBufferYieldMarks: WeakMap<WorkerAction[], number>
   readonly copyTransitions: Map<string, CopyTransition>
   readonly droppedCopies: Map<string, string>
   readonly lastAccessAt: Map<string, number>
   readonly copyReloadCounts: Map<string, number>
   readonly replicationQueues: Map<string, ReplicationQueue>
   readonly segmentLedger: Map<string, Map<number, SegmentLedgerEntry[]>>
-  /** This holds the segments each index has attached to the main copy and has yet to send to the worker copies. */
-  readonly unbroadcastSegments: Map<string, Set<string>>
   readonly compactionsInFlight: Map<string, Promise<void>>
-  readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
+  readonly idleMergeTimers: Map<string, IdleMergeTimer>
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
   readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
+  readonly publishedVectorStores: Set<string>
   workerPool: WorkerPool | null
   /** This settles once every thread of every retired pool has exited, and a new pool starts only after it. */
   retiredThreadsGone: Promise<void>

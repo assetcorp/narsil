@@ -11,6 +11,7 @@ import type { NarsilEventMap } from '../../../types/events'
 
 const schema = { title: 'string' as const }
 const LANGUAGE = 'lifecycle-fixture'
+const partitions = { maxPartitions: 4 }
 
 function registerKeepingWholeWords(): void {
   registerLanguage({ name: LANGUAGE, revision: '1', stemmer: null, stopWords: new Set<string>() })
@@ -43,7 +44,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('rebuilds every partition of a partitioned index', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insertBatch(
       'prose',
       Array.from({ length: 24 }, (_, i) => ({ id: `doc-${i}`, title: 'jumping water' })),
@@ -67,7 +68,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('keeps the rebuilt terms across a restart of a partitioned index', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insertBatch(
       'prose',
       Array.from({ length: 12 }, (_, i) => ({ id: `doc-${i}`, title: 'jumping water' })),
@@ -88,7 +89,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('indexes a document written while the rebuild is running under the current analysis', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insertBatch(
       'prose',
       Array.from({ length: 8 }, (_, i) => ({ id: `doc-${i}`, title: 'jumping water' })),
@@ -114,7 +115,7 @@ describe('the lifecycle of a rebuild', () => {
         persistence: createFilesystemPersistence({ directory: adapterDir }),
         durability: { tier: 'snapshot' },
       })
-      await engine.createIndex('prose', { schema, language: LANGUAGE })
+      await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
       await engine.insert('prose', { title: 'jumping water' })
       await engine.checkpoint('prose')
       await engine.shutdown()
@@ -143,7 +144,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('marks an index restored from a snapshot taken under an earlier analysis', async () => {
     engine = await createNarsil()
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insert('prose', { title: 'jumping water' })
     const bytes = await engine.snapshot('prose')
     await engine.shutdown()
@@ -161,7 +162,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('leaves a restored snapshot alone when the analysis has not moved', async () => {
     engine = await createNarsil()
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insert('prose', { title: 'jumping water' })
     const bytes = await engine.snapshot('prose')
     await engine.dropIndex('prose')
@@ -172,7 +173,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('keeps an index stale when a hook throws, and reports the failure', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insert('prose', { title: 'jumping water' })
     await engine.checkpoint('prose')
     await engine.shutdown()
@@ -245,7 +246,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('leaves no staleness behind for a fresh index that reuses a dropped name', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insert('prose', { title: 'jumping water' }, 'doc-0')
     await engine.checkpoint('prose')
     await engine.shutdown()
@@ -255,7 +256,7 @@ describe('the lifecycle of a rebuild', () => {
     expect(engine.listIndexes()[0].analysisStale).toBe(true)
 
     await engine.dropIndex('prose')
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insert('prose', { title: 'jumping water' }, 'doc-0')
 
     expect(engine.listIndexes()[0].analysisStale).toBeUndefined()
@@ -264,7 +265,7 @@ describe('the lifecycle of a rebuild', () => {
 
   it('rebuilds on its own after opening with no analysis configuration at all', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
-    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
     await engine.insertBatch(
       'prose',
       Array.from({ length: 6 }, (_, i) => ({ id: `doc-${i}`, title: 'jumping water' })),

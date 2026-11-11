@@ -1,4 +1,7 @@
+import type { PartitionManager } from '../../partitioning/manager'
+import { captureAppliedPrefix, requiresLayoutCheckpoint } from '../../partitioning/manager/checkpoint-prefix'
 import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
+import { whileGraphsStayComplete } from './complete-graphs'
 import {
   LOG_RECORDS_PER_CHECKPOINT,
   WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
@@ -9,7 +12,6 @@ import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import {
-  type CapturablePartitions,
   type CapturedWholePartition,
   captureWholePartition,
   type PartitionContents,
@@ -21,17 +23,14 @@ import type { CheckpointStore } from './segment/store'
 import { type VectorCheckpointLayout, type VectorFieldWritten, writeLiveVectors } from './segment/vector-write'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 
-export interface CheckpointedPartitions {
-  readonly partitionCount: number
-  countDocuments(): number
-}
-
 export interface CheckpointCapture {
+  partitionCount: number
   targets: PartitionCheckpoint[]
   documentCount: number
   vectorPlans: Map<string, VectorCheckpointPlan>
   wholePartitions: WholePartitions
   recordsLeftInLog: number
+  unreplayedCutoffs: ReadonlyMap<number, number>
 }
 
 export interface LiveVectorsWritten {
@@ -40,15 +39,18 @@ export interface LiveVectorsWritten {
   written: VectorFieldWritten[]
 }
 
-export function whileNoMutationApplies<T>(partitions: readonly PartitionState[], capture: () => T): Promise<T> {
+export function whileNoMutationApplies<T>(
+  partitions: readonly PartitionState[],
+  capture: () => T | Promise<T>,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let release: () => void = () => undefined
     const released = new Promise<void>(settle => {
       release = settle
     })
-    function captureNow(): void {
+    async function captureNow(): Promise<void> {
       try {
-        resolve(capture())
+        resolve(await capture())
       } catch (error) {
         reject(error)
       } finally {
@@ -57,13 +59,13 @@ export function whileNoMutationApplies<T>(partitions: readonly PartitionState[],
     }
     let waiting = partitions.length
     if (waiting === 0) {
-      captureNow()
+      void captureNow()
       return
     }
     for (const partition of partitions) {
       partition.appendChain = partition.appendChain.then(() => {
         waiting -= 1
-        if (waiting === 0) captureNow()
+        if (waiting === 0) void captureNow()
         return released
       })
     }
@@ -108,8 +110,6 @@ export function aTargetFailed(indexState: IndexState, targets: readonly Partitio
   return targets.some(target => (indexState.partitions.get(target.partitionId)?.failed ?? null) !== null)
 }
 
-export type SerialisablePartitions = CapturablePartitions
-
 export interface WholePartitions {
   contents: PartitionContents[]
   captured: CapturedWholePartition[]
@@ -126,16 +126,22 @@ export interface WholePartitionRules {
   priorPartitionIds: readonly number[]
   everyPartition: boolean
   aWorkerCanSerialise: boolean
+  usesLogForUnchangedLayout?: boolean
   captureRecords?: (partitionId: number) => WriteRecordCapture
 }
 
 export function wholePartitionsWhereMostChanged(
-  manager: SerialisablePartitions,
+  manager: PartitionManager,
   rules: WholePartitionRules,
 ): WholePartitionsOf {
-  const { priorCheckpoint, priorPartitionIds, everyPartition, aWorkerCanSerialise, captureRecords } = rules
+  const { priorCheckpoint, priorPartitionIds, aWorkerCanSerialise, captureRecords } = rules
   return targets => {
     const whole: WholePartitions = { contents: [], captured: [] }
+    const everyPartition =
+      rules.everyPartition ||
+      requiresLayoutCheckpoint(manager) ||
+      (priorPartitionIds.length > 0 && priorPartitionIds.length !== manager.partitionCount)
+    if (rules.usesLogForUnchangedLayout && !everyPartition) return whole
     const changed = targets.filter(
       target => everyPartition || target.lastSeqNo !== snapshotCheckpointFor(priorCheckpoint, target.partitionId),
     )
@@ -163,56 +169,69 @@ export function wholePartitionsWhereMostChanged(
 
 export async function captureCheckpoint(
   indexState: IndexState,
-  manager: CheckpointedPartitions,
+  manager: PartitionManager,
   vectorIndexes: Map<string, VectorIndex>,
   wholePartitionsOf: WholePartitionsOf = noWholePartitions,
   priorCheckpointThatLimitsTheRecords?: PartitionCheckpoint[],
   listedVectorFields: readonly VectorFieldRef[] = [],
   termHistoryOf?: (partitionId: number, lastSeqNo: number) => TermStart[],
   onCaptured?: () => void,
-  pinsRetiredVectors = false,
 ): Promise<CheckpointCapture> {
-  for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
-  return whileNoMutationApplies([...indexState.partitions.values()], () => {
-    onCaptured?.()
-    const documentCount = manager.countDocuments()
-    const targets: PartitionCheckpoint[] = []
-    let recordsLeftInLog = 0
-    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
-      const partition = indexState.partitions.get(partitionId)
-      if (partition !== undefined && partition.failed !== null) continue
-      const appliedSeqNo = partition?.appliedSeqNo ?? 0
-      const lastSeqNo =
-        priorCheckpointThatLimitsTheRecords === undefined
-          ? appliedSeqNo
-          : Math.min(
-              appliedSeqNo,
-              snapshotCheckpointFor(priorCheckpointThatLimitsTheRecords, partitionId) + LOG_RECORDS_PER_CHECKPOINT,
-            )
-      recordsLeftInLog += appliedSeqNo - lastSeqNo
-      const target: PartitionCheckpoint = {
-        partitionId,
-        lastSeqNo,
-        primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
+  const whileNoBuildPassOrMutationRuns = <T>(capture: () => T | Promise<T>): Promise<T> =>
+    whileGraphsStayComplete(vectorIndexes, () => whileNoMutationApplies([...indexState.partitions.values()], capture))
+  return whileNoBuildPassOrMutationRuns(() =>
+    captureAppliedPrefix(manager, cutoffs => {
+      onCaptured?.()
+      const partitionCount = manager.partitionCount
+      const previous = priorCheckpointThatLimitsTheRecords
+      const changedLayout =
+        requiresLayoutCheckpoint(manager) ||
+        (previous !== undefined && previous.length > 0 && previous.length !== partitionCount)
+      const bounded = changedLayout ? undefined : previous
+      const documentCount = manager.countDocuments()
+      const targets: PartitionCheckpoint[] = []
+      let recordsLeftInLog = 0
+      for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
+        const partition = indexState.partitions.get(partitionId)
+        if (partition !== undefined && partition.failed !== null) continue
+        const appliedSeqNo = Math.min(partition?.appliedSeqNo ?? 0, cutoffs.get(partitionId) ?? Infinity)
+        const lastSeqNo =
+          bounded === undefined
+            ? appliedSeqNo
+            : Math.min(appliedSeqNo, snapshotCheckpointFor(bounded, partitionId) + LOG_RECORDS_PER_CHECKPOINT)
+        recordsLeftInLog += appliedSeqNo - lastSeqNo
+        const target: PartitionCheckpoint = {
+          partitionId,
+          lastSeqNo,
+          primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
+        }
+        if (termHistoryOf !== undefined) target.termHistory = termHistoryOf(partitionId, lastSeqNo)
+        targets.push(target)
       }
-      if (termHistoryOf !== undefined) target.termHistory = termHistoryOf(partitionId, lastSeqNo)
-      targets.push(target)
-    }
-    const vectorPlans = new Map<string, VectorCheckpointPlan>()
-    try {
-      for (const [fieldPath, vectorIndex] of vectorIndexes) {
-        const listed = listedVectorFields.find(ref => ref.fieldPath === fieldPath)
-        const listedKeys = listed === undefined ? null : listed.files.map(file => file.key)
-        vectorPlans.set(fieldPath, vectorIndex.planCheckpoint(listedKeys, false, pinsRetiredVectors))
+      const vectorPlans = new Map<string, VectorCheckpointPlan>()
+      try {
+        for (const [fieldPath, vectorIndex] of vectorIndexes) {
+          const listed = listedVectorFields.find(ref => ref.fieldPath === fieldPath)
+          const listedKeys = listed === undefined ? null : listed.files.map(file => file.key)
+          vectorPlans.set(fieldPath, vectorIndex.planCheckpoint(listedKeys, false, true))
+        }
+        const memoryMatchesTheTargets = recordsLeftInLog === 0
+        const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
+        return {
+          partitionCount,
+          targets,
+          documentCount,
+          vectorPlans,
+          wholePartitions,
+          recordsLeftInLog,
+          unreplayedCutoffs: cutoffs,
+        }
+      } catch (error) {
+        for (const plan of vectorPlans.values()) plan.release()
+        throw error
       }
-      const memoryMatchesTheTargets = recordsLeftInLog === 0
-      const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
-      return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
-    } catch (error) {
-      for (const plan of vectorPlans.values()) plan.release()
-      throw error
-    }
-  })
+    }),
+  )
 }
 
 export async function writeCapturedVectors(

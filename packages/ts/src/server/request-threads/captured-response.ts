@@ -63,6 +63,8 @@ export function createCapturingResponse(
   let finished = false
   let streaming = false
   let inFlight = 0
+  let sizedTotal: number | null = null
+  let writtenBytes = 0
   let writable: ((offset: number) => boolean) | null = null
   const abort = createRelayAbort()
   let resolveDone: (captured: CapturedResponse | null) => void = () => undefined
@@ -84,7 +86,15 @@ export function createCapturingResponse(
   function startStreaming(): void {
     if (streaming) return
     streaming = true
-    sendPart({ type: 'stream-start', requestId, status, headers }, [])
+    sendPart({ type: 'stream-start', requestId, status, headers, totalSize: sizedTotal }, [])
+  }
+
+  function sendChunk(chunk: Uint8Array): void {
+    const copy = new Uint8Array(chunk.byteLength)
+    copy.set(chunk)
+    inFlight += 1
+    writtenBytes += chunk.byteLength
+    sendPart({ type: 'stream-chunk', requestId, chunk: copy }, [copy.buffer])
   }
 
   const sink: ResponseSink = {
@@ -107,10 +117,7 @@ export function createCapturingResponse(
     write(chunk) {
       if (finished || abort.aborted) return true
       startStreaming()
-      const copy = new Uint8Array(chunk.byteLength)
-      copy.set(chunk)
-      inFlight += 1
-      sendPart({ type: 'stream-chunk', requestId, chunk: copy }, [copy.buffer])
+      sendChunk(chunk)
       return inFlight < RELAY_STREAM_CHUNKS_IN_FLIGHT
     },
     pause: () => undefined,
@@ -131,11 +138,24 @@ export function createCapturingResponse(
       finish(new Uint8Array(0))
       return sink
     },
-    tryEnd(body) {
-      finish(body)
-      return [true, true]
+    tryEnd(body, totalSize) {
+      if (finished || abort.aborted) return [true, true]
+      if (!streaming && body.byteLength >= totalSize) {
+        finish(body)
+        return [true, true]
+      }
+      if (!streaming) {
+        sizedTotal = totalSize
+        startStreaming()
+      }
+      if (body.byteLength > 0) sendChunk(body)
+      if (sizedTotal !== null && writtenBytes >= sizedTotal) {
+        finish(new Uint8Array(0))
+        return [true, true]
+      }
+      return [inFlight < RELAY_STREAM_CHUNKS_IN_FLIGHT, false]
     },
-    getWriteOffset: () => 0,
+    getWriteOffset: () => writtenBytes,
     onWritable(handler) {
       writable = handler
       return sink
@@ -154,14 +174,14 @@ export function createCapturingResponse(
       if (inFlight >= RELAY_STREAM_CHUNKS_IN_FLIGHT || writable === null) return
       const handler = writable
       writable = null
-      handler(0)
+      handler(writtenBytes)
     },
     cancel(): void {
       abort.trigger()
       if (writable !== null) {
         const handler = writable
         writable = null
-        handler(0)
+        handler(writtenBytes)
       }
       if (!finished) {
         finished = true

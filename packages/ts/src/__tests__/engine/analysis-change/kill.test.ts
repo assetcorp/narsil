@@ -76,7 +76,11 @@ describe.skipIf(!built)('a process killed during an analysis change', () => {
     const oracle = new ChangeOracle()
     const random = seededRandom(23)
     const writer = await createNarsil({ durability: { directory: dir }, workers: { enabled: false } })
-    await writer.createIndex('prose', { schema: { title: 'string' }, language: PLAIN_LANGUAGE })
+    await writer.createIndex('prose', {
+      schema: { title: 'string' },
+      language: PLAIN_LANGUAGE,
+      partitions: { maxPartitions: PARTITIONS },
+    })
     const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
     for (const document of documents) oracle.write(document.id, document.title)
     await writer.insertBatch('prose', documents)

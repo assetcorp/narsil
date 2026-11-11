@@ -1,0 +1,1 @@
+export const STATISTICS_MESSAGE_ENTRY_BYTES = 44

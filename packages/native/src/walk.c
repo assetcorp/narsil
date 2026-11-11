@@ -50,7 +50,7 @@ static narsil_status keep_candidate(const walk_context *context, layer_search se
   narsil_workspace *workspace = context->workspace;
   narsil_status status = heap_push(&workspace->frontier, node);
   if (status != NARSIL_OK) { return status; }
-  if (search.excludes_tombstones && is_tombstoned(context, node.ordinal)) { return NARSIL_OK; }
+  if (search.keeps_pinned_only && !store_admits(node.ordinal, context->store, search.pin)) { return NARSIL_OK; }
   if (!accepts(search.accepted, node.ordinal)) { return NARSIL_OK; }
   status = heap_push(&workspace->found, node);
   if (status != NARSIL_OK) { return status; }
@@ -73,6 +73,17 @@ static narsil_status seed_entry_points(const walk_context *context, layer_search
   return NARSIL_OK;
 }
 
+static void prefetch_admission(const walk_context *context, int32_t ordinal) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (ordinal < 0 || (uint32_t)ordinal >= context->store_slots) { return; }
+  __builtin_prefetch(context->store->born_at + ordinal);
+  __builtin_prefetch(context->store->retired_at + ordinal);
+#else
+  (void)context;
+  (void)ordinal;
+#endif
+}
+
 static narsil_status expand_node(const walk_context *context, layer_search search, double *furthest) {
   narsil_workspace *workspace = context->workspace;
   int32_t pending[MAX_NEIGHBOURS_PER_LIST];
@@ -85,6 +96,7 @@ static narsil_status expand_node(const walk_context *context, layer_search searc
     pending[pending_count] = neighbour;
     pending_count += 1;
     prefetch_for_walk(context, neighbour);
+    if (search.keeps_pinned_only) { prefetch_admission(context, neighbour); }
   }
   for (uint32_t i = 0; i < pending_count; i++) {
     double distance = walk_distance(context, pending[i]);
@@ -194,7 +206,7 @@ void use_single_entry(narsil_workspace *workspace, int32_t ordinal) {
 
 narsil_status descend_layers(const walk_context *context, int32_t first, int32_t last, narsil_candidates *out) {
   for (int32_t layer = first; layer >= last; layer--) {
-    layer_search search = {1, layer, 0, {NULL, 0}};
+    layer_search search = {1, layer, 0, {NULL, 0}, 0};
     narsil_status status = search_layer(context, search, out);
     if (status != NARSIL_OK) { return status; }
     if (out->count > 0) { use_single_entry(context->workspace, out->ordinals[0]); }
@@ -215,15 +227,15 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
   nearest->count = 0;
 
   graph_lock_shared(graph, request->thread_slot);
-  status = read_graph_extent(&context);
   int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
+  status = read_graph_extent(&context);
   if (status == NARSIL_OK && entry != NO_ENTRY_POINT) {
     status = workspace_reserve_entry_points(workspace, 1);
     if (status == NARSIL_OK) {
       use_single_entry(workspace, entry);
-      status = descend_layers(&context, load_word(graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 1, nearest);
+      status = descend_layers(&context, entry_top_layer(&context, entry), 1, nearest);
     }
-    layer_search base = {request->candidate_count, 0, 1, request->accepted};
+    layer_search base = {request->candidate_count, 0, 1, request->accepted, request->pin};
     if (status == NARSIL_OK) { status = search_layer(&context, base, nearest); }
   }
   graph_unlock_shared(graph, request->thread_slot);

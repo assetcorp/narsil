@@ -204,16 +204,22 @@ export const backends = [
 ]
 
 export function searchWithTheHostBinary(): void {
-  const previousPath = process.env.NARSIL_NATIVE_CORE_PATH
+  const previous = {
+    NARSIL_NATIVE_CORE_PATH: process.env.NARSIL_NATIVE_CORE_PATH,
+    NARSIL_SEARCH_BACKEND: process.env.NARSIL_SEARCH_BACKEND,
+  }
 
   beforeAll(() => {
     if (!binaryBuilt) return
     process.env.NARSIL_NATIVE_CORE_PATH = hostCore
+    process.env.NARSIL_SEARCH_BACKEND = 'native'
     loadNativeCore()
   })
 
   afterAll(() => {
-    if (previousPath === undefined) delete process.env.NARSIL_NATIVE_CORE_PATH
-    else process.env.NARSIL_NATIVE_CORE_PATH = previousPath
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
   })
 }

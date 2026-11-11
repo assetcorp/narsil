@@ -30,6 +30,12 @@
     },
     {
       "name": "Maintenance"
+    },
+    {
+      "name": "Sync"
+    },
+    {
+      "name": "QuerySuggestions"
     }
   ],
   "paths": {
@@ -1613,6 +1619,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "queryHistory",
+            "in": "query",
+            "required": false,
+            "description": "Under `true`, the archive also holds the index's search history.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2247,6 +2266,501 @@
           }
         }
       }
+    },
+    "/indexes/{name}/sync": {
+      "get": {
+        "operationId": "getSync",
+        "summary": "Report the device sync setting of an index, whether a device has downloaded it, and its epoch",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateSync",
+        "summary": "Replace the device sync setting of an index",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncSetting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/sync/snapshot": {
+      "get": {
+        "operationId": "syncSnapshot",
+        "summary": "Download the published snapshot of an index with device sync on, whole or as one byte range",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The server answered with the byte range that the request asked for.",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions": {
+      "put": {
+        "operationId": "updateQuerySuggestions",
+        "summary": "Replace the popular query suggestions setting of an index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuerySuggestionsSetting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "querySuggestionsStatus",
+        "summary": "Report the setting, the last build, and the next build of popular query suggestions",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuerySuggestionsStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/record": {
+      "post": {
+        "operationId": "recordQuery",
+        "summary": "Count a search that a person followed with a click, for the person that the server identifies",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordQueryBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordQueryResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/build": {
+      "post": {
+        "operationId": "buildQuerySuggestions",
+        "summary": "Build the popular query suggestions of an index, as a task",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/preview": {
+      "get": {
+        "operationId": "previewQuerySuggestions",
+        "summary": "List the phrases that the next build would publish",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most phrases to list, from 1 to 1,000, and 100 by default.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuerySuggestionsPreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/bans": {
+      "get": {
+        "operationId": "readQueryBans",
+        "summary": "Read the ban list of popular query suggestions",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryBansBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceQueryBans",
+        "summary": "Replace the ban list, and remove each newly banned phrase from every suggestions index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryBansBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryBansBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/remove": {
+      "post": {
+        "operationId": "removeQuery",
+        "summary": "Ban a phrase and remove it from every suggestions index of an index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveQueryBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveQueryResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/manual": {
+      "post": {
+        "operationId": "addManualSuggestion",
+        "summary": "Add a suggestion by hand, which a build leaves in place",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualQuerySuggestion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualSuggestionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2836,6 +3350,10 @@
           "backup": {
             "type": "string",
             "description": "The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or a digit."
+          },
+          "queryHistory": {
+            "type": "boolean",
+            "description": "Set this to true to add every node's popular query suggestion history of the index to the backup. The history holds the scrambled text of what people searched for, and the backup keeps it after `retentionDays` ends."
           }
         },
         "required": [
@@ -3410,39 +3928,6 @@
         ],
         "description": "A highlighted field, ready to render."
       },
-      "Hit": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "The document is stored under this id."
-          },
-          "score": {
-            "type": "number",
-            "description": "This score ranked the hit. Scores compare within one result set, never across searches. A sorted query ranks by sort values instead and carries no score unless it sets `includeScores`."
-          },
-          "document": {
-            "$ref": "#/components/schemas/AnyDocument",
-            "description": "This is the stored document."
-          },
-          "scoreComponents": {
-            "$ref": "#/components/schemas/ScoreComponents",
-            "description": "These are the parts the score was built from, which arrive when the query asked for them."
-          },
-          "highlights": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/HighlightMatch"
-            },
-            "description": "These highlighted snippets are keyed by field, and arrive when the query asked for highlighting."
-          }
-        },
-        "required": [
-          "id",
-          "document"
-        ],
-        "description": "One matching document, with the score that ranked it."
-      },
       "HttpCreateIndexBody": {
         "type": "object",
         "properties": {
@@ -3464,24 +3949,69 @@
       "HttpGroupResult": {
         "type": "object",
         "properties": {
-          "hits": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Hit"
-            },
-            "description": "These hits fall in the group, cut to the query's `maxPerGroup`."
-          },
           "values": {
             "type": "object",
             "additionalProperties": true,
             "description": "Each grouping field holds this value for the group, keyed by field."
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HttpHit"
+            },
+            "description": "These hits retain the scores of the group's ranking."
           }
         },
         "required": [
-          "hits",
-          "values"
+          "values",
+          "hits"
         ],
         "description": "One group of hits as the server sends it, which is GroupResult with no reducer output, because the server refuses a query with a reducer."
+      },
+      "HttpHit": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/AnyDocument",
+            "description": "This is the stored document."
+          },
+          "id": {
+            "type": "string",
+            "description": "The document is stored under this id."
+          },
+          "scoreComponents": {
+            "$ref": "#/components/schemas/ScoreComponents",
+            "description": "These are the parts the score was built from, which arrive when the query asked for them."
+          },
+          "highlights": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HighlightMatch"
+            },
+            "description": "These highlighted snippets are keyed by field, and arrive when the query asked for highlighting."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "NaN",
+                  "Infinity",
+                  "-Infinity"
+                ]
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The client decodes this value to a numeric score, or leaves it absent when the search returns no score."
+          }
+        },
+        "required": [
+          "document",
+          "id"
+        ],
+        "description": "A search hit whose score uses the HTTP representation of HttpScore."
       },
       "HttpIndexBody": {
         "type": "object",
@@ -3813,13 +4343,6 @@
             },
             "description": "These facet counts are keyed by the field each facet was asked for."
           },
-          "hits": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Hit"
-            },
-            "description": "These documents match, cut to the query's `limit`, best score first or in the query's sort order."
-          },
           "count": {
             "type": "number",
             "description": "This many documents match in total, before the engine applies `limit` and `offset`. For a keyword search the engine counts every match. For a vector search it counts every vector that passes the query's filter and its `similarity` floor, which is every vector in the field where the query sets neither of them. The engine also counts each pinned document that the query does not match, since it places that document among the hits."
@@ -3844,6 +4367,13 @@
             "$ref": "#/components/schemas/QueryCoverage",
             "description": "The search read this much of the index, which is how you spot a degraded answer."
           },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HttpHit"
+            },
+            "description": "These hits follow the search's ranking, with scores encoded for HTTP."
+          },
           "groups": {
             "type": "array",
             "items": {
@@ -3853,11 +4383,11 @@
           }
         },
         "required": [
-          "hits",
           "count",
           "countExact",
           "elapsed",
-          "coverage"
+          "coverage",
+          "hits"
         ],
         "description": "The body of `POST /indexes/{name}/search`."
       },
@@ -4159,6 +4689,10 @@
           "schema": {
             "$ref": "#/components/schemas/SchemaDefinition",
             "description": "The index was created with this field layout."
+          },
+          "heldSearchStates": {
+            "type": "number",
+            "description": "This many searches on this instance's main copy hold a state of the index open right now. Each search holds one state from its start until it answers, fails, or is cancelled, so the figure falls back to 0 once every search has finished. A cluster reports no figure."
           }
         },
         "required": [
@@ -4340,6 +4874,41 @@
           "status"
         ],
         "description": "The body of `GET /livez`."
+      },
+      "ManualQuerySuggestion": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "The group whose suggestions index takes the phrase."
+          },
+          "query": {
+            "type": "string",
+            "description": "The phrase, which the engine normalises."
+          },
+          "count": {
+            "type": "number",
+            "description": "The count that ranks the phrase. Defaults to 0."
+          }
+        },
+        "required": [
+          "group",
+          "query"
+        ],
+        "description": "A suggestion that a caller adds by hand."
+      },
+      "ManualSuggestionResponse": {
+        "type": "object",
+        "properties": {
+          "indexName": {
+            "type": "string",
+            "description": "The suggestions index that holds the phrase."
+          }
+        },
+        "required": [
+          "indexName"
+        ],
+        "description": "The answer of `POST /indexes/{name}/query-suggestions/manual`."
       },
       "MemoryStatsResponse": {
         "type": "object",
@@ -4770,6 +5339,22 @@
         ],
         "description": "Snapshot of V8 heap usage as reported by `process.memoryUsage()`, with the limit the heap may grow to. All values are bytes. `null` in environments that do not expose `process.memoryUsage`, such as browsers."
       },
+      "QueryBansBody": {
+        "type": "object",
+        "properties": {
+          "bans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The banned phrases, at most 1,000, which the engine normalises."
+          }
+        },
+        "required": [
+          "bans"
+        ],
+        "description": "The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`."
+      },
       "QueryCoverage": {
         "type": "object",
         "properties": {
@@ -4797,6 +5382,278 @@
           "failedPartitions"
         ],
         "description": "How much of an index one search read, which is what you check before you trust a count or a ranking. An embedded engine reads every partition it holds, so `queriedPartitions` matches `totalPartitions` there and the other two stay zero. A search across a cluster may find a node slow or unreachable, which it counts here while still returning the hits the other nodes gave it."
+      },
+      "QuerySuggestionPreviewEntry": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "The group whose suggestions index would hold the phrase."
+          },
+          "query": {
+            "type": "string",
+            "description": "The normalised phrase."
+          },
+          "count": {
+            "type": "number",
+            "description": "The number of people whose searches the counts hold."
+          }
+        },
+        "required": [
+          "group",
+          "query",
+          "count"
+        ],
+        "description": "One phrase that a build would publish."
+      },
+      "QuerySuggestionsBuild": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "The ID of the build."
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/QuerySuggestionsBuildTrigger",
+            "description": "What started the build."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "failed",
+              "completed",
+              "skipped"
+            ],
+            "description": "Where the build stands."
+          },
+          "startedAt": {
+            "type": "number",
+            "description": "When the build started, in milliseconds since the Unix epoch."
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "When the build ended, or null while it runs."
+          },
+          "published": {
+            "type": "number",
+            "description": "The phrases that the build added or updated."
+          },
+          "removed": {
+            "type": "number",
+            "description": "The phrases that the build removed."
+          },
+          "discarded": {
+            "type": "number",
+            "description": "The phrases that the build left out because the merge held its limit."
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The error code of a failed build, or null."
+          }
+        },
+        "required": [
+          "buildId",
+          "trigger",
+          "status",
+          "startedAt",
+          "endedAt",
+          "published",
+          "removed",
+          "discarded",
+          "errorCode"
+        ],
+        "description": "One build of the suggestions of an index."
+      },
+      "QuerySuggestionsBuildTrigger": {
+        "type": "string",
+        "enum": [
+          "schedule",
+          "missed",
+          "caller"
+        ],
+        "description": "What started a build."
+      },
+      "QuerySuggestionsPreview": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuerySuggestionPreviewEntry"
+            },
+            "description": "The phrases, most counted first."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True where the list stops at the limit that the caller passed while more phrases wait to be checked."
+          }
+        },
+        "required": [
+          "entries",
+          "truncated"
+        ],
+        "description": "What the next build would publish: the phrases that enough people searched for, that match enough documents, and that fall in a group the build keeps."
+      },
+      "QuerySuggestionsSetting": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Set this to true to count searches for the index and build its suggestions."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `string` and `string[]` fields whose text a phrase must match before the engine publishes it."
+          },
+          "minPeople": {
+            "type": "number",
+            "description": "The number of people, from 2 to 4,096, who must search a phrase before the engine publishes it. Defaults to 4."
+          },
+          "minResults": {
+            "type": "number",
+            "description": "The number of documents, from 1 to 10,000, that a phrase must match with every word. Defaults to 5."
+          },
+          "retentionDays": {
+            "type": "number",
+            "description": "The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to 30."
+          },
+          "maxPhrasesPerDay": {
+            "type": "number",
+            "description": "The number of phrases, up to 16,384, that a node counts for the index each day. Defaults to 10,000."
+          },
+          "maxPhrasesPerPerson": {
+            "type": "number",
+            "description": "The number of phrases, up to 1,000, that a node counts for one person each day. Defaults to 100."
+          },
+          "maxPeoplePerDay": {
+            "type": "number",
+            "description": "The number of people, up to 100,000, that a node counts for the index each day. Defaults to 100,000."
+          },
+          "maxGroups": {
+            "type": "number",
+            "description": "The number of groups, up to 1,000, that the index counts. Defaults to 100."
+          },
+          "minLetters": {
+            "type": "number",
+            "description": "The number of letters that a phrase must hold. Defaults to 4."
+          },
+          "maxLength": {
+            "type": "number",
+            "description": "The number of characters, up to 150, that a phrase may hold. Defaults to 100."
+          },
+          "maxWords": {
+            "type": "number",
+            "description": "The number of words, up to 50, that a phrase may hold. Defaults to 8."
+          },
+          "maxDigits": {
+            "type": "number",
+            "description": "The number of digits that a phrase may hold in total. Defaults to 5."
+          },
+          "maxMergePhrases": {
+            "type": "number",
+            "description": "The number of phrases, up to 500,000, that one build merges. Defaults to 100,000."
+          },
+          "mergeMemoryBytes": {
+            "type": "number",
+            "description": "The memory, from 16 MiB to 1 GiB, of the worker that merges the counts. Defaults to 128 MiB."
+          },
+          "saveIntervalMs": {
+            "type": "number",
+            "description": "How often, from 1 second to 1 hour, a node saves the counts of the day. Defaults to 5 minutes."
+          },
+          "resultChecksPerSecond": {
+            "type": "number",
+            "description": "The number of result checks, up to 1,000, that a build runs each second. Defaults to 20."
+          },
+          "schedule": {
+            "type": "string",
+            "description": "A cron expression of five fields, or `off`. Defaults to `0 3 * * *`."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "The IANA time zone of `schedule`. Defaults to `UTC`."
+          }
+        },
+        "required": [
+          "enabled",
+          "fields"
+        ],
+        "description": "The popular query suggestions setting of one index. Only `enabled` and `fields` are required, and each limit that you leave out takes its default."
+      },
+      "QuerySuggestionsStatus": {
+        "type": "object",
+        "properties": {
+          "indexName": {
+            "type": "string",
+            "description": "The index."
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySuggestionsSetting"
+              }
+            ],
+            "description": "The setting, or null where nobody set one."
+          },
+          "lastBuild": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySuggestionsBuild"
+              }
+            ],
+            "description": "The last build, or null where none ran."
+          },
+          "nextBuildAt": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "When the schedule next matches, in milliseconds since the Unix epoch, or null where it is off."
+          },
+          "suggestionIndexes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The suggestions index of each group that holds one."
+          }
+        },
+        "required": [
+          "indexName",
+          "setting",
+          "lastBuild",
+          "nextBuildAt",
+          "suggestionIndexes"
+        ],
+        "description": "The setting, the last build, and the next scheduled build of one index."
       },
       "ReadinessResponse": {
         "type": "object",
@@ -4828,6 +5685,79 @@
           }
         },
         "description": "The body of `POST /indexes/{name}/_rebalance`."
+      },
+      "RecordQueryBody": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search that the person followed with a click."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "description": "The body of `POST /indexes/{name}/query-suggestions/record`. The server takes the person and the group from its `identify` function, so the body carries the search alone."
+      },
+      "RecordQueryOutcome": {
+        "type": "string",
+        "enum": [
+          "recorded",
+          "repeat",
+          "invalid",
+          "banned",
+          "person-limit",
+          "phrase-limit",
+          "people-limit",
+          "group-limit",
+          "no-key",
+          "unidentified"
+        ],
+        "description": "Why a node counted no search, or `recorded` where it counted one."
+      },
+      "RecordQueryResult": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "description": "True where the node counted the search."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RecordQueryOutcome",
+            "description": "Why the node counted it or left it out."
+          }
+        },
+        "required": [
+          "recorded",
+          "outcome"
+        ],
+        "description": "What QuerySuggestions.recordQuery did with one search."
+      },
+      "RemoveQueryBody": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The phrase to ban and to remove from every suggestions index of the index."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "description": "The body of `POST /indexes/{name}/query-suggestions/remove`."
+      },
+      "RemoveQueryResponse": {
+        "type": "object",
+        "properties": {
+          "suggestionIndexes": {
+            "type": "number",
+            "description": "The number of suggestions indexes that held the phrase."
+          }
+        },
+        "required": [
+          "suggestionIndexes"
+        ],
+        "description": "The answer of `POST /indexes/{name}/query-suggestions/remove`."
       },
       "ReplicationFactorBody": {
         "type": "object",
@@ -5160,6 +6090,65 @@
         ],
         "description": "What Narsil.suggest  returns: the indexed terms that complete a prefix, ready to offer as you-type suggestions."
       },
+      "SyncSetting": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a new copy."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the server deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the server deletes the oldest log segment from history. It defaults to the length of the published snapshot."
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "description": "The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on only for an index whose every document belongs to one user, because every device that syncs the index receives the whole index. Create one index for each user, and leave sync off for a public index or for an index that holds the data of several users."
+      },
+      "SyncStatus": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "This is true once a device has asked for the published snapshot, from when the server keeps history."
+          },
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a new copy."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the server deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the server deletes the oldest log segment from history. It defaults to the length of the published snapshot."
+          }
+        },
+        "required": [
+          "active",
+          "epoch",
+          "enabled"
+        ],
+        "description": "The device sync state of one index, which SyncOperations.getSync returns."
+      },
       "SynonymRule": {
         "anyOf": [
           {
@@ -5313,6 +6302,10 @@
             "$ref": "#/components/schemas/ImportResult",
             "description": "What the work produced, which an `import` or `importExport` task reports once it finishes."
           },
+          "build": {
+            "$ref": "#/components/schemas/QuerySuggestionsBuild",
+            "description": "The build that a `querySuggestionsBuild` task ran, once it ends."
+          },
           "error": {
             "$ref": "#/components/schemas/ErrorDetail",
             "description": "This says why the task failed, and a failed task alone carries it."
@@ -5368,7 +6361,8 @@
           "changeAnalysis",
           "backup",
           "backupRestore",
-          "backupDelete"
+          "backupDelete",
+          "querySuggestionsBuild"
         ],
         "description": "Which long-running operation a task record tracks."
       },
@@ -5503,11 +6497,11 @@
           },
           "estimatedCompactMs": {
             "type": "number",
-            "description": "Narsil.compactVectors  would take about this many milliseconds."
+            "description": "VectorMaintenanceOperations.compactVectors  would take about this many milliseconds."
           },
           "estimatedOptimizeMs": {
             "type": "number",
-            "description": "Narsil.optimizeVectors  would take about this many milliseconds."
+            "description": "VectorMaintenanceOperations.optimizeVectors  would take about this many milliseconds."
           }
         },
         "required": [
@@ -5521,7 +6515,7 @@
           "estimatedCompactMs",
           "estimatedOptimizeMs"
         ],
-        "description": "The state of one vector field, and what maintenance would cost, as Narsil.vectorMaintenanceStatus  reports it. Removing a vector leaves a tombstone in the graph, and enough of them slow a search down. Read this to decide when compaction earns its cost."
+        "description": "The state of one vector field, and what maintenance would cost, as VectorMaintenanceOperations.vectorMaintenanceStatus  reports it. Removing a vector leaves a tombstone in the graph, and enough of them slow a search down. Read this to decide when compaction earns its cost."
       },
       "VectorQueryConfig": {
         "type": "object",
@@ -5556,11 +6550,11 @@
           },
           "efSearch": {
             "type": "number",
-            "description": "The engine keeps this many candidates as it walks the HNSW graph, so a higher value can find more of the true neighbours, although each query takes longer. The engine applies it only once the field holds a graph. The engine fetches k hits, where k is one more than the number of hits up to the end of the page, so k is `limit` plus 1 on a first page. When a query leaves `efSearch` unset, the engine keeps the larger of 50 and k plus a margin, where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 at 1,024 dimensions and above. Under a filter, the engine counts only the candidates that pass the filter."
+            "description": "The engine keeps this many candidates as it walks the HNSW graph, so a higher value can find more of the true neighbours, although each query takes longer. The engine applies it only once the field holds a graph. The engine fetches k hits, where k is one more than the number of hits up to the end of the page, so k is `limit` plus 1 on a first page. When a query leaves `efSearch` unset, the engine keeps the larger of 50 and k plus a margin, where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 at 1,024 dimensions and above. Under a filter, the engine counts only the candidates that pass the filter. A vector or hybrid query throws a `NarsilError` with `CONFIG_INVALID` before it searches when `efSearch` is not a whole number from 1 to 10,000, whether or not the field holds a graph yet and whether or not its filter matches a document."
           },
           "oversample": {
             "type": "number",
-            "description": "The engine re-scores this many times k candidates in a quantized field against the full-precision vectors before it returns the best `limit`, where k is one more than the number of hits up to the end of the page, so k is `limit` plus 1 on a first page. For a value below 1, or for a value that is not a finite number, the engine throws a `NarsilError` with code `CONFIG_INVALID`. The engine ignores it on a field whose quantization is `none`. When a query leaves it unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least 3k candidates under `osq1` and `osq2`, and at least k under `osq4` and `osq8`. Below 768 dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 22.5√k under `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under `osq1` and k + 16√k under `osq2`, and under `osq2` it re-scores at least the smaller of k + 75 and k + 18√k. At 1,024 dimensions and above, it re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024 dimensions and 2k from 1,024 dimensions, while under `osq8` it re-scores 2k at every dimension. Under a filter, the engine counts only the candidates that pass the filter. On vectors spread evenly across every dimension, a one-bit or two-bit code can find fewer than 95% of the true nearest neighbours at these defaults, so raise `oversample` on a query that needs more of them."
+            "description": "The engine re-scores this many times k candidates in a quantized field against the full-precision vectors before it returns the best `limit`, where k is one more than the number of hits up to the end of the page, so k is `limit` plus 1 on a first page. For a value below 1, or for a value that is not a finite number, the engine throws a `NarsilError` with code `CONFIG_INVALID`. The engine ignores it on a field whose quantization is `none`. When a query leaves it unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least 3k candidates under `osq1` and `osq2`, and at least k under `osq4` and `osq8`. Below 768 dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 22.5√k under `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under `osq1` and k + 16√k under `osq2`, and under `osq2` it re-scores at least the smaller of k + 75 and k + 18√k. At 1,024 dimensions and above, it re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024 dimensions and 2k from 1,024 dimensions, while under `osq8` it re-scores 2k at every dimension. Under a filter, the engine counts only the candidates that pass the filter. On vectors spread evenly across every dimension, a one-bit or two-bit code can find fewer than 95% of the true nearest neighbours at these defaults, so raise `oversample` on a query that needs more of them. The engine re-scores at most the larger of 10,000 and the default depth, so a larger `oversample` can't lengthen the walk past that. A vector or hybrid query throws a `NarsilError` with `CONFIG_INVALID` before it searches when `oversample` is not a finite number of at least 1."
           }
         },
         "required": [

@@ -1,14 +1,15 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import {
   DEFAULT_MAX_RERANK_WINDOW,
   DEFAULT_RERANK_TIMEOUT_MS,
+  ErrorCodes,
   MAX_RERANK_TIMEOUT_MS,
   MAX_RERANK_WINDOW,
   MIN_RERANK_TIMEOUT_MS,
   MIN_RERANK_WINDOW,
-} from './constants'
+  NarsilError,
+} from './rerank-host-bindings'
 
 export interface RerankSettings {
   timeoutMs: number

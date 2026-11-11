@@ -68,7 +68,7 @@ describe('an index holds the analysis it resolved when the caller created it', (
     registerTokenizer('binding-rebalance', wholeText)
     const engine = await createNarsil()
     engines.push(engine)
-    await engine.createIndex('prose', { schema, tokenizer: 'binding-rebalance' })
+    await engine.createIndex('prose', { schema, tokenizer: 'binding-rebalance', partitions: { maxPartitions: 3 } })
     for (let i = 0; i < 12; i++) {
       await engine.insert('prose', { title: `machine ${i}` })
     }

@@ -197,6 +197,7 @@ describe('an index with its text on disk, through the operations that move its f
     let engine = await open(root)
     const oracle = await seeded(engine, 18)
     await engine.checkpoint(INDEX)
+    await engine.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     await engine.rebalance(INDEX, 3)
     expect(engine.getPartitionStats(INDEX)).toHaveLength(3)
     await expectEngineMatchesOracle(engine, INDEX, oracle)
@@ -221,6 +222,8 @@ describe('an index with its text on disk, through the operations that move its f
       await disk.insert(INDEX, document, `doc-${i}`)
       await memory.insert(INDEX, document, `doc-${i}`)
     }
+    await disk.updatePartitionConfig(INDEX, { maxPartitions: 3 })
+    await memory.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     await disk.rebalance(INDEX, 3)
     await memory.rebalance(INDEX, 3)
     await disk.checkpoint(INDEX)
@@ -281,11 +284,11 @@ describe('an index with its text on disk, through the operations that move its f
     let total = 0
     for (let round = 0; round < 4; round++) {
       const batch = []
-      for (let i = 0; i < 5_000; i++) {
+      for (let i = 0; i < 1_250; i++) {
         const id = `large-${round}-${i}`
         const words = Array.from({ length: 12 }, rareWord)
-        if (i % 500 === 0) holders.set(words[0], [...(holders.get(words[0]) ?? []), id])
-        batch.push({ id, title: words[0], body: words.join(' '), year: 2000, kept: rareWord().repeat(4_000) })
+        if (i % 125 === 0) holders.set(words[0], [...(holders.get(words[0]) ?? []), id])
+        batch.push({ id, title: words[0], body: words.join(' '), year: 2000, kept: rareWord().repeat(16_000) })
       }
       await engine.insertBatch(INDEX, batch)
       await engine.checkpoint(INDEX)
@@ -307,6 +310,7 @@ describe('an index with its text on disk, through the operations that move its f
         })
         .catch(() => undefined)
     }, 50)
+    await engine.updatePartitionConfig(INDEX, { maxPartitions: 2 })
     try {
       await engine.rebalance(INDEX, 2)
     } finally {

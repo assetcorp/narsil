@@ -19,6 +19,11 @@ const DATASET_SUGGESTIONS: Record<DatasetId, string[]> = {
     'Recommend a few well-known thriller movies.',
     'What animated films would be good for a family movie night?',
   ],
+  places: [
+    'Which capital cities lie in East Africa?',
+    'Name a few megacities in South Asia.',
+    'Which places in this set are scientific stations?',
+  ],
   wikipedia: [
     'What led to the American Civil War?',
     'Who is Batman, and how was the character created?',

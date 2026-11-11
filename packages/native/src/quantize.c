@@ -33,7 +33,7 @@ typedef struct {
 } centred_summary;
 
 uint32_t code_bytes_of(uint32_t dimension, uint32_t bits) {
-  return ((dimension * bits) + (BITS_PER_BYTE - 1)) / BITS_PER_BYTE;
+  return (uint32_t)((((uint64_t)dimension * bits) + (BITS_PER_BYTE - 1)) / BITS_PER_BYTE);
 }
 
 uint32_t narsil_record_bytes(uint32_t dimension, uint32_t bits) {
@@ -221,6 +221,7 @@ void prepare_code_with_bits(narsil_workspace *workspace, const narsil_store *sto
   code->bits = query_bits;
   quantise_vector(workspace, store, metric, vector, code->bits, &quantised);
   code->range = quantised.range;
+  code->step = (code->range.upper - code->range.lower) / (double)((1U << code->bits) - 1);
   code->correction = quantised.correction;
   fill_levels(store, quantised.centred, code);
 }

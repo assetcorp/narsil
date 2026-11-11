@@ -3,9 +3,13 @@ import type { LayoutUpgradeEvent } from '../persistence/durability/earlier-layou
 import type { IndexDurabilityHooks } from '../persistence/durability/types'
 import type { IndexMetadata } from '../types/internal'
 import type { HeldCheckpointReport } from '../types/memory'
-import type { IndexRegistryEntry } from './core'
+import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
+import type { WorkerOrchestrator } from './orchestration'
+import { scheduleSyncRetention } from './sync/retention'
+
+export { createInvalidationFromConfig } from './invalidation'
 
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
@@ -16,6 +20,7 @@ interface DurabilityWiring {
   emitCheckpointHeld: (report: HeldCheckpointReport) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
   recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number) => void
+  engineCore: () => EngineCore
   queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
   awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']
 }
@@ -47,5 +52,29 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     onLayoutUpgrade: wiring.emitLayoutUpgrade,
     onCheckpointHeld: wiring.emitCheckpointHeld,
     onFatalError: wiring.emitFatalError,
+    keepsSyncHistory: indexName => wiring.indexRegistry.get(indexName)?.sync?.active === true,
+    onHistoryMoved(indexName) {
+      if (wiring.indexRegistry.get(indexName)?.sync?.active !== true) return
+      try {
+        scheduleSyncRetention(wiring.engineCore(), indexName)
+      } catch (error) {
+        wiring.emitFatalError(error instanceof Error ? error : new Error(String(error)))
+      }
+    },
   })
+}
+
+export async function reloadIndexAndCopies(
+  orchestrator: WorkerOrchestrator,
+  durability: DurabilityIntegration | null,
+  indexName: string,
+): Promise<void> {
+  const manager = durability?.manager
+  if (manager?.reloadIndex === undefined) return
+  const wasScaledOut = orchestrator.desyncIndex(indexName)
+  try {
+    await manager.reloadIndex(indexName)
+  } finally {
+    await orchestrator.resyncIndex(indexName, wasScaledOut)
+  }
 }

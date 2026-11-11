@@ -1,9 +1,10 @@
+import { log } from '../math/log'
 import type { BM25FieldParams, BM25Params } from '../types/schema'
 import { DEFAULT_BM25_B, DEFAULT_BM25_K1, MAX_BM25_B, MAX_BM25_K1 } from './constants'
 
 export function computeIDF(docFrequency: number, totalDocs: number): number {
   if (totalDocs === 0) return 0
-  return Math.log((totalDocs - docFrequency + 0.5) / (docFrequency + 0.5) + 1)
+  return log((totalDocs - docFrequency + 0.5) / (docFrequency + 0.5) + 1)
 }
 
 function pairKeepsBoundSound(k1: number, b: number): boolean {

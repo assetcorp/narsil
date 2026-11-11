@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { manifestKey } from '../../../persistence/durability/segment/layout'
-import { encodeSegmentManifest, type FileRef } from '../../../persistence/durability/segment/manifest'
+import type { FileRef } from '../../../persistence/durability/segment/manifest'
+import { encodeSegmentManifest } from '../../../persistence/durability/segment/manifest-encode'
 import { directoryCheckpointStore } from '../../../persistence/durability/segment/store'
 import {
   GRAPH_PART_ENVELOPE_VERSION,
