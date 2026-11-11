@@ -1,6 +1,6 @@
 [package]
 name = "delali-narsil"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Create, change, and search a Narsil index inside a Rust program, with full-text, vector, and hybrid search on Narsil's native core."
