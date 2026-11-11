@@ -1,6 +1,6 @@
 [project]
 name = "narsil-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python client for the Narsil search server, with a typed method for every HTTP operation, failover between cluster nodes, and task polling."
 readme = "README.md"
 requires-python = ">=3.11"
