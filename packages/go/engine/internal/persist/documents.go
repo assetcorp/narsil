@@ -141,7 +141,7 @@ func stripVectors(document map[string]any, paths map[string]int) (map[string]any
 	return document, vectors
 }
 
-func entryFor(write Write, indexName string, partitionID uint32, seqNo uint64) (wal.Entry, error) {
+func entryFor(write Write, indexName string, partitionID uint32, seqNo uint64, held heldDocuments) (wal.Entry, error) {
 	entry := wal.Entry{SeqNo: seqNo, PrimaryTerm: SingleNodePrimaryTerm, PartitionID: partitionID,
 		IndexName: indexName, DocumentID: write.DocumentID, Operation: wal.OperationDelete}
 	if !write.deletes() {
@@ -160,6 +160,7 @@ func entryFor(write Write, indexName string, partitionID uint32, seqNo uint64) (
 		entry.Operation = wal.OperationIndex
 		entry.Document = logged
 	}
+	held.record(&entry)
 	return wal.Build(entry), nil
 }
 

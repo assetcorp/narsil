@@ -58,6 +58,18 @@ func (segment Segment) JSONValue() (map[string]any, error) {
 			}
 			record["document"] = document
 		}
+		switch entry.Previous {
+		case PreviousDocumentNone:
+			record[previousDocumentKey] = nil
+		case PreviousDocumentHeld:
+			previous, err := codec.Unmarshal(entry.PreviousDocument, codec.DecodeOptions{
+				ErrorCode: narsilerr.CodePersistenceWalCorrupt,
+			})
+			if err != nil {
+				return nil, err
+			}
+			record[previousDocumentKey] = previous
+		}
 		records[index] = record
 	}
 	return map[string]any{"walFormatVersion": float64(segment.FormatVersion), "records": records}, nil
@@ -95,10 +107,36 @@ func SegmentFromJSON(value map[string]any) (Segment, error) {
 			}
 			entry.Document = document
 		}
+		if err := readPreviousDocumentForm(record, index, &entry); err != nil {
+			return Segment{}, err
+		}
 		if fields.Err() != nil {
 			return Segment{}, fields.Err()
 		}
 		segment.Entries = append(segment.Entries, Build(entry))
 	}
 	return segment, nil
+}
+
+func readPreviousDocumentForm(record *form.Fields, index int, entry *Entry) error {
+	if !record.Has(previousDocumentKey) {
+		return nil
+	}
+	raw := record.Value(previousDocumentKey)
+	if raw == nil {
+		entry.Previous = PreviousDocumentNone
+		return nil
+	}
+	body, isMap := raw.(map[string]any)
+	if !isMap {
+		return narsilerr.New(form.CodeJSONForm,
+			"The log segment JSON form holds record "+strconv.Itoa(index)+" whose previousDocument is not an object or null", nil)
+	}
+	previous, err := codec.EncodeDocument(body)
+	if err != nil {
+		return narsilerr.Wrap(form.CodeJSONForm,
+			"The log segment JSON form holds record "+strconv.Itoa(index)+" whose previousDocument fails to encode", err, nil)
+	}
+	entry.Previous, entry.PreviousDocument = PreviousDocumentHeld, previous
+	return nil
 }

@@ -49,16 +49,6 @@ func (durable *Durable) unlockLayout(partitions []*partitionLog) {
 	durable.layoutMutex.Unlock()
 }
 
-func (durable *Durable) newPartitionLog(partitionID int) *partitionLog {
-	log := &partitionLog{}
-	if durable.manager.logged() {
-		log.writer = writeahead.NewWriter(writeahead.Config{Directory: durable.manager.directory,
-			IndexName: durable.handle.Name, PartitionID: uint32(partitionID),
-			SegmentMaxBytes: durable.manager.settings.SegmentMaxBytes})
-	}
-	return log
-}
-
 func (durable *Durable) installLayout(swap IndexSwap) swappedLayout {
 	previous := swappedLayout{index: durable.handle.Index, detached: durable.handle.NewDetachedIndex,
 		partitions: durable.partitions}
@@ -192,6 +182,7 @@ func (handle *Handle) ApplyTo(ctx context.Context, target *index.Index, writes [
 type BufferedLog struct {
 	durable *Durable
 	next    []uint64
+	held    map[int]heldDocuments
 }
 
 func (durable *Durable) BeginBufferedLog() *BufferedLog {
@@ -203,7 +194,7 @@ func (durable *Durable) BeginBufferedLog() *BufferedLog {
 		next[partitionID] = log.applied
 		log.mutex.Unlock()
 	}
-	return &BufferedLog{durable: durable, next: next}
+	return &BufferedLog{durable: durable, next: next, held: map[int]heldDocuments{}}
 }
 
 func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) error {
@@ -233,7 +224,7 @@ func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) error {
 			continue
 		}
 		log := durable.partitions[partitionID]
-		logged, err := buffered.appendGroup(log, partitionID, groups[partitionID])
+		logged, err := buffered.appendGroup(ctx, log, partitionID, groups[partitionID])
 		if err != nil {
 			return err
 		}
@@ -247,12 +238,30 @@ func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) error {
 	return nil
 }
 
-func (buffered *BufferedLog) appendGroup(log *partitionLog, partitionID int, group []Write) (int64, error) {
+func (buffered *BufferedLog) heldFor(ctx context.Context, log *partitionLog, partitionID int,
+	group []Write) (heldDocuments, error) {
+	if log.writer == nil || !buffered.durable.handle.recordsPreviousDocuments() {
+		return nil, nil
+	}
+	held, found := buffered.held[partitionID]
+	if !found {
+		held = heldDocuments{}
+		buffered.held[partitionID] = held
+	}
+	return held, buffered.durable.handle.holdDocumentsBefore(ctx, held, group)
+}
+
+func (buffered *BufferedLog) appendGroup(ctx context.Context, log *partitionLog, partitionID int,
+	group []Write) (int64, error) {
 	durable := buffered.durable
 	log.mutex.Lock()
 	defer log.mutex.Unlock()
 	if log.failed != nil {
 		return 0, log.failed
+	}
+	held, err := buffered.heldFor(ctx, log, partitionID, group)
+	if err != nil {
+		return 0, err
 	}
 	entries := make([]wal.Entry, 0, len(group))
 	var documentBytes int64
@@ -261,11 +270,11 @@ func (buffered *BufferedLog) appendGroup(log *partitionLog, partitionID int, gro
 		if log.writer == nil {
 			continue
 		}
-		entry, err := entryFor(write, durable.handle.Name, uint32(partitionID), buffered.next[partitionID])
+		entry, err := entryFor(write, durable.handle.Name, uint32(partitionID), buffered.next[partitionID], held)
 		if err != nil {
 			return 0, durable.failPartition(log, err)
 		}
-		documentBytes += int64(len(entry.Document))
+		documentBytes += int64(len(entry.Document) + len(entry.PreviousDocument))
 		entries = append(entries, entry)
 	}
 	if log.writer != nil && len(entries) > 0 {

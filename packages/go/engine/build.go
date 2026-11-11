@@ -24,7 +24,7 @@ type buildRequest struct {
 	strictWords   bool
 	embedder      model.EmbeddingAdapter
 	embeddingName string
-	sync          *syncState
+	sync          *feedState
 }
 
 func (n *Narsil) resolveAnalysis(config model.IndexConfig) (analysis.Settings, analysisSettings, error) {
@@ -148,6 +148,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		},
 		NewDetachedIndex: detachedBuilder(indexSettings, built),
 		SyncHistoryMoved: func() { n.syncRetention.schedule(n, request.name) },
+		RecordsPrevious:  entry.sync.recordsPreviousDocuments,
 	}
 	entry.swap.adopt(built, indexSettings)
 	return entry, nil

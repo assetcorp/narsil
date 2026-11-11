@@ -121,7 +121,7 @@ type suggestionsView struct {
 
 func viewOfEntry(entry *indexEntry) suggestionsView {
 	return suggestionsView{state: entry.suggestions.current(), schema: flatSchemaOf(entry.parsed),
-		language: entry.analysis.language, hasSync: entry.sync.current() != nil}
+		language: entry.analysis.language, hasSync: entry.sync.syncOn() != nil}
 }
 
 func (n *Narsil) suggestionsViewOf(indexName string) (suggestionsView, bool) {
