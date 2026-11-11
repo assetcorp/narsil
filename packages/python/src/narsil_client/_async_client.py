@@ -9,8 +9,10 @@ import anyio
 import httpx
 from pydantic import BaseModel
 
+from narsil_client._async_change_feed import AsyncChangeSubscription
 from narsil_client._async_operations import AsyncOperations
 from narsil_client._async_transport import AsyncTransport
+from narsil_client._change_messages import PositionInput
 from narsil_client._errors import DOC_NOT_FOUND, NOT_FOUND, TASK_NOT_FOUND, NarsilError
 from narsil_client._exchange import Exchange, ndjson, path_segment
 from narsil_client._helpers import (
@@ -299,6 +301,37 @@ class AsyncNarsilClient(AsyncOperations):
         """Replaces many documents in one request. Each update holds a `docId` and a `document`."""
         body = batch_body("update", "updates", updates, options)
         return await self.write_batch(name, body, timeout_ms=timeout_ms, headers=headers)
+
+    def follow_changes(
+        self,
+        name: str,
+        *,
+        epoch: str | None = None,
+        positions: Iterable[PositionInput] | None = None,
+        filter: BaseModel | Mapping[str, Any] | None = None,
+        credential: str | None = None,
+        max_message_bytes: int | None = None,
+    ) -> AsyncChangeSubscription:
+        """Returns a subscription to the change feed of an index, which connects when you enter it with `async with`.
+
+        It takes the same arguments and follows the same rules as :meth:`NarsilClient.follow_changes`, and it works
+        under asyncio or trio. Await :meth:`AsyncChangeSubscription.ack` with each saved position.
+
+        Raises:
+            NarsilError: `CHANGES_INVALID_POSITIONS` for one of `epoch` and `positions` without the other or for a
+                malformed position, and `CONFIG_INVALID` without the `changes` extra. Entering the subscription
+                raises the server's code when it refuses the upgrade, and the iteration raises the codes that
+                :meth:`NarsilClient.follow_changes` lists.
+        """
+        return AsyncChangeSubscription(
+            self._transport.core,
+            name,
+            epoch=epoch,
+            positions=positions,
+            filter=filter,
+            credential=credential,
+            max_message_bytes=max_message_bytes,
+        )
 
     async def remove_batch(
         self,

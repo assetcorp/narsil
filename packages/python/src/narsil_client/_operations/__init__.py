@@ -1,5 +1,6 @@
 """Generated from packages/ts/openapi.json by packages/python/generator. Do not edit."""
 
+from narsil_client._operations.changes import ChangesOperations
 from narsil_client._operations.cluster import ClusterOperations
 from narsil_client._operations.documents import DocumentsOperations
 from narsil_client._operations.indexes import IndexesOperations
@@ -20,6 +21,7 @@ class Operations(
     SearchOperations,
     MaintenanceOperations,
     SyncOperations,
+    ChangesOperations,
     QuerySuggestionsOperations,
 ):
     """These methods call every route of a Narsil server, one method for each route."""
