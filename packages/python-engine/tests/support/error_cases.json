@@ -503,5 +503,7 @@
   ["createNarsil", [{ "lifecycle": { "maxOpenIndexes": null } }]],
   ["createNarsil", [{ "memory": { "blockWritesAbove": null } }]],
   ["createNarsil", [{ "workers": { "enabled": false, "count": null } }]],
-  ["createNarsil", [{ "rerankTimeout": null }]]
+  ["createNarsil", [{ "rerankTimeout": null }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "text": null } }]],
+  ["preflight", ["docs", { "vector": { "field": "embedding", "text": 5 } }]]
 ]
