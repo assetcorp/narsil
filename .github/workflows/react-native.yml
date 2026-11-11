@@ -13,6 +13,8 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/react-native.yml'
       - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/react/**'
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +27,8 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/react-native.yml'
       - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/react/**'
 
 permissions:
   contents: read

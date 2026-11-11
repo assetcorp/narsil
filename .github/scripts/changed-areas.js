@@ -3,19 +3,29 @@ const { appendFileSync } = require('node:fs')
 
 const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
 const MISSING_COMMIT = /^0+$/
-const BENCHMARK_HARNESS_PREFIX = 'benchmarks/server/'
-const PATHS_OUTSIDE_TYPESCRIPT = [
-  'docs/',
-  'assets/',
-  'skills/',
-  'benchmarks/',
-  'packages/rust/',
-  'packages/go/engine/',
-  'packages/react-native/',
-  'packages/embeddings-transformers/',
-  '.github/workflows/',
-  '.github/scripts/',
-  '.github/ISSUE_TEMPLATE/',
+const AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness']
+const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
+
+const AREAS_BY_PREFIX = [
+  ['docs/', []],
+  ['assets/', []],
+  ['skills/', []],
+  ['benchmarks/server/', ['benchmark_harness']],
+  ['benchmarks/', []],
+  ['packages/rust/', []],
+  ['packages/go/engine/', []],
+  ['packages/react-native/', []],
+  ['packages/embeddings-transformers/', []],
+  ['packages/native/fuzz/', []],
+  ['packages/native/test/', []],
+  ['packages/conformance/samples/earlier-releases/', ['typescript', 'conformance']],
+  ['packages/conformance/', ['conformance']],
+  ['packages/certutil/', ['check']],
+  ['packages/python/', ['check']],
+  ['packages/go/', ['check']],
+  ['.github/workflows/', []],
+  ['.github/scripts/', []],
+  ['.github/ISSUE_TEMPLATE/', []],
 ]
 
 const git = args => execFileSync('git', args, { encoding: 'utf8' })
@@ -36,7 +46,11 @@ const changedFiles = () => {
   return namesBetween(before, after)
 }
 
-const isMarkdown = path => path.endsWith('.md')
+const areasOf = path => {
+  if (path.endsWith('.md')) return []
+  const rule = AREAS_BY_PREFIX.find(([prefix]) => path.startsWith(prefix))
+  return rule === undefined ? TYPESCRIPT_AREAS : rule[1]
+}
 
 const writeOutput = (key, value) => {
   console.log(`${key}=${value}`)
@@ -52,23 +66,20 @@ const main = () => {
     console.log(`Reading the changed files failed, so every area counts as changed: ${error.message}`)
   }
 
+  const workflow = process.env.WORKFLOW_FILE ?? ''
+  const touched = new Set()
   if (files === null) {
     console.log('This event lists no changed files, so every area counts as changed.')
-    writeOutput('typescript', 'true')
-    writeOutput('benchmark_harness', 'true')
-    return
+    for (const area of AREAS) touched.add(area)
+  } else {
+    console.log(`Changed files:\n${files.join('\n')}`)
+    for (const path of files) {
+      const areas = path === workflow || path === AREAS_SCRIPT ? AREAS : areasOf(path)
+      for (const area of areas) touched.add(area)
+    }
   }
 
-  console.log(`Changed files:\n${files.join('\n')}`)
-  const workflow = process.env.WORKFLOW_FILE ?? ''
-  const definitionChanged = files.some(path => path === workflow || path === AREAS_SCRIPT)
-  const typescript = files.some(
-    path => !isMarkdown(path) && !PATHS_OUTSIDE_TYPESCRIPT.some(prefix => path.startsWith(prefix)),
-  )
-  const benchmarkHarness = files.some(path => !isMarkdown(path) && path.startsWith(BENCHMARK_HARNESS_PREFIX))
-
-  writeOutput('typescript', String(definitionChanged || typescript))
-  writeOutput('benchmark_harness', String(definitionChanged || benchmarkHarness))
+  for (const area of AREAS) writeOutput(area, String(touched.has(area)))
 }
 
 main()
