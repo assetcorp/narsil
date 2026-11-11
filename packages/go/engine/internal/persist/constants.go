@@ -33,3 +33,8 @@ const (
 	MergedSegmentGrowthAllowance         = 1.01
 	ColdLoadWaitWithoutSearch            = 400 * time.Millisecond
 )
+
+const (
+	RewriteAboveRemovedDocumentShare         = 0.2
+	RemovedDocumentRewriteBytesPerCheckpoint = 268_435_456
+)

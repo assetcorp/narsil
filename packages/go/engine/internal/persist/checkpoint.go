@@ -146,6 +146,7 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 		held.seqNos[partitionID] = log.applied
 	}
 	durable.planPartitions(prior, logged, options, &held)
+	held.live = durable.liveDocumentCounts(ctx, &held)
 	vectors, err := planVectors(ctx, durable.handle, prior, consistent)
 	if err != nil {
 		return held, err
@@ -287,13 +288,16 @@ func (durable *Durable) commitCheckpoint(ctx context.Context, store checkpoint.S
 	if err != nil {
 		return manifest.Manifest{}, err
 	}
-	if err := compactWritten(ctx, store, durable.handle, prior, &written,
-		durable.manager.settings.CompactionThreshold, durable.textStoredOnDisk()); err != nil {
+	rewritten, err := compactWritten(ctx, store, durable.handle, prior, &written,
+		durable.manager.settings.CompactionThreshold, durable.textStoredOnDisk(), held.live)
+	if err != nil {
 		return manifest.Manifest{}, err
 	}
+	held.rewritten = rewritten
 	if err := checkpoint.CommitManifest(ctx, store, durable.handle.Name, written); err != nil {
 		return manifest.Manifest{}, err
 	}
+	durable.manager.sizes.recordSaved(durable.handle.Name, savedSizeOf(written.Manifest))
 	if err := written.Record(ctx); err != nil {
 		return written.Manifest, err
 	}

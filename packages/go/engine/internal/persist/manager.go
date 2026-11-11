@@ -45,6 +45,7 @@ type Manager struct {
 	store     checkpoint.Store
 	lock      *storage.DirectoryLock
 	identity  string
+	sizes     *storedSizes
 
 	mutex   sync.Mutex
 	indexes map[string]*Durable
@@ -72,7 +73,7 @@ func Open(ctx context.Context, settings Settings, hooks Hooks) (*Manager, error)
 		settings.CompactionThreshold = DefaultCompactionThreshold
 	}
 	manager := &Manager{settings: settings, hooks: hooks, indexes: map[string]*Durable{},
-		stop: make(chan struct{}), wake: make(chan struct{}, 1)}
+		stop: make(chan struct{}), wake: make(chan struct{}, 1), sizes: newStoredSizes()}
 	switch {
 	case settings.Directory != "":
 		directory, err := storage.OpenDirectory(settings.Directory)
@@ -88,6 +89,7 @@ func Open(ctx context.Context, settings Settings, hooks Hooks) (*Manager, error)
 			lock.Release()
 			return nil, err
 		}
+		directory.TrackSizes(manager.sizes)
 		manager.directory, manager.lock, manager.identity = directory, lock, identity
 		manager.store = checkpoint.DirectoryStore{Directory: directory}
 	case settings.Adapter != nil:
