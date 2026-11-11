@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
@@ -301,6 +302,29 @@ def listener_off_refused() -> Outcome:
     return {**finish(engine, outer, inner.outcomes), "removed": removed, "events": len(events)}
 
 
+class ArchiveSource:
+    def __init__(self, archive: bytes, on_read: Callable[[], None]) -> None:
+        self.data = io.BytesIO(archive)
+        self.on_read = on_read
+
+    def read(self, size: int) -> bytes:
+        self.on_read()
+        return self.data.read(size)
+
+
+def restore_source_refused() -> Outcome:
+    holder: list[Narsil] = []
+    inner = Once(lambda: holder[0].drop_index(INDEX))
+    engine = Narsil()
+    holder.append(engine)
+    engine.create_index(INDEX, {"schema": SCHEMA})
+    engine.insert(INDEX, note("archived words"), "archived")
+    archive = engine.snapshot(INDEX)
+    assert archive is not None
+    outer = outcome_of(lambda: engine.restore(INDEX, ArchiveSource(archive, inner)))
+    return finish(engine, outer, inner.outcomes)
+
+
 SCENARIOS: dict[str, Callable[[], Outcome]] = {
     "tokenizer_refused": tokenizer_refused,
     "tokenizer_propagated": tokenizer_propagated,
@@ -314,6 +338,7 @@ SCENARIOS: dict[str, Callable[[], Outcome]] = {
     "listener_allowed": listener_allowed,
     "rerank_allowed": rerank_allowed,
     "listener_off_refused": listener_off_refused,
+    "restore_source_refused": restore_source_refused,
 }
 
 

@@ -19,12 +19,19 @@ const QUANTIZATIONS: [(&str, Quantization); 5] = [
     ("osq1", Quantization::Osq1),
     ("none", Quantization::None),
 ];
+const PARTITION_KEYS_REFUSING_NONE: [&str; 3] =
+    ["maxDocsPerPartition", "maxPartitions", "watermark"];
+const INDEX_KEYS_REFUSING_NONE: [&str; 4] =
+    ["bm25", "textStorage", "patternValueLimit", "synonyms"];
+const PROMOTION_KEYS_REFUSING_NONE: [&str; 3] = ["threshold", "quantization", "storage"];
+const GRAPH_KEYS_REFUSING_NONE: [&str; 3] = ["m", "efConstruction", "metric"];
 
 pub(crate) fn partition_config(
     value: &Bound<'_, PyAny>,
     label: &str,
 ) -> Result<PartitionConfig, NarsilError> {
     let mut fields = Fields::of(value, label)?;
+    fields.refuse_each_none(&PARTITION_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let config = PartitionConfig {
         max_docs_per_partition: fields.whole("maxDocsPerPartition")?,
         max_partitions: fields.whole("maxPartitions")?,
@@ -35,9 +42,11 @@ pub(crate) fn partition_config(
 }
 
 fn vector_promotion(mut fields: Fields<'_>) -> Result<VectorPromotion, NarsilError> {
+    fields.refuse_each_none(&PROMOTION_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let hnsw = match fields.fields("hnswConfig")? {
         None => None,
         Some(mut graph) => {
+            graph.refuse_each_none(&GRAPH_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
             let settings = HnswSettings {
                 m: graph.whole_u32("m")?,
                 ef_construction: graph.whole_u32("efConstruction")?,
@@ -127,6 +136,7 @@ pub(crate) fn index_config(
             format!("{label}.schema is required"),
         )
     })?;
+    fields.refuse_each_none(&INDEX_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let partitions_path = fields.path("partitions");
     let bm25_path = fields.path("bm25");
     let stop_words_path = fields.path("stopWords");
@@ -163,10 +173,16 @@ pub(crate) fn index_config(
             .transpose()?,
         strict: fields.boolean("strict")?,
         embedding: fields
-            .fields("embedding")?
-            .map(|embedding_fields| embedding(embedding_fields, &embedding_path))
-            .transpose()?,
-        required: fields.strings("required")?,
+            .fields("embedding")
+            .and_then(|embedding_fields| {
+                embedding_fields
+                    .map(|embedding_fields| embedding(embedding_fields, &embedding_path))
+                    .transpose()
+            })
+            .map_err(recoded(ErrorCode::EMBEDDING_CONFIG_INVALID))?,
+        required: fields
+            .strings("required")
+            .map_err(recoded(ErrorCode::EMBEDDING_CONFIG_INVALID))?,
         surface_forms: fields.boolean("surfaceForms")?,
         pattern_value_limit: fields.whole("patternValueLimit")?,
         synonyms: fields

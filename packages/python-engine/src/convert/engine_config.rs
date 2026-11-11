@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use narsil::{
     AnalysisConfig, AnalysisRebuildMode, DurabilityConfig, DurabilityMode, DurabilityTier,
-    EmbeddingAdapter, IndexLifecycleConfig, MainCopyQueries, MemoryConfig, NarsilConfig,
+    EmbeddingAdapter, ErrorCode, IndexLifecycleConfig, MainCopyQueries, MemoryConfig, NarsilConfig,
     NarsilError, NarsilEventKind, Plugin, QuerySuggestionsConfig, RerankAdapter, StopWords,
     Tokenizer, WorkerConfig,
 };
@@ -19,6 +19,40 @@ use crate::callbacks::plugins::PythonPlugin;
 use crate::callbacks::retained::Retained;
 use crate::errors::config_invalid;
 
+const ENGINE_KEYS_REFUSING_NONE: [&str; 9] = [
+    "patternWorkCap",
+    "lifecycle",
+    "memory",
+    "rerankTimeout",
+    "maxRerankWindow",
+    "plugins",
+    "tokenizers",
+    "stopWords",
+    "events",
+];
+const DURABILITY_KEYS_REFUSING_NONE: [&str; 7] = [
+    "tier",
+    "mode",
+    "flushIntervalMs",
+    "segmentMaxBytes",
+    "checkpointIntervalMs",
+    "checkpointMutationThreshold",
+    "compactionThreshold",
+];
+const WORKER_KEYS_REFUSING_NONE: [&str; 4] = [
+    "count",
+    "promotionThreshold",
+    "idleTimeoutMs",
+    "mainCopyQueries",
+];
+const LIFECYCLE_KEYS_REFUSING_NONE: [&str; 4] = [
+    "idleTimeoutMs",
+    "maxOpenIndexes",
+    "maxOpenBytes",
+    "maxReopenWaiters",
+];
+const MEMORY_KEYS_REFUSING_NONE: [&str; 2] = ["blockWritesAbove", "resumeWritesBelow"];
+
 #[derive(Default)]
 pub(crate) struct EngineSetup {
     pub(crate) config: NarsilConfig,
@@ -31,6 +65,7 @@ pub(crate) struct EngineSetup {
 }
 
 fn durability(mut fields: Fields<'_>) -> Result<DurabilityConfig, NarsilError> {
+    fields.refuse_each_none(&DURABILITY_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let directory_path = fields.path("directory");
     let directory = match fields.get("directory")? {
         None => None,
@@ -67,6 +102,7 @@ fn durability(mut fields: Fields<'_>) -> Result<DurabilityConfig, NarsilError> {
 }
 
 fn workers(mut fields: Fields<'_>) -> Result<WorkerConfig, NarsilError> {
+    fields.refuse_each_none(&WORKER_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let config = WorkerConfig {
         enabled: fields.boolean("enabled")?,
         count: fields.whole("count")?,
@@ -85,6 +121,7 @@ fn workers(mut fields: Fields<'_>) -> Result<WorkerConfig, NarsilError> {
 }
 
 fn lifecycle(mut fields: Fields<'_>) -> Result<IndexLifecycleConfig, NarsilError> {
+    fields.refuse_each_none(&LIFECYCLE_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let config = IndexLifecycleConfig {
         idle_timeout_ms: fields.whole("idleTimeoutMs")?,
         max_open_indexes: fields.whole("maxOpenIndexes")?,
@@ -96,6 +133,7 @@ fn lifecycle(mut fields: Fields<'_>) -> Result<IndexLifecycleConfig, NarsilError
 }
 
 fn memory(mut fields: Fields<'_>) -> Result<MemoryConfig, NarsilError> {
+    fields.refuse_each_none(&MEMORY_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let config = MemoryConfig {
         block_writes_above: fields.number("blockWritesAbove")?,
         resume_writes_below: fields.number("resumeWritesBelow")?,
@@ -177,6 +215,8 @@ pub(crate) fn engine_setup(value: Option<&Bound<'_, PyAny>>) -> Result<EngineSet
         return Ok(EngineSetup::default());
     };
     let mut fields = Fields::of(value, "config")?;
+    fields.refuse_each_none(&ENGINE_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
+    fields.refuse_none("persistence", ErrorCode::PERSISTENCE_LOAD_FAILED)?;
     let persistence_path = fields.path("persistence");
     let generator_path = fields.path("idGenerator");
     let plugins_path = fields.path("plugins");

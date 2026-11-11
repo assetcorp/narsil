@@ -1,6 +1,9 @@
-use narsil::{NarsilError, Value};
+use narsil::{ErrorCode, NarsilError, Value};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyMapping, PyString, PyTuple};
+use pyo3::types::{
+    PyBool, PyByteArray, PyBytes, PyDict, PyFloat, PyFrozenSet, PyInt, PyList, PyMapping, PySet,
+    PyString, PyTuple,
+};
 
 use super::value::{ValueSource, to_value};
 use crate::constants::MAX_SAFE_INTEGER;
@@ -74,6 +77,31 @@ impl<'py> Fields<'py> {
         self.dict
             .get_item(key)
             .map_err(|error| config_invalid(format!("{} cannot be read: {error}", self.path(key))))
+    }
+
+    pub(crate) fn refuse_none(
+        &mut self,
+        key: &'static str,
+        code: ErrorCode,
+    ) -> Result<(), NarsilError> {
+        if self.present(key)?.is_some_and(|value| value.is_none()) {
+            return Err(NarsilError::new(
+                code,
+                format!(
+                    "{} is None, so leave the key out or give it a value",
+                    self.path(key)
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn refuse_each_none(
+        &mut self,
+        keys: &[&'static str],
+        code: ErrorCode,
+    ) -> Result<(), NarsilError> {
+        keys.iter().try_for_each(|key| self.refuse_none(key, code))
     }
 
     pub(crate) fn string(&mut self, key: &'static str) -> Result<Option<String>, NarsilError> {
@@ -307,9 +335,11 @@ pub(crate) fn items_of<'py>(
     if let Ok(tuple) = value.cast::<PyTuple>() {
         return Ok(tuple.iter().collect());
     }
-    if value.cast::<PyString>().is_err()
-        && let Ok(iterator) = value.try_iter()
-    {
+    let text_bytes_or_mapping = value.cast::<PyString>().is_ok()
+        || value.cast::<PyBytes>().is_ok()
+        || value.cast::<PyByteArray>().is_ok()
+        || value.cast::<PyMapping>().is_ok();
+    if !text_bytes_or_mapping && let Ok(iterator) = value.try_iter() {
         return iterator
             .collect::<PyResult<Vec<_>>>()
             .map_err(|error| config_invalid(format!("{path} cannot be read as a list: {error}")));
@@ -338,6 +368,12 @@ pub(crate) fn floats_of(value: &Bound<'_, PyAny>, path: &str) -> Result<Vec<f32>
     } else {
         value
     };
+    if source.cast::<PySet>().is_ok() || source.cast::<PyFrozenSet>().is_ok() {
+        return Err(config_invalid(format!(
+            "{path} must be a list of numbers, and it is a {}, which holds its numbers in no fixed order",
+            kind_of(source)
+        )));
+    }
     items_of(source, path)?
         .iter()
         .enumerate()

@@ -14,9 +14,25 @@ const EVEN_SCORES = { rerank: async (_query, documents) => documents.map(() => 1
 const METHODS = { importDocuments: 'importDocumentExport' }
 const BYTE_ARGUMENTS = new Set(['restore', 'importDocuments'])
 
+const WORKERS_OFF = { workers: { enabled: false } }
+
+async function engineOutcome(config) {
+  try {
+    const narsil = await createNarsil({ ...WORKERS_OFF, ...config })
+    await narsil.shutdown()
+    return 'ok'
+  } catch (error) {
+    return error?.code ?? `raw:${error?.constructor?.name}`
+  }
+}
+
 const outcomes = []
 for (const [method, args] of cases) {
-  const narsil = await createNarsil({ workers: { enabled: false } })
+  if (method === 'createNarsil') {
+    outcomes.push(await engineOutcome(args[0]))
+    continue
+  }
+  const narsil = await createNarsil(WORKERS_OFF)
   try {
     narsil.registerRerankAdapter('rank', EVEN_SCORES)
     await narsil.createIndex('docs', { schema: SCHEMA })

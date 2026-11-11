@@ -22,6 +22,7 @@ SEED = [
     {"id": "seed-2", "title": "loud river", "year": 2001, "tags": ["b"], "embedding": [0, 1, 0]},
 ]
 BYTE_ARGUMENTS = {"restore", "importDocuments"}
+WORKERS_OFF = {"workers": {"enabled": False}}
 PYTHON_METHODS = {"importDocuments": "import_documents"}
 
 
@@ -53,7 +54,19 @@ def python_name(method: str) -> str:
     return PYTHON_METHODS.get(method) or re.sub(r"([A-Z])", lambda letter: "_" + letter.group(1).lower(), method)
 
 
+def engine_outcome(config: dict[str, Any]) -> str:
+    try:
+        Narsil({**WORKERS_OFF, **config}).shutdown()
+    except NarsilError as error:
+        return error.code
+    except Exception as error:
+        return f"raw:{type(error).__name__}"
+    return "ok"
+
+
 def python_outcome(method: str, arguments: list[Any]) -> str:
+    if method == "createNarsil":
+        return engine_outcome(arguments[0])
     passed = [arguments[0], arguments[1].encode()] if method in BYTE_ARGUMENTS else arguments
     with Narsil() as engine:
         engine.register_rerank_adapter("rank", EvenScores())

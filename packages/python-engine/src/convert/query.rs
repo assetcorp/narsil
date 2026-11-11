@@ -1,16 +1,25 @@
 use narsil::{
     Bm25FieldParams, Bm25Params, DocumentProjection, ErrorCode, FacetSpec, GroupConfig,
-    HighlightConfig, HybridConfig, HybridStrategy, Metric, NarsilError, Pin, QueryParams,
-    RerankConfig, ScoringMode, SearchMode, SortDirection, SortField, SortMode, TermMatch, Value,
-    VectorQuery,
+    HighlightConfig, HybridStrategy, Metric, NarsilError, Pin, QueryParams, ScoringMode,
+    SearchMode, SortDirection, SortField, SortMode, TermMatch, Value,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyString};
 
-use super::fields::{Fields, choice_of, floats_of, items_of, number_of, string_of, whole_of};
+use super::fields::{Fields, choice_of, items_of, number_of, string_of, whole_of};
+use super::search_clauses::{hybrid, rerank, vector};
 use super::value::{ValueSource, to_value};
 use crate::callbacks::reducer::group_reducer;
 use crate::errors::{config_invalid, recoded};
+
+const QUERY_KEYS_REFUSING_NONE: [(&str, ErrorCode); 6] = [
+    ("bm25", ErrorCode::CONFIG_INVALID),
+    ("tolerance", ErrorCode::CONFIG_INVALID),
+    ("prefixLength", ErrorCode::CONFIG_INVALID),
+    ("partialWords", ErrorCode::CONFIG_INVALID),
+    ("mode", ErrorCode::SEARCH_INVALID_MODE),
+    ("rerank", ErrorCode::RERANK_CONFIG_INVALID),
+];
 
 pub(crate) const SCORING_MODES: [(&str, ScoringMode); 3] = [
     ("local", ScoringMode::Local),
@@ -41,6 +50,7 @@ pub(crate) const HYBRID_STRATEGIES: [(&str, HybridStrategy); 2] = [
 ];
 
 fn bm25_pair(fields: &mut Fields<'_>) -> Result<Bm25FieldParams, NarsilError> {
+    fields.refuse_each_none(&["k1", "b"], ErrorCode::CONFIG_INVALID)?;
     Ok(Bm25FieldParams {
         k1: fields.number("k1")?,
         b: fields.number("b")?,
@@ -52,6 +62,7 @@ pub(crate) fn bm25_params(
     label: &str,
 ) -> Result<Bm25Params, NarsilError> {
     let mut fields = Fields::of(value, label)?;
+    fields.refuse_none("fields", ErrorCode::CONFIG_INVALID)?;
     let pair = bm25_pair(&mut fields)?;
     let per_field = match fields.fields("fields")? {
         None => None,
@@ -207,63 +218,6 @@ fn pins(value: &Bound<'_, PyAny>, label: &str) -> Result<Vec<Pin>, NarsilError> 
     Ok(parsed)
 }
 
-fn vector(mut fields: Fields<'_>) -> Result<VectorQuery, NarsilError> {
-    let field = fields
-        .string("field")
-        .map_err(recoded(ErrorCode::SEARCH_INVALID_FIELD))?
-        .ok_or_else(|| {
-            NarsilError::new(
-                ErrorCode::SEARCH_INVALID_MODE,
-                format!("{} is required", fields.path("field")),
-            )
-        })?;
-    let path = fields.path("value");
-    let value = fields
-        .get("value")?
-        .map(|value| floats_of(&value, &path))
-        .transpose()
-        .map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
-    let query = VectorQuery {
-        field,
-        value,
-        text: fields.string("text")?,
-        similarity: fields.number("similarity")?,
-        metric: fields.choice("metric", &METRICS)?,
-        ef_search: fields.whole_u32("efSearch")?,
-        oversample: fields.number("oversample")?,
-    };
-    fields.finish()?;
-    Ok(query)
-}
-
-fn hybrid(mut fields: Fields<'_>) -> Result<HybridConfig, NarsilError> {
-    let config = HybridConfig {
-        strategy: fields.choice("strategy", &HYBRID_STRATEGIES)?,
-        k: fields.number("k")?,
-        alpha: fields.number("alpha")?,
-        depth: fields.size("depth")?,
-    };
-    fields.finish()?;
-    Ok(config)
-}
-
-fn rerank(mut fields: Fields<'_>, label: &str) -> Result<RerankConfig, NarsilError> {
-    let refused = recoded(ErrorCode::RERANK_CONFIG_INVALID);
-    let config = RerankConfig {
-        adapter: fields.required_string("adapter").map_err(&refused)?,
-        fields: fields.strings("fields").map_err(&refused)?.ok_or_else(|| {
-            NarsilError::new(
-                ErrorCode::RERANK_CONFIG_INVALID,
-                format!("{label}.fields is required"),
-            )
-        })?,
-        query: fields.string("query").map_err(&refused)?,
-        window: fields.size("window").map_err(&refused)?,
-    };
-    fields.finish()?;
-    Ok(config)
-}
-
 pub(crate) fn projection(
     value: &Bound<'_, PyAny>,
     label: &str,
@@ -276,6 +230,7 @@ pub(crate) fn projection(
         });
     }
     let mut fields = Fields::of(value, label)?;
+    fields.refuse_each_none(&["include", "exclude"], ErrorCode::SEARCH_INVALID_FIELD)?;
     let projection = DocumentProjection::Fields {
         include: fields.strings("include")?,
         exclude: fields.strings("exclude")?,
@@ -305,6 +260,9 @@ pub(crate) fn query_params(
     label: &str,
 ) -> Result<QueryParams, NarsilError> {
     let mut fields = Fields::of(value, label)?;
+    for (key, code) in QUERY_KEYS_REFUSING_NONE {
+        fields.refuse_none(key, code)?;
+    }
     let boost = match fields.fields("boost")? {
         None => None,
         Some(boosts) => {

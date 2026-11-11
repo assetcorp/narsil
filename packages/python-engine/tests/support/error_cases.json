@@ -374,5 +374,134 @@
   ["compactVectors", ["docs", "nope"]],
   ["optimizeVectors", ["docs", "title"]],
   ["restore", ["docs", "not a snapshot"]],
-  ["importDocuments", ["docs", "{not json\n"]]
+  ["importDocuments", ["docs", "{not json\n"]],
+  ["query", ["docs", { "term": "river", "bm25": null }]],
+  ["query", ["docs", { "term": "river", "tolerance": null }]],
+  ["query", ["docs", { "term": "river", "prefixLength": null }]],
+  ["query", ["docs", { "term": "river", "partialWords": null }]],
+  ["query", ["docs", { "term": "river", "mode": null }]],
+  ["query", ["docs", { "term": "river", "rerank": null }]],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "query": null }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": null }
+      }
+    ]
+  ],
+  ["query", ["docs", { "vector": { "field": null, "value": [1, 0, 0] } }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": null } }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": {} } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "vector": { "field": "embedding", "value": [1, 0, 0], "text": null } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "vector": { "field": "embedding", "value": [1, 0, 0], "text": 5 } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": { "field": "embedding", "value": [1, 0, 0], "efSearch": null }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": {
+          "field": "embedding",
+          "value": [1, 0, 0],
+          "oversample": null
+        }
+      }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "bm25": { "k1": null } }]],
+  ["query", ["docs", { "term": "river", "document": { "include": null } }]],
+  ["listDocuments", ["docs", { "filters": null }]],
+  ["changeAnalysis", ["docs", { "language": null }]],
+  ["updatePartitionConfig", ["docs", { "watermark": null }]],
+  ["updateSync", ["docs", { "enabled": true, "historyMaxBytes": null }]],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "synonyms": null }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "textStorage": null }]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "partitions": { "maxPartitions": null }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "vectorPromotion": { "hnswConfig": { "m": null } }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string", "v": "vector[3]" },
+        "embedding": { "fields": { "v": 5 } }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string", "v": "vector[3]" },
+        "embedding": { "fields": { "v": "title" }, "adapter": 5 }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "required": [5] }]
+  ],
+  ["createNarsil", [{ "patternWorkCap": null }]],
+  ["createNarsil", [{ "persistence": null }]],
+  ["createNarsil", [{ "lifecycle": { "maxOpenIndexes": null } }]],
+  ["createNarsil", [{ "memory": { "blockWritesAbove": null } }]],
+  ["createNarsil", [{ "workers": { "enabled": false, "count": null } }]],
+  ["createNarsil", [{ "rerankTimeout": null }]]
 ]
