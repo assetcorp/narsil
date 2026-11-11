@@ -4682,6 +4682,14 @@
             "type": "number",
             "description": "Formula-based estimate of the index's main-thread memory footprint, summed across every partition and vector index for this index. Computed from structural counters (document count, posting counts, field-index sizes), not measured. Per-object V8 overhead (hidden classes, map transitions, GC headers) is not captured here, so this number routinely undershoots the real heap by a meaningful factor. Use Narsil.getMemoryStats when sizing host memory."
           },
+          "savedBytes": {
+            "type": "number",
+            "description": "The files that the index's current checkpoint lists hold this many bytes: the segment files of every partition, the vector files, and the graph parts. The figure changes only when a checkpoint commits, so an unchanged index reports the same size before and after a restart. An index that saves nothing reports no figure, and so does an index that lifecycle settings kept closed since this engine started."
+          },
+          "logBytes": {
+            "type": "number",
+            "description": "The index's write-ahead log and the history that it keeps for device sync hold this many bytes. The figure grows with every write, and it falls when the engine deletes log or history files. It is absent whenever IndexStats.savedBytes is absent."
+          },
           "language": {
             "type": "string",
             "description": "The index analyses text with this language module."
@@ -5241,6 +5249,14 @@
           "estimatedMemoryBytes": {
             "type": "number",
             "description": "Formula-based estimate of this partition's memory footprint. V8 has no per-object heap accounting API, so this number is derived from structural counters (document count, posting counts, field-index sizes) and does not include per-object overhead. Treat as an estimate, not a measurement."
+          },
+          "savedBytes": {
+            "type": "number",
+            "description": "The segment files that the index's current checkpoint lists for this partition hold this many bytes. The vector files and graph parts belong to the whole index, so only IndexStats.savedBytes counts them."
+          },
+          "logBytes": {
+            "type": "number",
+            "description": "This partition's write-ahead log files and device-sync history files hold this many bytes."
           }
         },
         "required": [

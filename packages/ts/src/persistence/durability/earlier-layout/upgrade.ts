@@ -11,6 +11,7 @@ import type { CheckpointStore } from '../segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from '../segment/vector-adoption'
 import { writeLiveVectors } from '../segment/vector-write'
 import { commitCheckpointManifest, removeCheckpointGarbage, writeCheckpointSegments } from '../segment/write'
+import type { StoredBytes } from '../stored-bytes'
 import { loadSnapshotBundle } from './bundle'
 import { loadEarlierLayout } from './load'
 import { type EarlierManifest, earlierReferencedKeys } from './manifest'
@@ -41,6 +42,7 @@ export interface LayoutUpgradeDeps {
 export interface LayoutUpgraded {
   checkpoint: PartitionCheckpoint[]
   documentCount: number
+  saved: StoredBytes
 }
 
 async function loadEarlier(
@@ -87,7 +89,7 @@ async function writeCurrentLayout(
   earlier: EarlierLayout,
   targets: PartitionCheckpoint[],
   fileRefs: ReadonlyMap<string, FileRef>,
-): Promise<void> {
+): Promise<StoredBytes> {
   const priorVectors = priorVectorsOf(earlier, fileRefs)
   const plans = new Map<string, VectorCheckpointPlan>()
   await whileGraphsStayComplete(deps.vectorIndexes, () => {
@@ -121,6 +123,7 @@ async function writeCurrentLayout(
     deps.store,
     await garbageThatNoFieldStillReads(deps.store, deps.vectorIndexes, committed.garbage),
   )
+  return committed.saved
 }
 
 export async function upgradeEarlierLayout(deps: LayoutUpgradeDeps, earlier: EarlierLayout): Promise<LayoutUpgraded> {
@@ -128,9 +131,9 @@ export async function upgradeEarlierLayout(deps: LayoutUpgradeDeps, earlier: Ear
   try {
     const loaded = await loadEarlier(deps, earlier)
     const targets = await deps.replay(loaded.checkpoint)
-    await writeCurrentLayout(deps, earlier, targets, loaded.fileRefs)
+    const saved = await writeCurrentLayout(deps, earlier, targets, loaded.fileRefs)
     deps.onLayoutUpgrade?.({ indexName: deps.indexName, status: 'completed', layout: earlier.kind })
-    return { checkpoint: targets, documentCount: deps.manager.countDocuments() }
+    return { checkpoint: targets, documentCount: deps.manager.countDocuments(), saved }
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error))
     deps.onLayoutUpgrade?.({ indexName: deps.indexName, status: 'failed', layout: earlier.kind, error: failure })

@@ -125,13 +125,17 @@ async function commitToStorage(
     for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
     await staging.commit()
   } catch (error) {
-    if (previousPartitions > 0) durable.adoptRestoredCheckpoint?.(indexName, previousCheckpoint)
+    if (previousPartitions > 0) {
+      durable.adoptRestoredCheckpoint?.(indexName, previousCheckpoint)
+      await durable.measureRestoredStorage?.(indexName).catch(() => undefined)
+    }
     throw error
   }
   for (const paged of pagedSegmentsOf(previous)) paged.close()
   const restoredSegments = pagedSegmentsOf(restored.detached.manager)
   for (const paged of restoredSegments) paged.suspend()
   await staging.finish()
+  await durable.measureRestoredStorage?.(indexName).catch(() => undefined)
   const relocate = await staging.relocation().catch(() => null)
   for (const paged of restoredSegments) paged.resume(relocate ?? samePath)
   if (relocate === null) return

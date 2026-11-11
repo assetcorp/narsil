@@ -11,6 +11,7 @@ export interface IndexUnloadDeps {
   metadataWrites: MetadataWriteQueue
   closeWriterReportingFailure(close: Promise<void>): Promise<void>
   forgetSyncState(indexName: string): void
+  forgetStoredBytes(indexName: string): void
 }
 
 export interface IndexUnloading {
@@ -35,6 +36,7 @@ export function createIndexUnloading(deps: IndexUnloadDeps): IndexUnloading {
       }
       await removeQueryHistoryOf({ kind: 'directory', directory }, indexName)
       deps.forgetSyncState(indexName)
+      deps.forgetStoredBytes(indexName)
     },
 
     async unloadIndex(indexName: string): Promise<void> {
