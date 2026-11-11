@@ -45,9 +45,14 @@ impl<T> Converted<T> {
 }
 
 fn string_under(item: &Bound<'_, PyAny>, key: &str) -> String {
-    item.cast::<PyMapping>()
-        .ok()
-        .and_then(|mapping| mapping.get_item(key).ok())
+    let value = if let Ok(dict) = item.cast::<PyDict>() {
+        dict.get_item(key).ok().flatten()
+    } else {
+        item.cast::<PyMapping>()
+            .ok()
+            .and_then(|mapping| mapping.get_item(key).ok())
+    };
+    value
         .and_then(|value| value.extract::<String>().ok())
         .unwrap_or_default()
 }
