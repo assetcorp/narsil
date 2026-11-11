@@ -619,7 +619,7 @@
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "tsx": "4.23.15",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#b1092c70692ddbcc87464a77da44848614f6342a",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
