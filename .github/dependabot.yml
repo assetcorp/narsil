@@ -1,50 +1,49 @@
 version: 2
+
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "deps"
+
 updates:
   - package-ecosystem: "npm"
     directory: "/packages/ts"
-    schedule:
-      interval: "monthly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 4
-    groups:
-      production:
-        dependency-type: "production"
-        update-types: ["minor", "patch"]
-      dev-dependencies:
-        dependency-type: "development"
-        update-types: ["minor", "patch"]
     ignore:
-      - dependency-name: "@types/node"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
-        versions: [">=7.0.0"]
-    commit-message:
-      prefix: "deps"
-      prefix-development: "deps(dev)"
 
   - package-ecosystem: "pip"
     directory: "/packages/python"
-    schedule:
-      interval: "monthly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 4
-    commit-message:
-      prefix: "deps"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "gomod"
     directory: "/packages/go"
-    schedule:
-      interval: "monthly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 4
-    commit-message:
-      prefix: "deps"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "monthly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 4
-    commit-message:
-      prefix: "ci"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
