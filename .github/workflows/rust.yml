@@ -10,6 +10,15 @@ on:
       - 'packages/conformance/**'
       - 'packages/ts/src/**'
       - '.github/workflows/rust.yml'
+      - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/client/**'
+      - '!packages/ts/src/react/**'
+      - '!packages/ts/src/http-retry/**'
+      - '!packages/ts/src/rerankers/**'
+      - '!packages/ts/src/embeddings/**'
+      - '!packages/ts/src/invalidation/**'
+      - 'packages/rust/README.md'
   pull_request:
     branches: [main]
     paths:
@@ -19,6 +28,15 @@ on:
       - 'packages/conformance/**'
       - 'packages/ts/src/**'
       - '.github/workflows/rust.yml'
+      - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/client/**'
+      - '!packages/ts/src/react/**'
+      - '!packages/ts/src/http-retry/**'
+      - '!packages/ts/src/rerankers/**'
+      - '!packages/ts/src/embeddings/**'
+      - '!packages/ts/src/invalidation/**'
+      - 'packages/rust/README.md'
   workflow_call:
 
 permissions:

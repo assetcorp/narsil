@@ -11,6 +11,14 @@ on:
       - 'packages/spec/**'
       - 'packages/ts/src/**'
       - '.github/workflows/go-engine.yml'
+      - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/client/**'
+      - '!packages/ts/src/react/**'
+      - '!packages/ts/src/http-retry/**'
+      - '!packages/ts/src/rerankers/**'
+      - '!packages/ts/src/embeddings/**'
+      - '!packages/ts/src/invalidation/**'
   pull_request:
     branches: [main]
     paths:
@@ -21,6 +29,14 @@ on:
       - 'packages/spec/**'
       - 'packages/ts/src/**'
       - '.github/workflows/go-engine.yml'
+      - '!**/*.md'
+      - '!packages/ts/src/__tests__/**'
+      - '!packages/ts/src/client/**'
+      - '!packages/ts/src/react/**'
+      - '!packages/ts/src/http-retry/**'
+      - '!packages/ts/src/rerankers/**'
+      - '!packages/ts/src/embeddings/**'
+      - '!packages/ts/src/invalidation/**'
   workflow_call:
 
 permissions:

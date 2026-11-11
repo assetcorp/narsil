@@ -22,6 +22,7 @@ on:
       - 'packages/ts/scripts/native-analysis/**'
       - 'packages/ts/wasm/**'
       - '.github/workflows/native-core.yml'
+      - '!**/*.md'
   pull_request:
     branches: [main]
     paths:
@@ -43,6 +44,7 @@ on:
       - 'packages/ts/scripts/native-analysis/**'
       - 'packages/ts/wasm/**'
       - '.github/workflows/native-core.yml'
+      - '!**/*.md'
   workflow_call:
 
 permissions:
