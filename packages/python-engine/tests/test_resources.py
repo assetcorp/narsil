@@ -8,7 +8,7 @@ import sys
 import threading
 import uuid
 import weakref
-from collections import UserDict
+from collections import UserDict, defaultdict
 from collections.abc import Iterator
 from typing import Any
 
@@ -95,6 +95,7 @@ def test_a_batch_writes_every_document_that_python_can_convert_and_reports_each_
         {"id": "kept", "body": "quiet river"},
         {"id": "odd", "body": object()},
         UserDict({"id": "mapped", "body": object()}),
+        defaultdict(lambda: "invented", {"body": object()}),
         ["not", "a", "document"],
     ]
     inserted = engine.insert_batch(index_name, documents)
@@ -103,7 +104,9 @@ def test_a_batch_writes_every_document_that_python_can_convert_and_reports_each_
         ("odd", "DOC_VALIDATION_FAILED"),
         ("mapped", "DOC_VALIDATION_FAILED"),
         ("", "DOC_VALIDATION_FAILED"),
+        ("", "DOC_VALIDATION_FAILED"),
     ]
+    assert "id" not in documents[3]
 
     updates: list[Any] = [
         {"docId": "kept", "document": {"body": "calm river"}},
