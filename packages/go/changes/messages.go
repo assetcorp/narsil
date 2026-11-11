@@ -3,6 +3,8 @@ package changes
 import (
 	"math"
 	"regexp"
+	"slices"
+	"strings"
 
 	narsil "github.com/assetcorp/narsil/packages/go"
 )
@@ -16,6 +18,7 @@ var changeTypes = map[ChangeType]bool{ChangePut: true, ChangeInsert: true, Chang
 type feedState struct {
 	partitionCount uint32
 	scanned        []uint64
+	vectorPaths    [][]string
 }
 
 func malformed(detail string) *narsil.Error {
@@ -58,7 +61,29 @@ func positionsOf(raw any, partitionCount uint32, field string) ([]Position, erro
 	return positions, nil
 }
 
-func documentOf(raw any, field string) (narsil.AnyDocument, error) {
+func restoreVectorAt(document map[string]any, path []string) error {
+	holder := document
+	for _, segment := range path[:len(path)-1] {
+		next, ok := holder[segment].(map[string]any)
+		if !ok {
+			return nil
+		}
+		holder = next
+	}
+	leaf := path[len(path)-1]
+	chunk, ok := holder[leaf].([]byte)
+	if !ok {
+		return nil
+	}
+	vector, ok := vectorOf(chunk)
+	if !ok {
+		return malformed("the vector field " + strings.Join(path, ".") + " has a length that is not whole floats")
+	}
+	holder[leaf] = vector
+	return nil
+}
+
+func documentOf(raw any, field string, vectorPaths [][]string) (narsil.AnyDocument, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -66,10 +91,37 @@ func documentOf(raw any, field string) (narsil.AnyDocument, error) {
 	if !ok {
 		return nil, malformed(field + " must be a map")
 	}
+	for _, path := range vectorPaths {
+		if err := restoreVectorAt(document, path); err != nil {
+			return nil, err
+		}
+	}
 	return document, nil
 }
 
-func changeOf(raw any) (Change, error) {
+func vectorFieldsOf(raw any) ([]string, [][]string, error) {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, nil, malformed("vectorFields must be a list of paths")
+	}
+	fields := make([]string, 0, len(items))
+	paths := make([][]string, 0, len(items))
+	for _, item := range items {
+		field, ok := item.(string)
+		if !ok {
+			return nil, nil, malformed("vectorFields must be a list of paths")
+		}
+		path := strings.Split(field, ".")
+		if len(path) > maxDocumentDepth || slices.Contains(path, "") {
+			return nil, nil, malformed("the vector field path " + field + " is invalid")
+		}
+		fields = append(fields, field)
+		paths = append(paths, path)
+	}
+	return fields, paths, nil
+}
+
+func changeOf(raw any, vectorPaths [][]string) (Change, error) {
 	entry, ok := raw.(map[string]any)
 	if !ok {
 		return Change{}, malformed("a change is invalid")
@@ -83,11 +135,11 @@ func changeOf(raw any) (Change, error) {
 	if !changeTypes[ChangeType(kind)] {
 		return Change{}, malformed("a change has an unknown type")
 	}
-	document, err := documentOf(entry["document"], "document")
+	document, err := documentOf(entry["document"], "document", vectorPaths)
 	if err != nil {
 		return Change{}, err
 	}
-	previous, err := documentOf(entry["previousDocument"], "previousDocument")
+	previous, err := documentOf(entry["previousDocument"], "previousDocument", vectorPaths)
 	if err != nil {
 		return Change{}, err
 	}
@@ -97,10 +149,23 @@ func changeOf(raw any) (Change, error) {
 	return Change{SeqNo: seqNo, Type: ChangeType(kind), DocumentID: documentID, Document: document, PreviousDocument: previous}, nil
 }
 
+func resyncOf(message map[string]any) (*Resync, error) {
+	reason, _ := message["reason"].(string)
+	if !resyncReasons[reason] {
+		return nil, malformed("the resync reason is unknown")
+	}
+	return &Resync{Reason: reason}, nil
+}
+
+func isResync(raw any) bool {
+	message, ok := raw.(map[string]any)
+	return ok && message["type"] == "resync"
+}
+
 func subscribedOf(raw any) (*Subscribed, *feedState, error) {
 	message, ok := raw.(map[string]any)
 	if !ok || message["type"] != "subscribed" {
-		return nil, nil, malformed("the first message must be subscribed")
+		return nil, nil, malformed("the first message must be subscribed or resync")
 	}
 	epoch, ok := message["epoch"].(string)
 	if !ok || !epochPattern.MatchString(epoch) {
@@ -128,13 +193,18 @@ func subscribedOf(raw any) (*Subscribed, *feedState, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	state := &feedState{partitionCount: count, scanned: make([]uint64, count)}
+	vectorFields, vectorPaths, err := vectorFieldsOf(message["vectorFields"])
+	if err != nil {
+		return nil, nil, err
+	}
+	state := &feedState{partitionCount: count, scanned: make([]uint64, count), vectorPaths: vectorPaths}
 	for _, position := range positions {
 		state.scanned[position.PartitionID] = position.SeqNo
 	}
 	return &Subscribed{
 		Epoch: epoch, PartitionCount: count, Positions: positions, Heads: heads,
 		BytesBehind: bytesBehind, WindowBytes: windowBytes, PreviousDocument: previousDocument,
+		VectorFields: vectorFields,
 	}, state, nil
 }
 
@@ -145,11 +215,7 @@ func laterEventOf(raw any, state *feedState) (Event, error) {
 	}
 	switch message["type"] {
 	case "resync":
-		reason, _ := message["reason"].(string)
-		if !resyncReasons[reason] {
-			return nil, malformed("the resync reason is unknown")
-		}
-		return &Resync{Reason: reason}, nil
+		return resyncOf(message)
 	case "changes":
 		return batchOf(message, state)
 	}
@@ -172,7 +238,7 @@ func batchOf(message map[string]any, state *feedState) (*Batch, error) {
 	}
 	changes := make([]Change, 0, len(items))
 	for _, item := range items {
-		change, err := changeOf(item)
+		change, err := changeOf(item, state.vectorPaths)
 		if err != nil {
 			return nil, err
 		}

@@ -157,7 +157,7 @@ func (d *decoder) tagged(tag byte, depth int) (any, error) {
 	case 0xc3:
 		return true, nil
 	case 0xc4, 0xc5, 0xc6:
-		return d.withLength(1<<(tag-0xc4), d.vectorOf)
+		return d.withLength(1<<(tag-0xc4), d.binaryOf)
 	case 0xc7, 0xc8, 0xc9:
 		size, err := d.length(1 << (tag - 0xc7))
 		if err != nil {
@@ -218,19 +218,23 @@ func (d *decoder) stringOf(size int) (any, error) {
 	return string(chunk), nil
 }
 
-func (d *decoder) vectorOf(size int) (any, error) {
+func (d *decoder) binaryOf(size int) (any, error) {
 	chunk, err := d.take(size)
 	if err != nil {
 		return nil, err
 	}
-	if size%float32Bytes != 0 {
-		return nil, errors.New("a vector has a length that is not whole floats")
+	return append([]byte(nil), chunk...), nil
+}
+
+func vectorOf(chunk []byte) ([]float32, bool) {
+	if len(chunk)%float32Bytes != 0 {
+		return nil, false
 	}
-	vector := make([]float32, size/float32Bytes)
+	vector := make([]float32, len(chunk)/float32Bytes)
 	for at := range vector {
 		vector[at] = math.Float32frombits(binary.LittleEndian.Uint32(chunk[at*float32Bytes:]))
 	}
-	return vector, nil
+	return vector, true
 }
 
 func (d *decoder) extensionOf(size int) (any, error) {

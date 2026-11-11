@@ -55,6 +55,9 @@ func (s *Subscription) accept(raw any) (Event, error) {
 	if s.state != nil {
 		return laterEventOf(raw, s.state)
 	}
+	if isResync(raw) {
+		return resyncOf(raw.(map[string]any))
+	}
 	subscribed, state, err := subscribedOf(raw)
 	if err != nil {
 		return nil, err

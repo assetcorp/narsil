@@ -171,6 +171,36 @@ describe('following the changes of an index from an export', () => {
   })
 })
 
+describe('a filtered follower when previousDocument turns off', () => {
+  it('stops with CHANGES_PREVIOUS_DOCUMENT_REQUIRED before it returns a batch read after the change', async () => {
+    const { engine } = await durableEngine()
+    await engine.createIndex('shop', { ...SCHEMA, partitions: { maxPartitions: 4 } })
+    await engine.updateChanges('shop', { enabled: true, previousDocument: true })
+    const start = await follow(engine, 'shop', {}, () => true)
+    const subscribed = start.events[0]
+    if (subscribed?.type !== 'subscribed') throw new Error('the follower did not subscribe')
+    expect(subscribed.partitionCount).toBe(4)
+    for (let at = 0; at < 40; at++) await engine.insert('shop', product(at, EXPENSIVE + at), `p${at}`)
+
+    const returned: number[] = []
+    const following = engine.followChanges('shop', {
+      epoch: subscribed.epoch,
+      positions: subscribed.positions,
+      filter: { fields: { price: { gte: EXPENSIVE } } },
+    })
+    const drained = (async () => {
+      for await (const event of following) {
+        if (event.type === 'resync') throw new Error(`the follower asked for a resync: ${event.reason}`)
+        if (event.type !== 'changes') continue
+        returned.push(event.partitionId)
+        if (returned.length === 1) await engine.updateChanges('shop', { enabled: true, previousDocument: false })
+      }
+    })()
+    await expect(drained).rejects.toMatchObject({ code: 'CHANGES_PREVIOUS_DOCUMENT_REQUIRED' })
+    expect(returned).toHaveLength(1)
+  })
+})
+
 describe('refusals and the epoch', () => {
   it('refuses capture without durability, a filter without previous documents, and malformed positions', async () => {
     const memory = await createNarsil({ workers: { enabled: false } })

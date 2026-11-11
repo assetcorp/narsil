@@ -12,9 +12,11 @@ from narsil_client._change_messages import (
     DEFAULT_MAX_MESSAGE_BYTES,
     AckLedger,
     PositionInput,
+    VectorPath,
     checked_credential,
     missing_extra,
     subscribe_message,
+    vector_paths_of,
 )
 from narsil_client._change_types import ChangesEvent, ChangesResync, ChangesSubscribed
 from narsil_client._errors import CONFIG_INVALID, NarsilError
@@ -75,6 +77,7 @@ class AsyncChangeSubscription:
         self._ack_lock: anyio.Lock | None = None
         self._ledger = AckLedger()
         self._partition_count = 0
+        self._vector_paths: tuple[VectorPath, ...] = ()
         self._receiving = False
         self._under_trio = False
         self._ended = False
@@ -150,11 +153,12 @@ class AsyncChangeSubscription:
             await self._finish(None if self._ended else wire.ended_error(error, self._url, self._ceiling))
             return await self._next_event()
         try:
-            event = wire.event_of(data, self._partition_count)
+            event = wire.event_of(data, self._partition_count, self._vector_paths)
         except NarsilError as error:
             await self._finish(error)
             raise
         if isinstance(event, ChangesSubscribed):
+            self._vector_paths = vector_paths_of(event.vector_fields)
             self._ledger.seed(event)
             self._partition_count = event.partition_count
         elif isinstance(event, ChangesResync):

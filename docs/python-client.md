@@ -156,7 +156,7 @@ Leave `epoch` and `positions` out to start at the index's current heads, or pass
 
 The async client returns a subscription that connects when you enter it with `async with`, and you iterate it with `async for` and await `ack`. It works under asyncio and trio. The credential travels as a second WebSocket subprotocol, and the client writes it into no error. The feed refuses redirects, as the HTTP requests do, because a redirect to another host would carry the credential there. A subscription that ends raises `NarsilError`: `CHANGES_NOT_ENABLED` when capture turns off, the code in the close reason when the index's setting refuses the subscription, `CONFIG_INVALID` when the server refuses a message, and `CLIENT_CONNECTION_FAILED` with the `close_code` in its details for anything else, such as an expired credential.
 
-A vector in a change arrives as a list of floats, whichever form the engine stored it in.
+A vector in a change arrives as a list of floats, whichever form the engine stored it in. The client reads a binary value as a vector only at a path in the `vector_fields` of `ChangesSubscribed`, and it returns every other binary value as `bytes`.
 
 ## Asking what a server serves
 

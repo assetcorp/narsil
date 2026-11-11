@@ -26,8 +26,9 @@ const (
 // Change is one write to an index.
 //
 // A document holds MessagePack values as Go values: a map as map[string]any, a list as []any, a whole
-// number as int64 (uint64 above math.MaxInt64), any other number as float64, a vector as []float32, a
-// timestamp as time.Time, and any other extension as Extension.
+// number as int64 (uint64 above math.MaxInt64), any other number as float64, a timestamp as time.Time,
+// and any other extension as Extension. A binary value at one of the paths in Subscribed.VectorFields is
+// a vector as []float32, and every other binary value stays []byte.
 type Change struct {
 	// SeqNo is the sequence number of the log entry within its partition.
 	SeqNo uint64
@@ -64,6 +65,9 @@ type Subscribed struct {
 	WindowBytes uint64
 	// PreviousDocument is true when a change can hold the document before the write.
 	PreviousDocument bool
+	// VectorFields holds the path of every vector field in the index's schema, such as meta.embedding
+	// for a nested field.
+	VectorFields []string
 }
 
 // Batch holds changes from one partition. Apply the changes, save ScannedSeqNo as the partition's

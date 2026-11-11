@@ -1,8 +1,6 @@
 import { join } from 'node:path'
 import { followSourceChanges } from '../../../changes/follow'
 import type { ChangeSource } from '../../../changes/source'
-import { getVectorFieldPaths } from '../../../engine/vector-fields'
-import { validateSchema } from '../../../schema/validator'
 import type { ChangesServing } from '../../../server/changes/serving'
 import type { SyncServing } from '../../../server/sync/serving'
 import type { FeedSource } from '../../../sync/feed/source'
@@ -95,16 +93,10 @@ export function createClusterDeviceSync(deps: ClusterDeviceSyncDeps): ClusterDev
     await view.current(indexName)
   }
 
-  async function vectorFieldPaths(indexName: string): Promise<ReadonlySet<string>> {
-    const servingName = view.held(indexName)?.serving.servingName ?? indexName
-    const stored = await coordinator.getSchema(servingName)
-    return stored === null ? new Set() : getVectorFieldPaths(validateSchema(stored))
-  }
-
   async function* follow(indexName: string, options: Parameters<ClusterNodeChanges['followChanges']>[1]) {
     guard()
     await admitChanges(indexName)
-    yield* followSourceChanges({ source: changesSource(), guard, vectorFieldPaths }, indexName, options)
+    yield* followSourceChanges({ source: changesSource(), guard }, indexName, options)
   }
 
   return {

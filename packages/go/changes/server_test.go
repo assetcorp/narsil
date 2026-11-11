@@ -212,10 +212,21 @@ func requireCode(t *testing.T, err error, code string) *narsil.Error {
 	return failure
 }
 
+type engineFields struct {
+	bytes []string
+	dates []string
+}
+
 func (p *nodeProcess) insertThroughEngine(t *testing.T, id string, document narsil.AnyDocument) {
+	t.Helper()
+	p.insertTypedThroughEngine(t, id, document, engineFields{bytes: []string{}, dates: []string{}})
+}
+
+func (p *nodeProcess) insertTypedThroughEngine(t *testing.T, id string, document narsil.AnyDocument, fields engineFields) {
 	t.Helper()
 	line, err := json.Marshal(map[string]any{
 		"index": testIndex, "id": id, "document": document, "vectorFields": []string{"embedding"},
+		"bytesFields": fields.bytes, "dateFields": fields.dates,
 	})
 	if err != nil {
 		t.Fatal(err)

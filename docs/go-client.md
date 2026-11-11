@@ -214,7 +214,7 @@ for event, err := range subscription.All() {
 
 Leave `Epoch` and `Positions` empty to start at the index's current heads. Save each `ScannedSeqNo` once you have applied its changes, and acknowledge only saved positions, because the server pauses the feed while the changes that you have not acknowledged pass its window. After a `*changes.Resync`, take a document export of the index, replace your copy with its documents, and follow from the epoch and the positions in its header. `changes.CloseCode` returns the close code of the error that ends a subscription.
 
-A vector in a change arrives as `[]float32` where the engine stored it as packed floats, and as a `[]any` of numbers where it arrived as a JSON array, so read both forms.
+A vector in a change arrives as `[]float32` where the engine stored it as packed floats, and as a `[]any` of numbers where it arrived as a JSON array, so read both forms. The subscription reads a binary value as a vector only at a path in `Subscribed.VectorFields`, and it returns every other binary value as `[]byte`.
 
 ## Every method
 

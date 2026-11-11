@@ -1,17 +1,19 @@
 import { ClientErrorCodes, NarsilError } from '../errors'
 import type { Change, ChangePosition, ChangesEvent, ChangeType } from '../types/changes'
 import type { AnyDocument } from '../types/schema'
-
-export interface DecodedSubscribed {
-  event: ChangesEvent
-  windowBytes: number
-}
+import { MAX_VECTOR_FIELD_PATH_SEGMENTS } from './constants'
 
 const CHANGE_TYPES: ReadonlySet<string> = new Set<ChangeType>(['put', 'insert', 'update', 'remove'])
 const RESYNC_REASONS: ReadonlySet<string> = new Set(['epoch', 'history', 'ahead'])
 const EPOCH = /^[0-9a-f]{32}$/
 const FLOAT32_BYTES = 4
-const MAX_DOCUMENT_DEPTH = 64
+
+export type VectorFieldPaths = readonly (readonly string[])[]
+
+export interface FirstEvent {
+  event: ChangesEvent
+  vectorFields: VectorFieldPaths
+}
 
 function malformed(detail: string): NarsilError {
   return new NarsilError(
@@ -21,7 +23,9 @@ function malformed(detail: string): NarsilError {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Uint8Array)
+  if (value === null || typeof value !== 'object') return false
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
 }
 
 function isCount(value: unknown): value is number {
@@ -51,73 +55,90 @@ function vectorOf(bytes: Uint8Array): Float32Array {
   return vector
 }
 
-function restoreVectors(value: unknown, depth: number): unknown {
-  if (depth > MAX_DOCUMENT_DEPTH) throw malformed('a document nests too deeply')
-  if (value instanceof Uint8Array) return vectorOf(value)
-  if (Array.isArray(value)) return value.map(item => restoreVectors(item, depth + 1))
-  if (!isRecord(value)) return value
-  const restored: Record<string, unknown> = {}
-  for (const [key, item] of Object.entries(value)) {
-    Object.defineProperty(restored, key, {
-      value: restoreVectors(item, depth + 1),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    })
+function restoreVectorAt(document: Record<string, unknown>, path: readonly string[]): void {
+  let holder = document
+  for (let at = 0; at < path.length - 1; at++) {
+    const segment = path[at]
+    if (segment === undefined || !Object.hasOwn(holder, segment)) return
+    const next = holder[segment]
+    if (!isRecord(next)) return
+    holder = next
   }
-  return restored
+  const leaf = path.at(-1)
+  if (leaf === undefined || !Object.hasOwn(holder, leaf)) return
+  const value = holder[leaf]
+  if (!(value instanceof Uint8Array)) return
+  Object.defineProperty(holder, leaf, { value: vectorOf(value), enumerable: true, writable: true, configurable: true })
 }
 
-function documentOf(raw: unknown, field: string): AnyDocument {
+function documentOf(raw: unknown, field: string, vectorFields: VectorFieldPaths): AnyDocument {
   if (!isRecord(raw)) throw malformed(`${field} must be a map`)
-  return restoreVectors(raw, 0) as AnyDocument
+  for (const path of vectorFields) restoreVectorAt(raw, path)
+  return raw as AnyDocument
 }
 
-function changeOf(raw: unknown): Change {
+function changeOf(raw: unknown, vectorFields: VectorFieldPaths): Change {
   if (!isRecord(raw) || !isCount(raw.seqNo) || typeof raw.documentId !== 'string')
     throw malformed('a change is invalid')
   if (typeof raw.type !== 'string' || !CHANGE_TYPES.has(raw.type)) throw malformed('a change has an unknown type')
   const change: Change = { seqNo: raw.seqNo, type: raw.type as ChangeType, documentId: raw.documentId }
-  if (raw.document !== undefined && raw.document !== null) change.document = documentOf(raw.document, 'document')
+  if (raw.document !== undefined && raw.document !== null) {
+    change.document = documentOf(raw.document, 'document', vectorFields)
+  }
   if (raw.previousDocument !== undefined && raw.previousDocument !== null) {
-    change.previousDocument = documentOf(raw.previousDocument, 'previousDocument')
+    change.previousDocument = documentOf(raw.previousDocument, 'previousDocument', vectorFields)
   }
   return change
 }
 
-export function subscribedOf(raw: unknown): DecodedSubscribed {
-  if (!isRecord(raw) || raw.type !== 'subscribed') throw malformed('the first message must be subscribed')
+function vectorFieldsOf(raw: unknown): VectorFieldPaths {
+  if (!Array.isArray(raw)) throw malformed('vectorFields must be a list of paths')
+  const paths: string[][] = []
+  for (const item of raw as unknown[]) {
+    if (typeof item !== 'string') throw malformed('vectorFields must be a list of paths')
+    const path = item.split('.')
+    if (path.length > MAX_VECTOR_FIELD_PATH_SEGMENTS || path.includes('')) {
+      throw malformed(`the vector field path ${item} is invalid`)
+    }
+    paths.push(path)
+  }
+  return paths
+}
+
+function resyncOf(raw: Record<string, unknown>): ChangesEvent {
+  if (typeof raw.reason !== 'string' || !RESYNC_REASONS.has(raw.reason)) throw malformed('the resync reason is unknown')
+  return { type: 'resync', reason: raw.reason as 'epoch' | 'history' | 'ahead' }
+}
+
+export function firstEventOf(raw: unknown): FirstEvent {
+  if (!isRecord(raw)) throw malformed('a message must be a map')
+  if (raw.type === 'resync') return { event: resyncOf(raw), vectorFields: [] }
+  if (raw.type !== 'subscribed') throw malformed('the first message must be subscribed or resync')
   const { epoch, partitionCount, bytesBehind, windowBytes, previousDocument } = raw
   if (typeof epoch !== 'string' || !EPOCH.test(epoch)) throw malformed('the epoch is invalid')
   if (!isCount(partitionCount) || partitionCount === 0) throw malformed('the partition count is invalid')
   if (!isCount(bytesBehind) || !isCount(windowBytes) || windowBytes === 0) throw malformed('a byte count is invalid')
   if (typeof previousDocument !== 'boolean') throw malformed('previousDocument must be a boolean')
-  return {
-    windowBytes,
-    event: {
-      type: 'subscribed',
-      epoch,
-      partitionCount,
-      positions: positionsOf(raw.positions, partitionCount, 'positions'),
-      heads: positionsOf(raw.heads, partitionCount, 'heads'),
-      bytesBehind,
-      previousDocument,
-    },
+  const event: ChangesEvent = {
+    type: 'subscribed',
+    epoch,
+    partitionCount,
+    positions: positionsOf(raw.positions, partitionCount, 'positions'),
+    heads: positionsOf(raw.heads, partitionCount, 'heads'),
+    bytesBehind,
+    previousDocument,
   }
+  return { event, vectorFields: vectorFieldsOf(raw.vectorFields) }
 }
 
-export function laterEventOf(raw: unknown, partitionCount: number): ChangesEvent {
+export function laterEventOf(raw: unknown, partitionCount: number, vectorFields: VectorFieldPaths): ChangesEvent {
   if (!isRecord(raw)) throw malformed('a message must be a map')
-  if (raw.type === 'resync') {
-    if (typeof raw.reason !== 'string' || !RESYNC_REASONS.has(raw.reason))
-      throw malformed('the resync reason is unknown')
-    return { type: 'resync', reason: raw.reason as 'epoch' | 'history' | 'ahead' }
-  }
+  if (raw.type === 'resync') return resyncOf(raw)
   if (raw.type !== 'changes') throw malformed('the message type is unknown')
   const { partitionId, scannedSeqNo, changes } = raw
   if (!isCount(partitionId) || partitionId >= partitionCount) throw malformed('the partition is unknown')
   if (!isCount(scannedSeqNo) || !Array.isArray(changes)) throw malformed('the changes are invalid')
-  const decoded = (changes as unknown[]).map(changeOf)
+  const decoded = (changes as unknown[]).map(change => changeOf(change, vectorFields))
   if (decoded.some(change => change.seqNo > scannedSeqNo)) throw malformed('a change lies above scannedSeqNo')
   return { type: 'changes', partitionId, changes: decoded, scannedSeqNo }
 }

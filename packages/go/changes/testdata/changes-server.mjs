@@ -29,8 +29,10 @@ await server.listen()
 process.stdout.write(`READY ${server.listeningPort}\n`)
 
 async function insertThroughEngine(line) {
-  const { index, id, document, vectorFields } = JSON.parse(line)
+  const { index, id, document, vectorFields, bytesFields = [], dateFields = [] } = JSON.parse(line)
   for (const field of vectorFields) document[field] = new Float32Array(document[field])
+  for (const field of bytesFields) document[field] = new Uint8Array(document[field])
+  for (const field of dateFields) document[field] = new Date(document[field])
   try {
     await engine.insert(index, document, id)
     process.stdout.write(`INSERTED ${id}\n`)
