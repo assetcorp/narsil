@@ -206,7 +206,7 @@ func LoadManifest(ctx context.Context, store checkpoint.Store, handle *Handle, l
 				map[string]any{"indexName": handle.Name, "partitionId": entry.PartitionID, "partitionCount": count})
 		}
 		for _, ref := range entry.Segments {
-			if err := loadListedSegment(ctx, store, handle, int(entry.PartitionID), ref.File, listed.Schema); err != nil {
+			if err := loadListedSegment(ctx, store, handle, int(entry.PartitionID), ref, listed.Schema); err != nil {
 				return err
 			}
 		}
