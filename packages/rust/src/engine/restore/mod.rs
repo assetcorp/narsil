@@ -2,6 +2,7 @@ mod earlier;
 mod install;
 mod prepare;
 mod sink;
+mod swap;
 mod validate;
 
 use std::io::{self, Read};

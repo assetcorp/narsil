@@ -35,6 +35,7 @@ mod validate;
 mod vector;
 mod work;
 
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use crate::engine::index::IndexState;
@@ -139,25 +140,34 @@ fn shaped_query(
     })
 }
 
-/// Runs a query against one index, embedding its vector clause's text first and reranking its best hits where it
-/// asks for that. Each search of the query may spend the work cap of `limits` on its pattern tests and phrases,
-/// and stops once the engine shuts down.
+/// Returns `params` with the vector that the index's embedding adapter makes from the text of its vector clause,
+/// or `params` as they stand where the clause gives a vector or no clause appears.
+pub(crate) fn embed_query_text<'a>(
+    index: &IndexState,
+    params: &'a QueryParams,
+) -> Result<Cow<'a, QueryParams>> {
+    resolve_vector_text(index, params)
+}
+
+/// Runs a query whose vector clause [`embed_query_text`] has resolved against one index, reranking its best hits
+/// where `params` asks for that. Each search of the query may spend the work cap of `limits` on its pattern tests
+/// and phrases, and stops once the engine shuts down. The result reports the time since `started`.
 pub(crate) fn run_query(
     index: &IndexState,
     params: &QueryParams,
+    resolved: &QueryParams,
     limits: &SearchLimits,
+    started: Instant,
 ) -> Result<QueryResult> {
     spread::counted(|| {
-        let started = Instant::now();
         let rerank_text = params
             .rerank
             .as_ref()
             .and_then(|_| rerank_query_text(params));
-        let resolved = resolve_vector_text(index, params)?;
         let mut result = match &resolved.rerank {
             Some(rerank) => {
                 let request = RerankRequest {
-                    params: &resolved,
+                    params: resolved,
                     requested: params,
                     rerank,
                     query_text: rerank_text,
@@ -165,7 +175,7 @@ pub(crate) fn run_query(
                 };
                 reranked_query(index, request)?
             }
-            None => shaped_query(index, &resolved, params, limits)?,
+            None => shaped_query(index, resolved, params, limits)?,
         };
         result.elapsed = started.elapsed();
         Ok(result)

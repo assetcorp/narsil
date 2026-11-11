@@ -64,9 +64,8 @@ impl CheckpointSource for Backing {
 }
 
 /// The files that a restore staged before they belong to the index. The index reads its vectors into memory,
-/// because the commit moves the files before the index serves, so no path of theirs stays valid. A paged segment
-/// stays open on its staged file, whose handle keeps reading the same file after the commit moves the staging
-/// directory into the index's place.
+/// because the commit moves the files before the index serves, so no path of theirs stays valid. A restore opens
+/// each paged segment on its staged file to check it, and closes the file before the commit moves it.
 pub(crate) enum StagedSource<'a> {
     /// Files staged in a directory of the engine's store.
     Directory(&'a RestoreStaging<'a>),
