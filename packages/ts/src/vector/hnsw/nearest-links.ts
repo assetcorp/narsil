@@ -1,7 +1,7 @@
+import { NEAREST_LINK_FALLBACK_HOSTS } from '#platform/vector-core-host'
 import { adjacencySlots, incomingCount, layerBase, noteLinked, noteUnlinked } from './adjacency'
 import { ABSENT, reachNode } from './adjacency/views'
 import { drain, newPace, type Pace, type Steps, stepTaken } from './connect-steps'
-import { NEAREST_LINK_FALLBACK_HOSTS } from './constants'
 import { isLive } from './last-links'
 import { type HNSWGraphState, nodeDistanceFunction } from './shared'
 
@@ -14,9 +14,11 @@ interface NearestLinkPass {
   state: HNSWGraphState
   distance: (aOrd: number, bOrd: number) => number
   nearest: Int32Array
+  anchoredBy: Int32Array
 }
 
 const NOT_YET_FOUND = -2
+const NOT_ANCHORED = -1
 
 function nearer(a: ScoredNode, b: ScoredNode): boolean {
   return nearerPair(a.distance, a.ord, b.distance, b.ord)
@@ -71,7 +73,11 @@ function replaceableSlot(pass: NearestLinkPass, host: number, list: Int32Array):
   for (let i = 0; i < list.length; i++) {
     const neighbour = list[i]
     if (incomingCount(pass.state.adjacency, neighbour) < 2) continue
-    if (isLive(pass.state, neighbour) && nearestInList(pass, neighbour) === host) continue
+    if (
+      isLive(pass.state, neighbour) &&
+      (nearestInList(pass, neighbour) === host || pass.anchoredBy[neighbour] === host)
+    )
+      continue
     const distance = pass.distance(host, neighbour)
     if (farthest === -1 || nearerPair(farthestDistance, farthestOrd, distance, neighbour)) {
       farthest = i
@@ -87,12 +93,16 @@ function linkFrom(pass: NearestLinkPass, host: number, ord: number): boolean {
   const base = layerBase(adjacency, host, 0)
   if (base === ABSENT) return false
   const list = adjacency.level0.subarray(base + 1, base + 1 + adjacency.level0[base])
-  if (list.includes(ord)) return true
+  if (list.includes(ord)) {
+    pass.anchoredBy[ord] = host
+    return true
+  }
   if (list.length < pass.state.Mmax0) {
     adjacency.level0[base + list.length + 1] = ord
     adjacency.level0[base] = list.length + 1
     noteLinked(adjacency, ord)
     pass.nearest[host] = NOT_YET_FOUND
+    pass.anchoredBy[ord] = host
     return true
   }
   const slot = replaceableSlot(pass, host, list)
@@ -102,6 +112,7 @@ function linkFrom(pass: NearestLinkPass, host: number, ord: number): boolean {
   noteUnlinked(adjacency, replaced)
   noteLinked(adjacency, ord)
   pass.nearest[host] = NOT_YET_FOUND
+  pass.anchoredBy[ord] = host
   return true
 }
 
@@ -117,6 +128,7 @@ export function* linkFromNearestSteps(state: HNSWGraphState, pace: Pace): Steps 
     state,
     distance: nodeDistanceFunction(state, state.buildMetric),
     nearest: new Int32Array(slots).fill(NOT_YET_FOUND),
+    anchoredBy: new Int32Array(slots).fill(NOT_ANCHORED),
   }
   for (let ord = 0; ord < slots; ord++) {
     if (stepTaken(pace)) yield

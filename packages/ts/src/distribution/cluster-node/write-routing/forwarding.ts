@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
+import { decode } from '../../../serialization/msgpack'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
 import type { ForwardPayload, NodeTransport, TransportMessage, WriteCondition } from '../../transport/types'

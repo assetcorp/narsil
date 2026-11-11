@@ -26,3 +26,15 @@ export const scifactSchema: SchemaDefinition = {
   title: 'string',
   text: 'string',
 }
+
+export const placesSchema: SchemaDefinition = {
+  name: 'string:sortable:pattern:partial',
+  summary: 'string',
+  country: 'string:pattern',
+  region: 'string:pattern',
+  kind: 'enum',
+  tags: 'enum[]',
+  population: 'number',
+  populations: 'number[]',
+  location: 'geopoint',
+}

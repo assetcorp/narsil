@@ -1,9 +1,7 @@
-import { schemaFieldsOf } from '../../schema/validator'
+import { getNestedValue, patternIndexOf, requirePatternSearch, schemaFieldsOf } from '#platform/segment-merge-host'
 import type { SerializedPatternIndex } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
-import { patternIndexOf } from '../pattern-index/host'
-import { requirePatternSearch } from '../pattern-index/registry'
-import { getNestedValue, type PartitionState } from './utils'
+import type { PartitionState } from './utils'
 
 export function serializePatternIndexes(
   state: PartitionState,

@@ -33,6 +33,19 @@ export type {
   TaskStepProgress,
   TaskType,
 } from '../server/types'
+export type { SnapshotOptions } from '../types/engine'
+export type {
+  ManualQuerySuggestion,
+  QuerySuggestionPreviewEntry,
+  QuerySuggestionsBuild,
+  QuerySuggestionsBuildTrigger,
+  QuerySuggestionsPreview,
+  QuerySuggestionsSetting,
+  QuerySuggestionsStatus,
+  RecordQueryOutcome,
+  RecordQueryResult,
+} from '../types/query-suggestions'
+export type { SyncSetting, SyncStatus } from '../types/sync'
 export type { AdminOperations } from './admin'
 export type { BackupOperations } from './backups'
 export type { BulkOperations, ImportSource } from './bulk'
@@ -41,6 +54,8 @@ export { createNarsilClient } from './client'
 export type { DocumentOperations, PutResult } from './documents'
 export type { IndexOperations } from './indexes'
 export type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
+export type { QuerySuggestionOperations } from './query-suggestions'
 export type { SearchOperations } from './search'
 export type { ServerOperations, ServerVersion } from './server-info'
+export type { SyncSettingOperations, SyncSnapshotDownload, SyncSnapshotResume } from './sync'
 export type { TaskOperations, WaitForTaskOptions } from './tasks'

@@ -1,6 +1,6 @@
 import type { ListedDocument } from '@delali/narsil'
 import type { Column, Table as DocumentTableInstance } from '@tanstack/react-table'
-import { ArrowUpDown, Columns3, SlidersHorizontal } from 'lucide-react'
+import { ArrowUpDown, Columns3, FilePlus2, SlidersHorizontal } from 'lucide-react'
 import { useCallback } from 'react'
 import { DOCUMENT_PAGE_SIZES } from '../../hooks/use-document-browser'
 import { Badge } from '../ui/badge'
@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 interface DocumentToolbarProps {
   table: DocumentTableInstance<ListedDocument>
+  onNewDocument: () => void
   activeFilterCount: number
   isFilterPanelOpen: boolean
   onFilterPanelToggle: () => void
@@ -45,6 +46,7 @@ function ColumnToggle({ column }: { column: Column<ListedDocument, unknown> }) {
 
 export function DocumentToolbar({
   table,
+  onNewDocument,
   activeFilterCount,
   isFilterPanelOpen,
   onFilterPanelToggle,
@@ -85,7 +87,7 @@ export function DocumentToolbar({
       </Button>
 
       {sorting.length > 0 ? (
-        <Button type="button" variant="ghost" size="sm" onClick={handleClearSort}>
+        <Button type="button" variant="outline" size="sm" onClick={handleClearSort}>
           <ArrowUpDown className="size-3.5" />
           Clear sort
           <Badge variant="secondary" className="ml-1 px-1.5 text-[10px]">
@@ -94,7 +96,12 @@ export function DocumentToolbar({
         </Button>
       ) : null}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onNewDocument}>
+          <FilePlus2 className="size-3.5" />
+          New document
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="outline" size="sm">

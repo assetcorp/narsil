@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../core-host.browser'
 
 export interface VectorFileReader {
   readInto(path: string, offset: number, target: Uint8Array): boolean

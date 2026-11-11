@@ -2,8 +2,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { EmbeddingFieldConfig, SchemaDefinition } from '../types/schema'
 import { flattenSchema, isSingleStringFieldType } from './validator'
-
-const VECTOR_DIMENSION_PATTERN = /^vector\[(\d+)]$/
+import { vectorDimensionOf } from './validator/shared'
 
 export function validateEmbeddingConfig(
   embeddingConfig: EmbeddingFieldConfig,
@@ -57,8 +56,8 @@ export function validateEmbeddingConfig(
       )
     }
 
-    const vectorMatch = VECTOR_DIMENSION_PATTERN.exec(targetType)
-    if (!vectorMatch) {
+    const schemaDimension = vectorDimensionOf(targetType)
+    if (schemaDimension === null) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_CONFIG_INVALID,
         `Embedding target field "${targetField}" must be a vector type, got "${targetType}"`,
@@ -66,7 +65,6 @@ export function validateEmbeddingConfig(
       )
     }
 
-    const schemaDimension = Number.parseInt(vectorMatch[1], 10)
     if (schemaDimension !== resolvedAdapter.dimensions) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_DIMENSION_MISMATCH,

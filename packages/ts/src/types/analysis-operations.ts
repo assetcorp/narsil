@@ -47,8 +47,9 @@ export interface AnalysisOperations {
    * rules under the new settings, with `ANALYSIS_REBUILD_MEMORY_EXCEEDED` when a
    * second copy of the terms does not fit in memory, with
    * `ANALYSIS_CHANGE_REPLACED` when a later change or a restore replaces this
-   * one, with `ANALYSIS_CHANGE_NOT_READY` when the previous change has no
-   * durable checkpoint yet, with `PERSISTENCE_SAVE_FAILED` when the new terms
+   * one or when a restore of the index is in flight, with
+   * `ANALYSIS_CHANGE_NOT_READY` when the previous change has no durable
+   * checkpoint yet, with `PERSISTENCE_SAVE_FAILED` when the new terms
    * answer searches before a durable checkpoint holds them, and with
    * `PARTITION_REBALANCING_BACKPRESSURE` during a rebalance.
    */

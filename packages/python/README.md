@@ -2,6 +2,8 @@
 
 `narsil-client` calls a Narsil search server, or every node of a Narsil cluster, from Python 3.11 or later. It holds a typed method for every route that the server documents in its OpenAPI file, in a blocking form and in an async form with the same names.
 
+This package sends HTTP requests to a server that the TypeScript package serves. A separate Python package that searches an index inside the Python process, built on [the Rust crate](https://github.com/assetcorp/narsil/tree/main/packages/rust), is planned in [#173](https://github.com/assetcorp/narsil/issues/173).
+
 ```bash
 pip install narsil-client
 ```
@@ -21,3 +23,7 @@ with NarsilClient("http://localhost:9876") as client:
 When you pass a list of addresses, the client moves a read to the next node after a refused or broken connection, a timeout, or an answer of 502, 503, or 504. It moves a write only when the request never left the client or when the node answers `NODE_NOT_READY`, so the client never sends a second copy of a write that a node may have applied. Every failure raises `NarsilError`, under the code that the server sent or under a `CLIENT_` code for a failure on this side.
 
 [The Python client guide](https://github.com/assetcorp/narsil/blob/main/docs/python-client.md) covers the settings, the helpers, streaming a snapshot or an export, and the failover rules in full.
+
+## License
+
+Apache-2.0

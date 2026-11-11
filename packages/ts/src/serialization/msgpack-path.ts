@@ -1,5 +1,4 @@
-import { Decoder } from '@msgpack/msgpack'
-import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
+import { Decoder, PROTOTYPE_POLLUTION_KEYS } from '#platform/segment-codec-host'
 import { endOfValue, headerAt } from './msgpack-without-fields'
 
 export interface EncodedPathRead {
@@ -12,7 +11,7 @@ export type EncodedArrayStep = 'decode-document' | 'missing'
 const encoder = new TextEncoder()
 const PROTO_KEY_BYTES = encoder.encode('__proto__')
 const MISSING: EncodedPathRead = { found: false, value: undefined }
-const pathDecoder = new Decoder()
+let pathDecoder: Decoder | null = null
 
 export function encodePathSegments(segments: readonly string[]): Uint8Array[] | null {
   if (segments.length === 0) return null
@@ -93,6 +92,7 @@ export function readEncodedPath(
     end = valueEnd
   }
   try {
+    pathDecoder ??= new Decoder()
     return { found: true, value: pathDecoder.decode(bytes.subarray(start, end)) }
   } catch {
     return null

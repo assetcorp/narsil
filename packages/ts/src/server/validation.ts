@@ -244,6 +244,7 @@ const TASK_TYPE_SET: Readonly<Record<TaskType, true>> = {
   backup: true,
   backupRestore: true,
   backupDelete: true,
+  querySuggestionsBuild: true,
 }
 const TASK_TYPES = Object.keys(TASK_TYPE_SET) as TaskType[]
 const TASK_STATUSES: readonly TaskStatus[] = ['running', 'succeeded', 'failed', 'cancelled']

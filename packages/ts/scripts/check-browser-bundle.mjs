@@ -12,14 +12,19 @@ const BROWSER_ENTRIES = [
   'dist/index.browser.mjs',
   'dist/client.mjs',
   'dist/react.mjs',
-  'dist/pattern.mjs',
-  'dist/partial-words.mjs',
+  'dist/pattern.browser.mjs',
+  'dist/partial-words.browser.mjs',
   'dist/rerankers/http.mjs',
-  'dist/synonyms.mjs',
+  'dist/synonyms.browser.mjs',
   'dist/index.react-native.mjs',
   'dist/react-native/pattern.mjs',
   'dist/react-native/partial-words.mjs',
   'dist/react-native/synonyms.mjs',
+  'dist/sync.browser.mjs',
+  'dist/sync/indexeddb.browser.mjs',
+  'dist/react-native/sync.mjs',
+  'dist/query-suggestions.browser.mjs',
+  'dist/react-native/query-suggestions.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'
@@ -33,7 +38,12 @@ const OPTIONAL_CODE_PATHS = [
   'src/persistence/durability/',
   'src/core/partition/phrase-matching.ts',
   'src/search/phrase-analysis.ts',
+  'src/serialization/document-encoding.ts',
+  'src/serialization/msgpack.ts',
+  'src/serialization/msgpack-header.ts',
+  'src/serialization/msgpack-leaf.ts',
 ]
+const OPTIONAL_PACKAGE_PATHS = ['/node_modules/@msgpack/msgpack/']
 const CONSTANTS_FILE = '/constants.ts'
 
 const { values: options } = parseArgs({ options: { 'update-baseline': { type: 'boolean', default: false } } })
@@ -140,6 +150,7 @@ function startupOutputs(metafile) {
 }
 
 function isOptionalCode(input) {
+  if (OPTIONAL_PACKAGE_PATHS.some(path => input.includes(path))) return true
   return OPTIONAL_CODE_PATHS.some(path => input.startsWith(path)) && !input.endsWith(CONSTANTS_FILE)
 }
 
@@ -183,15 +194,99 @@ async function gzippedAppBytes() {
 const optionalCode = await optionalCodeAtStartup()
 if (optionalCode.size > 0) {
   console.error(
-    `FAIL ${SIZE_APP} declares no vector field, sets no durability, and quotes no phrase, yet it downloads this code at start-up:`,
+    `FAIL ${SIZE_APP} declares no vector field, sets no durability, quotes no phrase, and stores no object value, yet it downloads this code at start-up:`,
   )
   for (const [input, bytes] of optionalCode) console.error(`  ${input} (${bytes} bytes minified)`)
   console.error(
-    'Load vector code through workers/vector-code.ts, phrase code through search/phrase-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
+    'Load vector code through workers/vector-code.ts, phrase code through search/phrase-code.ts, MessagePack code through serialization/msgpack-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
   )
   process.exit(1)
 }
-console.log(`ok  ${SIZE_APP} downloads no vector, durability, or phrase code at start-up`)
+console.log(`ok  ${SIZE_APP} downloads no vector, durability, phrase, or MessagePack code at start-up`)
+
+const LEAF_CHECK_ENTRIES = BROWSER_ENTRIES.filter(entry => !entry.includes('react-native'))
+const LEAF_CHECK_OUTDIR = 'dist/lazy-leaves'
+const APP_OWNED_PACKAGES = Object.keys(
+  JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8')).peerDependencies ?? {},
+)
+
+async function lazyChunksReachingOtherChunks() {
+  const { metafile } = await build({
+    absWorkingDir: packageRoot,
+    entryPoints: LEAF_CHECK_ENTRIES,
+    bundle: true,
+    minify: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    conditions: ['browser', 'import'],
+    splitting: true,
+    outdir: LEAF_CHECK_OUTDIR,
+    external: APP_OWNED_PACKAGES,
+    metafile: true,
+    write: false,
+    logLevel: 'error',
+  })
+  const outputs = metafile.outputs
+  const staticallyReached = new Set()
+  const queue = Object.keys(outputs).filter(path => LEAF_CHECK_ENTRIES.includes(outputs[path].entryPoint ?? ''))
+  while (queue.length > 0) {
+    const path = queue.pop()
+    if (staticallyReached.has(path)) continue
+    staticallyReached.add(path)
+    for (const imported of outputs[path].imports) {
+      if (imported.kind === 'import-statement' && outputs[imported.path] !== undefined) queue.push(imported.path)
+    }
+  }
+  const offenders = []
+  const dynamicImporters = []
+  for (const [path, output] of Object.entries(outputs)) {
+    if (staticallyReached.has(path) || !path.endsWith('.js')) continue
+    const lazyInputs = Object.keys(output.inputs).filter(input => output.inputs[input].bytesInOutput > 0)
+    const described = lazyInputs.length > 0 ? lazyInputs : [path]
+    const reachedChunks = output.imports.filter(
+      imported => imported.kind === 'import-statement' && outputs[imported.path] !== undefined,
+    )
+    if (reachedChunks.length > 0) {
+      offenders.push({ lazyInputs: described, reachedChunks: reachedChunks.map(imported => imported.path) })
+    }
+    const dynamicTargets = output.imports.filter(imported => imported.kind === 'dynamic-import')
+    if (dynamicTargets.length > 0) {
+      dynamicImporters.push({ lazyInputs: described, reachedChunks: dynamicTargets.map(imported => imported.path) })
+    }
+  }
+  return { offenders, dynamicImporters }
+}
+
+const { offenders, dynamicImporters } = await lazyChunksReachingOtherChunks()
+if (dynamicImporters.length > 0) {
+  console.error(
+    `FAIL ${dynamicImporters.length} chunk(s) that only a dynamic import reaches hold a dynamic import of their own, so Vite gives each one an import of its preload helper from the app's entry chunk, and an app that awaits the engine at the top level of its entry can wait forever on one:`,
+  )
+  for (const { lazyInputs, reachedChunks } of dynamicImporters) {
+    console.error(`  ${lazyInputs.slice(0, 3).join(', ')}${lazyInputs.length > 3 ? ', ...' : ''}`)
+    console.error(`    loads ${reachedChunks.join(', ')}`)
+  }
+  console.error(
+    'Import a module in the same chunk statically, and have the host pass the lazily loaded module a loader function for any other code, so that every dynamic import stays in start-up code.',
+  )
+  process.exit(1)
+}
+console.log(`ok  every chunk that only a dynamic import reaches holds no dynamic import`)
+if (offenders.length > 0) {
+  console.error(
+    `FAIL ${offenders.length} chunk(s) that only a dynamic import reaches import another chunk, so an app that awaits the engine at the top level of its entry can wait forever on one under Rollup:`,
+  )
+  for (const { lazyInputs, reachedChunks } of offenders) {
+    console.error(`  ${lazyInputs.slice(0, 3).join(', ')}${lazyInputs.length > 3 ? ', ...' : ''}`)
+    console.error(`    imports ${reachedChunks.join(', ')}`)
+  }
+  console.error(
+    'Make the lazily loaded module import only its own files, and pass it the shared engine code it needs when the engine loads it.',
+  )
+  process.exit(1)
+}
+console.log(`ok  every chunk that only a dynamic import reaches imports no other chunk`)
 
 const measured = await gzippedAppBytes()
 const baselinePath = resolve(packageRoot, SIZE_BASELINE)

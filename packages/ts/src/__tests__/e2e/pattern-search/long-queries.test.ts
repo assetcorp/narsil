@@ -18,16 +18,37 @@ interface Announcement {
   workerId: number
 }
 
-function crashingBootstrapModule(): string {
+interface HeldOverfill {
+  answeredWhileHeld: number
+  refusedWhileHeld: number
+  statuses: number[]
+}
+
+interface Burst {
+  refused: () => number
+  answered: () => number
+  statuses: Promise<number[]>
+}
+
+function holdingBootstrapModule(): string {
   const source = `import { BroadcastChannel, threadId, workerData } from 'node:worker_threads'
 const channel = new BroadcastChannel(${JSON.stringify(CRASH_CHANNEL)})
 channel.onmessage = message => {
-  if (message.data?.crash === threadId) setTimeout(() => { throw new Error('the test crashed the long-query thread') })
+  if (message.data?.hold !== threadId) return
+  const gate = new Int32Array(message.data.gate)
+  channel.postMessage({ held: threadId })
+  Atomics.wait(gate, 0, 0)
+  if (message.data.crash) throw new Error('the test crashed the long-query thread while it held a full queue')
 }
 channel.unref()
 globalThis.narsilCrashChannel = channel
 channel.postMessage({ threadId, workerId: workerData?.workerId })`
   return `data:text/javascript,${encodeURIComponent(source)}`
+}
+
+function openGate(gate: Int32Array): void {
+  Atomics.store(gate, 0, 1)
+  Atomics.notify(gate, 0)
 }
 
 function costlyTests(count: number): FilterExpression[] {
@@ -42,16 +63,18 @@ describe.skipIf(!WORKERS_BUILT)('searches that a request thread moves to the lon
   let server: PatternServer
   let channel: BroadcastChannel
   const announced: Announcement[] = []
+  const held = new Set<number>()
 
   beforeAll(async () => {
     channel = new BroadcastChannel(CRASH_CHANNEL)
     channel.onmessage = (message: unknown) => {
-      const data = (message as { data?: Partial<Announcement> }).data
+      const data = (message as { data?: Partial<Announcement> & { held?: number } }).data
+      if (typeof data?.held === 'number') held.add(data.held)
       if (typeof data?.threadId === 'number' && typeof data.workerId === 'number') {
         announced.push({ threadId: data.threadId, workerId: data.workerId })
       }
     }
-    server = await startPatternServer({ workers: { ...WORKER_COPIES, bootstrapModule: crashingBootstrapModule() } })
+    server = await startPatternServer({ workers: { ...WORKER_COPIES, bootstrapModule: holdingBootstrapModule() } })
     await loadCorpus(server, [...operationsCorpus(2_000, 21), ...longValueCorpus(40, 8_000)])
     expect(server.requestThreads).toBeGreaterThan(0)
   }, 120_000)
@@ -61,10 +84,43 @@ describe.skipIf(!WORKERS_BUILT)('searches that a request thread moves to the lon
     await server.stop()
   })
 
+  function startBurst(count: number): Burst {
+    let refused = 0
+    let answered = 0
+    const statuses = Promise.all(
+      Array.from({ length: count }, async () => {
+        const answer = await timedSearch(server, searchBody(COSTLY))
+        answered++
+        if (answer.status === 429) refused++
+        return answer.status
+      }),
+    )
+    return { refused: () => refused, answered: () => answered, statuses }
+  }
+
   async function burst(count: number): Promise<number[]> {
-    const answers = await Promise.all(Array.from({ length: count }, () => timedSearch(server, searchBody(COSTLY))))
-    for (const answer of answers) expect([200, 429]).toContain(answer.status)
-    return answers.map(answer => answer.status)
+    const statuses = await startBurst(count).statuses
+    for (const status of statuses) expect([200, 429]).toContain(status)
+    return statuses
+  }
+
+  async function overfillWhileHeld(threadId: number, crash: boolean): Promise<HeldOverfill> {
+    const gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
+    held.delete(threadId)
+    channel.postMessage({ hold: threadId, gate: gate.buffer, crash })
+    try {
+      await waitFor(async () => held.has(threadId), RECOVERY_TIMEOUT_MS)
+      const overfill = startBurst(MAX_LONG_QUERIES_IN_FLIGHT + PAST_THE_QUEUE)
+      await waitFor(async () => overfill.answered() >= PAST_THE_QUEUE, RECOVERY_TIMEOUT_MS)
+      const answeredWhileHeld = overfill.answered()
+      const refusedWhileHeld = overfill.refused()
+      openGate(gate)
+      const statuses = await overfill.statuses
+      for (const status of statuses) expect([200, 429]).toContain(status)
+      return { answeredWhileHeld, refusedWhileHeld, statuses }
+    } finally {
+      openGate(gate)
+    }
   }
 
   it('finds a document written just before the search moved', async () => {
@@ -85,22 +141,28 @@ describe.skipIf(!WORKERS_BUILT)('searches that a request thread moves to the lon
   it('frees every queue place after the long-query thread dies holding a full queue', async () => {
     const longWorkerId = Math.max(...announced.map(entry => entry.workerId))
     const longThread = announced.filter(entry => entry.workerId === longWorkerId).at(-1)
-    expect(longThread).toBeDefined()
+    if (longThread === undefined) throw new Error('the long-query thread never announced itself')
 
-    const pending = burst(MAX_LONG_QUERIES_IN_FLIGHT + PAST_THE_QUEUE)
     const seenBefore = announced.length
-    await new Promise(resolve => setTimeout(resolve, 500))
-    channel.postMessage({ crash: longThread?.threadId })
-    expect(await pending).toContain(429)
+    const beforeDeath = await overfillWhileHeld(longThread.threadId, true)
+    expect({ answered: beforeDeath.answeredWhileHeld, refused: beforeDeath.refusedWhileHeld }).toEqual({
+      answered: PAST_THE_QUEUE,
+      refused: PAST_THE_QUEUE,
+    })
 
     await waitFor(
       async () => announced.slice(seenBefore).some(entry => entry.workerId === longWorkerId),
       RECOVERY_TIMEOUT_MS,
     )
-    await waitFor(
-      async () => (await burst(MAX_LONG_QUERIES_IN_FLIGHT + PAST_THE_QUEUE)).includes(429),
-      RECOVERY_TIMEOUT_MS,
-    )
+    const replacement = announced.slice(seenBefore).filter(entry => entry.workerId === longWorkerId)
+    const replacementThread = replacement.at(-1)
+    if (replacementThread === undefined) throw new Error('no long-query thread replaced the one that died')
+    let afterRecovery: HeldOverfill = { answeredWhileHeld: 0, refusedWhileHeld: 0, statuses: [] }
+    await waitFor(async () => {
+      afterRecovery = await overfillWhileHeld(replacementThread.threadId, false)
+      return afterRecovery.refusedWhileHeld > 0 && afterRecovery.refusedWhileHeld === afterRecovery.answeredWhileHeld
+    }, RECOVERY_TIMEOUT_MS)
+    expect(afterRecovery.statuses.filter(status => status === 429)).toHaveLength(PAST_THE_QUEUE)
 
     const atTheCap = await burst(MAX_LONG_QUERIES_IN_FLIGHT)
     expect(atTheCap).toEqual(Array.from({ length: MAX_LONG_QUERIES_IN_FLIGHT }, () => 200))

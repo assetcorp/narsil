@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { encode } from '#platform/storage-host'
 
 const EMPTY_BIN = new Uint8Array(0)
 const EMPTY_BIN_BYTES = 2

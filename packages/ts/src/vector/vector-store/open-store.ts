@@ -1,21 +1,32 @@
-import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
-import type { OsqBits } from '../osq/quantize'
-import { type GrowableBuffer, growBufferTo, grownByteLength } from '../shared-buffers/growable'
-import { magnitude } from '../similarity'
-import { blocksGrowthBytes, createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
-import { appendDocId } from './doc-ids'
 import {
+  addToOrdinalFilter,
+  blocksGrowthBytes,
+  createOrdinalFilter,
   createSharedVectorStoreHandles,
+  createVectorBlock,
+  ErrorCodes,
+  ensureBlockSlots,
+  growBufferTo,
+  grownByteLength,
   IN_MEMORY,
-  type SharedVectorStoreHandles,
+  magnitude,
+  NarsilError,
+  requireBytesWithinLimit,
   STORE_BLOCK_COUNT,
   STORE_CODE_BLOCK_COUNT,
   STORE_DOC_ID_BYTES,
   STORE_SLOTS,
+  sequenceWritesOf,
+  slotByteOffset,
   unplacedChunkCount,
-} from './handles'
+  VECTOR_MEMORY_LIMITS,
+} from '#platform/vector-host'
+import type { OrdinalFilter } from '../ordinal-filter'
+import type { OsqBits } from '../osq/quantize'
+import type { GrowableBuffer } from '../shared-buffers/growable'
+import { appendDocId } from './doc-ids'
+import type { SharedVectorStoreHandles } from './handles'
+import type { SequenceWrites } from './pins'
 import type { DiskLocation } from './types'
 import { openSharedVectorStore, type SharedVectorStoreView } from './view'
 
@@ -28,6 +39,7 @@ export interface OpenStore {
   diskFile: Int32Array
   diskOffset: Uint32Array
   longestDocIdBytes: number
+  sequences: SequenceWrites
 }
 
 export type OrdinalDocuments = ReadonlyArray<string | undefined>
@@ -43,6 +55,7 @@ export function openHandles(dimension: number, codeBits: OsqBits | null, blockBy
     diskFile: new Int32Array(handles.diskFile),
     diskOffset: new Uint32Array(handles.diskOffset),
     longestDocIdBytes: 0,
+    sequences: sequenceWritesOf(handles),
   }
 }
 
@@ -67,15 +80,19 @@ export function publishOrdinal(store: OpenStore, ordinal: number): void {
   Atomics.store(store.present, ordinal, 1)
 }
 
+export function placeOnDisk(store: OpenStore, ordinal: number, vectorMagnitude: number, location: DiskLocation): void {
+  store.magnitudes[ordinal] = vectorMagnitude
+  store.diskOffset[ordinal] = location.offset
+  store.diskFile[ordinal] = location.fileIndex
+}
+
 export function publishOnDisk(
   store: OpenStore,
   ordinal: number,
   vectorMagnitude: number,
   location: DiskLocation,
 ): void {
-  store.magnitudes[ordinal] = vectorMagnitude
-  store.diskOffset[ordinal] = location.offset
-  store.diskFile[ordinal] = location.fileIndex
+  placeOnDisk(store, ordinal, vectorMagnitude, location)
   publishOrdinal(store, ordinal)
 }
 
@@ -120,15 +137,29 @@ function ensureFloatSlot(store: OpenStore, ordinal: number): void {
   if (block !== null) ensureBlockSlots(block, (ordinal % handles.layout.capacity) + 1)
 }
 
-export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
+const LONGEST_UTF8_BYTES_OF_A_UTF16_UNIT = 3
+const encoder = new TextEncoder()
+
+export function requireOrdinalWithinLimit(ordinal: number): void {
   const maxOrdinals = VECTOR_MEMORY_LIMITS.maxOrdinals
-  if (ordinal >= maxOrdinals) {
-    throw new NarsilError(
-      ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-      `A vector field holds at most ${maxOrdinals} vectors, deleted ones included, until it is rebuilt`,
-      { ordinal, maxOrdinals },
-    )
-  }
+  if (ordinal < maxOrdinals) return
+  throw new NarsilError(
+    ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+    `A vector field holds at most ${maxOrdinals} vectors, deleted ones included, until it is rebuilt`,
+    { ordinal, maxOrdinals },
+  )
+}
+
+export function requireRoomForSlot(store: OpenStore, docId: string): void {
+  const { header, docIdBytes } = store.handles
+  requireOrdinalWithinLimit(Atomics.load(header, STORE_SLOTS))
+  const heldBytes = Atomics.load(header, STORE_DOC_ID_BYTES)
+  if (heldBytes + docId.length * LONGEST_UTF8_BYTES_OF_A_UTF16_UNIT <= docIdBytes.maxByteLength) return
+  requireBytesWithinLimit(heldBytes + encoder.encode(docId).length, docIdBytes.maxByteLength)
+}
+
+export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
+  requireOrdinalWithinLimit(ordinal)
   const { handles } = store
   growBufferTo(handles.magnitudes, (ordinal + 1) * 8)
   growBufferTo(handles.present, ordinal + 1)
@@ -143,6 +174,8 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
     new Int32Array(handles.diskFile, 0, handles.diskFile.byteLength / 4).fill(IN_MEMORY, diskFileBytes / 4)
   }
   growBufferTo(handles.diskOffset, (ordinal + 1) * 4)
+  growBufferTo(handles.bornAt, (ordinal + 1) * 8)
+  growBufferTo(handles.retiredAt, (ordinal + 1) * 8)
   if (!cold) ensureFloatSlot(store, ordinal)
   ensureCodeSlot(store, ordinal)
 }
@@ -167,6 +200,8 @@ export function growthBytesFor(store: OpenStore, vectors: number): number {
     bufferGrowthBytes(handles.codePresent, last + 1) +
     bufferGrowthBytes(handles.diskFile, (last + 1) * 4) +
     bufferGrowthBytes(handles.diskOffset, (last + 1) * 4) +
+    bufferGrowthBytes(handles.bornAt, (last + 1) * 8) +
+    bufferGrowthBytes(handles.retiredAt, (last + 1) * 8) +
     bufferGrowthBytes(handles.docIdOffsets, (last + 2) * 4) +
     bufferGrowthBytes(handles.docIdBytes, idBytes + (last + 1 - slots) * store.longestDocIdBytes) +
     blocksGrowthBytes(handles.blocks, handles.layout, slots, last)

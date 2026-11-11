@@ -1,0 +1,238 @@
+package growing
+
+import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+)
+
+func (s *Segment) Insert(ordinal uint32, fields []core.FieldTokens) error {
+	if s.released {
+		return releasedRefusal()
+	}
+	if s.held.has(ordinal) {
+		return heldRefusal(ordinal, true)
+	}
+	if s.ordinalRetired(ordinal) {
+		return retiredRefusal(ordinal)
+	}
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return err
+	}
+	defer workspace.Release()
+	defer s.refreshView()
+	if err := s.preparePublication(workspace); err != nil {
+		return err
+	}
+	s.refreshView()
+	err = workspace.IndexTerms(&s.view, ordinal, fields)
+	if core.StatusOf(err) == core.StatusNeedsRoom {
+		runMembers, failure := s.reserveDocument(workspace, fields)
+		if failure != nil {
+			return failure
+		}
+		if err, failure = s.indexReserved(workspace, ordinal, fields, runMembers); failure != nil {
+			return failure
+		}
+	}
+	if core.StatusOf(err) == core.StatusSegmentFull {
+		return ErrSegmentFull
+	}
+	if err == nil {
+		s.held.set(ordinal)
+	}
+	return s.accept(err)
+}
+
+func (s *Segment) reserveDocument(workspace *core.Workspace, fields []core.FieldTokens) (uint64, error) {
+	capacity, err := measureDocument(fields, s.fields.partial.values)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.reservePostings(workspace, capacity); err != nil {
+		return 0, err
+	}
+	if len(capacity.surfaces.texts) > 0 {
+		if s.surfaces == nil {
+			if s.surfaces, err = newSurfaceTable(); err != nil {
+				return 0, err
+			}
+		}
+		if err := reserveStrings(workspace, s.surfaces, capacity.surfaces.texts); err != nil {
+			return 0, err
+		}
+	}
+	if s.spellings != nil {
+		return s.spellings.reserveWords(workspace, capacity.spellings.texts)
+	}
+	return 0, nil
+}
+
+func (s *Segment) indexReserved(workspace *core.Workspace, ordinal uint32, fields []core.FieldTokens, runMembers uint64) (status, failure error) {
+	s.refreshView()
+	status = workspace.IndexTerms(&s.view, ordinal, fields)
+	if runMembers == 0 {
+		return status, nil
+	}
+	runs := s.spellings.runs
+	bound := runs.memberBound(runMembers)
+	for core.StatusOf(status) == core.StatusNeedsRoom && runs.members.len() < bound {
+		if failure = runs.growMembers(); failure != nil {
+			return nil, failure
+		}
+		s.refreshView()
+		status = workspace.IndexTerms(&s.view, ordinal, fields)
+	}
+	return status, nil
+}
+
+func (s *Segment) Remove(ordinal uint32, fields []core.FieldTokens) error {
+	if s.released {
+		return releasedRefusal()
+	}
+	if !s.held.has(ordinal) {
+		return heldRefusal(ordinal, false)
+	}
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return err
+	}
+	defer workspace.Release()
+	defer s.refreshView()
+	if err := s.preparePublication(workspace); err != nil {
+		return err
+	}
+	s.refreshView()
+	err = workspace.RemoveDocument(&s.view, ordinal, fields)
+	if err == nil {
+		s.held.clear(ordinal)
+	}
+	return s.accept(err)
+}
+
+func (s *Segment) RemoveTextless(ordinal uint32) error {
+	if s.released {
+		return releasedRefusal()
+	}
+	if !s.held.has(ordinal) {
+		return heldRefusal(ordinal, false)
+	}
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return err
+	}
+	defer workspace.Release()
+	s.refreshView()
+	if err := workspace.RemoveDocument(&s.view, ordinal, nil); err != nil {
+		return refusal(err)
+	}
+	s.held.clear(ordinal)
+	return nil
+}
+
+func (s *Segment) BeginBatch() error {
+	return s.batch(false)
+}
+
+func (s *Segment) EndBatch() error {
+	return s.batch(true)
+}
+
+func (s *Segment) batch(ending bool) error {
+	if s.released {
+		return releasedRefusal()
+	}
+	if s.holdsNoKeywords() {
+		return nil
+	}
+	workspace, err := core.AcquireWorkspace()
+	if err != nil {
+		return err
+	}
+	defer workspace.Release()
+	defer s.refreshView()
+	if err := s.finishCopies(); err != nil {
+		return err
+	}
+	s.refreshView()
+	if ending {
+		return s.accept(workspace.EndBatch(&s.view))
+	}
+	return s.accept(workspace.BeginBatch(&s.view))
+}
+
+func (s *Segment) holdsNoKeywords() bool {
+	positionsEmpty := s.positions == nil || (s.positions.end() <= 1 && s.positions.freeValues() == 0)
+	return s.terms.ids.count() == 0 && s.postings.end() == 0 && s.postings.freeEntries() == 0 && positionsEmpty &&
+		(s.surfaces == nil || s.surfaces.strings.count() == 0) &&
+		(s.spellings == nil || s.spellings.strings.count() == 0)
+}
+
+func (s *Segment) finishCopies() error {
+	if err := s.postings.prepareWrite(s.postings.end()); err != nil {
+		return err
+	}
+	if s.positions != nil {
+		return s.positions.prepareWrite(s.positions.end())
+	}
+	return nil
+}
+
+func (s *Segment) preparePublication(workspace *core.Workspace) error {
+	if err := s.finishCopies(); err != nil {
+		return err
+	}
+	ids := s.terms.ids
+	dead := ids.count() - min(ids.count(), ids.live())
+	termVacuum := dead >= termVacuumMinDeadTerms && dead > ids.live()
+	freeEntries := s.postings.freeEntries()
+	postingVacuum := freeEntries >= poolVacuumMinFreeEntries &&
+		float64(freeEntries) > float64(s.postings.end())*poolVacuumFreeFraction
+	positionVacuum := false
+	if s.positions != nil {
+		free := s.positions.freeValues()
+		positionVacuum = free >= positionVacuumMinFreeValue && float64(free) > float64(s.positions.end())*poolVacuumFreeFraction
+	}
+	sparse := (s.surfaces != nil && s.surfaces.sparse()) || (s.spellings != nil && s.spellings.surfaceTable.sparse())
+	if !termVacuum && !postingVacuum && !positionVacuum && !sparse {
+		return nil
+	}
+	s.refreshView()
+	return s.accept(workspace.EndBatch(&s.view))
+}
+
+func (s *Segment) accept(err error) error {
+	if err != nil {
+		return refusal(err)
+	}
+	generation := s.terms.ids.header[headerGeneration]
+	compacted := generation != s.terms.generation
+	if !compacted {
+		return nil
+	}
+	s.terms.generation = generation
+	s.terms.ids.acceptCompaction()
+	return s.trim()
+}
+
+func (s *Segment) trim() error {
+	if err := s.terms.trim(); err != nil {
+		return err
+	}
+	if err := s.postings.trim(); err != nil {
+		return err
+	}
+	if s.positions != nil {
+		if err := s.positions.trim(); err != nil {
+			return err
+		}
+	}
+	if s.surfaces != nil {
+		if err := s.surfaces.trim(nil); err != nil {
+			return err
+		}
+	}
+	if s.spellings != nil {
+		return s.spellings.trim()
+	}
+	return nil
+}

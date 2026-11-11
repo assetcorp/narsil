@@ -1,11 +1,17 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  ErrorCodes,
+  NarsilError,
+  VECTOR_FILE_PAYLOAD_VERSION,
+  vectorsPerFile,
+  vectorsToBytes,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
-import { VECTOR_FILE_PAYLOAD_VERSION, type VectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
-import { type NewVectorFile, vectorsPerFile } from '../../vector/vector-index/checkpoint-plan'
-import { vectorsToBytes } from '../../vector/vector-index/payload'
+import type { VectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
+import type { NewVectorFile } from '../../vector/vector-index/checkpoint-plan'
 import type { ArchiveCheckpoint } from '../durability/archive-checkpoint'
+import { whileGraphsStayComplete } from '../durability/complete-graphs'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../durability/constants'
 import type { PartitionCheckpoint } from '../durability/partition-checkpoint'
 import { partitionContentsOf } from '../durability/segment/captured-partition'
@@ -116,10 +122,10 @@ function capture(input: MemoryArchiveInput): CapturedArchive {
 }
 
 export async function buildArchiveFromMemory(input: MemoryArchiveInput): Promise<ArchiveCheckpoint> {
-  if (input.partitionId === null) {
-    for (const vectorIndex of input.vectorIndexes.values()) await vectorIndex.completeGraph()
-  }
-  const captured = capture(input)
+  const captured =
+    input.partitionId === null
+      ? await whileGraphsStayComplete(input.vectorIndexes, () => capture(input))
+      : capture(input)
   const store = memoryCheckpointStore()
   const written = await writeCheckpointSegments({
     store,
@@ -134,7 +140,8 @@ export async function buildArchiveFromMemory(input: MemoryArchiveInput): Promise
   const refs: VectorFieldRef[] = vectors.refs
   await commitCheckpointManifest(store, input.metadata, written, refs)
   const manifestBytes = store.files.get(manifestKey(input.indexName))
-  const decoded = manifestBytes === undefined ? null : await decodeSegmentManifest(manifestBytes, input.indexName)
+  const decoded =
+    manifestBytes === undefined ? null : await decodeSegmentManifest(manifestBytes, input.indexName, input.partitionId)
   if (manifestBytes === undefined || decoded === null || decoded.kind !== 'current') {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,

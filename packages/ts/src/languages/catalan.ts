@@ -226,7 +226,7 @@ const stopWords = new Set([
  */
 export const catalan: LanguageModule = {
   name: 'catalan',
-  revision: '1be0db9e03d63aa3',
+  revision: '1df58aa54ee5f361',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àçèéíïòóúü]+/gi },

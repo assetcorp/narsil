@@ -18,6 +18,7 @@ const SUCCESS_DESCRIPTION: Readonly<Record<number, string>> = {
   200: 'The server answered the request.',
   201: 'The server created the resource.',
   202: 'The server accepted the work and started a task.',
+  206: 'The server answered with the byte range that the request asked for.',
   503: 'The server cannot take requests now.',
 }
 

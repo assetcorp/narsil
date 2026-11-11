@@ -1,0 +1,2252 @@
+{
+  "doc-0001": {
+    "title": "basalt ember item 1",
+    "body": "The basalt shelf holds item 1 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": false
+  },
+  "doc-0002": {
+    "title": "cedar harbour item 2",
+    "body": "The cedar shelf holds item 2 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": false
+  },
+  "doc-0003": {
+    "title": "delta cedar item 3",
+    "body": "The ember shelf holds item 3 at revision 1",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": true
+  },
+  "doc-0004": {
+    "title": "ember fjord item 4",
+    "body": "The ember shelf holds item 4 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": false
+  },
+  "doc-0005": {
+    "title": "fjord amber item 5",
+    "body": "The fjord shelf holds item 5 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": false
+  },
+  "doc-0006": {
+    "title": "granite delta item 6",
+    "body": "The granite shelf holds item 6 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": true
+  },
+  "doc-0008": {
+    "title": "amber basalt item 8",
+    "body": "The amber shelf holds item 8 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": false
+  },
+  "doc-0009": {
+    "title": "basalt ember item 9",
+    "body": "The basalt shelf holds item 9 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": true
+  },
+  "doc-0010": {
+    "title": "cedar harbour item 10",
+    "body": "The cedar shelf holds item 10 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": false
+  },
+  "doc-0011": {
+    "title": "delta cedar item 11",
+    "body": "The delta shelf holds item 11 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": false
+  },
+  "doc-0012": {
+    "title": "ember fjord item 12",
+    "body": "The ember shelf holds item 12 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": true
+  },
+  "doc-0013": {
+    "title": "fjord amber item 13",
+    "body": "The fjord shelf holds item 13 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": false
+  },
+  "doc-0015": {
+    "title": "harbour granite item 15",
+    "body": "The harbour shelf holds item 15 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": true
+  },
+  "doc-0016": {
+    "title": "amber basalt item 16",
+    "body": "The amber shelf holds item 16 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": false
+  },
+  "doc-0017": {
+    "title": "basalt ember item 17",
+    "body": "The basalt shelf holds item 17 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": false
+  },
+  "doc-0018": {
+    "title": "cedar harbour item 18",
+    "body": "The cedar shelf holds item 18 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": true
+  },
+  "doc-0019": {
+    "title": "delta cedar item 19",
+    "body": "The delta shelf holds item 19 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": false
+  },
+  "doc-0020": {
+    "title": "ember fjord item 20",
+    "body": "The ember shelf holds item 20 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 5.25,
+    "inStock": false
+  },
+  "doc-0022": {
+    "title": "granite delta item 22",
+    "body": "The granite shelf holds item 22 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 5.75,
+    "inStock": false
+  },
+  "doc-0023": {
+    "title": "harbour granite item 23",
+    "body": "The harbour shelf holds item 23 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 6,
+    "inStock": false
+  },
+  "doc-0024": {
+    "title": "amber basalt item 24",
+    "body": "The amber shelf holds item 24 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 6.25,
+    "inStock": true
+  },
+  "doc-0025": {
+    "title": "basalt ember item 25",
+    "body": "The cedar shelf holds item 25 at revision 1",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 6.5,
+    "inStock": false
+  },
+  "doc-0026": {
+    "title": "cedar harbour item 26",
+    "body": "The cedar shelf holds item 26 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": false
+  },
+  "doc-0027": {
+    "title": "delta cedar item 27",
+    "body": "The delta shelf holds item 27 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 7,
+    "inStock": true
+  },
+  "doc-0029": {
+    "title": "fjord amber item 29",
+    "body": "The fjord shelf holds item 29 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 7.5,
+    "inStock": false
+  },
+  "doc-0030": {
+    "title": "granite delta item 30",
+    "body": "The granite shelf holds item 30 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 7.75,
+    "inStock": true
+  },
+  "doc-0031": {
+    "title": "harbour granite item 31",
+    "body": "The harbour shelf holds item 31 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 8,
+    "inStock": false
+  },
+  "doc-0032": {
+    "title": "amber basalt item 32",
+    "body": "The amber shelf holds item 32 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 8.25,
+    "inStock": false
+  },
+  "doc-0033": {
+    "title": "basalt ember item 33",
+    "body": "The basalt shelf holds item 33 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": true
+  },
+  "doc-0034": {
+    "title": "cedar harbour item 34",
+    "body": "The cedar shelf holds item 34 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 8.75,
+    "inStock": false
+  },
+  "doc-0036": {
+    "title": "ember fjord item 36",
+    "body": "The fjord shelf holds item 36 at revision 1",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 9.25,
+    "inStock": true
+  },
+  "doc-0037": {
+    "title": "fjord amber item 37",
+    "body": "The fjord shelf holds item 37 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 9.5,
+    "inStock": false
+  },
+  "doc-0038": {
+    "title": "granite delta item 38",
+    "body": "The granite shelf holds item 38 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 9.75,
+    "inStock": false
+  },
+  "doc-0039": {
+    "title": "harbour granite item 39",
+    "body": "The harbour shelf holds item 39 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 10,
+    "inStock": true
+  },
+  "doc-0040": {
+    "title": "amber basalt item 40",
+    "body": "The amber shelf holds item 40 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": false
+  },
+  "doc-0041": {
+    "title": "basalt ember item 41",
+    "body": "The basalt shelf holds item 41 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": false
+  },
+  "doc-0043": {
+    "title": "delta cedar item 43",
+    "body": "The delta shelf holds item 43 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": false
+  },
+  "doc-0044": {
+    "title": "ember fjord item 44",
+    "body": "The ember shelf holds item 44 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": false
+  },
+  "doc-0045": {
+    "title": "fjord amber item 45",
+    "body": "The fjord shelf holds item 45 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": true
+  },
+  "doc-0046": {
+    "title": "granite delta item 46",
+    "body": "The granite shelf holds item 46 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": false
+  },
+  "doc-0047": {
+    "title": "harbour granite item 47",
+    "body": "The amber shelf holds item 47 at revision 1",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": false
+  },
+  "doc-0048": {
+    "title": "amber basalt item 48",
+    "body": "The amber shelf holds item 48 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": true
+  },
+  "doc-0050": {
+    "title": "cedar harbour item 50",
+    "body": "The cedar shelf holds item 50 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": false
+  },
+  "doc-0051": {
+    "title": "delta cedar item 51",
+    "body": "The delta shelf holds item 51 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": true
+  },
+  "doc-0052": {
+    "title": "ember fjord item 52",
+    "body": "The ember shelf holds item 52 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": false
+  },
+  "doc-0053": {
+    "title": "fjord amber item 53",
+    "body": "The fjord shelf holds item 53 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": false
+  },
+  "doc-0054": {
+    "title": "granite delta item 54",
+    "body": "The granite shelf holds item 54 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": true
+  },
+  "doc-0055": {
+    "title": "harbour granite item 55",
+    "body": "The harbour shelf holds item 55 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": false
+  },
+  "doc-0057": {
+    "title": "basalt ember item 57",
+    "body": "The basalt shelf holds item 57 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": true
+  },
+  "doc-0058": {
+    "title": "cedar harbour item 58",
+    "body": "The delta shelf holds item 58 at revision 1",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": false
+  },
+  "doc-0059": {
+    "title": "delta cedar item 59",
+    "body": "The delta shelf holds item 59 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": false
+  },
+  "doc-0060": {
+    "title": "ember fjord item 60",
+    "body": "The ember shelf holds item 60 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 5.25,
+    "inStock": true
+  },
+  "doc-0061": {
+    "title": "fjord amber item 61",
+    "body": "The fjord shelf holds item 61 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 5.5,
+    "inStock": false
+  },
+  "doc-0062": {
+    "title": "granite delta item 62",
+    "body": "The granite shelf holds item 62 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 5.75,
+    "inStock": false
+  },
+  "doc-0064": {
+    "title": "amber basalt item 64",
+    "body": "The amber shelf holds item 64 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 6.25,
+    "inStock": false
+  },
+  "doc-0065": {
+    "title": "basalt ember item 65",
+    "body": "The basalt shelf holds item 65 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 6.5,
+    "inStock": false
+  },
+  "doc-0066": {
+    "title": "cedar harbour item 66",
+    "body": "The cedar shelf holds item 66 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": true
+  },
+  "doc-0067": {
+    "title": "delta cedar item 67",
+    "body": "The delta shelf holds item 67 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 7,
+    "inStock": false
+  },
+  "doc-0068": {
+    "title": "ember fjord item 68",
+    "body": "The ember shelf holds item 68 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 7.25,
+    "inStock": false
+  },
+  "doc-0069": {
+    "title": "fjord amber item 69",
+    "body": "The granite shelf holds item 69 at revision 1",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 7.5,
+    "inStock": true
+  },
+  "doc-0071": {
+    "title": "harbour granite item 71",
+    "body": "The harbour shelf holds item 71 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 8,
+    "inStock": false
+  },
+  "doc-0072": {
+    "title": "amber basalt item 72",
+    "body": "The amber shelf holds item 72 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 8.25,
+    "inStock": true
+  },
+  "doc-0073": {
+    "title": "basalt ember item 73",
+    "body": "The basalt shelf holds item 73 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": false
+  },
+  "doc-0074": {
+    "title": "cedar harbour item 74",
+    "body": "The cedar shelf holds item 74 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 8.75,
+    "inStock": false
+  },
+  "doc-0075": {
+    "title": "delta cedar item 75",
+    "body": "The delta shelf holds item 75 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 9,
+    "inStock": true
+  },
+  "doc-0076": {
+    "title": "ember fjord item 76",
+    "body": "The ember shelf holds item 76 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 9.25,
+    "inStock": false
+  },
+  "doc-0078": {
+    "title": "granite delta item 78",
+    "body": "The granite shelf holds item 78 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 9.75,
+    "inStock": true
+  },
+  "doc-0079": {
+    "title": "harbour granite item 79",
+    "body": "The harbour shelf holds item 79 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 10,
+    "inStock": false
+  },
+  "doc-0080": {
+    "title": "amber basalt item 80",
+    "body": "The basalt shelf holds item 80 at revision 1",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": false
+  },
+  "doc-0081": {
+    "title": "basalt ember item 81",
+    "body": "The basalt shelf holds item 81 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": true
+  },
+  "doc-0082": {
+    "title": "cedar harbour item 82",
+    "body": "The cedar shelf holds item 82 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": false
+  },
+  "doc-0083": {
+    "title": "delta cedar item 83",
+    "body": "The delta shelf holds item 83 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": false
+  },
+  "doc-0085": {
+    "title": "fjord amber item 85",
+    "body": "The fjord shelf holds item 85 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": false
+  },
+  "doc-0086": {
+    "title": "granite delta item 86",
+    "body": "The granite shelf holds item 86 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": false
+  },
+  "doc-0087": {
+    "title": "harbour granite item 87",
+    "body": "The harbour shelf holds item 87 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": true
+  },
+  "doc-0088": {
+    "title": "amber basalt item 88",
+    "body": "The amber shelf holds item 88 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": false
+  },
+  "doc-0089": {
+    "title": "basalt ember item 89",
+    "body": "The basalt shelf holds item 89 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": false
+  },
+  "doc-0090": {
+    "title": "cedar harbour item 90",
+    "body": "The cedar shelf holds item 90 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": true
+  },
+  "doc-0092": {
+    "title": "ember fjord item 92",
+    "body": "The ember shelf holds item 92 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": false
+  },
+  "doc-0093": {
+    "title": "fjord amber item 93",
+    "body": "The fjord shelf holds item 93 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": true
+  },
+  "doc-0094": {
+    "title": "granite delta item 94",
+    "body": "The granite shelf holds item 94 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": false
+  },
+  "doc-0095": {
+    "title": "harbour granite item 95",
+    "body": "The harbour shelf holds item 95 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": false
+  },
+  "doc-0096": {
+    "title": "amber basalt item 96",
+    "body": "The amber shelf holds item 96 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": true
+  },
+  "doc-0097": {
+    "title": "basalt ember item 97",
+    "body": "The basalt shelf holds item 97 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": false
+  },
+  "doc-0099": {
+    "title": "delta cedar item 99",
+    "body": "The delta shelf holds item 99 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": true
+  },
+  "doc-0100": {
+    "title": "ember fjord item 100",
+    "body": "The ember shelf holds item 100 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 5.25,
+    "inStock": false
+  },
+  "doc-0101": {
+    "title": "fjord amber item 101",
+    "body": "The fjord shelf holds item 101 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 5.5,
+    "inStock": false
+  },
+  "doc-0102": {
+    "title": "granite delta item 102",
+    "body": "The harbour shelf holds item 102 at revision 1",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 5.75,
+    "inStock": true
+  },
+  "doc-0103": {
+    "title": "harbour granite item 103",
+    "body": "The harbour shelf holds item 103 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 6,
+    "inStock": false
+  },
+  "doc-0104": {
+    "title": "amber basalt item 104",
+    "body": "The amber shelf holds item 104 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 6.25,
+    "inStock": false
+  },
+  "doc-0106": {
+    "title": "cedar harbour item 106",
+    "body": "The cedar shelf holds item 106 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": false
+  },
+  "doc-0107": {
+    "title": "delta cedar item 107",
+    "body": "The delta shelf holds item 107 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 7,
+    "inStock": false
+  },
+  "doc-0108": {
+    "title": "ember fjord item 108",
+    "body": "The ember shelf holds item 108 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 7.25,
+    "inStock": true
+  },
+  "doc-0109": {
+    "title": "fjord amber item 109",
+    "body": "The fjord shelf holds item 109 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 7.5,
+    "inStock": false
+  },
+  "doc-0110": {
+    "title": "granite delta item 110",
+    "body": "The granite shelf holds item 110 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 7.75,
+    "inStock": false
+  },
+  "doc-0111": {
+    "title": "harbour granite item 111",
+    "body": "The harbour shelf holds item 111 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 8,
+    "inStock": true
+  },
+  "doc-0113": {
+    "title": "basalt ember item 113",
+    "body": "The cedar shelf holds item 113 at revision 1",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": false
+  },
+  "doc-0114": {
+    "title": "cedar harbour item 114",
+    "body": "The cedar shelf holds item 114 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 8.75,
+    "inStock": true
+  },
+  "doc-0115": {
+    "title": "delta cedar item 115",
+    "body": "The delta shelf holds item 115 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 9,
+    "inStock": false
+  },
+  "doc-0116": {
+    "title": "ember fjord item 116",
+    "body": "The ember shelf holds item 116 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 9.25,
+    "inStock": false
+  },
+  "doc-0117": {
+    "title": "fjord amber item 117",
+    "body": "The fjord shelf holds item 117 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 9.5,
+    "inStock": true
+  },
+  "doc-0118": {
+    "title": "granite delta item 118",
+    "body": "The granite shelf holds item 118 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 9.75,
+    "inStock": false
+  },
+  "doc-0120": {
+    "title": "amber basalt item 120",
+    "body": "The amber shelf holds item 120 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": true
+  },
+  "doc-0121": {
+    "title": "basalt ember item 121",
+    "body": "The basalt shelf holds item 121 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": false
+  },
+  "doc-0122": {
+    "title": "cedar harbour item 122",
+    "body": "The cedar shelf holds item 122 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": false
+  },
+  "doc-0123": {
+    "title": "delta cedar item 123",
+    "body": "The delta shelf holds item 123 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": true
+  },
+  "doc-0124": {
+    "title": "ember fjord item 124",
+    "body": "The fjord shelf holds item 124 at revision 1",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": false
+  },
+  "doc-0125": {
+    "title": "fjord amber item 125",
+    "body": "The fjord shelf holds item 125 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": false
+  },
+  "doc-0127": {
+    "title": "harbour granite item 127",
+    "body": "The harbour shelf holds item 127 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": false
+  },
+  "doc-0128": {
+    "title": "amber basalt item 128",
+    "body": "The amber shelf holds item 128 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": false
+  },
+  "doc-0129": {
+    "title": "basalt ember item 129",
+    "body": "The basalt shelf holds item 129 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": true
+  },
+  "doc-0130": {
+    "title": "cedar harbour item 130",
+    "body": "The cedar shelf holds item 130 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": false
+  },
+  "doc-0131": {
+    "title": "delta cedar item 131",
+    "body": "The delta shelf holds item 131 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": false
+  },
+  "doc-0132": {
+    "title": "ember fjord item 132",
+    "body": "The ember shelf holds item 132 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": true
+  },
+  "doc-0134": {
+    "title": "granite delta item 134",
+    "body": "The granite shelf holds item 134 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": false
+  },
+  "doc-0135": {
+    "title": "harbour granite item 135",
+    "body": "The amber shelf holds item 135 at revision 1",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": true
+  },
+  "doc-0136": {
+    "title": "amber basalt item 136",
+    "body": "The amber shelf holds item 136 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": false
+  },
+  "doc-0137": {
+    "title": "basalt ember item 137",
+    "body": "The basalt shelf holds item 137 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": false
+  },
+  "doc-0138": {
+    "title": "cedar harbour item 138",
+    "body": "The cedar shelf holds item 138 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": true
+  },
+  "doc-0139": {
+    "title": "delta cedar item 139",
+    "body": "The delta shelf holds item 139 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": false
+  },
+  "doc-0141": {
+    "title": "fjord amber item 141",
+    "body": "The fjord shelf holds item 141 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 5.5,
+    "inStock": true
+  },
+  "doc-0142": {
+    "title": "granite delta item 142",
+    "body": "The granite shelf holds item 142 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 5.75,
+    "inStock": false
+  },
+  "doc-0143": {
+    "title": "harbour granite item 143",
+    "body": "The harbour shelf holds item 143 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 6,
+    "inStock": false
+  },
+  "doc-0144": {
+    "title": "amber basalt item 144",
+    "body": "The amber shelf holds item 144 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 6.25,
+    "inStock": true
+  },
+  "doc-0145": {
+    "title": "basalt ember item 145",
+    "body": "The basalt shelf holds item 145 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 6.5,
+    "inStock": false
+  },
+  "doc-0146": {
+    "title": "cedar harbour item 146",
+    "body": "The delta shelf holds item 146 at revision 1",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": false
+  },
+  "doc-0148": {
+    "title": "ember fjord item 148",
+    "body": "The ember shelf holds item 148 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 7.25,
+    "inStock": false
+  },
+  "doc-0149": {
+    "title": "fjord amber item 149",
+    "body": "The fjord shelf holds item 149 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 7.5,
+    "inStock": false
+  },
+  "doc-0150": {
+    "title": "granite delta item 150",
+    "body": "The granite shelf holds item 150 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 7.75,
+    "inStock": true
+  },
+  "doc-0151": {
+    "title": "harbour granite item 151",
+    "body": "The harbour shelf holds item 151 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 8,
+    "inStock": false
+  },
+  "doc-0152": {
+    "title": "amber basalt item 152",
+    "body": "The amber shelf holds item 152 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 8.25,
+    "inStock": false
+  },
+  "doc-0153": {
+    "title": "basalt ember item 153",
+    "body": "The basalt shelf holds item 153 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": true
+  },
+  "doc-0155": {
+    "title": "delta cedar item 155",
+    "body": "The delta shelf holds item 155 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 9,
+    "inStock": false
+  },
+  "doc-0156": {
+    "title": "ember fjord item 156",
+    "body": "The ember shelf holds item 156 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 9.25,
+    "inStock": true
+  },
+  "doc-0157": {
+    "title": "fjord amber item 157",
+    "body": "The granite shelf holds item 157 at revision 1",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 9.5,
+    "inStock": false
+  },
+  "doc-0158": {
+    "title": "granite delta item 158",
+    "body": "The granite shelf holds item 158 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 9.75,
+    "inStock": false
+  },
+  "doc-0159": {
+    "title": "harbour granite item 159",
+    "body": "The harbour shelf holds item 159 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 10,
+    "inStock": true
+  },
+  "doc-0160": {
+    "title": "amber basalt item 160",
+    "body": "The amber shelf holds item 160 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": false
+  },
+  "doc-0162": {
+    "title": "cedar harbour item 162",
+    "body": "The cedar shelf holds item 162 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": true
+  },
+  "doc-0163": {
+    "title": "delta cedar item 163",
+    "body": "The delta shelf holds item 163 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": false
+  },
+  "doc-0164": {
+    "title": "ember fjord item 164",
+    "body": "The ember shelf holds item 164 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": false
+  },
+  "doc-0165": {
+    "title": "fjord amber item 165",
+    "body": "The fjord shelf holds item 165 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": true
+  },
+  "doc-0166": {
+    "title": "granite delta item 166",
+    "body": "The granite shelf holds item 166 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": false
+  },
+  "doc-0167": {
+    "title": "harbour granite item 167",
+    "body": "The harbour shelf holds item 167 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": false
+  },
+  "doc-0169": {
+    "title": "basalt ember item 169",
+    "body": "The basalt shelf holds item 169 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": false
+  },
+  "doc-0170": {
+    "title": "cedar harbour item 170",
+    "body": "The cedar shelf holds item 170 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": false
+  },
+  "doc-0171": {
+    "title": "delta cedar item 171",
+    "body": "The delta shelf holds item 171 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": true
+  },
+  "doc-0172": {
+    "title": "ember fjord item 172",
+    "body": "The ember shelf holds item 172 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": false
+  },
+  "doc-0173": {
+    "title": "fjord amber item 173",
+    "body": "The fjord shelf holds item 173 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": false
+  },
+  "doc-0174": {
+    "title": "granite delta item 174",
+    "body": "The granite shelf holds item 174 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": true
+  },
+  "doc-0176": {
+    "title": "amber basalt item 176",
+    "body": "The amber shelf holds item 176 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": false
+  },
+  "doc-0177": {
+    "title": "basalt ember item 177",
+    "body": "The basalt shelf holds item 177 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": true
+  },
+  "doc-0178": {
+    "title": "cedar harbour item 178",
+    "body": "The cedar shelf holds item 178 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": false
+  },
+  "doc-0179": {
+    "title": "delta cedar item 179",
+    "body": "The ember shelf holds item 179 at revision 1",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": false
+  },
+  "doc-0180": {
+    "title": "ember fjord item 180",
+    "body": "The ember shelf holds item 180 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 5.25,
+    "inStock": true
+  },
+  "doc-0181": {
+    "title": "fjord amber item 181",
+    "body": "The fjord shelf holds item 181 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 5.5,
+    "inStock": false
+  },
+  "doc-0183": {
+    "title": "harbour granite item 183",
+    "body": "The harbour shelf holds item 183 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 6,
+    "inStock": true
+  },
+  "doc-0184": {
+    "title": "amber basalt item 184",
+    "body": "The amber shelf holds item 184 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 6.25,
+    "inStock": false
+  },
+  "doc-0185": {
+    "title": "basalt ember item 185",
+    "body": "The basalt shelf holds item 185 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 6.5,
+    "inStock": false
+  },
+  "doc-0186": {
+    "title": "cedar harbour item 186",
+    "body": "The cedar shelf holds item 186 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": true
+  },
+  "doc-0187": {
+    "title": "delta cedar item 187",
+    "body": "The delta shelf holds item 187 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 7,
+    "inStock": false
+  },
+  "doc-0188": {
+    "title": "ember fjord item 188",
+    "body": "The ember shelf holds item 188 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 7.25,
+    "inStock": false
+  },
+  "doc-0190": {
+    "title": "granite delta item 190",
+    "body": "The harbour shelf holds item 190 at revision 1",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 7.75,
+    "inStock": false
+  },
+  "doc-0191": {
+    "title": "harbour granite item 191",
+    "body": "The harbour shelf holds item 191 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 8,
+    "inStock": false
+  },
+  "doc-0192": {
+    "title": "amber basalt item 192",
+    "body": "The amber shelf holds item 192 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 8.25,
+    "inStock": true
+  },
+  "doc-0193": {
+    "title": "basalt ember item 193",
+    "body": "The basalt shelf holds item 193 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": false
+  },
+  "doc-0194": {
+    "title": "cedar harbour item 194",
+    "body": "The cedar shelf holds item 194 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 8.75,
+    "inStock": false
+  },
+  "doc-0195": {
+    "title": "delta cedar item 195",
+    "body": "The delta shelf holds item 195 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 9,
+    "inStock": true
+  },
+  "doc-0197": {
+    "title": "fjord amber item 197",
+    "body": "The fjord shelf holds item 197 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 9.5,
+    "inStock": false
+  },
+  "doc-0198": {
+    "title": "granite delta item 198",
+    "body": "The granite shelf holds item 198 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 9.75,
+    "inStock": true
+  },
+  "doc-0199": {
+    "title": "harbour granite item 199",
+    "body": "The harbour shelf holds item 199 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 10,
+    "inStock": false
+  },
+  "doc-0200": {
+    "title": "amber basalt item 200",
+    "body": "The amber shelf holds item 200 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": false
+  },
+  "doc-0201": {
+    "title": "basalt ember item 201",
+    "body": "The cedar shelf holds item 201 at revision 1",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": true
+  },
+  "doc-0202": {
+    "title": "cedar harbour item 202",
+    "body": "The cedar shelf holds item 202 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": false
+  },
+  "doc-0204": {
+    "title": "ember fjord item 204",
+    "body": "The ember shelf holds item 204 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": true
+  },
+  "doc-0205": {
+    "title": "fjord amber item 205",
+    "body": "The fjord shelf holds item 205 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": false
+  },
+  "doc-0206": {
+    "title": "granite delta item 206",
+    "body": "The granite shelf holds item 206 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": false
+  },
+  "doc-0207": {
+    "title": "harbour granite item 207",
+    "body": "The harbour shelf holds item 207 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": true
+  },
+  "doc-0208": {
+    "title": "amber basalt item 208",
+    "body": "The amber shelf holds item 208 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": false
+  },
+  "doc-0209": {
+    "title": "basalt ember item 209",
+    "body": "The basalt shelf holds item 209 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": false
+  },
+  "doc-0211": {
+    "title": "delta cedar item 211",
+    "body": "The delta shelf holds item 211 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": false
+  },
+  "doc-0212": {
+    "title": "ember fjord item 212",
+    "body": "The fjord shelf holds item 212 at revision 1",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": false
+  },
+  "doc-0213": {
+    "title": "fjord amber item 213",
+    "body": "The fjord shelf holds item 213 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": true
+  },
+  "doc-0214": {
+    "title": "granite delta item 214",
+    "body": "The granite shelf holds item 214 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": false
+  },
+  "doc-0215": {
+    "title": "harbour granite item 215",
+    "body": "The harbour shelf holds item 215 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": false
+  },
+  "doc-0216": {
+    "title": "amber basalt item 216",
+    "body": "The amber shelf holds item 216 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": true
+  },
+  "doc-0218": {
+    "title": "cedar harbour item 218",
+    "body": "The cedar shelf holds item 218 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": false
+  },
+  "doc-0219": {
+    "title": "delta cedar item 219",
+    "body": "The delta shelf holds item 219 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": true
+  },
+  "doc-0220": {
+    "title": "ember fjord item 220",
+    "body": "The ember shelf holds item 220 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 5.25,
+    "inStock": false
+  },
+  "doc-0221": {
+    "title": "fjord amber item 221",
+    "body": "The fjord shelf holds item 221 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 5.5,
+    "inStock": false
+  },
+  "doc-0222": {
+    "title": "granite delta item 222",
+    "body": "The granite shelf holds item 222 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 5.75,
+    "inStock": true
+  },
+  "doc-0223": {
+    "title": "harbour granite item 223",
+    "body": "The amber shelf holds item 223 at revision 1",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 6,
+    "inStock": false
+  },
+  "doc-0225": {
+    "title": "basalt ember item 225",
+    "body": "The basalt shelf holds item 225 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 6.5,
+    "inStock": true
+  },
+  "doc-0226": {
+    "title": "cedar harbour item 226",
+    "body": "The cedar shelf holds item 226 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 6.75,
+    "inStock": false
+  },
+  "doc-0227": {
+    "title": "delta cedar item 227",
+    "body": "The delta shelf holds item 227 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 7,
+    "inStock": false
+  },
+  "doc-0228": {
+    "title": "ember fjord item 228",
+    "body": "The ember shelf holds item 228 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 7.25,
+    "inStock": true
+  },
+  "doc-0229": {
+    "title": "fjord amber item 229",
+    "body": "The fjord shelf holds item 229 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 7.5,
+    "inStock": false
+  },
+  "doc-0230": {
+    "title": "granite delta item 230",
+    "body": "The granite shelf holds item 230 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 7.75,
+    "inStock": false
+  },
+  "doc-0232": {
+    "title": "amber basalt item 232",
+    "body": "The amber shelf holds item 232 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 8.25,
+    "inStock": false
+  },
+  "doc-0233": {
+    "title": "basalt ember item 233",
+    "body": "The basalt shelf holds item 233 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 8.5,
+    "inStock": false
+  },
+  "doc-0234": {
+    "title": "cedar harbour item 234",
+    "body": "The delta shelf holds item 234 at revision 1",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 8.75,
+    "inStock": true
+  },
+  "doc-0235": {
+    "title": "delta cedar item 235",
+    "body": "The delta shelf holds item 235 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 9,
+    "inStock": false
+  },
+  "doc-0236": {
+    "title": "ember fjord item 236",
+    "body": "The ember shelf holds item 236 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 9.25,
+    "inStock": false
+  },
+  "doc-0237": {
+    "title": "fjord amber item 237",
+    "body": "The fjord shelf holds item 237 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 9.5,
+    "inStock": true
+  },
+  "doc-0239": {
+    "title": "harbour granite item 239",
+    "body": "The harbour shelf holds item 239 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 10,
+    "inStock": false
+  },
+  "doc-0240": {
+    "title": "amber basalt item 240",
+    "body": "The amber shelf holds item 240 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 0.25,
+    "inStock": true
+  },
+  "doc-0241": {
+    "title": "basalt ember item 241",
+    "body": "The basalt shelf holds item 241 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 0.5,
+    "inStock": false
+  },
+  "doc-0242": {
+    "title": "cedar harbour item 242",
+    "body": "The cedar shelf holds item 242 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 0.75,
+    "inStock": false
+  },
+  "doc-0243": {
+    "title": "delta cedar item 243",
+    "body": "The delta shelf holds item 243 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 1,
+    "inStock": true
+  },
+  "doc-0244": {
+    "title": "ember fjord item 244",
+    "body": "The ember shelf holds item 244 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 1.25,
+    "inStock": false
+  },
+  "doc-0245": {
+    "title": "fjord amber item 245",
+    "body": "The fjord shelf holds item 245 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 1.5,
+    "inStock": false
+  },
+  "doc-0246": {
+    "title": "granite delta item 246",
+    "body": "The granite shelf holds item 246 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 1.75,
+    "inStock": true
+  },
+  "doc-0247": {
+    "title": "harbour granite item 247",
+    "body": "The harbour shelf holds item 247 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 2,
+    "inStock": false
+  },
+  "doc-0248": {
+    "title": "amber basalt item 248",
+    "body": "The amber shelf holds item 248 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 2.25,
+    "inStock": false
+  },
+  "doc-0249": {
+    "title": "basalt ember item 249",
+    "body": "The basalt shelf holds item 249 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 2.5,
+    "inStock": true
+  },
+  "doc-0250": {
+    "title": "cedar harbour item 250",
+    "body": "The cedar shelf holds item 250 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 2.75,
+    "inStock": false
+  },
+  "doc-0251": {
+    "title": "delta cedar item 251",
+    "body": "The delta shelf holds item 251 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 3,
+    "inStock": false
+  },
+  "doc-0252": {
+    "title": "ember fjord item 252",
+    "body": "The ember shelf holds item 252 at revision 0",
+    "tags": [
+      "ember",
+      "basalt"
+    ],
+    "price": 3.25,
+    "inStock": true
+  },
+  "doc-0253": {
+    "title": "fjord amber item 253",
+    "body": "The fjord shelf holds item 253 at revision 0",
+    "tags": [
+      "fjord",
+      "cedar"
+    ],
+    "price": 3.5,
+    "inStock": false
+  },
+  "doc-0254": {
+    "title": "granite delta item 254",
+    "body": "The granite shelf holds item 254 at revision 0",
+    "tags": [
+      "granite",
+      "delta"
+    ],
+    "price": 3.75,
+    "inStock": false
+  },
+  "doc-0255": {
+    "title": "harbour granite item 255",
+    "body": "The harbour shelf holds item 255 at revision 0",
+    "tags": [
+      "harbour",
+      "ember"
+    ],
+    "price": 4,
+    "inStock": true
+  },
+  "doc-0256": {
+    "title": "amber basalt item 256",
+    "body": "The amber shelf holds item 256 at revision 0",
+    "tags": [
+      "amber",
+      "fjord"
+    ],
+    "price": 4.25,
+    "inStock": false
+  },
+  "doc-0257": {
+    "title": "basalt ember item 257",
+    "body": "The basalt shelf holds item 257 at revision 0",
+    "tags": [
+      "basalt",
+      "granite"
+    ],
+    "price": 4.5,
+    "inStock": false
+  },
+  "doc-0258": {
+    "title": "cedar harbour item 258",
+    "body": "The cedar shelf holds item 258 at revision 0",
+    "tags": [
+      "cedar",
+      "harbour"
+    ],
+    "price": 4.75,
+    "inStock": true
+  },
+  "doc-0259": {
+    "title": "delta cedar item 259",
+    "body": "The delta shelf holds item 259 at revision 0",
+    "tags": [
+      "delta",
+      "amber"
+    ],
+    "price": 5,
+    "inStock": false
+  }
+}

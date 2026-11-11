@@ -1,17 +1,22 @@
-import { resolveIndexAnalysis } from '../../../analysis/registry'
+import {
+  ErrorCodes,
+  extractVectorFieldsFromSchema,
+  getLanguage,
+  NarsilError,
+  partialFieldsOf,
+  reconstructSchemaFromMetadata,
+  resolveIndexAnalysis,
+  resolvePartitionInsertOptions,
+} from '#platform/storage-host'
 import type { PartitionInsertOptions } from '../../../core/partition'
 import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { getLanguage } from '../../../languages/registry'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
-import { extractVectorFieldsFromSchema, partialFieldsOf } from '../../../schema/validator/schema'
 import type { IndexMetadata } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
+import { pagedTombstonesFor } from '../../paged/older-holders'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
@@ -20,16 +25,9 @@ import { buildSegmentFromEntries } from './build-segment'
 import { type CapturedWholePartition, contentsOfCaptured, type PartitionContents } from './captured-partition'
 import { compactPartitionSegments } from './compaction'
 import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
-import {
-  encodeSegmentManifest,
-  MAX_SEGMENTS_PER_PARTITION,
-  manifestReferencedKeys,
-  type PartitionManifestEntry,
-  SEGMENT_MANIFEST_VERSION,
-  type SegmentManifest,
-  type SegmentRef,
-  type VectorFieldRef,
-} from './manifest'
+import type { PartitionManifestEntry, SegmentManifest, SegmentRef, VectorFieldRef } from './manifest'
+import { MAX_SEGMENTS_PER_PARTITION, manifestReferencedKeys, SEGMENT_MANIFEST_VERSION } from './manifest'
+import { encodeSegmentManifest } from './manifest-encode'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'
 
@@ -134,7 +132,6 @@ async function tombstonesOfDelta(
 ): Promise<string[]> {
   const { directory } = context.input.store
   if (context.input.metadata.textStorage !== 'disk' || directory === undefined) return deleted
-  const { pagedTombstonesFor } = await import('../../paged/module')
   return pagedTombstonesFor(
     directory,
     older,
@@ -282,7 +279,9 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
     partitions.push(await writeLoggedChanges(context, target.partitionId, priorPartition, entries))
   }
   carryForwardUncheckpointedPartitions(input.prior, input.targets, partitions, checkpointByPartition)
-  return { checkpoint: [...checkpointByPartition.values()], partitions }
+  const checkpoint = [...checkpointByPartition.values()].sort((left, right) => left.partitionId - right.partitionId)
+  partitions.sort((left, right) => left.partitionId - right.partitionId)
+  return { checkpoint, partitions }
 }
 
 export async function commitCheckpointManifest(

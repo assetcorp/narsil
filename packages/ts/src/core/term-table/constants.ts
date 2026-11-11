@@ -1,0 +1,4 @@
+export const TERM_SLOT_LOAD_NUMERATOR = 1
+export const TERM_SLOT_LOAD_DENOMINATOR = 2
+export const TERM_REGION_GROWTH_FACTOR = 2
+export const TERM_UNITS_START_CAPACITY = 1 << 12

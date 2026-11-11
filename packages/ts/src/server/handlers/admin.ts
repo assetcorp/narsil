@@ -19,6 +19,11 @@ import type {
 } from '../types'
 import { parseTaskListQuery, validateChangeAnalysis, validateRebalance } from '../validation'
 
+function snapshotHistoryOf(raw: string | null): boolean | null {
+  if (raw === null || raw === 'false') return false
+  return raw === 'true' ? true : null
+}
+
 export function createAdminHandlers(deps: HandlerDeps) {
   const { engine, tasks, limits } = deps
 
@@ -32,8 +37,15 @@ export function createAdminHandlers(deps: HandlerDeps) {
   }
 
   async function snapshot(ctx: RouteContext): Promise<void> {
+    const queryHistory = snapshotHistoryOf(ctx.query.get('queryHistory'))
+    if (queryHistory === null) {
+      badRequest(ctx.res, 'Query parameter "queryHistory" accepts only true or false', {
+        value: ctx.query.get('queryHistory'),
+      })
+      return
+    }
     try {
-      const archive = await engine.snapshot(ctx.params[0])
+      const archive = await engine.snapshot(ctx.params[0], queryHistory ? { queryHistory } : undefined)
       if (ctx.abort.aborted) {
         await archive.cancel()
         return

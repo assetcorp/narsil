@@ -64,6 +64,17 @@ export async function reconcileLocalIndexes(
   return dispositions
 }
 
+export async function settleLocalIndexes(
+  deps: LocalIndexReconcileDeps,
+  orphaned: Set<string>,
+  settleAdopted: (indexName: string) => Promise<unknown>,
+): Promise<void> {
+  for (const [indexName, disposition] of await reconcileLocalIndexes(deps)) {
+    if (disposition === 'orphaned') orphaned.add(indexName)
+    else if (disposition === 'adopted') await settleAdopted(indexName)
+  }
+}
+
 /**
  * Gives a freshly bootstrapped index the identity the cluster holds for it.
  *

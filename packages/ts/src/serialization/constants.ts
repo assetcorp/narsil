@@ -3,6 +3,7 @@ export const NATIVE_CRC32_MIN_BYTES = 16
 export const MAX_FILE_BYTES = 2_147_483_647
 export const MAX_DOCUMENT_ENCODING_DEPTH = 100
 export const DOCUMENT_REPLY_ENVELOPE_DEPTH = 4
+export const BYTE_ORDER_MARK_WALK_BYTES_PER_HEADER = 256
 export const DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES = 1_048_576
 
 export const VALID_HNSW_METRICS = new Set(['cosine', 'dotProduct', 'euclidean'])

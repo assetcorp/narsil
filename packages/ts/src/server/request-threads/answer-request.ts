@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { MessagePort } from 'node:worker_threads'
 import { ServerErrorCodes } from '../errors'
 import type { RouteContext, RouteHandler } from '../request'
+import { bindResponseStop } from '../request-signal'
 import { sendError } from '../response'
 import type { SpooledBody } from '../spool'
 import { type CapturingResponse, createCapturingResponse, toRelayedResponse } from './captured-response'
@@ -26,6 +27,7 @@ export async function answerRequest(
   const captured = createCapturingResponse(request.hookContext?.remoteAddress ?? '', request.requestId, (part, moved) =>
     port.postMessage(part, moved),
   )
+  if (request.stop !== undefined) bindResponseStop(captured.abort, request.stop)
   streams.set(request.requestId, captured)
   const ctx: RouteContext = {
     res: captured.sink,
@@ -40,6 +42,7 @@ export async function answerRequest(
     spooledBody: spooledBodyOf(request.spooledBody),
     abort: captured.abort,
     hookContext: request.hookContext,
+    requestHeaders: request.requestHeaders,
   }
   try {
     await handler(ctx)

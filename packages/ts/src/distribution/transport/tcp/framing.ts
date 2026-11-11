@@ -1,4 +1,5 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
+import { decode } from '../../../serialization/msgpack'
 import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { LENGTH_PREFIX_BYTES } from './types'

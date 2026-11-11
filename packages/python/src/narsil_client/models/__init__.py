@@ -8,6 +8,7 @@ from pydantic import Field
 from typing_extensions import TypeAliasType
 
 from narsil_client._model import OPEN_ENUM, ApiModel
+from narsil_client._score import ScoredHitModel
 
 
 class AllocationConstraints(ApiModel):
@@ -432,6 +433,11 @@ class CreateBackupBody(ApiModel):
     backup: str
     """The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter
     or a digit.
+    """
+    query_history: bool | None = Field(default=None, alias="queryHistory")
+    """Set this to true to add every node's popular query suggestion history of the index to the
+    backup. The history holds the scrambled text of what people searched for, and the backup
+    keeps it after `retentionDays` ends.
     """
 
 
@@ -930,44 +936,6 @@ class HighlightMatch(ApiModel):
     """
 
 
-class ScoreComponents(ApiModel):
-    """The numbers BM25 combined into one hit's score, which is what you read when a ranking
-    surprises you.
-    """
-
-    term_frequencies: dict[str, int | float] = Field(alias="termFrequencies")
-    """Each query term appears in one field of this document this many times, under a key of
-    `field:term`. A term that appears in two fields therefore has two entries here, while the
-    keys of ScoreComponents.idf hold the bare term.
-    """
-    field_lengths: dict[str, int | float] = Field(alias="fieldLengths")
-    """Each field the query searched holds this many tokens, keyed by field."""
-    idf: dict[str, int | float]
-    """Each query term carries this inverse document frequency, which is what makes a rare term
-    count for more.
-    """
-
-
-class Hit(ApiModel):
-    """One matching document, with the score that ranked it."""
-
-    id: str
-    """The document is stored under this id."""
-    score: int | float | None = None
-    """This score ranked the hit. Scores compare within one result set, never across searches. A
-    sorted query ranks by sort values instead and carries no score unless it sets
-    `includeScores`.
-    """
-    document: AnyDocument
-    """This is the stored document."""
-    score_components: ScoreComponents | None = Field(default=None, alias="scoreComponents")
-    """These are the parts the score was built from, which arrive when the query asked for them."""
-    highlights: dict[str, HighlightMatch] | None = None
-    """These highlighted snippets are keyed by field, and arrive when the query asked for
-    highlighting.
-    """
-
-
 class PartitionConfig(ApiModel):
     """How many partitions an index opens with, and how many documents it accepts. An index opens
     with `maxPartitions` partitions and keeps that count until Narsil.rebalance changes it,
@@ -1136,15 +1104,52 @@ class HttpCreateIndexBody(ApiModel):
     """This carries the schema and settings, in the subset JSON can express."""
 
 
+class ScoreComponents(ApiModel):
+    """The numbers BM25 combined into one hit's score, which is what you read when a ranking
+    surprises you.
+    """
+
+    term_frequencies: dict[str, int | float] = Field(alias="termFrequencies")
+    """Each query term appears in one field of this document this many times, under a key of
+    `field:term`. A term that appears in two fields therefore has two entries here, while the
+    keys of ScoreComponents.idf hold the bare term.
+    """
+    field_lengths: dict[str, int | float] = Field(alias="fieldLengths")
+    """Each field the query searched holds this many tokens, keyed by field."""
+    idf: dict[str, int | float]
+    """Each query term carries this inverse document frequency, which is what makes a rare term
+    count for more.
+    """
+
+
+class Hit(ScoredHitModel):
+    """A search hit whose score uses the HTTP representation of HttpScore."""
+
+    document: AnyDocument
+    """This is the stored document."""
+    id: str
+    """The document is stored under this id."""
+    score_components: ScoreComponents | None = Field(default=None, alias="scoreComponents")
+    """These are the parts the score was built from, which arrive when the query asked for them."""
+    highlights: dict[str, HighlightMatch] | None = None
+    """These highlighted snippets are keyed by field, and arrive when the query asked for
+    highlighting.
+    """
+    score: int | float | None = None
+    """The client decodes this value to a numeric score, or leaves it absent when the search
+    returns no score.
+    """
+
+
 class HttpGroupResult(ApiModel):
     """One group of hits as the server sends it, which is GroupResult with no reducer output,
     because the server refuses a query with a reducer.
     """
 
-    hits: list[Hit]
-    """These hits fall in the group, cut to the query's `maxPerGroup`."""
     values: dict[str, Any]
     """Each grouping field holds this value for the group, keyed by field."""
+    hits: list[Hit]
+    """These hits retain the scores of the group's ranking."""
 
 
 class HttpQueryParamsPinnedItem(ApiModel):
@@ -1298,7 +1303,9 @@ class VectorQueryConfig(ApiModel):
     leaves `efSearch` unset, the engine keeps the larger of 50 and k plus a margin, where the
     margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 at 1,024
     dimensions and above. Under a filter, the engine counts only the candidates that pass the
-    filter.
+    filter. A vector or hybrid query throws a `NarsilError` with `CONFIG_INVALID` before it
+    searches when `efSearch` is not a whole number from 1 to 10,000, whether or not the field
+    holds a graph yet and whether or not its filter matches a document.
     """
     oversample: int | float | None = None
     """The engine re-scores this many times k candidates in a quantized field against the
@@ -1317,7 +1324,10 @@ class VectorQueryConfig(ApiModel):
     dimension. Under a filter, the engine counts only the candidates that pass the filter. On
     vectors spread evenly across every dimension, a one-bit or two-bit code can find fewer than
     95% of the true nearest neighbours at these defaults, so raise `oversample` on a query that
-    needs more of them.
+    needs more of them. The engine re-scores at most the larger of 10,000 and the default depth,
+    so a larger `oversample` can't lengthen the walk past that. A vector or hybrid query throws
+    a `NarsilError` with `CONFIG_INVALID` before it searches when `oversample` is not a finite
+    number of at least 1.
     """
 
 
@@ -1497,10 +1507,6 @@ class HttpQueryResult(ApiModel):
 
     facets: dict[str, FacetResult] | None = None
     """These facet counts are keyed by the field each facet was asked for."""
-    hits: list[Hit]
-    """These documents match, cut to the query's `limit`, best score first or in the query's sort
-    order.
-    """
     count: int | float
     """This many documents match in total, before the engine applies `limit` and `offset`. For a
     keyword search the engine counts every match. For a vector search it counts every vector
@@ -1528,6 +1534,8 @@ class HttpQueryResult(ApiModel):
     """
     coverage: QueryCoverage
     """The search read this much of the index, which is how you spot a degraded answer."""
+    hits: list[Hit]
+    """These hits follow the search's ranking, with scores encoded for HTTP."""
     groups: list[HttpGroupResult] | None = None
     """These groups arrive when the query asked for grouping."""
 
@@ -1676,6 +1684,11 @@ class IndexStats(ApiModel):
     """The index analyses text with this language module."""
     schema_: SchemaDefinition = Field(alias="schema")
     """The index was created with this field layout."""
+    held_search_states: int | float | None = Field(default=None, alias="heldSearchStates")
+    """This many searches on this instance's main copy hold a state of the index open right now.
+    Each search holds one state from its start until it answers, fails, or is cancelled, so the
+    figure falls back to 0 once every search has finished. A cluster reports no figure.
+    """
 
 
 class InsertBody(ApiModel):
@@ -1762,6 +1775,24 @@ class LivenessResponse(ApiModel):
 
     status: Annotated[Literal["ok"], OPEN_ENUM]
     """This is always `ok`, because the process answered."""
+
+
+class ManualQuerySuggestion(ApiModel):
+    """A suggestion that a caller adds by hand."""
+
+    group: str
+    """The group whose suggestions index takes the phrase."""
+    query: str
+    """The phrase, which the engine normalises."""
+    count: int | float | None = None
+    """The count that ranks the phrase. Defaults to 0."""
+
+
+class ManualSuggestionResponse(ApiModel):
+    """The answer of `POST /indexes/{name}/query-suggestions/manual`."""
+
+    index_name: str = Field(alias="indexName")
+    """The suggestions index that holds the phrase."""
 
 
 class MemoryStatsResponseWorkersItem(ApiModel):
@@ -1899,6 +1930,143 @@ class PreflightResult(ApiModel):
     """
 
 
+class QueryBansBody(ApiModel):
+    """The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`."""
+
+    bans: list[str]
+    """The banned phrases, at most 1,000, which the engine normalises."""
+
+
+class QuerySuggestionPreviewEntry(ApiModel):
+    """One phrase that a build would publish."""
+
+    group: str
+    """The group whose suggestions index would hold the phrase."""
+    query: str
+    """The normalised phrase."""
+    count: int | float
+    """The number of people whose searches the counts hold."""
+
+
+QuerySuggestionsBuildTrigger: TypeAlias = Annotated[Literal["schedule", "missed", "caller"], OPEN_ENUM]
+"""What started a build."""
+
+
+class QuerySuggestionsBuild(ApiModel):
+    """One build of the suggestions of an index."""
+
+    build_id: str = Field(alias="buildId")
+    """The ID of the build."""
+    trigger: QuerySuggestionsBuildTrigger
+    """What started the build."""
+    status: Annotated[Literal["running", "failed", "completed", "skipped"], OPEN_ENUM]
+    """Where the build stands."""
+    started_at: int | float = Field(alias="startedAt")
+    """When the build started, in milliseconds since the Unix epoch."""
+    ended_at: int | float | None = Field(alias="endedAt")
+    """When the build ended, or null while it runs."""
+    published: int | float
+    """The phrases that the build added or updated."""
+    removed: int | float
+    """The phrases that the build removed."""
+    discarded: int | float
+    """The phrases that the build left out because the merge held its limit."""
+    error_code: str | None = Field(alias="errorCode")
+    """The error code of a failed build, or null."""
+
+
+class QuerySuggestionsPreview(ApiModel):
+    """What the next build would publish: the phrases that enough people searched for, that match
+    enough documents, and that fall in a group the build keeps.
+    """
+
+    entries: list[QuerySuggestionPreviewEntry]
+    """The phrases, most counted first."""
+    truncated: bool
+    """True where the list stops at the limit that the caller passed while more phrases wait to be
+    checked.
+    """
+
+
+class QuerySuggestionsSetting(ApiModel):
+    """The popular query suggestions setting of one index. Only `enabled` and `fields` are
+    required, and each limit that you leave out takes its default.
+    """
+
+    enabled: bool
+    """Set this to true to count searches for the index and build its suggestions."""
+    fields: list[str]
+    """The `string` and `string[]` fields whose text a phrase must match before the engine
+    publishes it.
+    """
+    min_people: int | float | None = Field(default=None, alias="minPeople")
+    """The number of people, from 2 to 4,096, who must search a phrase before the engine publishes
+    it. Defaults to 4.
+    """
+    min_results: int | float | None = Field(default=None, alias="minResults")
+    """The number of documents, from 1 to 10,000, that a phrase must match with every word.
+    Defaults to 5.
+    """
+    retention_days: int | float | None = Field(default=None, alias="retentionDays")
+    """The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to
+    30.
+    """
+    max_phrases_per_day: int | float | None = Field(default=None, alias="maxPhrasesPerDay")
+    """The number of phrases, up to 16,384, that a node counts for the index each day. Defaults to
+    10,000.
+    """
+    max_phrases_per_person: int | float | None = Field(default=None, alias="maxPhrasesPerPerson")
+    """The number of phrases, up to 1,000, that a node counts for one person each day. Defaults to
+    100.
+    """
+    max_people_per_day: int | float | None = Field(default=None, alias="maxPeoplePerDay")
+    """The number of people, up to 100,000, that a node counts for the index each day. Defaults to
+    100,000.
+    """
+    max_groups: int | float | None = Field(default=None, alias="maxGroups")
+    """The number of groups, up to 1,000, that the index counts. Defaults to 100."""
+    min_letters: int | float | None = Field(default=None, alias="minLetters")
+    """The number of letters that a phrase must hold. Defaults to 4."""
+    max_length: int | float | None = Field(default=None, alias="maxLength")
+    """The number of characters, up to 150, that a phrase may hold. Defaults to 100."""
+    max_words: int | float | None = Field(default=None, alias="maxWords")
+    """The number of words, up to 50, that a phrase may hold. Defaults to 8."""
+    max_digits: int | float | None = Field(default=None, alias="maxDigits")
+    """The number of digits that a phrase may hold in total. Defaults to 5."""
+    max_merge_phrases: int | float | None = Field(default=None, alias="maxMergePhrases")
+    """The number of phrases, up to 500,000, that one build merges. Defaults to 100,000."""
+    merge_memory_bytes: int | float | None = Field(default=None, alias="mergeMemoryBytes")
+    """The memory, from 16 MiB to 1 GiB, of the worker that merges the counts. Defaults to 128 MiB.
+    """
+    save_interval_ms: int | float | None = Field(default=None, alias="saveIntervalMs")
+    """How often, from 1 second to 1 hour, a node saves the counts of the day. Defaults to 5
+    minutes.
+    """
+    result_checks_per_second: int | float | None = Field(default=None, alias="resultChecksPerSecond")
+    """The number of result checks, up to 1,000, that a build runs each second. Defaults to 20."""
+    schedule: str | None = None
+    """A cron expression of five fields, or `off`. Defaults to `0 3 * * *`."""
+    time_zone: str | None = Field(default=None, alias="timeZone")
+    """The IANA time zone of `schedule`. Defaults to `UTC`."""
+
+
+class QuerySuggestionsStatus(ApiModel):
+    """The setting, the last build, and the next scheduled build of one index."""
+
+    index_name: str = Field(alias="indexName")
+    """The index."""
+    setting: QuerySuggestionsSetting | None
+    """The setting, or null where nobody set one."""
+    last_build: QuerySuggestionsBuild | None = Field(alias="lastBuild")
+    """The last build, or null where none ran."""
+    next_build_at: int | float | None = Field(alias="nextBuildAt")
+    """When the schedule next matches, in milliseconds since the Unix epoch, or null where it is
+    off.
+    """
+    suggestion_indexes: list[str] = Field(alias="suggestionIndexes")
+    """The suggestions index of each group that holds one."""
+
+
 class ReadinessResponse(ApiModel):
     """The body of `GET /readyz` and `GET /health`, which the server sends with status 200 while it
     is ready and with status 503 while it is not.
@@ -1915,6 +2083,56 @@ class RebalanceBody(ApiModel):
 
     target_partition_count: int | float | None = Field(default=None, alias="targetPartitionCount")
     """The index moves to this many partitions, which must be a positive whole number."""
+
+
+class RecordQueryBody(ApiModel):
+    """The body of `POST /indexes/{name}/query-suggestions/record`. The server takes the person and
+    the group from its `identify` function, so the body carries the search alone.
+    """
+
+    query: str
+    """The search that the person followed with a click."""
+
+
+RecordQueryOutcome: TypeAlias = Annotated[
+    Literal[
+        "recorded",
+        "repeat",
+        "invalid",
+        "banned",
+        "person-limit",
+        "phrase-limit",
+        "people-limit",
+        "group-limit",
+        "no-key",
+        "unidentified",
+    ],
+    OPEN_ENUM,
+]
+"""Why a node counted no search, or `recorded` where it counted one."""
+
+
+class RecordQueryResult(ApiModel):
+    """What QuerySuggestions.recordQuery did with one search."""
+
+    recorded: bool
+    """True where the node counted the search."""
+    outcome: RecordQueryOutcome
+    """Why the node counted it or left it out."""
+
+
+class RemoveQueryBody(ApiModel):
+    """The body of `POST /indexes/{name}/query-suggestions/remove`."""
+
+    query: str
+    """The phrase to ban and to remove from every suggestions index of the index."""
+
+
+class RemoveQueryResponse(ApiModel):
+    """The answer of `POST /indexes/{name}/query-suggestions/remove`."""
+
+    suggestion_indexes: int | float = Field(alias="suggestionIndexes")
+    """The number of suggestions indexes that held the phrase."""
 
 
 class ReplicationFactorBody(ApiModel):
@@ -1980,6 +2198,50 @@ class SuggestResult(ApiModel):
     """
 
 
+class SyncSetting(ApiModel):
+    """The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on
+    only for an index whose every document belongs to one user, because every device that syncs
+    the index receives the whole index. Create one index for each user, and leave sync off for a
+    public index or for an index that holds the data of several users.
+    """
+
+    enabled: bool
+    """This turns sync on or off. Turning it on gives the index a new epoch, so every synced device
+    loads a new copy.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the server deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the server deletes the oldest log segment from history.
+    It defaults to the length of the published snapshot.
+    """
+
+
+class SyncStatus(ApiModel):
+    """The device sync state of one index, which SyncOperations.getSync returns."""
+
+    active: bool
+    """This is true once a device has asked for the published snapshot, from when the server keeps
+    history.
+    """
+    epoch: str | None
+    """This is the index epoch, 32 lowercase hexadecimal digits, or `null` while sync is off."""
+    enabled: bool
+    """This turns sync on or off. Turning it on gives the index a new epoch, so every synced device
+    loads a new copy.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the server deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the server deletes the oldest log segment from history.
+    It defaults to the length of the published snapshot.
+    """
+
+
 class SynonymSetBody(ApiModel):
     """The body of `GET /indexes/{name}/synonyms`, and the body that `POST
     /indexes/{name}/synonyms` takes.
@@ -2040,6 +2302,7 @@ TaskType: TypeAlias = Annotated[
         "backup",
         "backupRestore",
         "backupDelete",
+        "querySuggestionsBuild",
     ],
     OPEN_ENUM,
 ]
@@ -2086,6 +2349,8 @@ class TaskRecord(ApiModel):
     """
     result: ImportResult | None = None
     """What the work produced, which an `import` or `importExport` task reports once it finishes."""
+    build: QuerySuggestionsBuild | None = None
+    """The build that a `querySuggestionsBuild` task ran, once it ends."""
     error: ErrorDetail | None = None
     """This says why the task failed, and a failed task alone carries it."""
 
@@ -2118,9 +2383,9 @@ class VectorFieldBody(ApiModel):
 
 class VectorMaintenanceResult(ApiModel):
     """The state of one vector field, and what maintenance would cost, as
-    Narsil.vectorMaintenanceStatus reports it. Removing a vector leaves a tombstone in the
-    graph, and enough of them slow a search down. Read this to decide when compaction earns its
-    cost.
+    VectorMaintenanceOperations.vectorMaintenanceStatus reports it. Removing a vector leaves a
+    tombstone in the graph, and enough of them slow a search down. Read this to decide when
+    compaction earns its cost.
     """
 
     field_name: str = Field(alias="fieldName")
@@ -2145,9 +2410,9 @@ class VectorMaintenanceResult(ApiModel):
     background, during which a search reads them from the field's files.
     """
     estimated_compact_ms: int | float = Field(alias="estimatedCompactMs")
-    """Narsil.compactVectors would take about this many milliseconds."""
+    """VectorMaintenanceOperations.compactVectors would take about this many milliseconds."""
     estimated_optimize_ms: int | float = Field(alias="estimatedOptimizeMs")
-    """Narsil.optimizeVectors would take about this many milliseconds."""
+    """VectorMaintenanceOperations.optimizeVectors would take about this many milliseconds."""
 
 
 class VectorMaintenanceResponse(ApiModel):
@@ -2253,6 +2518,8 @@ __all__ = [
     "ListResult",
     "ListedDocument",
     "LivenessResponse",
+    "ManualQuerySuggestion",
+    "ManualSuggestionResponse",
     "MemoryStatsResponse",
     "MemoryStatsResponseWorkersItem",
     "MultiGetBody",
@@ -2268,9 +2535,21 @@ __all__ = [
     "PreflightResult",
     "PresenceFilter",
     "ProcessMemoryReport",
+    "QueryBansBody",
     "QueryCoverage",
+    "QuerySuggestionPreviewEntry",
+    "QuerySuggestionsBuild",
+    "QuerySuggestionsBuildTrigger",
+    "QuerySuggestionsPreview",
+    "QuerySuggestionsSetting",
+    "QuerySuggestionsStatus",
     "ReadinessResponse",
     "RebalanceBody",
+    "RecordQueryBody",
+    "RecordQueryOutcome",
+    "RecordQueryResult",
+    "RemoveQueryBody",
+    "RemoveQueryResponse",
     "ReplicationFactorBody",
     "ReplicationFactorResponse",
     "RerankConfig",
@@ -2282,6 +2561,8 @@ __all__ = [
     "SuggestParams",
     "SuggestResult",
     "SuggestResultTermsItem",
+    "SyncSetting",
+    "SyncStatus",
     "SynonymRule",
     "SynonymSetBody",
     "TaskListPage",

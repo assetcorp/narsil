@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { getIndexMetadata, type IndexMetadataRecord } from '../../cluster/index-metadata'
+import { getIndexMetadata, type IndexMetadataRecord, readIndexMetadataSnapshot } from '../../cluster/index-metadata'
+import { suggestionStateOfSettings } from '../../cluster/query-suggestion-settings'
 import { servingNameOf } from '../../cluster-node/generation-routing'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type { BackupPartitionResult } from '../../transport/backup-payloads'
@@ -17,6 +18,7 @@ import {
   storedFilesOf,
 } from '../manifest'
 import { drivePartitionTask, forEachPartition } from '../partition-exchange'
+import { backUpQueryHistory, configWithSuggestionState } from '../query-history'
 import { backupNameTaken, claimBackupStore, clusterUuidOf, holdsManifest } from '../store'
 
 function unreadableResult(backupName: string, partitionId: number): NarsilError {
@@ -89,16 +91,30 @@ async function requireIndexMetadata(context: BackupDriverContext, indexName: str
   return metadata
 }
 
-export async function runBackupCreation(context: BackupDriverContext): Promise<void> {
+export interface BackupCreationRequest {
+  takenBy: string | undefined
+  queryHistory: boolean
+}
+
+export async function runBackupCreation(context: BackupDriverContext, request: BackupCreationRequest): Promise<void> {
   const { coordinator } = context.config
   const { store, job } = context
+  const { takenBy } = request
   const indexName = jobIndexNameOf(context)
   const generation = await servingNameOf(coordinator, indexName)
+  const named = (await readIndexMetadataSnapshot(coordinator, indexName))?.settings
+  const syncEpoch = named?.sync?.enabled === true ? named.syncEpoch : undefined
   const metadata = await requireIndexMetadata(context, indexName, generation)
   const clusterUuid = await clusterUuidOf(coordinator)
   await reportJobProgress(context, 0, metadata.partitionCount)
   const results = await backUpEveryPartition(context, generation, metadata.partitionCount)
   const partitions: BackupPartition[] = results.map(result => result.partition)
+  const config = await configWithSuggestionState(
+    context,
+    sameConfigOf(results, indexName),
+    suggestionStateOfSettings(named),
+  )
+  const queryHistory = request.queryHistory ? await backUpQueryHistory(context, indexName) : undefined
   const manifest: BackupManifest = {
     name: job.backupName,
     clusterUuid,
@@ -106,9 +122,12 @@ export async function runBackupCreation(context: BackupDriverContext): Promise<v
     startedAt: job.startedAt,
     completedAt: Date.now(),
     partitionCount: metadata.partitionCount,
+    ...(syncEpoch !== undefined ? { syncEpoch } : {}),
+    ...(takenBy !== undefined ? { takenBy } : {}),
     replicationFactor: metadata.replicationFactor,
     constraints: metadata.constraints,
-    config: sameConfigOf(results, indexName),
+    config,
+    ...(queryHistory === undefined ? {} : { queryHistory }),
     partitions,
   }
   const unstored = await firstUnstoredFile(store, storedFilesOf(manifest))

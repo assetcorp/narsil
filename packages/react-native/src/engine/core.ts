@@ -13,7 +13,10 @@ import type {
   NarsilCore,
   StoreMemory,
 } from '../specs/core.nitro'
+import { adaptAnalysis } from './analysis'
+import { adaptKeyword } from './keyword'
 import { withNativeCode } from './native-error'
+import { adaptPaged } from './paged'
 
 const ABSENT_REGION: MemoryView = { buffer: new ArrayBuffer(0), byteOffset: 0, byteLength: 0 }
 
@@ -50,6 +53,9 @@ function storeMemoryOf(memory: NativeStoreMemory): StoreMemory {
     present: viewOf(memory.present),
     vectorFile: viewOf(memory.vectorFile),
     vectorOffset: viewOf(memory.vectorOffset),
+    bornAt: viewOf(memory.bornAt),
+    retiredAt: viewOf(memory.retiredAt),
+    pins: viewOf(memory.pins),
     vectorFiles: memory.vectorFiles,
     codeBlocks: memory.codeBlocks.map(viewOf),
     vectorBlocks: memory.vectorBlocks.map(block => (block === null ? ABSENT_REGION : viewOf(block))),
@@ -80,7 +86,7 @@ function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'sc
         throw withNativeCode(error)
       }
     },
-    async searchAsync(graph, store, query, metric, candidateCount, threadSlot, accepted) {
+    async searchAsync(graph, store, query, metric, candidateCount, pin, threadSlot, accepted) {
       try {
         const hits = await core.searchAsync(
           graphOf(graph),
@@ -88,6 +94,7 @@ function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'sc
           viewOf(query),
           metric,
           candidateCount,
+          pin,
           threadSlot,
           accepted === null ? ABSENT_REGION : viewOf(accepted),
           accepted !== null,
@@ -101,9 +108,17 @@ function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'sc
         throw withNativeCode(error)
       }
     },
-    async scoreAsync(store, query, metric, ordinals, count, threadSlot) {
+    async scoreAsync(store, query, metric, ordinals, count, pin, threadSlot) {
       try {
-        const scores = await core.scoreAsync(storeOf(store), viewOf(query), metric, viewOf(ordinals), count, threadSlot)
+        const scores = await core.scoreAsync(
+          storeOf(store),
+          viewOf(query),
+          metric,
+          viewOf(ordinals),
+          count,
+          pin,
+          threadSlot,
+        )
         return { status: scores.status, distances: new Float64Array(scores.distances) }
       } catch (error) {
         throw withNativeCode(error)
@@ -114,6 +129,9 @@ function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'sc
 
 export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore {
   return {
+    ...adaptAnalysis(core),
+    ...adaptKeyword(core),
+    ...adaptPaged(core),
     abiVersion: () => core.abiVersion(),
     workspaceBytes: () => core.workspaceBytes(),
     attachGraph(memory) {
@@ -131,13 +149,14 @@ export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore 
       }
     },
     detachStore: store => storeOf(store).detach(),
-    search(graph, store, query, metric, candidateCount, threadSlot, ordinals, distances, accepted) {
+    search(graph, store, query, metric, candidateCount, pin, threadSlot, ordinals, distances, accepted) {
       return core.search(
         graphOf(graph),
         storeOf(store),
         viewOf(query),
         metric,
         candidateCount,
+        pin,
         threadSlot,
         viewOf(ordinals),
         viewOf(distances),
@@ -145,8 +164,8 @@ export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore 
         accepted !== null,
       )
     },
-    score: (store, query, metric, ordinals, count, distances) =>
-      core.score(storeOf(store), viewOf(query), metric, viewOf(ordinals), count, viewOf(distances)),
+    score: (store, query, metric, ordinals, count, pin, distances) =>
+      core.score(storeOf(store), viewOf(query), metric, viewOf(ordinals), count, pin, viewOf(distances)),
     ...(nativeThreads ? backgroundCalls(core) : {}),
     place: (graph, store, metric, ordinal, topLayer, graphHeldAlone, threadSlot, wakes) =>
       core.place(graphOf(graph), storeOf(store), metric, ordinal, topLayer, graphHeldAlone, threadSlot, viewOf(wakes)),
@@ -158,5 +177,7 @@ export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore 
     measure: (store, metric, ordinals, count, totals) =>
       core.measure(storeOf(store), metric, viewOf(ordinals), count, viewOf(totals)),
     quantise: (store, metric, ordinals, count) => core.quantise(storeOf(store), metric, viewOf(ordinals), count),
+    applyMath: (operation, first, second, results) =>
+      core.applyMath(operation, viewOf(first), viewOf(second), viewOf(results)),
   }
 }

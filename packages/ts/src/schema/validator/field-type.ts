@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, TextFieldOption } from '../../types/schema'
 import { MAX_STORED_VECTOR_DIMENSION, PARSED_FIELD_TYPE_CACHE_ENTRIES } from '../constants'
-import { VECTOR_PATTERN } from './shared'
+import { VECTOR_TYPE_PATTERN, vectorDimensionOf } from './shared'
 
 export type BaseFieldType =
   | 'string'
@@ -62,15 +62,15 @@ function invalidType(path: string, type: string, message: string): never {
 
 function parseBase(baseName: string, path: string, type: string): { base: BaseFieldType; dimension: number } {
   if (isNamedBase(baseName)) return { base: baseName, dimension: 0 }
-  const vectorMatch = VECTOR_PATTERN.exec(baseName)
+  const vectorMatch = VECTOR_TYPE_PATTERN.exec(baseName)
   if (vectorMatch === null) {
     invalidType(path, type, `Field "${path}" has an unsupported type: "${type}"`)
   }
-  const dimension = Number.parseInt(vectorMatch[1], 10)
-  if (dimension <= 0 || dimension > MAX_STORED_VECTOR_DIMENSION) {
+  const dimension = vectorDimensionOf(baseName) ?? Number.NaN
+  if (!(dimension > 0 && dimension <= MAX_STORED_VECTOR_DIMENSION)) {
     throw new NarsilError(
       ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION,
-      `Vector field "${path}" has ${dimension} dimensions, but a vector field holds from 1 to ${MAX_STORED_VECTOR_DIMENSION}`,
+      `Vector field "${path}" has ${vectorMatch[1]} dimensions, but a vector field holds from 1 to ${MAX_STORED_VECTOR_DIMENSION}`,
       { field: path, dimension, maximum: MAX_STORED_VECTOR_DIMENSION },
     )
   }

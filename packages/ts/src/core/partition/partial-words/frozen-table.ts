@@ -6,7 +6,7 @@ import { countSpelling, type PartialSpellings, type SpellingCounts } from './spe
 import { codePointsOf, partialWordProbe, runKeyAt, utf8CodePointCount, utf8Contains } from './text'
 import type { PartialWordProbe, PartialWordTableData, PartialWordTableReader, PartialWordVisitor } from './types'
 
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 interface SpellingEntry {
   spelling: string
@@ -89,11 +89,17 @@ export function countTableSpellings(
   counts: SpellingCounts,
   table: PartialWordTableData,
   tokenTable: FrozenTokenTable,
+  removedCounts?: Uint32Array,
 ): void {
   const { spellings, spellingOffsets, spellingTokens, spellingCounts } = table
   for (let entry = 0; entry < spellingTokens.length; entry++) {
     const spelling = decoder.decode(spellings.subarray(spellingOffsets[entry], spellingOffsets[entry + 1]))
-    countSpelling(counts, tokenTable.tokenAt(spellingTokens[entry]), spelling, spellingCounts[entry])
+    countSpelling(
+      counts,
+      tokenTable.tokenAt(spellingTokens[entry]),
+      spelling,
+      Math.max(0, spellingCounts[entry] - (removedCounts?.[entry] ?? 0)),
+    )
   }
 }
 
@@ -126,7 +132,7 @@ export function partialWordTableBytes(table: PartialWordTableData): number {
 export function readPartialWordTable(
   table: PartialWordTableData,
   tokenTable: FrozenTokenTable,
-  removedCounts: ReadonlyMap<number, number>,
+  removedCounts: Uint32Array,
 ): PartialWordTableReader {
   const { spellings, spellingOffsets, spellingTokens, spellingCounts, runs, runOffsets, runEntries } = table
 
@@ -155,7 +161,7 @@ export function readPartialWordTable(
         const start = spellingOffsets[entry]
         const end = spellingOffsets[entry + 1]
         if (end - start <= probe.utf8.length) continue
-        if ((removedCounts.get(entry) ?? 0) >= spellingCounts[entry]) continue
+        if (removedCounts[entry] >= spellingCounts[entry]) continue
         if (!utf8Contains(spellings, start, end, probe.utf8)) continue
         const length = utf8CodePointCount(spellings, start, end)
         if (length <= probe.codePoints.length) continue
@@ -163,7 +169,7 @@ export function readPartialWordTable(
       }
     },
 
-    entryOf(spelling: string): number {
+    entryOf(spelling: string, token?: string): number {
       const probe = partialWordProbe(spelling)
       if (probe.codePoints.length <= PARTIAL_WORD_RUN_CODE_POINTS) return -1
       const run = narrowestRun(probe.codePoints)
@@ -171,10 +177,11 @@ export function readPartialWordTable(
       let exhausted = -1
       for (let member = runOffsets[run]; member < runOffsets[run + 1]; member++) {
         const entry = runEntries[member]
+        if (token !== undefined && tokenTable.tokenAt(spellingTokens[entry]) !== token) continue
         const start = spellingOffsets[entry]
         const end = spellingOffsets[entry + 1]
         if (end - start !== probe.utf8.length || !utf8Contains(spellings, start, end, probe.utf8)) continue
-        if ((removedCounts.get(entry) ?? 0) < spellingCounts[entry]) return entry
+        if (removedCounts[entry] < spellingCounts[entry]) return entry
         if (exhausted < 0) exhausted = entry
       }
       return exhausted

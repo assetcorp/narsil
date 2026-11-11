@@ -1,6 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32 } from '../../serialization/crc32'
+import { crc32, decode, ErrorCodes, encode, NarsilError } from '#platform/storage-host'
 
 export const PAGED_SEGMENT_ENVELOPE_VERSION = 6
 export const PAGED_SEGMENT_HEAD_VERSION = 1

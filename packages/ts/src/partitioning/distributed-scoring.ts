@@ -1,4 +1,5 @@
 import type { PartitionIndex } from '../core/partition'
+import { partitionDocumentFrequency } from '../core/partition/document-frequency'
 import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { analyseQueryPhrases } from '../search/phrase-code'
@@ -58,15 +59,18 @@ export function sanitizeGlobalStats(stats: GlobalStatistics): GlobalStatistics {
   }
 }
 
-export function pruneStatsToQueryTerms(
-  stats: GlobalStatistics,
+export function queryStatTokens(
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
   reached?: { partitions: readonly PartitionIndex[]; expansion: QueryExpansion },
-): GlobalStatistics {
+): Set<string> {
   const tokens = analysedQueryTokens(term, language, analysis)
   if (reached !== undefined) addReachedTokens(tokens, reached.partitions, term, reached.expansion, language, analysis)
+  return tokens
+}
+
+export function pruneStatsToTokens(stats: GlobalStatistics, tokens: ReadonlySet<string>): GlobalStatistics {
   const docFrequencies: Record<string, number> = Object.create(null)
   for (const token of tokens) {
     if (Object.hasOwn(stats.docFrequencies, token)) {
@@ -116,10 +120,10 @@ export function collectQueryTermStats(
     for (const [field, length] of Object.entries(stats.totalFieldLengths)) {
       totalFieldLengths[field] = (totalFieldLengths[field] ?? 0) + length
     }
+    const states = partition.readStates()
     for (const token of queryTokens) {
-      if (Object.hasOwn(stats.docFrequencies, token)) {
-        docFrequencies[token] = (docFrequencies[token] ?? 0) + stats.docFrequencies[token]
-      }
+      const documents = partitionDocumentFrequency(states, token)
+      if (documents > 0) docFrequencies[token] = (docFrequencies[token] ?? 0) + documents
     }
   }
 
@@ -197,7 +201,7 @@ export function setupStatisticsBroadcast(
   interval: number,
 ): { shutdown: () => void } {
   const handle = setInterval(() => {
-    const aggregate = manager.getAggregateStats()
+    const aggregate = manager.statisticsMessage()
     invalidation.publish({
       type: 'statistics',
       indexName: manager.indexName,

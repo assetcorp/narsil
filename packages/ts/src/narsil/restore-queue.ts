@@ -1,7 +1,15 @@
+import { attachedRuntimeOf, loadOptionalWrites, loadStorageCode } from '#platform/restore-queue-host'
 import { abandonChangeOf } from '../engine/analysis-change-entry'
-import type { EngineCore } from '../engine/core'
+import type { EngineCore, IndexRegistryEntry } from '../engine/core'
 import type { RestoreDeps } from '../engine/snapshot'
+import type { RestoreSuggestionHooks } from '../engine/snapshot/restore-setup'
+import { restoreSuggestionHooksOf } from '../query-suggestions/restore-hooks'
+
+export { bindRestoreQueueHost, startQuerySuggestions } from '#platform/restore-queue-host'
+export { abandonChangeOf, resumeChangeOf, resumeEveryChange } from '../engine/analysis-change-entry'
+
 import type { ByteSource } from '../types/byte-source'
+import type { Narsil } from '../types/engine'
 
 export type RestoreHost = Pick<
   RestoreDeps,
@@ -12,9 +20,35 @@ export type RestoreHost = Pick<
   | 'releaseTimeoutMs'
 >
 
-function restoreDepsOf(core: EngineCore, host: RestoreHost): RestoreDeps {
+function suggestionsInPlay(core: EngineCore, ...entries: Array<IndexRegistryEntry | undefined>): boolean {
+  return core.querySuggestionHooks !== undefined || entries.some(entry => (entry?.querySuggestions ?? null) !== null)
+}
+
+function suggestionHooksLoadedOnUse(core: EngineCore, engine: Narsil, indexName: string): RestoreSuggestionHooks {
+  let loaded: Promise<RestoreSuggestionHooks> | null = null
+  const load = (): Promise<RestoreSuggestionHooks> => {
+    loaded ??= Promise.resolve(restoreSuggestionHooksOf(core, engine, indexName))
+    return loaded
+  }
+  return {
+    historySink: async restored =>
+      attachedRuntimeOf(core)?.restoredHistory(indexName, restored?.querySuggestions) ?? null,
+    async beforeInstall(entry, previous) {
+      if (suggestionsInPlay(core, entry, previous)) await (await load()).beforeInstall(entry, previous)
+    },
+    async afterActivate(entry) {
+      if (suggestionsInPlay(core, entry)) await (await load()).afterActivate(entry)
+    },
+    async afterInstall(entry, history) {
+      if (suggestionsInPlay(core, entry) || history !== null) await (await load()).afterInstall(entry, history)
+    },
+  }
+}
+
+function restoreDepsOf(core: EngineCore, host: RestoreHost, engine: Narsil, indexName: string): RestoreDeps {
   return {
     ...host,
+    querySuggestions: suggestionHooksLoadedOnUse(core, engine, indexName),
     executor: core.executor,
     indexRegistry: core.indexRegistry,
     durability: core.durability,
@@ -33,25 +67,13 @@ function restoreDepsOf(core: EngineCore, host: RestoreHost): RestoreDeps {
   }
 }
 
-export function queueRestore(
+export async function runRestore(
   core: EngineCore,
   host: RestoreHost,
-  restoresInFlight: Map<string, Promise<void>>,
   indexName: string,
   data: ByteSource,
+  engine: Narsil,
 ): Promise<void> {
-  const previous = restoresInFlight.get(indexName) ?? Promise.resolve()
-  const restored = previous.then(async () => {
-    const { restoreFromSnapshot } = await import('../engine/snapshot')
-    await restoreFromSnapshot(indexName, data, restoreDepsOf(core, host))
-  })
-  const settled = restored.then(
-    () => undefined,
-    () => undefined,
-  )
-  restoresInFlight.set(indexName, settled)
-  void settled.then(() => {
-    if (restoresInFlight.get(indexName) === settled) restoresInFlight.delete(indexName)
-  })
-  return restored
+  const [{ restoreFromSnapshot }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
+  await restoreFromSnapshot(indexName, data, restoreDepsOf(core, host, engine, indexName))
 }

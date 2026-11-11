@@ -24,7 +24,15 @@ import {
   publishedFilePath,
   type ReceivedResponse,
 } from './contract-checker'
-import { type ContractState, INDEX, LIMITED_BYTES, OPERATION_CASES, type Probe } from './operation-cases'
+import {
+  type ContractState,
+  INDEX,
+  identifyFirstPerson,
+  LIMITED_BYTES,
+  OPERATION_CASES,
+  type Probe,
+  SUGGESTIONS_KEY,
+} from './operation-cases'
 
 const run = promisify(execFile)
 
@@ -159,8 +167,18 @@ describe('the published OpenAPI file', () => {
   beforeAll(async () => {
     durabilityDirectory = await mkdtemp(join(tmpdir(), 'narsil-openapi-'))
     single = await startTestServer(
-      { limits: { maxBodyBytes: LIMITED_BYTES, maxImportBytes: LIMITED_BYTES, maxRestoreBytes: LIMITED_BYTES } },
-      { workers: { enabled: false }, durability: { directory: join(durabilityDirectory, 'single') }, lifecycle: {} },
+      {
+        limits: { maxBodyBytes: LIMITED_BYTES, maxImportBytes: LIMITED_BYTES, maxRestoreBytes: LIMITED_BYTES },
+        sync: true,
+        onRequest: () => undefined,
+        querySuggestions: { identify: identifyFirstPerson },
+      },
+      {
+        workers: { enabled: false },
+        durability: { directory: join(durabilityDirectory, 'single') },
+        lifecycle: {},
+        querySuggestions: { key: SUGGESTIONS_KEY },
+      },
     )
     coordinator = createInMemoryCoordinator()
     transport = createInMemoryTransport('contract-node', createInMemoryNetwork())

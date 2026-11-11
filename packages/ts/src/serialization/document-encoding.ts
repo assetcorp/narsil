@@ -1,22 +1,28 @@
 import { Encoder, encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../errors'
 import {
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
   DOCUMENT_REPLY_ENVELOPE_DEPTH,
+  ErrorCodes,
   MAX_DOCUMENT_ENCODING_DEPTH,
-} from './constants'
+  NarsilError,
+} from '#platform/msgpack-host'
 
-const INTEGER_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH }
-const FLOAT_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH, forceIntegerToFloat: true }
-
-let integerEncoder = new Encoder(INTEGER_ENCODING)
-let floatEncoder = new Encoder(FLOAT_ENCODING)
+let integerEncoder: Encoder | undefined
+let floatEncoder: Encoder | undefined
 
 function encodeExactly(document: unknown, forceIntegerToFloat: boolean): Uint8Array {
-  const bytes = (forceIntegerToFloat ? floatEncoder : integerEncoder).encode(document)
+  let encoder: Encoder
+  if (forceIntegerToFloat) {
+    floatEncoder ??= new Encoder({ maxDepth: MAX_DOCUMENT_ENCODING_DEPTH, forceIntegerToFloat: true })
+    encoder = floatEncoder
+  } else {
+    integerEncoder ??= new Encoder({ maxDepth: MAX_DOCUMENT_ENCODING_DEPTH })
+    encoder = integerEncoder
+  }
+  const bytes = encoder.encode(document)
   if (bytes.byteLength > DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES) {
-    if (forceIntegerToFloat) floatEncoder = new Encoder(FLOAT_ENCODING)
-    else integerEncoder = new Encoder(INTEGER_ENCODING)
+    if (forceIntegerToFloat) floatEncoder = undefined
+    else integerEncoder = undefined
   }
   return bytes
 }

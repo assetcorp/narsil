@@ -11,13 +11,15 @@ static void forget_mapping(narsil_vector_file *file) {
 
 #ifdef _WIN32
 
+#include "allocation.h"
+
 #include <stdlib.h>
 #include <windows.h>
 
 static WCHAR *wide_path_of(const char *path) {
   int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
   if (length <= 0) { return NULL; }
-  WCHAR *wide = calloc((size_t)length, sizeof *wide);
+  WCHAR *wide = core_allocate_zeroed((size_t)length, sizeof *wide);
   if (wide == NULL) { return NULL; }
   if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, length) != length) {
     free(wide);

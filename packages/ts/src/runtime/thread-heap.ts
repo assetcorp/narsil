@@ -1,10 +1,11 @@
-import { collectAndReturnPages, collectYoungGeneration } from '#platform/idle-heap-cleanup'
-import type { NodeMemoryReport } from '../distribution/coordinator/types'
 import {
+  collectAndReturnPages,
+  collectYoungGeneration,
   REFUSAL_COLLECTION_MIN_INTERVAL_MS,
   REFUSAL_COLLECTION_TIME_MULTIPLE,
   REFUSAL_YOUNG_COLLECTION_MIN_INTERVAL_MS,
-} from './constants'
+} from '#platform/thread-heap-host'
+import type { NodeMemoryReport } from '../distribution/coordinator/types'
 
 export interface HeapReservation {
   release(): void

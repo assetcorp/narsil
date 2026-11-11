@@ -202,6 +202,7 @@ TokenResult {
 - It receives the raw field text and returns `{ token, position }` pairs.
 - `token` is the normalised, analysis-ready token, lower-cased and stemmed as the domain requires.
 - `position` is the token's position in the text, numbered from zero, which highlighting and phrase matching read.
+- Narsil must refuse a result whose `token` is not a string or whose `position` is not a whole number from 0 to 4,294,967,295. It must raise `DOC_VALIDATION_FAILED` for a document, storing nothing from that document, and `CONFIG_INVALID` for a query. A [keyword segment](envelope.md#keyword-segment-payload) stores each position in 32 bits, so a larger position can wrap when a checkpoint saves it, and a phrase can then match differently once the index opens again.
 - With a custom tokeniser configured, Narsil skips its whole standard pipeline, meaning NFC normalisation, lower-casing, splitting, stop word removal, and stemming, and calls this function instead.
 - The same tokeniser runs for indexing and for querying, so a token produced at index time must match the token produced at query time for the same input.
 
@@ -346,7 +347,7 @@ An implementation must offer an operation that takes an index name and any of `l
 
 An implementation must keep answering queries and accepting writes under the old settings while it builds the new terms beside the old ones, and every write that it accepts during that time must reach the new terms. Once every partition holds its new terms, it must replace the partitions, the language, the tokeniser, the stop words, the prepared synonyms, and the [analysis generation](envelope.md#index-metadata-payload) in one step that no query can observe halfway. A query must answer under one set of settings, so a query that spans the switch must run again under the new settings. A change must leave vector data as it is.
 
-A later change must replace a change whose terms are still building, and the earlier caller must receive `ANALYSIS_CHANGE_REPLACED`. A rebuild that a revision difference calls for must join a running change. A change must wait for a durable checkpoint where the previous change has switched and its generation has no durable checkpoint yet, as [Index Metadata](durability.md#index-metadata) requires.
+A later change must replace a change whose terms are still building, and the earlier caller must receive `ANALYSIS_CHANGE_REPLACED`. An implementation must refuse a change to an index while a restore of that index runs, both when the caller asks for the change and when the change reaches its switch, because the restore replaces the settings and the terms that the change starts from. The caller must receive `ANALYSIS_CHANGE_REPLACED`, which is the code that a restore also raises when it abandons a pending change. A change that the implementation refuses in this way must leave no pending change in the [index metadata](durability.md#index-metadata). A rebuild that a revision difference calls for must join a running change. A change must wait for a durable checkpoint where the previous change has switched and its generation has no durable checkpoint yet, as [Index Metadata](durability.md#index-metadata) requires.
 
 Before it builds, an implementation must estimate the bytes of a second copy of the terms, and it must raise `ANALYSIS_REBUILD_MEMORY_EXCEEDED` where they do not fit the budget that a [restore](durability.md) applies.
 
@@ -373,6 +374,7 @@ EmbeddingAdapter {
 - `purpose` says whether the input is a document being indexed or a query being searched. An asymmetric model, such as E5, BGE, Nomic, or a Cohere or Google Vertex AI model, uses it to apply the prefix or parameter that produces a different vector for a document than for a query. A symmetric model, such as MiniLM or GTE, ignores it.
 - `cancel` is an optional cancellation token for cooperative cancellation, and a cancelled call returns an abort error. Narsil passes a token during shutdown so that in-flight requests stop. Each runtime supplies its own mechanism for this.
 - A failure returns an error, which Narsil wraps in `EMBEDDING_FAILED`.
+- Narsil must also raise `EMBEDDING_FAILED` when a vector that the adapter returns holds an element that is infinite or NaN, for a document and for a query alike.
 
 ### embedBatch(inputs, purpose, cancel), optional
 

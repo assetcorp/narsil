@@ -1,0 +1,10 @@
+export const STRING_HEADER_BYTES = 16
+export const TWO_BYTE_SAMPLE_LIMIT = 16
+export const NUMBER_BYTES = 16
+export const PRIMITIVE_SLOT_BYTES = 4
+export const ARRAY_HEADER_BYTES = 32
+export const ARRAY_SLOT_BYTES = 8
+export const OBJECT_HEADER_BYTES = 40
+export const PROPERTY_SLOT_BYTES = 8
+export const TYPED_ARRAY_HEADER_BYTES = 96
+export const FIELD_LENGTH_INITIAL_CAPACITY = 64

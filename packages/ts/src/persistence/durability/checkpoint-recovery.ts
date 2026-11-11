@@ -20,6 +20,7 @@ export interface CheckpointRecoveryDeps {
   storedTermsAreCurrent: boolean
   compactionThreshold: number
   keepsUnlistedFiles: boolean
+  keptForSync: ReadonlySet<string>
   replay(checkpoint: PartitionCheckpoint[]): Promise<PartitionCheckpoint[]>
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   writeRecords?: WriteRecordKeeper | null
@@ -48,12 +49,14 @@ export async function recoverCheckpoint(deps: CheckpointRecoveryDeps): Promise<R
     return { checkpoint: upgraded.checkpoint, upgradedDocumentCount: upgraded.documentCount }
   }
   if (decoded === null || decoded.kind !== 'current') {
-    if (!deps.keepsUnlistedFiles) await reclaimUnlistedKeys(deps.store, deps.indexName, new Set())
+    if (!deps.keepsUnlistedFiles) await reclaimUnlistedKeys(deps.store, deps.indexName, deps.keptForSync)
     return { checkpoint: await deps.replay([]), upgradedDocumentCount: null }
   }
   await deps.store.remove(snapshotBundleKey(deps.indexName))
   if (!deps.keepsUnlistedFiles) {
-    await reclaimUnlistedKeys(deps.store, deps.indexName, manifestReferencedKeys(decoded.manifest))
+    const referenced = manifestReferencedKeys(decoded.manifest)
+    for (const key of deps.keptForSync) referenced.add(key)
+    await reclaimUnlistedKeys(deps.store, deps.indexName, referenced)
   }
   const checkpoint = await loadSegmentedCheckpoint(deps.store, deps.indexName, decoded.manifest, {
     manager: deps.manager,

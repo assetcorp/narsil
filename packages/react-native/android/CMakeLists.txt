@@ -9,7 +9,7 @@ if(NOT EXISTS ${CORE_DIRECTORY}/include/narsil_core.h)
   message(FATAL_ERROR "The package has no copy of the search core in cpp/core. Run `node scripts/copy-core.mjs` in the package directory first.")
 endif()
 
-file(GLOB CORE_SOURCES ${CORE_DIRECTORY}/src/*.c)
+file(GLOB_RECURSE CORE_SOURCES ${CORE_DIRECTORY}/src/*.c)
 file(GLOB BINDING_SOURCES ${CMAKE_SOURCE_DIR}/../cpp/*.cpp)
 
 add_library(${PACKAGE_NAME} SHARED

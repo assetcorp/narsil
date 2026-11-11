@@ -45,9 +45,11 @@ export type {
   MainCopyQueries,
   MemoryConfig,
   NarsilConfig,
+  QuerySuggestionsConfig,
   StaleAnalysis,
   WorkerConfig,
 } from './types/config'
+export type { SnapshotOptions } from './types/engine'
 export type { NarsilEventHandlers, NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
@@ -75,6 +77,7 @@ export type {
   UpdateContext,
   WorkerContext,
 } from './types/plugins'
+export type { QuerySuggestionsBuildEvent, QuerySuggestionsWarningEvent } from './types/query-suggestions'
 export type {
   BatchResult,
   DocumentImportResult,
@@ -131,9 +134,13 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export type { SyncOperations, SyncSetting, SyncStatus } from './types/sync'
 export type { SynonymOperations } from './types/synonym-operations'
 export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
+export type { VectorMaintenanceOperations } from './types/vector-maintenance-operations'
 export type { DocumentWriteOperations } from './types/writes'
+export type { NativeAnalysisCore, NativeStopWordSetHandle } from './vector/native/analysis-types'
+export type { NativeKeywordCore } from './vector/native/keyword-types'
 export type {
   NativeConnectResult,
   NativeCore,
@@ -144,6 +151,67 @@ export type {
   NativeStoreHandle,
   NativeStoreMemory,
 } from './vector/native/types'
+export type { NativeExpansionCore, NativeExpansionSegment } from './vector/native/types/expansion'
+export type { NativeFacetCore } from './vector/native/types/facets'
+export type {
+  NativeFieldMergeCore,
+  NativeFieldMergeRegion,
+  NativeFieldMergeSource,
+} from './vector/native/types/field-merge'
+export type { NativeFilterCore, NativeFilterRegion } from './vector/native/types/filters'
+export type {
+  NativeFrozenPagedRemovals,
+  NativeFrozenRegionArguments,
+  NativeFrozenRemovalIndex,
+  NativeFrozenSegment,
+  NativeFrozenSegmentCore,
+  NativeFrozenSegmentState,
+  NativeFrozenStrings,
+} from './vector/native/types/frozen-segments'
+export type { NativeGroupCore } from './vector/native/types/groups'
+export type { NativeHighlightCore, NativeHighlightQuery } from './vector/native/types/highlight'
+export type {
+  NativePageCache,
+  NativePagedCore,
+  NativePagedFileHandle,
+  NativePagedGraphPart,
+  NativePagedVectorField,
+  NativePagedVectorFile,
+  NativePagedVectorRequest,
+  NativePageSection,
+} from './vector/native/types/paged'
+export type {
+  NativeFrozenRuns,
+  NativePartialExpansionCore,
+  NativePartialRequest,
+  NativePartialSource,
+} from './vector/native/types/partial-expansion'
+export type { NativePatternCore } from './vector/native/types/pattern'
+export type { NativePhraseCore, NativePhrasePostings, NativePhraseRequest } from './vector/native/types/phrases'
+export type { NativeResultCore } from './vector/native/types/results'
+export type {
+  NativeKeywordMergeInput,
+  NativeKeywordMergeOutput,
+  NativePostingMergeOutput,
+  NativeSegmentMergeCore,
+} from './vector/native/types/segment-merge'
+export type {
+  NativeFieldTokenArgument,
+  NativeFieldTokens,
+  NativeGrowingSegment,
+  NativePositionPool,
+  NativePostingPool,
+  NativeRunTable,
+  NativeSegmentCore,
+  NativeSliceAllocator,
+  NativeSpellingTable,
+  NativeSurfaceTable,
+  NativeTermColumns,
+} from './vector/native/types/segments'
+export type { NativeSortColumn, NativeSortCore, NativeSortValues } from './vector/native/types/sort'
+export type { NativeStoredValues } from './vector/native/types/stored-values'
+export type { NativeSynonymCore, NativeSynonymTable } from './vector/native/types/synonyms'
+export type { NativeTermCore, NativeTermDictionary, NativeTermTable } from './vector/native/types/terms'
 /**
  * Engine version written into the engine-version bytes of every `.nrsl` file,
  * for diagnostics.

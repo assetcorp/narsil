@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { NarsilError, ServerErrorCodes } from '../errors'
+import type { QuerySuggestionsBuild } from '../types/query-suggestions'
 import {
   DEFAULT_TASK_PAGE_SIZE,
   RUNNING_TASK_TTL_MS,
@@ -46,6 +47,12 @@ export interface TaskContext {
    * @param result - What the work produced.
    */
   reportResult(result: ImportResult): void
+  /**
+   * Records the build that a `querySuggestionsBuild` task ran, which the finished task then carries.
+   *
+   * @param build - The build once it ends.
+   */
+  reportBuild(build: QuerySuggestionsBuild): void
 }
 
 /**
@@ -235,6 +242,9 @@ export class TaskRegistry {
       reportSteps: steps => this.reportProgress(task, { steps }),
       reportResult: result => {
         task.record = { ...task.record, result }
+      },
+      reportBuild: build => {
+        task.record = { ...task.record, build }
       },
     }
 

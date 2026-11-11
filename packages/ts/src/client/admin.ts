@@ -1,5 +1,6 @@
 import { encodeJson } from '../json-encoding'
 import type { ChangeAnalysisBody, MemoryStatsResponse, TaskRecord } from '../server/types'
+import type { SnapshotOptions } from '../types/engine'
 import type { VectorMaintenanceResult } from '../types/results'
 import type { BM25Params, PartitionConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
@@ -43,11 +44,12 @@ export interface AdminOperations {
    *
    * @param indexName - This names the index to stream.
    * @param options - This sets the signal, the deadline, and the headers for
-   * this request.
+   * this request. Set `queryHistory` to add the index's popular query
+   * history, which holds raw searches, to the archive.
    * @returns The stream holds the archive's bytes in the order that the server
    * sends them.
    */
-  snapshot(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>
+  snapshot(indexName: string, options?: RequestOptions & SnapshotOptions): Promise<ReadableStream<Uint8Array>>
   /**
    * Uploads a snapshot archive and replaces the named index with the
    * archive's contents. The method also accepts the single `.nrsl` file that
@@ -245,7 +247,7 @@ export interface AdminOperations {
    * this request.
    * @returns The record is the task to follow, and it ends with any failure of
    * the change, such as `ANALYSIS_CHANGE_REPLACED` when a later change replaces
-   * this one.
+   * this one or when a restore of the index is in flight.
    */
   changeAnalysis(indexName: string, change: ChangeAnalysisBody, options?: RequestOptions): Promise<TaskRecord>
   /**
@@ -276,11 +278,13 @@ export function createAdminOperations(transport: Transport): AdminOperations {
       await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_checkpoint`, options })
     },
     snapshot(indexName, options) {
+      const { queryHistory, ...request } = options ?? {}
       return transport.stream({
         method: 'GET',
         path: `${indexPath(indexName)}/snapshot`,
+        ...(queryHistory === true ? { query: { queryHistory: 'true' } } : {}),
         defaultTimeoutMs: NO_TIMEOUT,
-        options,
+        options: request,
       })
     },
     async restore(indexName, data, options) {

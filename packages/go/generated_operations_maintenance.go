@@ -5,6 +5,7 @@ package narsil
 import (
 	"context"
 	"io"
+	"net/url"
 )
 
 // Checkpoint sends POST /indexes/{name}/_checkpoint: Force a checkpoint of an index.
@@ -78,19 +79,31 @@ func (o *Operations) ChangeAnalysis(ctx context.Context, name string, body *Chan
 	return decodePointer[TaskRecord](answer)
 }
 
+// SnapshotParams holds the query settings of Snapshot.
+type SnapshotParams struct {
+	// Under `true`, the archive also holds the index's search history. One of `true`, `false`.
+	QueryHistory *string
+}
+
 // Snapshot sends GET /indexes/{name}/snapshot: Stream a snapshot archive of an index.
 //
 // Parameters:
 //   - name: The name of the index.
+//   - params: The query settings, each left out of the URL while it stays nil.
 //
 // Answers:
 //   - HTTP 200: The server answered the request.
-func (o *Operations) Snapshot(ctx context.Context, name string, options ...CallOption) (*ResponseStream, error) {
+func (o *Operations) Snapshot(ctx context.Context, name string, params SnapshotParams, options ...CallOption) (*ResponseStream, error) {
 	request := exchange{
 		method:        "GET",
 		path:          "/indexes/" + escapePathSegment(name) + "/snapshot",
 		carriesCorpus: true,
 	}
+	query := url.Values{}
+	if params.QueryHistory != nil {
+		query.Set("queryHistory", string(*params.QueryHistory))
+	}
+	request.query = query
 	return o.transport.stream(ctx, request, options)
 }
 

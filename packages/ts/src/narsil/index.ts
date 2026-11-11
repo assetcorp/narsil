@@ -5,6 +5,7 @@ import { resolveRunnableConfig } from '../engine/startup-checks'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import { createNarsilFromCore } from './operations'
+import { loadRestoreQueue } from './restore-queue-code'
 
 export type { ByteSource } from '../types/byte-source'
 export type { Narsil } from '../types/engine'
@@ -30,5 +31,9 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const runnableConfig = await resolveRunnableConfig(config)
   const core = await createEngineCore(runnableConfig)
   await startEngineCore(core, runnableConfig)
-  return createNarsilFromCore(core, runnableConfig)
+  const engine = createNarsilFromCore(core, runnableConfig)
+  if (runnableConfig?.querySuggestions !== undefined || core.durability !== null) {
+    await (await loadRestoreQueue()).startQuerySuggestions(core, engine, runnableConfig)
+  }
+  return engine
 }

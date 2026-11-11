@@ -2,13 +2,13 @@ import type { AnyDocument } from '../../../types/schema'
 import { transformToken } from '../../tokenizer/cache'
 import { resolveStopWords } from '../../tokenizer/tokenize'
 import type { FrozenTokenTable } from '../frozen/token-table'
-import { FROZEN_PARTIAL_REMOVED_ENTRY_BYTES } from './constants'
 import { buildPartialWordTable, countTableSpellings, partialWordTableBytes, readPartialWordTable } from './frozen-table'
 import {
   countDocumentSpellings,
   countSpelling,
   encodePartialSpellings,
   type PartialWordAnalysis,
+  type ReadonlySpellingCounts,
   type SpellingCounts,
   sameFields,
   visitDocumentSpellings,
@@ -90,42 +90,53 @@ export function createFrozenPartialWordSlot(
 ): FrozenPartialWordSlot {
   let table = initial
   let uncounted: Uint8Array | null = null
-  let removedCounts = new Map<number, number>()
+  let removedCounts = new Uint32Array(initial?.spellingCounts.length ?? 0)
   let reader: PartialWordTableReader | null =
     initial === null ? null : readPartialWordTable(initial, tokenTable, removedCounts)
   let pendingRemovals: number[] = []
 
   function isCounted(ordinal: number): boolean {
-    return uncounted === null || uncounted[ordinal] === 0
+    return (uncounted === null || uncounted[ordinal] === 0) && !documents.isTombstoned(ordinal)
+  }
+
+  function applyRemoval(changes: ReadonlyMap<number, number>): void {
+    if (table === null) return
+    for (const [entry, count] of changes)
+      removedCounts[entry] = Math.min(table.spellingCounts[entry], removedCounts[entry] + count)
   }
 
   function subtractPendingRemovals(current: PartialWordTableReader, analysis: PartialWordAnalysis): void {
     if (pendingRemovals.length === 0) return
     const removed = new Map<string, number>()
     for (const ordinal of pendingRemovals) countRemovedSpellings(removed, documents.documentAt(ordinal), analysis)
-    pendingRemovals = []
     const unstemmedSpelling = unstemmedSpellingsOf(analysis)
+    const changes = new Map<number, number>()
     for (const [spelling, count] of removed) {
       let entry = current.entryOf(spelling)
       if (entry < 0) {
         const fallback = unstemmedSpelling(spelling)
         if (fallback !== null) entry = current.entryOf(fallback)
       }
-      if (entry >= 0) removedCounts.set(entry, (removedCounts.get(entry) ?? 0) + count)
+      if (entry >= 0) changes.set(entry, (changes.get(entry) ?? 0) + count)
     }
+    applyRemoval(changes)
+    pendingRemovals = []
   }
 
   function rebuild(analysis: PartialWordAnalysis): PartialWordTableReader {
-    uncounted = tombstonedOrdinalsOf(documents)
+    const excluded = tombstonedOrdinalsOf(documents)
     const counts: SpellingCounts = new Map()
     for (let ordinal = 0; ordinal < documents.count; ordinal++) {
-      if (isCounted(ordinal)) countDocumentSpellings(counts, documents.documentAt(ordinal), analysis, 1)
+      if (excluded === null || excluded[ordinal] === 0)
+        countDocumentSpellings(counts, documents.documentAt(ordinal), analysis, 1)
     }
     const rebuilt = buildPartialWordTable(encodePartialSpellings(analysis.fields, counts), tokenTable)
+    const countsRemoved = new Uint32Array(rebuilt.spellingCounts.length)
+    const rebuiltReader = readPartialWordTable(rebuilt, tokenTable, countsRemoved)
     table = rebuilt
-    removedCounts = new Map()
+    uncounted = excluded
+    removedCounts = countsRemoved
     pendingRemovals = []
-    const rebuiltReader = readPartialWordTable(rebuilt, tokenTable, removedCounts)
     reader = rebuiltReader
     return rebuiltReader
   }
@@ -147,15 +158,35 @@ export function createFrozenPartialWordSlot(
   }
 
   return {
+    tokenForSpelling(spelling) {
+      const entry = reader?.entryOf(spelling) ?? -1
+      return table === null || entry < 0 ? undefined : tokenTable.tokenAt(table.spellingTokens[entry])
+    },
+    removalState() {
+      return table === null ? null : { table, removed: removedCounts }
+    },
     readerFor(analysis: PartialWordAnalysis): PartialWordReader | null {
       if (analysis.fields.length === 0) return null
+      documents.settleRemovals()
       if (table === null || reader === null || !sameFields(table.fields, analysis.fields)) return rebuild(analysis)
       subtractPendingRemovals(reader, analysis)
       return reader
     },
 
-    afterRemoval(ordinal: number): void {
-      if (table !== null) pendingRemovals.push(ordinal)
+    prepareRemoval(ordinal: number, spellings?: ReadonlySpellingCounts | null): () => void {
+      if (table === null || reader === null) return () => undefined
+      if (spellings === undefined)
+        return () => {
+          pendingRemovals.push(ordinal)
+        }
+      const changes = new Map<number, number>()
+      for (const [token, bySpelling] of spellings ?? []) {
+        for (const [spelling, count] of bySpelling) {
+          const entry = reader.entryOf(spelling, token)
+          if (entry >= 0) changes.set(entry, (changes.get(entry) ?? 0) + count)
+        }
+      }
+      return () => applyRemoval(changes)
     },
 
     tableOfEveryDocument(analysis: PartialWordAnalysis): PartialWordTableData | null {
@@ -164,6 +195,9 @@ export function createFrozenPartialWordSlot(
     },
 
     countKeptSpellings(counts: SpellingCounts, analysis: PartialWordAnalysis, mergedOrdinals: Int32Array): void {
+      documents.settleRemovals()
+      if (reader !== null && table !== null && sameFields(table.fields, analysis.fields))
+        subtractPendingRemovals(reader, analysis)
       if (
         table === null ||
         !sameFields(table.fields, analysis.fields) ||
@@ -175,7 +209,7 @@ export function createFrozenPartialWordSlot(
         return
       }
       const corrected: SpellingCounts = new Map()
-      countTableSpellings(corrected, table, tokenTable)
+      countTableSpellings(corrected, table, tokenTable, removedCounts)
       const removed = new Map<string, number>()
       const returned: number[] = []
       for (let ordinal = 0; ordinal < mergedOrdinals.length; ordinal++) {
@@ -195,7 +229,7 @@ export function createFrozenPartialWordSlot(
 
     bytes(): number {
       if (table === null) return 0
-      return partialWordTableBytes(table) + removedCounts.size * FROZEN_PARTIAL_REMOVED_ENTRY_BYTES
+      return partialWordTableBytes(table) + removedCounts.byteLength
     },
   }
 }

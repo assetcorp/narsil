@@ -1,6 +1,6 @@
 import { MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES } from '../../geo/constants'
 import { isLatitude, isLongitude } from '../../geo/coordinates'
-import { requirePolygonRing } from '../../geo/polygon'
+import { requirePolygonRing } from '../../geo/polygon-ring'
 import { GEO_UNIT_METRES } from '../constants'
 import { invalid, isFiniteNumber, isObjectRecord, requireListLength } from './checks'
 

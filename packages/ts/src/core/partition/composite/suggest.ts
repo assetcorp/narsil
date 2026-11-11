@@ -1,4 +1,5 @@
-import { compareCodePoints } from '../../ordering'
+import { compareCodePoints } from '../../../engine/optional-reads-host-bindings'
+import { suggestPartitionTerms } from '../../expansion/suggestion-host'
 import type { PartitionReadState } from '../read-state'
 import { type PartitionSuggestion, suggestDisplayTerms } from '../suggestions'
 
@@ -9,6 +10,8 @@ export function compositeSuggestTerms(
   limit: number,
 ): PartitionSuggestion[] {
   if (limit <= 0) return []
+  const native = suggestPartitionTerms(subs, surfacePrefix, stemmedPrefix, limit)
+  if (native !== null) return native
   const merged = new Map<string, { documentFrequency: number; surfaceOccurrences: Map<string, number> }>()
 
   for (const sub of subs) {

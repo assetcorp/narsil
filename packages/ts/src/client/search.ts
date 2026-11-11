@@ -5,6 +5,7 @@ import type { QueryParams, SuggestParams } from '../types/search'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
 import { indexPath } from './paths'
+import { decodeQueryResult } from './query-response'
 import { readBody } from './response-shape'
 
 /**
@@ -79,8 +80,9 @@ export function createSearchOperations(transport: Transport): SearchOperations {
   }
 
   return {
-    query<T = AnyDocument>(indexName: string, params: QueryParams, options?: RequestOptions) {
-      return post<QueryResult<T>>(`${indexPath(indexName)}/search`, params, options)
+    async query<T = AnyDocument>(indexName: string, params: QueryParams, options?: RequestOptions) {
+      const path = `${indexPath(indexName)}/search`
+      return decodeQueryResult<T>(await post<unknown>(path, params, options), path)
     },
     preflight(indexName, params, options) {
       return post<PreflightResult>(`${indexPath(indexName)}/search/preflight`, params, options)

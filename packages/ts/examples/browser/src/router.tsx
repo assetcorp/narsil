@@ -1,4 +1,5 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import { PageLoading } from './components/PageLoading'
 import { routeTree } from './routeTree.gen'
 
 function NotFound() {
@@ -19,6 +20,7 @@ export function getRouter() {
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
     defaultNotFoundComponent: NotFound,
+    defaultPendingComponent: PageLoading,
   })
 
   return router

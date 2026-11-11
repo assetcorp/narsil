@@ -1,8 +1,13 @@
 declare const self: unknown
 
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import { requireSearchBackendSettings } from '#platform/search-backend-settings'
+import { importOptionalReads } from '../engine/optional-reads-code'
 import { ErrorCodes } from '../errors'
+import { loadGeoCode } from '../geo/geo-code'
+import { loadMessagePack } from '../serialization/msgpack-code'
 import { buildErrorResponse, createActionHandler } from './action-handler'
+import { initializeCopyPublication, publishCopyAction } from './direct-executor/publication'
 import { isValidWorkerAction } from './protocol'
 import { threadSlotOfWorker } from './thread-slot'
 import { loadVectorCode } from './vector-code'
@@ -38,8 +43,18 @@ async function setup(): Promise<void> {
     parentPort = null
   }
 
-  const [{ createDirectExecutor }] = await Promise.all([import('./direct-executor'), loadVectorCode()])
-  const handleAction = createActionHandler(createDirectExecutor({ threadSlot }))
+  requireSearchBackendSettings()
+  const [{ createDirectExecutor }, { runQueryAction }] = await Promise.all([
+    import('./direct-executor'),
+    import('./query-actions'),
+    loadVectorCode(),
+    loadGeoCode(),
+    importOptionalReads(),
+    loadMessagePack(),
+  ])
+  const handleAction = createActionHandler(
+    createDirectExecutor({ threadSlot, runQueryAction, publishCopyAction, initializeCopyPublication }),
+  )
 
   if (parentPort) {
     const port = parentPort

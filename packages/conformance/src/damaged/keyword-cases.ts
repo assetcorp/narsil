@@ -70,6 +70,37 @@ function withSwappedEntries(target: RawMap, textKey: string, offsetsKey: string,
   setWords(target, offsetsKey, offsets)
 }
 
+function withSurfaceFormsReversed(payload: RawMap): void {
+  const column = mapAt(payload.surfaceForms, 'surfaceForms')
+  const entries = textEntries(bytesAt(column.text, 'surfaceForms.text'), words(column, 'offsets'))
+  const counts = words(column, 'counts')
+  if (counts.length < 2) throw new Error('surfaceForms holds fewer than two surface forms')
+  const pairs = counts.map((count, at) => {
+    const surface = entries[2 * at]
+    const token = entries[2 * at + 1]
+    if (surface === undefined || token === undefined) throw new Error(`surfaceForms holds no pair at ${at}`)
+    return { surface, token, count }
+  })
+  pairs.reverse()
+  const offsets = [0]
+  const reordered: Uint8Array[] = []
+  for (const { surface, token } of pairs) {
+    for (const entry of [surface, token]) {
+      reordered.push(entry)
+      offsets.push((offsets.at(-1) ?? 0) + entry.byteLength)
+    }
+  }
+  const text = new Uint8Array(offsets.at(-1) ?? 0)
+  for (const [at, entry] of reordered.entries()) text.set(entry, offsets[at] ?? 0)
+  column.text = text
+  setWords(column, 'offsets', offsets)
+  setWords(
+    column,
+    'counts',
+    pairs.map(pair => pair.count),
+  )
+}
+
 function withInvalidByte(key: string): Change {
   return payload => {
     const bytes = bytesAt(payload[key], key).slice()
@@ -224,6 +255,8 @@ const SCHEMA_CHANGES: Record<string, [string, string, string]> = {
   'schema-option-twice': ['title', 'string:pattern:pattern', 'SCHEMA_INVALID_TYPE'],
   'schema-vector-dimension-zero': ['embedding', 'vector[0]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
   'schema-vector-dimension-too-wide': ['embedding', 'vector[65536]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
+  'schema-vector-dimension-fraction': ['embedding', 'vector[1.5]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
+  'schema-vector-dimension-negative': ['embedding', 'vector[-1]', 'SCHEMA_INVALID_VECTOR_DIMENSION'],
 }
 
 export async function keywordSegmentCases(): Promise<CaseBuild[]> {
@@ -240,6 +273,10 @@ export async function keywordSegmentCases(): Promise<CaseBuild[]> {
     damagedCheckpoint('segment-layout-newer', 'envelope.md#payload-format', 'ENVELOPE_VERSION_MISMATCH', INDEX, {
       [SEGMENT]: newerLayout,
     }),
+  )
+  const surfacesUnsorted = await rewritten(segment, 'segment-surface-forms-out-of-order', withSurfaceFormsReversed)
+  builds.push(
+    damagedCheckpoint('segment-surface-forms-out-of-order', RULE, null, INDEX, { [SEGMENT]: surfacesUnsorted }),
   )
   for (const [name, [field, type, code]] of Object.entries(SCHEMA_CHANGES)) {
     const bytes = await rewritten(segment, name, payload => {

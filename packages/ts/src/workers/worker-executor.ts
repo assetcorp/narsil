@@ -1,13 +1,15 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import {
   CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
+  createRequestId,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  ErrorCodes,
+  isValidWorkerResponse,
+  NarsilError,
   SHUTDOWN_TIMEOUT_MS,
-} from './constants'
+} from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
-import { createRequestId, isValidWorkerResponse } from './protocol'
 
 export interface WorkerExecutorConfig {
   backpressureLimit?: number
@@ -50,6 +52,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
   const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS
   const pending = new Map<string, PendingRequest>()
+  const retained = new Map<string, () => void>()
   let deathError: NarsilError | null = null
   let shutdownRequested = false
   let consecutiveTimeouts = 0
@@ -64,6 +67,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
     consecutiveTimeouts = 0
     const response = msg as WorkerResponse
+    retained.get(response.requestId)?.()
+    retained.delete(response.requestId)
     const entry = pending.get(response.requestId)
     if (!entry) {
       return
@@ -100,6 +105,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       return
     }
     gone = true
+    for (const release of retained.values()) release()
+    retained.clear()
     for (const resume of waitingForTheThreadToGo.splice(0)) resume()
     config?.onGone?.()
   }
@@ -146,7 +153,6 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     worker.on('message', (msg: unknown) => processResponse(msg))
     worker.on('error', (cause: unknown) => {
       handleDeath(cause)
-      reportGone()
     })
     worker.on('exit', (code: unknown) => {
       handleDeath(new Error(`Worker exited with code ${String(code)}`))
@@ -159,7 +165,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     })
     worker.addEventListener('error', (event: unknown) => {
       handleDeath(errorFromEventLike(event))
-      reportGone()
+      stopAWorkerThatReportsNoExit()
     })
   }
 
@@ -173,11 +179,13 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
   }
 
-  function execute<T>(action: WorkerAction, transfer?: object[]): Promise<T> {
+  function execute<T>(action: WorkerAction, transfer?: object[], settled?: () => void): Promise<T> {
     if (deathError !== null) {
+      settled?.()
       return Promise.reject(deathError)
     }
     if (pending.size >= backpressureLimit) {
+      settled?.()
       return Promise.reject(
         new NarsilError(ErrorCodes.WORKER_BUSY, `Backpressure limit of ${backpressureLimit} pending requests reached`),
       )
@@ -195,9 +203,17 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         }, requestTimeout),
       }
       pending.set(requestId, entry)
-
-      if (transfer === undefined) worker.postMessage(taggedAction)
-      else worker.postMessage(taggedAction, transfer)
+      if (settled !== undefined) retained.set(requestId, settled)
+      try {
+        if (transfer === undefined) worker.postMessage(taggedAction)
+        else worker.postMessage(taggedAction, transfer)
+      } catch (error) {
+        clearTimeout(entry.timeoutId)
+        pending.delete(requestId)
+        retained.delete(requestId)
+        settled?.()
+        reject(error)
+      }
     })
   }
 
@@ -231,5 +247,5 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
   }
 
-  return { execute, shutdown }
+  return { execute, executeRetained: (action, settled) => execute(action, undefined, settled), shutdown }
 }

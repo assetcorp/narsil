@@ -1,7 +1,6 @@
-import { ErrorCodes, NarsilError } from '../errors'
 import type { AnalysedPhrase } from '../types/internal'
 import type { QueryParams } from '../types/search'
-import { MAX_PHRASE_WORDS, MAX_QUERY_PHRASES } from './constants'
+import { ErrorCodes, MAX_PHRASE_WORDS, MAX_QUERY_PHRASES, NarsilError } from './phrase-host-bindings'
 
 export type AnalyseText = (text: string) => ReadonlyArray<{ token: string; position: number }>
 
@@ -55,6 +54,7 @@ export function analyseQueryPhrases(parts: readonly string[], analyseText: Analy
     wordsAfterLastPhrase = ''
     if (size > largestPhraseSize) largestPhraseSize = size
     if (ordered.length > largestTokenCount) largestTokenCount = ordered.length
+    if (size > MAX_PHRASE_WORDS || ordered.length > MAX_PHRASE_WORDS) continue
 
     const tokens = ordered.map(entry => entry.token)
     const offsets = ordered.map(entry => entry.position - firstPosition)

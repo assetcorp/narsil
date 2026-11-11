@@ -1,9 +1,6 @@
-import { fnv1a } from '../core/hash'
-import { ErrorCodes, NarsilError } from '../errors'
-import { SHUTDOWN_TIMEOUT_MS } from './constants'
+import { ErrorCodes, fnv1a, NarsilError, resolveWorkerCount, SHUTDOWN_TIMEOUT_MS } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import { type MemoryStats, memoryStatsOf } from './pool-memory'
-import { resolveWorkerCount } from './worker-count'
 
 export interface WorkerLease {
   readonly workerId: number
@@ -31,6 +28,7 @@ export interface WorkerPool {
   spawnAll(): void
   deadWorkerIds(): number[]
   spawnReplacement(workerId: number): WorkerReplacement | null
+  retire(executor: Executor, error: Error): void
   readonly workerCount: number
   addIndex(indexName: string): void
   addIndexToAll(indexName: string): void
@@ -39,6 +37,8 @@ export interface WorkerPool {
   shutdown(): Promise<void>
   /** Resolves once every thread the pool started has exited or finished a shutdown. */
   whenEveryThreadIsGone(): Promise<void>
+  whenRetiredCopiesAreGone(indexName: string): Promise<void>
+  whenExecutorIsGone(executor: Executor): Promise<void>
 }
 
 interface WorkerSlot {
@@ -64,7 +64,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workers = new Map<number, WorkerSlot>()
   const deadSlots = new Set<number>()
   const goneSlots = new Set<number>()
-  const threadsStillRunning = new Set<Executor>()
+  const threadsStillRunning = new Map<Executor, { indexes: Set<string>; gone: Promise<void>; finish(): void }>()
   const waitingForEveryThread: Array<() => void> = []
   const indexAssignment = new Map<string, number>()
   let isShutdown = false
@@ -110,12 +110,17 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       inFlight: 0,
       serving,
     }
-    threadsStillRunning.add(slot.executor)
+    let finish: () => void = () => undefined
+    const gone = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    threadsStillRunning.set(slot.executor, { indexes: slot.indexes, gone, finish })
     workers.set(slotIndex, slot)
     return slot
   }
 
   function noteThreadGone(executor: Executor): void {
+    threadsStillRunning.get(executor)?.finish()
     threadsStillRunning.delete(executor)
     if (threadsStillRunning.size > 0) return
     for (const resume of waitingForEveryThread.splice(0)) resume()
@@ -126,6 +131,15 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     return new Promise<void>(resolve => {
       waitingForEveryThread.push(resolve)
     })
+  }
+
+  async function whenRetiredCopiesAreGone(indexName: string): Promise<void> {
+    const active = new Set(getAllExecutors())
+    const pending: Promise<void>[] = []
+    for (const [executor, lifetime] of threadsStillRunning) {
+      if (!active.has(executor) && lifetime.indexes.has(indexName)) pending.push(lifetime.gone)
+    }
+    await Promise.all(pending)
   }
 
   function shutDownUntilTheThreadIsGone(executor: Executor): Promise<void> {
@@ -232,7 +246,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
     isShutdown = true
 
-    const shutdownPromises = [...threadsStillRunning].map(executor => {
+    const shutdownPromises = [...threadsStillRunning.keys()].map(executor => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<void>(resolve => {
         timeoutId = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
@@ -326,6 +340,15 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     for (let i = 0; i < workerCount; i++) ensureWorker(i)
   }
 
+  function retire(executor: Executor, error: Error): void {
+    for (const [workerId, slot] of workers) {
+      if (slot.executor !== executor) continue
+      handleWorkerDeath(workerId, error)
+      void shutDownUntilTheThreadIsGone(executor).catch(() => undefined)
+      return
+    }
+  }
+
   return {
     getExecutor,
     getAllExecutors,
@@ -338,6 +361,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     spawnAll,
     deadWorkerIds,
     spawnReplacement,
+    retire,
     get workerCount() {
       return workerCount
     },
@@ -347,5 +371,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     getMemoryStats: () => memoryStatsOf(workers.entries()),
     shutdown,
     whenEveryThreadIsGone,
+    whenRetiredCopiesAreGone,
+    whenExecutorIsGone: executor => threadsStillRunning.get(executor)?.gone ?? Promise.resolve(),
   }
 }

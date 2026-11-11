@@ -15,7 +15,7 @@ export function createPartitionRouter(): PartitionRouter {
         { partitionCount },
       )
     }
-    return fnv1a(docId) % partitionCount
+    return partitionCount === 1 ? 0 : fnv1a(docId) % partitionCount
   }
 
   function routeBatch(docIds: string[], partitionCount: number): Map<number, string[]> {

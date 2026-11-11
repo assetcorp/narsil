@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import { getClusterIndexConfig, getIndexMetadata } from '../cluster/index-metadata'
 import type { DataNodeHandlerDeps } from '../cluster-node/message-handler/types'
 import { MAX_PARTITION_COUNT } from '../constants'

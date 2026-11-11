@@ -1,4 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { isCompositePartition } from '../../core/partition/composite'
 import { parseVectorDimension } from '../../core/partition/utils'
@@ -6,19 +6,20 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { DurableDirectory } from '../../persistence/durability/durable-filesystem'
 import { segmentsPrefix, vectorFileKey } from '../../persistence/durability/segment/layout'
-import {
-  encodeSegmentManifest,
-  type FileRef,
-  type SegmentManifest,
-  type VectorFieldRef,
-  type VectorFileRef,
+import type {
+  FileRef,
+  SegmentManifest,
+  VectorFieldRef,
+  VectorFileRef,
 } from '../../persistence/durability/segment/manifest'
+import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import { directoryCheckpointStore } from '../../persistence/durability/segment/store'
 import { readVectorFile, VECTOR_FILE_ENVELOPE_VERSION } from '../../persistence/durability/segment/vector-load'
 import { decodeSections, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from '../../persistence/paged/format'
 import { crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
 import { engineVersionParts } from '../../serialization/envelope-file'
 import { HEADER_SIZE, RESERVED_SIZE, writeHeader } from '../../serialization/header'
+import { decode } from '../../serialization/msgpack'
 import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
 import { vectorsPerFile } from '../../vector/vector-index/checkpoint-plan'
 import { isDead } from '../../vector/vector-index/dead-bits'

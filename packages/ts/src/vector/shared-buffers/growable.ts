@@ -1,5 +1,5 @@
+import { ErrorCodes, NarsilError } from '#platform/vector-core-host'
 import { allocateFixedRegion } from '#platform/vector-memory-limits'
-import { ErrorCodes, NarsilError } from '../../errors'
 import { createRegionBuffer } from './region'
 
 /**
@@ -56,14 +56,17 @@ export function growBufferToExactly(buffer: GrowableBuffer, bytes: number): void
   resizeBuffer(buffer, bytes, bytes)
 }
 
+export function requireBytesWithinLimit(bytes: number, maxBytes: number): void {
+  if (bytes <= maxBytes) return
+  throw new NarsilError(
+    ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+    `A vector structure needs ${bytes} bytes where it may hold at most ${maxBytes}`,
+    { bytes, maxBytes },
+  )
+}
+
 function resizeBuffer(buffer: GrowableBuffer, bytes: number, target: number): void {
-  if (bytes > buffer.maxByteLength) {
-    throw new NarsilError(
-      ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-      `A vector structure needs ${bytes} bytes where it may hold at most ${buffer.maxByteLength}`,
-      { bytes, maxBytes: buffer.maxByteLength },
-    )
-  }
+  requireBytesWithinLimit(bytes, buffer.maxByteLength)
   if (buffer instanceof ArrayBuffer) {
     buffer.resize(target)
     return

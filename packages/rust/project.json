@@ -1,0 +1,52 @@
+{
+  "name": "narsil-rust",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/toml-version-actions.js",
+      "versionActionsOptions": {
+        "manifest": "Cargo.toml",
+        "table": "package",
+        "lockfile": "Cargo.lock"
+      }
+    }
+  },
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "cargo fmt --all --check",
+          "cargo clippy --all-targets --locked -- -D warnings"
+        ],
+        "parallel": false,
+        "cwd": "packages/rust"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo check --all-targets --locked",
+        "cwd": "packages/rust"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo build --release --locked",
+        "cwd": "packages/rust"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code"],
+      "options": {
+        "command": "cargo test --locked",
+        "cwd": "packages/rust"
+      }
+    }
+  }
+}

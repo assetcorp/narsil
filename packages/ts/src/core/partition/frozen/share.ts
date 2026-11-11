@@ -1,10 +1,9 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, encodeSegmentState, freezeSegmentShared, NarsilError } from '#platform/worker-copies-host'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartialWordAnalysis } from '../partial-words/spellings'
-import { encodeSegmentState } from '../segment-payload'
 import type { FrozenSegment, PagedSegmentSnapshot } from './index'
-import { freezeSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
+import type { SharedSegmentSnapshot } from './shared-snapshot'
 
 export interface SharedFrozenSegment {
   snapshot: SharedSegmentSnapshot | PagedSegmentSnapshot
@@ -16,6 +15,7 @@ export function shareFrozenSegment(
   segment: FrozenSegment,
   analysis: PartialWordAnalysis | null,
 ): SharedFrozenSegment | null {
+  segment.settleRemovals()
   if (segment.paged !== null) {
     return { snapshot: segment.paged.snapshot, tombstonedDocIds: segment.tombstonedDocIds() }
   }

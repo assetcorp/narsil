@@ -1,21 +1,26 @@
-import { decode } from '@msgpack/msgpack'
-import { ARRAY_POSITION_GAP } from '../../core/constants'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  ARRAY_POSITION_GAP,
+  bytesToVectors,
+  decode,
+  decodeVectorIndexParts,
+  ErrorCodes,
+  insertDocumentVectors,
+  NarsilError,
+  raiseEarlierReleaseGraphSetting,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
 import { validateStagedCheckpoint } from '../../persistence/archive/validate'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
-import { manifestFileRefs, type SegmentManifest } from '../../persistence/durability/segment/manifest'
-import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
+import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
+import { manifestFileRefs } from '../../persistence/durability/segment/manifest'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { documentsOfPayloadV2 } from '../../serialization/payload-v2'
 import type { SerializablePartition } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
-import { bytesToVectors, decodeVectorIndexParts } from '../../vector/vector-index/payload'
 import type { DetachedIndex } from '../../workers/direct-executor'
 import { indexMetadataOf } from '../durability-metadata'
-import { insertDocumentVectors } from '../vector-coordinator'
 import { loadStagedIndex } from './archive-restore'
 import { earlierSnapshotFootprint, type RestoreFootprint, requireRestoreMemory } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
@@ -155,7 +160,8 @@ async function buildRestoredIndex(
   staging: RestoreStaging | null,
   deps: RestoreDeps,
 ): Promise<RestoredIndex> {
-  const built = await prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
+  const savedPartitions = envelope.partitions?.length ?? 0
+  const built = await prepareDetachedIndex(indexName, prepared, savedPartitions > 0 ? savedPartitions : null, deps)
   let manifest: SegmentManifest
   try {
     insertSnapshotDocuments(envelope, built.manager)

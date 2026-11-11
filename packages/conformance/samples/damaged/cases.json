@@ -590,6 +590,20 @@
       }
     },
     {
+      "name": "segment-surface-forms-out-of-order",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-surface-forms-out-of-order/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-surface-forms-out-of-order/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
       "name": "schema-unknown-base-type",
       "rule": "envelope.md#field-types",
       "open": "checkpoint",
@@ -654,6 +668,34 @@
       "files": {
         "segments/0/s0000000000000001": "damaged/schema-vector-dimension-too-wide/segments/0/s0000000000000001",
         "manifest": "damaged/schema-vector-dimension-too-wide/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_VECTOR_DIMENSION"
+      }
+    },
+    {
+      "name": "schema-vector-dimension-fraction",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-vector-dimension-fraction/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-vector-dimension-fraction/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_VECTOR_DIMENSION"
+      }
+    },
+    {
+      "name": "schema-vector-dimension-negative",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-vector-dimension-negative/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-vector-dimension-negative/manifest"
       },
       "expect": {
         "code": "SCHEMA_INVALID_VECTOR_DIMENSION"
@@ -1104,6 +1146,61 @@
       "files": {
         "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-calibrated-mean-not-finite/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
         "manifest": "damaged/graph-calibrated-mean-not-finite/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-upper-lists-on-every-layer",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-upper-lists-on-every-layer/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-upper-lists-on-every-layer/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-upper-lists-at-the-bound",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-upper-lists-at-the-bound/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-upper-lists-at-the-bound/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "graph-upper-lists-one-past-the-bound",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-upper-lists-one-past-the-bound/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-upper-lists-one-past-the-bound/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-earlier-release-m-of-one",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "earlier-releases/0.3.0/wal/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g1": "damaged/graph-earlier-release-m-of-one/segments/vec-embedding-1l4nfg2-graph-g1"
       },
       "expect": {
         "code": "PERSISTENCE_LOAD_FAILED"
@@ -1811,6 +1908,54 @@
       "rule": "envelope.md#documents",
       "index": "products",
       "file": "damaged/export-id-lone-surrogate/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-vector-element-not-a-number",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-vector-element-not-a-number/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-vector-element-nan",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-vector-element-nan/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-vector-element-beyond-float32",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-vector-element-beyond-float32/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-vector-element-rounds-to-float32-infinity",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-vector-element-rounds-to-float32-infinity/export.jsonl",
       "open": "export",
       "expect": {
         "code": "DOC_VALIDATION_FAILED",

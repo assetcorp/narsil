@@ -1,22 +1,32 @@
-import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
+import {
+  awaitWriteVisibility,
+  BATCH_CHUNK_SIZE,
+  ErrorCodes,
+  indexChangeOutsideExternalWaits,
+  NarsilError,
+  removeDocumentVectors,
+  turnIsSpent,
+  turnsAreBudgeted,
+  validateBatchList,
+  validateDocId,
+  yieldTurn,
+} from '#platform/optional-writes-host'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
-import { ErrorCodes, NarsilError } from '../../errors'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../constants'
-import { validateBatchList, validateDocId } from '../validation'
-import { removeDocumentVectors } from '../vector-coordinator'
-import type { MutationContext } from './context'
-import { rollbackRemovedDocument } from './durable-rollback'
+import type { ApplyMutation, MutationContext } from './context'
+import { holdVectorsForRollback, rollbackRemovedDocument } from './durable-rollback'
 import { recordChunk } from './record-batch'
-import { awaitWriteVisibility } from './write-visibility'
 
 interface PreparedRemoval {
+  preparedText?: PreparedTextChange
   docId: string
   document: null
   restoreDoc: AnyDocument | undefined
   removedSpellings: RemovedSpellings | undefined
   buffered: boolean
+  releaseVectorHolds?: () => void
 }
 
 function asRemoveError(err: unknown): NarsilError {
@@ -33,20 +43,19 @@ async function prepareRemoval(ctx: MutationContext, indexName: string, docId: st
     throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
   }
 
-  const manager = ctx.requireManager(indexName)
-  const restoreRef = ctx.durability && !rebalancing ? manager.getRef(docId) : undefined
   return {
     docId,
     document: null,
-    restoreDoc: restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined,
-    removedSpellings: manager.removedSpellingsOf(docId),
+    restoreDoc: undefined,
+    removedSpellings: undefined,
     buffered: false,
   }
 }
 
-function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): () => Promise<void> {
-  const { docId, removedSpellings } = prepared
-  const removeFromIndex = async (): Promise<void> => {
+function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): ApplyMutation {
+  const { docId } = prepared
+  const manager = ctx.requireManager(indexName)
+  const removeFromIndex = () => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists =
@@ -55,31 +64,45 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
     }
-    if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
+    const queued = ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })
+    if (queued !== undefined) {
       prepared.buffered = true
-      return
+      return queued
     }
-    await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId, removedSpellings })
+    prepared.restoreDoc = ctx.durability ? manager.get(docId) : undefined
+    if (ctx.durability !== null) prepared.releaseVectorHolds = holdVectorsForRollback(manager.getVectorIndexes(), docId)
+    manager.remove(docId, undefined, {
+      onRemovedSpellings: spellings => {
+        prepared.removedSpellings = spellings
+      },
+      onPreparedText:
+        ctx.durability === null
+          ? undefined
+          : change => {
+              prepared.preparedText = change
+            },
+    })
     removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
+    ctx.orchestrator.publishToWorkers({
+      type: 'remove',
+      indexName,
+      docId,
+      requestId: `replicate-remove-${docId}`,
+      removedSpellings: prepared.removedSpellings,
+    })
   }
-  return indexChangeOutsideExternalWaits(removeFromIndex)
+  return () => manager.publication.writeNow(indexChangeOutsideExternalWaits(removeFromIndex))
 }
 
 async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
-  const { docId, removedSpellings } = prepared
+  const settling = ctx.orchestrator.settlePublications(indexName, 'none')
+  if (settling !== undefined) await settling
+  const { docId } = prepared
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
     console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'remove',
-    indexName,
-    docId,
-    requestId: `replicate-remove-${docId}`,
-    removedSpellings,
-  })
 }
 
 export async function removeDocument(
@@ -97,8 +120,10 @@ export async function removeDocument(
     try {
       await ctx.durability.recordRemove(indexName, docId, apply)
     } catch (err) {
-      await rollbackRemovedDocument(ctx, indexName, docId, prepared.restoreDoc, err)
+      await rollbackRemovedDocument(ctx, indexName, docId, prepared.restoreDoc, err, prepared.preparedText)
       throw err
+    } finally {
+      prepared.releaseVectorHolds?.()
     }
   } else {
     await apply()
@@ -121,7 +146,7 @@ export async function removeDocumentBatch(
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   const manager = ctx.requireManager(indexName)
-  manager.beginBatchRemove()
+  await manager.publication.write(() => manager.beginBatchRemove())
 
   try {
     for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
@@ -137,23 +162,35 @@ export async function removeDocumentBatch(
       }
 
       const applies = prepared.map(removal => applyOfRemoval(ctx, indexName, removal))
-      const failures = await recordChunk(ctx, indexName, prepared, applies)
-
-      for (let i = 0; i < prepared.length; i++) {
-        const removal = prepared[i]
-        const failure = failures[i]
-        if (failure !== null) {
-          let error = failure.error
-          try {
-            await rollbackRemovedDocument(ctx, indexName, removal.docId, removal.restoreDoc, error)
-          } catch (rollbackError) {
-            error = rollbackError
+      try {
+        const failures = await recordChunk(ctx, indexName, prepared, applies)
+        for (let i = 0; i < prepared.length; i++) {
+          const removal = prepared[i]
+          const failure = failures[i]
+          if (failure !== null) {
+            let error = failure.error
+            try {
+              await rollbackRemovedDocument(
+                ctx,
+                indexName,
+                removal.docId,
+                removal.restoreDoc,
+                error,
+                removal.preparedText,
+              )
+            } catch (rollbackError) {
+              error = rollbackError
+            }
+            removal.releaseVectorHolds?.()
+            failed.push({ docId: removal.docId, error: asRemoveError(error) })
+            continue
           }
-          failed.push({ docId: removal.docId, error: asRemoveError(error) })
-          continue
+          removal.releaseVectorHolds?.()
+          if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
+          succeeded.push(removal.docId)
         }
-        if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
-        succeeded.push(removal.docId)
+      } finally {
+        for (const removal of prepared) removal.releaseVectorHolds?.()
       }
 
       if (chunkEnd < docIds.length) {
@@ -161,7 +198,7 @@ export async function removeDocumentBatch(
       }
     }
   } finally {
-    manager.endBatchRemove()
+    await manager.publication.write(() => manager.endBatchRemove())
   }
   ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)

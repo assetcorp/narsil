@@ -1,7 +1,8 @@
+import { createRequestId, POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from '#platform/worker-copies-host'
 import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
-import { createRequestId, type WorkerAction } from '../../workers/protocol'
+import type { WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
-import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
+import { trackPublicationStores } from './publication-stores'
 import { enqueueReplication, markCopiesLoaded } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
@@ -82,7 +83,7 @@ async function loadOntoReplacement(
     copyLoad = await loadIndexOntoWorkers(
       indexName,
       [replacement.executor],
-      entry,
+      { ...entry, onPublication: publication => trackPublicationStores(state, publication) },
       manager,
       undefined,
       state.callbacks?.isAnalysisStale?.(indexName),

@@ -1,11 +1,24 @@
-import { decode, encode } from '@msgpack/msgpack'
-import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
+import {
+  DEFAULT_BM25_B,
+  DEFAULT_BM25_K1,
+  decode,
+  ErrorCodes,
+  encode,
+  isQuantizationMode,
+  isStorageMode,
+  MAX_PARTITIONS,
+  NarsilError,
+  storedStateFromWire,
+  storedStateToWire,
+} from '#platform/storage-host'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndexConfig } from '../../types/schema'
+import { type RawSyncMetadata, syncMetadataFromWire, syncMetadataToWire } from './sync-metadata'
 
-interface RawMetadataPayload {
+interface RawMetadataPayload extends RawSyncMetadata {
+  query_suggestions?: unknown
+  banned_queries?: unknown
+  query_suggestions_source?: unknown
   index_name: string
   document_count?: unknown
   schema: Record<string, string>
@@ -160,7 +173,11 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (Array.isArray(meta.synonyms) && meta.synonyms.length > 0) {
     wire.synonyms = meta.synonyms
   }
-  return wire
+  return {
+    ...wire,
+    ...syncMetadataToWire(meta),
+    ...(meta.querySuggestions !== undefined ? storedStateToWire(meta.querySuggestions) : {}),
+  }
 }
 
 function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
@@ -231,7 +248,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
         ? { maxDocsPerPartition: raw.partition_limits.max_docs_per_partition }
         : {}),
       ...(isPositiveInteger(raw.partition_limits.max_partitions)
-        ? { maxPartitions: raw.partition_limits.max_partitions }
+        ? { maxPartitions: Math.min(raw.partition_limits.max_partitions, MAX_PARTITIONS) }
         : {}),
       ...(isWatermarkFraction(raw.partition_limits.watermark) ? { watermark: raw.partition_limits.watermark } : {}),
     }
@@ -324,6 +341,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     meta.heldPartitions = raw.held_partitions
   }
   if (raw.synonyms !== undefined && raw.synonyms !== null) meta.synonyms = raw.synonyms
+  syncMetadataFromWire(raw, meta)
+  const querySuggestions = storedStateFromWire(raw)
+  if (querySuggestions !== null) meta.querySuggestions = querySuggestions
   return meta
 }
 

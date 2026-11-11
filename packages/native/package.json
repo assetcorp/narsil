@@ -19,8 +19,10 @@
     "build": "node build.mjs --host-compiler",
     "build:target": "node build.mjs",
     "format": "node format.mjs",
+    "fuzz": "node fuzz/run.mjs",
     "lint": "node lint.mjs",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "test:binding": "node test/binding.mjs"
   },
   "devDependencies": {
     "node-api-headers": "1.9.0"

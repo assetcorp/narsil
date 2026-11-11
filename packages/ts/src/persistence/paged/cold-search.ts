@@ -1,16 +1,27 @@
-import { compareCodePoints } from '../../core/ordering'
+import {
+  compareCodePoints,
+  compareScores,
+  computeCodeBlockLayout,
+  createOsqScratch,
+  defaultEfSearch,
+  magnitude,
+  osqDistance,
+  osqEstimate,
+  osqQuantize,
+  readTrailer,
+  rescoreDepth,
+  scalarQueryProducts,
+  stageQueryLevels,
+  toDistance,
+  toScore,
+} from '#platform/storage-host'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorMetric } from '../../vector/brute-force'
-import { toDistance, toScore } from '../../vector/hnsw/shared'
-import { osqDistance, osqEstimate } from '../../vector/osq/estimate'
-import { scalarQueryProducts } from '../../vector/osq/products'
-import { createOsqScratch, osqQuantize } from '../../vector/osq/quantize'
-import { type OsqTrailer, readTrailer, stageQueryLevels } from '../../vector/osq/record'
-import { defaultEfSearch, defaultRescoreDepth } from '../../vector/search-depth'
-import { magnitude } from '../../vector/similarity'
+import type { OsqTrailer } from '../../vector/osq/record'
 import type { VectorScoredResult } from '../../vector/vector-index/shared'
-import { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
 import { COLD_GRAPH_PART_VECTORS, type ColdFieldData } from './cold-field'
+import { type MinHeap, negated, popMin, pushMin } from './cold-heap'
+import { searchNativeColdGraph, searchNativeColdGraphConcurrently } from './cold-native'
 import { COLD_WALK_NODES_READ_AHEAD } from './constants'
 import { loadFailed } from './format'
 
@@ -21,55 +32,6 @@ export interface ColdSearchOptions {
   oversample?: number
   rescoreWindow?: number
   clock?: SearchClock
-}
-
-interface MinHeap {
-  numbers: number[]
-  distances: number[]
-}
-
-function pushMin(heap: MinHeap, number: number, distance: number): void {
-  let at = heap.numbers.length
-  heap.numbers.push(number)
-  heap.distances.push(distance)
-  while (at > 0) {
-    const parent = (at - 1) >> 1
-    if (heap.distances[parent] <= distance) break
-    heap.numbers[at] = heap.numbers[parent]
-    heap.distances[at] = heap.distances[parent]
-    at = parent
-  }
-  heap.numbers[at] = number
-  heap.distances[at] = distance
-}
-
-function popMin(heap: MinHeap): { number: number; distance: number } | null {
-  const size = heap.numbers.length
-  if (size === 0) return null
-  const top = { number: heap.numbers[0], distance: heap.distances[0] }
-  const number = heap.numbers[size - 1]
-  const distance = heap.distances[size - 1]
-  heap.numbers.pop()
-  heap.distances.pop()
-  const remaining = size - 1
-  if (remaining === 0) return top
-  let at = 0
-  for (;;) {
-    let child = 2 * at + 1
-    if (child >= remaining) break
-    if (child + 1 < remaining && heap.distances[child + 1] < heap.distances[child]) child += 1
-    if (heap.distances[child] >= distance) break
-    heap.numbers[at] = heap.numbers[child]
-    heap.distances[at] = heap.distances[child]
-    at = child
-  }
-  heap.numbers[at] = number
-  heap.distances[at] = distance
-  return top
-}
-
-function negated(heap: MinHeap): number {
-  return heap.distances.length === 0 ? Number.POSITIVE_INFINITY : -heap.distances[0]
 }
 
 function neighbourList(
@@ -84,14 +46,18 @@ function neighbourList(
   const bytes = part.neighbours.bytesAt(start, end - start)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let cursor = 0
-  for (let current = 0; ; current++) {
+  let selected: { view: DataView; count: number; at: number } | undefined
+  for (let current = 0; current < part.levels[offset]; current++) {
     if (cursor + 4 > bytes.byteLength) loadFailed(`The neighbour lists of vector ${number} end inside a list`)
     const count = view.getUint32(cursor, true)
     if (cursor + 4 + count * 4 > bytes.byteLength)
       loadFailed(`The neighbour list of vector ${number} runs past its node`)
-    if (current === layer) return { view, count, at: cursor + 4 }
+    if (current === layer) selected = { view, count, at: cursor + 4 }
     cursor += 4 + count * 4
   }
+  if (cursor !== bytes.byteLength || selected === undefined)
+    loadFailed(`The neighbour lists of vector ${number} do not match its layers`)
+  return selected
 }
 
 interface WalkScope {
@@ -261,15 +227,17 @@ interface ScoredNumber {
 
 function numbersThatCanReachTheTop(scored: ScoredNumber[], k: number): ScoredNumber[] {
   if (k <= 0 || scored.length <= k) return scored
-  scored.sort((a, b) => b.score - a.score)
+  scored.sort((a, b) => compareScores(a.score, b.score))
   const lowestKept = scored[k - 1].score
   let end = k
-  while (end < scored.length && scored[end].score === lowestKept) end += 1
+  while (end < scored.length && compareScores(scored[end].score, lowestKept) === 0) end += 1
   return scored.slice(0, end)
 }
 
 function bestHits(hits: VectorScoredResult[], k: number): VectorScoredResult[] {
-  return hits.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId)).slice(0, Math.max(k, 0))
+  return hits
+    .sort((a, b) => compareScores(a.score, b.score) || compareCodePoints(a.docId, b.docId))
+    .slice(0, Math.max(k, 0))
 }
 
 export function searchColdGraph(
@@ -280,6 +248,8 @@ export function searchColdGraph(
   accepts: ((docId: string) => boolean) | null,
   excluded: ReadonlySet<number>,
 ): VectorScoredResult[] {
+  const native = searchNativeColdGraph(data, query, k, options, accepts, excluded)
+  if (native !== null) return native
   const walk = walkColdGraph(data, query, k, options, accepts, excluded, false)
   let step = walk.next()
   while (step.done !== true) step = walk.next()
@@ -294,6 +264,8 @@ export async function searchColdGraphConcurrently(
   accepts: ((docId: string) => boolean) | null,
   excluded: ReadonlySet<number>,
 ): Promise<VectorScoredResult[]> {
+  const native = searchNativeColdGraphConcurrently(data, query, k, options, accepts, excluded)
+  if (native !== null) return native
   const walk = walkColdGraph(data, query, k, options, accepts, excluded, true)
   let step = walk.next()
   while (step.done !== true) {
@@ -313,12 +285,16 @@ function* walkColdGraph(
   fetchesRows: boolean,
 ): Generator<Promise<unknown>, VectorScoredResult[]> {
   const { metric, minSimilarity } = options
+  if (k === 0) return []
   const entry = entryNumberOf(data)
   if (entry === null) return []
   const qMag = magnitude(query)
   const fromCodes = codeDistance(data, query, metric)
   const fullDistance = (number: number): number => {
     const vector = data.reusedVectorAt(number)
+    for (const value of vector) {
+      if (!Number.isFinite(value)) loadFailed(`Vector ${number} holds a non-finite component`)
+    }
     return toDistance(query, vector, qMag, metric === 'cosine' ? magnitude(vector) : 0, metric)
   }
   const distanceOf = fromCodes ?? fullDistance
@@ -336,12 +312,7 @@ function* walkColdGraph(
   const window = options.rescoreWindow ?? k
   const codes = data.codes
   let depth = window
-  if (codes !== null) {
-    depth =
-      options.oversample === undefined
-        ? defaultRescoreDepth(codes.bits, data.dimension, window)
-        : Math.ceil(window * options.oversample)
-  }
+  if (codes !== null) depth = rescoreDepth(codes.bits, data.dimension, window, options.oversample)
   const ef = Math.max(options.efSearch ?? defaultEfSearch(data.dimension, window), depth)
   const codeRowBytes = codes === null ? null : computeCodeBlockLayout(data.dimension, codes.bits).slotStride
   const scope: WalkScope = {

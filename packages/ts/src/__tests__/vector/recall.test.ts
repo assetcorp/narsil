@@ -91,13 +91,14 @@ async function recallOf(
       )
       expect(result.failed).toEqual([])
     }
+    await narsil.optimizeVectors('articles')
     const deadline = Date.now() + SETTLE_DEADLINE_MS
-    while (
-      narsil
-        .vectorMaintenanceStatus('articles')
-        .some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)
-    ) {
-      if (Date.now() > deadline) throw new Error('the graph was still building at the deadline')
+    for (;;) {
+      const status = narsil.vectorMaintenanceStatus('articles')
+      if (!status.some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)) break
+      if (Date.now() > deadline) {
+        throw new Error(`the graph was still building at the deadline: ${JSON.stringify(status)}`)
+      }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
 

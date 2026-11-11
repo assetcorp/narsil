@@ -9,6 +9,7 @@ import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25WithIDF, computeIDF } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
 import { PRUNING_REJECTION_SLACK } from './constants'
+import { fieldRun, orderRunByFieldName } from './field-order'
 import { bestSearchable, blockEntryBound, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { type PostingColumns, postingColumns } from './posting-columns'
 import { addScore, hasScore, kthBestScore, markCounted, type ScoreBuffer } from './score-buffer'
@@ -211,15 +212,39 @@ function firstEntryOf(docIds: PostingColumns['docIds'], count: number, internalI
   return low
 }
 
+type EntryScore = (scan: TermScan, entry: number, internalId: number) => number
+
+function fieldOrderedRunScore(
+  scan: TermScan,
+  start: number,
+  internalId: number,
+  total: number,
+  entryScore: EntryScore,
+): number {
+  const { docIds, fieldNameIndices, count } = scan.columns
+  const ordered = orderRunByFieldName(docIds, fieldNameIndices, scan.fields.nameRanks, start, count)
+  let score = total
+  for (let at = 0; at < fieldRun.length; at++) {
+    const row = ordered[at]
+    if (scan.fields.searchable[fieldNameIndices[row]] !== 1) continue
+    score += entryScore(scan, row, internalId)
+  }
+  return score
+}
+
 function samePairQueryOrderScore(scans: TermScan[], internalId: number): number {
   let score = 0
   for (const scan of scans) {
     const { docIds, deletedDocs, hasDeleted, count } = scan.columns
     if (hasDeleted && deletedDocs.has(internalId)) continue
-    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
-      if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += samePairEntryScore(scan, entry, internalId)
+    const start = firstEntryOf(docIds, count, internalId)
+    if (start + 1 < count && docIds[start + 1] === internalId) {
+      score = fieldOrderedRunScore(scan, start, internalId, score, samePairEntryScore)
+      continue
     }
+    if (start === count || docIds[start] !== internalId) continue
+    if (scan.fields.searchable[scan.columns.fieldNameIndices[start]] !== 1) continue
+    score += samePairEntryScore(scan, start, internalId)
   }
   return score
 }
@@ -229,10 +254,14 @@ function fieldPairQueryOrderScore(scans: TermScan[], internalId: number): number
   for (const scan of scans) {
     const { docIds, deletedDocs, hasDeleted, count } = scan.columns
     if (hasDeleted && deletedDocs.has(internalId)) continue
-    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
-      if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += fieldPairEntryScore(scan, entry, internalId)
+    const start = firstEntryOf(docIds, count, internalId)
+    if (start + 1 < count && docIds[start + 1] === internalId) {
+      score = fieldOrderedRunScore(scan, start, internalId, score, fieldPairEntryScore)
+      continue
     }
+    if (start === count || docIds[start] !== internalId) continue
+    if (scan.fields.searchable[scan.columns.fieldNameIndices[start]] !== 1) continue
+    score += fieldPairEntryScore(scan, start, internalId)
   }
   return score
 }
@@ -330,6 +359,7 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
   for (let position = order.length - 1; position >= 0; position--) {
     remainingBound[position] = remainingBound[position + 1] + upperBounds[order[position]]
   }
+  if (!Number.isFinite(remainingBound[0])) return null
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
   const selection = new Float64Array(wanted)

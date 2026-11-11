@@ -1,14 +1,22 @@
-import { ARRAY_POSITION_GAP } from '../../core/constants'
-import { ErrorCodes, NarsilError } from '../../errors'
-import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
+import {
+  ARRAY_POSITION_GAP,
+  ErrorCodes,
+  emitEngineEvent,
+  holdSyncEpochChange,
+  loadSchemaCodeFor,
+  NarsilError,
+  prepareStoredSynonyms,
+  rebuildTextIndexes,
+  rulesOfStoredSynonyms,
+  textRebuildTargetOf,
+} from '#platform/storage-host'
 import type { RewriteSpill } from '../../persistence/paged/rewrite-spill'
 import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
-import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
-import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
-import { type AnalysisTarget, targetOfPending } from './pending-target'
+import type { AnalysisTarget } from './pending-target'
+import { targetOfPending } from './pending-target'
 import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
 import {
   currentConfigUnderTarget,
@@ -88,9 +96,10 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
     })
   }
   let partitionsRebuilt = 0
-  let adopt: () => void = () => undefined
+  const refusal: { byRestore: NarsilError | null } = { byRestore: null }
   const isCurrent = (): boolean =>
     run.stopReason === null &&
+    refusal.byRestore === null &&
     !core.shutdownState.isShutdown &&
     core.indexRegistry.get(indexName) === entry &&
     core.executor.getManager(indexName) === manager
@@ -110,20 +119,28 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
         onPartitionBuilt(built) {
           partitionsRebuilt = built
         },
-        onSwitch: () => adopt(),
+        onSwitch: () => switchIndex(scope)(),
         ...(hold === null ? {} : { holdBeforeSwitch: keepCurrent => waitForRelease(run, hold, keepCurrent) }),
-        runSwitch(swap) {
-          const swapWithSynonyms = (): boolean => {
+        async runSwitch(swap) {
+          const swapWithSynonyms = (): boolean | Promise<boolean> => {
             if (!isCurrent()) return false
-            adopt = switchIndex(scope)
+            if (core.restoresInFlight.has(indexName)) {
+              refusal.byRestore = restoreInFlightError(indexName)
+              return false
+            }
             return swap()
           }
-          return durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? Promise.resolve(swapWithSynonyms())
+          const releaseSyncEpoch = await holdSyncEpochChange(core, indexName)
+          try {
+            return await (durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? swapWithSynonyms())
+          } finally {
+            releaseSyncEpoch()
+          }
         },
       },
       textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),
     )
-    if (!rebuilt) throw run.stopReason ?? stoppedError(core, indexName)
+    if (!rebuilt) throw run.stopReason ?? refusal.byRestore ?? stoppedError(core, indexName)
     await (spill as RewriteSpill | null)?.removeUnread(manager)
     if (entry.durableAnalysis !== null) {
       throw new NarsilError(
@@ -157,6 +174,18 @@ async function clearPending(core: EngineCore, indexName: string, entry: IndexReg
   await core.durability?.manager.persistMetadata(indexName)
 }
 
+function restoreInFlightError(indexName: string): NarsilError {
+  return new NarsilError(
+    ErrorCodes.ANALYSIS_CHANGE_REPLACED,
+    `A restore of index "${indexName}" is in flight and replaces this analysis change, so try the change again once the restore ends`,
+    { indexName },
+  )
+}
+
+function requireNoRestoreInFlight(core: EngineCore, indexName: string): void {
+  if (core.restoresInFlight.has(indexName)) throw restoreInFlightError(indexName)
+}
+
 function requireNotRebalancing(core: EngineCore, indexName: string): void {
   if (!core.rebalancingIndexes.has(indexName)) return
   throw new NarsilError(
@@ -182,6 +211,7 @@ async function driveRun(
     if (run.stopReason !== null) return
     if (core.indexRegistry.get(indexName) !== entry) throw stoppedError(core, indexName)
     requireNotRebalancing(core, indexName)
+    requireNoRestoreInFlight(core, indexName)
     if (resumedGeneration === null && holdsSettings(entry.config, run.target)) {
       if (entry.pendingAnalysis !== null) await clearPending(core, indexName, entry)
       run.finish()
@@ -203,7 +233,9 @@ async function driveRun(
     run.finish()
   } catch (error) {
     run.fail(error)
-    const keepsPending = resumedGeneration !== null || core.shutdownState.isShutdown
+    const refusedByRestore =
+      run.stopReason === null && error instanceof NarsilError && error.code === ErrorCodes.ANALYSIS_CHANGE_REPLACED
+    const keepsPending = !refusedByRestore && (resumedGeneration !== null || core.shutdownState.isShutdown)
     const stillOwnsPending = runs.get(indexName) === run && run.stopReason === null
     if (!keepsPending && stillOwnsPending && core.indexRegistry.get(indexName) === entry) {
       if (entry.pendingAnalysis !== null) await clearPending(core, indexName, entry).catch(() => undefined)
@@ -218,8 +250,12 @@ export { executeRebalance } from '../rebalance-executor'
 export { adoptSavedAnalysis } from './adopt-saved'
 
 export async function changeIndexAnalysis(core: EngineCore, indexName: string, change: AnalysisChange): Promise<void> {
+  const changedTokenizer = change !== null && typeof change === 'object' ? change.tokenizer : undefined
+  const loadingTokenizerCode = loadSchemaCodeFor(null, changedTokenizer)
+  if (loadingTokenizerCode !== null) await loadingTokenizerCode
   const entry = core.requireIndex(indexName)
   requireNotRebalancing(core, indexName)
+  requireNoRestoreInFlight(core, indexName)
   const target = resolveAnalysisTarget(indexName, entry.config, change)
   const runs = runsOf(core)
   const previous = runs.get(indexName)
@@ -239,6 +275,8 @@ export async function changeIndexAnalysis(core: EngineCore, indexName: string, c
 
 export function resumeAnalysisChange(core: EngineCore, indexName: string): Promise<void> {
   const entry = core.requireIndex(indexName)
+  const loadingTokenizerCode = loadSchemaCodeFor(null, entry.pendingAnalysis?.tokenizer)
+  if (loadingTokenizerCode !== null) return loadingTokenizerCode.then(() => resumeAnalysisChange(core, indexName))
   const runs = runsOf(core)
   const running = runs.get(indexName)
   if (running !== undefined) return running.finished
@@ -298,6 +336,8 @@ export async function buildHeldAnalysisChange(
   indexName: string,
   pending: PendingAnalysisMetadata,
 ): Promise<void> {
+  const loadingTokenizerCode = loadSchemaCodeFor(null, pending.tokenizer)
+  if (loadingTokenizerCode !== null) await loadingTokenizerCode
   const running = runsOf(core).get(indexName)
   const entry = core.indexRegistry.get(indexName)
   if (running?.hold != null && entry !== undefined && holdServes(running, entry, pending)) return running.hold.ready

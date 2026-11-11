@@ -28,6 +28,16 @@ export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: st
   state.inFlight.delete(key)
 }
 
+export function clearBootstrapSyncOfIndex(state: BootstrapSyncState, indexName: string): void {
+  const keys = new Set([...state.inFlight.keys(), ...state.completed, ...state.generations.keys()])
+  for (const key of keys) {
+    const separator = key.lastIndexOf(':')
+    if (key.slice(0, separator) === indexName) {
+      clearBootstrapSyncIndex(state, indexName, Number(key.slice(separator + 1)))
+    }
+  }
+}
+
 export function hasCompletedBootstrapSync(state: BootstrapSyncState, indexName: string, partitionId: number): boolean {
   return state.completed.has(entryKey(indexName, partitionId))
 }
