@@ -180,7 +180,10 @@ fn require_bounded_retries(search: impl FnOnce(&Narsil) -> narsil::Result<()> + 
             outcome
         });
         loop {
-            match observed.recv_timeout(WAIT).expect("the query makes progress") {
+            match observed
+                .recv_timeout(WAIT)
+                .expect("the query makes progress")
+            {
                 QueryProgress::Finished => break,
                 QueryProgress::Embedding if restores < RESTORES_BEFORE_CANCELLATION => {
                     target.restore(INDEX, &mut archive.as_slice()).unwrap();

@@ -35,7 +35,6 @@ mod validate;
 mod vector;
 mod work;
 
-use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use crate::engine::index::IndexState;
@@ -53,7 +52,9 @@ use results::{QueryCoverage, QueryResult, ScoreComponents};
 use scope::QueryScope;
 use shaped::shaped_page;
 use validate::{require_sortable_fields, require_usable_query_fields};
-use vector::{SearchPlan, plan_search, require_vector_searchable, resolve_vector_text};
+use vector::{
+    EmbeddedQuery, SearchPlan, plan_search, require_vector_searchable, resolve_vector_text,
+};
 
 fn require_integer_up_to(option: &str, value: Option<u32>, maximum: u32) -> Result<()> {
     match value {
@@ -141,12 +142,14 @@ fn shaped_query(
 }
 
 /// Returns `params` with the vector that the index's embedding adapter makes from the text of its vector clause,
-/// or `params` as they stand where the clause gives a vector or no clause appears.
+/// or `params` as they stand where the clause gives a vector or no clause appears. Where `earlier` holds a query
+/// that the same adapter embedded, it comes back as it stands.
 pub(crate) fn embed_query_text<'a>(
     index: &IndexState,
     params: &'a QueryParams,
-) -> Result<Cow<'a, QueryParams>> {
-    resolve_vector_text(index, params)
+    earlier: Option<EmbeddedQuery<'a>>,
+) -> Result<EmbeddedQuery<'a>> {
+    resolve_vector_text(index, params, earlier)
 }
 
 /// Runs a query whose vector clause [`embed_query_text`] has resolved against one index, reranking its best hits

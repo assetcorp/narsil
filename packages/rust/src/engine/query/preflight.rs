@@ -134,12 +134,12 @@ impl Narsil {
         let started = Instant::now();
         self.inner.read_index_prepared(
             index,
-            |current| resolve_vector_text(current, params),
-            |current, resolved| {
+            |current, earlier| resolve_vector_text(current, params, earlier),
+            |current, embedded| {
                 preflight_count(
                     current,
                     params,
-                    &resolved,
+                    &embedded.params,
                     &self.inner.search_limits,
                     started,
                 )
