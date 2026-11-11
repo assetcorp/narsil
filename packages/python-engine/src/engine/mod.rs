@@ -159,9 +159,9 @@ impl PyNarsil {
     }
 
     #[getter]
-    fn query_suggestions(&self) -> PyQuerySuggestions {
+    fn query_suggestions(slf: &Bound<'_, Self>) -> PyQuerySuggestions {
         PyQuerySuggestions {
-            handle: Arc::clone(&self.handle),
+            owner: slf.clone().unbind(),
         }
     }
 

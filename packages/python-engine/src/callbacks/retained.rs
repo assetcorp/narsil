@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::gc::{PyTraverseError, PyVisit};
@@ -45,7 +45,7 @@ impl Retained {
 
 #[derive(Default)]
 pub(crate) struct RetainedSet {
-    slots: Mutex<Vec<Arc<Slot>>>,
+    slots: Mutex<Vec<Weak<Slot>>>,
 }
 
 struct Collecting<'set> {
@@ -71,27 +71,19 @@ impl RetainedSet {
     }
 
     fn keep(&self, collected: Vec<Arc<Slot>>) {
-        let unused: Vec<Arc<Slot>> = {
+        {
             let mut slots = locked(&self.slots);
-            let (shared, unused) = slots
-                .drain(..)
-                .partition(|slot| Arc::strong_count(slot) > 1);
-            *slots = shared;
-            slots.extend(collected);
-            unused
-        };
-        drop(unused);
-    }
-
-    pub(crate) fn prune(&self) {
-        self.keep(Vec::new());
+            slots.retain(|slot| slot.strong_count() > 0);
+            slots.extend(collected.iter().map(Arc::downgrade));
+        }
+        drop(collected);
     }
 
     pub(crate) fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Ok(slots) = self.slots.try_lock() else {
             return Ok(());
         };
-        for slot in slots.iter() {
+        for slot in slots.iter().filter_map(Weak::upgrade) {
             if let Ok(object) = slot.object.try_lock() {
                 visit.call(object.as_ref())?;
             }
@@ -100,7 +92,10 @@ impl RetainedSet {
     }
 
     pub(crate) fn release(&self) {
-        let slots = std::mem::take(&mut *locked(&self.slots));
+        let slots: Vec<Arc<Slot>> = std::mem::take(&mut *locked(&self.slots))
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
         let objects: Vec<Py<PyAny>> = slots
             .iter()
             .filter_map(|slot| locked(&slot.object).take())

@@ -1,6 +1,6 @@
 use narsil::{BatchFailure, BatchResult, ErrorCode, Map, NarsilError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::{PyDict, PyMapping, PyString};
 
 use super::PyNarsil;
 use crate::convert::fields::{Fields, items_of, strings_of};
@@ -45,9 +45,9 @@ impl<T> Converted<T> {
 }
 
 fn string_under(item: &Bound<'_, PyAny>, key: &str) -> String {
-    item.cast::<PyDict>()
+    item.cast::<PyMapping>()
         .ok()
-        .and_then(|dict| dict.get_item(key).ok().flatten())
+        .and_then(|mapping| mapping.get_item(key).ok())
         .and_then(|value| value.extract::<String>().ok())
         .unwrap_or_default()
 }

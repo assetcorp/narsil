@@ -8,12 +8,13 @@ import sys
 import threading
 import uuid
 import weakref
+from collections import UserDict
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
-from narsil import AsyncNarsil, Narsil, NarsilError
+from narsil import AsyncNarsil, Narsil, NarsilError, QuerySuggestions
 
 DOCUMENTS_PAST_A_PIPE_BUFFER = 4_000
 WORDS_PER_DOCUMENT = 4
@@ -53,6 +54,38 @@ def test_a_shut_down_engine_lets_go_of_the_callbacks_that_refer_to_it() -> None:
     assert released() is None
 
 
+def keep_only_the_query_suggestions() -> tuple[QuerySuggestions, weakref.ref[EngineTokenizer]]:
+    engine = Narsil()
+    tokenizer = EngineTokenizer(engine)
+    engine.register_tokenizer("words", tokenizer)
+    return engine.query_suggestions, weakref.ref(tokenizer)
+
+
+def test_the_query_suggestions_of_a_dropped_engine_keep_its_callbacks_alive() -> None:
+    suggestions, tokenizer = keep_only_the_query_suggestions()
+    gc.collect()
+    assert tokenizer() is not None
+    del suggestions
+    gc.collect()
+    assert tokenizer() is None
+
+
+def test_dropping_an_index_frees_the_tokenizer_object_that_only_that_index_used(
+    engine: Narsil, index_name: str
+) -> None:
+    tokenizer = EngineTokenizer(engine)
+    engine.create_index(index_name, {"schema": {"body": "string"}, "tokenizer": tokenizer})
+    engine.insert(index_name, {"body": "quiet river"}, "kept")
+    released = weakref.ref(tokenizer)
+    del tokenizer
+    gc.collect()
+    assert released() is not None
+
+    engine.drop_index(index_name)
+    gc.collect()
+    assert released() is None
+
+
 def test_a_batch_writes_every_document_that_python_can_convert_and_reports_each_one_that_it_cannot(
     engine: Narsil, index_name: str
 ) -> None:
@@ -61,26 +94,28 @@ def test_a_batch_writes_every_document_that_python_can_convert_and_reports_each_
     documents: list[Any] = [
         {"id": "kept", "body": "quiet river"},
         {"id": "odd", "body": object()},
+        UserDict({"id": "mapped", "body": object()}),
         ["not", "a", "document"],
     ]
     inserted = engine.insert_batch(index_name, documents)
     assert inserted["succeeded"] == ["kept"]
     assert [(entry["docId"], entry["error"].code) for entry in inserted["failed"]] == [
         ("odd", "DOC_VALIDATION_FAILED"),
+        ("mapped", "DOC_VALIDATION_FAILED"),
         ("", "DOC_VALIDATION_FAILED"),
     ]
 
-    updated = engine.update_batch(
-        index_name,
-        [
-            {"docId": "kept", "document": {"body": "calm river"}},
-            {"docId": "odd", "document": {"body": object()}},
-            {"document": {"body": "no id"}},
-        ],
-    )
+    updates: list[Any] = [
+        {"docId": "kept", "document": {"body": "calm river"}},
+        {"docId": "odd", "document": {"body": object()}},
+        UserDict({"docId": "mapped", "document": {"body": object()}}),
+        {"document": {"body": "no id"}},
+    ]
+    updated = engine.update_batch(index_name, updates)
     assert updated["succeeded"] == ["kept"]
     assert [(entry["docId"], entry["error"].code) for entry in updated["failed"]] == [
         ("odd", "DOC_VALIDATION_FAILED"),
+        ("mapped", "DOC_VALIDATION_FAILED"),
         ("", "DOC_VALIDATION_FAILED"),
     ]
 
