@@ -79,7 +79,7 @@ fn needs_durability() -> NarsilError {
 /// turn, so that no create, drop, restore, or close of the name runs meanwhile.
 fn load_closed(engine: &EngineInner, name: &str) -> Result<Claim> {
     engine.guard_shutdown()?;
-    let _turn = engine.names.take(name);
+    let _turn = engine.names.take(name)?;
     if let Some(index) = engine.open_index_named(name) {
         engine.lifecycle.forget(name);
         return Ok(Claim::Open(index));
