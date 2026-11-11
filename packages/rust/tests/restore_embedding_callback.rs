@@ -2,13 +2,13 @@ mod support;
 
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use narsil::{
-    AdapterSetting, EmbeddingConfig, IndexConfig, Map, Narsil, QueryParams, Storage, Value,
-    VectorQuery, parse_json,
+    AdapterSetting, EmbeddingConfig, ErrorCode, IndexConfig, Map, Narsil, QueryParams, Storage,
+    Value, VectorQuery, parse_json,
 };
 use support::ScratchDirectory;
 use support::adapters::EmbedWith;
@@ -19,6 +19,7 @@ const CHILD_DIRECTORY: &str = "NARSIL_RESTORE_EMBEDDING_CALLBACK_DIRECTORY";
 const DEADLINE: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CALLBACK_ENTERED: &str = "The replacement adapter is restoring the index";
+const QUERY_EMBEDDINGS_BEFORE_REFUSAL: usize = 3;
 
 fn config(adapter: &str) -> IndexConfig {
     IndexConfig {
@@ -40,6 +41,18 @@ fn insert(engine: &Narsil, id: &str, vector: [f64; 2]) {
         Value::Array(vector.into_iter().map(Value::Number).collect()),
     );
     engine.insert(INDEX, document, Some(id)).unwrap();
+}
+
+fn search_params() -> QueryParams {
+    QueryParams {
+        vector: Some(VectorQuery {
+            field: "embedding".into(),
+            text: Some("search".into()),
+            similarity: Some(0.9),
+            ..VectorQuery::default()
+        }),
+        ..QueryParams::default()
+    }
 }
 
 fn search_with_restoring_adapters(root: &Path, preflight: bool) {
@@ -101,15 +114,7 @@ fn search_with_restoring_adapters(root: &Path, preflight: bool) {
     insert(&target, "original", [1.0, 0.0]);
     target.checkpoint(INDEX).unwrap();
 
-    let params = QueryParams {
-        vector: Some(VectorQuery {
-            field: "embedding".into(),
-            text: Some("search".into()),
-            similarity: Some(0.9),
-            ..VectorQuery::default()
-        }),
-        ..QueryParams::default()
-    };
+    let params = search_params();
     if preflight {
         assert_eq!(target.preflight(INDEX, &params).unwrap().count, 1);
     } else {
@@ -171,5 +176,96 @@ fn a_preflight_allows_a_replacement_embedding_adapter_to_restore_the_index() {
     require_callback_finishes(
         "a_preflight_allows_a_replacement_embedding_adapter_to_restore_the_index",
         true,
+    );
+}
+
+fn archive_with_adapter(root: &Path, adapter: &str) -> Vec<u8> {
+    let source = Tier::Log.open(root);
+    source
+        .register_embedding_adapter(
+            adapter,
+            Arc::new(EmbedWith {
+                dimensions: 2,
+                embed: |_: &str| Ok(vec![0.0, 1.0]),
+            }),
+        )
+        .unwrap();
+    source.create_index(INDEX, config(adapter)).unwrap();
+    insert(&source, "wanted", [0.0, 1.0]);
+    let archive = snapshot_of(&source, INDEX);
+    source.shutdown().unwrap();
+    archive
+}
+
+fn register_restoring_adapter(
+    engine: &Arc<Narsil>,
+    adapter: &str,
+    archive: Vec<u8>,
+    embeddings: &Arc<AtomicUsize>,
+) {
+    let restoring = Arc::downgrade(engine);
+    let counted = Arc::clone(embeddings);
+    engine
+        .register_embedding_adapter(
+            adapter,
+            Arc::new(EmbedWith {
+                dimensions: 2,
+                embed: move |_: &str| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    restoring
+                        .upgrade()
+                        .unwrap()
+                        .restore(INDEX, &mut archive.as_slice())?;
+                    Ok(vec![0.0, 1.0])
+                },
+            }),
+        )
+        .unwrap();
+}
+
+fn require_refusal_after_alternating_adapters(
+    test: &str,
+    search: fn(&Narsil) -> narsil::Result<()>,
+) {
+    let root = ScratchDirectory::new(test);
+    let first = archive_with_adapter(&root.path().join("first-source"), "first");
+    let second = archive_with_adapter(&root.path().join("second-source"), "second");
+    let target = Arc::new(Tier::Log.open(&root.path().join("target")));
+    let embeddings = Arc::new(AtomicUsize::new(0));
+    register_restoring_adapter(&target, "first", second, &embeddings);
+    register_restoring_adapter(&target, "second", first, &embeddings);
+    target.create_index(INDEX, config("first")).unwrap();
+    insert(&target, "original", [1.0, 0.0]);
+    target.checkpoint(INDEX).unwrap();
+
+    let (finished, outcome) = mpsc::channel();
+    let searching = Arc::clone(&target);
+    std::thread::spawn(move || finished.send(search(&searching)).unwrap());
+    let error = outcome
+        .recv_timeout(DEADLINE)
+        .expect("the search finishes while its adapters restore the index")
+        .expect_err("the search refuses once restores keep changing its adapter");
+    assert_eq!(error.code(), ErrorCode::WORKER_BUSY, "{error}");
+    assert_eq!(
+        embeddings.load(Ordering::SeqCst),
+        QUERY_EMBEDDINGS_BEFORE_REFUSAL
+    );
+    assert!(target.get(INDEX, "wanted").unwrap().is_some());
+    target.shutdown().unwrap();
+}
+
+#[test]
+fn a_query_refuses_once_restores_keep_changing_its_embedding_adapter() {
+    require_refusal_after_alternating_adapters(
+        "a_query_refuses_once_restores_keep_changing_its_embedding_adapter",
+        |engine| engine.query(INDEX, &search_params()).map(|_| ()),
+    );
+}
+
+#[test]
+fn a_preflight_refuses_once_restores_keep_changing_its_embedding_adapter() {
+    require_refusal_after_alternating_adapters(
+        "a_preflight_refuses_once_restores_keep_changing_its_embedding_adapter",
+        |engine| engine.preflight(INDEX, &search_params()).map(|_| ()),
     );
 }

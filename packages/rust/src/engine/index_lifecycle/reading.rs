@@ -128,26 +128,27 @@ impl EngineInner {
     }
 
     /// Runs `prepare` on the index called `name` without holding it, then runs `read` on that same index with what
-    /// `prepare` returned. Where a restore replaces the index in between, `prepare` runs once more on the index
-    /// that holds the name afterwards, given what it returned before, while the read holds that index, so that a
-    /// query embeds its text with the adapter of the index that it searches and a later restore waits for it.
+    /// `prepare` returned. Where a restore replaces the index in between, `prepare` runs again on the index that
+    /// holds the name afterwards, given what it returned before, so that a query embeds its text with the adapter
+    /// of the index that it searches. `prepare` never runs while a read holds an index, so an embedding adapter
+    /// can restore the index that it embeds for, and `prepare` bounds how often it embeds again.
     pub(crate) fn read_index_prepared<P, T>(
         &self,
         name: &str,
         mut prepare: impl FnMut(&IndexState, Option<P>) -> Result<P>,
         read: impl FnOnce(&IndexState, P) -> Result<T>,
     ) -> Result<T> {
-        let index = self.open_index(name)?;
-        let prepared = prepare(&index, None)?;
-        let swapped = match ReadingIndex::enter(index) {
-            Ok(reading) => return read(&reading, prepared),
-            Err(swapped) => swapped,
-        };
-        swapped.residency.wait_for_swap(&swapped);
-        drop(swapped);
-        self.read_index(name, |current| {
-            let prepared = prepare(current, Some(prepared))?;
-            read(current, prepared)
-        })
+        let mut earlier = None;
+        loop {
+            let index = self.open_index(name)?;
+            let prepared = prepare(&index, earlier.take())?;
+            match ReadingIndex::enter(index) {
+                Ok(reading) => return read(&reading, prepared),
+                Err(swapped) => {
+                    swapped.residency.wait_for_swap(&swapped);
+                    earlier = Some(prepared);
+                }
+            }
+        }
     }
 }
