@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use super::Narsil;
+use super::callback_scope::CallbackScope;
 use super::index::IndexState;
 use super::query_suggestions::types::{
     QuerySuggestionsBuildPhase, QuerySuggestionsBuildTrigger, QuerySuggestionsWarningReason,
@@ -200,6 +201,7 @@ impl EventBus {
             .filter(|(_, listened, _)| *listened == kind)
             .map(|(_, _, listener)| Arc::clone(listener))
             .collect();
+        let _scope = CallbackScope::enter(self);
         for listener in listeners {
             let _ = catch_unwind(AssertUnwindSafe(|| listener(&event)));
         }
