@@ -1,3 +1,4 @@
+import type { DocumentTableVisit } from '../../core/doc-id-tables/types'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
 import type { VectorCheckpointPlan, WrittenVectorFile } from './checkpoint-plan'
@@ -36,6 +37,12 @@ export interface VectorIndex extends VectorPublicationSource {
   estimateMemoryBytes(): number
   /** Reports the bytes that storing this many more vectors would add to the field's shared structures. */
   growthBytesFor(vectors: number): number
+  /**
+   * Hands `visit` the name and entry count of every table in the field that holds one entry for each document.
+   * The third argument is false for a table that drops entries as the field places or purges vectors, which no
+   * removal or replacement of a document announces.
+   */
+  visitDocumentTables(visit: DocumentTableVisit): void
   /** Reads the field back from the parts of an earlier snapshot, whose parts can place the sequences of several partitions end to end, and keeps every vector in memory. */
   deserialize(parts: VectorIndexPayload[]): void
   /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. Where `pinsRetiredVectors` is true, every new file holds the vector that each document held when the plan was made, and the field keeps replaced and removed vectors readable until the plan's `release` runs. */

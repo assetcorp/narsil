@@ -4,7 +4,7 @@ import {
   STORE_UNPLACED_COUNT,
   UNPLACED_FLAG_CHUNK_ORDINALS,
 } from '#platform/vector-host'
-import type { DocIdSet } from '../../core/doc-id-tables/types'
+import type { DocIdSet, DocumentTableVisit } from '../../core/doc-id-tables/types'
 import type { GrowableBuffer } from '../shared-buffers/growable'
 import type { VectorStore } from '../vector-store'
 import type { SharedVectorStoreHandles } from '../vector-store/handles'
@@ -110,6 +110,11 @@ class FlaggedDocuments implements UnplacedVectors {
     return held
   }
 
+  visitTables(name: string, visit: DocumentTableVisit): void {
+    visit(name, this.members.size, false)
+    visit(`${name}-ordinals`, this.ordinals.size, false)
+  }
+
   private publishCount(handles: SharedVectorStoreHandles): void {
     Atomics.store(handles.header, this.layout.countWord, this.members.size + this.retired.size)
   }
@@ -164,4 +169,8 @@ export function createRemovedDocuments(store: VectorStore): DocIdSet {
     countWord: STORE_REMOVED_COUNT,
     keepsRetiredFlags: false,
   })
+}
+
+export function visitFlaggedTables(name: string, documents: DocIdSet, visit: DocumentTableVisit): void {
+  if (documents instanceof FlaggedDocuments) documents.visitTables(name, visit)
 }

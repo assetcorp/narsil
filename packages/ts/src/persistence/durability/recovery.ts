@@ -1,6 +1,7 @@
 import { turnIsSpent, yieldTurn } from '#platform/storage-host'
 import { applyDeleteEntry, applyIndexEntry } from '../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
+import { noteDocumentChurn } from '../../engine/memory/document-churn'
 import type { PartitionManager } from '../../partitioning/manager'
 import { readMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexMetadata } from '../../types/internal'
@@ -235,6 +236,7 @@ async function truncateSegmentTail(directory: DurableDirectory, key: string, dur
 
 function applyEntry(entry: ReplicationLogEntry, deps: ReplayDeps): void {
   deps.writeRecords?.replayed(entry)
+  if (entry.operation === 'DELETE' || deps.manager.has(entry.documentId)) noteDocumentChurn(entry.indexName, 1)
   if (entry.operation === 'DELETE') {
     applyDeleteEntry(entry, deps.manager, deps.vectorIndexes)
     return
