@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::{self, Read};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, Weak};
@@ -11,6 +12,7 @@ use narsil::{
 
 const OUTER: &str = "outer";
 const INNER: &str = "inner";
+const WARMUP: &str = "warmup";
 const NEVER_CREATED: &str = "never-created";
 const STALL_START: Duration = Duration::from_secs(30);
 const STALL_RELEASE: Duration = Duration::from_secs(120);
@@ -296,4 +298,57 @@ fn a_shutdown_called_from_a_save_of_the_create_is_refused_and_the_engine_keeps_w
             .code(),
         ErrorCode::INSTANCE_SHUT_DOWN
     );
+}
+
+struct CreatesOnThreadExit {
+    engine: Arc<Narsil>,
+    created: Sender<narsil::Result<()>>,
+}
+
+impl Drop for CreatesOnThreadExit {
+    fn drop(&mut self) {
+        let created = self.engine.create_index(OUTER, titled_index()).map(|_| ());
+        let _ = self.created.send(created);
+    }
+}
+
+thread_local! {
+    static CREATE_ON_THREAD_EXIT: RefCell<Option<CreatesOnThreadExit>> = const { RefCell::new(None) };
+}
+
+#[test]
+fn a_shutdown_called_from_a_save_of_a_create_made_while_its_thread_exits_is_refused() {
+    let NestingEngine {
+        engine,
+        nesting_started: _,
+        nested_result,
+    } = nesting_engine(shut_down);
+    let (created, created_result) = channel();
+    let exiting = Arc::clone(&engine);
+    thread::spawn(move || {
+        CREATE_ON_THREAD_EXIT.with(|slot| {
+            *slot.borrow_mut() = Some(CreatesOnThreadExit {
+                engine: Arc::clone(&exiting),
+                created,
+            });
+        });
+        exiting
+            .create_index(WARMUP, titled_index())
+            .expect("the warmup index is created");
+    });
+
+    let nested = nested_result
+        .recv_timeout(EVERY_CALL_RETURNS)
+        .expect("the shutdown inside the save returns");
+    assert_eq!(
+        nested
+            .expect_err("the shutdown inside the save is refused")
+            .code(),
+        ErrorCode::CONFIG_INVALID
+    );
+    created_result
+        .recv_timeout(EVERY_CALL_RETURNS)
+        .expect("the create made while the thread exits returns")
+        .expect("the create made while the thread exits succeeds");
+    assert_eq!(engine.list_indexes().len(), 2);
 }
