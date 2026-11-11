@@ -8,6 +8,7 @@ use narsil::{
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use super::reentry::{EngineMark, Reentry, refuse_reentry};
 use super::retained::Retained;
 use super::{call_python, report_unraisable};
 use crate::convert::fields::{Fields, string_of};
@@ -26,10 +27,16 @@ pub(crate) fn id_generator(
     }
     let function = Retained::new(function);
     Ok(Arc::new(move || {
-        let generated = call_python(ErrorCode::INTERNAL_ERROR, ID_GENERATOR_SUBJECT, |py| {
-            let id = function.bind(py)?.call0()?;
-            Ok(string_of(&id, "the ID that the idGenerator returned")?)
-        });
+        let reentry = function.awaited_by_engine();
+        let generated = call_python(
+            ErrorCode::INTERNAL_ERROR,
+            ID_GENERATOR_SUBJECT,
+            reentry,
+            |py| {
+                let id = function.bind(py)?.call0()?;
+                Ok(string_of(&id, "the ID that the idGenerator returned")?)
+            },
+        );
         match generated {
             Ok(id) => id,
             Err(error) => std::panic::resume_unwind(Box::new(error)),
@@ -188,6 +195,7 @@ pub(crate) fn event_listener(function: Retained) -> impl Fn(&NarsilEvent) + Send
 #[pyclass(frozen, module = "narsil._native", name = "StaleRebuild")]
 pub(crate) struct PyStaleRebuild {
     rebuild: StaleRebuild,
+    engine: Option<EngineMark>,
 }
 
 #[pymethods]
@@ -198,6 +206,9 @@ impl PyStaleRebuild {
     }
 
     fn __call__(&self, py: Python<'_>) -> PyResult<()> {
+        if let Some(engine) = self.engine {
+            refuse_reentry(engine).map_err(to_py_err)?;
+        }
         py.detach(|| self.rebuild.run()).map_err(to_py_err)
     }
 }
@@ -223,7 +234,11 @@ pub(crate) fn stale_listener(
                     payload.set_item("storedRevision", facts.stored_revision.as_deref())?;
                     payload.set_item("currentRevision", &facts.current_revision)?;
                     payload.set_item("documentCount", facts.document_count)?;
-                    listener.call1((payload, PyStaleRebuild { rebuild }))?;
+                    let rebuild = PyStaleRebuild {
+                        rebuild,
+                        engine: function.engine(),
+                    };
+                    listener.call1((payload, rebuild))?;
                     Ok(())
                 })();
                 if let Err(error) = outcome {
@@ -299,6 +314,7 @@ pub(crate) fn group_reducer(
             let started = call_python(
                 ErrorCode::CONFIG_INVALID,
                 "The initialValue function",
+                Reentry::Allowed,
                 |py| {
                     let initial = initial.bind(py).call0()?;
                     Ok(to_value(&initial, source)?)

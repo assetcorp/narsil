@@ -20,6 +20,11 @@ class Narsil(_native.Narsil):
     specification, such as ``{"durability": {"directory": "./data"}}``. The engine shuts down when the ``with``
     block that holds it ends, when the program calls :meth:`shutdown`, or when the interpreter exits, and a durable
     engine flushes its logs to the disk as it shuts down.
+
+    When a tokenizer, a stop word function, a persistence adapter, an ``idGenerator``, or an embedding adapter calls
+    the engine that is calling it, that call raises :class:`NarsilError` with the code ``CONFIG_INVALID``, because
+    the engine waits for the callback to return. A callback that hands such a call to another thread and then waits
+    for that thread can wait forever.
     """
 
     __slots__ = ()

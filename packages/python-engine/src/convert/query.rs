@@ -10,7 +10,7 @@ use pyo3::types::{PyBool, PyString};
 use super::fields::{Fields, choice_of, floats_of, items_of, number_of, string_of, whole_of};
 use super::value::{ValueSource, to_value};
 use crate::callbacks::functions::group_reducer;
-use crate::errors::config_invalid;
+use crate::errors::{config_invalid, recoded};
 
 pub(crate) const SCORING_MODES: [(&str, ScoringMode); 3] = [
     ("local", ScoringMode::Local),
@@ -208,12 +208,21 @@ fn pins(value: &Bound<'_, PyAny>, label: &str) -> Result<Vec<Pin>, NarsilError> 
 }
 
 fn vector(mut fields: Fields<'_>) -> Result<VectorQuery, NarsilError> {
-    let field = fields.required_string("field")?;
+    let field = fields
+        .string("field")
+        .map_err(recoded(ErrorCode::SEARCH_INVALID_FIELD))?
+        .ok_or_else(|| {
+            NarsilError::new(
+                ErrorCode::SEARCH_INVALID_MODE,
+                format!("{} is required", fields.path("field")),
+            )
+        })?;
     let path = fields.path("value");
     let value = fields
         .get("value")?
         .map(|value| floats_of(&value, &path))
-        .transpose()?;
+        .transpose()
+        .map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
     let query = VectorQuery {
         field,
         value,
@@ -315,7 +324,9 @@ pub(crate) fn query_params(
     let bm25_path = fields.path("bm25");
     let params = QueryParams {
         term: fields.string("term")?,
-        fields: fields.strings("fields")?,
+        fields: fields
+            .strings("fields")
+            .map_err(recoded(ErrorCode::SEARCH_INVALID_FIELD))?,
         filters: filter_value(&mut fields)?,
         boost,
         bm25: fields
@@ -340,7 +351,8 @@ pub(crate) fn query_params(
         sort: fields
             .get("sort")?
             .map(|sort| sort_fields(&sort, &sort_path))
-            .transpose()?,
+            .transpose()
+            .map_err(recoded(ErrorCode::SEARCH_INVALID_MODE))?,
         group: fields
             .fields("group")?
             .map(|group_fields| group(group_fields, &group_path))
@@ -356,7 +368,9 @@ pub(crate) fn query_params(
             .get("pinned")?
             .map(|pinned| pins(&pinned, &pinned_path))
             .transpose()?,
-        mode: fields.choice("mode", &SEARCH_MODES)?,
+        mode: fields
+            .choice("mode", &SEARCH_MODES)
+            .map_err(recoded(ErrorCode::SEARCH_INVALID_MODE))?,
         vector: fields.fields("vector")?.map(vector).transpose()?,
         hybrid: fields.fields("hybrid")?.map(hybrid).transpose()?,
         rerank: fields

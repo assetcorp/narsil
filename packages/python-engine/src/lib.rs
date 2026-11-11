@@ -5,14 +5,19 @@ mod engine;
 mod errors;
 mod io;
 
+use pyo3::PyTypeInfo;
 use pyo3::prelude::*;
 
 use crate::callbacks::functions::{GroupReducerHandle, PyStaleRebuild};
 use crate::callbacks::persistence::{PyFilesystemPersistence, PyMemoryPersistence};
 use crate::engine::{PyNarsil, PyQuerySuggestions};
+use crate::errors::PyNarsilError;
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    let py = module.py();
+    py.import("narsil._errors")?;
+    PyNarsilError::type_object(py);
     module.add_class::<PyNarsil>()?;
     module.add_class::<PyQuerySuggestions>()?;
     module.add_class::<PyMemoryPersistence>()?;

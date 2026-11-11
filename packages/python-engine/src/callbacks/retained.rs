@@ -5,18 +5,26 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 
+use super::reentry::{EngineMark, Reentry};
+
 const RELEASED_MESSAGE: &str = "The engine has shut down and released this Python object";
 
 struct Slot {
     object: Mutex<Option<Py<PyAny>>>,
+    engine: Option<EngineMark>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+struct Collected {
+    engine: EngineMark,
+    slots: Vec<Arc<Slot>>,
+}
+
 thread_local! {
-    static COLLECTING: RefCell<Option<Vec<Arc<Slot>>>> = const { RefCell::new(None) };
+    static COLLECTING: RefCell<Option<Collected>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
@@ -24,15 +32,27 @@ pub(crate) struct Retained(Arc<Slot>);
 
 impl Retained {
     pub(crate) fn new(object: &Bound<'_, PyAny>) -> Retained {
-        let slot = Arc::new(Slot {
-            object: Mutex::new(Some(object.clone().unbind())),
-        });
-        COLLECTING.with_borrow_mut(|collected| {
-            if let Some(collected) = collected {
-                collected.push(Arc::clone(&slot));
+        COLLECTING.with_borrow_mut(|collecting| {
+            let slot = Arc::new(Slot {
+                object: Mutex::new(Some(object.clone().unbind())),
+                engine: collecting.as_ref().map(|collected| collected.engine),
+            });
+            if let Some(collected) = collecting {
+                collected.slots.push(Arc::clone(&slot));
             }
-        });
-        Retained(slot)
+            Retained(slot)
+        })
+    }
+
+    pub(crate) fn engine(&self) -> Option<EngineMark> {
+        self.0.engine
+    }
+
+    pub(crate) fn awaited_by_engine(&self) -> Reentry {
+        match self.0.engine {
+            Some(mark) => Reentry::Refused(mark),
+            None => Reentry::Allowed,
+        }
     }
 
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -43,14 +63,14 @@ impl Retained {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct RetainedSet {
+    engine: EngineMark,
     slots: Mutex<Vec<Weak<Slot>>>,
 }
 
 struct Collecting<'set> {
     set: &'set RetainedSet,
-    outer: Option<Vec<Arc<Slot>>>,
+    outer: Option<Collected>,
 }
 
 impl Drop for Collecting<'_> {
@@ -58,14 +78,31 @@ impl Drop for Collecting<'_> {
         let outer = self.outer.take();
         let collected = COLLECTING
             .with_borrow_mut(|collecting| std::mem::replace(collecting, outer))
+            .map(|collected| collected.slots)
             .unwrap_or_default();
         self.set.keep(collected);
     }
 }
 
 impl RetainedSet {
+    pub(crate) fn new() -> RetainedSet {
+        RetainedSet {
+            engine: EngineMark::fresh(),
+            slots: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(crate) fn engine(&self) -> EngineMark {
+        self.engine
+    }
+
     pub(crate) fn collect<T>(&self, convert: impl FnOnce() -> T) -> T {
-        let outer = COLLECTING.with_borrow_mut(|collecting| collecting.replace(Vec::new()));
+        let outer = COLLECTING.with_borrow_mut(|collecting| {
+            collecting.replace(Collected {
+                engine: self.engine,
+                slots: Vec::new(),
+            })
+        });
         let _collecting = Collecting { set: self, outer };
         convert()
     }

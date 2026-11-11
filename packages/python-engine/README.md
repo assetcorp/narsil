@@ -81,7 +81,7 @@ The engine writes each change to a write-ahead log before the call returns, writ
 
 ## Errors
 
-A failure inside the engine raises `narsil.NarsilError`. Its `code` holds the code that the TypeScript package raises for the same input, such as `DOC_VALIDATION_FAILED` for a malformed document or `CONFIG_INVALID` for a setting with the wrong type, and its `message` describes the failure. When `get` or a search returns a document that holds a date outside the range of Python's `datetime`, the call raises `NarsilError` with the code `INTERNAL_ERROR`. An argument of the wrong Python type, such as an index name that is not a string, raises `TypeError` before the engine receives the call, as it does for any Python function.
+A failure inside the engine raises `narsil.NarsilError`, whose `message` describes the failure. Where the TypeScript package raises `NarsilError` for the same input, the `code` is the same, such as `DOC_VALIDATION_FAILED` for a malformed document. The Python package also checks the shape of every setting and query, so an unknown key, a negative limit, or a value of the wrong type raises `NarsilError` with `CONFIG_INVALID`, or with the code that the Narsil specification gives for that field, where the TypeScript package can accept the value or fail with a JavaScript `TypeError`. When `get` or a search returns a document that holds a date outside the range of Python's `datetime`, the call raises `NarsilError` with the code `INTERNAL_ERROR`. An argument of the wrong Python type, such as an index name that is not a string, raises `TypeError` before the engine receives the call, as it does for any Python function.
 
 ## Write adapters, tokenizers, and plugins in Python
 
@@ -112,6 +112,8 @@ with Narsil({"embeddingAdapters": {"letters": Letters()}}) as engine:
 When Python code raises an exception inside the engine, the caller of the operation receives a `NarsilError` whose message holds the exception's type and text. When an embedding adapter raises, the insert fails with `EMBEDDING_FAILED`, and the index keeps every document that it held before. Raise a `NarsilError` with a code from the Narsil specification to choose the code and message that the caller receives.
 
 The engine can call Python code from any of its threads, so an adapter, a tokenizer, or a plugin must be safe to call from any thread.
+
+When a tokenizer, a stop word function, a persistence adapter, an `idGenerator`, or an embedding adapter calls the engine that is calling it, that call raises `NarsilError` with the code `CONFIG_INVALID` at once, because the engine waits for the callback to return and can hold a lock of the index while it waits. Each of these callbacks can call any other engine, and a plugin hook, an event listener, a rerank adapter, or a reducer can call any engine, including the one that called it. A callback that hands a call on the same engine to another thread and then waits for that thread can wait forever, because the call on the other thread can need the lock that the engine holds while it waits for the callback.
 
 ## Build from source
 

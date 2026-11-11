@@ -148,6 +148,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/reference"
           node packages/python-engine/tests/support/save_reference.mjs "$GITHUB_WORKSPACE" "$RUNNER_TEMP/reference/index" bills 500 > "$RUNNER_TEMP/reference/answers.json"
+          node packages/python-engine/tests/support/error_codes.mjs "$GITHUB_WORKSPACE" packages/python-engine/tests/support/error_cases.json > "$RUNNER_TEMP/reference/error_codes.json"
 
       - name: Upload the reference index
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

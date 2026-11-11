@@ -3,19 +3,23 @@ pub(crate) mod analysis;
 pub(crate) mod functions;
 pub(crate) mod persistence;
 pub(crate) mod plugins;
+pub(crate) mod reentry;
 pub(crate) mod retained;
 
 use narsil::{ErrorCode, NarsilError};
 use pyo3::prelude::*;
 
+use self::reentry::{Reentry, awaited};
 use crate::errors::{callback_error, interpreter_finalizing};
 
 pub(crate) fn call_python<T>(
     code: ErrorCode,
     subject: &str,
+    reentry: Reentry,
     call: impl for<'py> FnOnce(Python<'py>) -> Result<T, CallbackFailure>,
 ) -> Result<T, NarsilError> {
     Python::try_attach(|py| {
+        let _awaited = awaited(reentry, subject);
         call(py).map_err(|failure| match failure {
             CallbackFailure::Raised(error) => callback_error(py, &error, code, subject),
             CallbackFailure::Refused(error) => NarsilError::new(
@@ -25,6 +29,7 @@ pub(crate) fn call_python<T>(
                     error.message()
                 ),
             ),
+            CallbackFailure::Coded(error) => error,
         })
     })
     .unwrap_or_else(|| Err(interpreter_finalizing(code, subject)))
@@ -33,6 +38,7 @@ pub(crate) fn call_python<T>(
 pub(crate) enum CallbackFailure {
     Raised(PyErr),
     Refused(NarsilError),
+    Coded(NarsilError),
 }
 
 impl From<PyErr> for CallbackFailure {

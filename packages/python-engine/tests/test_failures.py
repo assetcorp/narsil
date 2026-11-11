@@ -113,6 +113,49 @@ def test_exceptions_inside_a_tokenizer_and_a_plugin_reach_the_caller_and_leave_t
     assert [hit["id"] for hit in engine.query(index_name, {"term": "river"})["hits"]] == ["kept"]
 
 
+class ScriptedTokenizer:
+    def __init__(self) -> None:
+        self.reply: object = None
+
+    def tokenize(self, text: str) -> object:
+        if self.reply is None:
+            return [(word, position) for position, word in enumerate(text.split())]
+        return self.reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [[(5, 0)], [("river", -1)], [("river", 4_294_967_296)], "river", [("river",)], [{"token": "river"}], 5],
+)
+def test_a_tokenizer_result_that_breaks_the_contract_raises_the_code_that_the_specification_gives(
+    engine: Narsil, index_name: str, reply: object
+) -> None:
+    tokenizer = ScriptedTokenizer()
+    engine.create_index(index_name, {"schema": {"body": "string"}, "tokenizer": tokenizer})
+    engine.insert(index_name, {"body": "quiet river"}, "kept")
+
+    tokenizer.reply = reply
+    assert raised(engine.insert, index_name, {"body": "loud river"}, "refused").code == "DOC_VALIDATION_FAILED"
+    assert raised(engine.query, index_name, {"term": "river"}).code == "CONFIG_INVALID"
+
+    tokenizer.reply = None
+    assert engine.count_documents(index_name) == 1
+    assert [hit["id"] for hit in engine.query(index_name, {"term": "river"})["hits"]] == ["kept"]
+
+
+def test_a_token_with_a_lone_surrogate_is_stored_with_the_replacement_character(
+    engine: Narsil, index_name: str
+) -> None:
+    tokenizer = ScriptedTokenizer()
+    engine.create_index(index_name, {"schema": {"body": "string"}, "tokenizer": tokenizer})
+
+    tokenizer.reply = [("\ud800river", 0)]
+    engine.insert(index_name, {"body": "quiet river"}, "kept")
+
+    tokenizer.reply = None
+    assert [hit["id"] for hit in engine.query(index_name, {"term": "�river"})["hits"]] == ["kept"]
+
+
 @pytest.mark.parametrize(
     ("operation", "code"),
     [
@@ -129,7 +172,7 @@ def test_exceptions_inside_a_tokenizer_and_a_plugin_reach_the_caller_and_leave_t
             lambda engine, index: engine.query(index, {"filters": {"fields": {"body": object()}}}),
             "SEARCH_INVALID_FILTER",
         ),
-        (lambda engine, index: engine.remove_batch(index, "kept"), "CONFIG_INVALID"),
+        (lambda engine, index: engine.remove_batch(index, "kept"), "DOC_VALIDATION_FAILED"),
         (
             lambda engine, index: engine.create_index(f"{index}_other", {"schema": "body: string"}),
             "SCHEMA_INVALID_TYPE",
