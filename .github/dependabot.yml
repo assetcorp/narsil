@@ -23,7 +23,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@biomejs/biome"
-        update-types: ["version-update:semver-minor"]
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
 
   - package-ecosystem: "pip"
     directory: "/packages/python"
