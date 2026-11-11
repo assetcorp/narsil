@@ -39,9 +39,7 @@ impl PyNarsil {
             return Ok(false);
         };
         let engine = self.handle.engine()?;
-        let removed = py.detach(|| engine.off(registered));
-        self.retained.prune();
-        Ok(removed)
+        Ok(py.detach(|| engine.off(registered)))
     }
 
     fn register_tokenizer(

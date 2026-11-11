@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use super::EngineHandle;
 use super::documents::ids_of;
+use super::{EngineHandle, PyNarsil};
 use crate::convert::operations::{
     build_dict, manual_suggestion, preview_dict, record_dict, recorded_query, status_dict,
     suggestions_setting,
@@ -14,11 +13,21 @@ use crate::errors::to_py_err;
 /// The popular query suggestions of an engine's indexes, which `Narsil.query_suggestions` returns.
 #[pyclass(frozen, module = "narsil._native", name = "QuerySuggestions")]
 pub(crate) struct PyQuerySuggestions {
-    pub(crate) handle: Arc<EngineHandle>,
+    pub(crate) owner: Py<PyNarsil>,
+}
+
+impl PyQuerySuggestions {
+    fn handle(&self) -> &EngineHandle {
+        &self.owner.get().handle
+    }
 }
 
 #[pymethods]
 impl PyQuerySuggestions {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.owner)
+    }
+
     fn record_query<'py>(
         &self,
         py: Python<'py>,
@@ -26,7 +35,7 @@ impl PyQuerySuggestions {
         query: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let query = recorded_query(query).map_err(to_py_err)?;
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         let result = py
             .detach(|| engine.query_suggestions().record_query(index, &query))
             .map_err(to_py_err)?;
@@ -40,13 +49,13 @@ impl PyQuerySuggestions {
         setting: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let setting = suggestions_setting(setting).map_err(to_py_err)?;
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         py.detach(|| engine.query_suggestions().update_setting(index, &setting))
             .map_err(to_py_err)
     }
 
     fn status<'py>(&self, py: Python<'py>, index: &str) -> PyResult<Bound<'py, PyDict>> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         let status = py
             .detach(|| engine.query_suggestions().status(index))
             .map_err(to_py_err)?;
@@ -54,7 +63,7 @@ impl PyQuerySuggestions {
     }
 
     fn build<'py>(&self, py: Python<'py>, index: &str) -> PyResult<Bound<'py, PyDict>> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         let build = py
             .detach(|| engine.query_suggestions().build(index))
             .map_err(to_py_err)?;
@@ -68,7 +77,7 @@ impl PyQuerySuggestions {
         index: &str,
         limit: Option<u32>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         let preview = py
             .detach(|| engine.query_suggestions().preview(index, limit))
             .map_err(to_py_err)?;
@@ -76,7 +85,7 @@ impl PyQuerySuggestions {
     }
 
     fn bans(&self, py: Python<'_>, index: &str) -> PyResult<Vec<String>> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         py.detach(|| engine.query_suggestions().bans(index))
             .map_err(to_py_err)
     }
@@ -88,13 +97,13 @@ impl PyQuerySuggestions {
         phrases: &Bound<'_, PyAny>,
     ) -> PyResult<Vec<String>> {
         let phrases = ids_of(phrases)?;
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         py.detach(|| engine.query_suggestions().update_bans(index, &phrases))
             .map_err(to_py_err)
     }
 
     fn remove_query(&self, py: Python<'_>, index: &str, query: &str) -> PyResult<u64> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         py.detach(|| engine.query_suggestions().remove_query(index, query))
             .map_err(to_py_err)
     }
@@ -106,7 +115,7 @@ impl PyQuerySuggestions {
         suggestion: &Bound<'_, PyAny>,
     ) -> PyResult<String> {
         let suggestion = manual_suggestion(suggestion).map_err(to_py_err)?;
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         py.detach(|| {
             engine
                 .query_suggestions()
@@ -116,7 +125,7 @@ impl PyQuerySuggestions {
     }
 
     fn suggestions_index_name(&self, index: &str, group: &str) -> PyResult<String> {
-        let engine = self.handle.engine()?;
+        let engine = self.handle().engine()?;
         engine
             .query_suggestions()
             .suggestions_index_name(index, group)
