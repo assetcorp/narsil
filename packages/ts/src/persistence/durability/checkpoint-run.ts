@@ -239,8 +239,7 @@ async function finishBoundedCheckpoint(
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
   if (aTargetFailed(input.indexState, targets)) return 0
 
-  const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors)
-  input.recordSavedBytes(written.saved)
+  const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors, input.recordSavedBytes)
   input.hooks.onManifestCommitted(input.indexName, metadata.analysisGeneration ?? 0)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
   await adoptVectorLayouts(store, vectorIndexes, liveVectors.layouts)

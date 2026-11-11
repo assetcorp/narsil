@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Narsil } from '../../../narsil'
+import { decodedPayload } from '../../e2e/portability/archive-oracle'
+import { logFileBytes } from '../../persistence/durability/saved-size-oracle'
 import {
   archiveBytes,
   configFor,
@@ -81,6 +83,15 @@ async function expectWhole(kind: DurableKind, directory: string, expected: Gener
   expect(await holdsGeneration(engine, LIVE, expected)).toBe(true)
   expect(await engine.countDocuments(LIVE)).toBe(count)
   expect(await leftoverFiles(directory)).toEqual([])
+  const manifest = decodedPayload(await readFile(join(directory, LIVE, 'manifest')))
+  const partitions = manifest.partitions as Array<{ segments: Array<{ key: string }> }>
+  const vectors = manifest.vectors as Array<{ files: Array<{ key: string }>; graphParts: Array<{ key: string }> }>
+  const files = partitions.flatMap(partition => partition.segments)
+  for (const vector of vectors) files.push(...vector.files, ...vector.graphParts)
+  let savedBytes = 0
+  for (const file of files) savedBytes += (await stat(join(directory, file.key))).size
+  expect(engine.getStats(LIVE).savedBytes).toBe(savedBytes)
+  expect(engine.getStats(LIVE).logBytes).toBe(kind === 'wal' ? logFileBytes(directory, LIVE) : undefined)
 }
 
 const KILL_POINTS: Array<{ kind: DurableKind; killAt: string; expected: Generation; count: number }> = [

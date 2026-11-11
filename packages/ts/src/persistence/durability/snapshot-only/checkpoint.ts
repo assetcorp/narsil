@@ -24,6 +24,7 @@ export interface SnapshotOnlyCheckpointInput {
   vectorIndexes: Map<string, VectorIndex>
   appliedSeqNoByPartition: ReadonlyMap<number, number>
   rewritesEveryPartition: boolean
+  recordSavedBytes(saved: StoredBytes): void
 }
 
 interface CapturedState {
@@ -105,7 +106,7 @@ async function writeCaptured(
     plans: captured.plans,
     priorVectors: prior?.vectors ?? [],
   })
-  const committed = await commitCheckpointManifest(store, input.metadata, written, vectors.refs)
+  const committed = await commitCheckpointManifest(store, input.metadata, written, vectors.refs, input.recordSavedBytes)
   recordWrittenVectors(input.vectorIndexes, vectors.written)
   await removeCheckpointGarbage(
     store,

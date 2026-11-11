@@ -102,9 +102,9 @@ export function createSnapshotOnlyManager(
       vectorIndexes: hooks.getVectorIndexes(indexName),
       appliedSeqNoByPartition: indexState.appliedSeqNoByPartition,
       rewritesEveryPartition: fromMemory || hooks.mustRewriteTerms(indexName),
+      recordSavedBytes: committed => savedSize.record(indexName, committed),
     })
     hooks.onManifestCommitted(indexName, metadata.analysisGeneration ?? 0)
-    savedSize.record(indexName, saved)
     await queueMetadataWrite(indexName, async () => {
       const checkpointMetadata = hooks.buildMetadata(indexName, documentCount, saved.bytes)
       if (checkpointMetadata === undefined) return
