@@ -97,7 +97,11 @@ fn attach_segment(target: &Partition, id: u64, frozen: Arc<FrozenSegment>) {
 
 /// Reports whether a listed segment is a paged segment that the index reads from its file, which an index whose
 /// text stays on disk does for every segment whose header gives the paged envelope format.
-fn holds_paged_text(store: &dyn CheckpointSource, index: &IndexState, key: &str) -> Result<bool> {
+pub(crate) fn holds_paged_text(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    key: &str,
+) -> Result<bool> {
     if index.config().text_storage != Some(Storage::Disk) {
         return Ok(false);
     }
