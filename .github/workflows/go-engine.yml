@@ -11,6 +11,7 @@ on:
       - 'packages/spec/**'
       - 'packages/ts/src/**'
       - '.github/workflows/go-engine.yml'
+      - '!**/*.md'
   pull_request:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - 'packages/spec/**'
       - 'packages/ts/src/**'
       - '.github/workflows/go-engine.yml'
+      - '!**/*.md'
   workflow_call:
 
 permissions:
