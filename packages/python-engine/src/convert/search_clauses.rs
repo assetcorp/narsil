@@ -4,7 +4,12 @@ use super::fields::{Fields, floats_of, string_of};
 use super::query::{HYBRID_STRATEGIES, METRICS};
 use crate::errors::recoded;
 
-pub(super) fn vector(mut fields: Fields<'_>) -> Result<VectorQuery, NarsilError> {
+pub(super) struct VectorClause {
+    pub(super) query: VectorQuery,
+    pub(super) text_refusal: Option<NarsilError>,
+}
+
+pub(super) fn vector(mut fields: Fields<'_>) -> Result<VectorClause, NarsilError> {
     fields.refuse_none("field", ErrorCode::SEARCH_INVALID_FIELD)?;
     let field = fields
         .string("field")
@@ -29,10 +34,14 @@ pub(super) fn vector(mut fields: Fields<'_>) -> Result<VectorQuery, NarsilError>
         .map(|value| floats_of(&value, &value_path))
         .transpose()
         .map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
-    let text = text
-        .map(|text| string_of(&text, &text_path))
-        .transpose()
-        .map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
+    let (text, text_refusal) = match text.map(|text| string_of(&text, &text_path)) {
+        None => (None, None),
+        Some(Ok(text)) => (Some(text), None),
+        Some(Err(refusal)) => (
+            Some(String::new()),
+            Some(recoded(ErrorCode::DOC_VALIDATION_FAILED)(refusal)),
+        ),
+    };
     fields.refuse_each_none(&["efSearch", "oversample"], ErrorCode::CONFIG_INVALID)?;
     let query = VectorQuery {
         field,
@@ -44,7 +53,10 @@ pub(super) fn vector(mut fields: Fields<'_>) -> Result<VectorQuery, NarsilError>
         oversample: fields.number("oversample")?,
     };
     fields.finish()?;
-    Ok(query)
+    Ok(VectorClause {
+        query,
+        text_refusal,
+    })
 }
 
 pub(super) fn hybrid(mut fields: Fields<'_>) -> Result<HybridConfig, NarsilError> {

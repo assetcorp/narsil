@@ -255,10 +255,36 @@ pub(crate) fn filter_value(fields: &mut Fields<'_>) -> Result<Option<Value>, Nar
         .transpose()
 }
 
+pub(crate) struct ConvertedQuery {
+    pub(crate) params: QueryParams,
+    pub(crate) text_refusal: Option<NarsilError>,
+}
+
+pub(crate) fn with_text_refusal(
+    error: NarsilError,
+    text_refusal: Option<NarsilError>,
+) -> NarsilError {
+    match text_refusal {
+        Some(refusal) if error.code() == ErrorCode::DOC_VALIDATION_FAILED => refusal,
+        _ => error,
+    }
+}
+
 pub(crate) fn query_params(
     value: &Bound<'_, PyAny>,
     label: &str,
 ) -> Result<QueryParams, NarsilError> {
+    let converted = converted_query(value, label)?;
+    match converted.text_refusal {
+        Some(refusal) => Err(refusal),
+        None => Ok(converted.params),
+    }
+}
+
+pub(crate) fn converted_query(
+    value: &Bound<'_, PyAny>,
+    label: &str,
+) -> Result<ConvertedQuery, NarsilError> {
     let mut fields = Fields::of(value, label)?;
     for (key, code) in QUERY_KEYS_REFUSING_NONE {
         fields.refuse_none(key, code)?;
@@ -284,6 +310,10 @@ pub(crate) fn query_params(
     let highlight_path = fields.path("highlight");
     let rerank_path = fields.path("rerank");
     let bm25_path = fields.path("bm25");
+    let (vector_query, text_refusal) = match fields.fields("vector")?.map(vector).transpose()? {
+        Some(clause) => (Some(clause.query), clause.text_refusal),
+        None => (None, None),
+    };
     let params = QueryParams {
         term: fields.string("term")?,
         fields: fields
@@ -333,7 +363,7 @@ pub(crate) fn query_params(
         mode: fields
             .choice("mode", &SEARCH_MODES)
             .map_err(recoded(ErrorCode::SEARCH_INVALID_MODE))?,
-        vector: fields.fields("vector")?.map(vector).transpose()?,
+        vector: vector_query,
         hybrid: fields.fields("hybrid")?.map(hybrid).transpose()?,
         rerank: fields
             .fields("rerank")
@@ -348,5 +378,8 @@ pub(crate) fn query_params(
             .transpose()?,
     };
     fields.finish()?;
-    Ok(params)
+    Ok(ConvertedQuery {
+        params,
+        text_refusal,
+    })
 }
