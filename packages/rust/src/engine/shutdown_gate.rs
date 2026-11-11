@@ -4,6 +4,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 
+use crate::error::{ErrorCode, NarsilError};
+
+pub(crate) fn shut_down_before_publication() -> NarsilError {
+    NarsilError::new(
+        ErrorCode::INSTANCE_SHUT_DOWN,
+        "This Narsil instance shut down before the index could join it",
+    )
+}
+
 thread_local! {
     static GATES_ADMITTING_ON_THREAD: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }

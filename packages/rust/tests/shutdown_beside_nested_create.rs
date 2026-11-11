@@ -18,6 +18,7 @@ const SETTLE: Duration = Duration::from_millis(200);
 const SHUTDOWN_FLAG_POLL: Duration = Duration::from_millis(5);
 const SHUTDOWN_FLAG_POLLS: u32 = 2_000;
 const EVERY_CALL_RETURNS: Duration = Duration::from_secs(10);
+const REFUSED_BEFORE_ANY_WORK: &str = "This Narsil instance has been shut down";
 
 type CallInsideSave = fn(&Narsil) -> narsil::Result<()>;
 
@@ -226,9 +227,12 @@ fn a_create_nested_in_a_save_while_a_shutdown_waits_is_refused_and_every_call_re
 
     stopped.expect("the engine shuts down");
     created.expect("the outer create that began before the shutdown succeeds");
-    assert_eq!(
-        nested.expect_err("the nested create is refused").code(),
-        ErrorCode::INSTANCE_SHUT_DOWN
+    let nested = nested.expect_err("the nested create is refused");
+    assert_eq!(nested.code(), ErrorCode::INSTANCE_SHUT_DOWN);
+    assert_ne!(
+        nested.message(),
+        REFUSED_BEFORE_ANY_WORK,
+        "the nested create waited on the restore's name before the shutdown began, instead of meeting the shutdown at its first check"
     );
     assert_eq!(
         restored.expect_err("the restore is refused").code(),
