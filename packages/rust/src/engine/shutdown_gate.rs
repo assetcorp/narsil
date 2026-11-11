@@ -1,12 +1,33 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 
 #[derive(Default)]
+struct Publications {
+    admitted: usize,
+    closed: bool,
+}
+
+#[derive(Default)]
 pub(crate) struct ShutdownGate {
-    publications: RwLock<()>,
+    publications: Mutex<Publications>,
+    published: Condvar,
     running: Mutex<Option<ThreadId>>,
     finished: Condvar,
+}
+
+pub(crate) struct Admission<'gate> {
+    gate: &'gate ShutdownGate,
+}
+
+impl Drop for Admission<'_> {
+    fn drop(&mut self) {
+        let mut publications = self.gate.publications();
+        publications.admitted = publications.admitted.saturating_sub(1);
+        if publications.admitted == 0 {
+            self.gate.published.notify_all();
+        }
+    }
 }
 
 pub(crate) struct ShutdownTurn<'gate> {
@@ -25,18 +46,30 @@ impl ShutdownGate {
         self.running.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn admit(&self) -> RwLockReadGuard<'_, ()> {
+    fn publications(&self) -> MutexGuard<'_, Publications> {
         self.publications
-            .read()
+            .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    pub(crate) fn admit(&self) -> Option<Admission<'_>> {
+        let mut publications = self.publications();
+        if publications.closed {
+            return None;
+        }
+        publications.admitted += 1;
+        Some(Admission { gate: self })
+    }
+
     pub(crate) fn await_admitted(&self) {
-        drop(
-            self.publications
-                .write()
-                .unwrap_or_else(PoisonError::into_inner),
-        );
+        let mut publications = self.publications();
+        publications.closed = true;
+        while publications.admitted > 0 {
+            publications = self
+                .published
+                .wait(publications)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
     }
 
     pub(crate) fn turn(
