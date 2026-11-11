@@ -136,6 +136,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [Go client](https://github.com/assetcorp/narsil/blob/main/docs/go-client.md) | Reaching a server or a cluster from Go, streaming snapshots, and the failover rules |
 | [React Native](https://github.com/assetcorp/narsil/blob/main/docs/react-native.md) | The engine inside an iOS or Android app, where the index lives, snapshots, memory, and errors |
 | [Device sync](https://github.com/assetcorp/narsil/blob/main/docs/device-sync.md) | A copy of one index on a device that searches and writes offline, the sync routes, conflicts, and the snapshot |
+| [Change capture](https://github.com/assetcorp/narsil/blob/main/docs/change-capture.md) | Following every insert, update, and removal on an index from a backend service, the feed, filters, and resyncs |
 | [Popular query suggestions](https://github.com/assetcorp/narsil/blob/main/docs/query-suggestions.md) | Whole searches that people ran and clicked, counted per person, built into a suggestions index, and the privacy trade-offs |
 | [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) | Plugin hooks, engine events, and memory reporting |
