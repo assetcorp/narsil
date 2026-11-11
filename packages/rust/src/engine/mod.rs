@@ -129,9 +129,7 @@ impl EngineInner {
             .shutdown_gate
             .admit()
             .ok_or_else(shut_down_before_publication)?;
-        if self.shut_down.load(Ordering::Acquire) {
-            return Err(shut_down_before_publication());
-        }
+        self.guard_shutdown()?;
         Ok(admitted)
     }
 
@@ -342,15 +340,20 @@ impl Narsil {
     /// the engine stops either way. A call from another thread while a shutdown is under way returns once that
     /// shutdown finishes. A call from an event listener or a plugin hook of this engine returns at once while
     /// another shutdown is under way, because that shutdown can be waiting for the thread that runs the callback.
-    /// A call from a callback that an index create, restore, or reopen runs while it puts its index in the engine,
-    /// such as a persistence adapter's save, fails with `CONFIG_INVALID` and changes nothing that a shutdown changes,
-    /// because it would wait for that create, restore, or reopen to finish. A shutdown that another thread began
-    /// goes on, and finishes once that create, restore, or reopen does.
+    /// A call from inside a method of the engine's persistence adapter, or from a callback that an index create,
+    /// restore, or reopen runs while it puts its index in the engine, fails with `CONFIG_INVALID` and changes nothing
+    /// that a shutdown changes, because it would wait for the engine call that runs it to finish. A shutdown that
+    /// another thread began goes on, and finishes once that engine call does.
     pub fn shutdown(&self) -> Result<()> {
-        if self.inner.shutdown_gate.admitted_on_current_thread() {
+        let inside_adapter_call = self
+            .inner
+            .durable
+            .as_ref()
+            .is_some_and(Durable::calling_adapter_on_current_thread);
+        if inside_adapter_call || self.inner.shutdown_gate.admitted_on_current_thread() {
             return Err(NarsilError::new(
                 ErrorCode::CONFIG_INVALID,
-                "A callback asked the engine to shut down while the index create, restore, or reopen that runs it waits to finish, so the engine refuses the call instead of waiting for itself",
+                "A callback asked the engine to shut down while the engine call that runs it waits to finish, so the engine refuses the call instead of waiting for itself",
             ));
         }
         let inside_callback = callback_scope::dispatching_on_current_thread(&self.inner.events)
