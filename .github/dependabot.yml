@@ -33,6 +33,16 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
+  - package-ecosystem: "pip"
+    directory: "/packages/python-engine"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
+    cooldown:
+      default-days: 4
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "gomod"
     directory: "/packages/go"
     multi-ecosystem-group: "all-dependencies"

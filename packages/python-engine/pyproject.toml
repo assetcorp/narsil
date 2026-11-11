@@ -1,0 +1,69 @@
+[project]
+name = "delali-narsil"
+dynamic = ["version"]
+description = "Narsil search engine inside a Python process: full-text, vector, and hybrid search over the Rust implementation, with a blocking API and an asyncio API."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Delali" }]
+keywords = ["narsil", "search", "full-text search", "vector search", "hybrid search", "embedded"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Database :: Database Engines/Servers",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://narsil.sondelali.com"
+Documentation = "https://github.com/assetcorp/narsil/blob/main/packages/python-engine/README.md"
+Repository = "https://github.com/assetcorp/narsil"
+Issues = "https://github.com/assetcorp/narsil/issues"
+
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "narsil._native"
+python-source = "python"
+manifest-path = "Cargo.toml"
+locked = true
+include = [{ path = "python/narsil/py.typed", format = "wheel" }]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "target"]
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "PERF", "PIE", "RUF", "S", "SIM", "UP", "W"]
+ignore = ["RUF001", "RUF002", "S101", "S603", "S607"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["narsil", "tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "python"
+files = ["python", "tests", "scripts"]
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

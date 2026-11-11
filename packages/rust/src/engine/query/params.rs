@@ -71,6 +71,9 @@ pub struct FacetSpec {
 }
 
 /// A function that folds each hit of a group into one value.
+///
+/// Where the function returns an error, or where it or the initial value panics, the group carries that text as
+/// its `reducer_error` and no `reduced` value.
 pub type GroupReduce = Arc<dyn Fn(Value, &Map, f64) -> Result<Value, String> + Send + Sync>;
 
 /// The fold that a grouped query applies to each group's hits.

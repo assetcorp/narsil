@@ -16,7 +16,8 @@
       "narsil-embeddings-transformers",
       "narsil-certutil",
       "narsil-rust",
-      "narsil-python"
+      "narsil-python",
+      "narsil-python-engine"
     ],
     "projectsRelationship": "independent",
     "releaseTagPattern": "{projectName}@v{version}",

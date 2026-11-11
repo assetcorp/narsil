@@ -10,6 +10,7 @@ pub use registry::{StopWordFunction, StopWords, Token, Tokenizer};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::keyword::tokens::PackedTokens;
+use crate::util::unwind::guarded;
 use core::{CoreStopWords, TokenParts};
 
 /// A language that the native core analyses, with its stop words and the revision of its analysis.
@@ -139,7 +140,7 @@ impl Analyser {
         let stop_words = match &resolved.stop_words {
             None => None,
             Some(stop_words) => {
-                let words = stop_words.resolve(&language.stop_words);
+                let words = stop_words.resolve(&language.stop_words)?;
                 if words.len() == language.stop_words.len()
                     && words.iter().all(|word| language.stop_words.contains(word))
                 {
@@ -178,7 +179,7 @@ impl Analyser {
         visit: &mut TokenVisitor<'_>,
     ) -> Result<()> {
         if let Some(tokenizer) = &self.tokenizer {
-            for token in &tokens_in_position_order(tokenizer.as_ref(), text) {
+            for token in &tokens_in_position_order(tokenizer.as_ref(), text)? {
                 visit(&token.token, token.position, None, &token.token);
             }
             return Ok(());
@@ -218,7 +219,7 @@ impl Analyser {
         packed: &mut PackedTokens,
     ) -> Result<Option<u32>> {
         if let Some(tokenizer) = &self.tokenizer {
-            let tokens = tokens_in_position_order(tokenizer.as_ref(), text);
+            let tokens = tokens_in_position_order(tokenizer.as_ref(), text)?;
             let mut units = Vec::new();
             for token in &tokens {
                 units.clear();
@@ -263,15 +264,17 @@ impl Analyser {
     }
 }
 
-fn tokens_in_position_order(tokenizer: &dyn Tokenizer, text: &str) -> Vec<Token> {
-    let mut tokens = tokenizer.tokenize(text);
+fn tokens_in_position_order(tokenizer: &dyn Tokenizer, text: &str) -> Result<Vec<Token>> {
+    let mut tokens = guarded(ErrorCode::INTERNAL_ERROR, "The tokenizer", || {
+        tokenizer.tokenize(text)
+    })?;
     if tokens
         .windows(2)
         .any(|pair| pair[1].position < pair[0].position)
     {
         tokens.sort_by_key(|token| token.position);
     }
-    tokens
+    Ok(tokens)
 }
 
 fn fill(target: &mut String, units: &[u16]) {
