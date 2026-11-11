@@ -9,7 +9,7 @@ use pyo3::types::{PyBool, PyString};
 
 use super::fields::{Fields, choice_of, floats_of, items_of, number_of, string_of, whole_of};
 use super::value::{ValueSource, to_value};
-use crate::callbacks::functions::group_reducer;
+use crate::callbacks::reducer::group_reducer;
 use crate::errors::{config_invalid, recoded};
 
 pub(crate) const SCORING_MODES: [(&str, ScoringMode); 3] = [
@@ -248,13 +248,17 @@ fn hybrid(mut fields: Fields<'_>) -> Result<HybridConfig, NarsilError> {
 }
 
 fn rerank(mut fields: Fields<'_>, label: &str) -> Result<RerankConfig, NarsilError> {
+    let refused = recoded(ErrorCode::RERANK_CONFIG_INVALID);
     let config = RerankConfig {
-        adapter: fields.required_string("adapter")?,
-        fields: fields
-            .strings("fields")?
-            .ok_or_else(|| config_invalid(format!("{label}.fields is required")))?,
-        query: fields.string("query")?,
-        window: fields.size("window")?,
+        adapter: fields.required_string("adapter").map_err(&refused)?,
+        fields: fields.strings("fields").map_err(&refused)?.ok_or_else(|| {
+            NarsilError::new(
+                ErrorCode::RERANK_CONFIG_INVALID,
+                format!("{label}.fields is required"),
+            )
+        })?,
+        query: fields.string("query").map_err(&refused)?,
+        window: fields.size("window").map_err(&refused)?,
     };
     fields.finish()?;
     Ok(config)
@@ -374,7 +378,8 @@ pub(crate) fn query_params(
         vector: fields.fields("vector")?.map(vector).transpose()?,
         hybrid: fields.fields("hybrid")?.map(hybrid).transpose()?,
         rerank: fields
-            .fields("rerank")?
+            .fields("rerank")
+            .map_err(recoded(ErrorCode::RERANK_CONFIG_INVALID))?
             .map(|rerank_fields| rerank(rerank_fields, &rerank_path))
             .transpose()?,
         include_scores: fields.boolean("includeScores")?,

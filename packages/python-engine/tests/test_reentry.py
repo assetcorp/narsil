@@ -82,3 +82,12 @@ def test_a_hook_a_listener_and_a_rerank_adapter_can_write_to_and_close_the_index
     assert result["outer"] == SUCCEEDED
     assert result["inner"] == [SUCCEEDED, SUCCEEDED]
     assert result["count"] == 2
+
+
+def test_a_listener_that_a_tokenizer_fails_to_remove_can_be_removed_once_the_insert_returns() -> None:
+    result = run_scenario("listener_off_refused")
+    assert result["inner"][0]["code"] == "CONFIG_INVALID"
+    assert result["outer"] == SUCCEEDED
+    assert result["removed"] is True
+    assert result["events"] == 1
+    assert result["count"] == 2

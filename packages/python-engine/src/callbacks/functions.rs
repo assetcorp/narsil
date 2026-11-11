@@ -1,22 +1,19 @@
 use std::sync::Arc;
 
 use narsil::{
-    EarlierLayout, ErrorCode, GroupReducer, IdGenerator, NarsilError, NarsilEvent, NarsilEventKind,
-    QuerySuggestionsBuildPhase, StaleAnalysis, StaleAnalysisListener, StaleRebuild, Value,
-    WorkStatus,
+    EarlierLayout, ErrorCode, IdGenerator, NarsilError, NarsilEvent, NarsilEventKind,
+    QuerySuggestionsBuildPhase, StaleAnalysis, StaleAnalysisListener, StaleRebuild, WorkStatus,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use super::reentry::{EngineMark, Reentry, refuse_reentry};
+use super::reentry::{EngineMark, refuse_reentry};
 use super::retained::Retained;
 use super::{call_python, report_unraisable};
-use crate::convert::fields::{Fields, string_of};
-use crate::convert::value::{ValueSource, map_to_py, to_value, value_to_py};
+use crate::convert::fields::string_of;
 use crate::errors::{config_invalid, to_py_err};
 
 const ID_GENERATOR_SUBJECT: &str = "The idGenerator";
-const REDUCER_RESULT_SUBJECT: &str = "The value that the reducer returned";
 
 pub(crate) fn id_generator(
     function: &Bound<'_, PyAny>,
@@ -247,83 +244,4 @@ pub(crate) fn stale_listener(
             });
         },
     ))
-}
-
-/// This handle holds the reducer of a grouped query, so that a `before_search` hook that receives the query as a
-/// dict can return the same reducer.
-#[pyclass(frozen, module = "narsil._native", name = "GroupReducerHandle")]
-pub(crate) struct GroupReducerHandle {
-    pub(crate) reducer: GroupReducer,
-}
-
-fn reducer_function(fields: &mut Fields<'_>, key: &'static str) -> Result<Py<PyAny>, NarsilError> {
-    let path = fields.path(key);
-    match fields.get(key)? {
-        Some(function) if function.is_callable() => Ok(function.unbind()),
-        _ => Err(config_invalid(format!("{path} must be a function"))),
-    }
-}
-
-pub(crate) fn group_reducer(
-    value: &Bound<'_, PyAny>,
-    label: &str,
-) -> Result<GroupReducer, NarsilError> {
-    if let Ok(handle) = value.cast::<GroupReducerHandle>() {
-        return Ok(handle.get().reducer.clone());
-    }
-    let mut fields = Fields::of(value, label)?;
-    let reducer = Arc::new(reducer_function(&mut fields, "reducer")?);
-    let initial = reducer_function(&mut fields, "initialValue")?;
-    fields.finish()?;
-    let source = ValueSource {
-        code: ErrorCode::CONFIG_INVALID,
-        subject: REDUCER_RESULT_SUBJECT,
-    };
-    Ok(GroupReducer {
-        reducer: Arc::new(move |accumulator: Value, document, score| {
-            Python::try_attach(|py| {
-                let folded = (|| -> PyResult<Bound<'_, PyAny>> {
-                    reducer.bind(py).call1((
-                        value_to_py(py, &accumulator)?,
-                        map_to_py(py, document)?,
-                        score,
-                    ))
-                })();
-                match folded {
-                    Ok(next) => {
-                        to_value(&next, source).map_err(|error| error.message().to_string())
-                    }
-                    Err(error) => Err(crate::errors::callback_error(
-                        py,
-                        &error,
-                        ErrorCode::CONFIG_INVALID,
-                        "The reducer",
-                    )
-                    .message()
-                    .to_string()),
-                }
-            })
-            .unwrap_or_else(|| {
-                Err(
-                    "The reducer is unavailable because the Python interpreter is shutting down"
-                        .to_string(),
-                )
-            })
-        }),
-        initial_value: Arc::new(move || {
-            let started = call_python(
-                ErrorCode::CONFIG_INVALID,
-                "The initialValue function",
-                Reentry::Allowed,
-                |py| {
-                    let initial = initial.bind(py).call0()?;
-                    Ok(to_value(&initial, source)?)
-                },
-            );
-            match started {
-                Ok(value) => value,
-                Err(error) => std::panic::resume_unwind(Box::new(error.message().to_string())),
-            }
-        }),
-    })
 }

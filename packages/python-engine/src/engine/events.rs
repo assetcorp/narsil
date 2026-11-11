@@ -30,6 +30,15 @@ impl PyNarsil {
     }
 
     fn off(&self, py: Python<'_>, listener_id: u64) -> PyResult<bool> {
+        let listening = self
+            .listeners
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(&listener_id);
+        if !listening {
+            return Ok(false);
+        }
+        let engine = self.handle.engine()?;
         let registered = self
             .listeners
             .lock()
@@ -38,7 +47,6 @@ impl PyNarsil {
         let Some(registered) = registered else {
             return Ok(false);
         };
-        let engine = self.handle.engine()?;
         Ok(py.detach(|| engine.off(registered)))
     }
 

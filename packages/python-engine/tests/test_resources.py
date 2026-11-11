@@ -86,6 +86,45 @@ def test_dropping_an_index_frees_the_tokenizer_object_that_only_that_index_used(
     assert released() is None
 
 
+class QueryKeepingPlugin:
+    name = "query-keeping"
+
+    def __init__(self, engine: Narsil) -> None:
+        self.engine = engine
+        self.kept: Any = None
+
+    def before_search(self, context: dict[str, Any]) -> None:
+        self.kept = context["params"]
+
+    def count(self, accumulator: int, document: dict[str, Any], score: float) -> int:
+        return accumulator + 1
+
+    def start(self) -> int:
+        return 0
+
+
+def group_with_a_plugin_that_keeps_the_query(directory: str) -> weakref.ref[Narsil]:
+    engine = Narsil({"durability": {"directory": directory}})
+    engine.create_index("notes", {"schema": {"body": "string"}})
+    engine.insert("notes", {"body": "oak"}, "one")
+    plugin = QueryKeepingPlugin(engine)
+    engine.add_plugin(plugin)
+    reduce = {"reducer": plugin.count, "initialValue": plugin.start}
+    engine.query("notes", {"term": "oak", "group": {"fields": ["body"], "reduce": reduce}})
+    assert plugin.kept["group"]["reduce"] is not None
+    return weakref.ref(engine)
+
+
+def test_a_dropped_durable_engine_frees_its_directory_when_a_plugin_keeps_a_grouped_query(
+    tmp_path: Any,
+) -> None:
+    engine = group_with_a_plugin_that_keeps_the_query(str(tmp_path))
+    gc.collect()
+    assert engine() is None
+    with Narsil({"durability": {"directory": str(tmp_path)}}) as reopened:
+        assert reopened.count_documents("notes") == 1
+
+
 def test_a_batch_writes_every_document_that_python_can_convert_and_reports_each_one_that_it_cannot(
     engine: Narsil, index_name: str
 ) -> None:
@@ -148,6 +187,43 @@ def test_a_snapshot_into_a_full_nonblocking_pipe_raises_instead_of_dropping_the_
 
     assert "accepted none of the bytes" in caught.value.message
     assert engine.count_documents(index_name) == DOCUMENTS_PAST_A_PIPE_BUFFER
+
+
+class RecordingWriter:
+    def __init__(self, returned: object) -> None:
+        self.returned = returned
+        self.received = bytearray()
+
+    def write(self, data: bytes) -> object:
+        self.received += data
+        return self.returned
+
+
+@pytest.mark.parametrize("returned", [True, 10**9, "written", 2.5])
+def test_a_snapshot_refuses_a_writer_whose_write_reports_a_count_that_cannot_be_true(
+    engine: Narsil, index_name: str, returned: object
+) -> None:
+    engine.create_index(index_name, {"schema": {"body": "string"}})
+    engine.insert(index_name, {"body": "quiet river"}, "kept")
+    writer = RecordingWriter(returned)
+
+    with pytest.raises(NarsilError) as caught:
+        engine.snapshot(index_name, writer)
+
+    assert caught.value.code == "PERSISTENCE_SAVE_FAILED"
+
+
+def test_a_snapshot_through_a_writer_whose_write_returns_none_restores_every_document(
+    engine: Narsil, index_name: str
+) -> None:
+    engine.create_index(index_name, {"schema": {"body": "string"}})
+    engine.insert(index_name, {"body": "quiet river"}, "kept")
+    writer = RecordingWriter(None)
+
+    engine.snapshot(index_name, writer)
+
+    engine.restore("copy", bytes(writer.received))
+    assert engine.get("copy", "kept") == {"body": "quiet river"}
 
 
 def test_an_asyncio_batch_reads_its_generator_on_a_worker_thread(index_name: str) -> None:
