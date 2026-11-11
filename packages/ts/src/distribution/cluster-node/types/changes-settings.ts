@@ -42,7 +42,8 @@ export interface ClusterNodeChanges {
    * @returns The events, one at a time.
    * @throws A `NarsilError` with `CHANGES_NOT_ENABLED` when capture is off or turns off, with `CHANGES_NOT_READY` while
    * a registered node has a specification version below 1.5, with `CHANGES_INVALID_POSITIONS` for a malformed epoch or
-   * list of positions, with `SEARCH_INVALID_FILTER` for a filter past a query's limits, and with
+   * list of positions, with `SEARCH_INVALID_FILTER` for a filter that breaks the shape or the limits of a query's
+   * filters, with `SEARCH_INVALID_FIELD` for a filter that tests a field which the schema leaves out, and with
    * `CHANGES_PREVIOUS_DOCUMENT_REQUIRED` for a filter while `previousDocument` is off.
    */
   followChanges(indexName: string, options?: FollowChangesOptions): AsyncIterable<ChangesEvent>

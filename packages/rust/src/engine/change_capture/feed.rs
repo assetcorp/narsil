@@ -208,9 +208,9 @@ impl Narsil {
     /// change capture is off, with `CHANGES_INVALID_POSITIONS` where the epoch is not 32 lowercase hexadecimal
     /// digits, where the request gives only one of the epoch and the positions, or where the positions leave out a
     /// partition, repeat one, or give one that the index lacks, with `CHANGES_PREVIOUS_DOCUMENT_REQUIRED` where the
-    /// request holds a filter and the index records no previous document, and with the code that a query gives,
-    /// `SEARCH_INVALID_FILTER` or `SEARCH_INVALID_FIELD`, where the filter breaks the shape or the limits of a
-    /// query's filters.
+    /// request holds a filter and the index records no previous document, with `SEARCH_INVALID_FILTER` where the
+    /// filter breaks the shape or the limits of a query's filters, and with `SEARCH_INVALID_FIELD` where the filter
+    /// tests a field which the schema leaves out.
     pub fn changes(&self, index: &str, request: &ChangesRequest) -> Result<ChangeFeed> {
         let (store, opened) = {
             let (_name, state) = self.inner.open_index_in_turn(index)?;

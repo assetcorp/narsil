@@ -274,26 +274,32 @@ fn malformed_requests_and_settings_fail_with_their_codes() {
     for _ in 0..64 {
         too_deep = Filter::negate(too_deep);
     }
-    for broken in [
-        Filter::field("absent", FieldTests::new().eq("open")),
-        Filter::field("total", FieldTests::new().eq("not a number")),
-        Filter::from_value(Value::String("status".into())),
-        too_deep,
+    for (broken, code) in [
+        (
+            Filter::field("absent", FieldTests::new().eq("open")),
+            ErrorCode::SEARCH_INVALID_FIELD,
+        ),
+        (
+            Filter::field("total", FieldTests::new().eq("not a number")),
+            ErrorCode::SEARCH_INVALID_FILTER,
+        ),
+        (
+            Filter::from_value(Value::String("status".into())),
+            ErrorCode::SEARCH_INVALID_FILTER,
+        ),
+        (too_deep, ErrorCode::SEARCH_INVALID_FILTER),
     ] {
         let query = QueryParams {
             filters: Some(broken.to_value()),
             ..QueryParams::default()
         };
-        let query_code = narsil
-            .query(INDEX, &query)
-            .expect_err("the query refuses the filter")
-            .code();
-        assert!(
-            matches!(
-                query_code,
-                ErrorCode::SEARCH_INVALID_FILTER | ErrorCode::SEARCH_INVALID_FIELD
-            ),
-            "{query_code:?}"
+        assert_eq!(
+            narsil
+                .query(INDEX, &query)
+                .expect_err("the query refuses the filter")
+                .code(),
+            code,
+            "{broken:?}"
         );
         let request = ChangesRequest {
             filter: Some(broken),
@@ -301,7 +307,7 @@ fn malformed_requests_and_settings_fail_with_their_codes() {
         };
         assert_eq!(
             refusal(&narsil, &request),
-            query_code,
+            code,
             "a feed refuses a filter as a query does"
         );
     }
