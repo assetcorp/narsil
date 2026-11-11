@@ -508,8 +508,10 @@ export interface IndexStats {
     heldSearchStates?: number;
     language: string;
     logBytes?: number;
+    logBytesOfEveryCopy?: number;
     partitionCount: number;
     savedBytes?: number;
+    savedBytesOfEveryCopy?: number;
     schema: SchemaDefinition;
 }
 
@@ -1593,8 +1595,10 @@ export interface PartitionStatsResult {
     documentCount: number;
     estimatedMemoryBytes: number;
     logBytes?: number;
+    logBytesOfEveryCopy?: number;
     partitionId: number;
     savedBytes?: number;
+    savedBytesOfEveryCopy?: number;
 }
 
 // @public

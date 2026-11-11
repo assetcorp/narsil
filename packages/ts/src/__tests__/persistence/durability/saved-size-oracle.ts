@@ -41,6 +41,14 @@ export function logFileBytes(directory: string, indexName: string): number {
   return sizeOf(filesUnder(join(directory, indexName)).filter(file => LOG_FILE.test(file) || HISTORY_FILE.test(file)))
 }
 
+export function partitionLogFileBytes(directory: string, indexName: string, partitionId: number): number {
+  const logs = filesUnder(join(directory, indexName, 'wal', String(partitionId))).filter(file => LOG_FILE.test(file))
+  const history = filesUnder(join(directory, indexName, 'history', String(partitionId))).filter(file =>
+    HISTORY_FILE.test(file),
+  )
+  return sizeOf([...logs, ...history])
+}
+
 export function bodyOf(seed: number, length: number): string {
   const words = ['river', 'stone', 'cloud', 'ember', 'forest', 'harbour', 'lantern', 'meadow', 'orbit', 'quarry']
   const parts: string[] = ['shared']

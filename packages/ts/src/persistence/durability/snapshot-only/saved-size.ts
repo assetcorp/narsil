@@ -5,7 +5,7 @@ import { NOTHING_SAVED, partitionSavedBytes, type StoredBytes, savedBytesOfManif
 import type { DurabilityManager } from '../types'
 
 export type SnapshotSizeAccess = Required<
-  Pick<DurabilityManager, 'storedSize' | 'withPartitionStoredSizes' | 'measureRestoredStorage'>
+  Pick<DurabilityManager, 'storedSize' | 'withPartitionStoredSizes' | 'vectorSavedBytes' | 'measureRestoredStorage'>
 >
 
 export interface SnapshotSavedSize {
@@ -65,6 +65,9 @@ export function createSnapshotSavedSize(
         if (saved === null) return stats
         const byPartition = partitionSavedBytes(saved)
         return stats.map(partition => ({ ...partition, savedBytes: byPartition.get(partition.partitionId) ?? 0 }))
+      },
+      vectorSavedBytes(indexName) {
+        return knownSize(indexName)?.vectorBytes
       },
       async measureRestoredStorage(indexName) {
         const generation = replace(indexName, null)
