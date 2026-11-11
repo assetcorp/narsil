@@ -177,11 +177,12 @@ The independent decoder of the suite also checks that `vectors` is the last entr
 ```text
 {
   walFormatVersion: uint8
-  records: List<{ seqNo, primaryTerm, operation, partitionId, indexName, documentId, document: value or absent }>
+  records: List<{ seqNo, primaryTerm, operation, partitionId, indexName, documentId, document: value or absent,
+                  previousDocument: value, null, or absent }>
 }
 ```
 
-`document` holds the decoded document in the form of [Values inside MessagePack](#values-inside-messagepack).
+`document` and `previousDocument` each hold the decoded document in the form of [Values inside MessagePack](#values-inside-messagepack), and a nil `previousDocument` becomes `null`.
 
 ### Commit marker
 

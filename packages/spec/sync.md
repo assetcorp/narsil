@@ -24,7 +24,7 @@ A node must refuse the setting with `SYNC_DURABILITY_REQUIRED` for an index with
 
 A node must refuse the setting with `CONFIG_INVALID` for an index with [popular query suggestions](query-suggestions.md) on, as [The Setting](query-suggestions.md#the-setting) defines.
 
-Turning sync on gives the index a new [epoch](#index-epoch). Turning sync off must release the published snapshot and delete the index's history, and the node must close every feed connection to the index with close code 4410.
+Turning sync on gives the index a new [epoch](#index-epoch), except where the index has [change capture](changes.md) on, because every subscriber of the change feed must take a fresh document export after a new epoch. When a caller turns sync off, the node must release the published snapshot, and it must close every device feed connection of the index with close code 4410. It must also delete the index's history, except where the index has change capture on, because the change feed takes its entries from the same history.
 
 The index metadata holds the setting, and a [snapshot archive](durability.md#snapshot-archive) leaves it out, so that a copy that a caller restores onto a device or onto another server serves no feed until a caller turns sync on there. A restore over an index with sync on keeps the index's setting.
 
@@ -32,17 +32,17 @@ The index metadata holds the setting, and a [snapshot archive](durability.md#sna
 
 ## Index Epoch
 
-The epoch identifies one history of an index. It is 16 random bytes, written as 32 lowercase hexadecimal digits. Each of these changes alters documents or sequence numbers without a log entry that a device can apply, so a node must give a synced index a new epoch on each of them, and it must persist the epoch before the change serves a request:
+The epoch identifies one history of an index. It is 16 random bytes, written as 32 lowercase hexadecimal digits. Each of these changes alters documents or sequence numbers without a log entry that a device or a [change feed](changes.md#the-feed) subscriber can apply, so a node must give an index with device sync or change capture on a new epoch on each of them, and it must persist the epoch before the change serves a request:
 
-- turning sync on
+- turning on device sync or change capture while the other one is off
 - `clear` on a single node, which empties the index with no log entry
 - a restore over the index on a single node
 - a change of the partition count, on a single node or in a cluster
 - the switch of an [analysis change](adapters.md#analysis-changes)
 
-A cluster removes each document through the log when a caller clears an index, so a clear in a cluster keeps the epoch. A cluster restores a backup only under a new index name, so a restore there creates an index without sync.
+A cluster removes each document through the log when a caller clears an index, so a clear in a cluster keeps the epoch. A cluster restores a backup only under a new index name, so a restore there creates an index without sync and without change capture.
 
-A new epoch must release the published snapshot and delete the index's history, because both belong to the old epoch. The node must also send `resync` with the reason `epoch` on every feed connection of the index and then close each one with close code 4410, so that no device goes on applying entries from the old history. In a cluster, each node does this when its metadata watch delivers the new epoch.
+A new epoch must release the published snapshot and delete the index's history, because both belong to the old epoch. The node must also send `resync` with the reason `epoch` on every device feed connection and every change feed connection of the index, and it must then close each one with close code 4410, so that no device and no subscriber goes on applying entries from the old history. In a cluster, each node does this when its metadata watch delivers the new epoch.
 
 A change that alters no stored term and no document, such as a new BM25 setting or a new synonym set, keeps the epoch, and the node sends each connected device the new settings in a `settings` message.
 
@@ -111,14 +111,14 @@ That archive has the same bytes for the same backup on every node, so its entity
 
 ## History
 
-Without sync, a checkpoint deletes the log segments that it covers, as [Checkpoint and Truncation](durability.md#checkpoint-and-truncation) defines. While `sync_active` is set, a node keeps those segments as history, so that a device that reconnects can read every change after its position.
+Without sync and without [change capture](changes.md), a checkpoint deletes the log segments that it covers, as [Checkpoint and Truncation](durability.md#checkpoint-and-truncation) defines. While `sync_active` is set or change capture is on, a node keeps those segments as history, so that a device or a subscriber that reconnects can read every change after its position.
 
 - At step 4 of Checkpoint and Truncation, the node must move each covered segment to `<indexName>/history/<partitionId>/<startSeqNo>-<movedAtMs>`, where both numbers are zero-padded to 16 digits, and where `movedAtMs` is the time of the move in milliseconds since the Unix epoch. The node must move the segment by a rename on the same filesystem and then fsync both directories. A node that finds a log segment gone while it reads the feed must look for that segment in history before it treats the entries as gone, because a checkpoint can move a segment during the read.
 - Recovery must read no key under `<indexName>/history/`, because recovery reads every record of every log segment that it finds, while history can hold 30 days of writes.
-- The node must delete a partition's oldest history segment once that segment's `movedAtMs` is older than `historyMaxAgeMs`, and while the history of the whole index holds more bytes than `historyMaxBytes`. It must always delete the oldest segment first, so that history holds no gap. Before it deletes a segment that holds an entry above the published snapshot's `lastSeqNo` for that partition, the node must publish the next snapshot, so that a device that falls behind the history can still start from the published snapshot.
+- The node must delete a partition's oldest history segment once that segment's `movedAtMs` is older than `historyMaxAgeMs`, and while the history of the whole index holds more bytes than `historyMaxBytes`. It must always delete the oldest segment first, so that history holds no gap. Before it deletes a segment that holds an entry above the published snapshot's `lastSeqNo` for that partition, the node must publish the next snapshot, so that a device that falls behind the history can still start from the published snapshot. [History](changes.md#history) of change capture defines the limits of an index with change capture on.
 - The node must delete a partition's history whenever it replaces that partition's log, as a replica does when it applies a full snapshot.
 
-Log entries carry no time, so the age limit counts from the move into history. A removed document can therefore stay in history for `historyMaxAgeMs` after the checkpoint that moved its entries. A developer who must erase a document at once can turn sync off for the index and on again, which deletes the history and gives every device a fresh snapshot.
+Log entries hold no time, so the age limit counts from the move into history. A removed document can therefore stay in history for `historyMaxAgeMs` after the checkpoint that moved its entries. A developer who must erase a document at once can turn sync off for the index and on again, which deletes the history and gives every device a fresh snapshot. On an index with change capture on, the developer must follow the steps that [History](changes.md#history) of change capture gives, because turning sync off there keeps the history.
 
 ---
 
@@ -155,7 +155,9 @@ SyncSettings {
 
 Each key of `SyncSettings` has the type and the meaning of the key of the same name in the [index configuration payload](envelope.md#index-configuration-payload).
 
-A node must close the connection with close code 1009 after a device message longer than 65,536 bytes, and with close code 1008 after a message that fails to decode, a message of an unknown `type`, a `subscribe` other than the connection's first message, an `epoch` that is not 32 lowercase hexadecimal digits, and a list of positions that leaves out a partition, names one twice, or names a partition that the index lacks. It must also close the connection with 1008 after an `ack` above an entry that it has sent, so that a device can't release entries that it never received. The node must compare the device's `epoch` with the index's before it checks the list of positions, because a partition count change gives the index a new epoch, and a device that holds positions from the old layout must receive `resync` with the reason `epoch` and never close code 1008.
+An entry of an index with change capture on can hold a `previousDocument`, as [Previous Document](changes.md#previous-document) defines, and a device must apply such an entry from `operation`, `documentId`, and `document` alone.
+
+A node must close the connection with close code 1009 after a device message longer than 65,536 bytes, and with close code 1008 after a message that fails to decode, a message of an unknown `type`, a `subscribe` other than the connection's first message, an `epoch` that is not 32 lowercase hexadecimal digits, and a list of positions that leaves out a partition, repeats one, or holds a partition that the index lacks. It must also close the connection with 1008 after an `ack` above an entry that it has sent, so that a device can't release entries that it never received. The node must compare the device's `epoch` with the index's before it checks the list of positions, because a partition count change gives the index a new epoch, and a device that holds positions from the old layout must receive `resync` with the reason `epoch` and never close code 1008.
 
 ### Sending Entries
 
