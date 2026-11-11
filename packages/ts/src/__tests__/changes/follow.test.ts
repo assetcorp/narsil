@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../narsil'
 import type { Change } from '../../types/changes'
+import type { FilterExpression } from '../../types/filters'
 import {
   cleanUp,
   closeEngine,
@@ -22,6 +23,12 @@ afterEach(cleanUp)
 
 function product(at: number, price = at * 5): Stored {
   return { title: `product ${at}`, price }
+}
+
+function tooDeepFilter(): FilterExpression {
+  let filter: FilterExpression = { fields: { price: { gte: 1 } } }
+  for (let level = 0; level < 64; level++) filter = { not: filter }
+  return filter
 }
 
 function sameDocuments(left: ReadonlyMap<string, Stored>, right: ReadonlyMap<string, Stored>): boolean {
@@ -193,7 +200,13 @@ describe('refusals and the epoch', () => {
     await engine.updateChanges('shop', { enabled: true, previousDocument: true })
     await expect(
       follow(engine, 'shop', { filter: { fields: { missing: { gte: 1 } } } }, () => true),
-    ).rejects.toMatchObject({ code: expect.stringMatching(/^SEARCH_INVALID_(FILTER|FIELD)$/) })
+    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FIELD' })
+    const broken: unknown[] = [tooDeepFilter(), { fields: { price: 'cheap' } }, { fields: { price: { above: 1 } } }]
+    for (const filter of broken) {
+      await expect(follow(engine, 'shop', { filter: filter as FilterExpression }, () => true)).rejects.toMatchObject({
+        code: 'SEARCH_INVALID_FILTER',
+      })
+    }
   })
 
   it('sends a resync after a clear, and keeps a synced index epoch when capture turns on', async () => {

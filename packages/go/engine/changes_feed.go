@@ -27,7 +27,8 @@ import (
 // The iteration yields an error and ends with CHANGES_NOT_ENABLED when change
 // capture is off or turns off, with CHANGES_INVALID_POSITIONS for a malformed
 // epoch or list of positions, with SEARCH_INVALID_FILTER for a filter outside
-// the shape and the limits of a query's filters, with
+// the shape and the limits of a query's filters, with SEARCH_INVALID_FIELD
+// for a filter that tests a field which the schema leaves out, with
 // CHANGES_PREVIOUS_DOCUMENT_REQUIRED for a filter while PreviousDocument is
 // off or turns off, and with the error of ctx when ctx ends.
 func (n *Narsil) Changes(ctx context.Context, indexName string, request ChangesRequest) iter.Seq2[ChangesEvent, error] {

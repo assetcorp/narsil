@@ -240,6 +240,27 @@ describe.each([
     expect((await feed.closed).code).toBe(1008)
   })
 
+  it.skipIf(threads && !built)(
+    'closes with 1008 a filter on an undeclared field and a filter past the depth limit',
+    async () => {
+      const server = await serve()
+      await shopWithCapture(server, true)
+      const undeclared = await openRawChangesFeed(server.base, 'shop', READER_TOKEN)
+      undeclared.send({ type: 'subscribe', filter: { fields: { owner: { eq: 'x' } } } })
+      const undeclaredClose = await undeclared.closed
+      expect(undeclaredClose.code).toBe(1008)
+      expect(undeclaredClose.reason).toContain('"owner"')
+
+      let deep: Record<string, unknown> = { fields: { price: { gte: 1 } } }
+      for (let level = 0; level < 64; level++) deep = { not: deep }
+      const tooDeep = await openRawChangesFeed(server.base, 'shop', READER_TOKEN)
+      tooDeep.send({ type: 'subscribe', filter: deep })
+      const tooDeepClose = await tooDeep.closed
+      expect(tooDeepClose.code).toBe(1008)
+      expect(tooDeepClose.reason).toContain('levels deep')
+    },
+  )
+
   it.skipIf(threads && !built)('admits only the callers that the onRequest hook allows', async () => {
     const server = await serve({ maxConnections: 1 })
     await shopWithCapture(server, false)
