@@ -245,10 +245,11 @@ impl Narsil {
         let limits = &self.inner.search_limits;
         let started = Instant::now();
         let run = |scoped: &QueryParams| {
-            let resolved = query::embed_query_text(&state, scoped)?;
-            self.inner.read_index(index, |current| {
-                query::run_query(current, scoped, &resolved, limits, started)
-            })
+            self.inner.read_index_prepared(
+                index,
+                |current| query::embed_query_text(current, scoped),
+                |current, resolved| query::run_query(current, scoped, &resolved, limits, started),
+            )
         };
         if plugins.is_empty() {
             return run(params);

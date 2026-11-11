@@ -132,15 +132,18 @@ impl Narsil {
     /// the codes that [`Narsil::query`] raises for a query that it cannot run.
     pub fn preflight(&self, index: &str, params: &QueryParams) -> Result<PreflightResult> {
         let started = Instant::now();
-        let resolved = resolve_vector_text(&*self.inner.open_index(index)?, params)?;
-        self.inner.read_index(index, |current| {
-            preflight_count(
-                current,
-                params,
-                &resolved,
-                &self.inner.search_limits,
-                started,
-            )
-        })
+        self.inner.read_index_prepared(
+            index,
+            |current| resolve_vector_text(current, params),
+            |current, resolved| {
+                preflight_count(
+                    current,
+                    params,
+                    &resolved,
+                    &self.inner.search_limits,
+                    started,
+                )
+            },
+        )
     }
 }

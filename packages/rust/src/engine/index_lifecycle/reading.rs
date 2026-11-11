@@ -16,7 +16,7 @@ impl ReadingIndex {
     fn enter(index: Arc<IndexState>) -> std::result::Result<ReadingIndex, Arc<IndexState>> {
         let residency = &index.residency;
         residency.active_reads.fetch_add(1, Ordering::SeqCst);
-        if residency.swapping.load(Ordering::SeqCst) {
+        if residency.swapping.load(Ordering::SeqCst) || index.is_retired() {
             residency.leave_read();
             return Err(index);
         }
@@ -88,10 +88,23 @@ impl EngineInner {
         name: &str,
         read: impl FnOnce(&IndexState) -> Result<T>,
     ) -> Result<T> {
+        self.read_index_prepared(name, |_| Ok(()), |index, ()| read(index))
+    }
+
+    /// Runs `prepare` on the index called `name` without holding it, then runs `read` on that same index with what
+    /// `prepare` returned. Where a restore replaces the index in between, `prepare` runs again on the index that
+    /// holds the name afterwards, so that a query embeds its text with the adapter of the index that it searches.
+    pub(crate) fn read_index_prepared<P, T>(
+        &self,
+        name: &str,
+        mut prepare: impl FnMut(&IndexState) -> Result<P>,
+        read: impl FnOnce(&IndexState, P) -> Result<T>,
+    ) -> Result<T> {
         loop {
             let index = self.open_index(name)?;
+            let prepared = prepare(&index)?;
             match ReadingIndex::enter(index) {
-                Ok(reading) => return read(&reading),
+                Ok(reading) => return read(&reading, prepared),
                 Err(swapped) => swapped.residency.wait_for_swap(&swapped),
             }
         }
