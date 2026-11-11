@@ -34,6 +34,7 @@ Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phras
 ## Planned
 
 - **A Python package that searches inside the process.** A Python package built on the Rust implementation will let a Python program create, change, and search an index inside its process, with no separate Node.js server. The HTTP server and cluster mode will stay in the TypeScript package, so that one server can serve programs in every language. The plan is in [#173](https://github.com/assetcorp/narsil/issues/173).
+- **Change data capture for backend services.** A backend service will subscribe to an index and receive every insert, update, and removal after a position that the service saved, so that it can keep a cache or a second index up to date across restarts. With an option, each change will also contain the document as it stood before the write, and a subscriber can then filter the changes that it receives. The plan is in [#206](https://github.com/assetcorp/narsil/issues/206).
 
 ## How to get involved
 
