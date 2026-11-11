@@ -143,8 +143,12 @@ func (entry *indexEntry) estimatedBytes() (int64, error) {
 
 // GetStats returns the document count, partition count, memory estimate,
 // language, and schema of the index called indexName, or CodeIndexNotFound.
-// It leaves a closed index closed and reports the counts that the index held
-// when it closed, with a memory estimate of 0.
+// With durability configured it also reports SavedBytes, the bytes of every
+// segment, vector file, and graph part that the current checkpoint lists, and,
+// with a write-ahead log, LogBytes, the bytes of every log and history segment
+// file of the index. It leaves a closed index closed and reports the counts
+// that the index held when it closed, with a memory estimate of 0, the saved
+// size that its metadata records, and no log size.
 func (n *Narsil) GetStats(indexName string) (IndexStats, error) {
 	entry, slot, release, err := n.acquireWithoutReopen(indexName)
 	if err != nil {
@@ -154,24 +158,31 @@ func (n *Narsil) GetStats(indexName string) (IndexStats, error) {
 	if entry == nil {
 		summary, _ := slot.closedView()
 		return model.IndexStats{DocumentCount: summary.documentCount, PartitionCount: summary.partitionCount,
-			Language: summary.language, Schema: summary.schema}, nil
+			SavedBytes: summary.savedBytes, Language: summary.language, Schema: summary.schema}, nil
 	}
 	estimated, err := entry.estimatedBytes()
 	if err != nil {
 		return model.IndexStats{}, err
 	}
-	return model.IndexStats{
+	stats := model.IndexStats{
 		DocumentCount:        entry.index().Count(),
 		PartitionCount:       entry.index().PartitionCount(),
 		EstimatedMemoryBytes: estimated,
 		Language:             entry.currentAnalysis().language,
 		Schema:               entry.parsed.Schema(),
-	}, nil
+	}
+	if entry.durable != nil {
+		stored := entry.durable.StoredSize()
+		stats.SavedBytes, stats.LogBytes = stored.SavedBytes, stored.LogBytes
+	}
+	return stats, nil
 }
 
 // GetPartitionStats returns the document count and memory estimate of each
-// partition of the index called indexName, in partition order. It returns an
-// empty list for a closed index and leaves the index closed.
+// partition of the index called indexName, in partition order, and with
+// durability configured the saved size and log size of each partition, as
+// GetStats defines them. It returns an empty list for a closed index and
+// leaves the index closed.
 func (n *Narsil) GetPartitionStats(indexName string) ([]PartitionStatsResult, error) {
 	entry, _, release, err := n.acquireWithoutReopen(indexName)
 	if err != nil {
@@ -181,7 +192,15 @@ func (n *Narsil) GetPartitionStats(indexName string) ([]PartitionStatsResult, er
 	if entry == nil {
 		return []model.PartitionStatsResult{}, nil
 	}
-	return entry.index().PartitionStats()
+	stats, err := entry.index().PartitionStats()
+	if err != nil || entry.durable == nil {
+		return stats, err
+	}
+	for at := range stats {
+		stored := entry.durable.PartitionStoredSize(stats[at].PartitionID)
+		stats[at].SavedBytes, stats[at].LogBytes = stored.SavedBytes, stored.LogBytes
+	}
+	return stats, nil
 }
 
 func processMemory() *model.ProcessMemoryReport {

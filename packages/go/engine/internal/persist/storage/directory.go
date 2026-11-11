@@ -18,7 +18,8 @@ import (
 )
 
 type Directory struct {
-	root string
+	root  string
+	sizes FileSizes
 }
 
 func OpenDirectory(root string) (*Directory, error) {
@@ -237,7 +238,9 @@ func (directory *Directory) atomicReplace(key string, fill func(*os.File) error)
 		_ = os.Remove(temporary)
 		return saveFailed(`Failed to rename "`+key+`" into place`, key, err)
 	}
-	return syncDirectory(parent)
+	synced := syncDirectory(parent)
+	measurePath(directory.sizesOf(key), key, path)
+	return synced
 }
 
 func (directory *Directory) Remove(key string) error {
@@ -247,10 +250,12 @@ func (directory *Directory) Remove(key string) error {
 	}
 	if err := os.Remove(path); err != nil {
 		if isMissing(err) {
+			directory.forgetSize(key)
 			return nil
 		}
 		return deleteFailed(key, err)
 	}
+	directory.forgetSize(key)
 	return syncDirectory(filepath.Dir(path))
 }
 
@@ -269,6 +274,8 @@ func (directory *Directory) Move(from string, to string) error {
 	if err := os.Rename(source, target); err != nil {
 		return saveFailed(`Failed to move "`+from+`" to "`+to+`"`, to, err)
 	}
+	directory.forgetSize(from)
+	measurePath(directory.sizesOf(to), to, target)
 	if err := syncDirectory(filepath.Dir(target)); err != nil {
 		return err
 	}

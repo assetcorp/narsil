@@ -104,6 +104,7 @@ func (n *Narsil) closeSlot(ctx context.Context, slot *indexSlot, automatic bool)
 		entry.useMu.Unlock()
 		return false, err
 	}
+	summary.savedBytes = entry.durable.StoredSize().SavedBytes
 	closeErr := entry.durable.Close(ctx)
 	entry.retired = true
 	n.uninstall(entry)
