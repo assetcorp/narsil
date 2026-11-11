@@ -166,7 +166,6 @@ export async function createEngineIndex(
     indexUuid: indexUuid ?? null,
     heldPartitions: null,
     documentCount: 0,
-    savedBytes: null,
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
     analysisRevision: language.revision,
     arrayPositionGap: ARRAY_POSITION_GAP,

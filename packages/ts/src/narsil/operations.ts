@@ -142,11 +142,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         documentCount: manager?.countDocuments() ?? entry.documentCount,
         partitionCount: manager?.partitionCount ?? entry.partitionCount,
         estimatedMemoryBytes: manager?.estimateMemoryBytes() ?? 0,
-        ...(manager === undefined
-          ? entry.savedBytes === null
-            ? {}
-            : { savedBytes: entry.savedBytes }
-          : durability?.manager.storedSize?.(indexName)),
+        ...durability?.manager.storedSize?.(indexName, entry.savedBytes),
         language: entry.language.name,
         schema: entry.config.schema,
         heldSearchStates: manager?.heldSearchStates ?? 0,
