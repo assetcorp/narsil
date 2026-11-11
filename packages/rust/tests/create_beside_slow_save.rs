@@ -12,9 +12,10 @@ const CREATED: &str = "created";
 const STALLED_SAVE_START: Duration = Duration::from_secs(30);
 const STALLED_SAVE_RELEASE: Duration = Duration::from_secs(120);
 const OTHER_INDEX_ANSWER: Duration = Duration::from_secs(10);
+const SHUTDOWN_BESIDE_STALLED_SAVE: Duration = Duration::from_secs(2);
 
 struct StallingPersistence {
-    stored: MemoryPersistence,
+    stored: Arc<MemoryPersistence>,
     reached: Mutex<Option<Sender<()>>>,
     release: Mutex<Receiver<()>>,
 }
@@ -52,6 +53,42 @@ impl PersistenceAdapter for StallingPersistence {
     }
 }
 
+struct StalledEngine {
+    engine: Narsil,
+    reached: Receiver<()>,
+    release: Sender<()>,
+}
+
+fn durable_engine(persistence: Arc<dyn PersistenceAdapter>) -> Narsil {
+    Narsil::open(NarsilConfig {
+        durability: Some(DurabilityConfig {
+            tier: Some(DurabilityTier::Snapshot),
+            ..DurabilityConfig::default()
+        }),
+        persistence: Some(persistence),
+        ..NarsilConfig::default()
+    })
+    .expect("the engine opens")
+}
+
+fn stalled_engine(stored: Arc<MemoryPersistence>) -> StalledEngine {
+    let (reached, reached_receiver) = channel();
+    let (release, release_receiver) = channel();
+    let engine = durable_engine(Arc::new(StallingPersistence {
+        stored,
+        reached: Mutex::new(Some(reached)),
+        release: Mutex::new(release_receiver),
+    }));
+    engine
+        .create_index(SERVING, titled_index())
+        .expect("the serving index is created");
+    StalledEngine {
+        engine,
+        reached: reached_receiver,
+        release,
+    }
+}
+
 fn titled_index() -> IndexConfig {
     IndexConfig {
         schema: parse_json(r#"{"title": "string"}"#).expect("the schema is JSON"),
@@ -64,6 +101,14 @@ fn note(id: &str, title: &str) -> Map {
     map.insert("id", Value::String(id.to_string()));
     map.insert("title", Value::String(title.to_string()));
     map
+}
+
+fn index_names(engine: &Narsil) -> Vec<String> {
+    engine
+        .list_indexes()
+        .into_iter()
+        .map(|info| info.name)
+        .collect()
 }
 
 fn asked<'scope, T: Send + 'scope>(
@@ -79,32 +124,18 @@ fn asked<'scope, T: Send + 'scope>(
 
 #[test]
 fn calls_on_other_indexes_answer_while_a_create_waits_on_its_first_save() {
-    let (reached, reached_receiver) = channel();
-    let (release, release_receiver) = channel();
-    let adapter = Arc::new(StallingPersistence {
-        stored: MemoryPersistence::new(),
-        reached: Mutex::new(Some(reached)),
-        release: Mutex::new(release_receiver),
-    });
-    let engine = Narsil::open(NarsilConfig {
-        durability: Some(DurabilityConfig {
-            tier: Some(DurabilityTier::Snapshot),
-            ..DurabilityConfig::default()
-        }),
-        persistence: Some(adapter),
-        ..NarsilConfig::default()
-    })
-    .expect("the engine opens");
-    engine
-        .create_index(SERVING, titled_index())
-        .expect("the serving index is created");
+    let StalledEngine {
+        engine,
+        reached,
+        release,
+    } = stalled_engine(Arc::new(MemoryPersistence::new()));
     engine
         .insert(SERVING, note("kept", "written before the create"), None)
         .expect("the first note is inserted");
 
     std::thread::scope(|scope| {
         let first = scope.spawn(|| engine.create_index(CREATED, titled_index()));
-        reached_receiver
+        reached
             .recv_timeout(STALLED_SAVE_START)
             .expect("the create reaches its first save");
         let second = scope.spawn(|| engine.create_index(CREATED, titled_index()));
@@ -140,11 +171,59 @@ fn calls_on_other_indexes_answer_while_a_create_waits_on_its_first_save() {
         assert_eq!(refused.code(), ErrorCode::INDEX_ALREADY_EXISTS);
     });
 
-    let names: Vec<String> = engine
-        .list_indexes()
-        .into_iter()
-        .map(|info| info.name)
-        .collect();
-    assert_eq!(names, vec![CREATED.to_string(), SERVING.to_string()]);
+    assert_eq!(
+        index_names(&engine),
+        vec![CREATED.to_string(), SERVING.to_string()]
+    );
     engine.shutdown().expect("the engine shuts down");
+}
+
+#[test]
+fn a_shutdown_waits_for_a_create_that_is_saving_and_the_created_index_reopens() {
+    let stored = Arc::new(MemoryPersistence::new());
+    let StalledEngine {
+        engine,
+        reached,
+        release,
+    } = stalled_engine(Arc::clone(&stored));
+
+    std::thread::scope(|scope| {
+        let created = scope.spawn(|| engine.create_index(CREATED, titled_index()));
+        reached
+            .recv_timeout(STALLED_SAVE_START)
+            .expect("the create reaches its first save");
+        let shut_down = asked(scope, || engine.shutdown());
+        let returned_during_save = shut_down.recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE).is_ok();
+        let _ = release.send(());
+
+        assert!(
+            !returned_during_save,
+            "the shutdown waits for the create that is saving"
+        );
+        created
+            .join()
+            .expect("the create returns")
+            .expect("the create that began before the shutdown succeeds");
+        shut_down
+            .recv_timeout(OTHER_INDEX_ANSWER)
+            .expect("the shutdown returns once the create finishes")
+            .expect("the engine shuts down");
+    });
+
+    let refused = engine
+        .create_index("after", titled_index())
+        .expect_err("a create after the shutdown is refused");
+    assert_eq!(refused.code(), ErrorCode::INSTANCE_SHUT_DOWN);
+    assert_eq!(
+        index_names(&engine),
+        Vec::<String>::new(),
+        "the shut-down engine holds no index"
+    );
+
+    let reopened = durable_engine(stored);
+    assert_eq!(
+        index_names(&reopened),
+        vec![CREATED.to_string(), SERVING.to_string()]
+    );
+    reopened.shutdown().expect("the reopened engine shuts down");
 }
