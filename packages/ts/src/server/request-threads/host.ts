@@ -15,7 +15,7 @@ import type { ResolvedBuild, ResolvedLimits } from '../deps'
 import type { Authorizer } from '../request'
 import type { ServerHandlers } from '../routes'
 import type { FeedHost, ThreadFeeds } from '../sync/feed-host'
-import { isThreadFeedNote } from '../sync/feed-messages'
+import { type FeedKind, isThreadFeedNote } from '../sync/feed-messages'
 import { type AcceptorApp, acceptorOf } from './acceptor'
 import { answerRequest } from './answer-request'
 import type { CapturingResponse } from './captured-response'
@@ -265,7 +265,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               patternWorkCap: options.core.patternWorkCap,
               maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
-              sync: options.feeds !== null,
+              feeds: Object.keys(options.feeds?.gateways ?? {}) as FeedKind[],
               longQueriesInFlight,
               longQueryPort: longQueryChannel?.port1 ?? null,
             },

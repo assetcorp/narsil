@@ -58,8 +58,9 @@ export interface IndexDurabilityHooks {
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
-  keepsSyncHistory?(indexName: string): boolean
+  keepsHistory?(indexName: string): boolean
   onHistoryMoved?(indexName: string): void
+  recordsPreviousDocument?(indexName: string): boolean
   writeRecords?: WriteRecordKeeper
 }
 
@@ -69,6 +70,7 @@ export interface MutationRecord {
   operation: ReplicationOperation
   documentId: string
   document: Uint8Array | null
+  previousDocument?: Uint8Array | null
   apply: () => void | Promise<void>
   replicated?: ReplicationLogEntry
 }

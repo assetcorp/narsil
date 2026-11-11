@@ -262,6 +262,7 @@ export function indexConfigFromSettings(
     sync: _sync,
     syncActive: _syncActive,
     syncEpoch: _syncEpoch,
+    changes: _changes,
     querySuggestions: _querySuggestions,
     bannedQueries: _bannedQueries,
     querySuggestionsSource: _querySuggestionsSource,

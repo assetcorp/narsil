@@ -202,6 +202,13 @@ export const ErrorCodes: {
     readonly SYNC_NOT_READY: "SYNC_NOT_READY";
     readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
     readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly CHANGES_DURABILITY_REQUIRED: "CHANGES_DURABILITY_REQUIRED";
+    readonly CHANGES_BACKUP_STORE_REQUIRED: "CHANGES_BACKUP_STORE_REQUIRED";
+    readonly CHANGES_NOT_READY: "CHANGES_NOT_READY";
+    readonly CHANGES_NOT_ENABLED: "CHANGES_NOT_ENABLED";
+    readonly CHANGES_PREVIOUS_DOCUMENT_REQUIRED: "CHANGES_PREVIOUS_DOCUMENT_REQUIRED";
+    readonly CHANGES_EXPORT_PREPARING: "CHANGES_EXPORT_PREPARING";
+    readonly CHANGES_INVALID_POSITIONS: "CHANGES_INVALID_POSITIONS";
     readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
@@ -380,6 +387,8 @@ export interface HttpWireTypes {
     BM25Params: BM25Params;
     CapabilitiesResponse: CapabilitiesResponse;
     ChangeAnalysisBody: ChangeAnalysisBody;
+    ChangesSetting: ChangesSetting;
+    ChangesStatus: ChangesStatus;
     ClusterAllocationResponse: ClusterAllocationResponse;
     ClusterHealth: ClusterHealth;
     ClusterTopologyResponse: ClusterTopologyResponse;
@@ -677,6 +686,14 @@ export interface RestoreBackupBody {
 export const SERVER_CAPABILITIES: readonly string[];
 
 // @public
+export interface ServerChangesOptions {
+    maxBufferedBytes?: number;
+    maxCatchUps?: number;
+    maxConnections?: number;
+    windowBytes?: number;
+}
+
+// @public
 export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes];
 
 // @public
@@ -721,6 +738,7 @@ export interface ServerOptions {
         gitSha?: string;
         dirty?: boolean;
     };
+    changes?: boolean | ServerChangesOptions;
     cluster?: ClusterNamespace;
     cors?: boolean | CorsOptions;
     embeddingAdapters?: Record<string, EmbeddingAdapter>;

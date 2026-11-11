@@ -14,8 +14,8 @@ import {
   type ActiveTail,
   type CommitMarker,
   durableRecordMissing,
-  nextSegmentKey,
   readWalSegments,
+  removeUnusedSegmentFiles,
   type SegmentRef,
   type WalReadResult,
 } from './wal-segments'
@@ -69,7 +69,7 @@ export async function replayWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
-  await directory.remove(nextSegmentKey(indexName, partitionId))
+  await removeUnusedSegmentFiles(directory, indexName, partitionId)
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
@@ -159,7 +159,7 @@ export async function replaySyncedWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
-  await directory.remove(nextSegmentKey(indexName, partitionId))
+  await removeUnusedSegmentFiles(directory, indexName, partitionId)
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }

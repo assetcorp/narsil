@@ -3,6 +3,7 @@ import { bindIndexReads } from '../../narsil/index-reads'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import { bindQuerySuggestions, boundQuerySuggestionsOf } from '../../query-suggestions/providers'
+import { bindChangesServing, changesServingSourceOf } from '../../server/changes/serving'
 import { bindSyncServing, syncServingSourceOf } from '../../server/sync/serving'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
@@ -39,7 +40,8 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, analysis rebuilds, analysis changes, synonym sets, and document reads route through the cluster.
+ * index removal, analysis rebuilds, analysis changes, synonym sets, document reads, change capture, and the
+ * document export of an index with change capture on route through the cluster.
  * Checkpointing, memory statistics, index opens, index closes, engine events,
  * and rerank adapter registration reach this node's local engine, because
  * each covers a per-node fact. This node reranks the searches that it
@@ -133,6 +135,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.getSync(indexName)
     },
 
+    updateChanges: (indexName, setting) => node.updateChanges(indexName, setting),
+    getChanges: indexName => node.getChanges(indexName),
+    followChanges: (indexName, followOptions) => node.followChanges(indexName, followOptions),
+
     async getSynonyms(indexName: string): Promise<SynonymRule[]> {
       return node.getSynonyms(indexName)
     },
@@ -212,7 +218,7 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     getPartitionStats: () => unsupported('getPartitionStats'),
     snapshot: () => unsupported('snapshot'),
     restore: () => unsupported('restore'),
-    exportDocuments: () => unsupported('exportDocuments'),
+    exportDocuments: indexName => node.exportDocuments(indexName),
     importDocumentExport: () => unsupported('importDocumentExport'),
     rebalance: (indexName: string, targetPartitionCount: number) => node.rebalance(indexName, targetPartitionCount),
     updatePartitionConfig: () => unsupported('updatePartitionConfig'),
@@ -229,6 +235,8 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
   bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
   const syncServing = syncServingSourceOf(node)
   if (syncServing !== undefined) bindSyncServing(engine, syncServing)
+  const changesServing = changesServingSourceOf(node)
+  if (changesServing !== undefined) bindChangesServing(engine, changesServing)
   const suggestions = boundQuerySuggestionsOf(node)
   if (suggestions !== undefined) bindQuerySuggestions(engine, suggestions)
   return engine

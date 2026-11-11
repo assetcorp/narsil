@@ -4,7 +4,14 @@ import { isHiddenGeneration } from '../../cluster/rebalance/records'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { ClusterLocalEngine } from '../local-engine'
 import { DEVICE_SYNC_RECONCILE_INTERVAL_MS } from './constants'
-import { changeBetween, feedSettingsOf, type HeldSyncIndex, syncStateOfSettings } from './state'
+import {
+  changeBetween,
+  changesChangeBetween,
+  changesStateOfSettings,
+  feedSettingsOf,
+  type HeldSyncIndex,
+  syncStateOfSettings,
+} from './state'
 
 export interface DeviceSyncView {
   held(indexName: string): HeldSyncIndex | undefined
@@ -17,7 +24,7 @@ export interface DeviceSyncView {
 
 interface DeviceSyncViewDeps {
   coordinator: ClusterCoordinator
-  engine: Pick<ClusterLocalEngine, 'listIndexes' | 'syncStateOf' | 'adoptSyncState'>
+  engine: Pick<ClusterLocalEngine, 'listIndexes' | 'adoptEpochStates'>
   onError(error: unknown): void
 }
 
@@ -63,11 +70,16 @@ export function createDeviceSyncView(deps: DeviceSyncViewDeps): DeviceSyncView {
   }
 
   async function adoptOnLocalCopies(indexName: string, next: HeldSyncIndex | null): Promise<void> {
-    const state = next === null ? null : syncStateOfSettings(next.settings)
+    const states = {
+      sync: next === null ? null : syncStateOfSettings(next.settings),
+      changes: next === null ? null : changesStateOfSettings(next.settings),
+    }
     const local = new Set(engine.listIndexes().map(index => index.name))
     const servingName = next?.serving.servingName ?? indexName
-    if (local.has(servingName)) await engine.adoptSyncState(servingName, state)
-    if (servingName !== indexName && local.has(indexName)) await engine.adoptSyncState(indexName, null)
+    if (local.has(servingName)) await engine.adoptEpochStates(servingName, states)
+    if (servingName !== indexName && local.has(indexName)) {
+      await engine.adoptEpochStates(indexName, { sync: null, changes: null })
+    }
   }
 
   async function reread(indexName: string): Promise<HeldSyncIndex | null> {
@@ -76,8 +88,12 @@ export function createDeviceSyncView(deps: DeviceSyncViewDeps): DeviceSyncView {
     if (next === null) held.delete(indexName)
     else held.set(indexName, next)
     await adoptOnLocalCopies(indexName, next)
-    const change = changeBetween(previous, next)
-    if (change !== null) emit({ kind: change, indexName })
+    const kinds = new Set<FeedChange['kind']>()
+    const syncChange = changeBetween(previous, next)
+    const changesChange = changesChangeBetween(previous, next)
+    if (syncChange !== null) kinds.add(syncChange)
+    if (changesChange !== null) kinds.add(changesChange)
+    for (const kind of kinds) emit({ kind, indexName })
     return next
   }
 

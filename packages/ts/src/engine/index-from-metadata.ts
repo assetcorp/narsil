@@ -25,7 +25,7 @@ import type { Executor } from '../workers/executor'
 import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
-import { syncStateOfMetadata } from './sync-state'
+import { epochStatesOfMetadata } from './sync-state'
 
 function isRecoveryConfigError(err: unknown): err is NarsilError {
   return (
@@ -175,7 +175,7 @@ export async function createIndexFromMetadata(
     analysisGeneration: metadata.analysisGeneration ?? 0,
     pendingAnalysis: metadata.pendingAnalysis ?? null,
     durableAnalysis: null,
-    sync: metadata.sync?.enabled === true ? syncStateOfMetadata(metadata) : null,
+    ...epochStatesOfMetadata(metadata),
     querySuggestions: metadata.querySuggestions ?? null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)

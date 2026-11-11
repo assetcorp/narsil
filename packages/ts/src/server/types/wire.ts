@@ -1,4 +1,5 @@
 import type { ClusterHealth } from '../../distribution/cluster-node/types/observability'
+import type { ChangesSetting, ChangesStatus } from '../../types/changes'
 import type {
   ManualQuerySuggestion,
   QuerySuggestionsPreview,
@@ -181,6 +182,8 @@ export interface HttpWireTypes {
   BM25Params: BM25Params
   /** The body of `PUT /indexes/{name}/sync`. */
   SyncSetting: SyncSetting
+  /** The body of `PUT /indexes/{name}/changes`. */
+  ChangesSetting: ChangesSetting
   /** The body of `POST /indexes/{name}/_change-analysis`. */
   ChangeAnalysisBody: ChangeAnalysisBody
   /** The body of `POST /indexes/{name}/backups`. */
@@ -307,6 +310,8 @@ export interface HttpWireTypes {
   SuggestResult: SuggestResult
   /** The body of `GET /indexes/{name}/sync`. */
   SyncStatus: SyncStatus
+  /** The body of `GET /indexes/{name}/changes`. */
+  ChangesStatus: ChangesStatus
   /** The body of `GET /tasks`. */
   TaskListPage: TaskListPage
   /** The body of every route that starts a task, and of `GET /tasks/{id}`. */

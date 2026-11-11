@@ -194,6 +194,7 @@ export function restoredRegistryEntry(
     pendingAnalysis: null,
     durableAnalysis: null,
     sync: null,
+    changes: null,
     querySuggestions: prepared.querySuggestions,
   }
 }

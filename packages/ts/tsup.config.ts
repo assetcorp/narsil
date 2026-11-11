@@ -89,6 +89,7 @@ const codeBuilds: Options[] = [
       'sync.browser': 'src/sync/device/index.ts',
       'sync/indexeddb.browser': 'src/sync/device/stores/indexeddb.ts',
       'query-suggestions.browser': 'src/query-suggestions/index.ts',
+      client: browserEntry.client,
     },
     dts: false,
     splitting: true,
@@ -111,7 +112,7 @@ const codeBuilds: Options[] = [
   },
   {
     ...shared,
-    entry: browserEntry,
+    entry: { react: browserEntry.react },
     platform: 'browser',
     dts: false,
     splitting: false,

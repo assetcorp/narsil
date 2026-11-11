@@ -209,6 +209,13 @@ export function validateEntryPayload(decoded: unknown): EntryPayload {
   if (entry.document !== null && !(entry.document instanceof Uint8Array)) {
     throw new Error('Invalid EntryPayload: "entry.document" must be Uint8Array or null')
   }
+  if (
+    'previousDocument' in entry &&
+    entry.previousDocument !== null &&
+    !(entry.previousDocument instanceof Uint8Array)
+  ) {
+    throw new Error('Invalid EntryPayload: "entry.previousDocument" must be Uint8Array or null where present')
+  }
   if (typeof entry.checksum !== 'number') {
     throw new Error('Invalid EntryPayload: "entry.checksum" must be a number')
   }

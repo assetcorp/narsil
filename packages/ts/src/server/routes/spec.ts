@@ -60,6 +60,8 @@ export interface ServerHandlers {
   getSync: RouteHandler
   updateSync: RouteHandler
   syncSnapshot: RouteHandler
+  getChanges: RouteHandler
+  updateChanges: RouteHandler
   updateQuerySuggestions: RouteHandler
   querySuggestionsStatus: RouteHandler
   recordQuery: RouteHandler
@@ -82,6 +84,7 @@ export type RouteTag =
   | 'Search'
   | 'Maintenance'
   | 'Sync'
+  | 'Changes'
   | 'QuerySuggestions'
 
 export interface RawContent {

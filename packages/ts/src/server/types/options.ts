@@ -40,9 +40,10 @@ export interface RequestDenial {
 
 /**
  * Returned by an {@link OnRequestHook} to admit a request under a credential
- * that expires. The server closes a device sync feed with close code 4401 at
- * `expiresAt`, so that a device has to reconnect with a fresh credential, and
- * it treats the grant on every other route as `undefined`.
+ * that expires. The server closes a device sync feed or a change feed with
+ * close code 4401 at `expiresAt`, so that the peer has to reconnect with a
+ * fresh credential, and it treats the grant on every other route as
+ * `undefined`.
  *
  * @public
  */
@@ -54,9 +55,10 @@ export interface RequestGrant {
 /**
  * Runs before every routed request, which is where authentication, rate
  * limiting, and any other admission rule goes. It also runs on the upgrade
- * of a device sync feed, where a browser device can carry its credential as
- * a `Sec-WebSocket-Protocol` value after `narsil.sync.v1`, because a browser
- * can set no other header on a WebSocket.
+ * of a device sync feed or a change feed, where a browser can carry its
+ * credential as a `Sec-WebSocket-Protocol` value after `narsil.sync.v1` or
+ * `narsil.changes.v1`, because a browser can set no other header on a
+ * WebSocket.
  *
  * @param ctx - The request's method, path, headers, and peer address.
  * @returns A {@link RequestDenial} to reject the request, a
@@ -94,6 +96,36 @@ export interface ServerSyncOptions {
    * The server stops reading entries for every feed while its feed
    * connections hold this many bytes that the network has not yet taken. It
    * defaults to 268,435,456.
+   */
+  maxBufferedBytes?: number
+}
+
+/**
+ * The settings of the change feed at `GET /indexes/{name}/changes/feed`. Every
+ * field has a default, and the server counts the connections and the
+ * catch-ups of this feed apart from those of the device sync feed.
+ *
+ * @public
+ */
+export interface ServerChangesOptions {
+  /**
+   * The server stops sending changes to a subscriber while the changes that
+   * it has sent, and that the subscriber has not acknowledged, hold more than
+   * this many bytes. It defaults to 8,388,608.
+   */
+  windowBytes?: number
+  /** The server holds at most this many change feed connections, and it answers 429 to one more. It defaults to 10,000. */
+  maxConnections?: number
+  /**
+   * The server reads the history of at most this many change feed
+   * connections at once, and it holds any other connection until one of
+   * those reads ends. It defaults to 32.
+   */
+  maxCatchUps?: number
+  /**
+   * The server stops reading changes for every subscriber while its change
+   * feed connections hold this many bytes that the network has not yet
+   * taken. It defaults to 268,435,456.
    */
   maxBufferedBytes?: number
 }
@@ -272,6 +304,17 @@ export interface ServerOptions {
    * settings.
    */
   sync?: boolean | ServerSyncOptions
+  /**
+   * Turns on the change feed, a WebSocket at
+   * `GET /indexes/{name}/changes/feed`, which stays off by default. Each index
+   * serves it only once a caller turns capture on for it with
+   * `updateChanges`. A subscriber receives every document of the index, so
+   * the server refuses to start with the feed on and no
+   * {@link ServerOptions.onRequest} hook, whatever
+   * {@link ServerOptions.allowInsecure} holds. Pass `true` for the default
+   * settings.
+   */
+  changes?: boolean | ServerChangesOptions
   /**
    * Lets `POST /indexes/{name}/query-suggestions/record` count searches. The
    * server takes the person and the group from

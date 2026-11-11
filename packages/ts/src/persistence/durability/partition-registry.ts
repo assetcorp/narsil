@@ -12,7 +12,11 @@ export interface PartitionRegistry {
   freshPartition(indexName: string, partitionId: number, position: PartitionLogPosition): PartitionState
 }
 
-export function createPartitionRegistry(directory: DurableDirectory, segmentMaxBytes: number): PartitionRegistry {
+export function createPartitionRegistry(
+  directory: DurableDirectory,
+  segmentMaxBytes: number,
+  recordsPreviousDocument: (indexName: string) => boolean,
+): PartitionRegistry {
   const indexes = new Map<string, IndexState>()
 
   function indexState(indexName: string): IndexState {
@@ -33,7 +37,12 @@ export function createPartitionRegistry(directory: DurableDirectory, segmentMaxB
 
   function freshPartition(indexName: string, partitionId: number, position: PartitionLogPosition): PartitionState {
     return {
-      walWriter: createWalWriter(directory, { indexName, partitionId, segmentMaxBytes }),
+      walWriter: createWalWriter(directory, {
+        indexName,
+        partitionId,
+        segmentMaxBytes,
+        recordsPreviousDocument: () => recordsPreviousDocument(indexName),
+      }),
       seqOwner: createSeqOwner(position.seqNo, position.primaryTerm),
       appendChain: Promise.resolve(),
       appliedSeqNo: position.seqNo,

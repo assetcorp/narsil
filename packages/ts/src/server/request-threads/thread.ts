@@ -16,7 +16,7 @@ import { createRouteRunner, type RouteContext, type RouteHandler } from '../requ
 import { requestSignal } from '../request-signal'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
-import { registerFeedRoute } from '../sync/feed-route'
+import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
 import type { CapabilitiesResponse, LivenessResponse } from '../types'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
@@ -33,7 +33,7 @@ let servingApp: {
   app: ChildApp
   relay: RelayClient
   longQueries: LongQueryRoute
-  feeds: ThreadFeedGateway | null
+  feeds: ThreadFeedGateway[]
 } | null = null
 
 function guardEveryRoute(handlers: ServerHandlers, departure: ThreadDeparture): ServerHandlers {
@@ -233,8 +233,11 @@ export async function serveRequests(
     track: departure.track,
   })
   const handlers = guardEveryRoute(threadHandlers(local, relay, longQueries, settings), departure)
-  const feeds = settings.sync ? threadFeedGateway(settings.port, relay) : null
-  if (feeds !== null) registerFeedRoute(app, feeds)
+  const feeds = settings.feeds.map(feed => {
+    const gateway = threadFeedGateway(settings.port, relay, feed)
+    registerFeedRoute(app, gateway, feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE)
+    return gateway
+  })
   registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
   servingApp = { app: child, relay, longQueries, feeds }
@@ -247,7 +250,7 @@ export function closeRequestThread(): void {
   if (servingApp === null) return
   const { app, relay, longQueries, feeds } = servingApp
   servingApp = null
-  feeds?.close()
+  for (const gateway of feeds) gateway.close()
   app.close()
   longQueries.close()
   relay.close()

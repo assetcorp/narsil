@@ -39,6 +39,19 @@ export type {
 export type { AnalysisChange, AnalysisOperations } from './types/analysis-operations'
 export type { BM25Operations } from './types/bm25-operations'
 export type {
+  Change,
+  ChangePosition,
+  ChangesBatch,
+  ChangesEvent,
+  ChangesOperations,
+  ChangesResync,
+  ChangesSetting,
+  ChangesStatus,
+  ChangesSubscribed,
+  ChangeType,
+  FollowChangesOptions,
+} from './types/changes'
+export type {
   AnalysisConfig,
   DurabilityConfig,
   IndexLifecycleConfig,

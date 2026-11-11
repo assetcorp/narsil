@@ -35,6 +35,9 @@
       "name": "Sync"
     },
     {
+      "name": "Changes"
+    },
+    {
       "name": "QuerySuggestions"
     }
   ],
@@ -2392,6 +2395,84 @@
         }
       }
     },
+    "/indexes/{name}/changes": {
+      "get": {
+        "operationId": "getChanges",
+        "summary": "Report the change capture setting of an index and its epoch",
+        "tags": [
+          "Changes"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateChanges",
+        "summary": "Replace the change capture setting of an index",
+        "tags": [
+          "Changes"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangesSetting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/indexes/{name}/query-suggestions": {
       "put": {
         "operationId": "updateQuerySuggestions",
@@ -3109,6 +3190,69 @@
           }
         },
         "description": "The body of `POST /indexes/{name}/_change-analysis`, where a key that you leave out keeps its current value."
+      },
+      "ChangesSetting": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns change capture on or off. Turning it on gives the index a new epoch unless device sync is on."
+          },
+          "previousDocument": {
+            "type": "boolean",
+            "description": "Set this to write into each log entry the document that the entry replaces or removes. A change then holds the document before the write, and a subscription can hold a filter. It defaults to false, because the engine then reads the stored document and writes it to the log again on every update and removal."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the engine deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the engine deletes the oldest log segment from history. It defaults to the larger of the checkpoint's length and 1 GiB."
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "description": "The change capture setting of one index, which ChangesOperations.updateChanges takes. A subscriber receives the documents of the whole index, so decide which callers may follow an index before you turn capture on. A filter only chooses which changes a subscriber receives, and it grants no access."
+      },
+      "ChangesStatus": {
+        "type": "object",
+        "properties": {
+          "previousDocument": {
+            "type": "boolean",
+            "description": "This is true when the engine writes the document before the write into each log entry."
+          },
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "This is the index epoch, 32 lowercase hexadecimal digits, or `null` while capture is off."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns change capture on or off. Turning it on gives the index a new epoch unless device sync is on."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the engine deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the engine deletes the oldest log segment from history. It defaults to the larger of the checkpoint's length and 1 GiB."
+          }
+        },
+        "required": [
+          "previousDocument",
+          "epoch",
+          "enabled"
+        ],
+        "description": "The change capture state of one index, which ChangesOperations.getChanges returns."
       },
       "ClusterAllocationResponse": {
         "type": "object",
