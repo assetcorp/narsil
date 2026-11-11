@@ -10,7 +10,12 @@ import type { FileRef, PartitionManifestEntry, VectorFieldRef } from '../segment
 import type { CheckpointStore } from '../segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from '../segment/vector-adoption'
 import { writeLiveVectors } from '../segment/vector-write'
-import { commitCheckpointManifest, removeCheckpointGarbage, writeCheckpointSegments } from '../segment/write'
+import {
+  checkpointGarbage,
+  commitCheckpointManifest,
+  removeCheckpointGarbage,
+  writeCheckpointSegments,
+} from '../segment/write'
 import type { StoredBytes } from '../stored-bytes'
 import { loadSnapshotBundle } from './bundle'
 import { loadEarlierLayout } from './load'
@@ -119,10 +124,8 @@ async function writeCurrentLayout(
   const committed = await commitCheckpointManifest(deps.store, deps.metadata, written, vectors.refs)
   recordWrittenVectors(deps.vectorIndexes, vectors.written)
   await adoptVectorLayouts(deps.store, deps.vectorIndexes, vectors.layouts)
-  await removeCheckpointGarbage(
-    deps.store,
-    await garbageThatNoFieldStillReads(deps.store, deps.vectorIndexes, committed.garbage),
-  )
+  const garbage = await checkpointGarbage(deps.store, deps.indexName, committed.manifest)
+  await removeCheckpointGarbage(deps.store, await garbageThatNoFieldStillReads(deps.store, deps.vectorIndexes, garbage))
   return committed.saved
 }
 

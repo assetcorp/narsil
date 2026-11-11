@@ -34,7 +34,7 @@ import { readCurrentManifest } from './segment/load'
 import { manifestWithinPartitionCount, type PartitionManifestEntry, type SegmentManifest } from './segment/manifest'
 import { type CheckpointStore, directoryCheckpointStore } from './segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from './segment/vector-adoption'
-import { commitCheckpointManifest, removeCheckpointGarbage } from './segment/write'
+import { checkpointGarbage, commitCheckpointManifest, removeCheckpointGarbage } from './segment/write'
 import type { StoredBytes } from './stored-bytes'
 import type { IndexDurabilityHooks } from './types'
 import { noteCheckpointCommitted } from './write-stall'
@@ -239,7 +239,8 @@ async function finishBoundedCheckpoint(
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
   if (aTargetFailed(input.indexState, targets)) return 0
 
-  const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors, input.recordSavedBytes)
+  const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors)
+  input.recordSavedBytes(written.saved)
   input.hooks.onManifestCommitted(input.indexName, metadata.analysisGeneration ?? 0)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
   await adoptVectorLayouts(store, vectorIndexes, liveVectors.layouts)
@@ -248,8 +249,10 @@ async function finishBoundedCheckpoint(
     changes !== null && capture.recordsLeftInLog === 0
       ? new Set(await adoptWrittenSegments(input, manager, segments.partitions, changes))
       : new Set<string>()
+  await writeCheckpointMetadata(input, documentCount, capture.partitionCount, written.saved.bytes)
   if (!input.holdsCheckpointFiles()) {
-    const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage)
+    const garbage = await checkpointGarbage(store, input.indexName, written.manifest)
+    const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, garbage)
     const stillRead = metadata.textStorage === 'disk' ? keysThatSegmentsStillRead(manager) : new Set<string>()
     const keptForSync = await input.keepsCheckpointKey()
     await removeCheckpointGarbage(
@@ -257,25 +260,6 @@ async function finishBoundedCheckpoint(
       removable.filter(key => !droppedThisCheckpoint.has(key) && !stillRead.has(key) && !keptForSync(key)),
     )
   }
-  const checkpointDocumentCount = documentCount
-  const checkpointSavedBytes = written.saved.bytes
-  await input.queueMetadataWrite(input.indexName, async () => {
-    const checkpointMetadata = input.hooks.buildMetadata(input.indexName, checkpointDocumentCount, checkpointSavedBytes)
-    if (checkpointMetadata === undefined) {
-      return
-    }
-    const bytes = await writeMetadataEnvelope(
-      { ...checkpointMetadata, partitionCount: capture.partitionCount },
-      { checksum: true },
-    )
-    await input.directory.atomicWrite(`${input.indexName}/meta`, bytes)
-    input.hooks.recordCheckpoint?.(
-      input.indexName,
-      checkpointDocumentCount,
-      capture.partitionCount,
-      checkpointSavedBytes,
-    )
-  })
   const movedIntoHistoryAtMs = input.hooks.keepsSyncHistory?.(input.indexName) === true ? Date.now() : null
   await truncateCoveredSegments(input.directory, input.indexName, targets, movedIntoHistoryAtMs)
   if (movedIntoHistoryAtMs !== null) input.hooks.onHistoryMoved?.(input.indexName)
@@ -292,6 +276,24 @@ async function finishBoundedCheckpoint(
   const eligibleBeyond = recordsBeyond(input.indexState, targets, capture.unreplayedCutoffs)
   const anotherIsDue = input.mutationThreshold > 0 && eligibleBeyond >= input.mutationThreshold
   return anotherIsDue ? eligibleBeyond : capture.recordsLeftInLog
+}
+
+async function writeCheckpointMetadata(
+  input: DurableCheckpointInput,
+  documentCount: number,
+  partitionCount: number,
+  savedBytes: number,
+): Promise<void> {
+  const { indexName, hooks } = input
+  await input.queueMetadataWrite(indexName, async () => {
+    const checkpointMetadata = hooks.buildMetadata(indexName, documentCount, savedBytes)
+    if (checkpointMetadata === undefined) {
+      return
+    }
+    const bytes = await writeMetadataEnvelope({ ...checkpointMetadata, partitionCount }, { checksum: true })
+    await input.directory.atomicWrite(`${indexName}/meta`, bytes)
+    hooks.recordCheckpoint?.(indexName, documentCount, partitionCount, savedBytes)
+  })
 }
 
 function recordsBeyond(

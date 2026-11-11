@@ -26,7 +26,7 @@ import type {
   MutationOutcome,
   MutationRecord,
 } from '../types'
-import { writeSnapshotOnlyCheckpoint } from './checkpoint'
+import { saveCheckpointMetadata, writeSnapshotOnlyCheckpoint } from './checkpoint'
 import { createSnapshotIndexState, metadataKey, noteSnapshotCommitted, type SnapshotIndexState } from './index-state'
 import { createPendingRestores } from './restores'
 import { createSnapshotSavedSize } from './saved-size'
@@ -94,7 +94,7 @@ export function createSnapshotOnlyManager(
     const metadata = hooks.buildTermsMetadata(indexName)
     if (manager === undefined || metadata === undefined) return
 
-    const { documentCount, positions, partitionCount, saved } = await writeSnapshotOnlyCheckpoint({
+    const { positions, partitionCount } = await writeSnapshotOnlyCheckpoint({
       adapter,
       indexName,
       metadata,
@@ -102,16 +102,11 @@ export function createSnapshotOnlyManager(
       vectorIndexes: hooks.getVectorIndexes(indexName),
       appliedSeqNoByPartition: indexState.appliedSeqNoByPartition,
       rewritesEveryPartition: fromMemory || hooks.mustRewriteTerms(indexName),
-      recordSavedBytes: committed => savedSize.record(indexName, committed),
-    })
-    hooks.onManifestCommitted(indexName, metadata.analysisGeneration ?? 0)
-    await queueMetadataWrite(indexName, async () => {
-      const checkpointMetadata = hooks.buildMetadata(indexName, documentCount, saved.bytes)
-      if (checkpointMetadata === undefined) return
-      checkpointMetadata.partitionCount = partitionCount
-      const metadataBytes = await writeMetadataEnvelope(checkpointMetadata, { checksum: true })
-      await adapter.save(metadataKey(indexName), metadataBytes)
-      hooks.recordCheckpoint?.(indexName, documentCount, partitionCount, saved.bytes)
+      onCommitted: async committed => {
+        savedSize.record(indexName, committed.saved)
+        hooks.onManifestCommitted(indexName, metadata.analysisGeneration ?? 0)
+        await queueMetadataWrite(indexName, () => saveCheckpointMetadata(adapter, hooks, indexName, committed))
+      },
     })
     noteSnapshotCommitted(indexState, positions, partitionCount)
 
