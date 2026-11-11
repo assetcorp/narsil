@@ -1,6 +1,6 @@
 # @delali/narsil-native-build
 
-This package holds the C source of Narsil's native search core, which every Narsil implementation calls for text analysis and for every search. The core analyses text with each of the 107 language modules, scores keyword searches with BM25, fuses keyword and vector rankings for a hybrid search, searches a vector field, builds and compacts the field's HNSW graph, and writes the field's codes. The package also holds the scripts that build, test, and lint that source.
+This package holds the C source of Narsil's native search core, which every Narsil implementation calls for text analysis and for every search. The core analyses text with each of the language modules, scores keyword searches with BM25, fuses keyword and vector rankings for a hybrid search, searches a vector field, builds and compacts the field's HNSW graph, and writes the field's codes. The package also holds the scripts that build, test, and lint that source.
 
 ## Who builds the core
 
