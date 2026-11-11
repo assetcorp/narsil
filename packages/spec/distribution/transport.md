@@ -1070,12 +1070,19 @@ StatsExpansion {
     partitionId:         uint32
     documentCount:       uint32
     estimatedMemoryBytes: uint64
+    savedBytes:          uint64 or absent   (the saved size of the node's copy of the partition)
+    vectorSavedBytes:    uint64 or absent   (the copy's share of the node's vector files and graph parts)
+    logBytes:            uint64 or absent   (the log size of the node's copy of the partition)
   }>
   language: string   (the language module the node's local index analyses with)
 }
 ```
 
 The node answers for exactly the named partitions it holds, one entry per partition. The coordinator treats a named partition that is missing from every response as a failure, because a count with a partition missing is a wrong count rather than a partial one.
+
+A node must set `savedBytes` and `logBytes` as [Saved Size](../durability.md#saved-size) defines them for a partition, and it must leave out each figure that those rules give it no value for. A node must split the bytes of the vector files and graph parts that its manifest lists for the index among every partition of the index that it holds, in proportion to their `documentCount`, or in equal parts where those partitions hold no document. It must round each share down and add the bytes left over to the share of the partition with the lowest id, so that the shares add up to those bytes, and it must set `vectorSavedBytes` to each share.
+
+In the stats of an index, the coordinator must report as the saved size the sum of `savedBytes` and `vectorSavedBytes`, and as the log size the sum of `logBytes`, over the copy that it reads for each partition. In the stats of a partition, it must report that copy's `savedBytes` and `logBytes`. The coordinator must also report each of those figures summed over every copy that the allocation table lists, so it must send `query.count` to every other copy as well. Where another copy fails to answer, the coordinator must report the sums over every copy as absent, and it must not fail the stats call. The coordinator must report a figure as absent wherever an answer that it adds up leaves that figure out.
 
 ### query.list
 

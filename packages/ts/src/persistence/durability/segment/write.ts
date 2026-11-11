@@ -20,6 +20,7 @@ import { pagedTombstonesFor } from '../../paged/older-holders'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
+import { type StoredBytes, savedBytesOfManifest } from '../stored-bytes'
 import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
 import { type CapturedWholePartition, contentsOfCaptured, type PartitionContents } from './captured-partition'
@@ -28,6 +29,7 @@ import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import type { PartitionManifestEntry, SegmentManifest, SegmentRef, VectorFieldRef } from './manifest'
 import { MAX_SEGMENTS_PER_PARTITION, manifestReferencedKeys, SEGMENT_MANIFEST_VERSION } from './manifest'
 import { encodeSegmentManifest } from './manifest-encode'
+import { type PartitionDocumentCount, rewriteRemovedDocuments } from './removed-documents'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'
 
@@ -46,6 +48,7 @@ export interface CheckpointSegmentsInput {
   wholePartitions?: readonly PartitionContents[]
   capturedPartitions?: readonly CapturedWholePartition[]
   keepsWriteRecords?: boolean
+  liveDocuments?: readonly PartitionDocumentCount[]
 }
 
 export interface CheckpointSegmentsWritten {
@@ -55,6 +58,7 @@ export interface CheckpointSegmentsWritten {
 
 export interface SegmentedCheckpointOutcome {
   garbage: string[]
+  saved: StoredBytes
 }
 
 interface PartitionWriteContext {
@@ -215,8 +219,20 @@ async function writeLoggedChanges(
     compactionThreshold: context.compactionThreshold,
     paged: context.input.metadata.textStorage === 'disk',
   })
-  segments = compacted.segments
-  nextSegmentId = compacted.nextSegmentId
+  const rewritten = await rewriteRemovedDocuments({
+    store: context.input.store,
+    indexName: context.indexName,
+    partitionId,
+    schema: context.input.metadata.schema,
+    partialWordAnalysis: context.partialWordAnalysis,
+    textAnalysis: context.textAnalysis,
+    segments: compacted.segments,
+    nextSegmentId: compacted.nextSegmentId,
+    paged: context.input.metadata.textStorage === 'disk',
+    liveDocumentCount: context.input.liveDocuments?.find(entry => entry.partitionId === partitionId)?.documentCount,
+  })
+  segments = rewritten.segments
+  nextSegmentId = rewritten.nextSegmentId
   return { partitionId, nextSegmentId, segments }
 }
 
@@ -302,7 +318,7 @@ export async function commitCheckpointManifest(
   }
   const packed = await encodeSegmentManifest(manifest)
   await store.write(manifestKey(indexName), packed.chunks)
-  return { garbage: await unreferencedKeys(store, indexName, manifest) }
+  return { garbage: await unreferencedKeys(store, indexName, manifest), saved: savedBytesOfManifest(manifest) }
 }
 
 async function unreferencedKeys(

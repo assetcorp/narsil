@@ -3,6 +3,7 @@ import { runCheckpointOnWorker } from './checkpoint-worker-dispatch'
 import type { DurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import type { CapturedWholePartition, PartitionContents } from './segment/captured-partition'
+import type { PartitionDocumentCount } from './segment/removed-documents'
 import { directoryCheckpointStore } from './segment/store'
 import { type CheckpointSegmentsWritten, type PriorCheckpoint, writeCheckpointSegments } from './segment/write'
 
@@ -16,6 +17,7 @@ export interface IndexCheckpointSegmentsWrite {
   wholePartitions: readonly PartitionContents[]
   capturedPartitions: readonly CapturedWholePartition[]
   keepsWriteRecords: boolean
+  liveDocuments: PartitionDocumentCount[] | null
 }
 
 function workerCanWriteEverySegment(input: IndexCheckpointSegmentsWrite): boolean {
@@ -31,7 +33,8 @@ export async function writeIndexCheckpointSegments(
   input: IndexCheckpointSegmentsWrite,
 ): Promise<CheckpointSegmentsWritten> {
   const { directory, metadata, targets, compactionThreshold, prior, wholePartitions, capturedPartitions } = input
-  const { keepsWriteRecords } = input
+  const { keepsWriteRecords, liveDocuments } = input
+  const counted = liveDocuments === null ? {} : { liveDocuments }
 
   const offloaded = workerCanWriteEverySegment(input)
     ? await runCheckpointOnWorker({
@@ -42,6 +45,7 @@ export async function writeIndexCheckpointSegments(
         prior,
         capturedPartitions: [...capturedPartitions],
         keepsWriteRecords,
+        ...counted,
       })
     : null
 
@@ -59,5 +63,6 @@ export async function writeIndexCheckpointSegments(
     wholePartitions,
     capturedPartitions,
     keepsWriteRecords,
+    ...counted,
   })
 }

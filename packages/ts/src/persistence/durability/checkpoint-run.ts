@@ -35,6 +35,7 @@ import { manifestWithinPartitionCount, type PartitionManifestEntry, type Segment
 import { type CheckpointStore, directoryCheckpointStore } from './segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from './segment/vector-adoption'
 import { commitCheckpointManifest, removeCheckpointGarbage } from './segment/write'
+import type { StoredBytes } from './stored-bytes'
 import type { IndexDurabilityHooks } from './types'
 import { noteCheckpointCommitted } from './write-stall'
 
@@ -50,6 +51,7 @@ interface DurableCheckpointInput {
   mayContinue(): boolean
   holdsCheckpointFiles(): boolean
   keepsCheckpointKey(): Promise<(key: string) => boolean>
+  recordSavedBytes(saved: StoredBytes): void
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
   failPartition: PartitionFailure
@@ -229,12 +231,14 @@ async function finishBoundedCheckpoint(
       wholePartitions: capture.wholePartitions.contents,
       capturedPartitions: capture.wholePartitions.captured,
       keepsWriteRecords: writeRecords !== null,
+      liveDocuments: capture.liveDocuments,
     }),
   )
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
   if (aTargetFailed(input.indexState, targets)) return 0
 
   const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors)
+  input.recordSavedBytes(written.saved)
   input.hooks.onManifestCommitted(input.indexName, metadata.analysisGeneration ?? 0)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
   await adoptVectorLayouts(store, vectorIndexes, liveVectors.layouts)

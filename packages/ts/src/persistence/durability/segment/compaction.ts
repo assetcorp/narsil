@@ -110,50 +110,46 @@ function retainedTombstones(frozen: readonly FrozenSegment[], contents: readonly
   return [...retained]
 }
 
-export async function compactPartitionSegments(input: CompactionInput): Promise<CompactionResult> {
-  const { segments, compactionThreshold } = input
-  if (segments.length <= compactionThreshold) {
-    return { segments, nextSegmentId: input.nextSegmentId }
-  }
-  const paged = input.paged === true
-  const window = chooseWindow(segments, segments.length - compactionThreshold + 1, paged)
-  if (window === null) {
-    return { segments, nextSegmentId: input.nextSegmentId }
-  }
-  const windowRefs = segments.slice(window.start, window.start + window.windowLength)
-  const replacing = (written: { segments: SegmentRef[]; nextSegmentId: number }): CompactionResult => ({
-    segments: [
-      ...segments.slice(0, window.start),
-      ...written.segments,
-      ...segments.slice(window.start + window.windowLength),
-    ],
-    nextSegmentId: written.nextSegmentId,
-  })
-  if (paged) {
+export type SegmentWindowWriter = Omit<CompactionInput, 'segments' | 'compactionThreshold'>
+
+export interface SegmentWindow {
+  refs: readonly SegmentRef[]
+  startsTheList: boolean
+  replacedAfterWindow?: readonly string[]
+}
+
+export async function mergeSegmentWindow(
+  input: SegmentWindowWriter,
+  window: SegmentWindow,
+): Promise<CompactionResult | null> {
+  if (input.paged === true) {
     const { directory } = input.store
-    if (directory === undefined) return { segments, nextSegmentId: input.nextSegmentId }
-    return replacing(
-      await mergePagedWindow({
-        store: input.store,
-        directory,
-        indexName: input.indexName,
-        partitionId: input.partitionId,
-        schema: input.schema,
-        partialWordAnalysis: input.partialWordAnalysis,
-        textAnalysis: input.textAnalysis,
-        nextSegmentId: input.nextSegmentId,
-        refs: windowRefs,
-        dropsEveryTombstone: window.start === 0,
-      }),
-    )
+    if (directory === undefined) return null
+    return mergePagedWindow({
+      store: input.store,
+      directory,
+      indexName: input.indexName,
+      partitionId: input.partitionId,
+      schema: input.schema,
+      partialWordAnalysis: input.partialWordAnalysis,
+      textAnalysis: input.textAnalysis,
+      nextSegmentId: input.nextSegmentId,
+      refs: window.refs,
+      dropsEveryTombstone: window.startsTheList,
+      ...(window.replacedAfterWindow === undefined ? {} : { replacedAfterWindow: window.replacedAfterWindow }),
+    })
   }
   const contents: KeywordSegmentContents[] = []
-  for (const ref of windowRefs) contents.push(await readSegmentFile(input.store, ref))
+  for (const ref of window.refs) contents.push(await readSegmentFile(input.store, ref))
   const frozen = contents.map(frozenOf)
   applyTimeOrder(frozen, contents)
+  for (const docId of window.replacedAfterWindow ?? []) {
+    for (const segment of frozen) segment.tombstoneDocument(docId)
+  }
   const writeRecords = writeRecordsOf(frozen, contents)
+  const keepsTombstones = !(window.startsTheList && window.replacedAfterWindow !== undefined)
 
-  const written = await writeSegmentsOf({
+  return writeSegmentsOf({
     store: input.store,
     indexName: input.indexName,
     partitionId: input.partitionId,
@@ -162,9 +158,32 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
     partialWordAnalysis: input.partialWordAnalysis,
     textAnalysis: input.textAnalysis,
     selections: frozen.map(segment => ({ segment })),
-    tombstones: retainedTombstones(frozen, contents),
+    tombstones: keepsTombstones ? retainedTombstones(frozen, contents) : [],
     mergesIntoOneFile: true,
     ...(writeRecords === undefined ? {} : { writeRecords }),
   })
-  return replacing(written)
+}
+
+export async function compactPartitionSegments(input: CompactionInput): Promise<CompactionResult> {
+  const { segments, compactionThreshold } = input
+  if (segments.length <= compactionThreshold) {
+    return { segments, nextSegmentId: input.nextSegmentId }
+  }
+  const window = chooseWindow(segments, segments.length - compactionThreshold + 1, input.paged === true)
+  if (window === null) {
+    return { segments, nextSegmentId: input.nextSegmentId }
+  }
+  const written = await mergeSegmentWindow(input, {
+    refs: segments.slice(window.start, window.start + window.windowLength),
+    startsTheList: window.start === 0,
+  })
+  if (written === null) return { segments, nextSegmentId: input.nextSegmentId }
+  return {
+    segments: [
+      ...segments.slice(0, window.start),
+      ...written.segments,
+      ...segments.slice(window.start + window.windowLength),
+    ],
+    nextSegmentId: written.nextSegmentId,
+  }
 }

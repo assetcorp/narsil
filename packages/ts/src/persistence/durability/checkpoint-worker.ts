@@ -6,6 +6,7 @@ import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { rebuildSegmentsFromDurable } from './rebuild'
 import type { CapturedWholePartition } from './segment/captured-partition'
+import type { PartitionDocumentCount } from './segment/removed-documents'
 import type { CheckpointSegmentsWritten, PriorCheckpoint } from './segment/write'
 
 export interface CheckpointWorkerRequest {
@@ -16,6 +17,7 @@ export interface CheckpointWorkerRequest {
   prior: PriorCheckpoint | null
   capturedPartitions?: CapturedWholePartition[]
   keepsWriteRecords?: boolean
+  liveDocuments?: PartitionDocumentCount[]
 }
 
 export interface CheckpointWorkerSuccess {
@@ -51,6 +53,9 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (request.capturedPartitions !== undefined && !Array.isArray(request.capturedPartitions)) {
     throw new Error('Checkpoint request names captured partitions in a shape the worker cannot read')
   }
+  if (request.liveDocuments !== undefined && !Array.isArray(request.liveDocuments)) {
+    throw new Error('Checkpoint request gives partition document counts in a shape the worker cannot read')
+  }
   const loadingGeoCode = loadGeoCodeFor(request.metadata.schema)
   if (loadingGeoCode !== null) await loadingGeoCode
   const segments = await rebuildSegmentsFromDurable(
@@ -61,6 +66,7 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
     request.prior ?? null,
     request.capturedPartitions,
     request.keepsWriteRecords === true,
+    request.liveDocuments,
   )
   return { type: 'success', segments }
 }

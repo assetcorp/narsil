@@ -2,6 +2,7 @@ import type { IndexMetadata } from '../../types/internal'
 import { createDurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import type { CapturedWholePartition } from './segment/captured-partition'
+import type { PartitionDocumentCount } from './segment/removed-documents'
 import { directoryCheckpointStore } from './segment/store'
 import { type CheckpointSegmentsWritten, type PriorCheckpoint, writeCheckpointSegments } from './segment/write'
 
@@ -13,6 +14,7 @@ export async function rebuildSegmentsFromDurable(
   prior: PriorCheckpoint | null,
   capturedPartitions: readonly CapturedWholePartition[] = [],
   keepsWriteRecords = false,
+  liveDocuments?: readonly PartitionDocumentCount[],
 ): Promise<CheckpointSegmentsWritten> {
   const directory = createDurableDirectory(root)
   return writeCheckpointSegments({
@@ -24,5 +26,6 @@ export async function rebuildSegmentsFromDurable(
     prior,
     capturedPartitions,
     keepsWriteRecords,
+    ...(liveDocuments === undefined ? {} : { liveDocuments }),
   })
 }
