@@ -9,7 +9,12 @@ multi-ecosystem-groups:
 
 updates:
   - package-ecosystem: "npm"
-    directory: "/packages/ts"
+    directory: "/"
+    exclude-paths:
+      - "benchmarks/**"
+      - "packages/react-native/**"
+      - "packages/spec/**"
+      - "packages/ts/examples/**"
     multi-ecosystem-group: "all-dependencies"
     patterns: ["*"]
     cooldown:
