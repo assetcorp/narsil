@@ -136,7 +136,7 @@ fn stage_built(prepared: &PreparedIndex, staging: &Staging<'_>) -> Result<Segmen
         }
     }
     store.sync_directories(&directories)?;
-    validate_staged_checkpoint(store, &checkpoint.manifest)?;
+    validate_staged_checkpoint(&staging.source(), &checkpoint.manifest)?;
     Ok(checkpoint.manifest)
 }
 

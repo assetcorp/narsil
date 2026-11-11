@@ -63,6 +63,13 @@ impl<'d> RestoreStaging<'d> {
         &self.index_name
     }
 
+    /// Returns the path of the file that the restore staged for `key`, where the storage keeps a directory of
+    /// files. The commit moves the whole staging directory into the index's place, so a handle that the index
+    /// opens on this path keeps reading the same file after the move.
+    pub(crate) fn staged_path(&self, key: &str) -> Result<Option<PathBuf>> {
+        self.storage.file_path(&self.staged(key)?)
+    }
+
     fn committed(&self) -> bool {
         self.committed
     }

@@ -114,7 +114,7 @@ fn load_paged_segment(
     schema: &Map,
 ) -> Result<()> {
     let key = &listed.file.key;
-    let Some(path) = store.path_of(key)? else {
+    let Some(path) = store.paged_path_of(key)? else {
         return Err(load_failed(format!(
             "The segment \"{key}\" is not in a directory that the index reads by position"
         )));
