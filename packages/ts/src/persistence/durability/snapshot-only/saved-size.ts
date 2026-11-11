@@ -64,7 +64,8 @@ export function createSnapshotSavedSize(
         const saved = knownSize(indexName)
         if (saved === null) return stats
         const byPartition = partitionSavedBytes(saved)
-        return stats.map(partition => ({ ...partition, savedBytes: byPartition.get(partition.partitionId) ?? 0 }))
+        for (const partition of stats) partition.savedBytes = byPartition.get(partition.partitionId) ?? 0
+        return stats
       },
       vectorSavedBytes(indexName) {
         return knownSize(indexName)?.vectorBytes

@@ -35,9 +35,14 @@ export interface StoredSize {
   logBytes?: number
 }
 
-export function partitionSavedBytes(saved: StoredBytes | undefined): Map<number, number> {
+const savedBytesByPartition = new WeakMap<StoredBytes, ReadonlyMap<number, number>>()
+
+export function partitionSavedBytes(saved: StoredBytes): ReadonlyMap<number, number> {
+  const known = savedBytesByPartition.get(saved)
+  if (known !== undefined) return known
   const byPartition = new Map<number, number>()
-  for (const { partitionId, bytes } of saved?.partitions ?? []) byPartition.set(partitionId, bytes)
+  for (const { partitionId, bytes } of saved.partitions) byPartition.set(partitionId, bytes)
+  savedBytesByPartition.set(saved, byPartition)
   return byPartition
 }
 
