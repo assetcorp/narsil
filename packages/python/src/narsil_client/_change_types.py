@@ -57,6 +57,9 @@ class ChangesSubscribed:
     """The server stops sending once the changes that you have not acknowledged hold this many bytes."""
     previous_document: bool
     """True when a change can hold the document before the write."""
+    vector_fields: tuple[str, ...]
+    """The path of every vector field in the index's schema, such as `meta.embedding` for a nested field. The client
+    returns the value at each of these paths as a list of floats and keeps every other binary value as bytes."""
     type: Literal["subscribed"] = field(default="subscribed", init=False)
 
 

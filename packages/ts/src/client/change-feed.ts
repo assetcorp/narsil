@@ -2,7 +2,7 @@ import { CHANGES_SUBPROTOCOL } from '../changes/wire'
 import { ClientErrorCodes, ErrorCodes, NarsilError } from '../errors'
 import { loadMessagePack, type MessagePackCode } from '../serialization/msgpack-code'
 import type { ChangePosition, ChangesEvent, FollowChangesOptions } from '../types/changes'
-import { laterEventOf, subscribedOf } from './change-feed-messages'
+import { firstEventOf, laterEventOf, type VectorFieldPaths } from './change-feed-messages'
 
 /**
  * Where a subscription to the change feed starts, which changes it receives, and how it proves the caller's access.
@@ -88,6 +88,7 @@ export function openChangeSubscription(url: string, options: ChangeFeedOptions):
   let socket: WebSocket | null = null
   let codec: MessagePackCode | null = null
   let partitionCount = 0
+  let vectorFields: VectorFieldPaths = []
   const saved: number[] = []
 
   const notify = (): void => {
@@ -116,21 +117,23 @@ export function openChangeSubscription(url: string, options: ChangeFeedOptions):
     }
     try {
       const raw = code.decode(new Uint8Array(data))
+      let event: ChangesEvent
       if (partitionCount === 0) {
-        const { event } = subscribedOf(raw)
-        if (event.type === 'subscribed') {
-          partitionCount = event.partitionCount
-          saved.push(...new Array<number>(partitionCount).fill(0))
-          for (const position of event.positions) saved[position.partitionId] = position.seqNo
-        }
-        queue.push(event)
+        const first = firstEventOf(raw)
+        event = first.event
+        vectorFields = first.vectorFields
       } else {
-        const event = laterEventOf(raw, partitionCount)
-        queue.push(event)
-        if (event.type === 'resync') {
-          finish(null)
-          return
-        }
+        event = laterEventOf(raw, partitionCount, vectorFields)
+      }
+      if (event.type === 'subscribed') {
+        partitionCount = event.partitionCount
+        saved.push(...new Array<number>(partitionCount).fill(0))
+        for (const position of event.positions) saved[position.partitionId] = position.seqNo
+      }
+      queue.push(event)
+      if (event.type === 'resync') {
+        finish(null)
+        return
       }
     } catch (error) {
       finish(

@@ -87,7 +87,7 @@ A node derives each change from one log entry:
 | `DELETE` without the key, or with a nil value | `remove` |
 | `DELETE` with a `previousDocument` | `remove`, with `previousDocument` |
 
-`document` and `previousDocument` each hold the document as a MessagePack map, so a subscriber decodes a change in one pass. A node may copy the stored bytes of a document into the change without decoding them.
+`document` and `previousDocument` each hold the document as a MessagePack map, so a subscriber decodes a change in one pass. A node may copy the stored bytes of a document into the change without decoding them. The value of a vector field in either map can be a MessagePack array of numbers or a MessagePack binary value that holds the vector's float32 components in little-endian order, so a subscriber must read a binary value at the path of a vector field as that vector. It must keep every other binary value as bytes, because a document can hold a binary value in a field that the schema leaves out.
 
 ---
 
@@ -105,12 +105,13 @@ Subscriber to server:
 
 Server to subscriber:
   Subscribed { type: 'subscribed', epoch: string, partitionCount: uint32, positions: List<Position>,
-               heads: List<Position>, bytesBehind: uint64, windowBytes: uint64, previousDocument: boolean }
+               heads: List<Position>, bytesBehind: uint64, windowBytes: uint64, previousDocument: boolean,
+               vectorFields: List<string> }
   Changes    { type: 'changes', partitionId: uint32, changes: List<Change>, scannedSeqNo: uint64 }
   Resync     { type: 'resync', reason: 'epoch' or 'history' or 'ahead' }
 ```
 
-A `subscribe` must hold both `epoch` and `positions` or neither of them. For a subscription with neither, the node takes each partition's head as the subscriber's position, and `subscribed` returns the epoch and those positions, so that a new subscriber can follow an index from the present without exporting it. A subscription with both resumes from the positions that it gives, and `subscribed` returns the same positions. `previousDocument` in `subscribed` holds the index's setting, so that a subscriber learns whether a change can hold the document before the write.
+A `subscribe` must hold both `epoch` and `positions` or neither of them. For a subscription with neither, the node takes each partition's head as the subscriber's position, and `subscribed` returns the epoch and those positions, so that a new subscriber can follow an index from the present without exporting it. A subscription with both resumes from the positions that it gives, and `subscribed` returns the same positions. `previousDocument` in `subscribed` holds the index's setting, so that a subscriber learns whether a change can hold the document before the write. `vectorFields` holds the path of every vector field in the index's schema, such as `meta.embedding` for a nested field, so that a subscriber without the schema can tell a vector from the other [binary values](#the-change) of a document.
 
 A node must close the connection with close code 1009 after a subscriber message longer than 65,536 bytes. It must close the connection with close code 1008 after any of these:
 

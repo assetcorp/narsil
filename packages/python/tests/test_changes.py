@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import anyio
 import pytest
 
-from narsil_client import Change, ChangesBatch, ChangesSubscribed, ClientErrorCodes, NarsilError
+from narsil_client import Change, ChangesBatch, ChangesResync, ChangesSubscribed, ClientErrorCodes, NarsilError
 from tests.change_feeds import (
     CLIENT_ONLY_FORMS,
     EXPIRING_AFTER_MS,
@@ -29,6 +30,11 @@ SCHEMA = {"title": "string", "price": "number", "embedding": "vector[4]"}
 CLOSE_CREDENTIAL_EXPIRED = 4401
 WINDOWED_WRITES = 200
 WINDOW_SETTLE_SECONDS = 0.5
+STORED_VALUES_INDEX = "stored-values"
+STORED_EMBEDDING = [0.5, -2.0]
+STORED_PHOTO = bytes([1, 2, 3, 4, 5, 6, 7, 8])
+STORED_ADDED_AT = datetime(2026, 3, 1, 12, 30, 45, 123000, tzinfo=UTC)
+UNKNOWN_EPOCH = "f" * 32
 
 
 @pytest.fixture(scope="session")
@@ -40,6 +46,12 @@ def changes_server_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str
             "readerCredential": READER_CREDENTIAL,
             "expiringCredential": EXPIRING_CREDENTIAL,
             "expiringAfterMs": EXPIRING_AFTER_MS,
+            "storedValuesIndex": STORED_VALUES_INDEX,
+            "storedValues": {
+                "embedding": STORED_EMBEDDING,
+                "photo": list(STORED_PHOTO),
+                "addedAt": STORED_ADDED_AT.isoformat(),
+            },
         },
         launcher=CHANGE_FEED_LAUNCHER,
     )
@@ -284,3 +296,47 @@ async def test_a_refused_or_expired_credential_surfaces_as_its_error_without_the
             assert failure.code == ClientErrorCodes.CLIENT_CONNECTION_FAILED
             assert failure.details["close_code"] == CLOSE_CREDENTIAL_EXPIRED
             assert EXPIRING_CREDENTIAL not in repr(failure)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("form", "anyio_backend"), FEED_FORMS)
+async def test_a_change_returns_a_vector_only_at_a_vector_field_path(form: str, changes_server_url: str) -> None:
+    async with open_client(form, changes_server_url, api_key=READER_CREDENTIAL) as admin:
+        header, _ = await export_of(admin, STORED_VALUES_INDEX)
+
+    async with (
+        open_client(form, changes_server_url) as subscriber,
+        read_feed(
+            subscriber,
+            STORED_VALUES_INDEX,
+            epoch=header["epoch"],
+            positions=[{"partitionId": 0, "seqNo": 0}],
+            credential=READER_CREDENTIAL,
+        ) as reader,
+    ):
+        await reader.until(lambda: any(batch.changes for batch in reader.batches()))
+        assert reader.subscribed().vector_fields == ("meta.embedding",)
+        document = next(batch.changes[0].document for batch in reader.batches() if batch.changes)
+
+    assert document is not None
+    assert document["meta"]["embedding"] == STORED_EMBEDDING
+    assert document["photo"] == STORED_PHOTO
+    assert document["addedAt"] == STORED_ADDED_AT
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("form", "anyio_backend"), FEED_FORMS)
+async def test_a_resync_in_place_of_subscribed_ends_the_subscription(form: str, changes_server_url: str) -> None:
+    async with (
+        open_client(form, changes_server_url) as subscriber,
+        read_feed(
+            subscriber,
+            STORED_VALUES_INDEX,
+            epoch=UNKNOWN_EPOCH,
+            positions=[{"partitionId": 0, "seqNo": 0}],
+            credential=READER_CREDENTIAL,
+        ) as reader,
+    ):
+        await reader.until(lambda: reader.finished, failing=True)
+        assert reader.failure is None
+        assert reader.events == [ChangesResync("epoch")]

@@ -7,6 +7,7 @@ import { getLanguage } from '../../../languages/registry'
 import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
 import { validateSchema } from '../../../schema/validator'
 import type { FeedSource } from '../../../sync/feed/source'
+import type { SchemaDefinition } from '../../../types/schema'
 import { getClusterIndexConfig } from '../../cluster/index-metadata'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import { changesStateOfSettings } from './state'
@@ -20,6 +21,16 @@ export interface ClusterChangeSourceDeps {
 
 export function createClusterChangeSource(deps: ClusterChangeSourceDeps): ChangeSource {
   const { feed, view, coordinator } = deps
+
+  async function heldSchema(indexName: string): Promise<{ servingName: string; schema: SchemaDefinition }> {
+    const held = view.held(indexName)
+    if (held === undefined) throw changesNotEnabled(indexName)
+    const { servingName } = held.serving
+    const stored = await coordinator.getSchema(servingName)
+    if (stored === null) throw changesNotEnabled(indexName)
+    return { servingName, schema: validateSchema(stored) }
+  }
+
   return {
     changesState(indexName) {
       const held = view.held(indexName)
@@ -33,12 +44,7 @@ export function createClusterChangeSource(deps: ClusterChangeSourceDeps): Change
     },
 
     async documentTest(indexName, filter) {
-      const held = view.held(indexName)
-      if (held === undefined) throw changesNotEnabled(indexName)
-      const { servingName } = held.serving
-      const stored = await coordinator.getSchema(servingName)
-      if (stored === null) throw changesNotEnabled(indexName)
-      const schema = validateSchema(stored)
+      const { servingName, schema } = await heldSchema(indexName)
       const valid = validChangeFilter(filter, schema)
       const config = await getClusterIndexConfig(coordinator, servingName, schema)
       return createDocumentTest(
@@ -50,6 +56,11 @@ export function createClusterChangeSource(deps: ClusterChangeSourceDeps): Change
         },
         valid,
       )
+    },
+
+    async vectorFieldPaths(indexName) {
+      const { schema } = await heldSchema(indexName)
+      return getVectorFieldPaths(schema)
     },
 
     bounds: (indexName, partitionId, freshness) => feed.bounds(indexName, partitionId, freshness),

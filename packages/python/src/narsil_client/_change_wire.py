@@ -18,7 +18,7 @@ from websockets.exceptions import (
 from websockets.sync.client import reconnect
 from websockets.typing import Subprotocol
 
-from narsil_client._change_messages import CLOSE_NORMAL, later_event_of, malformed, subscribed_of
+from narsil_client._change_messages import CLOSE_NORMAL, VectorPath, first_event_of, later_event_of, malformed
 from narsil_client._change_types import ChangesEvent
 from narsil_client._errors import (
     CHANGES_NOT_ENABLED,
@@ -96,9 +96,9 @@ def decode(data: str | bytes) -> Any:
         raise malformed("the frame is not MessagePack") from None
 
 
-def event_of(data: str | bytes, partition_count: int) -> ChangesEvent:
+def event_of(data: str | bytes, partition_count: int, vector_paths: tuple[VectorPath, ...]) -> ChangesEvent:
     raw = decode(data)
-    return subscribed_of(raw) if partition_count == 0 else later_event_of(raw, partition_count)
+    return first_event_of(raw) if partition_count == 0 else later_event_of(raw, partition_count, vector_paths)
 
 
 def check_subprotocol(chosen: str | None, url: str) -> None:

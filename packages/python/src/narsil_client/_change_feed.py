@@ -11,9 +11,11 @@ from narsil_client._change_messages import (
     DEFAULT_MAX_MESSAGE_BYTES,
     AckLedger,
     PositionInput,
+    VectorPath,
     checked_credential,
     missing_extra,
     subscribe_message,
+    vector_paths_of,
 )
 from narsil_client._change_types import ChangesEvent, ChangesResync, ChangesSubscribed
 from narsil_client._errors import CONFIG_INVALID, NarsilError
@@ -44,6 +46,7 @@ class ChangeSubscription:
         self._loop_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._partition_count = 0
+        self._vector_paths: tuple[VectorPath, ...] = ()
         self._ended = False
         self._failure: NarsilError | None = None
 
@@ -71,11 +74,12 @@ class ChangeSubscription:
             self._finish(None if self._ended else wire.ended_error(error, self._url, self._max_message_bytes))
             return self._next_event()
         try:
-            event = wire.event_of(data, self._partition_count)
+            event = wire.event_of(data, self._partition_count, self._vector_paths)
         except NarsilError as error:
             self._finish(error)
             raise
         if isinstance(event, ChangesSubscribed):
+            self._vector_paths = vector_paths_of(event.vector_fields)
             with self._ack_lock:
                 self._ledger.seed(event)
                 self._partition_count = event.partition_count

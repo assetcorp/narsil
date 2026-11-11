@@ -100,7 +100,6 @@ function wakeupOn(source: ChangeSource, indexName: string, signal: AbortSignal |
 export interface FollowSourceDeps {
   source: ChangeSource
   guard(): void
-  vectorFieldPaths(indexName: string): Promise<ReadonlySet<string>>
 }
 
 export function followIndexChanges(
@@ -111,11 +110,7 @@ export function followIndexChanges(
   core.guardShutdown()
   core.requireIndex(indexName)
   return followSourceChanges(
-    {
-      source: engineChangeSource(core),
-      guard: () => core.guardShutdown(),
-      vectorFieldPaths: async name => core.requireIndex(name).vectorFieldPaths,
-    },
+    { source: engineChangeSource(core), guard: () => core.guardShutdown() },
     indexName,
     options,
   )
@@ -144,7 +139,7 @@ export async function* followSourceChanges(
     }
     const cursor = opened
     const { state } = cursor
-    const vectorFieldPaths = await deps.vectorFieldPaths(indexName)
+    const vectorFieldPaths = await source.vectorFieldPaths(indexName)
     yield {
       type: 'subscribed',
       epoch: state.epoch,
@@ -173,7 +168,9 @@ export async function* followSourceChanges(
           return
         }
         if (batch === null) continue
-        if (source.changesState(indexName)?.epoch !== state.epoch) break
+        const afterRead = source.changesState(indexName)
+        if (afterRead === null || afterRead.epoch !== state.epoch) break
+        if (cursor.filtered && !afterRead.previousDocument) throw previousDocumentRequired(indexName)
         cursor.commit(batch)
         progressed = true
         yield eventOf(batch, vectorFieldPaths)

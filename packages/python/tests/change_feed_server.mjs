@@ -28,6 +28,19 @@ const engine = await createNarsil({
   workers: { enabled: false },
   durability: { directory: settings.directory },
 })
+if (typeof settings.storedValuesIndex === 'string') {
+  const index = settings.storedValuesIndex
+  await engine.createIndex(index, { schema: { title: 'string', meta: { embedding: 'vector[2]' } } })
+  await engine.updateChanges(index, { enabled: true, previousDocument: false })
+  const document = {
+    title: 'lamp',
+    meta: { embedding: new Float32Array(settings.storedValues.embedding) },
+    photo: new Uint8Array(settings.storedValues.photo),
+    addedAt: new Date(settings.storedValues.addedAt),
+  }
+  await engine.insert(index, document, 'lamp')
+}
+
 const server = createServer(engine, {
   host: '127.0.0.1',
   port: 0,

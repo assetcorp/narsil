@@ -64,6 +64,12 @@ export function engineChangeSource(core: SourceCore, listenForSettings?: ListenF
       )
     },
 
+    async vectorFieldPaths(indexName) {
+      const entry = core.indexRegistry.get(indexName)
+      if (entry === undefined) throw changesNotEnabled(indexName)
+      return entry.vectorFieldPaths
+    },
+
     async bounds(indexName, partitionId) {
       const log = await requireStorage(indexName).openPartitionLog(indexName, partitionId)
       const applied = core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0

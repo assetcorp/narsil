@@ -207,8 +207,10 @@ export class ChangesSession {
       if (refused !== null) return this.close(CHANGES_CLOSE_POLICY, refused.message)
     }
     let opened: ChangeCursor | ResyncReason
+    let vectorFields: string[] = []
     try {
       opened = await ChangeCursor.open({ source, indexName, reads }, message)
+      if (typeof opened !== 'string') vectorFields = [...(await source.vectorFieldPaths(indexName))].sort()
     } catch (error) {
       return this.closeOver(error)
     }
@@ -230,6 +232,7 @@ export class ChangesSession {
         bytesBehind: cursor.bytesBehind,
         windowBytes: this.deps.windowBytes,
         previousDocument: cursor.state.previousDocument,
+        vectorFields,
       }),
     )
     void this.pump()

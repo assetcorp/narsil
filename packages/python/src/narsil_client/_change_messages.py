@@ -21,6 +21,7 @@ from narsil_client._errors import CHANGES_INVALID_POSITIONS, CONFIG_INVALID, Nar
 from narsil_client._exchange import plain
 
 PositionInput: TypeAlias = ChangePosition | Mapping[str, Any]
+VectorPath: TypeAlias = tuple[str, ...]
 
 EPOCH_PATTERN: Final = re.compile(r"[0-9a-f]{32}")
 CREDENTIAL_PATTERN: Final = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
@@ -136,7 +137,7 @@ def _restored(value: object, depth: int) -> Any:
     if depth > MAX_DOCUMENT_DEPTH:
         raise malformed("a document nests too deeply")
     if isinstance(value, bytes):
-        return _vector_of(value)
+        return value
     if isinstance(value, list):
         return [_restored(item, depth + 1) for item in value]
     if isinstance(value, dict):
@@ -151,15 +152,46 @@ def _restored(value: object, depth: int) -> Any:
     raise malformed("a document holds a value of a type that no document holds")
 
 
-def _document_of(raw: object, field: str) -> dict[str, Any] | None:
+def _restore_vector_at(document: dict[str, Any], path: VectorPath) -> None:
+    holder = document
+    for segment in path[:-1]:
+        next_holder = holder.get(segment)
+        if not isinstance(next_holder, dict):
+            return
+        holder = next_holder
+    value = holder.get(path[-1])
+    if isinstance(value, bytes):
+        holder[path[-1]] = _vector_of(value)
+
+
+def _document_of(raw: object, field: str, vector_paths: tuple[VectorPath, ...]) -> dict[str, Any] | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise malformed(f"{field} must be a map")
-    return cast(dict[str, Any], _restored(raw, 0))
+    document = cast(dict[str, Any], _restored(raw, 0))
+    for path in vector_paths:
+        _restore_vector_at(document, path)
+    return document
 
 
-def _change_of(raw: object) -> Change:
+def vector_paths_of(vector_fields: tuple[str, ...]) -> tuple[VectorPath, ...]:
+    return tuple(tuple(field.split(".")) for field in vector_fields)
+
+
+def _vector_fields_of(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise malformed("vectorFields must be a list of paths")
+    for item in raw:
+        if not isinstance(item, str):
+            raise malformed("vectorFields must be a list of paths")
+        segments = item.split(".")
+        if len(segments) > MAX_DOCUMENT_DEPTH or "" in segments:
+            raise malformed(f"the vector field path {item} is invalid")
+    return tuple(raw)
+
+
+def _change_of(raw: object, vector_paths: tuple[VectorPath, ...]) -> Change:
     if not isinstance(raw, dict) or not is_count(raw.get("seqNo")) or not isinstance(raw.get("documentId"), str):
         raise malformed("a change is invalid")
     kind = raw.get("type")
@@ -169,14 +201,25 @@ def _change_of(raw: object) -> Change:
         seq_no=raw["seqNo"],
         type=cast(ChangeType, kind),
         document_id=raw["documentId"],
-        document=_document_of(raw.get("document"), "document"),
-        previous_document=_document_of(raw.get("previousDocument"), "previousDocument"),
+        document=_document_of(raw.get("document"), "document", vector_paths),
+        previous_document=_document_of(raw.get("previousDocument"), "previousDocument", vector_paths),
     )
 
 
-def subscribed_of(raw: object) -> ChangesSubscribed:
-    if not isinstance(raw, dict) or raw.get("type") != "subscribed":
-        raise malformed("the first message must be subscribed")
+def _resync_of(raw: dict[str, Any]) -> ChangesResync:
+    reason = raw.get("reason")
+    if not isinstance(reason, str) or reason not in RESYNC_REASONS:
+        raise malformed("the resync reason is unknown")
+    return ChangesResync(cast(ResyncReason, reason))
+
+
+def first_event_of(raw: object) -> ChangesEvent:
+    if not isinstance(raw, dict):
+        raise malformed("a message must be a map")
+    if raw.get("type") == "resync":
+        return _resync_of(raw)
+    if raw.get("type") != "subscribed":
+        raise malformed("the first message must be subscribed or resync")
     epoch, partition_count = raw.get("epoch"), raw.get("partitionCount")
     bytes_behind, window_bytes = raw.get("bytesBehind"), raw.get("windowBytes")
     previous_document = raw.get("previousDocument")
@@ -196,18 +239,16 @@ def subscribed_of(raw: object) -> ChangesSubscribed:
         bytes_behind=bytes_behind,
         window_bytes=window_bytes,
         previous_document=previous_document,
+        vector_fields=_vector_fields_of(raw.get("vectorFields")),
     )
 
 
-def later_event_of(raw: object, partition_count: int) -> ChangesEvent:
+def later_event_of(raw: object, partition_count: int, vector_paths: tuple[VectorPath, ...]) -> ChangesEvent:
     if not isinstance(raw, dict):
         raise malformed("a message must be a map")
     kind = raw.get("type")
     if kind == "resync":
-        reason = raw.get("reason")
-        if not isinstance(reason, str) or reason not in RESYNC_REASONS:
-            raise malformed("the resync reason is unknown")
-        return ChangesResync(cast(ResyncReason, reason))
+        return _resync_of(raw)
     if kind != "changes":
         raise malformed("the message type is unknown")
     partition_id, scanned_seq_no, changes = raw.get("partitionId"), raw.get("scannedSeqNo"), raw.get("changes")
@@ -215,7 +256,7 @@ def later_event_of(raw: object, partition_count: int) -> ChangesEvent:
         raise malformed("the partition is unknown")
     if not is_count(scanned_seq_no) or not isinstance(changes, list):
         raise malformed("the changes are invalid")
-    decoded = tuple(_change_of(change) for change in changes)
+    decoded = tuple(_change_of(change, vector_paths) for change in changes)
     if any(change.seq_no > scanned_seq_no for change in decoded):
         raise malformed("a change lies above scannedSeqNo")
     return ChangesBatch(partition_id=partition_id, changes=decoded, scanned_seq_no=scanned_seq_no)

@@ -10,6 +10,7 @@ export interface ChangesIndexState {
 export interface ChangeSource {
   changesState(indexName: string): ChangesIndexState | null
   documentTest(indexName: string, filter: unknown): Promise<DocumentTest>
+  vectorFieldPaths(indexName: string): Promise<ReadonlySet<string>>
   bounds(indexName: string, partitionId: number, freshness?: BoundsFreshness): Promise<PartitionBounds>
   read(
     indexName: string,
