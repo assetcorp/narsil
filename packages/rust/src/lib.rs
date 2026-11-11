@@ -48,6 +48,10 @@ pub use engine::{
     AnalysisConfig, AnalysisRebuildMode, IdGenerator, IndexLifecycleConfig, IndexResidencyState,
     MemoryConfig, StaleAnalysis, StaleAnalysisListener, StaleRebuild,
 };
+pub use engine::{
+    Change, ChangeFeed, ChangeFeedStop, ChangeGroup, ChangePosition, ChangeType, ChangesEvent,
+    ChangesRequest, ChangesSetting, ChangesStatus, ChangesSubscribed, ResyncReason,
+};
 pub use engine::{MainCopyQueries, WorkerConfig, WriteOptions};
 pub use engine::{
     ManualQuerySuggestion, QuerySuggestionPreviewEntry, QuerySuggestions, QuerySuggestionsBuild,

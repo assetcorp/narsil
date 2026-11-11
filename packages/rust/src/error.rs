@@ -84,6 +84,20 @@ error_codes! {
     SYNC_DURABILITY_REQUIRED,
     /// Device sync is off for the index.
     SYNC_NOT_ENABLED,
+    /// Change capture needs write-ahead log durability.
+    CHANGES_DURABILITY_REQUIRED,
+    /// A cluster without a backup store cannot turn change capture on.
+    CHANGES_BACKUP_STORE_REQUIRED,
+    /// A cluster node runs a specification version that keeps no history for change capture.
+    CHANGES_NOT_READY,
+    /// Change capture is off for the index.
+    CHANGES_NOT_ENABLED,
+    /// A filtered request for changes reached an index that records no previous document.
+    CHANGES_PREVIOUS_DOCUMENT_REQUIRED,
+    /// A cluster node is taking the backup that a document export of the changes needs.
+    CHANGES_EXPORT_PREPARING,
+    /// A request for changes gives a malformed epoch or a list of positions that does not cover the index.
+    CHANGES_INVALID_POSITIONS,
     /// Popular query suggestions are off for the index.
     QUERY_SUGGESTIONS_NOT_ENABLED,
     /// A partition's in-memory state broke one of the engine's own rules.

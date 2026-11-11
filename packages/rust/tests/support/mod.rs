@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod adapters;
+pub mod changes;
 pub mod filter_parity;
 pub mod parity;
 pub mod parity_cases;

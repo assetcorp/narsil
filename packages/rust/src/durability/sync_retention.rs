@@ -98,16 +98,16 @@ fn next_to_delete(
 /// Deletes the oldest history segment of an index, oldest first, while one is older than the age limit or the
 /// history holds more bytes than the byte limit, and returns how many it deleted.
 ///
-/// Before it deletes a segment that holds an entry above the published snapshot's last sequence number for that
-/// partition, or any segment while the index has no published snapshot, it calls `publish` once, so that a
-/// device that falls behind the history can still start from the published snapshot.
+/// Where `publish` is given, before it deletes a segment that holds an entry above the published snapshot's last
+/// sequence number for that partition, or any segment while the index has no published snapshot, it calls
+/// `publish` once, so that a device that falls behind the history can still start from the published snapshot.
 pub(crate) fn enforce_history_limits(
     directory: &DurableDirectory,
     index_name: &str,
     limits: &HistoryLimits,
     now_ms: u64,
     mut published: Option<PublishedSnapshot>,
-    publish: &mut dyn FnMut() -> Result<PublishedSnapshot>,
+    mut publish: Option<&mut dyn FnMut() -> Result<PublishedSnapshot>>,
 ) -> Result<usize> {
     let mut queues = sized_queues(directory, index_name)?;
     let mut total_bytes: u64 = queues
@@ -127,7 +127,10 @@ pub(crate) fn enforce_history_limits(
         let published_last = published
             .as_ref()
             .map(|snapshot| snapshot.last_seq_no(partition_id));
-        if !republished && published_last.is_none_or(|last| head.last_seq_no > last) {
+        if let Some(publish) = publish.as_mut()
+            && !republished
+            && published_last.is_none_or(|last| head.last_seq_no > last)
+        {
             republished = true;
             published = Some(publish()?);
         }

@@ -1,5 +1,7 @@
 mod analysis;
 mod bm25;
+mod changes;
+mod feeds;
 mod partitions;
 mod sync;
 mod vectors;
@@ -14,8 +16,10 @@ pub(crate) use analysis::{
 pub(crate) use bm25::{
     Bm25Params, DEFAULT_BM25_B, DEFAULT_BM25_K1, FieldBm25, bm25_from_wire, bm25_to_wire,
 };
+pub(crate) use changes::ChangesSetting;
+pub(crate) use feeds::{feeds_from_wire, feeds_to_wire};
 pub(crate) use partitions::{PartitionLimits, limits_from_wire, limits_to_wire};
-pub(crate) use sync::{SyncSetting, sync_from_wire, sync_to_wire};
+pub(crate) use sync::SyncSetting;
 pub(crate) use vectors::{
     EmbeddingMetadata, EmbeddingSource, HnswSettings, VectorFieldMetadata, VectorPromotion,
     embedding_from_wire, embedding_to_wire, promotion_from_wire, promotion_to_wire,

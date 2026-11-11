@@ -36,6 +36,7 @@ enum ArchiveFiles {
 pub(crate) struct ArchiveCheckpoint {
     pub(crate) manifest_bytes: Vec<u8>,
     pub(crate) manifest: SegmentManifest,
+    pub(crate) capture_epoch: Option<String>,
     files: ArchiveFiles,
 }
 
@@ -203,6 +204,7 @@ fn memory_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint> {
     Ok(ArchiveCheckpoint {
         manifest_bytes,
         manifest,
+        capture_epoch: None,
         files: ArchiveFiles::Memory(store),
     })
 }
@@ -210,7 +212,8 @@ fn memory_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint> {
 /// Returns a checkpoint of `index` for an archive: under the write-ahead log, a new checkpoint whose files stay
 /// pinned, so that the archive holds every write acknowledged before the call; otherwise a checkpoint that the
 /// engine writes into memory from the index as it stands. Each holds the index's write lock until its files are
-/// pinned or copied, so that a restore cannot replace the files under the index's name in between.
+/// pinned or copied, so that a restore cannot replace the files under the index's name in between, and so that the
+/// change capture epoch that it reads belongs to the same moment as the checkpoint's positions.
 pub(crate) fn archive_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint> {
     if let Some(log) = index.log()
         && let Backing::Log(_) = log.backing()
@@ -221,6 +224,7 @@ pub(crate) fn archive_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint
         return Ok(ArchiveCheckpoint {
             manifest_bytes: pinned.manifest_bytes.clone(),
             manifest: pinned.manifest.clone(),
+            capture_epoch: log.recorded_capture().0,
             files: ArchiveFiles::Stored(log.backing().clone(), pinned),
         });
     }
