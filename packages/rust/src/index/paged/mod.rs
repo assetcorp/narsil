@@ -11,7 +11,7 @@ mod resident;
 pub(crate) use cache::merge_cache_scope;
 pub(crate) use file::{PagedFile, paged_read};
 pub(crate) use lists::{PostingList, PostingPositions};
-pub(crate) use open::{PagedListing, open_paged_segment};
+pub(crate) use open::{PagedListing, open_paged_segment, resident_section_bytes};
 
 use documents::BlockEntry;
 
