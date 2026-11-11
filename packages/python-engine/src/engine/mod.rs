@@ -6,7 +6,7 @@ mod search;
 mod suggestions;
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use narsil::{ErrorCode, ListenerId, Narsil, NarsilError};
@@ -56,6 +56,7 @@ pub(crate) struct PyNarsil {
     pub(crate) listeners: Mutex<HashMap<u64, ListenerId>>,
     pub(crate) next_listener: AtomicU64,
     pub(crate) retained: RetainedSet,
+    pub(crate) shutdown_claimed: AtomicBool,
 }
 
 fn open_engine(setup: EngineSetup) -> Result<Narsil, NarsilError> {
@@ -109,6 +110,7 @@ impl PyNarsil {
             listeners: Mutex::new(HashMap::new()),
             next_listener: AtomicU64::new(1),
             retained,
+            shutdown_claimed: AtomicBool::new(false),
         })
     }
 
@@ -157,9 +159,12 @@ impl PyNarsil {
 
     fn shutdown(&self, py: Python<'_>) -> PyResult<()> {
         let engine = self.handle.engine()?;
-        py.detach(|| engine.shutdown()).map_err(to_py_err)?;
-        self.retained.release();
-        Ok(())
+        let claimed = !self.shutdown_claimed.swap(true, Ordering::AcqRel);
+        let outcome = py.detach(|| engine.shutdown());
+        if claimed {
+            self.retained.release();
+        }
+        outcome.map_err(to_py_err)
     }
 
     #[getter]

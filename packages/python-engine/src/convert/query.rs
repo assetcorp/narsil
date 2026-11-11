@@ -260,16 +260,6 @@ pub(crate) struct ConvertedQuery {
     pub(crate) text_refusal: Option<NarsilError>,
 }
 
-pub(crate) fn with_text_refusal(
-    error: NarsilError,
-    text_refusal: Option<NarsilError>,
-) -> NarsilError {
-    match text_refusal {
-        Some(refusal) if error.code() == ErrorCode::DOC_VALIDATION_FAILED => refusal,
-        _ => error,
-    }
-}
-
 pub(crate) fn query_params(
     value: &Bound<'_, PyAny>,
     label: &str,
