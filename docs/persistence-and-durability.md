@@ -82,6 +82,33 @@ Every file in the format has a limit of 2,147,483,647 bytes, because a single No
 
 The engine opens a new log segment as a checkpoint starts, and once the checkpoint commits, it deletes each segment whose records the checkpoint holds, so a restart reads only the records that arrived after the checkpoint. A checkpoint that finds no new writes opens no segment.
 
+### Saved and log sizes
+
+`getStats` and `getPartitionStats` report two sizes for an index that saves to disk, which a host can bill on or alert on:
+
+```ts
+const stats = narsil.getStats('products')
+console.log(stats.savedBytes, stats.logBytes)
+
+for (const partition of narsil.getPartitionStats('products')) {
+  console.log(partition.partitionId, partition.savedBytes, partition.logBytes)
+}
+```
+
+`savedBytes` counts the bytes of the files that the index's current checkpoint lists. A partition's figure covers its segment files, and the index's figure adds the vector files and the graph parts, because a checkpoint stores those once for each field of the whole index. The figure changes only when a checkpoint commits, so an unchanged index reports the same size before and after a restart. `estimatedMemoryBytes` can change across that restart, which is why it makes a poor figure to bill on.
+
+`logBytes` counts the bytes of the write-ahead log and of the history that the index keeps for [device sync](device-sync.md). It grows with every write, and it falls when the engine deletes the log segments that a checkpoint covers or the history that sync no longer keeps. Together, the two figures count the files that hold the index's documents, vectors, and writes, and they leave out the small metadata and manifest files.
+
+The engine records both figures as it writes, as it recovers, and as it restores a snapshot, so a stats call reads no file. An index without durability reports neither figure. The snapshot tier reports `savedBytes` and no `logBytes`, because it keeps no log. A closed index reports the `savedBytes` that its last checkpoint recorded in the index's metadata, and no `logBytes`, so the stats of a closed index load nothing. The HTTP server's `GET /indexes/:name/stats` and `GET /indexes/:name/partitions` routes return the same fields, and so do the TypeScript, [Python](python-client.md), and [Go](go-client.md) clients. A cluster reports the figures for each copy and for every copy together; see [Saved size in a cluster](cluster.md#saved-size-in-a-cluster).
+
+### Removed documents
+
+A removal or an update leaves the old copy of a document in the segment file that holds it, until a checkpoint writes that segment again. Every checkpoint compares, for each partition, the documents that the partition's segment files hold with the documents that the partition holds now. Once removed and replaced documents make up more than 0.2 of what the segment files hold, the checkpoint rewrites the segments that free the most bytes, and it drops the old copies as it writes them. An index without removals skips the step, because the engine compares two counts that it already keeps.
+
+One checkpoint rewrites at most 256 MiB of existing segment files in each partition, and always at least one segment, so a large removal spreads its rewrites across the checkpoints that follow. The automatic checkpoint at every `checkpointIntervalMs` keeps rewriting until the share is at or below 0.2, so `savedBytes` falls after a large removal with no further write. With `checkpointIntervalMs` set to `0`, the rewrites wait for the next `checkpoint()` call or for `checkpointMutationThreshold`. A checkpoint that leaves part of the log for the next checkpoint, or that runs while a rebalance is under way, skips the rewrite and leaves it to the checkpoint after it.
+
+A rewrite needs free disk space while the old files and the new files exist together. The manifest write is the commit point, so the engine writes every new file of a checkpoint before it deletes an old one, and a crash during a rewrite leaves the previous checkpoint in force. Plan for up to 256 MiB of extra space for each partition that a checkpoint rewrites, or the size of the largest segment where one segment is bigger than that. Where worker copies read the old files, the engine deletes them at the next checkpoint, so that space stays in use for one more checkpoint interval. The snapshot tier writes each changed partition whole at every checkpoint, so its files hold no removed document after the checkpoint that follows a removal.
+
 `createNarsil` validates every durability field and rejects an invalid value with `CONFIG_INVALID`: an unknown `tier` or `mode` string, a non-finite number, a negative interval, or a size or threshold below 1. An interval of `0` disables that timer.
 
 ## Disk-backed search
