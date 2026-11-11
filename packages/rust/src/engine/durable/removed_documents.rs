@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use super::checkpoint_segments::SegmentWriter;
 use super::compaction::{Listed, WindowMerge, merge_window};
-use super::constants::{
-    REMOVED_DOCUMENT_REWRITE_BYTES_PER_CHECKPOINT, REWRITE_ABOVE_REMOVED_DOCUMENT_PERCENT,
-};
+use super::constants::REWRITE_ABOVE_REMOVED_DOCUMENT_PERCENT;
 use crate::engine::index::IndexState;
 use crate::error::Result;
 use crate::index::partition::Partition;
@@ -76,7 +74,25 @@ impl Candidate {
     }
 }
 
-fn chosen_rewrites(listed: &[Listed<'_>], mut held: u64, mut removed: u64) -> Vec<usize> {
+/// The bytes of existing segment files that one checkpoint may rewrite beyond the first rewritten segment of each
+/// partition, and the bytes that its rewrites have taken so far.
+pub(super) struct RewriteBudget {
+    limit: u64,
+    spent: u64,
+}
+
+impl RewriteBudget {
+    pub(super) fn new(limit: u64) -> RewriteBudget {
+        RewriteBudget { limit, spent: 0 }
+    }
+}
+
+fn chosen_rewrites(
+    listed: &[Listed<'_>],
+    mut held: u64,
+    mut removed: u64,
+    budget: &mut RewriteBudget,
+) -> Vec<usize> {
     let mut candidates: Vec<Candidate> = listed
         .iter()
         .enumerate()
@@ -95,17 +111,16 @@ fn chosen_rewrites(listed: &[Listed<'_>], mut held: u64, mut removed: u64) -> Ve
         .collect();
     candidates.sort_by(Candidate::frees_more_than);
     let mut chosen = Vec::new();
-    let mut rewritten_bytes = 0u64;
     for candidate in candidates {
         if !exceeds_removed_share(removed, held) {
             break;
         }
-        let total = rewritten_bytes.saturating_add(candidate.bytes);
-        if !chosen.is_empty() && total > REMOVED_DOCUMENT_REWRITE_BYTES_PER_CHECKPOINT {
+        let total = budget.spent.saturating_add(candidate.bytes);
+        if !chosen.is_empty() && total > budget.limit {
             continue;
         }
         chosen.push(candidate.at);
-        rewritten_bytes = total;
+        budget.spent = total;
         held = held.saturating_sub(candidate.removed);
         removed = removed.saturating_sub(candidate.removed);
     }
@@ -114,8 +129,10 @@ fn chosen_rewrites(listed: &[Listed<'_>], mut held: u64, mut removed: u64) -> Ve
 }
 
 /// Rewrites the segments of `listed` that free the most bytes, each into one segment that holds its live
-/// documents, while the partition's removed share exceeds the rewrite threshold and the checkpoint's rewrite budget
-/// allows, and returns the rewrites that replace them in memory once the checkpoint commits.
+/// documents, while the partition's removed share exceeds the rewrite threshold, and returns the rewrites that
+/// replace them in memory once the checkpoint commits. The first segment of a partition is always rewritten, and
+/// each further one only while `budget` allows it, so every partition above the threshold shrinks in every
+/// checkpoint.
 ///
 /// The share compares the documents that each listed segment holds with the ones that its in-memory segment still
 /// counts as live, so a partition without removals reads no segment.
@@ -125,6 +142,7 @@ pub(super) fn rewrite_removed_documents(
     partitions: &[Arc<Partition>],
     listed: &mut Vec<Listed<'_>>,
     next_id: &mut u64,
+    budget: &mut RewriteBudget,
 ) -> Result<Vec<WindowMerge>> {
     let held = listed.iter().fold(0u64, |total, listed| {
         total.saturating_add(u64::from(listed.reference.document_count))
@@ -136,7 +154,8 @@ pub(super) fn rewrite_removed_documents(
         return Ok(Vec::new());
     }
     let mut rewrites = Vec::new();
-    for at in chosen_rewrites(listed, held, removed).into_iter().rev() {
+    let chosen = chosen_rewrites(listed, held, removed, budget);
+    for at in chosen.into_iter().rev() {
         let rewrite = merge_window(segments, index, partitions, listed, at..at + 1, *next_id)?;
         *next_id += 1;
         rewrites.push(rewrite);
