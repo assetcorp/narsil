@@ -179,7 +179,7 @@ fn calls_on_other_indexes_answer_while_a_create_waits_on_its_first_save() {
 }
 
 #[test]
-fn a_shutdown_waits_for_a_create_that_is_saving_and_the_created_index_reopens() {
+fn every_concurrent_shutdown_waits_for_a_create_that_is_saving_and_the_created_index_reopens() {
     let stored = Arc::new(MemoryPersistence::new());
     let StalledEngine {
         engine,
@@ -192,22 +192,30 @@ fn a_shutdown_waits_for_a_create_that_is_saving_and_the_created_index_reopens() 
         reached
             .recv_timeout(STALLED_SAVE_START)
             .expect("the create reaches its first save");
-        let shut_down = asked(scope, || engine.shutdown());
-        let returned_during_save = shut_down.recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE).is_ok();
+        let first_shutdown = asked(scope, || engine.shutdown());
+        let second_shutdown = asked(scope, || engine.shutdown());
+        let first_returned_during_save = first_shutdown
+            .recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE)
+            .is_ok();
+        let second_returned_during_save = second_shutdown
+            .recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE)
+            .is_ok();
         let _ = release.send(());
 
         assert!(
-            !returned_during_save,
-            "the shutdown waits for the create that is saving"
+            !first_returned_during_save && !second_returned_during_save,
+            "every shutdown waits for the create that is saving"
         );
         created
             .join()
             .expect("the create returns")
             .expect("the create that began before the shutdown succeeds");
-        shut_down
-            .recv_timeout(OTHER_INDEX_ANSWER)
-            .expect("the shutdown returns once the create finishes")
-            .expect("the engine shuts down");
+        for shut_down in [first_shutdown, second_shutdown] {
+            shut_down
+                .recv_timeout(OTHER_INDEX_ANSWER)
+                .expect("the shutdown returns once the create finishes")
+                .expect("the engine shuts down");
+        }
     });
 
     let refused = engine
