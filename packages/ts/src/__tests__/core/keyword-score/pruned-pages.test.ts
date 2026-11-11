@@ -195,7 +195,11 @@ describe.each(KEYWORD_BACKENDS)('a pruned page at its edges through $name', back
     await narsil.shutdown()
   })
 
-  it('agrees with the full ranking at the edges of the bm25 parameter ranges', async () => {
+  it.each([
+    { edge: 'b of 0', bm25: { b: 0, k1: 1.2 } },
+    { edge: 'b of 1', bm25: { b: 1, k1: 1.2 } },
+    { edge: 'k1 of 0', bm25: { b: 0.75, k1: 0 } },
+  ])('agrees with the full ranking at the bm25 parameter edge of a $edge', async ({ bm25 }) => {
     const narsil = await createNarsil({ workers: { enabled: false } })
     const documents = []
     for (let index = 0; index < 3000; index++) {
@@ -205,17 +209,11 @@ describe.each(KEYWORD_BACKENDS)('a pruned page at its edges through $name', back
         body: index % 4 === 0 ? 'beta body text' : 'body text',
       })
     }
-    for (const bm25 of [
-      { b: 0, k1: 1.2 },
-      { b: 1, k1: 1.2 },
-      { b: 0.75, k1: 0 },
-    ]) {
-      const indexName = `b-${bm25.b}-k1-${bm25.k1}`
-      await narsil.createIndex(indexName, { schema: { title: 'string', body: 'string' }, language: 'english', bm25 })
-      await narsil.insertBatch(indexName, documents)
-      await expectPageOfFullRanking(narsil, indexName, { term: 'alpha padding', limit: 10 })
-      await expectPageOfFullRanking(narsil, indexName, { term: 'alpha beta text', limit: 10, offset: 20 })
-    }
+    const indexName = `b-${bm25.b}-k1-${bm25.k1}`
+    await narsil.createIndex(indexName, { schema: { title: 'string', body: 'string' }, language: 'english', bm25 })
+    await narsil.insertBatch(indexName, documents)
+    await expectPageOfFullRanking(narsil, indexName, { term: 'alpha padding', limit: 10 })
+    await expectPageOfFullRanking(narsil, indexName, { term: 'alpha beta text', limit: 10, offset: 20 })
     await narsil.shutdown()
   })
 })
