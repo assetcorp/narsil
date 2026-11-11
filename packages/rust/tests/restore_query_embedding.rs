@@ -130,3 +130,84 @@ fn a_preflight_uses_the_embedding_adapter_of_the_index_that_it_counts() {
     let result = during_restore(|engine| engine.preflight(INDEX, &search_params()).unwrap());
     assert_eq!(result.count, 1);
 }
+
+enum QueryProgress {
+    Embedding,
+    Finished,
+}
+
+fn require_bounded_retries(search: impl FnOnce(&Narsil) -> narsil::Result<()> + Send) {
+    const RESTORES_BEFORE_CANCELLATION: usize = 64;
+    let source_root = ScratchDirectory::new("restore-query-retry-source");
+    let source = Tier::Log.open(source_root.path());
+    register_replacement(&source);
+    source.create_index(INDEX, config("replacement")).unwrap();
+    insert(&source, "wanted", [0.0, 1.0]);
+    let archive = snapshot_of(&source, INDEX);
+    source.shutdown().unwrap();
+
+    let root = ScratchDirectory::new("restore-query-retry-target");
+    let target = Tier::Log.open(root.path());
+    let (progress, observed) = mpsc::channel();
+    let embedding_progress = progress.clone();
+    let (release, released) = mpsc::channel::<bool>();
+    let released = Mutex::new(released);
+    target
+        .register_embedding_adapter(
+            "replacement",
+            Arc::new(EmbedWith {
+                dimensions: 2,
+                embed: move |_: &str| {
+                    embedding_progress.send(QueryProgress::Embedding).unwrap();
+                    if !released.lock().unwrap().recv_timeout(WAIT).unwrap() {
+                        return Err(std::io::Error::other(
+                            "the test cancelled repeated embeddings",
+                        )
+                        .into());
+                    }
+                    Ok(vec![0.0, 1.0])
+                },
+            }),
+        )
+        .unwrap();
+    target.restore(INDEX, &mut archive.as_slice()).unwrap();
+    let mut cancelled = false;
+    let mut restores = 0;
+    let outcome = std::thread::scope(|scope| {
+        let query = scope.spawn(|| {
+            let outcome = search(&target);
+            progress.send(QueryProgress::Finished).unwrap();
+            outcome
+        });
+        loop {
+            match observed.recv_timeout(WAIT).expect("the query makes progress") {
+                QueryProgress::Finished => break,
+                QueryProgress::Embedding if restores < RESTORES_BEFORE_CANCELLATION => {
+                    target.restore(INDEX, &mut archive.as_slice()).unwrap();
+                    restores += 1;
+                    release.send(true).unwrap();
+                }
+                QueryProgress::Embedding => {
+                    cancelled = true;
+                    release.send(false).unwrap();
+                }
+            }
+        }
+        query.join().unwrap()
+    });
+    target.shutdown().unwrap();
+    assert!(
+        !cancelled,
+        "the query only returned after the test cancelled its embedding call following {restores} completed restores: {outcome:?}"
+    );
+}
+
+#[test]
+fn a_query_bounds_reembedding_when_restores_keep_replacing_the_index() {
+    require_bounded_retries(|engine| engine.query(INDEX, &search_params()).map(|_| ()));
+}
+
+#[test]
+fn a_preflight_bounds_reembedding_when_restores_keep_replacing_the_index() {
+    require_bounded_retries(|engine| engine.preflight(INDEX, &search_params()).map(|_| ()));
+}
