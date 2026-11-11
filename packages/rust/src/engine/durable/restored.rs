@@ -26,7 +26,7 @@ impl Durable {
         manifest: &SegmentManifest,
         metadata: IndexMetadata,
     ) -> Result<IndexLog> {
-        let log = IndexLog::new(self.backing.clone(), metadata, self.compaction_threshold);
+        let log = IndexLog::new(self.backing.clone(), metadata, self.limits);
         log.record_saved(SavedSize::of(manifest));
         let checkpoint = &manifest.checkpoint;
         match &self.backing {

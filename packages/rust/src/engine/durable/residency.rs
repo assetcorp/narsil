@@ -24,7 +24,7 @@ impl Durable {
         engine: &EngineInner,
         name: &str,
     ) -> Result<Option<Arc<IndexState>>> {
-        recover_index(engine, &self.backing, self.compaction_threshold, name)
+        recover_index(engine, &self.backing, self.limits, name)
     }
 
     /// Writes a checkpoint of `index` while the caller holds its write lock, so that the checkpoint holds every

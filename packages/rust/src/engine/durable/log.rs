@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::backing::Backing;
+use super::config::CheckpointLimits;
 use super::metadata::metadata_of;
 use super::saved_size::SavedSize;
 use crate::durability::log_segment::LogWrite;
@@ -19,7 +20,7 @@ use crate::value::{Map, encode_document};
 pub(crate) struct IndexLog {
     backing: Backing,
     index_name: String,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
     recorded: Mutex<IndexMetadata>,
     applied: Mutex<BTreeMap<u32, u64>>,
     unsaved_writes: AtomicU64,
@@ -36,12 +37,12 @@ impl IndexLog {
     pub(crate) fn new(
         backing: Backing,
         recorded: IndexMetadata,
-        compaction_threshold: u32,
+        limits: CheckpointLimits,
     ) -> IndexLog {
         IndexLog {
             backing,
             index_name: recorded.index_name.clone(),
-            compaction_threshold,
+            limits,
             recorded: Mutex::new(recorded),
             applied: Mutex::new(BTreeMap::new()),
             unsaved_writes: AtomicU64::new(0),
@@ -99,9 +100,9 @@ impl IndexLog {
         }
     }
 
-    /// Returns the number of segments that a partition holds at most before a checkpoint merges them into one.
-    pub(crate) fn compaction_threshold(&self) -> u32 {
-        self.compaction_threshold
+    /// Returns the limits that each checkpoint of the index applies as it merges and rewrites segments.
+    pub(crate) fn limits(&self) -> CheckpointLimits {
+        self.limits
     }
 
     /// Records the metadata that a checkpoint committed, whose facts the next metadata write keeps.

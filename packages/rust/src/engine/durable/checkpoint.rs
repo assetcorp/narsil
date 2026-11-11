@@ -3,22 +3,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::backing::{Backing, CheckpointTarget};
+use super::checkpoint_listing::{listed_as_before, listed_with_changes, unchanged_since};
 use super::checkpoint_positions::partition_checkpoints;
-use super::checkpoint_segments::{
-    SavedSegment, SegmentWriter, ids_held_earlier, joined_tombstones,
-};
+use super::checkpoint_segments::{SavedSegment, SegmentWriter};
 use super::checkpoint_vectors::{WrittenField, vector_files_still_read, write_vector_fields};
-use super::compaction::{Listed, WindowMerge, choose_window, merge_window, removed_ids};
+use super::compaction::{WindowMerge, choose_window, merge_window};
+use super::config::CheckpointLimits;
 use super::log::IndexLog;
-use super::removed_documents::rewrite_removed_documents;
+use super::removed_documents::{RewriteBudget, rewrite_removed_documents};
 use super::saved_size::SavedSize;
 use crate::config::Storage;
 use crate::engine::index::IndexState;
 use crate::error::Result;
-use crate::format::keyword_segment::KeywordSegment;
 use crate::format::manifest::{PartitionEntry, SegmentManifest};
 use crate::format::metadata::IndexMetadata;
-use crate::index::merge::{freeze_segment, merge_segments};
 use crate::index::partition::{Partition, PartitionSnapshot};
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::schema::flatten_schema;
@@ -36,6 +34,7 @@ struct PartitionPlan<'a> {
     snapshot: &'a PartitionSnapshot,
     prior: Option<&'a PartitionEntry>,
     rewrites_every_segment: bool,
+    unchanged: bool,
     compaction_threshold: usize,
     pages_text: bool,
 }
@@ -45,12 +44,14 @@ fn write_partition(
     index: &IndexState,
     partitions: &[Arc<Partition>],
     plan: PartitionPlan<'_>,
+    budget: &mut RewriteBudget,
 ) -> Result<(PartitionEntry, PartitionSwap)> {
     let PartitionPlan {
         partition_id,
         snapshot,
         prior,
         rewrites_every_segment,
+        unchanged,
         compaction_threshold,
         pages_text,
     } = plan;
@@ -63,13 +64,6 @@ fn write_partition(
     let mut next_id = snapshot
         .next_segment_id
         .max(prior.map_or(0, |entry| entry.next_segment_id));
-    let prior_refs = prior.map_or(&[][..], |entry| entry.segments.as_slice());
-    let kept_ref = |entry: &SegmentEntry| {
-        let frozen = matches!(entry.data, SegmentData::Frozen(_));
-        prior_refs
-            .iter()
-            .find(|reference| frozen && reference.id == entry.id)
-    };
     let mut swap = PartitionSwap {
         saved: Vec::new(),
         replaces_every_segment: rewrites_every_segment,
@@ -80,65 +74,21 @@ fn write_partition(
         swap.saved.extend(saved);
         return Ok((entry, swap));
     }
-    let mut listed: Vec<Listed<'_>> = Vec::new();
-    let mut tombstones = Vec::new();
-    let mut pending: Vec<(u64, KeywordSegment, Vec<String>, Option<&SegmentEntry>)> = Vec::new();
-    let mut earlier: Vec<&SegmentEntry> = Vec::new();
-    for entry in &snapshot.segments {
-        if entry.live_count() == 0 {
-            continue;
-        }
-        match kept_ref(entry) {
-            Some(reference) => {
-                tombstones.extend(removed_ids(index, partitions, &[entry])?);
-                for (id, payload, held, source) in pending.drain(..) {
-                    let (written, saved) = segments.write(id, payload, held)?;
-                    listed.push(Listed {
-                        reference: written,
-                        source,
-                    });
-                    swap.saved.push(saved);
-                }
-                listed.push(Listed {
-                    reference: reference.clone(),
-                    source: Some(entry),
-                });
-            }
-            None => {
-                let payload = freeze_segment(entry, &index.schema)?;
-                let held = if pages_text {
-                    ids_held_earlier(&earlier, &payload)?
-                } else {
-                    Vec::new()
-                };
-                pending.push((entry.id, payload, held, Some(entry)));
-            }
-        }
-        earlier.push(entry);
-    }
-    if !tombstones.is_empty() && pending.is_empty() {
-        pending.push((
-            next_id,
-            merge_segments(&[], &index.schema)?,
-            Vec::new(),
-            None,
-        ));
-        next_id += 1;
-    }
-    let last = pending.len().saturating_sub(1);
-    for (at, (id, payload, held, source)) in pending.into_iter().enumerate() {
-        let carried = if at == last {
-            joined_tombstones(held, std::mem::take(&mut tombstones))
-        } else {
-            held
-        };
-        let (written, saved) = segments.write(id, payload, carried)?;
-        listed.push(Listed {
-            reference: written,
-            source,
-        });
-        swap.saved.push(saved);
-    }
+    let listed_before = prior
+        .filter(|_| unchanged)
+        .and_then(|entry| listed_as_before(entry, snapshot));
+    let mut listed = match listed_before {
+        Some(listed) => listed,
+        None => listed_with_changes(
+            &mut segments,
+            index,
+            partitions,
+            snapshot,
+            prior,
+            &mut next_id,
+            &mut swap.saved,
+        )?,
+    };
     if let Some(window) = choose_window(&listed, compaction_threshold, pages_text) {
         let merged = merge_window(
             &mut segments,
@@ -151,8 +101,14 @@ fn write_partition(
         next_id += 1;
         swap.merged.push(merged);
     }
-    let rewrites =
-        rewrite_removed_documents(&mut segments, index, partitions, &mut listed, &mut next_id)?;
+    let rewrites = rewrite_removed_documents(
+        &mut segments,
+        index,
+        partitions,
+        &mut listed,
+        &mut next_id,
+        budget,
+    )?;
     swap.merged.extend(rewrites);
     swap.saved.retain(|saved| {
         swap.merged
@@ -268,7 +224,7 @@ impl BuiltCheckpoint {
 pub(super) struct CheckpointPlan<'a> {
     pub(super) applied: &'a BTreeMap<u32, u64>,
     pub(super) metadata: IndexMetadata,
-    pub(super) compaction_threshold: u32,
+    pub(super) limits: CheckpointLimits,
     pub(super) upgraded: Option<&'a SegmentManifest>,
 }
 
@@ -282,11 +238,13 @@ pub(super) fn build_checkpoint(
 ) -> Result<BuiltCheckpoint> {
     let rewrites_every_segment = plan.upgraded.is_some();
     let prior = plan.upgraded.cloned().or_else(|| writer.prior().cloned());
-    let threshold = plan.compaction_threshold as usize;
+    let threshold = plan.limits.compaction_threshold as usize;
     let pages_text = matches!(writer, CheckpointTarget::Log(_))
         && index.config().text_storage == Some(Storage::Disk);
     let mut entries = Vec::with_capacity(partitions.len());
     let mut swaps = Vec::with_capacity(partitions.len());
+    let mut budget = RewriteBudget::new(plan.limits.rewrite_bytes_per_checkpoint);
+    let checkpoint = partition_checkpoints(writer, plan.applied, partitions.len())?;
     for (at, partition) in partitions.iter().enumerate() {
         let partition_id = at as u32;
         let snapshot = partition.snapshot();
@@ -301,10 +259,12 @@ pub(super) fn build_checkpoint(
             snapshot: &snapshot,
             prior: prior_entry,
             rewrites_every_segment,
+            unchanged: unchanged_since(prior.as_ref(), checkpoint.get(at)),
             compaction_threshold: threshold,
             pages_text,
         };
-        let (entry, swap) = write_partition(writer, index, partitions, partition_plan)?;
+        let (entry, swap) =
+            write_partition(writer, index, partitions, partition_plan, &mut budget)?;
         entries.push(entry);
         swaps.push(swap);
     }
@@ -313,7 +273,6 @@ pub(super) fn build_checkpoint(
         .map_or(&[][..], |manifest| manifest.vectors.as_slice());
     let (vectors, written_fields) =
         write_vector_fields(writer, index, prior_vectors, rewrites_every_segment)?;
-    let checkpoint = partition_checkpoints(writer, plan.applied, partitions.len())?;
     let mut metadata = plan.metadata;
     let manifest = SegmentManifest {
         schema: index
@@ -367,7 +326,7 @@ pub(super) fn write_checkpoint_locked(
     let plan = CheckpointPlan {
         applied: &applied,
         metadata: log.metadata(index),
-        compaction_threshold: log.compaction_threshold(),
+        limits: log.limits(),
         upgraded,
     };
     let mut built = build_checkpoint(&mut writer, index, &partitions, plan)?;

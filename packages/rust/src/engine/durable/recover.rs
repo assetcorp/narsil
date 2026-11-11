@@ -2,6 +2,7 @@ use super::backing::Backing;
 use super::build::recovered_index;
 use super::bundle::load_bundle;
 use super::checkpoint::write_checkpoint;
+use super::config::CheckpointLimits;
 use super::earlier::load_earlier_checkpoint;
 use super::load::{load_current_checkpoint, restore_vector_bytes};
 use super::log::IndexLog;
@@ -56,7 +57,7 @@ fn replay_logs(
 pub(super) fn recover_index(
     engine: &EngineInner,
     backing: &Backing,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
     name: &str,
 ) -> Result<Option<Arc<IndexState>>> {
     let Some(mut recovered) = backing.open_index(name)? else {
@@ -82,7 +83,7 @@ pub(super) fn recover_index(
         }
     };
     report(WorkStatus::Started, None);
-    match load_recovered(backing, &index, recovered, compaction_threshold) {
+    match load_recovered(backing, &index, recovered, limits) {
         Ok(()) => report(WorkStatus::Completed, None),
         Err(error) => {
             report(WorkStatus::Failed, Some(error.clone()));
@@ -96,7 +97,7 @@ fn load_recovered(
     backing: &Backing,
     index: &Arc<IndexState>,
     recovered: RecoveredIndex,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
 ) -> Result<()> {
     let mut saved = SavedSize::default();
     let (checkpoint, upgraded) = match &recovered.checkpoint {
@@ -115,7 +116,7 @@ fn load_recovered(
             (loaded.checkpoint, Some(loaded.prior))
         }
     };
-    let log = IndexLog::new(backing.clone(), recovered.metadata, compaction_threshold);
+    let log = IndexLog::new(backing.clone(), recovered.metadata, limits);
     log.record_saved(saved);
     match backing {
         Backing::Log(store) => {
@@ -146,10 +147,10 @@ fn load_recovered(
 pub(crate) fn recover_indexes(
     engine: &EngineInner,
     backing: &Backing,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
 ) -> Result<()> {
     for name in backing.index_names()? {
-        if let Some(index) = recover_index(engine, backing, compaction_threshold, &name)? {
+        if let Some(index) = recover_index(engine, backing, limits, &name)? {
             engine.indexes_mut().insert(name, index);
         }
     }
