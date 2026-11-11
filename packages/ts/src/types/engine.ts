@@ -2,6 +2,7 @@ import type { AdapterRegistrationOperations } from './adapter-registration'
 import type { AnalysisOperations } from './analysis-operations'
 import type { BM25Operations } from './bm25-operations'
 import type { ByteSource } from './byte-source'
+import type { ChangesOperations } from './changes'
 import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
@@ -43,11 +44,11 @@ export interface SnapshotOptions {
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
  * with {@link createNarsil}. Its write, open and close, synonym, analysis, BM25,
- * device sync, vector maintenance, and adapter registration methods come from
- * {@link DocumentWriteOperations}, {@link IndexLifecycleOperations},
- * {@link SynonymOperations}, {@link AnalysisOperations},
- * {@link BM25Operations}, {@link SyncOperations},
- * {@link VectorMaintenanceOperations}, and
+ * device sync, change capture, vector maintenance, and adapter registration
+ * methods come from {@link DocumentWriteOperations},
+ * {@link IndexLifecycleOperations}, {@link SynonymOperations},
+ * {@link AnalysisOperations}, {@link BM25Operations}, {@link SyncOperations},
+ * {@link ChangesOperations}, {@link VectorMaintenanceOperations}, and
  * {@link AdapterRegistrationOperations}.
  *
  * @public
@@ -59,6 +60,7 @@ export interface Narsil
     AnalysisOperations,
     BM25Operations,
     SyncOperations,
+    ChangesOperations,
     VectorMaintenanceOperations,
     AdapterRegistrationOperations {
   /**

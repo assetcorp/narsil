@@ -265,7 +265,7 @@ async function finishBoundedCheckpoint(
     await input.directory.atomicWrite(`${input.indexName}/meta`, bytes)
     input.hooks.recordCheckpoint?.(input.indexName, checkpointDocumentCount, capture.partitionCount)
   })
-  const movedIntoHistoryAtMs = input.hooks.keepsSyncHistory?.(input.indexName) === true ? Date.now() : null
+  const movedIntoHistoryAtMs = input.hooks.keepsHistory?.(input.indexName) === true ? Date.now() : null
   await truncateCoveredSegments(input.directory, input.indexName, targets, movedIntoHistoryAtMs)
   if (movedIntoHistoryAtMs !== null) input.hooks.onHistoryMoved?.(input.indexName)
   await reclaimWalBeyondCount(

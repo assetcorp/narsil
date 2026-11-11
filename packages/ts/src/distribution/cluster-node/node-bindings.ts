@@ -1,5 +1,6 @@
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindWriteBlockLookup } from '../../narsil/write-blocks'
+import { bindChangesServing, type ChangesServing } from '../../server/changes/serving'
 import { bindSyncServing, type SyncServing } from '../../server/sync/serving'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { ClusterLocalEngine } from './local-engine'
@@ -11,6 +12,7 @@ export interface NodeBindingSources {
   engine: ClusterLocalEngine
   memoryView: NodeMemoryView
   syncServing: () => SyncServing
+  changesServing: () => ChangesServing
 }
 
 export function bindNodeSources(node: object, sources: NodeBindingSources): void {
@@ -20,4 +22,5 @@ export function bindNodeSources(node: object, sources: NodeBindingSources): void
   })
   bindRerankWindowSource(node, () => rerankWindowCapOf(sources.engine))
   bindSyncServing(node, sources.syncServing)
+  bindChangesServing(node, sources.changesServing)
 }

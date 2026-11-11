@@ -1,6 +1,8 @@
-import type { IndexSyncState } from '../../../engine/registry-entry'
+import { changesStatusOf } from '../../../engine/changes/operations'
+import type { IndexChangesState, IndexSyncState } from '../../../engine/registry-entry'
 import { getLanguage, hasLanguage } from '../../../languages/registry'
 import type { SyncSettings } from '../../../sync/protocol'
+import type { ChangesStatus } from '../../../types/changes'
 import type { SyncStatus } from '../../../types/sync'
 import type { SynonymRule } from '../../../types/synonyms'
 import type { IndexSettings } from '../../cluster/index-settings'
@@ -30,6 +32,21 @@ export function syncStateOfSettings(settings: IndexSettings | undefined): IndexS
   }
 }
 
+export function changesStateOfSettings(settings: IndexSettings | undefined): IndexChangesState | null {
+  const setting = settings?.changes
+  if (setting === undefined || !setting.enabled || settings?.syncEpoch === undefined) return null
+  return {
+    previousDocument: setting.previousDocument === true,
+    ...(setting.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: setting.historyMaxAgeMs } : {}),
+    ...(setting.historyMaxBytes !== undefined ? { historyMaxBytes: setting.historyMaxBytes } : {}),
+    epoch: settings.syncEpoch,
+  }
+}
+
+export function changesStatusOfSettings(settings: IndexSettings | undefined): ChangesStatus {
+  return changesStatusOf(changesStateOfSettings(settings))
+}
+
 export function syncStatusOfSettings(settings: IndexSettings | undefined): SyncStatus {
   const state = syncStateOfSettings(settings)
   if (state === null) return { enabled: false, active: false, epoch: null }
@@ -57,6 +74,8 @@ export function feedSettingsOf(settings: IndexSettings | undefined, synonyms: re
 
 export type HeldSyncChange = 'epoch' | 'off' | 'settings' | 'dropped' | null
 
+export type HeldChangesChange = 'epoch' | 'changes-off' | 'previous-document-off' | 'dropped' | null
+
 function sameFeedSettings(held: HeldSyncIndex, next: HeldSyncIndex): boolean {
   const a = held.settings
   const b = next.settings
@@ -78,4 +97,14 @@ export function changeBetween(held: HeldSyncIndex | undefined, next: HeldSyncInd
   if (after === null) return 'off'
   if (after.epoch !== before.epoch || next.serving.partitionCount !== held.serving.partitionCount) return 'epoch'
   return sameFeedSettings(held, next) ? null : 'settings'
+}
+
+export function changesChangeBetween(held: HeldSyncIndex | undefined, next: HeldSyncIndex | null): HeldChangesChange {
+  const before = held === undefined ? null : changesStateOfSettings(held.settings)
+  if (held === undefined || before === null) return null
+  if (next === null || next.indexUuid !== held.indexUuid) return 'dropped'
+  const after = changesStateOfSettings(next.settings)
+  if (after === null) return 'changes-off'
+  if (after.epoch !== before.epoch || next.serving.partitionCount !== held.serving.partitionCount) return 'epoch'
+  return before.previousDocument && !after.previousDocument ? 'previous-document-off' : null
 }

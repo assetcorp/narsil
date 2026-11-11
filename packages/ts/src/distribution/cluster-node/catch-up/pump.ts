@@ -1,7 +1,7 @@
 import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
-import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
+import { entryByteEstimate } from '../../replication/entry-checksum'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
@@ -17,19 +17,10 @@ import {
   type ReplicaCursor,
 } from './state'
 
-function entryBytes(entry: ReplicationLogEntry): number {
-  return (
-    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
-    entry.indexName.length +
-    entry.documentId.length +
-    (entry.document?.byteLength ?? 0)
-  )
-}
-
 function batchBytes(entries: ReplicationLogEntry[]): number {
   let total = 0
   for (const entry of entries) {
-    total += entryBytes(entry)
+    total += entryByteEstimate(entry)
   }
   return total
 }

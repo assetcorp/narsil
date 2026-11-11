@@ -6,16 +6,17 @@ import { crc32 } from './checksum'
 
 export const WAL_MAGIC = new Uint8Array([0x4e, 0x52, 0x53, 0x57])
 export const WAL_FORMAT_VERSION = 1
+export const WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT = 2
 export const SEGMENT_HEADER_SIZE = 8
 export const RECORD_LENGTH_SIZE = 4
 export const FRAME_CRC_SIZE = 4
 
 export const MAX_WAL_RECORD_BYTES = 268_435_456
 
-export function writeSegmentHeader(): Uint8Array {
+export function writeSegmentHeader(formatVersion: number = WAL_FORMAT_VERSION): Uint8Array {
   const header = new Uint8Array(SEGMENT_HEADER_SIZE)
   header.set(WAL_MAGIC, 0)
-  header[4] = WAL_FORMAT_VERSION & 0xff
+  header[4] = formatVersion & 0xff
   return header
 }
 
@@ -47,10 +48,10 @@ export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
     }
   }
   const formatVersion = data[4]
-  if (formatVersion > WAL_FORMAT_VERSION) {
+  if (formatVersion > WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT) {
     return {
       ok: false,
-      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION}, so a newer release wrote this segment`,
+      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT}, so a newer release wrote this segment`,
       code: ErrorCodes.ENVELOPE_VERSION_MISMATCH,
     }
   }

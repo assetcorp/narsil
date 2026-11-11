@@ -12,15 +12,26 @@ import { DEFAULT_SEGMENT_MAX_BYTES } from './constants'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
 import { createGroupCommitCoordinator } from './group-commit'
 import { createMarkerWriter, type MarkerWriter } from './marker-writer'
-import { frameRecord, SEGMENT_HEADER_SIZE, writeSegmentHeader } from './wal-framing'
-import { nextSegmentKey } from './wal-segments'
-
-const SEGMENT_TAIL_PATTERN = /^\d{16}$/
+import {
+  frameRecord,
+  SEGMENT_HEADER_SIZE,
+  WAL_FORMAT_VERSION,
+  WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT,
+  writeSegmentHeader,
+} from './wal-framing'
+import {
+  nextSegmentKey,
+  parseSegmentStartSeqNo,
+  rewrittenHeaderKey,
+  SEGMENT_TAIL_PATTERN,
+  segmentKey,
+} from './wal-segments'
 
 export interface WalWriterConfig {
   indexName: string
   partitionId: number
   segmentMaxBytes?: number
+  recordsPreviousDocument?: () => boolean
 }
 
 export interface WalWriter {
@@ -35,39 +46,19 @@ export interface WalWriter {
   readonly activeSegmentKey: string | null
 }
 
-function segmentKey(indexName: string, partitionId: number, startSeqNo: number): string {
-  const padded = startSeqNo.toString().padStart(16, '0')
-  return `${indexName}/wal/${partitionId}/${padded}`
-}
-
-export function parseSegmentStartSeqNo(key: string): number {
-  const tail = key.slice(key.lastIndexOf('/') + 1)
-  if (!SEGMENT_TAIL_PATTERN.test(tail)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Malformed WAL segment key: "${key}"`, { key })
-  }
-  const value = Number.parseInt(tail, 10)
-  if (!Number.isSafeInteger(value)) {
-    throw new NarsilError(
-      ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      `WAL segment start sequence number is out of range: "${key}"`,
-      {
-        key,
-      },
-    )
-  }
-  return value
-}
-
 export function createWalWriter(directory: DurableDirectory, config: WalWriterConfig): WalWriter {
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const commitKey = `${config.indexName}/wal/${config.partitionId}/commit`
   const preparedKey = nextSegmentKey(config.indexName, config.partitionId)
+  const rewrittenKey = rewrittenHeaderKey(config.indexName, config.partitionId)
 
   let nextSegmentPrepared = false
+  let preparedFormatVersion = WAL_FORMAT_VERSION
   let handle: AppendHandle | null = null
   let activeKey: string | null = null
   let activeStartSeqNo = 0
   let activeBytes = 0
+  let activeFormatVersion = WAL_FORMAT_VERSION
   let highestAppendedSeqNo = 0
   let highestDurableSeqNo = 0
   let markerWriter: MarkerWriter | null = null
@@ -113,16 +104,24 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     }
   }
 
-  async function openSegmentByKey(key: string): Promise<boolean> {
+  function formatVersionFor(holdsPreviousDocument: boolean): number {
+    return holdsPreviousDocument || config.recordsPreviousDocument?.() === true
+      ? WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT
+      : WAL_FORMAT_VERSION
+  }
+
+  async function openSegmentByKey(key: string, formatVersion: number): Promise<boolean> {
     const nextHandle = await directory.appendHandle(key)
     const existingSize = await nextHandle.size()
     let createdNew = false
     if (existingSize === 0) {
-      await nextHandle.append(writeSegmentHeader())
+      await nextHandle.append(writeSegmentHeader(formatVersion))
       activeBytes = SEGMENT_HEADER_SIZE
+      activeFormatVersion = formatVersion
       createdNew = true
     } else {
       activeBytes = existingSize
+      activeFormatVersion = WAL_FORMAT_VERSION
     }
     handle = nextHandle
     activeKey = key
@@ -141,29 +140,63 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     return keys.length > 0 ? keys[keys.length - 1] : null
   }
 
-  async function ensureSegment(seqNo: number): Promise<void> {
+  async function ensureSegment(seqNo: number, holdsPreviousDocument: boolean): Promise<void> {
     if (handle !== null) {
       return
     }
     const existing = await findActiveSegmentKey()
-    const createdNew = await openSegmentByKey(existing ?? segmentKey(config.indexName, config.partitionId, seqNo))
+    const createdNew = await openSegmentByKey(
+      existing ?? segmentKey(config.indexName, config.partitionId, seqNo),
+      formatVersionFor(holdsPreviousDocument),
+    )
     if (createdNew) {
       await withDurabilityLock(flushActiveSegment)
     }
   }
 
-  async function rollUnderLock(startSeqNo: number): Promise<void> {
+  async function rollUnderLock(startSeqNo: number, formatVersion: number = formatVersionFor(false)): Promise<void> {
     if (handle !== null) {
       await flushActiveSegment()
       await handle.close()
       handle = null
     }
-    await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+    await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo), formatVersion)
     await flushActiveSegment()
   }
 
   async function rollToNewSegment(startSeqNo: number): Promise<void> {
     await withDurabilityLock(() => rollUnderLock(startSeqNo))
+  }
+
+  async function rewriteEmptySegmentHeader(formatVersion: number): Promise<void> {
+    const key = activeKey
+    if (handle === null || key === null) return
+    const rewritten = await directory.appendHandle(rewrittenKey)
+    try {
+      if ((await rewritten.size()) > 0) await rewritten.truncate(0)
+      await rewritten.append(writeSegmentHeader(formatVersion))
+      await rewritten.sync()
+    } finally {
+      await rewritten.close()
+    }
+    await handle.close()
+    handle = null
+    await directory.move(rewrittenKey, key)
+    handle = await directory.appendHandle(key)
+    activeBytes = SEGMENT_HEADER_SIZE
+    activeFormatVersion = formatVersion
+  }
+
+  async function openSegmentForPreviousDocuments(startSeqNo: number): Promise<void> {
+    if (activeFormatVersion >= WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT) return
+    await withDurabilityLock(async () => {
+      if (activeFormatVersion >= WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT) return
+      if (activeBytes > SEGMENT_HEADER_SIZE) {
+        await rollUnderLock(startSeqNo, WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT)
+      } else {
+        await rewriteEmptySegmentHeader(WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT)
+      }
+    })
   }
 
   function activeSegmentHoldsRecords(): boolean {
@@ -172,10 +205,12 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
 
   async function prepareNextSegment(): Promise<void> {
     const prepared = await directory.appendHandle(preparedKey)
+    const formatVersion = formatVersionFor(false)
     try {
       if ((await prepared.size()) > 0) await prepared.truncate(0)
-      await prepared.append(writeSegmentHeader())
+      await prepared.append(writeSegmentHeader(formatVersion))
       await prepared.sync()
+      preparedFormatVersion = formatVersion
       nextSegmentPrepared = true
     } finally {
       await prepared.close()
@@ -192,6 +227,7 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     activeKey = key
     activeStartSeqNo = startSeqNo
     activeBytes = SEGMENT_HEADER_SIZE
+    activeFormatVersion = preparedFormatVersion
     await writer.commit({
       activeSegmentSeqNo: startSeqNo,
       durableByteLength: SEGMENT_HEADER_SIZE,
@@ -201,12 +237,12 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     await sealed.close()
   }
 
-  async function maybeRoll(nextSeqNo: number, appendedBytes: number): Promise<void> {
+  async function maybeRoll(nextSeqNo: number, appendedBytes: number, holdsPreviousDocument: boolean): Promise<void> {
     if (handle === null || activeBytes <= SEGMENT_HEADER_SIZE) {
       return
     }
     if (activeBytes >= segmentMaxBytes || activeBytes + appendedBytes > segmentMaxBytes) {
-      await rollToNewSegment(nextSeqNo)
+      await withDurabilityLock(() => rollUnderLock(nextSeqNo, formatVersionFor(holdsPreviousDocument)))
     }
   }
 
@@ -268,14 +304,17 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
       return
     }
     const frames: Uint8Array[] = []
+    let holdsPreviousDocument = false
     for (const entry of entries) {
       if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
+      if (entry.previousDocument !== undefined) holdsPreviousDocument = true
       frames.push(frameRecord(entry))
     }
-    await ensureSegment(entries[0].seqNo)
+    await ensureSegment(entries[0].seqNo, holdsPreviousDocument)
+    if (holdsPreviousDocument) await openSegmentForPreviousDocuments(entries[0].seqNo)
     let start = 0
     while (start < frames.length) {
-      await maybeRoll(entries[start].seqNo, frames[start].length)
+      await maybeRoll(entries[start].seqNo, frames[start].length, holdsPreviousDocument)
       const end = framesThatFit(frames, start)
       await appendGroup(frames.slice(start, end), entries.slice(start, end))
       start = end

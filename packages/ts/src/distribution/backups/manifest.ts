@@ -48,6 +48,13 @@ export interface BackupManifest {
 }
 
 export const SYNC_BACKUP_TAKER = 'sync'
+export const CHANGES_BACKUP_TAKER = 'changes'
+
+export type BackupTaker = typeof SYNC_BACKUP_TAKER | typeof CHANGES_BACKUP_TAKER
+
+export function isBackupTaker(value: unknown): value is BackupTaker {
+  return value === SYNC_BACKUP_TAKER || value === CHANGES_BACKUP_TAKER
+}
 
 function damaged(backupName: string, reason: string): NarsilError {
   return new NarsilError(ErrorCodes.BACKUP_DAMAGED, `The manifest of backup '${backupName}' ${reason}`, {

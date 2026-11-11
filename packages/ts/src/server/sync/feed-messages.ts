@@ -1,8 +1,11 @@
 import type { SerializedError } from '../errors'
 
+export type FeedKind = 'sync' | 'changes'
+
 export interface FeedAdmitRequest {
   type: 'feed-admit'
   requestId: number
+  feed: FeedKind
   indexName: string
   expiresAt: number | null
 }
@@ -55,6 +58,16 @@ export function isMainFeedNote(message: unknown): message is MainFeedNote {
 
 export function isFeedAdmitRequest(message: unknown): message is FeedAdmitRequest {
   if (typeof message !== 'object' || message === null) return false
-  const { type, requestId, indexName } = message as { type?: unknown; requestId?: unknown; indexName?: unknown }
-  return type === 'feed-admit' && typeof requestId === 'number' && typeof indexName === 'string'
+  const { type, requestId, indexName, feed } = message as {
+    type?: unknown
+    requestId?: unknown
+    indexName?: unknown
+    feed?: unknown
+  }
+  return (
+    type === 'feed-admit' &&
+    typeof requestId === 'number' &&
+    typeof indexName === 'string' &&
+    (feed === 'sync' || feed === 'changes')
+  )
 }

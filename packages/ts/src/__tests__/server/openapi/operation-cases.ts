@@ -323,6 +323,11 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
     hostile: () => ({ name: INDEX, json: { enabled: 'yes' }, statuses: [400] }),
   },
   syncSnapshot: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
+  getChanges: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
+  updateChanges: {
+    valid: () => ({ name: INDEX, json: { enabled: true, previousDocument: true }, statuses: [200] }),
+    hostile: () => ({ name: INDEX, json: { enabled: true, historyMaxBytes: -1 }, statuses: [400] }),
+  },
   snapshot: {
     valid: () => ({ name: INDEX, statuses: [200] }),
     hostile: () => ({ name: INDEX, query: 'queryHistory=yes', statuses: [400] }),

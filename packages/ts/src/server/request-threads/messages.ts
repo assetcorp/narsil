@@ -4,7 +4,7 @@ import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
 import type { ParseRefusal } from '../parse-heap'
 import type { ServerHandlers } from '../routes'
-import type { FeedAdmitRequest, FeedAdmittedReply } from '../sync/feed-messages'
+import type { FeedAdmitRequest, FeedAdmittedReply, FeedKind } from '../sync/feed-messages'
 import type { RequestContext, RequestDenial } from '../types'
 
 export interface RequestThreadSettings {
@@ -36,7 +36,7 @@ export interface RequestThreadSettings {
   patternWorkCap: number
   maxRerankWindow: number
   allowRegex: boolean
-  sync: boolean
+  feeds: FeedKind[]
   /** Every request thread counts here the searches it has handed to the long-query thread and that have not yet answered. */
   longQueriesInFlight: SharedArrayBuffer
   longQueryPort: MessagePort | null

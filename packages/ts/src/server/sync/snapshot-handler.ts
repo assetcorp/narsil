@@ -1,8 +1,8 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes } from '../../errors'
 import { archiveRange } from '../../persistence/archive/range-layout'
 import { SNAPSHOT_ARCHIVE_CONTENT_TYPE } from '../constants'
-import { ServerErrorCodes, toHttpError } from '../errors'
-import { respondError } from '../handler-utils'
+import { ServerErrorCodes } from '../errors'
+import { respondError, respondPreparingError } from '../handler-utils'
 import type { RouteContext, RouteHandler } from '../request'
 import { sendError, sendSizedStream, statusLine } from '../response'
 import { rangeOf } from './range'
@@ -21,22 +21,6 @@ function refuseRange(ctx: RouteContext, length: number, entityTag: string): void
   })
 }
 
-function retryAfterSecondsOf(err: unknown): number | null {
-  if (!(err instanceof NarsilError) || err.code !== ErrorCodes.SYNC_SNAPSHOT_PREPARING) return null
-  const retryAfterMs = err.details?.retryAfterMs
-  return typeof retryAfterMs === 'number' && retryAfterMs > 0 ? Math.ceil(retryAfterMs / 1000) : 1
-}
-
-function refuseSnapshot(ctx: RouteContext, err: unknown): void {
-  const retryAfterSeconds = retryAfterSecondsOf(err)
-  if (retryAfterSeconds === null || ctx.abort.aborted) {
-    respondError(ctx, err)
-    return
-  }
-  const { status, body } = toHttpError(err)
-  sendError(ctx.res, status, body.code, body.message, body.details, [['Retry-After', String(retryAfterSeconds)]])
-}
-
 export function createSyncSnapshotHandler(serving: () => SyncServing | null): RouteHandler {
   return async ctx => {
     const sync = serving()
@@ -48,7 +32,7 @@ export function createSyncSnapshotHandler(serving: () => SyncServing | null): Ro
     try {
       download = await sync.snapshot(ctx.params[0])
     } catch (err) {
-      refuseSnapshot(ctx, err)
+      respondPreparingError(ctx, err, ErrorCodes.SYNC_SNAPSHOT_PREPARING)
       return
     }
     try {

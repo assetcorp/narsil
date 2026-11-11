@@ -3,6 +3,8 @@ export type SyncChange =
   | { kind: 'off'; indexName: string }
   | { kind: 'settings'; indexName: string }
   | { kind: 'dropped'; indexName: string }
+  | { kind: 'changes-off'; indexName: string }
+  | { kind: 'previous-document-off'; indexName: string }
 
 export type SyncChangeListener = (change: SyncChange) => void
 
