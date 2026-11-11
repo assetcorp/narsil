@@ -9,14 +9,7 @@ import {
   releaseReplacedVectors,
 } from '#platform/vector-host'
 import type { HNSWIndex } from '../hnsw'
-import {
-  buildExclusively,
-  buildGraphFromStore,
-  continueAfterGrowth,
-  promoteToGraph,
-  shuffledRebuildDue,
-  startShuffledRebuild,
-} from './build'
+import { buildExclusively, buildGraphFromStore, continueAfterGrowth, promoteToGraph, shuffledRebuildDue } from './build'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { placeInGrowingCopy } from './growing-copy'
 import type { MaintenanceStatus, VectorIndexState } from './shared'
