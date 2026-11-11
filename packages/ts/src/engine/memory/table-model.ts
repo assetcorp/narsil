@@ -90,15 +90,27 @@ export function observeTable(model: TableModel, entries: number, churn: number, 
 export function tableGrowthBytes(model: TableModel, shape: ShardEntryRange, added: number): number {
   if (added <= 0) return 0
   const largestCapacity = largestCapacityFor(shape.largest)
-  let grown = 0
+  let grownBytes = 0
   for (let capacity = capacityFor(shape.smallest); capacity <= largestCapacity; capacity *= 2) {
     const lastOccupied = shape.largest + added - 1
     const deletedSlots = Math.max(0, Math.min(model.deleted, capacity - shape.largest))
     if (lastOccupied + deletedSlots < capacity) continue
+    const entriesAfter = shape.largest + added
+    const rebuildsAtSize = deletedSlots >= capacity / 2
     const doubles = lastOccupied + Math.min(deletedSlots, capacity / 2 - 1) >= capacity
-    let next = doubles ? capacity * 2 : capacity
-    while (shape.largest + added > next) next *= 2
-    grown = Math.max(grown, next)
+    const rebuiltBytes = rebuildsAtSize ? allocatedTableBytes(capacity, entriesAfter) : 0
+    const doubledBytes = doubles ? allocatedTableBytes(capacity * 2, entriesAfter) : 0
+    grownBytes = Math.max(grownBytes, rebuiltBytes, doubledBytes)
   }
-  return grown === 0 ? 0 : shape.shards * (MAP_TABLE_HEADER_BYTES + MAP_TABLE_SLOT_BYTES * grown)
+  return shape.shards * grownBytes
+}
+
+function allocatedTableBytes(firstCapacity: number, entriesAfter: number): number {
+  let capacity = firstCapacity
+  let bytes = MAP_TABLE_HEADER_BYTES + MAP_TABLE_SLOT_BYTES * capacity
+  while (entriesAfter > capacity) {
+    capacity *= 2
+    bytes += MAP_TABLE_HEADER_BYTES + MAP_TABLE_SLOT_BYTES * capacity
+  }
+  return bytes
 }
