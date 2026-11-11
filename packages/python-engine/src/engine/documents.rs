@@ -1,4 +1,4 @@
-use narsil::{ErrorCode, Map, NarsilError};
+use narsil::{BatchFailure, BatchResult, ErrorCode, Map, NarsilError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
@@ -13,46 +13,96 @@ const DOCUMENT: ValueSource<'static> = ValueSource {
     subject: "The document",
 };
 
-fn documents_of(documents: &Bound<'_, PyAny>) -> Result<Vec<Map>, NarsilError> {
+struct Converted<T> {
+    accepted: Vec<T>,
+    refused: Vec<BatchFailure>,
+}
+
+impl<T> Converted<T> {
+    fn with_capacity(capacity: usize) -> Converted<T> {
+        Converted {
+            accepted: Vec::with_capacity(capacity),
+            refused: Vec::new(),
+        }
+    }
+
+    fn settle(&mut self, item: &Bound<'_, PyAny>, id_key: &str, outcome: Result<T, NarsilError>) {
+        match outcome {
+            Ok(value) => self.accepted.push(value),
+            Err(error) => self.refused.push(BatchFailure {
+                doc_id: string_under(item, id_key),
+                error,
+            }),
+        }
+    }
+
+    fn merged(self, mut written: BatchResult) -> BatchResult {
+        let mut failed = self.refused;
+        failed.append(&mut written.failed);
+        written.failed = failed;
+        written
+    }
+}
+
+fn string_under(item: &Bound<'_, PyAny>, key: &str) -> String {
+    item.cast::<PyDict>()
+        .ok()
+        .and_then(|dict| dict.get_item(key).ok().flatten())
+        .and_then(|value| value.extract::<String>().ok())
+        .unwrap_or_default()
+}
+
+fn documents_of(documents: &Bound<'_, PyAny>) -> Result<Converted<Map>, NarsilError> {
     let items = items_of(documents, "documents")
         .map_err(|error| invalid(ErrorCode::DOC_VALIDATION_FAILED, error.message()))?;
-    let mut converted = Vec::with_capacity(items.len());
+    let mut converted = Converted::with_capacity(items.len());
     for (at, document) in items.iter().enumerate() {
         let subject = format!("documents[{at}]");
-        converted.push(to_map(
+        let outcome = to_map(
             document,
             ValueSource {
                 code: ErrorCode::DOC_VALIDATION_FAILED,
                 subject: &subject,
             },
-        )?);
+        );
+        converted.settle(document, "id", outcome);
     }
     Ok(converted)
 }
 
-fn updates_of(updates: &Bound<'_, PyAny>) -> Result<Vec<(String, Map)>, NarsilError> {
+fn update_of(update: &Bound<'_, PyAny>, label: &str) -> Result<(String, Map), NarsilError> {
+    let mut fields = Fields::of(update, label)?;
+    let doc_id = fields.required_string("docId")?;
+    let document = fields.get("document")?.ok_or_else(|| {
+        invalid(
+            ErrorCode::DOC_VALIDATION_FAILED,
+            format!("{label}.document is required"),
+        )
+    })?;
+    let subject = format!("{label}.document");
+    let document = to_map(
+        &document,
+        ValueSource {
+            code: ErrorCode::DOC_VALIDATION_FAILED,
+            subject: &subject,
+        },
+    )?;
+    fields.finish()?;
+    Ok((doc_id, document))
+}
+
+fn updates_of(updates: &Bound<'_, PyAny>) -> Result<Converted<(String, Map)>, NarsilError> {
     let items = items_of(updates, "updates")?;
-    let mut converted = Vec::with_capacity(items.len());
+    let mut converted = Converted::with_capacity(items.len());
     for (at, update) in items.iter().enumerate() {
-        let label = format!("updates[{at}]");
-        let mut fields = Fields::of(update, &label)?;
-        let doc_id = fields.required_string("docId")?;
-        let document = fields.get("document")?.ok_or_else(|| {
-            invalid(
-                ErrorCode::DOC_VALIDATION_FAILED,
-                format!("{label}.document is required"),
-            )
-        })?;
-        let subject = format!("{label}.document");
-        let document = to_map(
-            &document,
-            ValueSource {
-                code: ErrorCode::DOC_VALIDATION_FAILED,
-                subject: &subject,
-            },
-        )?;
-        fields.finish()?;
-        converted.push((doc_id, document));
+        let outcome = update_of(update, &format!("updates[{at}]")).map_err(|error| {
+            if error.code() == ErrorCode::CONFIG_INVALID {
+                invalid(ErrorCode::DOC_VALIDATION_FAILED, error.message())
+            } else {
+                error
+            }
+        });
+        converted.settle(update, "docId", outcome);
     }
     Ok(converted)
 }
@@ -79,12 +129,13 @@ impl PyNarsil {
         index: &str,
         documents: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let documents = documents_of(documents).map_err(to_py_err)?;
+        let mut converted = documents_of(documents).map_err(to_py_err)?;
+        let documents = std::mem::take(&mut converted.accepted);
         let engine = self.handle.engine()?;
         let result = py
             .detach(|| engine.insert_batch(index, documents))
             .map_err(to_py_err)?;
-        batch_result(py, result)
+        batch_result(py, converted.merged(result))
     }
 
     fn update(
@@ -106,12 +157,13 @@ impl PyNarsil {
         index: &str,
         updates: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let updates = updates_of(updates).map_err(to_py_err)?;
+        let mut converted = updates_of(updates).map_err(to_py_err)?;
+        let updates = std::mem::take(&mut converted.accepted);
         let engine = self.handle.engine()?;
         let result = py
             .detach(|| engine.update_batch(index, updates))
             .map_err(to_py_err)?;
-        batch_result(py, result)
+        batch_result(py, converted.merged(result))
     }
 
     fn remove(&self, py: Python<'_>, index: &str, doc_id: &str) -> PyResult<()> {

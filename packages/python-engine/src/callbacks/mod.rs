@@ -3,6 +3,7 @@ pub(crate) mod analysis;
 pub(crate) mod functions;
 pub(crate) mod persistence;
 pub(crate) mod plugins;
+pub(crate) mod retained;
 
 use narsil::{ErrorCode, NarsilError};
 use pyo3::prelude::*;

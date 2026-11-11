@@ -8,6 +8,7 @@ use narsil::{
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use super::retained::Retained;
 use super::{call_python, report_unraisable};
 use crate::convert::fields::{Fields, string_of};
 use crate::convert::value::{ValueSource, map_to_py, to_value, value_to_py};
@@ -23,10 +24,10 @@ pub(crate) fn id_generator(
     if !function.is_callable() {
         return Err(config_invalid(format!("{label} must be a function")));
     }
-    let function = function.clone().unbind();
+    let function = Retained::new(function);
     Ok(Arc::new(move || {
         let generated = call_python(ErrorCode::INTERNAL_ERROR, ID_GENERATOR_SUBJECT, |py| {
-            let id = function.bind(py).call0()?;
+            let id = function.bind(py)?.call0()?;
             Ok(string_of(&id, "the ID that the idGenerator returned")?)
         });
         match generated {
@@ -168,13 +169,15 @@ pub(crate) fn event_payload<'py>(
     Ok(payload)
 }
 
-pub(crate) fn event_listener(function: Py<PyAny>) -> impl Fn(&NarsilEvent) + Send + Sync + 'static {
+pub(crate) fn event_listener(function: Retained) -> impl Fn(&NarsilEvent) + Send + Sync + 'static {
     move |event: &NarsilEvent| {
         let _ = Python::try_attach(|py| {
-            let listener = function.bind(py);
+            let Ok(listener) = function.bind(py) else {
+                return;
+            };
             let outcome = event_payload(py, event).and_then(|payload| listener.call1((payload,)));
             if let Err(error) = outcome {
-                report_unraisable(py, error, listener);
+                report_unraisable(py, error, &listener);
             }
         });
     }
@@ -206,11 +209,13 @@ pub(crate) fn stale_listener(
     if !function.is_callable() {
         return Err(config_invalid(format!("{label} must be a function")));
     }
-    let function = function.clone().unbind();
+    let function = Retained::new(function);
     Ok(Arc::new(
         move |facts: &StaleAnalysis, rebuild: StaleRebuild| {
             let _ = Python::try_attach(|py| {
-                let listener = function.bind(py);
+                let Ok(listener) = function.bind(py) else {
+                    return;
+                };
                 let outcome = (|| -> PyResult<()> {
                     let payload = PyDict::new(py);
                     payload.set_item("indexName", &facts.index_name)?;
@@ -222,7 +227,7 @@ pub(crate) fn stale_listener(
                     Ok(())
                 })();
                 if let Err(error) = outcome {
-                    report_unraisable(py, error, listener);
+                    report_unraisable(py, error, &listener);
                 }
             });
         },

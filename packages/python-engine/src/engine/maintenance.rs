@@ -30,7 +30,10 @@ impl PyNarsil {
         index: &str,
         change: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        let change = analysis_change(change).map_err(to_py_err)?;
+        let change = self
+            .retained
+            .collect(|| analysis_change(change))
+            .map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         py.detach(|| engine.change_analysis(index, &change))
             .map_err(to_py_err)

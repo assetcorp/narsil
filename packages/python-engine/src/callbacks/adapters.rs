@@ -5,6 +5,7 @@ use narsil::{
 };
 use pyo3::prelude::*;
 
+use super::retained::Retained;
 use super::{CallbackFailure, call_python};
 use crate::convert::fields::{floats_of, items_of, number_of, whole_of};
 use crate::errors::config_invalid;
@@ -21,7 +22,7 @@ fn boxed(error: NarsilError) -> AdapterError {
 }
 
 pub(crate) struct PythonEmbeddingAdapter {
-    object: Py<PyAny>,
+    object: Retained,
     dimensions: usize,
     batches: bool,
     subject: String,
@@ -57,7 +58,7 @@ impl PythonEmbeddingAdapter {
             .map(|batch| batch.is_callable())
             .unwrap_or(false);
         Ok(Arc::new(PythonEmbeddingAdapter {
-            object: object.clone().unbind(),
+            object: Retained::new(object),
             dimensions,
             batches,
             subject: format!("The embedding adapter {label}"),
@@ -74,7 +75,7 @@ impl EmbeddingAdapter for PythonEmbeddingAdapter {
         call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, |py| {
             let vector = self
                 .object
-                .bind(py)
+                .bind(py)?
                 .call_method1("embed", (input, purpose_name(purpose)))?;
             floats_of(&vector, "the vector that embed returned").map_err(CallbackFailure::Refused)
         })
@@ -95,7 +96,7 @@ impl EmbeddingAdapter for PythonEmbeddingAdapter {
         call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, |py| {
             let vectors = self
                 .object
-                .bind(py)
+                .bind(py)?
                 .call_method1("embed_batch", (inputs.to_vec(), purpose_name(purpose)))?;
             let label = "the list that embed_batch returned";
             let vectors = items_of(&vectors, label)?;
@@ -110,7 +111,7 @@ impl EmbeddingAdapter for PythonEmbeddingAdapter {
 }
 
 pub(crate) struct PythonRerankAdapter {
-    object: Py<PyAny>,
+    object: Retained,
     subject: String,
 }
 
@@ -129,7 +130,7 @@ impl PythonRerankAdapter {
             )));
         }
         Ok(Arc::new(PythonRerankAdapter {
-            object: object.clone().unbind(),
+            object: Retained::new(object),
             subject: format!("The rerank adapter \"{name}\""),
         }))
     }
@@ -140,7 +141,7 @@ impl RerankAdapter for PythonRerankAdapter {
         call_python(ErrorCode::RERANK_FAILED, &self.subject, |py| {
             let scores = self
                 .object
-                .bind(py)
+                .bind(py)?
                 .call_method1("score", (query, documents.to_vec()))?;
             let label = "the scores that score returned";
             let items = items_of(&scores, label)?;

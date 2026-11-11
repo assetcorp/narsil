@@ -16,6 +16,7 @@ use crate::callbacks::analysis::{stop_words_value, tokenizer_object};
 use crate::callbacks::functions::{EVENT_KINDS, id_generator, stale_listener};
 use crate::callbacks::persistence::persistence_adapter;
 use crate::callbacks::plugins::PythonPlugin;
+use crate::callbacks::retained::Retained;
 use crate::errors::config_invalid;
 
 #[derive(Default)]
@@ -26,7 +27,7 @@ pub(crate) struct EngineSetup {
     pub(crate) embedding_adapters: Vec<(String, Arc<dyn EmbeddingAdapter>)>,
     pub(crate) rerank_adapters: Vec<(String, Arc<dyn RerankAdapter>)>,
     pub(crate) plugins: Vec<Arc<dyn Plugin>>,
-    pub(crate) listeners: Vec<(NarsilEventKind, Py<PyAny>)>,
+    pub(crate) listeners: Vec<(NarsilEventKind, Retained)>,
 }
 
 fn durability(mut fields: Fields<'_>) -> Result<DurabilityConfig, NarsilError> {
@@ -153,7 +154,7 @@ fn named<T>(
     Ok(wrapped)
 }
 
-fn listeners(fields: &mut Fields<'_>) -> Result<Vec<(NarsilEventKind, Py<PyAny>)>, NarsilError> {
+fn listeners(fields: &mut Fields<'_>) -> Result<Vec<(NarsilEventKind, Retained)>, NarsilError> {
     let Some(entries) = fields.fields("events")? else {
         return Ok(Vec::new());
     };
@@ -166,7 +167,7 @@ fn listeners(fields: &mut Fields<'_>) -> Result<Vec<(NarsilEventKind, Py<PyAny>)
         if !listener.is_callable() {
             return Err(config_invalid(format!("{path} must be a function")));
         }
-        listeners.push((kind, listener.unbind()));
+        listeners.push((kind, Retained::new(&listener)));
     }
     Ok(listeners)
 }
