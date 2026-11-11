@@ -156,7 +156,7 @@ fn create_unannounced(
 ) -> Result<Arc<IndexState>> {
     engine.guard_shutdown()?;
     validate_index_name(name)?;
-    let _name = engine.names.take(name);
+    let _name = engine.names.take(name)?;
     let _admitted = engine.admit_publication()?;
     if engine.index(name).is_ok() || engine.lifecycle.holds_closed(name) {
         return Err(NarsilError::new(
@@ -188,7 +188,7 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
         ));
     }
     let config = {
-        let _writes = engine.suggestions.write_turns.take(name);
+        let _writes = engine.suggestions.write_turns.take(name)?;
         drop_suggestion_indexes_of(engine, name)?;
         drop_unannounced(engine, name)?
     };
@@ -202,7 +202,7 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
 
 fn drop_unannounced(engine: &EngineInner, name: &str) -> Result<Arc<IndexConfig>> {
     engine.guard_shutdown()?;
-    let _name = engine.names.take(name);
+    let _name = engine.names.take(name)?;
     let Some(index) = engine.open_index_named(name) else {
         return drop_closed(engine, name);
     };

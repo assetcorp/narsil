@@ -8,6 +8,7 @@ mod constants;
 mod documents;
 pub(crate) mod durable;
 mod engine_config;
+pub(crate) mod event_hold;
 pub(crate) mod events;
 mod export;
 mod hooked;
