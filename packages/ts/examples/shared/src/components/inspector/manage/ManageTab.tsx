@@ -20,11 +20,7 @@ export function ManageTab({ indexName, language, partitionCount, hasVectors }: M
     <div className="grid gap-4 lg:grid-cols-2">
       <SynonymsSection key={`synonyms-${indexName}`} indexName={indexName} />
       <AnalysisSection key={`analysis-${indexName}-${language}`} indexName={indexName} language={language} />
-      <PartitionSection
-        key={`partitions-${indexName}-${partitionCount}`}
-        indexName={indexName}
-        partitionCount={partitionCount}
-      />
+      <PartitionSection key={`partitions-${indexName}`} indexName={indexName} partitionCount={partitionCount} />
       {hasVectors ? <VectorSection indexName={indexName} /> : null}
       <BackupSection indexName={indexName} />
       {actions.sync === null ? null : (

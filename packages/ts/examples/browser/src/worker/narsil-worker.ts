@@ -72,6 +72,15 @@ function runHandler(instance: Narsil, request: WorkerRequest): Promise<unknown> 
   return handler(instance, request.args)
 }
 
+function cloneableDetails(err: unknown): Record<string, unknown> {
+  if (!(err instanceof NarsilError)) return {}
+  try {
+    return structuredClone(err.details)
+  } catch {
+    return {}
+  }
+}
+
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const request = event.data
   try {
@@ -84,6 +93,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       id: request.id,
       code: err instanceof NarsilError ? err.code : 'CLIENT_UNEXPECTED_ERROR',
       message: err instanceof Error ? err.message : String(err),
+      details: cloneableDetails(err),
     })
   }
 }

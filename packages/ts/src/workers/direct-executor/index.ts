@@ -6,15 +6,14 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
 import { createPartitionRouter } from '../../partitioning/router'
-import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, VectorStorageMode } from '../../types/schema'
-import type { VectorIndex, VectorWorkerCopyPolicy } from '../../vector/vector-index'
+import type { VectorWorkerCopyPolicy } from '../../vector/vector-index'
 import type { Executor } from '../executor'
 import type { WorkerAction } from '../protocol'
 import { loadSchemaCodeFor } from '../schema-code'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from '../segment-action-code'
-import { loadedVectorCode, loadVectorCode, requireLoadedVectorCode } from '../vector-code'
+import { loadedVectorCode, loadVectorCode } from '../vector-code'
 import {
   closeHeldVectorCopies,
   createHeldVectorCopies,
@@ -25,7 +24,7 @@ import {
   loadHeldVectorCopy,
   pinHeldVectorField,
 } from '../vector-copies'
-import { disposeEntry, indexEntryOf, queryContextOfEntry } from './entry'
+import { disposeEntry, indexEntryOf, queryContextOfEntry, vectorIndexesFor } from './entry'
 import type {
   DetachedIndex,
   DirectExecutorExtensions,
@@ -64,33 +63,15 @@ export function createDirectExecutor(
     return entry
   }
 
-  function vectorIndexesFor(
-    indexName: string,
-    config: IndexConfig,
-    copies = vectorWorkerCopies,
-  ): Map<string, VectorIndex> {
-    const vectorIndexes = new Map<string, VectorIndex>()
-    const vectorFields = extractVectorFieldsFromSchema(config.schema)
-    if (vectorFields.size === 0) return vectorIndexes
-    const { createVectorIndex } = requireLoadedVectorCode()
-    const promotion = config.vectorPromotion
-    const storage = promotion?.storage ?? vectorStorage
-    const repaired = (): void => options?.onVectorGraphRepaired?.(indexName)
-    for (const [fieldPath, dim] of vectorFields) {
-      const index = createVectorIndex(fieldPath, dim, promotion, copies, indexName, storage, repaired)
-      vectorIndexes.set(fieldPath, index)
-    }
-    return vectorIndexes
-  }
-
   function createIndex(
     indexName: string,
     config: IndexConfig,
     language: LanguageModule,
     analysisStale = false,
     synonyms: SynonymLookup | null = null,
+    partitionCount?: number,
   ): void {
-    addIndex(indexName, config, language, analysisStale, null).synonyms = synonyms
+    addIndex(indexName, config, language, analysisStale, null, partitionCount).synonyms = synonyms
   }
 
   function lookupOf(
@@ -107,6 +88,7 @@ export function createDirectExecutor(
     language: LanguageModule,
     analysisStale: boolean,
     awaitedCopyLoad: string | null,
+    savedPartitionCount: number | undefined,
   ): PartitionManager {
     if (indexes.has(indexName)) {
       throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${indexName}" already exists`, {
@@ -114,7 +96,15 @@ export function createDirectExecutor(
       })
     }
 
-    const entry = buildEntry(indexName, config, language, analysisStale, awaitedCopyLoad, vectorWorkerCopies)
+    const entry = buildEntry(
+      indexName,
+      config,
+      language,
+      analysisStale,
+      awaitedCopyLoad,
+      vectorWorkerCopies,
+      savedPartitionCount,
+    )
     indexes.set(indexName, entry)
     return entry.manager
   }
@@ -126,10 +116,11 @@ export function createDirectExecutor(
     analysisStale: boolean,
     awaitedCopyLoad: string | null,
     copies: VectorWorkerCopyPolicy,
+    savedPartitionCount: number | undefined,
   ): IndexEntry {
     const router = createPartitionRouter()
-    const partitionCount = config.partitions?.maxPartitions ?? 1
-    const vectorIndexes = vectorIndexesFor(indexName, config, copies)
+    const partitionCount = savedPartitionCount ?? config.partitions?.maxPartitions ?? 1
+    const vectorIndexes = vectorIndexesFor(indexName, config, copies, vectorStorage, options?.onVectorGraphRepaired)
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
     return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
@@ -194,7 +185,7 @@ export function createDirectExecutor(
       }
 
       case 'createIndex': {
-        const loading = loadSchemaCodeFor(action.config.schema)
+        const loading = loadSchemaCodeFor(action.config.schema, action.config.tokenizer)
         if (loading !== null) await loading
         const language = getLanguage(action.config.language ?? 'english')
         const manager = addIndex(
@@ -203,6 +194,7 @@ export function createDirectExecutor(
           language,
           action.analysisStale ?? false,
           action.copyLoad ?? null,
+          action.partitionCount,
         )
         try {
           manager.synonyms = lookupOf(action.config, language, action.synonyms)
@@ -326,7 +318,15 @@ export function createDirectExecutor(
       case 'clear': {
         const entry = requireIndex(action.indexName)
         entry.manager.clearPartitions()
-        entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config))
+        entry.manager.resetVectorIndexes(
+          vectorIndexesFor(
+            action.indexName,
+            entry.config,
+            vectorWorkerCopies,
+            vectorStorage,
+            options?.onVectorGraphRepaired,
+          ),
+        )
         entry.vectorIndexes = entry.manager.getVectorIndexes()
         if (action.publication === undefined) {
           closeHeldVectorCopies(entry.vectorCopies)
@@ -391,8 +391,8 @@ export function createDirectExecutor(
     dropIndex,
     listIndexes,
     vectorWorkerCopies,
-    createDetachedEntry: (indexName, config, language, copies) =>
-      buildEntry(indexName, config, language, false, null, copies),
+    createDetachedEntry: (indexName, config, language, copies, partitionCount) =>
+      buildEntry(indexName, config, language, false, null, copies, partitionCount),
     installDetachedIndex,
     discardDetachedIndex: detached => disposeEntry(detached.entry),
   }

@@ -219,6 +219,52 @@ describe('a vector field of an index with its text on disk', () => {
     expectCloseTo(await nearest(query), nearestInOracle(oracle, query, undefined))
   }, 120_000)
 
+  it('keeps a passage that is removed and inserted again during the load, through another restart', async () => {
+    const random = seededRandom(174)
+    const oracle = new Map<string, Passage>()
+    await fill(oracle, random)
+    await engine.shutdown()
+    await open()
+    expect(isLoading()).toBe(true)
+
+    const unchanged = oracle.get('passage-5')
+    if (unchanged === undefined) throw new Error('The test lost a passage')
+    await engine.remove(INDEX, 'passage-5')
+    await engine.insert(INDEX, unchanged, 'passage-5')
+    const added: Passage = { title: 'passage added late', group: 'common', embedding: randomVector(random) }
+    await engine.insert(INDEX, added, 'added-late')
+    await engine.remove(INDEX, 'added-late')
+    await engine.insert(INDEX, added, 'added-late')
+    oracle.set('added-late', added)
+    const replacedVector = oracle.get('passage-6')?.embedding
+    if (replacedVector === undefined) throw new Error('The test lost a passage')
+    const replaced: Passage = { title: 'passage replaced late', group: 'common', embedding: randomVector(random) }
+    await engine.remove(INDEX, 'passage-6')
+    await engine.insert(INDEX, replaced, 'passage-6')
+    oracle.set('passage-6', replaced)
+
+    async function expectEveryLatePassage(): Promise<void> {
+      expect((await nearest(unchanged?.embedding ?? []))[0]).toBe('passage-5')
+      expect((await nearest(added.embedding))[0]).toBe('added-late')
+      expect((await nearest(replaced.embedding))[0]).toBe('passage-6')
+      expect((await nearest(replacedVector ?? []))[0]).not.toBe('passage-6')
+      expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
+    }
+
+    await expectEveryLatePassage()
+    await untilLoaded()
+    await expectEveryLatePassage()
+
+    await engine.checkpoint(INDEX)
+    await engine.shutdown()
+    await open()
+    await expectEveryLatePassage()
+    await untilLoaded()
+    await expectEveryLatePassage()
+    const query = randomVector(random)
+    expectCloseTo(await nearest(query), nearestInOracle(oracle, query, undefined))
+  }, 120_000)
+
   it('applies a filter before its load ends', async () => {
     const random = seededRandom(97)
     const oracle = new Map<string, Passage>()

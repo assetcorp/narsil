@@ -34,6 +34,8 @@ pub struct narsil_term_dictionary {
     pub frequency_count: usize,
     pub removed: *const u32,
     pub removed_count: usize,
+    pub exact_slots: *const i32,
+    pub exact_slot_count: usize,
 }
 
 #[repr(C)]

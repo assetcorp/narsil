@@ -1,5 +1,6 @@
 import { expansionSource } from '../../core/expansion/sources'
 import { captureFrozen, readFrozenSource } from '../../core/frozen-writes/regions'
+import { withUnpairedSurrogatesReplaced } from '../../core/ordering/code-points'
 import { partitionDocumentFrequency } from '../../core/partition/document-frequency'
 import { loadSuggestions } from '../../core/partition/suggestion-code'
 import { mergeText } from '../../core/segment-merges/text'
@@ -28,5 +29,6 @@ export function textHostPart() {
     termCount,
     termText,
     tokenize,
+    withUnpairedSurrogatesReplaced,
   }
 }

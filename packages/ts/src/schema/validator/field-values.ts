@@ -74,7 +74,7 @@ export function validateVector(path: string, value: unknown, expectedDimension: 
   }
 
   for (let i = 0; i < arr.length; i++) {
-    if (typeof arr[i] !== 'number' || !Number.isFinite(arr[i])) {
+    if (typeof arr[i] !== 'number' || !Number.isFinite(Math.fround(arr[i] as number))) {
       throw new NarsilError(
         ErrorCodes.DOC_VALIDATION_FAILED,
         `Field "${path}" vector element at index ${i} is not a valid number`,

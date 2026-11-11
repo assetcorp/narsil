@@ -45,6 +45,7 @@ type VectorCore2Names = Pick<
   | 'releaseLocksHeldBy'
   | 'releasePinsHeldBy'
   | 'releaseReplacedVectors'
+  | 'requireBytesWithinLimit'
   | 'requireUsableVectorOptions'
   | 'requireWholeNeighbourLists'
   | 'resetStoreHeader'
@@ -120,6 +121,7 @@ export let recordCheckpoint: VectorCore2Names['recordCheckpoint']
 export let releaseLocksHeldBy: VectorCore2Names['releaseLocksHeldBy']
 export let releasePinsHeldBy: VectorCore2Names['releasePinsHeldBy']
 export let releaseReplacedVectors: VectorCore2Names['releaseReplacedVectors']
+export let requireBytesWithinLimit: VectorCore2Names['requireBytesWithinLimit']
 export let requireUsableVectorOptions: VectorCore2Names['requireUsableVectorOptions']
 export let requireWholeNeighbourLists: VectorCore2Names['requireWholeNeighbourLists']
 export let resetStoreHeader: VectorCore2Names['resetStoreHeader']
@@ -196,6 +198,7 @@ export function bindVectorCore2Names(vectorCore: VectorCore2Names): void {
     releaseLocksHeldBy,
     releasePinsHeldBy,
     releaseReplacedVectors,
+    requireBytesWithinLimit,
     requireUsableVectorOptions,
     requireWholeNeighbourLists,
     resetStoreHeader,

@@ -36,7 +36,7 @@ export type {
   NativeStoreMemory,
 } from './memory'
 
-export const NATIVE_CORE_ABI_VERSION = 50
+export const NATIVE_CORE_ABI_VERSION = 51
 export const NATIVE_OK = 0
 export const NATIVE_NEEDS_ROOM = 3
 export const NATIVE_GRAPH_NOT_HELD_ALONE = 4

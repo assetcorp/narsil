@@ -1,10 +1,16 @@
+import { loadCustomTokenCodeFor } from '../analysis/custom-token-code'
 import { loadOptionalReadsFor } from '../engine/optional-reads-code'
 import { loadGeoCodeFor } from '../geo/geo-code'
 import { loadVectorCodeFor } from './vector-code'
 
-export function loadSchemaCodeFor(schema: unknown): Promise<unknown> | null {
+export function loadSchemaCodeFor(schema: unknown, ...tokenizers: unknown[]): Promise<unknown> | null {
   const loading: Promise<unknown>[] = []
-  for (const code of [loadVectorCodeFor(schema), loadGeoCodeFor(schema), loadOptionalReadsFor(schema)]) {
+  for (const code of [
+    loadVectorCodeFor(schema),
+    loadGeoCodeFor(schema),
+    loadOptionalReadsFor(schema),
+    loadCustomTokenCodeFor(tokenizers),
+  ]) {
     if (code !== null) loading.push(code)
   }
   if (loading.length === 0) return null

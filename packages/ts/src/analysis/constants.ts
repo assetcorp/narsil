@@ -1,0 +1,1 @@
+export const MAX_TOKEN_POSITION = 4_294_967_295

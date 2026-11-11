@@ -54,6 +54,7 @@ export function analyseQueryPhrases(parts: readonly string[], analyseText: Analy
     wordsAfterLastPhrase = ''
     if (size > largestPhraseSize) largestPhraseSize = size
     if (ordered.length > largestTokenCount) largestTokenCount = ordered.length
+    if (size > MAX_PHRASE_WORDS || ordered.length > MAX_PHRASE_WORDS) continue
 
     const tokens = ordered.map(entry => entry.token)
     const offsets = ordered.map(entry => entry.position - firstPosition)

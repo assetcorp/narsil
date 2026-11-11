@@ -39,6 +39,7 @@ export interface DirectExecutorExtensions {
     language: LanguageModule,
     analysisStale?: boolean,
     synonyms?: SynonymLookup | null,
+    partitionCount?: number,
   ): void
   dropIndex(indexName: string): void
   listIndexes(): string[]
@@ -70,6 +71,7 @@ export interface IndexReplacement {
     config: IndexConfig,
     language: LanguageModule,
     copies: VectorWorkerCopyPolicy,
+    partitionCount?: number,
   ): IndexEntry
   installDetachedIndex(detached: DetachedIndex): void
   discardDetachedIndex(detached: DetachedIndex): void

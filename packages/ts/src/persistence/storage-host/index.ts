@@ -61,6 +61,7 @@ export { arrayPositionsAreStale, storedArrayPositionGap } from '../../engine/arr
 export {
   ANALYSIS_CHANGE_MEMBERS,
   ANALYSIS_HOLD_APPLY_INTERVAL_MS,
+  DEFAULT_MAX_PARTITIONS,
   EXPORT_CHUNK_BYTES,
   FOREIGN_STATS_TTL_MS,
   IMPORT_BATCH_DOCUMENTS,
@@ -68,6 +69,7 @@ export {
   MAX_EXPORT_LINE_BYTES,
   MAX_IMPORT_REFUSALS_REPORTED,
   MAX_INDEX_NAME_LENGTH,
+  MAX_PARTITIONS,
   STATISTICS_BROADCAST_INTERVAL_MS,
 } from '../../engine/constants'
 export { emitEngineEvent } from '../../engine/events'
@@ -145,7 +147,7 @@ export { decodeMapWithoutFields, endOfValue } from '../../serialization/msgpack-
 export { restoreVectorFields, setNestedValue } from '../../serialization/vector-field-bytes'
 export { isSyncEpoch, newSyncEpoch } from '../../sync/epoch'
 export { createHNSWIndex } from '../../vector/hnsw'
-export { MAX_LAYER_CAP, MIN_M } from '../../vector/hnsw/constants'
+export { MAX_LAYER_CAP, MAX_M, MIN_M } from '../../vector/hnsw/constants'
 export { toDistance, toScore } from '../../vector/hnsw/shared'
 export { nativeSearchCoreIsEnabled } from '../../vector/native/backend'
 export { osqBitsOf } from '../../vector/osq'
@@ -170,6 +172,7 @@ export { DEFAULT_VECTOR_METRIC } from '../../vector/vector-index/constants'
 export { countDead, deadBytesFor, isDead } from '../../vector/vector-index/dead-bits'
 export { defaultQuantizationFor } from '../../vector/vector-index/default-quantization'
 export { bytesToVectors, decodeVectorIndexParts, vectorsToBytes } from '../../vector/vector-index/payload'
+export { requireBoundedUpperLists } from '../../vector/vector-index/upper-list-bound'
 export { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
 export { resolveWorkerEntry } from '../../workers/entry-point'
 export { createRequestId } from '../../workers/protocol'

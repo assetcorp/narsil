@@ -299,7 +299,9 @@ static void apply(narsil_workspace *workspace, fuzz_input *input, fuzz_frozen *f
                                        segment->terms.counts,
                                        terms,
                                        frozen->state.removed_documents,
-                                       terms};
+                                       terms,
+                                       segment->exact_slots,
+                                       segment->exact_slot_count};
   narsil_expansion_segment source = {NULL, segment, &frozen->state, frozen->occurrences,
                                      frozen->occurrences == NULL ? 0 : terms};
   narsil_remove_frozen_request request;

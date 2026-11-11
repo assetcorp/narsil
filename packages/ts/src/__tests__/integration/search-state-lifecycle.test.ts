@@ -65,6 +65,7 @@ describe.each(['memory', 'disk'] as const)('search state across replacement with
       schema: { title: 'string', group: 'enum', scoreText: 'string', embedding: 'vector[4]' },
       vectorPromotion: { quantization: 'none' },
       textStorage,
+      partitions: { maxPartitions: 3 },
     }
     await engine.createIndex(INDEX, config)
     const earlier = Array.from({ length: DOCUMENTS }, (_, position) => reading(position, 0))

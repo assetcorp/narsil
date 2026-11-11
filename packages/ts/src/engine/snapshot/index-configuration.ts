@@ -2,6 +2,7 @@ import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
+import { flattenSchema } from '../../schema/validator/schema'
 import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-code'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
@@ -54,7 +55,7 @@ export function configurationPayloadOf(
 ): Record<string, unknown> {
   const bm25 = config.bm25
   return {
-    schema: config.schema,
+    schema: { ...flattenSchema(config.schema) },
     language: language.name,
     ...(analysisRevision !== null ? { analysisRevision } : {}),
     ...(arrayPositionGap !== null ? { arrayPositionGap } : {}),

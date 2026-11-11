@@ -14,6 +14,7 @@ const LONGEST_LINE_BYTES = 117_443_592
 const LONGEST_ID_UNITS = 512
 const SAFE_SECONDS_PAST_RANGE = 9_007_199_254_740_992
 const NANOSECONDS_PAST_RANGE = 1_000_000_000
+const FLOAT32_INFINITY_ROUNDING_TIE = 2 ** 128 - 2 ** 103
 const LINE_FEED = '\n'
 
 interface ExportLines {
@@ -63,6 +64,16 @@ function tagCase(name: string, lines: ExportLines, tag: JsonObject): FileBuild {
   })
 }
 
+function vectorElementCase(name: string, lines: ExportLines, element: Json): FileBuild {
+  return lineCase(name, ID_RULE, lines, document => {
+    const embedding = document.embedding
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      throw new Error(`the first document of ${EXPORT} holds no embedding vector`)
+    }
+    embedding[0] = element
+  })
+}
+
 function longestLine(lines: ExportLines): FileBuild {
   const [first, ...rest] = lines.documents
   if (first === undefined || !first.startsWith('{')) throw new Error(`${EXPORT} holds no document line`)
@@ -106,6 +117,10 @@ export async function exportCases(): Promise<CaseBuild[]> {
     lineCase('export-id-lone-surrogate', ID_RULE, lines, document => {
       document.id = 'product-\ud800'
     }),
+    vectorElementCase('export-vector-element-not-a-number', lines, 'one'),
+    vectorElementCase('export-vector-element-nan', lines, { $number: 'NaN' }),
+    vectorElementCase('export-vector-element-beyond-float32', lines, 1e39),
+    vectorElementCase('export-vector-element-rounds-to-float32-infinity', lines, FLOAT32_INFINITY_ROUNDING_TIE),
     longestLine(lines),
   ]
 }

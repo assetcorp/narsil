@@ -71,7 +71,7 @@ const engine = await createNarsil(
 )
 const index = input.index
 if (path !== 'durable-open') {
-  await engine.createIndex(index, { schema: { title: 'string' } })
+  await engine.createIndex(index, { schema: { title: 'string' }, partitions: { maxPartitions: 3 } })
   for (const [id, title] of input.first) await engine.insert(index, { title }, id)
 }
 switch (path) {

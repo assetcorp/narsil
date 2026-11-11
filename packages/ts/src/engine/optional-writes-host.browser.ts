@@ -33,6 +33,7 @@ type EngineNames = Pick<
   | 'fnv1a'
   | 'generateId'
   | 'getLanguage'
+  | 'getNestedValue'
   | 'getVectorFieldPaths'
   | 'indexChangeOutsideExternalWaits'
   | 'insertDocument'
@@ -97,6 +98,7 @@ export let extractVectorFromDoc: EngineNames['extractVectorFromDoc']
 export let fnv1a: EngineNames['fnv1a']
 export let generateId: EngineNames['generateId']
 export let getLanguage: EngineNames['getLanguage']
+export let getNestedValue: EngineNames['getNestedValue']
 export let getVectorFieldPaths: EngineNames['getVectorFieldPaths']
 export let indexChangeOutsideExternalWaits: EngineNames['indexChangeOutsideExternalWaits']
 export let insertDocument: EngineNames['insertDocument']
@@ -172,6 +174,7 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     fnv1a,
     generateId,
     getLanguage,
+    getNestedValue,
     getVectorFieldPaths,
     indexChangeOutsideExternalWaits,
     insertDocument,

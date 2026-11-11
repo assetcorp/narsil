@@ -37,6 +37,8 @@ typedef struct {
   size_t frequency_count;
   const uint32_t *removed;
   size_t removed_count;
+  const int32_t *exact_slots;
+  size_t exact_slot_count;
 } narsil_term_dictionary;
 
 enum { NARSIL_LOOKUP_EXACT, NARSIL_LOOKUP_PREFIX, NARSIL_LOOKUP_TYPO };
@@ -56,6 +58,7 @@ narsil_status narsil_lookup_terms(narsil_workspace *workspace, const narsil_term
 narsil_status narsil_lookup_exact_batch(narsil_workspace *workspace, const narsil_term_dictionary *dictionary,
                                         const uint16_t *units, size_t unit_count, const uint32_t *offsets,
                                         size_t offset_count, uint32_t *ordinals, size_t capacity);
+narsil_status narsil_build_exact_terms(const narsil_term_dictionary *dictionary, int32_t *slots, size_t slot_count);
 narsil_status narsil_document_frequency(const narsil_term_dictionary *dictionary, uint32_t token, uint32_t *frequency,
                                         size_t capacity);
 

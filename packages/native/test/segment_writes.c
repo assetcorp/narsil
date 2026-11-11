@@ -1,5 +1,6 @@
 #include "allocation_failures.h"
 #include "fixture.h"
+#include "segment_fixture.h"
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
@@ -14,79 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum {
-  TERMS = 2048,
-  SLOTS = 4096,
-  UNITS = 32768,
-  HEADS = 65536,
-  POOL = 4096,
-  POSITIONS = 8192,
-  CLASSES = 12,
-  ORDINALS = 2048,
-  FIELDS = 2,
-  RUNS = 2048,
-  RUN_SLOTS = 4096,
-  RUN_MEMBERS = 32768
-};
-
-enum { HEADER_WORDS = 8, TERM_LENGTH = 6, SURFACE_LENGTH = 7, SURFACE_RUNS = 5, WORD_BITS = 32 };
-
-typedef struct {
-  uint32_t header[HEADER_WORDS];
-  int32_t slots[SLOTS];
-  uint32_t offsets[TERMS];
-  uint32_t lengths[TERMS];
-  uint32_t next[TERMS];
-  uint32_t heads[HEADS];
-  uint16_t units[UNITS];
-} test_strings;
-
-typedef struct {
-  test_strings terms;
-  test_strings surfaces;
-  test_strings spellings;
-  uint32_t surface_tokens[TERMS];
-  uint32_t surface_counts[TERMS];
-  uint32_t spelling_tokens[TERMS];
-  uint32_t spelling_counts[TERMS];
-  uint32_t spelling_points[TERMS];
-  uint32_t starts[TERMS];
-  uint8_t classes[TERMS];
-  uint32_t lengths[TERMS];
-  uint32_t frequencies[TERMS];
-  uint32_t dead[TERMS];
-  double occurrences[TERMS];
-  double surface_occurrences[TERMS];
-  uint32_t revisions[TERMS];
-  uint8_t flags[TERMS];
-  uint32_t docs[POOL];
-  uint16_t counts[POOL];
-  uint16_t fields[POOL];
-  uint32_t positions_at[POOL];
-  uint32_t posting_allocation[2];
-  uint32_t posting_free[CLASSES];
-  uint32_t sizes[CLASSES];
-  uint32_t positions[POSITIONS];
-  uint32_t position_allocation[2];
-  uint32_t retired[ORDINALS / WORD_BITS];
-  uint32_t field_lengths[ORDINALS * FIELDS];
-  uint32_t documents;
-  double total_lengths[FIELDS];
-  uint8_t partial[FIELDS];
-  uint32_t run_header[HEADER_WORDS];
-  int32_t run_slots[RUN_SLOTS];
-  uint32_t runs[RUNS * 3];
-  uint32_t run_starts[RUNS];
-  uint32_t run_lengths[RUNS];
-  uint8_t run_classes[RUNS];
-  uint32_t members[RUN_MEMBERS];
-  uint32_t run_allocation[2];
-  uint32_t run_free[CLASSES];
-  narsil_surface_table surface_table;
-  narsil_spelling_table spelling_table;
-  narsil_position_pool position_pool;
-  narsil_growing_segment segment;
-} segment_fixture;
+enum { TERM_LENGTH = 6, SURFACE_LENGTH = 7, SURFACE_RUNS = 5 };
 
 static narsil_term_table string_table(test_strings *strings) {
   return (narsil_term_table){strings->header,  HEADER_WORDS, strings->slots, SLOTS, strings->offsets, TERMS,
@@ -134,7 +63,7 @@ static void point_at_own_arrays(segment_fixture *data) {
       .field_count = FIELDS};
 }
 
-static segment_fixture *create_segment(void) {
+segment_fixture *create_segment_fixture(void) {
   segment_fixture *data = calloc(1, sizeof *data);
   if (data == NULL) { return NULL; }
   for (size_t index = 0; index < CLASSES; index++) {
@@ -197,7 +126,7 @@ static void count_boundaries(narsil_workspace *workspace, segment_fixture *data,
 }
 
 static void short_regions(narsil_workspace *workspace, const narsil_field_tokens *fields) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the short-region fixture has memory");
   if (data == NULL) { return; }
   narsil_index_terms_request request = {&data->segment, 0, fields, FIELDS};
@@ -214,7 +143,7 @@ static void short_regions(narsil_workspace *workspace, const narsil_field_tokens
 }
 
 static void removal_counts(narsil_workspace *workspace, const narsil_field_tokens *fields) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the removal fixture has memory");
   if (data == NULL) { return; }
   narsil_index_terms_request request = {&data->segment, 0, fields, FIELDS};
@@ -253,7 +182,7 @@ static void removal_counts(narsil_workspace *workspace, const narsil_field_token
 }
 
 static void batch_refusals(narsil_workspace *workspace) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the batch refusal fixture has memory");
   if (data == NULL) { return; }
   data->segment.total_documents = data->frequencies;
@@ -274,7 +203,7 @@ static void batch_refusals(narsil_workspace *workspace) {
 
 static void compact_dictionary(narsil_workspace *workspace) {
   enum { INPUTS = 1300, KEPT = 100, TEXT_LENGTH = 9, TOKEN_LENGTH = 8, RADIX = 10, DIGITS = 4, POSITION = 2 };
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the dictionary compaction fixture has memory");
   if (data == NULL) { return; }
   uint16_t text[TEXT_LENGTH] = {'t', 'e', 'r', 'm', '0', '0', '0', '0', 's'};
@@ -336,7 +265,7 @@ static void compact_dictionary(narsil_workspace *workspace) {
 }
 
 static void posting_refusals(narsil_workspace *workspace, const narsil_field_tokens *fields) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the posting refusal fixture has memory");
   if (data == NULL) { return; }
   narsil_index_terms_request request = {&data->segment, 0, fields, FIELDS};
@@ -372,7 +301,7 @@ static void posting_refusals(narsil_workspace *workspace, const narsil_field_tok
 }
 
 static void removal_refusals(narsil_workspace *workspace, const narsil_field_tokens *fields) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the removal refusal fixture has memory");
   if (data == NULL) { return; }
   narsil_token second = fields[1].tokens.tokens[0];
@@ -615,7 +544,7 @@ static narsil_status index_refused_document(narsil_workspace *workspace, segment
 }
 
 static segment_fixture *indexed_segment(uint32_t documents) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   narsil_workspace *workspace = NULL;
   if (data == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
     free(data);
@@ -638,7 +567,7 @@ static segment_fixture *segment_for_a_document(void) { return indexed_segment(RE
 static segment_fixture *full_segment(void) { return indexed_segment(REFUSED_DOCUMENTS); }
 
 static segment_fixture *segment_to_compact(void) {
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   narsil_workspace *workspace = NULL;
   if (data == NULL || narsil_workspace_create(&workspace) != NARSIL_OK) {
     free(data);
@@ -805,7 +734,7 @@ void segment_write_checks(narsil_workspace *workspace) {
   narsil_token token = {0, 0, TERM_LENGTH, TERM_LENGTH, SURFACE_LENGTH, 0, 0, NARSIL_NO_TERM_SLOT};
   narsil_field_tokens fields[] = {{0, {&token, 1, units, sizeof units / sizeof units[0]}},
                                   {1, {&token, 1, units, sizeof units / sizeof units[0]}}};
-  segment_fixture *data = create_segment();
+  segment_fixture *data = create_segment_fixture();
   check(data != NULL, "the growing segment fixture has memory");
   if (data == NULL) { return; }
   narsil_index_terms_request request = {&data->segment, 0, fields, FIELDS};

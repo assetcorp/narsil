@@ -91,6 +91,7 @@ async function recallOf(
       )
       expect(result.failed).toEqual([])
     }
+    await narsil.optimizeVectors('articles')
     const deadline = Date.now() + SETTLE_DEADLINE_MS
     for (;;) {
       const status = narsil.vectorMaintenanceStatus('articles')

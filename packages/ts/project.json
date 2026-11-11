@@ -205,6 +205,13 @@
         "cwd": "packages/ts"
       }
     },
+    "test:id-table-limit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run src/__tests__/vector/id-table-limit.test.ts",
+        "cwd": "packages/ts"
+      }
+    },
     "test:embeddings": {
       "executor": "nx:run-commands",
       "options": {

@@ -92,7 +92,7 @@ describe('capacity + rebalancing + strict mode integration', () => {
   })
 
   it('preserves vector search results after rebalancing', async () => {
-    await narsil.createIndex('vectors', { schema: vectorSchema, language: 'english' })
+    await narsil.createIndex('vectors', { schema: vectorSchema, language: 'english', partitions: { maxPartitions: 3 } })
 
     for (let i = 0; i < 50; i++) {
       await narsil.insert('vectors', { title: `Vector Document ${i}`, embedding: seededVector(32, i + 1) })
@@ -174,7 +174,7 @@ describe('capacity + rebalancing + strict mode integration', () => {
   })
 
   it('empty index can be rebalanced', async () => {
-    await narsil.createIndex('empty', { schema: productSchema, language: 'english' })
+    await narsil.createIndex('empty', { schema: productSchema, language: 'english', partitions: { maxPartitions: 3 } })
     await narsil.rebalance('empty', 3)
     expect(narsil.getStats('empty').partitionCount).toBe(3)
     expect(await narsil.countDocuments('empty')).toBe(0)

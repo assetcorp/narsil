@@ -1,7 +1,8 @@
-import { EARLIER_RELEASE_MIN_M, ErrorCodes, MAX_M, MIN_M, NarsilError } from '#platform/vector-core-host'
+import { ErrorCodes, MAX_M, MIN_M, NarsilError } from '#platform/vector-core-host'
 import type { VectorMetric } from '../brute-force'
 import type { NumberedGraphParts, NumberedHnswGraph } from '../hnsw'
 import { codesOf, VECTOR_INDEX_PART_VECTORS, type VectorIndexCodes } from './payload'
+import { requireBoundedUpperLists } from './upper-list-bound'
 
 export const VECTOR_FILE_PAYLOAD_VERSION = 1
 export const VECTOR_GRAPH_PAYLOAD_VERSION = 1
@@ -99,15 +100,15 @@ function calibratedMeanLengthOf(name: string, value: unknown): number | null {
   return value
 }
 
-function decodeNumberedGraph(raw: unknown, minimumM: number): NumberedHnswGraph {
+function decodeNumberedGraph(raw: unknown): NumberedHnswGraph {
   const name = 'vector graph'
   if (!isRecord(raw)) invalid(name, 'each graph must be a map')
   const entryPoint = raw.entryPoint ?? null
   if (entryPoint !== null && !isIntegerUpTo(entryPoint, 0xffff_ffff))
     invalid(name, 'entryPoint must be a uint32 or nil')
   if (!isIntegerUpTo(raw.maxLayer, 0xff)) invalid(name, 'maxLayer must be a uint8')
-  if (!isIntegerUpTo(raw.m, MAX_M) || raw.m < minimumM) {
-    invalid(name, `m must be a whole number from ${minimumM} to ${MAX_M}`)
+  if (!isIntegerUpTo(raw.m, MAX_M) || raw.m < MIN_M) {
+    invalid(name, `m must be a whole number from ${MIN_M} to ${MAX_M}`)
   }
   if (!isIntegerUpTo(raw.efConstruction, 0xffff)) invalid(name, 'efConstruction must be a uint16')
   if (!isMetric(raw.metric)) invalid(name, 'metric must name a supported metric', { metric: raw.metric })
@@ -139,7 +140,7 @@ export function decodeVectorGraphPayload(raw: unknown): VectorGraphPayload {
   return {
     v: VECTOR_GRAPH_PAYLOAD_VERSION,
     fieldName: raw.fieldName,
-    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph, EARLIER_RELEASE_MIN_M)),
+    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph)),
   }
 }
 
@@ -152,7 +153,7 @@ export function decodeVectorGraphPartPayload(raw: unknown): VectorGraphPartPaylo
   return {
     v: VECTOR_GRAPH_PART_PAYLOAD_VERSION,
     fieldName: raw.fieldName,
-    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph, MIN_M)),
+    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph)),
   }
 }
 
@@ -205,11 +206,22 @@ export function assembleGraphParts(parts: readonly VectorGraphPartPayload[]): Ve
     }
     requireOneGraphPerVector(part, p)
   }
+  for (let g = 0; g < partLists.length; g++) {
+    const list = partLists[g]
+    requireBoundedUpperLists(
+      list.map(graph => graph.levels),
+      first.graphs[g].m,
+      `Graph ${g} of the vector graph parts of field "${first.fieldName}"`,
+    )
+  }
   const graphs: NumberedGraphParts[] = partLists.map(list => ({ partSize: VECTOR_GRAPH_PART_VECTORS, parts: list }))
   return { fieldName: first.fieldName, graphs }
 }
 
 export function graphPartsOfEarlierPayload(payload: VectorGraphPayload): VectorGraphParts {
+  payload.graphs.forEach((graph, g) => {
+    requireBoundedUpperLists([graph.levels], graph.m, `Graph ${g} of the vector graph of field "${payload.fieldName}"`)
+  })
   return {
     fieldName: payload.fieldName,
     graphs: payload.graphs.map(graph => ({ partSize: Math.max(graph.levels.length, 1), parts: [graph] })),

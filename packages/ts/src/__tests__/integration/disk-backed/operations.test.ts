@@ -197,6 +197,7 @@ describe('an index with its text on disk, through the operations that move its f
     let engine = await open(root)
     const oracle = await seeded(engine, 18)
     await engine.checkpoint(INDEX)
+    await engine.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     await engine.rebalance(INDEX, 3)
     expect(engine.getPartitionStats(INDEX)).toHaveLength(3)
     await expectEngineMatchesOracle(engine, INDEX, oracle)
@@ -221,6 +222,8 @@ describe('an index with its text on disk, through the operations that move its f
       await disk.insert(INDEX, document, `doc-${i}`)
       await memory.insert(INDEX, document, `doc-${i}`)
     }
+    await disk.updatePartitionConfig(INDEX, { maxPartitions: 3 })
+    await memory.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     await disk.rebalance(INDEX, 3)
     await memory.rebalance(INDEX, 3)
     await disk.checkpoint(INDEX)
@@ -307,6 +310,7 @@ describe('an index with its text on disk, through the operations that move its f
         })
         .catch(() => undefined)
     }, 50)
+    await engine.updatePartitionConfig(INDEX, { maxPartitions: 2 })
     try {
       await engine.rebalance(INDEX, 2)
     } finally {

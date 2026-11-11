@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define FNV_OFFSET UINT32_C(0x811c9dc5)
 enum { FNV_PRIME = 0x01000193U, BYTE_SHIFT = 8, BYTE_MASK = 255 };
 
 int term_table_regions(const narsil_term_table *table, memory_region regions[TERM_TABLE_REGIONS]) {
@@ -34,12 +33,14 @@ int term_table_regions(const narsil_term_table *table, memory_region regions[TER
          table->header[TERM_SLOT_CAPACITY] == table->slot_count && table->header[TERM_UNITS_USED] <= table->unit_count;
 }
 
+uint32_t term_hash_unit(uint32_t hash, uint16_t unit) {
+  hash = (hash ^ (unit & BYTE_MASK)) * FNV_PRIME;
+  return (hash ^ (unit >> BYTE_SHIFT)) * FNV_PRIME;
+}
+
 uint32_t term_hash(const uint16_t *units, size_t length) {
-  uint32_t hash = FNV_OFFSET;
-  for (size_t at = 0; at < length; at++) {
-    hash = (hash ^ (units[at] & BYTE_MASK)) * FNV_PRIME;
-    hash = (hash ^ (units[at] >> BYTE_SHIFT)) * FNV_PRIME;
-  }
+  uint32_t hash = TERM_HASH_OFFSET;
+  for (size_t at = 0; at < length; at++) { hash = term_hash_unit(hash, units[at]); }
   return hash;
 }
 

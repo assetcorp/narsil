@@ -127,6 +127,8 @@ impl FrozenView {
                 partial_fields: pointer(&partial_fields),
                 field_count: payload.field_names.len() as u32,
                 document_count: payload.document_count,
+                exact_slots: ptr::null(),
+                exact_slot_count: 0,
             },
         });
         if payload.surface_forms.is_some() {

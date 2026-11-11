@@ -15,6 +15,9 @@ export const MODULE_URL_SCHEME_PATTERN = /^(file|https?|data|node):/
 export const MAX_INDEX_NAME_LENGTH = 255
 export const MAX_DOC_ID_LENGTH = 512
 
+export const DEFAULT_MAX_PARTITIONS = 1
+export const MAX_PARTITIONS = 65_536
+
 export const EXPORT_CHUNK_BYTES = 1_048_576
 export const MAX_EXPORT_LINE_BYTES = 117_443_592
 export const MAX_INDEX_CONFIGURATION_BYTES = 16_777_216

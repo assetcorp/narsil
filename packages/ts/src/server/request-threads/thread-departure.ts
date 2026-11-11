@@ -211,8 +211,8 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
           executor.heldVectorOf(indexName, fieldName, docId),
         ),
         pinVectorField: refusingOnceDeparting((indexName, fieldName) => executor.pinVectorField(indexName, fieldName)),
-        createIndex: refusingOnceDeparting((indexName, config, language, analysisStale, synonyms) =>
-          executor.createIndex(indexName, config, language, analysisStale, synonyms),
+        createIndex: refusingOnceDeparting((indexName, config, language, analysisStale, synonyms, partitionCount) =>
+          executor.createIndex(indexName, config, language, analysisStale, synonyms, partitionCount),
         ),
         dropIndex: refusingOnceDeparting(indexName => executor.dropIndex(indexName)),
         listIndexes: refusingOnceDeparting(() => executor.listIndexes()),

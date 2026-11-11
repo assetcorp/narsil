@@ -160,7 +160,8 @@ async function buildRestoredIndex(
   staging: RestoreStaging | null,
   deps: RestoreDeps,
 ): Promise<RestoredIndex> {
-  const built = await prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
+  const savedPartitions = envelope.partitions?.length ?? 0
+  const built = await prepareDetachedIndex(indexName, prepared, savedPartitions > 0 ? savedPartitions : null, deps)
   let manifest: SegmentManifest
   try {
     insertSnapshotDocuments(envelope, built.manager)

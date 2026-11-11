@@ -61,6 +61,14 @@ export async function resolveVectorText(
       { expected: embeddingAdapter.dimensions, actual: raw.length },
     )
   }
+  for (let index = 0; index < raw.length; index++) {
+    if (Number.isFinite(raw[index])) continue
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_FAILED,
+      `Adapter returned vector with ${raw[index]} at index ${index} for query embedding`,
+      { index },
+    )
+  }
   const resolved: VectorQueryConfig = { ...params.vector, value: Array.from(raw) }
   delete resolved.text
   return { ...params, vector: resolved }

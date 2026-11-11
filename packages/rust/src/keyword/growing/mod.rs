@@ -211,6 +211,8 @@ impl GrowingSegment {
             frequency_count: self.columns.doc_frequency.len(),
             removed: self.columns.dead_documents.as_ptr(),
             removed_count: self.columns.dead_documents.len(),
+            exact_slots: std::ptr::null(),
+            exact_slot_count: 0,
         }
     }
 

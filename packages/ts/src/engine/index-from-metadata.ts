@@ -79,22 +79,19 @@ function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
   })
 }
 
-async function restorePartitionCount(deps: MetadataIndexDeps, metadata: IndexMetadata): Promise<void> {
-  if (
-    !Number.isInteger(metadata.partitionCount) ||
-    metadata.partitionCount < 1 ||
-    metadata.partitionCount > 0xffff_ffff
-  ) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'The saved index has an invalid partition count')
+async function savedPartitionCountOf(metadata: IndexMetadata): Promise<number> {
+  const count: unknown = metadata.partitionCount
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) {
+    const held = typeof count === 'number' ? String(count) : `a ${typeof count} as its count of`
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `Recovery of index "${metadata.indexName}" failed: its metadata holds ${held} partitions, and an index holds a whole number above zero`,
+      { indexName: metadata.indexName, partitionCount: typeof count === 'number' ? count : typeof count },
+    )
   }
-  const manager = deps.executor.getManager(metadata.indexName)
-  if (manager === undefined) return
-  await manager.publication.write(() => {
-    while (manager.partitionCount < metadata.partitionCount) manager.addPartition()
-    if (manager.partitionCount > metadata.partitionCount) {
-      manager.setPartitions(manager.getAllPartitions().slice(0, metadata.partitionCount))
-    }
-  })
+  const { requireSavedPartitionCount } = await loadStorageCode()
+  requireSavedPartitionCount(count, 'metadata', metadata.indexName)
+  return count
 }
 
 export async function createIndexFromMetadata(
@@ -102,7 +99,11 @@ export async function createIndexFromMetadata(
   metadata: IndexMetadata,
   loadData: boolean,
 ): Promise<void> {
-  const loadingSchemaCode = loadData ? loadSchemaCodeFor(metadata.schema) : null
+  const loadingSchemaCode = loadSchemaCodeFor(
+    loadData ? metadata.schema : null,
+    metadata.tokenizer,
+    metadata.pendingAnalysis?.tokenizer,
+  )
   if (loadingSchemaCode !== null) await loadingSchemaCode
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
@@ -111,14 +112,15 @@ export async function createIndexFromMetadata(
       adoptSavedAnalysis(deps.executor.getManager(metadata.indexName), existing, metadata)
     }
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
+      const partitionCount = await savedPartitionCountOf(metadata)
       deps.executor.createIndex(
         metadata.indexName,
         existing.config,
         existing.language,
         false,
         lookupOfStoredSynonyms(existing.synonyms, existing.config, existing.language),
+        partitionCount,
       )
-      await restorePartitionCount(deps, metadata)
     }
     return
   }
@@ -131,6 +133,7 @@ export async function createIndexFromMetadata(
   } catch (err) {
     throw recoveryFailure(metadata, err)
   }
+  const partitionCount = await savedPartitionCountOf(metadata)
   const embedding = resolveEmbeddingAdapter(deps, metadata, indexConfig.schema)
   const prepared = prepareStoredSynonyms(
     metadata.synonyms,
@@ -144,8 +147,14 @@ export async function createIndexFromMetadata(
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
     validateTextStorage(indexConfig.textStorage, deps.filesystemDurability)
     if (loadData) {
-      deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
-      await restorePartitionCount(deps, metadata)
+      deps.executor.createIndex(
+        metadata.indexName,
+        indexConfig,
+        language,
+        false,
+        prepared?.lookup ?? null,
+        partitionCount,
+      )
     }
   } catch (err) {
     throw recoveryFailure(metadata, err)
@@ -159,7 +168,7 @@ export async function createIndexFromMetadata(
     indexUuid: metadata.indexUuid ?? null,
     heldPartitions: metadata.heldPartitions ?? null,
     documentCount: metadata.documentCount ?? 0,
-    partitionCount: metadata.partitionCount,
+    partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
     arrayPositionGap: metadata.arrayPositionGap ?? null,
     synonyms,

@@ -44,11 +44,18 @@ static int64_t scan_exact(const narsil_term_dictionary *dictionary, const narsil
   return -1;
 }
 
+static int exact_decodes_query(const narsil_term_dictionary *dictionary) {
+  return dictionary->growing == NULL && dictionary->exact_slot_count == 0;
+}
+
 static int64_t exact(const narsil_term_lookup *request, const narsil_code_points *query) {
   const narsil_term_dictionary *dictionary = request->dictionary;
   if (dictionary->growing != NULL) {
     int64_t found = term_table_find(dictionary->growing, request->text, request->text_length);
     return found >= 0 && dictionary_frequency(dictionary, (uint32_t)found) > 0 ? found : -1;
+  }
+  if (dictionary->exact_slot_count > 0) {
+    return dictionary_find_exact(dictionary, request->text, request->text_length);
   }
   size_t low = 0;
   size_t high = dictionary_count(dictionary);
@@ -118,7 +125,7 @@ narsil_status narsil_lookup_terms(narsil_workspace *workspace, const narsil_term
   term_scratch *scratch = workspace_term_scratch(workspace);
   int exact_query = request->operation == NARSIL_LOOKUP_EXACT ||
                     (request->operation == NARSIL_LOOKUP_TYPO && request->tolerance == 0);
-  if (!exact_query || request->dictionary->growing == NULL) {
+  if (!exact_query || exact_decodes_query(request->dictionary)) {
     term_cursor query = {request->text, NULL, 0, request->text_length};
     int decoded = term_points(query, &scratch->query);
     if (decoded != 1) { return match_failure(decoded); }
@@ -184,7 +191,7 @@ narsil_status narsil_lookup_exact_batch(narsil_workspace *workspace, const narsi
   for (size_t at = 0; at < count; at++) {
     const uint16_t *text = offsets[at] == 0 ? units : units + offsets[at];
     size_t length = offsets[at + 1] - offsets[at];
-    if (dictionary->growing == NULL) {
+    if (exact_decodes_query(dictionary)) {
       term_cursor query = {text, NULL, 0, length};
       int decoded = term_points(query, &scratch->query);
       if (decoded != 1) { return match_failure(decoded); }

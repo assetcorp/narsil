@@ -12,6 +12,7 @@ import {
   INDEX_NAME_PATTERN,
   MAX_DOC_ID_LENGTH,
   MAX_INDEX_NAME_LENGTH,
+  MAX_PARTITIONS,
   MODULE_URL_SCHEME_PATTERN,
 } from './constants'
 
@@ -104,10 +105,17 @@ export function validatePartitionConfig(partitions: {
       maxDocsPerPartition,
     })
   }
-  if (maxPartitions !== undefined && (!Number.isInteger(maxPartitions) || maxPartitions < 1)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.maxPartitions must be a positive integer', {
-      maxPartitions,
-    })
+  if (
+    maxPartitions !== undefined &&
+    (!Number.isInteger(maxPartitions) || maxPartitions < 1 || maxPartitions > MAX_PARTITIONS)
+  ) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `partitions.maxPartitions must be an integer from 1 to ${MAX_PARTITIONS}`,
+      {
+        maxPartitions,
+      },
+    )
   }
   if (watermark !== undefined && (typeof watermark !== 'number' || !(watermark > 0) || watermark > 1)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {

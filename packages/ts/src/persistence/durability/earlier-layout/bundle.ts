@@ -7,6 +7,7 @@ import {
   NarsilError,
   requireValidFieldTypes,
 } from '#platform/storage-host'
+import { requireSavedPartitionCount } from '../../../partitioning/saved-partitions'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
@@ -92,7 +93,8 @@ export function countSnapshotBundleDocuments(bundle: SnapshotBundle): number {
 
 export async function loadSnapshotBundle(bytes: Uint8Array, deps: EarlierLoadDeps): Promise<PartitionCheckpoint[]> {
   const bundle = await decodeSnapshotBundle(bytes)
-  while (deps.manager.partitionCount < bundle.partitions.length) deps.manager.addPartition()
+  requireSavedPartitionCount(bundle.partitions.length, 'snapshot bundle', deps.manager.indexName)
+  deps.manager.growToSavedPartitionCount(bundle.partitions.length)
   if (bundle.partitions.length > 0) deps.manager.trimPartitions(bundle.partitions.length)
   for (let i = 0; i < bundle.partitions.length; i += 1) {
     deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]), deserializePartition)

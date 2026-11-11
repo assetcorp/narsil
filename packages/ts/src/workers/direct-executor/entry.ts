@@ -1,5 +1,8 @@
 import type { PartitionManager } from '../../partitioning/manager'
-import type { VectorIndex } from '../../vector/vector-index'
+import { extractVectorFieldsFromSchema } from '../../schema/validator'
+import type { IndexConfig, VectorStorageMode } from '../../types/schema'
+import type { VectorIndex, VectorWorkerCopyPolicy } from '../../vector/vector-index'
+import { requireLoadedVectorCode } from '../vector-code'
 import { closeHeldVectorCopies, createHeldVectorCopies } from '../vector-copies'
 import { closeCopyPublicationOrder, createCopyPublicationOrder } from './publication'
 import type { IndexEntry, IndexQueryContext } from './types'
@@ -13,6 +16,27 @@ export function queryContextOfEntry(entry: IndexEntry | undefined): IndexQueryCo
     vectorSearchers: entry.vectorCopies.searchers,
     analysisStale: entry.analysisStale,
   }
+}
+
+export function vectorIndexesFor(
+  indexName: string,
+  config: IndexConfig,
+  copies: VectorWorkerCopyPolicy,
+  vectorStorage: VectorStorageMode,
+  onVectorGraphRepaired: ((indexName: string) => void) | undefined,
+): Map<string, VectorIndex> {
+  const vectorIndexes = new Map<string, VectorIndex>()
+  const vectorFields = extractVectorFieldsFromSchema(config.schema)
+  if (vectorFields.size === 0) return vectorIndexes
+  const { createVectorIndex } = requireLoadedVectorCode()
+  const promotion = config.vectorPromotion
+  const storage = promotion?.storage ?? vectorStorage
+  const repaired = (): void => onVectorGraphRepaired?.(indexName)
+  for (const [fieldPath, dim] of vectorFields) {
+    const index = createVectorIndex(fieldPath, dim, promotion, copies, indexName, storage, repaired)
+    vectorIndexes.set(fieldPath, index)
+  }
+  return vectorIndexes
 }
 
 export function disposeEntry(entry: IndexEntry): void {

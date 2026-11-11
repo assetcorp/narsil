@@ -1,16 +1,36 @@
 import {
   changeIndexOutsideExternalWaits,
   ErrorCodes,
-  insertDocumentVectors,
   NarsilError,
   prepareDocumentVectors,
   removeDocumentVectors,
-  updateDocumentVectors,
 } from '#platform/optional-writes-host'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument } from '../../types/schema'
+import type { VectorIndex } from '../../vector/vector-index'
 import type { MutationContext } from './context'
+
+export function holdVectorsForRollback(indexes: ReadonlyMap<string, VectorIndex>, docId: string): () => void {
+  const releases: Array<() => void> = []
+  for (const index of indexes.values()) releases.push(index.holdForRollback(docId))
+  return () => {
+    for (const release of releases) release()
+  }
+}
+
+function restoreDocumentVectors(
+  docId: string,
+  vectors: ReadonlyMap<string, Float32Array>,
+  indexes: ReadonlyMap<string, VectorIndex>,
+  partitionId: number | undefined,
+): void {
+  for (const [fieldPath, index] of indexes) {
+    const vector = vectors.get(fieldPath)
+    if (vector !== undefined) index.restore(docId, vector, partitionId)
+    else if (index.has(docId)) index.remove(docId)
+  }
+}
 
 function rollbackFailed(docId: string, originalError: unknown, rollbackError: unknown): never {
   throw new NarsilError(
@@ -78,7 +98,7 @@ export async function rollbackRemovedDocument(
         manager.insert(docId, previous.partitionDoc, {
           preparedText: { after: preparedText?.before },
         })
-        insertDocumentVectors(
+        restoreDocumentVectors(
           docId,
           previous.extractedVectors,
           manager.getVectorIndexes(),
@@ -122,8 +142,12 @@ export async function rollbackUpdatedDocument(
           skipClone: rollbackRef !== undefined,
           preparedText: { before: preparedText?.after, after: preparedText?.before },
         })
-        const vectors = new Map([...fields].map(field => [field, previous.extractedVectors.get(field) ?? null]))
-        updateDocumentVectors(docId, vectors, manager.getVectorIndexes(), manager.partitionIdOf(docId))
+        restoreDocumentVectors(
+          docId,
+          previous.extractedVectors,
+          manager.getVectorIndexes(),
+          manager.partitionIdOf(docId),
+        )
         ctx.orchestrator.publishToWorkers({
           type: 'update',
           indexName,

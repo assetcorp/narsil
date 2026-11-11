@@ -118,8 +118,10 @@ class FlaggedDocuments implements UnplacedVectors {
     const ordinal = this.store.getOrdinal(docId)
     const previous = this.ordinals.get(docId)
     if (ordinal === undefined || ordinal === previous) return
-    if (this.chunks !== null) Atomics.add(this.chunks, Math.floor(ordinal / UNPLACED_FLAG_CHUNK_ORDINALS), 1)
-    Atomics.store(this.flags, ordinal, 1)
+    if (!this.retired.delete(ordinal)) {
+      if (this.chunks !== null) Atomics.add(this.chunks, Math.floor(ordinal / UNPLACED_FLAG_CHUNK_ORDINALS), 1)
+      Atomics.store(this.flags, ordinal, 1)
+    }
     this.ordinals.set(docId, ordinal)
     if (previous === undefined) return
     if (this.layout.keepsRetiredFlags) this.retired.add(previous)
