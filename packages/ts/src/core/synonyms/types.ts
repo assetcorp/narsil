@@ -25,6 +25,7 @@ export interface QuerySynonyms {
 }
 
 export interface SynonymLookup {
+  readonly encodedRules: Uint8Array
   synonymsOf(token: string): readonly string[]
   expand(queryTokens: Iterable<string>): QuerySynonyms | undefined
   readonly tokenCount: number

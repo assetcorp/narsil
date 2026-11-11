@@ -18,7 +18,8 @@
   ],
   "files": [
     "narsil-core.node",
-    "musl/narsil-core.node"
+    "musl/narsil-core.node",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=22"

@@ -5,8 +5,9 @@ import { lintTools } from './lint-tools.mjs'
 import {
   addonSources,
   buildDirectory,
-  coreSources,
   formattedFiles,
+  fuzzSources,
+  lintedCoreSources,
   packageDirectory,
   testSources,
   WINDOWS_NODE_API_FLAGS,
@@ -28,13 +29,27 @@ function windowsConfigurations(windowsHeaderDirectory) {
   }))
 }
 
-function configurations(windowsHeaderDirectory) {
+function macosConfigurations(darwinHeaderDirectory) {
+  const headers = ['-nostdlibinc', `-idirafter${darwinHeaderDirectory}`]
+  return [
+    ...Object.entries(APPLE_ARCHITECTURES).map(([arch, appleName]) => ({
+      name: `macOS ${arch} kernels`,
+      extraArguments: [`--target=${appleName}-apple-macos`, ...headers],
+    })),
+    {
+      name: 'macOS portable kernels',
+      extraArguments: [`--target=${APPLE_ARCHITECTURES.arm64}-apple-macos`, '-DNARSIL_PORTABLE_KERNELS', ...headers],
+    },
+  ]
+}
+
+function configurations(windowsHeaderDirectory, crossLintedMacos) {
   const lintedEverywhere = [
     { name: `${process.arch} kernels`, extraArguments: [] },
     { name: 'portable kernels', extraArguments: ['-DNARSIL_PORTABLE_KERNELS'] },
     ...windowsConfigurations(windowsHeaderDirectory),
   ]
-  if (process.platform !== 'darwin') return lintedEverywhere
+  if (process.platform !== 'darwin') return [...lintedEverywhere, ...crossLintedMacos]
   const otherArchitectures = Object.entries(APPLE_ARCHITECTURES).filter(([arch]) => arch !== process.arch)
   return [
     ...lintedEverywhere,
@@ -74,13 +89,11 @@ async function runAll(jobs) {
   return results
 }
 
-const { clangTidy, clangFormat, windowsHeaderDirectory } = lintTools()
+const { clangTidy, clangFormat, windowsHeaderDirectory, darwinHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
-const lintedConfigurations = configurations(windowsHeaderDirectory)
-const sources = [...coreSources(), ...addonSources(), ...testSources()]
-const jobs = lintedConfigurations.flatMap(configuration =>
-  sources.map(source => ({
+function tidyJob(configuration, source) {
+  return {
     label: `clang-tidy, ${configuration.name}: ${relative(packageDirectory, source)}`,
     command: clangTidy,
     args: [
@@ -90,8 +103,18 @@ const jobs = lintedConfigurations.flatMap(configuration =>
       ...configuration.extraArguments.map(argument => `--extra-arg=${argument}`),
       source,
     ],
-  })),
-)
+  }
+}
+
+const crossLintedMacos = process.platform === 'darwin' ? [] : macosConfigurations(darwinHeaderDirectory)
+const lintedConfigurations = configurations(windowsHeaderDirectory, crossLintedMacos)
+const [hostConfiguration] = lintedConfigurations
+const fuzzConfigurations = [hostConfiguration, ...crossLintedMacos.slice(0, 1)]
+const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
+const jobs = [
+  ...lintedConfigurations.flatMap(configuration => sources.map(source => tidyJob(configuration, source))),
+  ...fuzzConfigurations.flatMap(configuration => fuzzSources().map(source => tidyJob(configuration, source))),
+]
 jobs.push({
   label: 'clang-format',
   command: clangFormat,

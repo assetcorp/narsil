@@ -3,8 +3,8 @@ import { schemaFieldsOf } from '../../schema/validator'
 import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
-import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
-import { PATTERN_HOST } from '../pattern-index/host'
+import { bitsetHas, createBitSet } from '../bitset'
+import { patternHost } from '../pattern-index/host'
 import { requirePatternSearch } from '../pattern-index/registry'
 import type { PatternOperator, PatternTolerance, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
@@ -23,17 +23,11 @@ function presentBitsetOf(
   if (base === 'number') present = state.numericIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   else if (base === 'boolean') present = state.booleanIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   else if (base === 'enum') present = state.enumIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
-  else if (base === 'geopoint') present = state.geoIndexes.get(fieldPath)?.documentsBitset(capacity)
+  else if (base === 'geopoint') present = state.geoIndexes.get(fieldPath)?.presentOrdinals(capacity)
   else if (base !== undefined && keepsValueSize(base)) {
     present = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   }
   return present ?? createBitSet(capacity)
-}
-
-function liveDocumentsBitset(state: PartitionReadState, capacity: number): Uint32Array {
-  const bits = createBitSet(capacity)
-  for (const internalId of state.docStore.allInternalIds()) bitsetSet(bits, internalId)
-  return bits
 }
 
 export function buildFilterContext(
@@ -47,17 +41,6 @@ export function buildFilterContext(
   for (const { path: fieldPath, pattern } of schemaFieldsOf(schema)) {
     if (pattern) patternFields.add(fieldPath)
   }
-  const fieldReaders = new Map<string, (internalId: number) => unknown>()
-  const readerOf = (fieldPath: string): ((internalId: number) => unknown) => {
-    let read = fieldReaders.get(fieldPath)
-    if (read === undefined) {
-      read = state.docStore.fieldReader(fieldPath)
-      fieldReaders.set(fieldPath, read)
-    }
-    return read
-  }
-
-  let cachedAllDocIdsBitset: Uint32Array | null = null
   const cachedPresentBitsets = new Map<string, Uint32Array>()
 
   return {
@@ -80,7 +63,8 @@ export function buildFilterContext(
     ) => {
       const index = state.patternIndexes.get(fieldPath)
       if (index === undefined) return
-      requirePatternSearch(fieldPath).matchInto({
+      const pattern = requirePatternSearch(fieldPath)
+      pattern.matchInto({
         operator,
         text,
         caseFold,
@@ -88,8 +72,8 @@ export function buildFilterContext(
         index,
         matches: into,
         meter,
-        host: PATTERN_HOST,
-        valueOf: readerOf(fieldPath),
+        host: patternHost(),
+        values: pattern.storedValues(state.docStore, fieldPath),
       })
     },
     presentBitset: (fieldPath: string) => {
@@ -101,8 +85,7 @@ export function buildFilterContext(
     },
     capacity,
     get allDocIdsBitset() {
-      cachedAllDocIdsBitset ??= liveDocumentsBitset(state, capacity)
-      return cachedAllDocIdsBitset
+      return state.docStore.liveOrdinals()
     },
   }
 }
@@ -145,6 +128,7 @@ export function applyPartitionFiltersBitset(
 }
 
 export interface PartitionFilterMatches {
+  ordinalBitset(): Uint32Array
   /** This many stored documents pass the filter. */
   readonly count: number
   /** Reports whether the named document passes the filter. */
@@ -177,6 +161,7 @@ export function partitionFilterMatches(
 
   return {
     count,
+    ordinalBitset: () => accepted,
     hasExternal(docId: string): boolean {
       const internalId = docStore.getInternalId(docId)
       return internalId !== undefined && bitsetHas(accepted, internalId)

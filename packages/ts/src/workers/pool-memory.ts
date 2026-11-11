@@ -1,5 +1,5 @@
+import { createRequestId } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
-import { createRequestId } from './protocol'
 
 export interface MemoryStats {
   workerId: number

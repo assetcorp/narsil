@@ -1,0 +1,13 @@
+pub(crate) const BATCH_CHUNK_DOCUMENTS: usize = 1_000;
+pub(crate) const EXPORT_CHUNK_BYTES: usize = 1_048_576;
+pub(crate) const IMPORT_BATCH_DOCUMENTS: usize = 1_000;
+pub(crate) const MAX_IMPORT_REFUSALS_REPORTED: usize = 1_000;
+pub(crate) const MAX_REPLACED_WRITE_ATTEMPTS: usize = 8;
+pub(crate) const MAX_REBALANCE_QUEUED_WRITES: usize = 10_000;
+pub(crate) const REBUILD_CHUNK_DOCUMENTS: usize = 1_000;
+pub(crate) const REBUILD_SWITCH_BACKLOG_DOCUMENTS: usize = 1_000;
+pub(crate) const DEFAULT_SUGGEST_LIMIT: usize = 10;
+pub(crate) const MAX_SUGGEST_LIMIT: usize = 100;
+pub(crate) const MIN_SUGGEST_LIMIT: usize = 1;
+pub(crate) const SUGGEST_PARTITION_OVERSAMPLE: usize = 2;
+pub(crate) const LARGEST_SAFE_INTEGER: u64 = 9_007_199_254_740_991;

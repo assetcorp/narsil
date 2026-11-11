@@ -23,4 +23,5 @@ export interface SegmentColumns extends SegmentPostingColumns {
   pattern: SegmentPayload['pattern']
   sizes: SegmentPayload['sizes']
   surfaceForms: SerializedSurfaceForms | null
+  storedFields?: SegmentPayload['storedFields']
 }

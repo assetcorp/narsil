@@ -1,29 +1,34 @@
-import { resolveIndexAnalysis } from '../../analysis/registry'
-import type { PreparedSynonyms } from '../../core/synonyms/types'
-import { getLanguage } from '../../languages/registry'
-import type { PartitionManager } from '../../partitioning/manager'
-import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import {
+  getLanguage,
+  loadSchemaCodeFor,
+  prepareStoredSynonyms,
+  requireSurfaceFormsForPartialFields,
+  resolveIndexAnalysis,
+  storedArrayPositionGap,
+  storedStateOf,
+  validateEmbeddingConfig,
+  validatePatternValueLimit,
+  validateRequiredFieldsInSchema,
   validateSchema,
   validateTextStorage,
   validateVectorPromotion,
   validateVectorStorage,
-} from '../../schema/validator'
+} from '#platform/storage-host'
+import type { PreparedSynonyms } from '../../core/synonyms/types'
+import type { PartitionManager } from '../../partitioning/manager'
+import { requireSavedPartitionCount } from '../../partitioning/saved-partitions'
 import type { EmbeddingAdapter } from '../../types/adapters'
+import type { StoredQuerySuggestions } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { createDetachedIndex } from '../../workers/detached-index'
 import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import { loadVectorCodeFor } from '../../workers/vector-code'
 import type { StaleIndex } from '../analysis-rebuild'
-import { storedArrayPositionGap } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import type { WorkerOrchestrator } from '../orchestration/types'
-import { prepareStoredSynonyms } from '../synonym-sets'
-import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
   rejectSnapshot,
@@ -31,6 +36,7 @@ import {
   restoredEmbedding,
   type SnapshotEnvelope,
 } from './restore-config'
+import { nestedSchemaOf } from './stored-schema'
 
 export interface RestoreDeps {
   executor: Executor & DirectExecutorExtensions & IndexReplacement
@@ -50,6 +56,19 @@ export interface RestoreDeps {
   copies: Pick<WorkerOrchestrator, 'desyncIndex' | 'releaseIndexCopies' | 'endCopyRelease' | 'resyncIndex'>
   forgetWatermark: (indexName: string) => void
   releaseTimeoutMs: number
+  querySuggestions?: RestoreSuggestionHooks
+}
+
+export interface RestoredHistorySink {
+  add(chunks: AsyncIterable<Uint8Array>): Promise<void>
+  abandon(): Promise<void>
+}
+
+export interface RestoreSuggestionHooks {
+  historySink(restored: StoredQuerySuggestions | null): Promise<RestoredHistorySink | null>
+  beforeInstall(entry: IndexRegistryEntry, previous: IndexRegistryEntry | undefined): Promise<void>
+  afterActivate(entry: IndexRegistryEntry): Promise<void>
+  afterInstall(entry: IndexRegistryEntry, history: RestoredHistorySink | null): Promise<void>
 }
 
 export interface PreparedIndex {
@@ -61,6 +80,7 @@ export interface PreparedIndex {
   analysisGeneration: number
   storedArrayPositionGap: number | null
   synonyms: PreparedSynonyms | null
+  querySuggestions: StoredQuerySuggestions | null
 }
 
 export function prepareRestoredIndex(
@@ -72,7 +92,7 @@ export function prepareRestoredIndex(
   const embedding = restoredEmbedding(configuration.embedding, reject)
   const languageName = configuration.language ?? ''
   const language = getLanguage(languageName)
-  const schema = validateSchema(configuration.schema as SchemaDefinition)
+  const schema = validateSchema(nestedSchemaOf(configuration.schema))
   validatePatternValueLimit(configFields.patternValueLimit)
   requireSurfaceFormsForPartialFields(schema, configFields.surfaceForms)
   validateVectorPromotion(configFields.vectorPromotion)
@@ -119,6 +139,7 @@ export function prepareRestoredIndex(
     analysisGeneration,
     storedArrayPositionGap: storedArrayPositionGap(configuration.arrayPositionGap),
     synonyms,
+    querySuggestions: storedStateOf(configuration),
   }
 }
 
@@ -135,20 +156,20 @@ function restoredSynonyms(
 export async function prepareDetachedIndex(
   indexName: string,
   prepared: PreparedIndex,
-  partitionCount: number,
+  partitionCount: number | null,
   deps: RestoreDeps,
 ): Promise<DetachedIndex> {
-  const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
-  if (loadingVectorCode !== null) await loadingVectorCode
-  const detached = createDetachedIndex(
+  if (partitionCount !== null) requireSavedPartitionCount(partitionCount, 'snapshot', indexName)
+  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema, prepared.config.tokenizer)
+  if (loadingSchemaCode !== null) await loadingSchemaCode
+  return createDetachedIndex(
     indexName,
     prepared.config,
     prepared.language,
     prepared.synonyms?.lookup ?? null,
     deps.executor,
+    partitionCount ?? undefined,
   )
-  while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
-  return detached
 }
 
 export function restoredRegistryEntry(
@@ -172,5 +193,7 @@ export function restoredRegistryEntry(
     analysisGeneration: prepared.analysisGeneration,
     pendingAnalysis: null,
     durableAnalysis: null,
+    sync: null,
+    querySuggestions: prepared.querySuggestions,
   }
 }

@@ -13,6 +13,7 @@ export interface PartialWordAnalysis {
 }
 
 export type SpellingCounts = Map<string, Map<string, number>>
+export type ReadonlySpellingCounts = ReadonlyMap<string, ReadonlyMap<string, number>>
 
 export interface PartialSpellings {
   fields: string[]

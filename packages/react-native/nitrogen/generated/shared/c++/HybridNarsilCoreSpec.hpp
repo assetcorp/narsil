@@ -76,10 +76,10 @@ namespace margelo::nitro::narsil {
       virtual double workspaceBytes() = 0;
       virtual std::shared_ptr<HybridNarsilAttachedGraphSpec> attachGraph(const GraphMemory& memory) = 0;
       virtual std::shared_ptr<HybridNarsilAttachedStoreSpec> attachStore(const StoreMemory& memory) = 0;
-      virtual double search(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, double candidateCount, double threadSlot, const MemoryView& ordinals, const MemoryView& distances, const MemoryView& accepted, bool filtered) = 0;
-      virtual std::shared_ptr<Promise<NativeSearchHits>> searchAsync(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, double candidateCount, double threadSlot, const MemoryView& accepted, bool filtered) = 0;
-      virtual std::shared_ptr<Promise<NativeScores>> scoreAsync(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, const MemoryView& ordinals, double count, double threadSlot) = 0;
-      virtual double score(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, const MemoryView& ordinals, double count, const MemoryView& distances) = 0;
+      virtual double search(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, double candidateCount, double pin, double threadSlot, const MemoryView& ordinals, const MemoryView& distances, const MemoryView& accepted, bool filtered) = 0;
+      virtual std::shared_ptr<Promise<NativeSearchHits>> searchAsync(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, double candidateCount, double pin, double threadSlot, const MemoryView& accepted, bool filtered) = 0;
+      virtual std::shared_ptr<Promise<NativeScores>> scoreAsync(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, const MemoryView& ordinals, double count, double pin, double threadSlot) = 0;
+      virtual double score(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, const MemoryView& query, double metric, const MemoryView& ordinals, double count, double pin, const MemoryView& distances) = 0;
       virtual double place(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, double ordinal, double topLayer, double graphHeldAlone, double threadSlot, const MemoryView& wakes) = 0;
       virtual double remove(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, double ordinal, double threadSlot, const MemoryView& wakes) = 0;
       virtual double compact(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, double threadSlot, const MemoryView& wakes) = 0;
@@ -87,6 +87,7 @@ namespace margelo::nitro::narsil {
       virtual std::shared_ptr<Promise<NativeConnectOutcome>> connectUnreachedAsync(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby, double threadSlot) = 0;
       virtual double measure(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count, const MemoryView& totals) = 0;
       virtual double quantise(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count) = 0;
+      virtual double applyMath(double operation, const MemoryView& first, const MemoryView& second, const MemoryView& results) = 0;
 
     protected:
       // Hybrid Setup

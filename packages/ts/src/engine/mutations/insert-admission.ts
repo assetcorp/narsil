@@ -4,7 +4,7 @@ import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../sc
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, EmbeddingFieldConfig, IndexConfig } from '../../types/schema'
-import { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } from '../embed'
+import { loadEmbedCode } from '../embed-code'
 import type { MutationContext } from './context'
 
 /** Resolves a document's own `id` field as its identifier when present, so a
@@ -17,10 +17,9 @@ export function providedDocId(document: AnyDocument): string | undefined {
   return typeof id === 'string' && id.length > 0 ? id : undefined
 }
 
-export function requireDocumentObject(document: unknown): void {
+export function requireDocumentObject(document: unknown): Promise<void> | null {
   if (document !== null && typeof document === 'object' && !Array.isArray(document)) {
-    requireDocumentWithinSizeLimit(document as Record<string, unknown>)
-    return
+    return requireDocumentWithinSizeLimit(document as Record<string, unknown>)
   }
   const received = Array.isArray(document) ? 'a list' : document === null ? 'null' : `a ${typeof document}`
   throw new NarsilError(
@@ -157,6 +156,7 @@ export async function embedChunkDocuments(
   failed: BatchResult['failed'],
 ): Promise<void> {
   if (entry.config.embedding === undefined) return
+  const { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } = await loadEmbedCode()
 
   if (entry.embeddingAdapter === null) {
     for (let i = chunkStart; i < chunkEnd; i++) {

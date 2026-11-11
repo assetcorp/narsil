@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import {
+  type NativeProvenance,
+  type NativeSource,
+  nativeRuntime,
+  nativeStemmer,
+  stemNatively,
+  writeNativeSources,
+} from './native'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUTPUT_DIR = resolve(__dirname, '..', 'src', 'languages', 'snowball')
@@ -177,20 +185,33 @@ function readReferenceFile(dataDirectory: string, language: string, name: string
   return gunzipSync(readFileSync(`${plain}.gz`)).toString('utf-8')
 }
 
-async function measureAgreement(candidatePath: string, language: string, dataDirectory: string): Promise<Agreement> {
-  const module: { stem: (token: string) => string } = await import(candidatePath)
+interface PublishedPairs {
+  words: string[]
+  expected: string[]
+}
+
+function readPublishedPairs(dataDirectory: string, language: string): PublishedPairs {
   const words = readReferenceFile(dataDirectory, language, 'voc.txt').split('\n')
   const expected = readReferenceFile(dataDirectory, language, 'output.txt').split('\n')
+  const pairs: PublishedPairs = { words: [], expected: [] }
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].length === 0) continue
+    pairs.words.push(words[i])
+    pairs.expected.push(expected[i])
+  }
+  return pairs
+}
 
+function measureAgreement(pairs: PublishedPairs, stem: (index: number) => string): Agreement {
+  const { words, expected } = pairs
   let total = 0
   let agreed = 0
   const firstDisagreements: Array<[string, string, string]> = []
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i]
-    if (word.length === 0) continue
     total++
-    const produced = module.stem(word)
+    const produced = stem(i)
     if (produced === expected[i]) {
       agreed++
     } else if (firstDisagreements.length < 10) {
@@ -201,13 +222,27 @@ async function measureAgreement(candidatePath: string, language: string, dataDir
   return { total, agreed, firstDisagreements }
 }
 
-async function generateLanguage(
-  language: string,
-  compiler: string,
-  compilerDirectory: string,
-  dataDirectory: string,
-  scratch: string,
-): Promise<boolean> {
+function agrees(label: string, agreement: Agreement): boolean {
+  const { total, agreed, firstDisagreements } = agreement
+  if (agreed === total) return true
+  console.error(`${label}: ${agreed}/${total} published pairs, refusing to write`)
+  for (const [word, want, got] of firstDisagreements) {
+    console.error(`  ${word}: published ${want}, produced ${got}`)
+  }
+  return false
+}
+
+interface LanguageContext {
+  compiler: string
+  compilerDirectory: string
+  dataDirectory: string
+  scratch: string
+  provenance: NativeProvenance
+  runtime: NativeSource[]
+}
+
+async function generateLanguage(language: string, context: LanguageContext): Promise<NativeSource[] | null> {
+  const { compiler, compilerDirectory, dataDirectory, scratch, provenance, runtime } = context
   const algorithmPath = join(compilerDirectory, 'algorithms', `${language}.sbl`)
   const algorithm = readFileSync(algorithmPath, 'utf-8')
 
@@ -215,27 +250,47 @@ async function generateLanguage(
   const generated = readFileSync(join(scratch, `${language}.js`), 'utf-8')
 
   const compilerVersion = compilerVersionOf(generated)
+  if (compilerVersion !== provenance.compilerVersion) {
+    throw new Error(`${language} came from Snowball ${compilerVersion}, not ${provenance.compilerVersion}`)
+  }
   const revision = createHash('sha256').update(`${compilerVersion}\n${algorithm}`).digest('hex').slice(0, 16)
   const text = moduleText(language, compilerVersion, revision, convert(generated, language))
+  const pairs = readPublishedPairs(dataDirectory, language)
+  const native = nativeStemmer(language, compiler, algorithmPath, scratch, provenance)
+  const nativeStems = stemNatively(language, [...runtime, ...native], pairs.words, scratch)
+  if (
+    !agrees(
+      `${language} in C`,
+      measureAgreement(pairs, index => nativeStems[index]),
+    )
+  )
+    return null
 
   const candidatePath = join(OUTPUT_DIR, `${language}.candidate.ts`)
   writeFileSync(candidatePath, text)
 
   try {
-    const { total, agreed, firstDisagreements } = await measureAgreement(candidatePath, language, dataDirectory)
-    if (agreed !== total) {
-      console.error(`${language}: ${agreed}/${total} published pairs, refusing to write`)
-      for (const [word, want, got] of firstDisagreements) {
-        console.error(`  ${word}: published ${want}, produced ${got}`)
-      }
-      return false
-    }
+    const module: { stem: (token: string) => string } = await import(candidatePath)
+    if (
+      !agrees(
+        language,
+        measureAgreement(pairs, index => module.stem(pairs.words[index])),
+      )
+    )
+      return null
     renameSync(candidatePath, join(OUTPUT_DIR, `${language}.ts`))
-    console.log(`${language}: ${total}/${total} published pairs, revision ${revision}`)
-    return true
+    console.log(`${language}: ${pairs.words.length}/${pairs.words.length} published pairs in TypeScript and in C`)
+    return native
   } finally {
     rmSync(candidatePath, { force: true })
   }
+}
+
+function compilerVersionFrom(compiler: string): string {
+  const banner = execFileSync(compiler, ['--version'], { encoding: 'utf-8' })
+  const match = /version (\S+)/.exec(banner)
+  if (match === null) throw new Error('the Snowball compiler reports no version')
+  return match[1]
 }
 
 async function main(): Promise<void> {
@@ -247,18 +302,30 @@ async function main(): Promise<void> {
   checkout(DATA_REPOSITORY, DATA_COMMIT, dataDirectory, GENERATED_LANGUAGES)
   const compiler = buildCompiler(compilerDirectory)
 
+  const provenance: NativeProvenance = {
+    compilerVersion: compilerVersionFrom(compiler),
+    compilerRepository: COMPILER_REPOSITORY,
+    compilerCommit: COMPILER_COMMIT,
+    dataRepository: DATA_REPOSITORY,
+    dataCommit: DATA_COMMIT,
+  }
+  const runtime = nativeRuntime(compilerDirectory, provenance)
+  const nativeSources: NativeSource[] = [...runtime]
   const scratch = mkdtempSync(join(tmpdir(), 'narsil-snowball-'))
   let failed = false
   try {
+    const context: LanguageContext = { compiler, compilerDirectory, dataDirectory, scratch, provenance, runtime }
     for (const language of GENERATED_LANGUAGES) {
-      const written = await generateLanguage(language, compiler, compilerDirectory, dataDirectory, scratch)
-      if (!written) failed = true
+      const native = await generateLanguage(language, context)
+      if (native === null) failed = true
+      else nativeSources.push(...native)
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
 
   if (failed) process.exit(1)
+  writeNativeSources(nativeSources)
 
   execFileSync('pnpm', ['exec', 'biome', 'check', '--write', OUTPUT_DIR], {
     cwd: resolve(__dirname, '..'),

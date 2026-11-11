@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 
 export function corrupt(message: string, details?: Record<string, unknown>): never {
   throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Invalid keyword segment: ${message}`, details)

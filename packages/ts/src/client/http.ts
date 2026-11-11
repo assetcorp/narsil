@@ -19,6 +19,7 @@ export interface RequestSpec {
   query?: Record<string, string | undefined>
   body?: string | Uint8Array | ReadableStream<Uint8Array>
   contentType?: string
+  headers?: Record<string, string>
   defaultTimeoutMs?: number
   repeatable?: boolean
   options?: RequestOptions
@@ -29,6 +30,7 @@ interface Answer {
   status: number
   text: string
   stream: ReadableStream<Uint8Array> | null
+  headers: Headers | null
   url: string
 }
 
@@ -44,7 +46,14 @@ export interface Transport {
   json<T>(spec: RequestSpec): Promise<T>
   jsonOrNull<T>(spec: RequestSpec, absentCode: string): Promise<T | null>
   stream(spec: RequestSpec): Promise<ReadableStream<Uint8Array>>
+  download(spec: RequestSpec): Promise<StreamedAnswer>
   probe(spec: RequestSpec): Promise<number>
+}
+
+export interface StreamedAnswer {
+  status: number
+  headers: Headers
+  stream: ReadableStream<Uint8Array>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -301,7 +310,7 @@ export function createTransport(options: NarsilClientOptions): Transport {
 
   async function exchangeOnce(base: string, spec: RequestSpec, keepsStream: boolean): Promise<Answer | Failure> {
     const url = `${base}${withQuery(spec.path, spec.query)}`
-    const headers: Record<string, string> = { ...baseHeaders, ...spec.options?.headers }
+    const headers: Record<string, string> = { ...baseHeaders, ...spec.headers, ...spec.options?.headers }
     if (spec.contentType !== undefined) headers['content-type'] = spec.contentType
     const timeoutMs = resolveTimeout(spec)
     const deadline = startDeadline(timeoutMs, spec.options?.signal)
@@ -317,10 +326,10 @@ export function createTransport(options: NarsilClientOptions): Transport {
         const stream = response.body.pipeThrough(
           new TransformStream<Uint8Array, Uint8Array>({ flush: () => deadline.release() }),
         )
-        return { kind: 'answer', status: response.status, url, text: '', stream }
+        return { kind: 'answer', status: response.status, url, text: '', stream, headers: response.headers }
       }
       const text = await readAnswer(response, resolveResponseCeiling(spec))
-      return { kind: 'answer', status: response.status, url, stream: null, text }
+      return { kind: 'answer', status: response.status, url, stream: null, text, headers: response.headers }
     } catch (err) {
       const error = translateFailure(err, url, timeoutMs, deadline.expired(), spec.options?.signal)
       const sentNothing = error.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED && failedBeforeSending(err)
@@ -359,6 +368,11 @@ export function createTransport(options: NarsilClientOptions): Transport {
     async stream(spec: RequestSpec): Promise<ReadableStream<Uint8Array>> {
       const { status, text, stream, url } = await exchange(spec, true)
       if (stream !== null) return stream
+      throw errorFromBody(status, parse(status, text, url), url)
+    },
+    async download(spec: RequestSpec): Promise<StreamedAnswer> {
+      const { status, text, stream, headers, url } = await exchange(spec, true)
+      if (stream !== null && headers !== null) return { status, headers, stream }
       throw errorFromBody(status, parse(status, text, url), url)
     },
     async probe(spec: RequestSpec): Promise<number> {

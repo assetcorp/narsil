@@ -9,12 +9,15 @@ import type { RemovedSpellings, TextAnalysis } from '../../core/partition/frozen
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { ResolvedProjection } from '../../core/projection'
+import type { StoredFieldReference } from '../../core/stored-values/references'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { PartitionStatsResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
+import type { PublicationGate } from './publication-gate'
+import type { PinnedReads, StatePin } from './state-pins'
 import type { PartitionWriteLog } from './write-log'
 
 export interface DiskSegmentAccess {
@@ -32,6 +35,7 @@ export interface AdoptedAnalysis {
 }
 
 export interface PartitionManager {
+  readonly publication: PublicationGate
   readonly partitionCount: number
   readonly indexName: string
   readonly schema: SchemaDefinition
@@ -46,19 +50,22 @@ export interface PartitionManager {
   partitionAt(index: number): PartitionIndex | undefined
   getAllPartitions(): PartitionIndex[]
   setPartitions(partitions: PartitionIndex[]): void
+  /** Replaces every partition with an empty one, while each search that pinned the earlier partitions still reads them. */
+  clearPartitions(): void
   openWriteLog(): PartitionWriteLog
   adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void
   adoptAnalysis(change: AdoptedAnalysis): void
   addPartition(): PartitionIndex
+  growToSavedPartitionCount(partitionCount: number): void
   removePartition(partitionId: number): void
   trimPartitions(count: number): void
 
   assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
   assertPartitionCapacity(partitionId: number, pendingWrites?: number): void
   routePartition(docId: string): number
-  insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
+  insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): AnyDocument
   removedSpellingsOf(docId: string): RemovedSpellings | undefined
-  remove(docId: string, removedSpellings?: RemovedSpellings): void
+  remove(docId: string, removedSpellings?: RemovedSpellings, options?: PartitionInsertOptions): void
   beginBatchRemove(): void
   endBatchRemove(): void
   update(
@@ -66,10 +73,17 @@ export interface PartitionManager {
     document: AnyDocument,
     options?: PartitionInsertOptions,
     removedSpellings?: RemovedSpellings,
-  ): void
+  ): AnyDocument
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
+  /** Counts the states that searches still hold, which a search releases when it finishes, fails, or its caller cancels it. */
+  readonly heldSearchStates: number
+  /** Pins the current state, so that every read through the pin returns that state until the search that holds it releases it. */
+  pinState(reads?: PinnedReads): StatePin
+  /** Calls free once every search that holds a state of this index right now has released it, or at once where none does. */
+  afterSearchesRelease(free: () => void): void
   fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
+  storedFields(docId: string, fieldPaths: readonly string[]): StoredFieldReference[] | undefined
   sortValues(
     docId: string,
     fields: readonly string[],
@@ -80,8 +94,15 @@ export interface PartitionManager {
   partitionIdOf(docId: string): number | undefined
   countDocuments(): number
 
-  serializePartition(partitionId: number): SerializablePartition
-  deserializePartition(partitionId: number, data: SerializablePartition): void
+  serializePartition(
+    partitionId: number,
+    serializePartition: typeof import('../../core/partition/serialization').serializePartition,
+  ): SerializablePartition
+  deserializePartition(
+    partitionId: number,
+    data: SerializablePartition,
+    deserializePartition: typeof import('../../core/partition/serialization').deserializePartition,
+  ): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
   openCheckpointChangeLog(): PartitionWriteLog
@@ -89,16 +110,17 @@ export interface PartitionManager {
   swapFrozenSegments(
     partitionId: number,
     dropSegmentIds: readonly string[],
-    replacement: FrozenSegment,
+    replacement: FrozenSegment | readonly FrozenSegment[],
     removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
   ): Map<string, RemovedSpellings>
   freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(partitionId: number, segment: FrozenSegment): void
-  getAggregateStats(): {
+  getAggregateStats(tokens?: ReadonlySet<string>): {
     totalDocuments: number
     docFrequencies: Record<string, number>
     totalFieldLengths: Record<string, number>
   }
+  statisticsMessage(): ReturnType<PartitionManager['getAggregateStats']>
   estimateMemoryBytes(): number
   getPartitionStats(): PartitionStatsResult[]
   getVectorIndexes(): Map<string, VectorIndex>

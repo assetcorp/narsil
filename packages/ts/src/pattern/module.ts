@@ -1,5 +1,6 @@
+import { matchPattern } from '#platform/pattern-test'
 import type { PatternSearchModule } from '../core/pattern-index/types'
-import { matchPattern } from './evaluate'
+import { storedValuesOf } from '../core/stored-values/columns'
 import { checkExpression, expressionFootprint } from './expression'
 import { evaluatePatternTests } from './filter-tests'
 import { largestPatternFootprintIn } from './footprint'
@@ -11,6 +12,7 @@ import { decodePatternIndex, serializePatternIndex } from './snapshot'
 
 export const patternSearchModule: PatternSearchModule = {
   name: 'pattern',
+  storedValues: storedValuesOf,
   createIndex: createGrowingPatternIndex,
   readArrays: readPatternArrays,
   mergeArrays: mergePatternArrays,

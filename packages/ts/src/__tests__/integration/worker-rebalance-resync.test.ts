@@ -72,8 +72,14 @@ describe('worker resynchronisation after a rebalance', () => {
         language: LanguageModule
         embeddingAdapter: EmbeddingAdapter | null
         synonyms: Uint8Array | null
+        vectorFieldPaths: Set<string>
       }
-    >([['products', { config: indexConfig, language: english, embeddingAdapter: null, synonyms: null }]])
+    >([
+      [
+        'products',
+        { config: indexConfig, language: english, embeddingAdapter: null, synonyms: null, vectorFieldPaths: new Set() },
+      ],
+    ])
 
     orchestrator = createWorkerOrchestrator(
       { workers: { enabled: true, count: 2, promotionThreshold: 1 } },
@@ -134,6 +140,7 @@ describe('worker resynchronisation after a rebalance', () => {
       await engine.insert('products', { id: `early-${i}`, title: `wireless device ${i}`, category: 'early' })
     }
 
+    await engine.updatePartitionConfig('products', { maxPartitions: 3 })
     await engine.rebalance('products', 3)
     expect(engine.getStats('products').partitionCount).toBe(3)
 
@@ -151,5 +158,44 @@ describe('worker resynchronisation after a rebalance', () => {
 
     const result = await engine.query('products', { term: 'wireless' })
     expect(result.count).toBe(35)
+  })
+
+  it('keeps an embedding adapter on the host while its worker copies reload', async () => {
+    narsil = await createNarsil({
+      workers: { enabled: true, count: 2, promotionThreshold: 1, mainCopyQueries: 'none' },
+    })
+    const engine = narsil
+    let promoted = false
+    const failures: string[] = []
+    engine.on('workerPromote', () => {
+      promoted = true
+    })
+    engine.on('workerPromoteFailure', payload => {
+      failures.push(payload.reason)
+    })
+    await engine.createIndex('readings', {
+      schema: { title: 'string', embedding: 'vector[2]' },
+      embedding: {
+        fields: { embedding: 'title' },
+        adapter: {
+          dimensions: 2,
+          async embed(text) {
+            return new Float32Array([text.length, 1])
+          },
+        },
+      },
+    })
+    await engine.insert('readings', { title: 'river' }, 'reading')
+    await waitFor(() => promoted || failures.length > 0)
+    expect(failures).toEqual([])
+    expect(promoted).toBe(true)
+    await engine.updatePartitionConfig('readings', { maxPartitions: 2 })
+    await engine.rebalance('readings', 2)
+    await engine.update('readings', 'reading', { title: 'forest' })
+    const ranked = await engine.query('readings', { vector: { field: 'embedding', text: 'shore' } })
+    expect(ranked.hits.map(hit => hit.id)).toEqual(['reading'])
+    expect(ranked.hits[0].document?.embedding).toEqual(new Float32Array([6, 1]))
+    expect(ranked.hits[0].score).toBeCloseTo(31 / Math.sqrt(26 * 37), 6)
+    expect(failures).toEqual([])
   })
 })

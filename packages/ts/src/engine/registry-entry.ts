@@ -1,11 +1,18 @@
 import type { EmbeddingAdapter } from '../types/adapters'
-import type { PendingAnalysisMetadata } from '../types/internal'
+import type { PendingAnalysisMetadata, StoredQuerySuggestions } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 
 export interface DurableAnalysis extends PendingAnalysisMetadata {
   analysisRevision: string | null
   arrayPositionGap: number | null
+}
+
+export interface IndexSyncState {
+  historyMaxAgeMs?: number
+  historyMaxBytes?: number
+  active: boolean
+  epoch: string
 }
 
 export type IndexRegistryEntry = {
@@ -24,4 +31,6 @@ export type IndexRegistryEntry = {
   analysisGeneration: number
   pendingAnalysis: PendingAnalysisMetadata | null
   durableAnalysis: DurableAnalysis | null
+  sync: IndexSyncState | null
+  querySuggestions: StoredQuerySuggestions | null
 }

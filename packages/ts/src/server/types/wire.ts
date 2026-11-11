@@ -1,6 +1,14 @@
 import type { ClusterHealth } from '../../distribution/cluster-node/types/observability'
 import type {
+  ManualQuerySuggestion,
+  QuerySuggestionsPreview,
+  QuerySuggestionsSetting,
+  QuerySuggestionsStatus,
+  RecordQueryResult,
+} from '../../types/query-suggestions'
+import type {
   GroupResult,
+  Hit,
   IndexStats,
   ListResult,
   PreflightResult,
@@ -9,8 +17,18 @@ import type {
 } from '../../types/results'
 import type { BM25Params, FieldType, PartitionConfig, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SyncSetting, SyncStatus } from '../../types/sync'
 import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
+import type {
+  ManualSuggestionResponse,
+  QueryBansBody,
+  QuerySuggestionsPreviewQuery,
+  RecordQueryBody,
+  RemoveQueryBody,
+  RemoveQueryResponse,
+  SnapshotQuery,
+} from './query-suggestions'
 import type {
   BatchBody,
   CapabilitiesResponse,
@@ -70,14 +88,36 @@ export type HttpQueryParams = Omit<QueryParams, 'group'> & {
  *
  * @public
  */
-export type HttpGroupResult = Omit<GroupResult, 'reduced' | 'reducerError'>
+export type HttpGroupResult = Omit<GroupResult, 'hits' | 'reduced' | 'reducerError'> & {
+  /** These hits retain the scores of the group's ranking. */
+  hits: HttpHit[]
+}
+
+/**
+ * A relevance score in an HTTP response, with exact strings for non-finite values.
+ *
+ * @public
+ */
+export type HttpScore = number | 'NaN' | 'Infinity' | '-Infinity'
+
+/**
+ * A search hit whose score uses the HTTP representation of {@link HttpScore}.
+ *
+ * @public
+ */
+export type HttpHit = Omit<Hit, 'score'> & {
+  /** The client decodes this value to a numeric score, or leaves it absent when the search returns no score. */
+  score?: HttpScore
+}
 
 /**
  * The body of `POST /indexes/{name}/search`.
  *
  * @public
  */
-export type HttpQueryResult = Omit<QueryResult, 'groups'> & {
+export type HttpQueryResult = Omit<QueryResult, 'hits' | 'groups'> & {
+  /** These hits follow the search's ranking, with scores encoded for HTTP. */
+  hits: HttpHit[]
   /** These groups arrive when the query asked for grouping. */
   groups?: HttpGroupResult[]
 }
@@ -139,6 +179,8 @@ export interface HttpWireTypes {
   BatchBody: BatchBody
   /** The body of `POST /indexes/{name}/bm25`. */
   BM25Params: BM25Params
+  /** The body of `PUT /indexes/{name}/sync`. */
+  SyncSetting: SyncSetting
   /** The body of `POST /indexes/{name}/_change-analysis`. */
   ChangeAnalysisBody: ChangeAnalysisBody
   /** The body of `POST /indexes/{name}/backups`. */
@@ -177,6 +219,30 @@ export interface HttpWireTypes {
   VectorFieldBody: VectorFieldBody
   /** The body of `GET` and of `POST /indexes/{name}/synonyms`. */
   SynonymSetBody: SynonymSetBody
+  /** The body of `PUT /indexes/{name}/query-suggestions`. */
+  QuerySuggestionsSetting: QuerySuggestionsSetting
+  /** The body of `POST /indexes/{name}/query-suggestions/record`. */
+  RecordQueryBody: RecordQueryBody
+  /** The query string of `GET /indexes/{name}/query-suggestions/preview`. */
+  QuerySuggestionsPreviewQuery: QuerySuggestionsPreviewQuery
+  /** The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`. */
+  QueryBansBody: QueryBansBody
+  /** The body of `POST /indexes/{name}/query-suggestions/remove`. */
+  RemoveQueryBody: RemoveQueryBody
+  /** The body of `POST /indexes/{name}/query-suggestions/manual`. */
+  ManualQuerySuggestion: ManualQuerySuggestion
+  /** The query string of `GET /indexes/{name}/snapshot`. */
+  SnapshotQuery: SnapshotQuery
+  /** The body of `GET /indexes/{name}/query-suggestions`. */
+  QuerySuggestionsStatus: QuerySuggestionsStatus
+  /** The body of `POST /indexes/{name}/query-suggestions/record`. */
+  RecordQueryResult: RecordQueryResult
+  /** The body of `GET /indexes/{name}/query-suggestions/preview`. */
+  QuerySuggestionsPreview: QuerySuggestionsPreview
+  /** The body of `POST /indexes/{name}/query-suggestions/remove`. */
+  RemoveQueryResponse: RemoveQueryResponse
+  /** The body of `POST /indexes/{name}/query-suggestions/manual`. */
+  ManualSuggestionResponse: ManualSuggestionResponse
   /** The body of `GET /backups`. */
   BackupListResponse: BackupListResponse
   /** The body of `POST /indexes/{name}/documents/_batch`. */
@@ -239,6 +305,8 @@ export interface HttpWireTypes {
   ReplicationFactorResponse: ReplicationFactorResponse
   /** The body of `POST /indexes/{name}/suggest`. */
   SuggestResult: SuggestResult
+  /** The body of `GET /indexes/{name}/sync`. */
+  SyncStatus: SyncStatus
   /** The body of `GET /tasks`. */
   TaskListPage: TaskListPage
   /** The body of every route that starts a task, and of `GET /tasks/{id}`. */

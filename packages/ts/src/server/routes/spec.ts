@@ -57,11 +57,32 @@ export interface ServerHandlers {
   restore: RouteHandler
   exportDocuments: RouteHandler
   importExport: RouteHandler
+  getSync: RouteHandler
+  updateSync: RouteHandler
+  syncSnapshot: RouteHandler
+  updateQuerySuggestions: RouteHandler
+  querySuggestionsStatus: RouteHandler
+  recordQuery: RouteHandler
+  buildQuerySuggestions: RouteHandler
+  previewQuerySuggestions: RouteHandler
+  readQueryBans: RouteHandler
+  replaceQueryBans: RouteHandler
+  removeQuery: RouteHandler
+  addManualSuggestion: RouteHandler
 }
 
 export type RouteMethod = 'get' | 'post' | 'put' | 'patch' | 'del'
 
-export type RouteTag = 'Server' | 'Cluster' | 'Tasks' | 'Indexes' | 'Documents' | 'Search' | 'Maintenance'
+export type RouteTag =
+  | 'Server'
+  | 'Cluster'
+  | 'Tasks'
+  | 'Indexes'
+  | 'Documents'
+  | 'Search'
+  | 'Maintenance'
+  | 'Sync'
+  | 'QuerySuggestions'
 
 export interface RawContent {
   contentType: string

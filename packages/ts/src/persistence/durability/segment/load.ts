@@ -1,12 +1,15 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../../../partitioning/manager'
+import { highestPartitionIdOf, requireSavedPartitionCount } from '../../../partitioning/saved-partitions'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { startReadingOpeningSectionsAhead } from '../../paged/read-ahead'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { WriteRecordKeeper } from '../types'
 import { manifestKey, segmentsPrefix } from './layout'
 import { loadPartitionSegments } from './load-partition'
 import type { SegmentManifest } from './manifest'
-import { type DecodedManifest, decodeSegmentManifest } from './manifest-decode'
+import type { DecodedManifest } from './manifest-decode'
+import { decodeSegmentManifest } from './manifest-decode'
 import type { CheckpointStore } from './store'
 import { loadVectorField } from './vector-load'
 
@@ -34,15 +37,7 @@ export async function readCurrentManifest(store: CheckpointStore, indexName: str
 }
 
 export function growPartitionsTo(manager: PartitionManager, highestPartitionId: number): void {
-  while (manager.partitionCount <= highestPartitionId) {
-    const before = manager.partitionCount
-    try {
-      manager.addPartition()
-    } catch {
-      break
-    }
-    if (manager.partitionCount === before) break
-  }
+  manager.growToSavedPartitionCount(highestPartitionId + 1)
 }
 
 export async function loadSegmentedCheckpoint(
@@ -52,10 +47,8 @@ export async function loadSegmentedCheckpoint(
   deps: CheckpointLoadDeps,
   decodesEveryDocument = false,
 ): Promise<PartitionCheckpoint[]> {
-  let highestPartitionId = manifest.partitions.length - 1
-  for (const partition of manifest.partitions) {
-    if (partition.partitionId > highestPartitionId) highestPartitionId = partition.partitionId
-  }
+  const highestPartitionId = highestPartitionIdOf(manifest.partitions)
+  requireSavedPartitionCount(highestPartitionId + 1, 'segment manifest', indexName)
   growPartitionsTo(deps.manager, highestPartitionId)
 
   const { directory } = store
@@ -65,18 +58,10 @@ export async function loadSegmentedCheckpoint(
       field.files.some(file => file.headOffset !== undefined),
   )
   if (!decodesEveryDocument && directory !== undefined && opensVectorsOnDemand) {
-    const { startReadingOpeningSectionsAhead } = await import('../../paged/module')
     await startReadingOpeningSectionsAhead(directory, manifest)
   }
 
   for (const partition of manifest.partitions) {
-    if (partition.partitionId >= deps.manager.partitionCount) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest references partition ${partition.partitionId} beyond the partition count ${deps.manager.partitionCount}`,
-        { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
-      )
-    }
     await loadPartitionSegments(store, partition, deps.manager, {
       schema: manifest.schema,
       decodesEveryDocument,

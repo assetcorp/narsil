@@ -3,13 +3,19 @@ import type { PagedSegmentSnapshot, SharedSegmentSnapshot } from '../core/partit
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
+import type { PageRequest } from '../engine/query/assemble'
 import type { LongQueryThreadSettings, RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import type { AnyDocument, BM25Params, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import type { SharedVectorFieldHandles } from '../vector/shared-field/types'
+import type { CopyPublication } from './copy-publication'
 
-export type WorkerAction =
+export type WorkerHitReads = { kind: 'documents' } | { kind: 'page'; page: PageRequest; binding: string }
+
+export type WorkerAction = WorkerCommand & { publication?: CopyPublication }
+
+type WorkerCommand =
   | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
   | { type: 'remove'; indexName: string; docId: string; requestId: string; removedSpellings?: RemovedSpellings }
   | {
@@ -29,6 +35,8 @@ export type WorkerAction =
       globalStats?: GlobalStatistics
       patternWork: SharedPatternWork
       bm25: BM25Params | null
+      reads?: WorkerHitReads
+      readGeneration?: number
     }
   | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string; patternWork: SharedPatternWork }
   | { type: 'get'; indexName: string; docId: string; requestId: string }
@@ -42,6 +50,7 @@ export type WorkerAction =
       analysisStale?: boolean
       copyLoad?: string
       synonyms?: Uint8Array
+      partitionCount?: number
     }
   | { type: 'replaceSynonyms'; indexName: string; synonyms?: Uint8Array; requestId: string }
   | { type: 'replaceBm25'; indexName: string; bm25?: BM25Params; requestId: string }
@@ -51,6 +60,7 @@ export type WorkerAction =
       indexName: string
       fieldName: string
       handle: string
+      storeHandle?: string
       handles: SharedVectorFieldHandles
       requestId: string
     }
@@ -115,7 +125,7 @@ export type WorkerAction =
       indexName: string
       partitionId: number
       dropSegmentIds: string[]
-      snapshot: SharedSegmentSnapshot
+      snapshots: SharedSegmentSnapshot[]
       removedSpellings?: ReadonlyMap<string, RemovedSpellings>
       requestId: string
     }

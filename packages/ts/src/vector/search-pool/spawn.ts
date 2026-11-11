@@ -1,5 +1,4 @@
-import { spawnNodeWorker } from '#platform/node-worker'
-import { detectRuntime } from '../../runtime/detect'
+import { detectRuntime, spawnNodeWorker } from '#platform/vector-host'
 import { workerResourceLimits } from '../../workers/resource-limits'
 
 export interface WorkerHandle {

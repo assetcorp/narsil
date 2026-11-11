@@ -47,6 +47,7 @@ export function maintenanceRoutes(shared: SharedRouteOptions): RouteSpec[] {
       summary: 'Stream a snapshot archive of an index',
       tags: ['Maintenance'],
       request: null,
+      query: 'SnapshotQuery',
       responses: { 200: { contentType: SNAPSHOT_ARCHIVE_CONTENT_TYPE } },
     },
     {

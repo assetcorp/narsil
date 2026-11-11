@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../storage-host/index.browser'
 
 function diskIndexesUnavailable(): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A disk index requires a Node.js runtime')

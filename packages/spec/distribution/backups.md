@@ -38,9 +38,12 @@ BackupManifest {
   startedAt:         uint64                  (milliseconds since the Unix epoch)
   completedAt:       uint64
   partitionCount:    uint32
+  syncEpoch:         string or absent        (the index epoch, which the controller copies from IndexSettings when the backup starts)
+  takenBy:           string or absent        ("sync" where device sync started the backup, and absent for a caller's backup)
   replicationFactor: uint32
   constraints:       AllocationConstraints   (as cluster.md defines)
   config:            StoredFile              (an index configuration payload)
+  queryHistory:      List<StoredFile> or absent (one history file each, as History in query-suggestions.md defines)
   partitions:        List<BackupPartition>   (one per partition, in partitionId order)
 }
 
@@ -109,6 +112,10 @@ A backup holds every write that each primary acknowledged before it received `cl
 
 Saving the manifest is the commit point, so a reader must treat a backup that has no manifest as absent. A failed backup saves no manifest, and the files that it stored stay until a [deletion](#deleting-a-backup) removes them.
 
+Where `cluster.backup` sets `queryHistory`, the controller reads every node's files with [suggestions.counts](transport.md#suggestionscounts) before step 6, saves each file as a stored file as it arrives, and lists them in the manifest's `queryHistory`, as [In a Cluster](../query-suggestions.md#in-a-cluster) defines. It holds at most one history file in memory at a time, because the history of one index on one node can pass 4 GB. The files of a node that gives no answer stay out of the backup.
+
+The controller copies `takenBy` from `cluster.backup` into the manifest. A node sets `takenBy` only for a backup that [device sync](../sync.md#in-a-cluster) starts, and the backup operation that a caller reaches takes no `takenBy`, so that a caller's backup never carries it.
+
 A primary must stream each file that it saves through `saveStream` where the adapter offers that method, and it must bound the files that it saves at one time, so that a backup can't fill a serving node's memory.
 
 ---
@@ -156,6 +163,8 @@ A primary must stream each file that it saves through `saveStream` where the ada
 ```
 
 A restored primary numbers its next write one above the partition's `lastSeqNo`, under the term that the generation's allocation table gives it. It replaces its [term history](replication.md#term-history) with that term and a first `seqNo` of 1 where `lastSeqNo` is at least 1, and with an empty history where `lastSeqNo` is 0. The restored segments keep each document's [write record](replication.md#document-write-record) from the source cluster.
+
+Where the manifest holds `queryHistory`, the controller checks the length and SHA-256 of each file that it lists once step 5 ends on every partition and before step 7, and it refuses with `BACKUP_DAMAGED` where any file is missing or differs. Once step 7c ends, it writes those files under the new index name, as [In a Cluster](../query-suggestions.md#in-a-cluster) defines, so that a restore that fails writes no history. A controller that takes over a running restore after step 7c writes the history again, which can count a person twice towards a phrase's `count`, although once towards `minPeople`.
 
 The controller must write step 7b before step 7c, because the creation flow allocates a first table for a new schema unless the name's table already carries `generation`.
 

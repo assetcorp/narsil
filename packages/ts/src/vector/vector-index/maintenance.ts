@@ -1,53 +1,53 @@
-import type { HNSWIndex } from '../hnsw'
-import { nativeStoreScratchBytes } from '../native/store'
-import {
-  buildExclusively,
-  buildGraphFromStore,
-  promoteToGraph,
-  shuffledRebuildDue,
-  startShuffledRebuild,
-} from './build'
-import { insertIntoGraph } from './build-host'
-import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
-import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
+  ESTIMATED_MS_PER_TOMBSTONE,
+  ESTIMATED_MS_PER_VECTOR_REBUILD,
   graphNeedsRebuild,
   liveSize,
-  type MaintenanceStatus,
+  nativeStoreScratchBytes,
   releaseReplacedVectors,
-  type VectorIndexState,
-} from './shared'
+} from '#platform/vector-host'
+import type { HNSWIndex } from '../hnsw'
+import { buildExclusively, buildGraphFromStore, continueAfterGrowth, promoteToGraph, shuffledRebuildDue } from './build'
+import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
+import { placeInGrowingCopy } from './growing-copy'
+import type { MaintenanceStatus, VectorIndexState } from './shared'
 import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
+  state.store.freeRetiredVectors()
+  const oldestPin = state.store.oldestPin()
+  state.buffer.forgetRetired(ordinal => state.store.mayFreeOrdinal(ordinal, oldestPin))
   if (state.tombstones.size === 0 && state.store.replacedVectorCount === 0) return
 
   if (state.hnsw) {
-    state.compactedNodeCount += state.hnsw.tombstoneCount
-    state.hnsw.compactTombstones()
+    const before = state.hnsw.tombstoneCount
+    state.hnsw.compactTombstones(oldestPin)
+    state.compactedNodeCount += before - state.hnsw.tombstoneCount
   }
-  state.freshGraph?.compactTombstones()
+  state.freshGraph?.compactTombstones(oldestPin)
+  state.growingCopy?.compactTombstones(oldestPin)
 
   for (const docId of state.tombstones) {
-    state.store.remove(docId)
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal !== undefined && !state.store.mayFreeOrdinal(ordinal, oldestPin)) continue
+    state.store.remove(docId, oldestPin)
     state.buffer.delete(docId)
+    state.tombstones.delete(docId)
     if (state.osq) {
       state.osq.remove(docId)
     }
   }
 
-  releaseReplacedVectors(state)
-  state.tombstones.clear()
+  releaseReplacedVectors(state, oldestPin)
 }
 
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
   const heldWhenTheCallStarted = [...allLiveDocIds(state)]
   const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
-  await insertIntoGraph(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
-  startShuffledRebuild(state)
+  continueAfterGrowth(state, await placeInGrowingCopy(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced))
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
@@ -97,7 +97,7 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
 }
 
 export function completeGraph(state: VectorIndexState): Promise<void> {
-  return buildExclusively(state, () => fillGraph(state), false)
+  return buildExclusively(state, () => fillGraph(state), false, true)
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
@@ -128,6 +128,6 @@ function flatScanScratchBytes(state: VectorIndexState): number {
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
   if (state.hnsw === null) return state.store.memoryBytes() + flatScanScratchBytes(state)
-  const freshGraphBytes = state.freshGraph?.graphBytes ?? 0
-  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes + freshGraphBytes
+  const passGraphBytes = (state.freshGraph?.graphBytes ?? 0) + (state.growingCopy?.graphBytes ?? 0)
+  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes + passGraphBytes
 }

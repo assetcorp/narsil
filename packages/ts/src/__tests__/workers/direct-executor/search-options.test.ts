@@ -3,12 +3,13 @@ import { registerStopWords, registerTokenizer } from '../../../analysis/registry
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { CustomTokenizer, IndexConfig } from '../../../types/schema'
 import { createDirectExecutor } from '../../../workers/direct-executor'
+import { runQueryAction } from '../../../workers/query-actions'
 import { patternWork, reqId, schema } from './fixtures'
 
 const SENTENCE = 'the rise of the machine'
 
 async function seed(config: IndexConfig) {
-  const executor = createDirectExecutor()
+  const executor = createDirectExecutor({ runQueryAction })
   await executor.execute({ type: 'createIndex', indexName: 'prose', config, requestId: reqId() })
   await executor.execute({
     type: 'insert',

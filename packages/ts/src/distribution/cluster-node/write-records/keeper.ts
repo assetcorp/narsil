@@ -17,6 +17,7 @@ export interface ClusterWriteRecords extends WriteRecordKeeper {
   applied(entry: ReplicationLogEntry): void
   recordOf(indexName: string, partitionId: number, documentId: string): WriteRecord | null
   partition(indexName: string, partitionId: number): PartitionWriteRecords
+  adoptPartition(indexName: string, partitionId: number, records: PartitionWriteRecords): void
   heldEntry(indexName: string, partitionId: number, seqNo: number, primaryTerm: number): HeldEntry
 }
 
@@ -84,6 +85,9 @@ export function createClusterWriteRecords(): ClusterWriteRecords {
     applied,
     replayed: applied,
     partition,
+    adoptPartition(indexName, partitionId, records) {
+      Object.assign(partition(indexName, partitionId), records)
+    },
 
     recordOf: recordOfDocument,
 

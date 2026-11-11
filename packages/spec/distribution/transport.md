@@ -147,6 +147,19 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.restore_partition` | controller to primary | Loads one partition of a restore |
 | `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
+### Sync Messages
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `sync.read` | any node to primary | Reads the entries of one partition for a [device feed](../sync.md#the-feed) |
+
+### Suggestion Messages
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `suggestions.counts` | any node to any node | Streams the [query counts](../query-suggestions.md#history) of one index that the node holds |
+| `suggestions.build` | any node to controller | Asks for a [build](../query-suggestions.md#building) of the suggestions of one index |
+
 ---
 
 ## Message Payloads
@@ -618,6 +631,8 @@ A node sends this to the active controller to [take a backup](backups.md#taking-
 {
   backupName: string
   indexName:  string
+  takenBy:    string or absent   ("sync" for a backup that device sync starts)
+  queryHistory: boolean or absent (true where the caller asks for query history)
 }
 ```
 
@@ -725,6 +740,66 @@ The response is:
 
 The receiving node must read the index metadata and the synonym set from the coordinator itself, so that the newest stored set wins when two replacements reach it out of order. It must answer only once its copy and every worker copy of it apply the stored set. A node that holds no copy under that `indexUuid` answers with `applied` false, because it applies the stored set when it creates its copy.
 
+### sync.read
+
+A node sends this to the primary of one partition to read the entries that it sends through a [device feed](../sync.md#the-feed).
+
+```text
+{
+  indexName:   string
+  indexUuid:   string
+  partitionId: uint32
+  afterSeqNo:  uint64
+  maxBytes:    uint32
+}
+```
+
+The primary answers with the entries above `afterSeqNo`, up to its commit point and up to `maxBytes` of entries, where it always sends at least one entry that is due:
+
+```text
+{
+  entries:      List<ReplicationLogEntry>
+  head:         uint64   (the partition's commit point)
+  highestSeqNo: uint64   (the highest seqNo that the primary holds)
+  oldestSeqNo:  uint64   (as Sending Entries in sync.md defines)
+  bytesBehind:  uint64
+}
+```
+
+A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, and one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`.
+
+### suggestions.counts
+
+A node sends this through `stream` to read the [query counts](../query-suggestions.md#history) that another node holds for one index.
+
+```text
+{
+  indexName: string
+}
+```
+
+The node saves the counts of the current day, then streams each history file of the index that it holds, its restored files included, in key order, comparing UTF-8 bytes. For each file, it sends a `uint16be` length followed by that many bytes of the file's key relative to `_query-counts/<indexName>/` in UTF-8, then a `uint32be` length followed by that many bytes of the file. The stream ends after the last file. A node that holds no file sends one empty chunk, because a stream ends only after its first chunk, and the receiver reads an empty chunk as no data. A node must stream at most one file at a time, so that it never holds the history of an index in memory. The receiver must stop reading, and treat the node as one that gave no answer, where a key length passes 64 bytes, where a key is neither `<day>.nrsl` nor `restored/<day>-<n>.nrsl` as [History](../query-suggestions.md#history) defines them, or where a file length passes the limit that History sets for a history file.
+
+### suggestions.build
+
+A node sends this to the active controller when a caller asks for a build.
+
+```text
+{
+  indexName: string
+  trigger:   string   ("caller")
+}
+```
+
+The controller refuses it with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index, and with `QUERY_SUGGESTIONS_NOT_ENABLED` where the feature is off. Otherwise it answers once the build starts, or once it skips the build:
+
+```text
+{
+  buildId: string
+  status:  string   ("running" or "skipped")
+}
+```
+
 ### cluster.ping
 
 ```text
@@ -765,7 +840,7 @@ QueryParams {
   boost:         Map<string, float32> or absent   (per-field boost)
   tolerance:     uint8 or absent                  (fuzzy matching tolerance, at most 10)
   threshold:     float32 or absent                (minimum score)
-  includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
+  includeScores: boolean or absent                (default false; controls public sorted response scores)
   scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
   termMatch:     'all' or 'any' or uint32 or absent   (absent means 'any'; a count names the minimum matching terms)
   prefixLength:  uint32 or absent                 (leading characters exempt from tolerance, at most 1,024; default 2)
@@ -890,7 +965,7 @@ HighlightConfig {
 
 ScoredEntry {
   docId:      string
-  score:      float32 or absent       (absent when a sort suppressed scoring)
+  score:      float64 or absent       (absent when a sort suppressed scoring)
   sortValues: List<value> or absent   (present when the query specifies a sort)
 }
 
@@ -909,7 +984,9 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
 
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
 
-`score` is absent where the query named a sort without `includeScores`, because a [sorted query computes no relevance scores](../algorithms.md#string-ordering), and the coordinator then merges by sort values alone.
+For a sorted query without grouping or `includeScores`, the node omits `score` from its reply. A sorted grouped query must preserve raw relevance scores in its grouped replies for [group ordering and reducers](query-routing.md#distributed-grouping), even where the caller omits `includeScores` or sets it to false. The coordinator may request `includeScores` internally to retain those scores, but it must honour the caller's setting when assembling the public response. Sorted entry merging always uses sort values and document ID, independently of score presence. [String Ordering](../algorithms.md#string-ordering) defines when the node must compute scores.
+
+A present relevance score may be finite, positive infinity, negative infinity, or NaN, in ordinary and hybrid results and in grouped entries alike. The node must preserve that numeric value through MessagePack, and the coordinator must accept it at each `ScoredEntry.score` while retaining the validation rules for every other field. Score strings belong to HTTP responses and cursors alone. Ranked selection and merging follow [Score Order](../algorithms.md#score-order), and [Distributed Grouping](query-routing.md#distributed-grouping) keeps the raw text-leg scores of a hybrid query.
 
 `facetErrorBounds` holds one figure per field in `facets`, which is the largest count the node left out of that field, and 0 where the node sent every bucket it holds. A node that sends `facets` must send it, and the coordinator sums the figures across nodes to report the [error bound](query-routing.md#distributed-facets).
 

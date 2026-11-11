@@ -1,4 +1,5 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
+import { decode } from '../../../serialization/msgpack'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type {

@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { SAMPLES_ROOT } from '../samples/catalog'
 import { type CaseBuild, damagedCheckpoint } from './build'
 import {
   baseFile,
@@ -10,6 +13,7 @@ import {
   rewritten,
   uint32s,
 } from './bytes'
+import { nodesOf, upperListLimit, withEveryNodeOnTheHighestLayer, withUpperLists } from './graph-layers'
 import { firstGraphLayout, headSection, sectionBytesOf, withChangedHead, withFreshPageChecksums } from './heads'
 
 const LOAD_FAILED = 'PERSISTENCE_LOAD_FAILED'
@@ -27,6 +31,9 @@ const MEMORY_GRAPH = 'segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000'
 const OVERLAP_BYTES = 30
 const GRAPH_PART_VECTORS = 16_384
 const COUNT_PAST_NEXT_OFFSET = 1_000
+const HIGHEST_M = 512
+const EARLIER_BASE = 'earlier-releases/0.3.0/wal/products'
+const EARLIER_GRAPH = 'segments/vec-embedding-1l4nfg2-graph-g1'
 
 function firstGraph(payload: RawMap): RawMap {
   return mapAt(listAt(payload.graphs, 'graphs')[0], 'graphs[0]')
@@ -49,9 +56,20 @@ async function manifestCase(name: string, rule: string, code: string, index: str
   return damagedCheckpoint(name, rule, code, index, { manifest })
 }
 
-async function memoryGraphCase(name: string, code: string, change: (payload: RawMap) => void) {
+async function memoryGraphCase(name: string, code: string | null, change: (payload: RawMap) => void) {
   const graph = await rewritten(await baseFile(MEMORY, MEMORY_GRAPH), name, change)
   return damagedCheckpoint(name, GRAPH_RULE, code, MEMORY, { [MEMORY_GRAPH]: graph })
+}
+
+async function earlierGraphWithMOfOneCase(): Promise<CaseBuild> {
+  const name = 'graph-earlier-release-m-of-one'
+  const stored = new Uint8Array(await readFile(join(SAMPLES_ROOT, EARLIER_BASE, EARLIER_GRAPH)))
+  const graph = await rewritten(stored, name, payload => {
+    firstGraph(payload).m = 1
+  })
+  const build = damagedCheckpoint(name, GRAPH_RULE, LOAD_FAILED, MEMORY, { [EARLIER_GRAPH]: graph }, false)
+  build.base = EARLIER_BASE
+  return build
 }
 
 function neighboursListAfterFirstNode(edit: Parameters<Parameters<typeof withChangedHead>[2]>[0]): void {
@@ -176,6 +194,20 @@ export async function vectorCases(): Promise<CaseBuild[]> {
     await memoryGraphCase('graph-calibrated-mean-not-finite', LOAD_FAILED, payload => {
       firstGraph(payload).calibratedMeanLength = Number.NaN
     }),
+    await memoryGraphCase('graph-upper-lists-on-every-layer', LOAD_FAILED, payload => {
+      const graph = firstGraph(payload)
+      graph.m = HIGHEST_M
+      withEveryNodeOnTheHighestLayer(graph)
+    }),
+    await memoryGraphCase('graph-upper-lists-at-the-bound', null, payload => {
+      const graph = firstGraph(payload)
+      withUpperLists(graph, upperListLimit(nodesOf(graph), Number(graph.m)))
+    }),
+    await memoryGraphCase('graph-upper-lists-one-past-the-bound', LOAD_FAILED, payload => {
+      const graph = firstGraph(payload)
+      withUpperLists(graph, upperListLimit(nodesOf(graph), Number(graph.m)) + 1)
+    }),
+    await earlierGraphWithMOfOneCase(),
     await memoryGraphCase('graph-neighbours-end-inside-a-list', LOAD_FAILED, payload => {
       const graph = firstGraph(payload)
       graph.neighbours = bytesAt(graph.neighbours, 'neighbours').slice(0, -4)

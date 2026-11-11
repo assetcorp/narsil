@@ -32,4 +32,4 @@ With durability, `narsil.close(indexName)` releases an index from memory and `na
 
 ## Partitions
 
-An index opens with one partition, or with `partitions: { maxPartitions }`, and it adds none on its own. `partitions.maxDocsPerPartition` caps the documents that each partition accepts, and the engine refuses a write past that cap with `PARTITION_CAPACITY_EXCEEDED`. `await narsil.rebalance(indexName, count)` changes the partition count, up to `maxPartitions`, while the index keeps answering queries.
+An index opens with one partition, or with `partitions: { maxPartitions }`, and it adds none on its own. `partitions.maxDocsPerPartition` caps the documents that each partition accepts, and the engine refuses a write past that cap with `PARTITION_CAPACITY_EXCEEDED`. `await narsil.rebalance(indexName, count)` changes the partition count, up to `maxPartitions`, while the index keeps answering queries. A rebalance above that limit fails with `PARTITION_CAPACITY_EXCEEDED`, so raise it first with `await narsil.updatePartitionConfig(indexName, { maxPartitions: count })`.

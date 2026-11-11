@@ -66,6 +66,21 @@ export interface BackupOperationOptions {
 }
 
 /**
+ * How {@link ClusterNamespace.createBackup} backs up an index.
+ *
+ * @public
+ */
+export interface CreateBackupOptions extends BackupOperationOptions {
+  /**
+   * Set this to true to add every node's popular query suggestion history of the index to the backup, so that a
+   * restore keeps the counts that a build reads. The history holds the scrambled text of what people searched for, and
+   * the backup keeps it after `retentionDays` ends, so leave it out unless the restored index needs those counts. A
+   * node that gives no answer adds nothing.
+   */
+  queryHistory?: boolean
+}
+
+/**
  * Where {@link ClusterNamespace.restoreBackup} puts a backup, and how the cluster places the restored copies.
  *
  * @public

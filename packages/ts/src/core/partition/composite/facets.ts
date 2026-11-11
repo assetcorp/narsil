@@ -1,8 +1,8 @@
-import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
+import { computeFacets, everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FacetResult } from '../../../types/results'
 import type { SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
-import { computeFacets, type FacetMatchSet } from '../facets'
+import type { FacetMatchSet } from '../facets'
 import type { PartitionReadState } from '../read-state'
 import { type OrdinalLayout, subBitsetView } from './filters'
 

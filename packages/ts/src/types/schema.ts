@@ -303,7 +303,11 @@ export interface CustomTokenizer {
    * @param text - The raw field value, before any stemming or stop word removal.
    * @returns Each token with its ordinal position in the field, which the
    * engine writes into postings when `trackPositions` is on, and which a
-   * prefix query reads to find the last typed word.
+   * prefix query reads to find the last typed word. Each token must be a
+   * string and each position a whole number from 0 to 4,294,967,295. The
+   * engine refuses any other result, with `DOC_VALIDATION_FAILED` for a
+   * document, which it then stores nothing from, and with `CONFIG_INVALID`
+   * for a query.
    */
   tokenize(text: string): Array<{ token: string; position: number }>
 }

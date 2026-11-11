@@ -131,6 +131,8 @@ An implementation must raise `DOC_VALIDATION_FAILED` for a document whose ID, fi
 
 An implementation must raise `DOC_VALIDATION_FAILED` when a caller writes a document whose MessagePack encoding, vector values included, is longer than 16,777,216 bytes, so that a [keyword segment](#keyword-segment-payload) that holds the document alone stays inside the [file size](#file-size) limit.
 
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose vector value holds an element that is not a number, or an element whose nearest float32, rounding to nearest with ties to even, is infinite or NaN. A [vector file](#vector-file-payload) stores each element as a float32, so a value such as 1e39, which a float64 holds, can otherwise become an infinite element that makes every distance to that vector infinite or NaN.
+
 An implementation must raise `DOC_VALIDATION_FAILED` for a document ID that is empty or longer than 512 UTF-16 code units, so that every line of a [document export](durability.md#document-export) stays inside the length that a reader must accept.
 
 ### Surface Forms
@@ -248,9 +250,9 @@ An offsets array divides a list into entries, so that entry `i` starts at value 
 
 `tombstones` lists the IDs of the documents that this segment removes from the older segments of its partition. `schema` holds the schema of the segment's documents under the rules of [Field Types](#field-types). `idOrder` lists every ordinal once, in the order that sorts the IDs by code point. `documents` holds each document as [Documents](#documents) defines it, so a writer must leave every vector value out of it.
 
-`tokens` holds each token of the segment once, sorted by code point, which matches the order of their UTF-8 bytes. Entry `t` of `postingOffsets` gives the postings of token `t`, which may name their documents in any order. Each posting names one document and one field and gives the token's term frequency in that field. `fieldNames` must hold at most 65,536 names. `documentFrequencies` holds the number of distinct documents among each token's postings. A writer must store a term frequency above 65,535 as 65,535. `positionOffsets` and `positions` are both nil where the index tracks no positions, and entry `p` of `positionOffsets` otherwise gives the positions of posting `p`, which number the token's places inside its field from zero, in ascending order, for [phrase matching](algorithms.md#phrase-search). The positions of a `string[]` field follow [Array Position Gap](algorithms.md#array-position-gap).
+`tokens` holds each token of the segment once, sorted by code point, which matches the order of their UTF-8 bytes. Entry `t` of `postingOffsets` gives the postings of token `t`, which may name their documents in any order. The postings of one document for one token must be in adjacent entries, so that a reader can add them in the order that [Score Arithmetic](algorithms.md#score-arithmetic) requires. Each posting names one document and one field and gives the token's term frequency in that field. `fieldNames` must hold at most 65,536 names. `documentFrequencies` holds the number of distinct documents among each token's postings. A writer must store a term frequency above 65,535 as 65,535. `positionOffsets` and `positions` are both nil where the index tracks no positions, and entry `p` of `positionOffsets` otherwise gives the positions of posting `p`, which number the token's places inside its field from zero, in ascending order, for [phrase matching](algorithms.md#phrase-search). The positions of a `string[]` field follow [Array Position Gap](algorithms.md#array-position-gap).
 
-Each `FieldLengthColumn` holds, for every document, the field length of one text field as [Documents](#documents) defines it, with 0 for a document that holds no value in the field. `numeric` holds a `ValueColumn` for each `number` and `number[]` field, with one entry for each value of the field in each document. `sizes` holds a `ValueColumn` for each `string`, `verbatim`, and array field, with one entry for each document that holds a value in the field. The value of that entry is the length of the document's array, or 1 for a single string, or 0 for an empty string. Entry `v` of an `EnumColumn`'s `offsets` gives the documents that hold value `v` of its `values`, which must name each value once. Each `PatternColumn` holds the [pattern index](algorithms.md#pattern-index) of one pattern field. Its `documents` lists the documents that hold a value in the field. Entry `r` of its `offsets` gives the postings of run `r`, whose three code points `runs` holds from position `3r`. `surfaceForms` holds the [surface forms](#surface-forms) of the segment, and it is nil where the segment holds none.
+Each `FieldLengthColumn` holds, for every document, the field length of one text field as [Documents](#documents) defines it, with 0 for a document that holds no value in the field. `numeric` holds a `ValueColumn` for each `number` and `number[]` field, with one entry for each value of the field in each document. `sizes` holds a `ValueColumn` for each `string`, `verbatim`, and array field, with one entry for each document that holds a value in the field. The value of that entry is the length of the document's array, or 1 for a single string, or 0 for an empty string. Entry `v` of an `EnumColumn`'s `offsets` gives the documents that hold value `v` of its `values`, which must name each value once. Each `PatternColumn` holds the [pattern index](algorithms.md#pattern-index) of one pattern field. Its `documents` lists the documents that hold a value in the field. Entry `r` of its `offsets` gives the postings of run `r`, whose three code points `runs` holds from position `3r`. `surfaceForms` holds the [surface forms](#surface-forms) of the segment, and it is nil where the segment holds none. A writer must list its entries in strictly ascending code point order of their surfaces, with no count of 0, so that two writers produce the same bytes for the same segment. Where a writer combines entries that hold the same surface, it adds their counts and keeps the token of the first entry in input order. A reader must accept the entries in any order, because earlier writers listed them in the order that the analyser found them.
 
 `partialWords` holds the written spellings that [Partial-Word Search](algorithms.md#partial-word-search) matches. A writer must set it to nil only where the schema declares no `partial` field. Its `fields` lists the `partial` fields of the schema in code point order. Each entry gives a written spelling of more than three code points from those fields, the token of that spelling, and the number of times that the spelling occurs in those fields across the segment's documents. The entries must ascend strictly by spelling in code point order and then by token. Entry `r` of `runOffsets` gives the entries whose spelling holds run `r`, whose three code points `runs` holds from position `3r`.
 
@@ -454,6 +456,8 @@ Byte `i` of `levels` in part `p` describes vector `p * 16384 + i`, and it must h
 
 At the largest `m` of 512 and the highest top layer of 32 that [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world) allows, the lists of one node fill at most 69,765 bytes, so a part of 16,384 vectors holds at most about 1.14 GB and stays inside the [file size](#file-size) limit.
 
+A reader must count the upper-layer lists of each graph across all of its parts, which is the sum of every node's top layer, and it must reject the field with `PERSISTENCE_LOAD_FAILED` when that count passes `4 * n / (m - 1) + 64`, where `n` is the number of nodes in the graph. Each upper-layer list takes `(m + 2) * 4` bytes once a reader loads it into [shared memory](vector-index.md#shared-memory), while the file stores an empty list in 4 bytes, so without this bound a part of a few megabytes can make a reader commit gigabytes. [Layer assignment](algorithms.md#graph-structure) gives a node at most `1 / (m - 1)` upper-layer lists on average, so a graph that the distribution built stays far inside the bound. A reader must reject with `PERSISTENCE_LOAD_FAILED` a graph whose `m` is not a whole number from 2 to 512, and that includes the graph file of an [earlier release](durability.md#earlier-layouts), because engine 0.3.0 accepted an `m` of 1, and the bound above divides by `m - 1`.
+
 A reader must skip a neighbour that is a vector with no node or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
 
 A writer must store `head` for a field whose `storage` is `disk`. A reader that reads a list by position must raise `PERSISTENCE_LOAD_FAILED` for `nodeOffsets` that descend or that end outside `neighbours`, and for a list whose count runs past the node's next offset. The other rules of this payload still apply to each list that the reader reads.
@@ -495,6 +499,12 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   index_uuid:            string               (optional; the cluster identity of the index)
   held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
   synonyms:              List<SynonymRule>    (optional; the synonym set as the caller wrote it)
+  sync:                  SyncMeta             (optional; the device sync setting)
+  sync_active:           boolean              (optional; true once a device asks for the published snapshot)
+  sync_epoch:            string               (optional; the index epoch, 32 lowercase hexadecimal digits)
+  query_suggestions:     QuerySuggestionsMeta (optional; the popular query suggestions setting)
+  banned_queries:        List<string>         (optional; the normalised phrases that the index bans from its suggestions)
+  query_suggestions_source: QuerySuggestionsSourceMeta (optional; the marker of a suggestions index)
 }
 
 VectorFieldMeta {
@@ -520,6 +530,39 @@ VectorPromotionMeta {
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
   quantization:     string                                                  (optional; "osq8", "osq4", "osq2", "osq1", or "none")
   storage:          string                                                  (optional; "memory" or "disk")
+}
+
+SyncMeta {
+  enabled:            boolean
+  history_max_age_ms: uint64   (optional)
+  history_max_bytes:  uint64   (optional)
+}
+
+QuerySuggestionsMeta {
+  enabled:                  boolean
+  fields:                   List<string>
+  min_people:               uint32   (optional)
+  min_results:              uint32   (optional)
+  retention_days:           uint32   (optional)
+  max_phrases_per_day:      uint32   (optional)
+  max_phrases_per_person:   uint32   (optional)
+  max_people_per_day:       uint32   (optional)
+  max_groups:               uint32   (optional)
+  min_letters:              uint32   (optional)
+  max_length:               uint32   (optional)
+  max_words:                uint32   (optional)
+  max_digits:               uint32   (optional)
+  max_merge_phrases:        uint32   (optional)
+  merge_memory_bytes:       uint64   (optional)
+  save_interval_ms:         uint32   (optional)
+  result_checks_per_second: uint32   (optional)
+  schedule:                 string   (optional)
+  time_zone:                string   (optional)
+}
+
+QuerySuggestionsSourceMeta {
+  index: string
+  group: string
 }
 ```
 
@@ -559,6 +602,10 @@ The `held_partitions` field records the partitions of the index this copy holds,
 
 The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), with each word as the caller wrote it, so that a reader analyses the words with its own language module. A writer must leave the field absent for an index without a set, and a reader must treat an absent field as no set. A reader must reject a stored set that breaks the shape or the limits in [Synonyms](algorithms.md#synonyms) with `CONFIG_INVALID`, as it rejects a stored `quantization` outside its set.
 
+The `sync`, `sync_active`, and `sync_epoch` fields record the index's [device sync](sync.md) state: the setting that [The Sync Setting](sync.md#the-sync-setting) defines, whether a device has asked for the [published snapshot](sync.md#published-snapshot), and the [epoch](sync.md#index-epoch). A reader must treat an absent `sync` as sync off and an absent `sync_active` as false.
+
+The `query_suggestions` and `banned_queries` fields record the index's [popular query suggestions](query-suggestions.md) setting and ban list, and `query_suggestions_source` marks a [suggestions index](query-suggestions.md#the-suggestions-index) with the index and the group that it serves. A reader must treat an absent `query_suggestions` as the feature off, an absent `banned_queries` as an empty list, and an absent `query_suggestions_source` as an ordinary index, and it must reject any of them with `CONFIG_INVALID` where it breaks [query-suggestions.md](query-suggestions.md).
+
 ---
 
 ### Index Configuration Payload
@@ -591,6 +638,10 @@ The payload is a MessagePack map:
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
   synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
+  syncEpoch:         string                       (optional; the index epoch where sync is on)
+  querySuggestions:  QuerySuggestionsSetting      (optional; see The Setting in query-suggestions.md)
+  bannedQueries:     List<string>                 (optional; the normalised phrases that the index bans from its suggestions)
+  querySuggestionsSource: { index: string, group: string }  (optional; the marker of a suggestions index)
 }
 
 PartitionSnapshotLimits {
@@ -615,7 +666,9 @@ EmbeddingSnapshotConfig {
 
 A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `textStorage`. A restore of a configuration that sets `disk` on an engine without filesystem durability raises `CONFIG_INVALID` too.
 
-The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`.
+The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting, so that an index that a caller restores from it serves no feed until the caller turns sync on, as [The Sync Setting](sync.md#the-sync-setting) defines.
+
+The `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` fields hold the setting, the ban list, and the marker that [query-suggestions.md](query-suggestions.md) defines, and a writer leaves each one absent where the index has none.
 
 A writer must reject an index whose tokeniser or stop words are code, because a payload can hold a registered name but no code.
 
@@ -631,11 +684,19 @@ A persistence adapter addresses stored bytes by string key:
 |-----|---------|
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
+| `<indexName>/layout-transition` | An unfinished partition-layout transition |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
 | `<indexName>/segments/vec-<fieldKey>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
 | `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
+| `<indexName>/history/<partitionId>/<startSeqNo>-<movedAtMs>` | A log segment that a checkpoint moved into [history](sync.md#history), both numbers zero-padded to 16 digits |
+| `<indexName>/sync/published` | The [published snapshot](sync.md#published-snapshot) of a synced index |
+| `_query-counts/<indexName>/<day>.nrsl` | One day of [query counts](query-suggestions.md#history) on this node |
+| `_query-counts/<indexName>/restored/<day>-<n>.nrsl` | One day of query counts that a restore wrote |
+| `_query-counts/<indexName>/build.nrsl` | The outcome of the last [suggestions build](query-suggestions.md#building) on a single node |
+
+A key under `_query-counts/` never belongs to an index, because an index name begins with a letter or a digit.
 
 The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 

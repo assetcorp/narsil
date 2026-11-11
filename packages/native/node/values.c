@@ -27,12 +27,13 @@ uint32_t clamped_count(size_t count) { return count > UINT32_MAX ? UINT32_MAX : 
 
 int possibly_empty_typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data,
                               size_t *length) {
-  bool is_typed = false;
-  if (napi_is_typedarray(env, value, &is_typed) != napi_ok || !is_typed) { return 0; }
   napi_typedarray_type type = napi_int8_array;
   napi_value buffer = NULL;
-  size_t offset = 0;
-  if (napi_get_typedarray_info(env, value, &type, length, data, &buffer, &offset) != napi_ok) { return 0; }
+  if (napi_get_typedarray_info(env, value, &type, length, data, &buffer, NULL) != napi_ok) { return 0; }
+  if (*length == 0) {
+    bool detached = false;
+    if (napi_is_detached_arraybuffer(env, buffer, &detached) != napi_ok || detached) { return 0; }
+  }
   return type == expected && (*data != NULL || *length == 0);
 }
 

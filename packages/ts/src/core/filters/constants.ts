@@ -1,0 +1,3 @@
+export const MAX_PLAN_INSTRUCTIONS = 100_352
+export const MAX_PLAN_TESTS = 1_024
+export const MAX_OPERAND_ITEMS = 65_536

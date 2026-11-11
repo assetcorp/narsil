@@ -57,12 +57,12 @@ describe('phrase search agrees with the independent oracle', () => {
     expect(await expectEveryProbe(searchOver(server.client), documents, 'growing')).toBeGreaterThan(1_000)
   })
 
-  it('on saved segments beside a growing segment, with removals, and again after a restart', async () => {
+  it('on disk segments beside a growing segment, with removals, and again after a restart', async () => {
     directory = await mkdtemp(join(tmpdir(), 'narsil-phrase-saved-'))
     const config = { durability: { directory }, workers: NO_WORKERS }
     const saved = pantryCorpus(400, 94)
     const writer = await opened(config)
-    await writer.createIndex(INDEX, PANTRY_CONFIG)
+    await writer.createIndex(INDEX, { ...PANTRY_CONFIG, textStorage: 'disk' })
     expect((await writer.insertBatch(INDEX, saved)).failed).toEqual([])
     await writer.checkpoint(INDEX)
     await closeEngines()

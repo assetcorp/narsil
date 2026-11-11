@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex } from '../../core/partition'
+import { deserializePartition, serializePartition } from '../../core/partition/serialization'
 import { getLanguage } from '../../languages/registry'
 import { createPartitionManager } from '../../partitioning/manager'
 import { createPartitionRouter } from '../../partitioning/router'
@@ -57,10 +58,10 @@ describe('Persistence Round-Trip Integration', () => {
 
     expect(partition.count()).toBe(50)
 
-    const serialized = partition.serialize('test-index', 1, 'english', schema)
+    const serialized = partition.serialize('test-index', 1, 'english', schema, serializePartition)
 
     const restoredPartition = createPartitionIndex(0)
-    restoredPartition.deserialize(serialized, schema)
+    restoredPartition.deserialize(serialized, schema, deserializePartition)
 
     expect(restoredPartition.count()).toBe(50)
 
@@ -93,13 +94,13 @@ describe('Persistence Round-Trip Integration', () => {
 
     const serializedPartitions = []
     for (let p = 0; p < manager.partitionCount; p++) {
-      serializedPartitions.push(manager.serializePartition(p))
+      serializedPartitions.push(manager.serializePartition(p, serializePartition))
     }
 
     const newManager = createPartitionManager('products', indexConfig, language, router, 2)
 
     for (let p = 0; p < newManager.partitionCount; p++) {
-      newManager.deserializePartition(p, serializedPartitions[p])
+      newManager.deserializePartition(p, serializedPartitions[p], deserializePartition)
     }
 
     expect(newManager.countDocuments()).toBe(100)

@@ -44,4 +44,26 @@ describe('pinned documents on the distributed query path', () => {
     expect(result.hits.map(hit => hit.id)).not.toContain('deleted-sku')
     expect(result.hits.length).toBe(2)
   }, 30_000)
+
+  it('fills a limited page after excluding missing pins before placement', async () => {
+    for (const document of [false, true]) {
+      const result = await cluster.node.query('products', {
+        term: 'widget',
+        pinned: [{ docId: 'deleted-sku', position: 0 }],
+        limit: 1,
+        document,
+      })
+      expect(result.hits.map(hit => hit.id)).toEqual(['spanner'])
+      expect(result.count).toBe(2)
+      expect(result.cursor).toBeDefined()
+      const next = await cluster.node.query('products', {
+        term: 'widget',
+        pinned: [{ docId: 'deleted-sku', position: 0 }],
+        limit: 1,
+        document,
+        searchAfter: result.cursor,
+      })
+      expect(next.hits.map(hit => hit.id)).toEqual(['wrench'])
+    }
+  }, 30_000)
 })

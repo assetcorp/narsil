@@ -82,6 +82,17 @@ export function assertServerLimits(limits: ServerLimits | undefined, engineReran
   assertRerankWindowCap(limits.maxRerankWindow, engineRerankWindow)
 }
 
+export function assertQuerySuggestionsOptions(options: unknown): void {
+  if (options === undefined) return
+  const identify = typeof options === 'object' && options !== null ? Reflect.get(options, 'identify') : undefined
+  if (typeof identify === 'function') return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    'querySuggestions must carry an identify function that returns the person and the group of a request',
+    { field: 'querySuggestions.identify' },
+  )
+}
+
 export function assertAllowRegex(allowRegex: unknown): void {
   if (allowRegex === undefined || typeof allowRegex === 'boolean') return
   throw new NarsilError(

@@ -69,7 +69,7 @@ const stopWords = new Set([
  */
 export const lingala: LanguageModule = {
   name: 'lingala',
-  revision: '1',
+  revision: '58b7be7a07b7c8b3',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9]+/giu },

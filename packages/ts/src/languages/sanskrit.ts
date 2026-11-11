@@ -175,7 +175,7 @@ const stopWords = new Set([
  */
 export const sanskrit: LanguageModule = {
   name: 'sanskrit',
-  revision: '1',
+  revision: '985634a663e342b3',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9ṛṃ]+/gi },

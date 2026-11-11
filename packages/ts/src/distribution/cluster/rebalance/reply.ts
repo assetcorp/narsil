@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { decode } from '../../../serialization/msgpack'
 import { isRecord } from '../../payload-guards'
 import type { NodeTransport, TransportMessage } from '../../transport/types'
 import { TransportError } from '../../transport/types'

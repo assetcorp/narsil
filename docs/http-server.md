@@ -5,8 +5,10 @@ The server subpath turns an engine into a REST service, and this guide covers ev
 `@delali/narsil/server` puts a REST API in front of an engine that the application builds. The application creates the engine and sets its configuration, such as durability, embedding adapters, and workers, and the server shares that engine across requests. On Node.js the server receives requests on the workers that hold the worker copies, which the engine calls request threads, and it starts one for every thread in `workers.count`, or one alone on a machine with fewer than three cores. A request thread answers a query on an index whose copy it holds from that copy and from the vector copy the threads share, while it sends every write, every admin request, and every query on an index without a copy to the main thread, which answers as it does for its own callers. See [Request threads](partitions-and-workers.md#request-threads). `NarsilServer.requestThreadCount` reports how many threads took requests, and it reads zero where the main thread answers everything itself, which happens with `workers.enabled: false`, on a runtime without worker threads, and on a cluster node's engine. A write returns before it reaches every copy, so pass `wait: true` on a write, or call `POST /indexes/{name}/_wait-for-writes`, before a search that has to see it; see [Writes and the copies](partitions-and-workers.md#writes-and-the-copies). The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
 
 ```bash
-pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.58.0
+pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.70.0
 ```
+
+The [device sync](device-sync.md) feed needs v20.69.0 or v20.70.0. An earlier release can drop a feed connection as soon as it opens, so that the device sees close code 1006 in place of the code that the server sent, while v20.71.0 fails to load as an ES module.
 
 ```ts
 import { createNarsil } from '@delali/narsil'
@@ -163,6 +165,10 @@ Each running task holds its own working set, and an async import holds the whole
   ]
 }
 ```
+
+## Device sync
+
+The `sync` option turns on `GET /indexes/{name}/sync/snapshot` and the feed, a WebSocket at `GET /indexes/{name}/sync/feed`, which stay off by default. The server refuses to start with them on and no `onRequest` hook, because a device receives the whole index. [Device sync](device-sync.md#serve-sync-from-the-server) covers the routes, the credential on the feed, and the history limits.
 
 ## Snapshots and exports
 

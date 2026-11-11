@@ -6,6 +6,7 @@ export interface CheckpointBuild {
   files: Map<string, Uint8Array>
   fitManifest: boolean
   code: string | null
+  base?: string
   remove?: string
   search?: string
 }

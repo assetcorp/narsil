@@ -16,9 +16,10 @@ import {
   reportJobProgress,
 } from '../driver-context'
 import { damagedFile, firstUnstoredFile, loadCheckedBytes } from '../files'
-import { decodeBackupIndexConfig, writeRestoredMetadata } from '../index-config'
+import { decodeBackupIndexConfig, type RestorableConfig, writeRestoredMetadata } from '../index-config'
 import { type BackupManifest, storedFilesOf } from '../manifest'
 import { drivePartitionTask, forEachPartition } from '../partition-exchange'
+import { checkRestoredHistory, writeRestoredHistory } from '../query-history'
 import { dropUnpublishedGeneration, nameTaken, publishRestoredName } from '../restore-publish'
 
 export interface RestoreRequest {
@@ -27,7 +28,7 @@ export interface RestoreRequest {
   constraints?: AllocationConstraints
 }
 
-async function readRestorableConfig(context: BackupDriverContext, manifest: BackupManifest): Promise<IndexConfig> {
+async function readRestorableConfig(context: BackupDriverContext, manifest: BackupManifest): Promise<RestorableConfig> {
   const unstored = await firstUnstoredFile(context.store, storedFilesOf(manifest))
   if (unstored !== undefined) throw damagedFile(manifest.name, unstored, 'is missing from the store')
   const bytes = await loadCheckedBytes(context.store, manifest.config, manifest.name)
@@ -114,7 +115,7 @@ async function restoreIntoGeneration(
 
 async function writeNameMetadata(
   context: BackupDriverContext,
-  config: IndexConfig,
+  restorable: RestorableConfig,
   request: RestoreRequest,
   constraints: AllocationConstraints,
   indexUuid: string,
@@ -122,13 +123,14 @@ async function writeNameMetadata(
   const indexName = jobIndexNameOf(context)
   const { coordinator } = context.config
   try {
-    return await writeRestoredMetadata(coordinator, config, {
+    const shape = {
       indexName,
       indexUuid,
       partitionCount: request.manifest.partitionCount,
       replicationFactor: request.replicationFactor ?? request.manifest.replicationFactor,
       constraints,
-    })
+    }
+    return await writeRestoredMetadata(coordinator, restorable.config, shape, restorable.suggestions)
   } catch (error) {
     const written = await getIndexMetadata(coordinator, indexName).catch(() => null)
     if (written?.indexUuid === indexUuid) return true
@@ -140,20 +142,25 @@ export async function runBackupRestore(context: BackupDriverContext, request: Re
   const { coordinator } = context.config
   const indexName = jobIndexNameOf(context)
   const { manifest } = request
-  const config = await readRestorableConfig(context, manifest)
+  const restorable = await readRestorableConfig(context, manifest)
   const constraints = request.constraints ?? manifest.constraints
   const generation = generationNameOf(generateId())
   const nameIndexUuid = generateId()
   await recordJobChange(context, job => ({ ...job, generation, partitionsTotal: manifest.partitionCount }))
   let published = false
   try {
-    await restoreIntoGeneration(context, request, config, generation, constraints)
+    await restoreIntoGeneration(context, request, restorable.config, generation, constraints)
+    await checkRestoredHistory(context, manifest)
+    await context.queryHistory?.clearName(indexName)
     await recordJobChange(context, job => ({ ...job, nameIndexUuid }))
     assertStillDriving(context)
-    if (!(await writeNameMetadata(context, config, request, constraints, nameIndexUuid))) throw nameTaken(indexName)
+    if (!(await writeNameMetadata(context, restorable, request, constraints, nameIndexUuid))) {
+      throw nameTaken(indexName)
+    }
     published = true
   } finally {
     if (!published) await dropUnpublishedGeneration(coordinator, indexName, generation).catch(context.onError)
   }
   await publishRestoredName(context, generation, nameIndexUuid)
+  await writeRestoredHistory(context, manifest, indexName)
 }

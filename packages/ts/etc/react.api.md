@@ -18,6 +18,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -58,6 +59,12 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -65,6 +72,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -303,6 +311,7 @@ export interface TaskProgress {
 // @public
 export interface TaskRecord {
     backupName?: string;
+    build?: QuerySuggestionsBuild;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -322,7 +331,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete' | 'querySuggestionsBuild';
 
 // @public
 export function useDocument(indexName: string, docId: string | null | undefined, options?: NarsilReadOptions): NarsilReadState<AnyDocument | undefined>;

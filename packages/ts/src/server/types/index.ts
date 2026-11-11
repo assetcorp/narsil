@@ -4,11 +4,24 @@ export type {
   ErrorEnvelope,
   NarsilServer,
   OnRequestHook,
+  QueryIdentity,
   RequestContext,
   RequestDenial,
+  RequestGrant,
   ServerLimits,
   ServerOptions,
+  ServerQuerySuggestionsOptions,
+  ServerSyncOptions,
 } from './options'
+export type {
+  ManualSuggestionResponse,
+  QueryBansBody,
+  QuerySuggestionsPreviewQuery,
+  RecordQueryBody,
+  RemoveQueryBody,
+  RemoveQueryResponse,
+  SnapshotQuery,
+} from './query-suggestions'
 export type {
   BatchBody,
   CapabilitiesResponse,
@@ -69,9 +82,11 @@ export type {
 export type {
   HttpCreateIndexBody,
   HttpGroupResult,
+  HttpHit,
   HttpIndexBody,
   HttpQueryParams,
   HttpQueryResult,
+  HttpScore,
   HttpWireTypeName,
   HttpWireTypes,
   ImportDocumentsQuery,

@@ -1,8 +1,10 @@
+import { FARTHEST_REJECTED_LINKS_KEPT } from '#platform/vector-core-host'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorMetric } from '../brute-force'
-import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
+import type { OrdinalFilter } from '../ordinal-filter'
+import { ordinalFilterHas } from '../ordinal-membership'
+import type { OrdinalAdmission } from '../vector-store/admission'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
-import { FARTHEST_REJECTED_LINKS_KEPT } from './constants'
 import { writeKeepingLastLinks } from './last-links'
 import { beginNodeRead, nodeReadHeld } from './locks'
 import {
@@ -96,6 +98,80 @@ export function searchLayer(
       if (dist < furthestDist || found.size < ef) {
         pushHeap(frontier, neighborOrd, dist)
         if (excludeTombstones && isTombstoned(state, neighborOrd)) continue
+        if (accepted && !ordinalFilterHas(accepted, neighborOrd)) continue
+        pushHeap(found, neighborOrd, dist)
+        if (found.size > ef) {
+          popHeap(found)
+        }
+        furthestDist = found.distances[0]
+      }
+    }
+  }
+
+  drainHeapNearestFirst(found, results)
+}
+
+export function searchAdmittedBaseLayer(
+  state: HNSWSearchState,
+  qVec: Float32Array,
+  qMag: number,
+  ef: number,
+  metric: VectorMetric,
+  distFn: ((ord: number) => number) | undefined,
+  results: DistanceList,
+  admission: OrdinalAdmission,
+  accepted?: OrdinalFilter,
+  clock?: SearchClock,
+): void {
+  const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
+  const workspace = state.workspace
+  const frontier = workspace.frontier
+  const found = workspace.found
+  const scratch = state.neighborScratch
+  const stamp = nextVisitStamp(state)
+
+  resetHeap(frontier)
+  resetHeap(found)
+  let furthestDist = Number.POSITIVE_INFINITY
+
+  for (let i = 0; i < workspace.entryPointCount; i++) {
+    const epOrd = workspace.entryPoints[i]
+    ensureVisited(state, epOrd + 1)
+    if (state.visited[epOrd] === stamp) continue
+    state.visited[epOrd] = stamp
+    if (!nodeExists(state, epOrd)) continue
+    const dist = getDistance(epOrd)
+    if (dist === Number.POSITIVE_INFINITY) continue
+    pushHeap(frontier, epOrd, dist)
+    if (!admission.admits(epOrd)) continue
+    if (accepted && !ordinalFilterHas(accepted, epOrd)) continue
+    pushHeap(found, epOrd, dist)
+    if (found.size > ef) {
+      popHeap(found)
+    }
+  }
+
+  if (found.size > 0) furthestDist = found.distances[0]
+
+  while (popHeap(frontier)) {
+    if (frontier.topDistance > furthestDist && found.size >= ef) break
+
+    const count = readNeighborsLocked(state, frontier.topOrd, 0)
+    if (clock !== undefined) clock.tick(count * state.dimension)
+    for (let i = 0; i < count; i++) {
+      const neighborOrd = scratch[i]
+      ensureVisited(state, neighborOrd + 1)
+      if (state.visited[neighborOrd] === stamp) continue
+      state.visited[neighborOrd] = stamp
+
+      if (!nodeExists(state, neighborOrd)) continue
+
+      const dist = getDistance(neighborOrd)
+      if (dist === Number.POSITIVE_INFINITY) continue
+
+      if (dist < furthestDist || found.size < ef) {
+        pushHeap(frontier, neighborOrd, dist)
+        if (!admission.admits(neighborOrd)) continue
         if (accepted && !ordinalFilterHas(accepted, neighborOrd)) continue
         pushHeap(found, neighborOrd, dist)
         if (found.size > ef) {

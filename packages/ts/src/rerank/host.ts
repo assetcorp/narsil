@@ -1,8 +1,9 @@
 import type { compareCodePoints } from '../core/ordering/code-points'
 import type { projectionKeepsField, resolveProjection } from '../core/projection'
-import type { filterSubsetsMatchNothing } from '../engine/query/filter-subsets'
-import type { applyHighlights } from '../engine/query/highlight'
-import type { filteredSearchOf, textLeg, vectorLeg } from '../engine/query/vector'
+import type { filteredSearchOf } from '../engine/query/filter-subsets'
+import type { vectorLeg } from '../engine/query/runtime-host'
+import type { filterSubsetsMatchNothing } from '../engine/query/subset-search'
+import type { textLeg } from '../engine/query/text-leg'
 import type { now } from '../engine/validation'
 import type { isStringValuedBase, parsedTypeOf } from '../schema/validator/field-type'
 import type { flattenSchema } from '../schema/validator/schema'
@@ -27,7 +28,6 @@ export interface RuntimeHost {
   flattenSchema: typeof flattenSchema
   parsedTypeOf: typeof parsedTypeOf
   isStringValuedBase: typeof isStringValuedBase
-  applyHighlights: typeof applyHighlights
   textLeg: typeof textLeg
   vectorLeg: typeof vectorLeg
   filteredSearchOf: typeof filteredSearchOf

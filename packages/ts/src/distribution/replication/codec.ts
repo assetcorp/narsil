@@ -1,5 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
-import { generateId } from '../../core/id-generator'
+import { decode, encode, generateId } from '#platform/storage-host'
 import { WIRE_BATCH_BUDGET } from '../constants'
 import type {
   AckPayload,

@@ -5,7 +5,9 @@ import { indexRoutes } from './indexes'
 import { infoRoutes } from './info'
 import { maintenanceRoutes } from './maintenance'
 import { sharedRouteOptions } from './options'
+import { querySuggestionRoutes } from './query-suggestions'
 import type { RouteSpec } from './spec'
+import { syncRoutes } from './sync'
 
 export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
   const shared = sharedRouteOptions(limits)
@@ -16,5 +18,7 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     ...searchRoutes(shared),
     ...maintenanceRoutes(shared),
     ...backupRoutes(shared),
+    ...syncRoutes(shared),
+    ...querySuggestionRoutes(shared),
   ]
 }

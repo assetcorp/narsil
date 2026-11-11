@@ -1,8 +1,7 @@
+import { INITIAL_UPPER_SLOTS, VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '#platform/vector-core-host'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import type { VectorMetric } from '../brute-force'
-import { VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
-import { INITIAL_UPPER_SLOTS } from './constants'
 
 export const GRAPH_ENTRY_POINT = 0
 export const GRAPH_TOP_LAYER = 1

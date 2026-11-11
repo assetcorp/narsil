@@ -173,7 +173,13 @@ async function executeSingleFanOut(
   }
 
   const depth = limit + offset
-  const searchParams: WireQueryParams = { ...params, limit: depth, offset: 0 }
+  const sortedGroups = params.group !== null && params.sort !== null && params.sort.length > 0
+  const searchParams: WireQueryParams = {
+    ...params,
+    limit: depth,
+    offset: 0,
+    includeScores: sortedGroups ? true : params.includeScores,
+  }
 
   const keepAliveMs = config.searchContexts
     ? searchContextKeepAlive(routing, config.partitionTimeout, deps.transport)
@@ -244,7 +250,7 @@ async function executeSingleFanOut(
   const allMatchesPresent = coverage.queriedPartitions === coverage.totalPartitions && totalHits <= merged.length
   const placement =
     params.pinned !== null && params.searchAfter === null
-      ? placePinnedEntries(merged, params.pinned, depth, allMatchesPresent)
+      ? placePinnedEntries(merged, params.pinned, depth, allMatchesPresent, deps.pinnedDocuments)
       : { entries: merged, placedFromOutside: [] }
   const mergedScored = placement.entries.slice(offset, depth)
   const mergedFacets =

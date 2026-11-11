@@ -1,7 +1,6 @@
 import { type FsModule, getFs, getPath } from '#platform/durable-fs'
 import { holdDirectoryOpen, holderIsLive, removeStaleLock } from '#platform/lock-holder'
-import { nodeThreadId } from '#platform/node-worker'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError, nodeThreadId } from '#platform/storage-host'
 import { DIRECTORY_LOCK_ATTEMPTS, DIRECTORY_LOCK_SETTLE_MS } from './constants'
 
 const LOCK_FILE_NAME = '.narsil.lock'

@@ -17,9 +17,11 @@ import type {
   ScoringMode,
   VectorIndexConfig,
 } from '../../types/schema'
+import { type ClusterQuerySuggestionSettings, decodeClusterQuerySuggestionSettings } from './query-suggestion-settings'
+import { type ClusterSyncSettings, decodeClusterSyncSettings } from './sync-settings'
 import { decodeSynonymSetRef, type SynonymSetRef } from './synonym-set'
 
-export interface IndexSettings {
+export interface IndexSettings extends ClusterSyncSettings, ClusterQuerySuggestionSettings {
   language: string
   tokenizer?: string
   stopWords?: string
@@ -231,6 +233,8 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
       ...(embedding !== undefined ? { embedding } : {}),
     }),
     ...(synonyms !== undefined ? { synonyms } : {}),
+    ...decodeClusterSyncSettings(raw, reject),
+    ...decodeClusterQuerySuggestionSettings(raw, reject),
   }
 }
 
@@ -255,6 +259,12 @@ export function indexConfigFromSettings(
     analysisGeneration: _generation,
     pendingAnalysis: _pending,
     analysisFailure: _failure,
+    sync: _sync,
+    syncActive: _syncActive,
+    syncEpoch: _syncEpoch,
+    querySuggestions: _querySuggestions,
+    bannedQueries: _bannedQueries,
+    querySuggestionsSource: _querySuggestionsSource,
     ...fields
   } = settings
   return {

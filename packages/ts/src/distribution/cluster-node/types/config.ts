@@ -5,6 +5,7 @@ import type {
   BackupOperationOptions,
   BackupSummary,
   ClusterBackupConfig,
+  CreateBackupOptions,
   DamagedBackup,
   RestoreBackupOptions,
 } from '../../backups/types'
@@ -42,7 +43,10 @@ export interface ClusterNodeConfig {
    * with a durability directory generates an id once, stores it in that
    * directory, and reuses it on every later start, so that the controller
    * recognises the copies that the node holds after a restart. A node without a
-   * durability directory takes a new id on every start.
+   * durability directory takes a new id on every start. An id that you set
+   * must hold at least one character and no unpaired surrogate, because the
+   * cluster hashes, sorts, and stores node ids as UTF-8, and the node refuses
+   * any other id with `CONFIG_INVALID`.
    */
   nodeId?: string
   /** This node offers this much capacity, which the allocator weighs. It offers {@link DEFAULT_CAPACITY} by default. */
@@ -307,14 +311,15 @@ export interface ClusterNamespace {
    * @param indexName - The index to back up.
    * @param backupName - The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or
    * a digit.
-   * @param options - A callback that receives the progress.
+   * @param options - A callback that receives the progress, and whether the backup adds the index's popular query
+   * suggestion history.
    * @returns What the manifest records about the backup.
    * @throws A `NarsilError` with `BACKUP_ALREADY_EXISTS` for a name that the store or a running backup holds,
    * `BACKUP_DURABILITY_REQUIRED` where a primary runs without write-ahead log durability, `BACKUP_STORE_CLAIMED`
    * where another cluster writes under the key prefix, `BACKUP_STORE_NOT_CONFIGURED` on a node without a store, and
    * `BACKUP_NOT_READY` while a node of the cluster runs an earlier release.
    */
-  createBackup(indexName: string, backupName: string, options?: BackupOperationOptions): Promise<BackupSummary>
+  createBackup(indexName: string, backupName: string, options?: CreateBackupOptions): Promise<BackupSummary>
   /**
    * Restores a backup as a new index, on a cluster of any size.
    *

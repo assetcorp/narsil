@@ -58,6 +58,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -99,6 +100,7 @@ export interface CorsOptions {
 // @public
 export interface CreateBackupBody {
     backup: string;
+    queryHistory?: boolean;
 }
 
 // @public
@@ -195,6 +197,12 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -202,6 +210,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -303,7 +312,14 @@ export type HttpCreateIndexBody = Omit<CreateIndexRequest, 'config'> & {
 };
 
 // @public
-export type HttpGroupResult = Omit<GroupResult, 'reduced' | 'reducerError'>;
+export type HttpGroupResult = Omit<GroupResult, 'hits' | 'reduced' | 'reducerError'> & {
+    hits: HttpHit[];
+};
+
+// @public
+export type HttpHit = Omit<Hit, 'score'> & {
+    score?: HttpScore;
+};
 
 // @public
 export type HttpIndexBody = Omit<HttpIndexConfig, 'schema' | 'partitions' | 'vectorPromotion'> & {
@@ -342,9 +358,13 @@ export type HttpQueryParams = Omit<QueryParams, 'group'> & {
 };
 
 // @public
-export type HttpQueryResult = Omit<QueryResult, 'groups'> & {
+export type HttpQueryResult = Omit<QueryResult, 'hits' | 'groups'> & {
+    hits: HttpHit[];
     groups?: HttpGroupResult[];
 };
+
+// @public
+export type HttpScore = number | 'NaN' | 'Infinity' | '-Infinity';
 
 // @public
 export function httpStatusForNarsilError(code: string): number;
@@ -389,20 +409,34 @@ export interface HttpWireTypes {
     ListParams: ListParams;
     ListResult: ListResult;
     LivenessResponse: LivenessResponse;
+    ManualQuerySuggestion: ManualQuerySuggestion;
+    ManualSuggestionResponse: ManualSuggestionResponse;
     MemoryStatsResponse: MemoryStatsResponse;
     MultiGetBody: MultiGetBody;
     MultiGetResponse: MultiGetResponse;
     OkResponse: OkResponse;
     PartitionConfig: PartitionConfig;
     PreflightResult: PreflightResult;
+    QueryBansBody: QueryBansBody;
+    QuerySuggestionsPreview: QuerySuggestionsPreview;
+    QuerySuggestionsPreviewQuery: QuerySuggestionsPreviewQuery;
+    QuerySuggestionsSetting: QuerySuggestionsSetting;
+    QuerySuggestionsStatus: QuerySuggestionsStatus;
     ReadinessResponse: ReadinessResponse;
     RebalanceBody: RebalanceBody;
+    RecordQueryBody: RecordQueryBody;
+    RecordQueryResult: RecordQueryResult;
     RemoveDocumentQuery: RemoveDocumentQuery;
+    RemoveQueryBody: RemoveQueryBody;
+    RemoveQueryResponse: RemoveQueryResponse;
     ReplicationFactorBody: ReplicationFactorBody;
     ReplicationFactorResponse: ReplicationFactorResponse;
     RestoreBackupBody: RestoreBackupBody;
+    SnapshotQuery: SnapshotQuery;
     SuggestParams: SuggestParams;
     SuggestResult: SuggestResult;
+    SyncSetting: SyncSetting;
+    SyncStatus: SyncStatus;
     SynonymSetBody: SynonymSetBody;
     TaskListPage: TaskListPage;
     TaskListQuery: TaskListQuery;
@@ -495,6 +529,11 @@ export interface LivenessResponse {
 }
 
 // @public
+export interface ManualSuggestionResponse {
+    indexName: string;
+}
+
+// @public
 export interface MemoryStatsResponse extends MemoryStats {
     requestThreads: number;
 }
@@ -534,7 +573,7 @@ export interface OkResponse {
 }
 
 // @public
-export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | Promise<undefined | RequestDenial>;
+export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | RequestGrant | Promise<undefined | RequestDenial | RequestGrant>;
 
 // @public
 export interface PartitionAllocationReport {
@@ -547,6 +586,19 @@ export interface PartitionAllocationReport {
     replicas: string[];
     state: string;
     unassignedReason: string | null;
+}
+
+// @public
+export interface QueryBansBody {
+    bans: string[];
+}
+
+// @public
+export type QueryIdentity = Pick<RecordedQuery, 'person' | 'group'>;
+
+// @public
+export interface QuerySuggestionsPreviewQuery {
+    limit?: number;
 }
 
 // @public
@@ -564,8 +616,23 @@ export interface RebalanceBody {
 export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
 
 // @public
+export interface RecordQueryBody {
+    query: string;
+}
+
+// @public
 export interface RemoveDocumentQuery {
     wait?: 'true' | 'false';
+}
+
+// @public
+export interface RemoveQueryBody {
+    query: string;
+}
+
+// @public
+export interface RemoveQueryResponse {
+    suggestionIndexes: number;
 }
 
 // @public
@@ -592,6 +659,11 @@ export interface RequestDenial {
     code: string;
     message: string;
     status: number;
+}
+
+// @public
+export interface RequestGrant {
+    expiresAt: number;
 }
 
 // @public
@@ -657,8 +729,28 @@ export interface ServerOptions {
     limits?: ServerLimits;
     onRequest?: OnRequestHook;
     port?: number;
+    querySuggestions?: ServerQuerySuggestionsOptions;
     rerankAdapters?: Record<string, RerankAdapter>;
+    sync?: boolean | ServerSyncOptions;
     taskStore?: TaskStore;
+}
+
+// @public
+export interface ServerQuerySuggestionsOptions {
+    identify(ctx: RequestContext): QueryIdentity | null | Promise<QueryIdentity | null>;
+}
+
+// @public
+export interface ServerSyncOptions {
+    maxBufferedBytes?: number;
+    maxCatchUps?: number;
+    maxConnections?: number;
+    windowBytes?: number;
+}
+
+// @public
+export interface SnapshotQuery {
+    queryHistory?: 'true' | 'false';
 }
 
 // @public
@@ -677,6 +769,7 @@ export const TASK_FILTER_CAPABILITY = "tasks.filter";
 
 // @public
 export interface TaskContext {
+    reportBuild(build: QuerySuggestionsBuild): void;
     reportProgress(progress: TaskProgress): void;
     reportResult(result: ImportResult): void;
     reportSteps(steps: TaskStepProgress): void;
@@ -715,6 +808,7 @@ export interface TaskProgress {
 // @public
 export interface TaskRecord {
     backupName?: string;
+    build?: QuerySuggestionsBuild;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -749,7 +843,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete' | 'querySuggestionsBuild';
 
 // @public
 export interface VectorFieldBody {

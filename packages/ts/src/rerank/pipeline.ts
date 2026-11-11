@@ -1,7 +1,4 @@
 import type { ResolvedProjection } from '../core/projection'
-import { DEFAULT_LIMIT, DEFAULT_OFFSET } from '../engine/constants'
-import { ErrorCodes, NarsilError } from '../errors'
-import { RESULT_WINDOW } from '../search/constants'
 import type { CursorBinding } from '../search/cursor-binding'
 import { fixedHybridDepthOf, requireWithinHybridDepth } from '../search/hybrid-depth'
 import { pageByPosition } from '../search/position-page'
@@ -10,6 +7,7 @@ import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import type { RuntimeHost } from './host'
 import { resolveRerankParams } from './params'
+import { DEFAULT_LIMIT, DEFAULT_OFFSET, ErrorCodes, NarsilError, RESULT_WINDOW } from './rerank-host-bindings'
 
 export interface RerankedQueryIo<T> {
   host: RuntimeHost

@@ -1,3 +1,5 @@
+import { holdScheduledCheckpoint } from '../../../partitioning/checkpoint-hold'
+import { requireCheckpointLayout } from '../../../partitioning/manager/checkpoint-prefix'
 import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../serialization/envelope'
 import type { PersistenceAdapter } from '../../../types/adapters'
 import { countCheckpointDocuments } from '../checkpoint-count'
@@ -9,6 +11,7 @@ import {
   DEFAULT_COMPACTION_THRESHOLD,
 } from '../constants'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
+import { queryHistoryAccess, removeQueryHistoryOf } from '../query-history'
 import { snapshotCheckpointFor } from '../recovery'
 import { journalKey, recoverRestoreJournals } from '../restore-journal'
 import { adapterRestoreStorage, createRestoreStaging, type RestoreStaging } from '../restore-staging'
@@ -23,12 +26,8 @@ import type {
   MutationRecord,
 } from '../types'
 import { writeSnapshotOnlyCheckpoint } from './checkpoint'
-import { createSnapshotIndexState, type SnapshotIndexState } from './index-state'
+import { createSnapshotIndexState, metadataKey, noteSnapshotCommitted, type SnapshotIndexState } from './index-state'
 import { createPendingRestores } from './restores'
-
-function metadataKey(indexName: string): string {
-  return `${indexName}/meta`
-}
 
 export function createSnapshotOnlyManager(
   adapter: PersistenceAdapter,
@@ -90,11 +89,9 @@ export function createSnapshotOnlyManager(
     await settleRestore(indexName)
     const manager = hooks.getManager(indexName)
     const metadata = hooks.buildTermsMetadata(indexName)
-    if (manager === undefined || metadata === undefined) {
-      return
-    }
+    if (manager === undefined || metadata === undefined) return
 
-    const documentCount = await writeSnapshotOnlyCheckpoint({
+    const { documentCount, positions, partitionCount } = await writeSnapshotOnlyCheckpoint({
       adapter,
       indexName,
       metadata,
@@ -107,11 +104,12 @@ export function createSnapshotOnlyManager(
     await queueMetadataWrite(indexName, async () => {
       const checkpointMetadata = hooks.buildMetadata(indexName, documentCount)
       if (checkpointMetadata === undefined) return
+      checkpointMetadata.partitionCount = partitionCount
       const metadataBytes = await writeMetadataEnvelope(checkpointMetadata, { checksum: true })
       await adapter.save(metadataKey(indexName), metadataBytes)
-      hooks.recordCheckpoint?.(indexName, documentCount, manager.partitionCount)
+      hooks.recordCheckpoint?.(indexName, documentCount, partitionCount)
     })
-    indexState.mutationsSinceCheckpoint = 0
+    noteSnapshotCommitted(indexState, positions, partitionCount)
 
     if (publisher !== undefined) {
       const partitionIds: number[] = []
@@ -122,15 +120,24 @@ export function createSnapshotOnlyManager(
     }
   }
 
-  async function checkpointIndex(indexName: string, fromMemory = false, afterInFlight = fromMemory): Promise<void> {
+  async function checkpointIndex(
+    indexName: string,
+    fromMemory = false,
+    afterInFlight = fromMemory,
+    requested = false,
+  ): Promise<void> {
     const indexState = indexes.get(indexName)
     if (indexState === undefined || indexState.unloading) return
-    return checkpointInTurn(indexState, {
-      joinsInFlight: !afterInFlight,
-      mayStart: () => !indexState.unloading && !shuttingDown,
-      perform: () => indexState.applyChain.then(() => performCheckpoint(indexName, indexState, fromMemory)),
-      afterSettling: () => undefined,
-    })
+    if (requested) await requireCheckpointLayout(hooks.getManager(indexName))
+    return holdScheduledCheckpoint(
+      checkpointInTurn(indexState, {
+        joinsInFlight: !afterInFlight,
+        mayStart: () => !indexState.unloading && !shuttingDown,
+        perform: () => indexState.applyChain.then(() => performCheckpoint(indexName, indexState, fromMemory)),
+        afterSettling: () => undefined,
+      }),
+      requested,
+    )
   }
 
   function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
@@ -164,7 +171,7 @@ export function createSnapshotOnlyManager(
     let derivedCount: number | undefined
     if (metadataOnly && metadata.documentCount === undefined) {
       try {
-        derivedCount = await countStoredBundleDocuments(indexName)
+        derivedCount = await countCheckpointDocuments(adapterCheckpointStore(adapter), indexName)
         metadata.documentCount = derivedCount
       } catch {
         derivedCount = undefined
@@ -194,6 +201,7 @@ export function createSnapshotOnlyManager(
       storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
       compactionThreshold: DEFAULT_COMPACTION_THRESHOLD,
       keepsUnlistedFiles: false,
+      keptForSync: new Set(),
       replay: async checkpoint => checkpoint,
       onLayoutUpgrade: hooks.onLayoutUpgrade,
     })
@@ -208,10 +216,6 @@ export function createSnapshotOnlyManager(
       const upgradedCount = recovered.upgradedDocumentCount ?? manager.countDocuments()
       await queueMetadataWrite(indexName, () => saveMetadata(indexName, upgradedCount)).catch(() => undefined)
     }
-  }
-
-  function countStoredBundleDocuments(indexName: string): Promise<number> {
-    return countCheckpointDocuments(adapterCheckpointStore(adapter), indexName)
   }
 
   async function recordMutation(record: MutationRecord): Promise<number> {
@@ -305,14 +309,14 @@ export function createSnapshotOnlyManager(
     },
 
     checkpoint(indexName: string): Promise<void> {
-      return checkpointIndex(indexName)
+      return checkpointIndex(indexName, false, false, true)
     },
 
     checkpointFromMemory(indexName: string): Promise<void> {
-      return checkpointIndex(indexName, true)
+      return checkpointIndex(indexName, true, true, true)
     },
 
-    async checkpointAfterSwitch(indexName: string, swap: () => boolean): Promise<boolean> {
+    async checkpointAfterSwitch(indexName: string, swap: () => boolean | Promise<boolean>): Promise<boolean> {
       const indexState = getOrCreateIndexState(indexName)
       return switchInTurn(indexState, {
         mayStart: () => !indexState.unloading && !shuttingDown,
@@ -331,7 +335,7 @@ export function createSnapshotOnlyManager(
 
     async checkpointAll(): Promise<void> {
       for (const indexName of [...indexes.keys()]) {
-        await checkpointIndex(indexName)
+        await checkpointIndex(indexName, false, false, true)
       }
     },
 
@@ -350,6 +354,8 @@ export function createSnapshotOnlyManager(
       }
     },
 
+    ...queryHistoryAccess({ kind: 'adapter', adapter }),
+
     async removeIndex(indexName: string): Promise<void> {
       await settleRestore(indexName).catch(() => undefined)
       restores.forget(indexName)
@@ -358,6 +364,7 @@ export function createSnapshotOnlyManager(
       for (const key of await adapter.list(`${indexName}/`)) {
         await adapter.delete(key)
       }
+      await removeQueryHistoryOf({ kind: 'adapter', adapter }, indexName)
     },
 
     async unloadIndex(indexName: string): Promise<void> {

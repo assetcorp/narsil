@@ -1,4 +1,4 @@
-import { decode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../transport/types'
 import { createEntryBatchMessage, createEntryMessage, validateAckPayload } from './codec'

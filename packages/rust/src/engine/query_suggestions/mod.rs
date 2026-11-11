@@ -1,0 +1,37 @@
+pub(crate) mod archive_history;
+pub(crate) mod bans;
+pub(crate) mod build;
+pub(crate) mod build_record;
+pub(crate) mod build_runner;
+pub(crate) mod constants;
+pub(crate) mod counts_file;
+pub(crate) mod counts_groups;
+pub(crate) mod day_counts;
+pub(crate) mod day_store;
+pub(crate) mod engine_hooks;
+pub(crate) mod history_files;
+pub(crate) mod history_groups;
+pub(crate) mod host;
+pub(crate) mod merge;
+pub(crate) mod operations;
+pub(crate) mod phrase;
+pub(crate) mod preview;
+pub(crate) mod restore_hooks;
+pub(crate) mod restored_history;
+pub(crate) mod runtime;
+pub(crate) mod schedule;
+pub(crate) mod scramble;
+pub(crate) mod setting;
+pub(crate) mod stored_state;
+pub(crate) mod suggestions_writer;
+pub(crate) mod timers;
+pub(crate) mod types;
+
+pub use operations::QuerySuggestions;
+pub use types::{
+    ManualQuerySuggestion, QuerySuggestionPreviewEntry, QuerySuggestionsBuild,
+    QuerySuggestionsBuildPhase, QuerySuggestionsBuildStatus, QuerySuggestionsBuildTrigger,
+    QuerySuggestionsConfig, QuerySuggestionsPreview, QuerySuggestionsSetting,
+    QuerySuggestionsSource, QuerySuggestionsStatus, QuerySuggestionsWarningReason,
+    RecordQueryOutcome, RecordQueryResult, RecordedQuery,
+};

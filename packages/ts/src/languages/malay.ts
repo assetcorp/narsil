@@ -490,7 +490,7 @@ const stopWords = new Set([
  */
 export const malay: LanguageModule = {
   name: 'malay',
-  revision: '1',
+  revision: '4c2520f2b81560a0',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

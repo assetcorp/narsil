@@ -1,6 +1,13 @@
 import { handleBackupPartition, handleRestorePartition } from '../../backups/primary-handlers'
 import type { RespondFn, TransportMessage } from '../../transport/types'
-import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
+import {
+  ClusterMessageTypes,
+  QueryMessageTypes,
+  ReplicationMessageTypes,
+  SuggestionMessageTypes,
+  SyncMessageTypes,
+} from '../../transport/types'
+import { handleSyncRead } from '../device-sync/read-handler'
 import { encodeErrorReplyFrom } from '../error-reply'
 import { handleRebuildAnalysis } from '../rebuild-analysis'
 import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
@@ -87,6 +94,12 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ClusterMessageTypes.RESTORE_PARTITION:
           await handleRestorePartition(message, respond, deps)
+          return
+        case SyncMessageTypes.READ:
+          await handleSyncRead(message, respond, deps)
+          return
+        case SuggestionMessageTypes.COUNTS:
+          await deps.answerQueryCounts?.(message, respond)
           return
         default:
           return

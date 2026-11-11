@@ -1,7 +1,6 @@
 import type { PostingListView } from '../../types/internal'
 import { combinePostingLists } from './combined-postings'
-import { SYNONYMS_ADDED_PER_QUERY } from './constants'
-import type { GroupSynonyms, QuerySynonyms, SynonymLookup } from './types'
+import type { GroupSynonyms, QuerySynonyms } from './types'
 
 function groupSynonymsOf(tokens: readonly string[]): GroupSynonyms {
   return {
@@ -23,29 +22,10 @@ function groupSynonymsOf(tokens: readonly string[]): GroupSynonyms {
   }
 }
 
-export function expandQuerySynonyms(lookup: SynonymLookup, queryTokens: Iterable<string>): QuerySynonyms | undefined {
-  const withSynonyms: Array<{ token: string; synonyms: readonly string[] }> = []
-  const seen = new Set<string>()
-  for (const token of queryTokens) {
-    if (seen.has(token)) continue
-    seen.add(token)
-    const synonyms = lookup.synonymsOf(token)
-    if (synonyms.length > 0) withSynonyms.push({ token, synonyms })
-    if (withSynonyms.length === SYNONYMS_ADDED_PER_QUERY) break
-  }
-  const count = withSynonyms.length
-  if (count === 0) return undefined
-  const share = Math.floor(SYNONYMS_ADDED_PER_QUERY / count)
-  const extra = SYNONYMS_ADDED_PER_QUERY % count
-  const expanded = new Map<string, readonly string[]>()
+export function expandQuerySynonyms(expanded: ReadonlyMap<string, readonly string[]>): QuerySynonyms | undefined {
+  if (expanded.size === 0) return undefined
   const added = new Set<string>()
-  for (let i = 0; i < count; i++) {
-    const quota = share + (i < extra ? 1 : 0)
-    const { token, synonyms } = withSynonyms[i]
-    const kept = synonyms.length <= quota ? synonyms : synonyms.slice(0, quota)
-    expanded.set(token, kept)
-    for (const synonym of kept) added.add(synonym)
-  }
+  for (const synonyms of expanded.values()) for (const synonym of synonyms) added.add(synonym)
   return {
     tokens: [...added],
     addTo(groupOf) {

@@ -44,6 +44,7 @@ export interface QueryRoutingDeps {
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
   listNodes?: () => Promise<NodeRegistration[]>
   carriesBm25?: boolean
+  pinnedDocuments?: ReadonlySet<string>
 }
 
 export interface RoutingResult {

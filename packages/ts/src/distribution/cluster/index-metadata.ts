@@ -1,7 +1,8 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
+import { decode } from '../../serialization/msgpack'
 import type { BM25Params, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
@@ -14,6 +15,7 @@ import {
   isRecord,
   settingsRejection,
 } from './index-settings'
+import { withoutSyncFields } from './sync-settings'
 import {
   copySynonymSet,
   readSynonymSet,
@@ -213,7 +215,8 @@ export async function putGenerationMetadata(
       copiedSetGeneration = held.ref.generation
       continue
     }
-    const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
+    const settings = isRecord(decoded.settings) ? withoutSyncFields(decoded.settings) : decoded.settings
+    const bytes = new Uint8Array(encode({ ...decoded, settings, ...generation }, { ignoreUndefined: true }))
     return coordinator.compareAndSet(key, current, bytes)
   }
 }

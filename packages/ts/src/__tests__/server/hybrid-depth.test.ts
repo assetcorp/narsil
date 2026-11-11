@@ -35,7 +35,11 @@ describe('hybrid paging over HTTP with the published client', () => {
       })
       await engine.insertBatch(
         INDEX,
-        documents.map(document => ({ ...stored(document), id: document.id })),
+        documents.map(document => ({
+          ...stored(document),
+          id: document.id,
+          embedding: Array.from(letterEmbedding(document.title)),
+        })),
       )
     })
     return { client: createNarsilClient({ url: server.base }), documents }
@@ -46,6 +50,7 @@ describe('hybrid paging over HTTP with the published client', () => {
     const depth = 24
     const text = await client.query(INDEX, { term: TERM, termMatch: 'any', limit: depth })
     const vectors = await client.query(INDEX, { vector, limit: depth })
+    expect(vectors.hits).toHaveLength(depth)
     const query = letterEmbedding('cedar')
     const byId = new Map(documents.map(document => [document.id, document]))
     for (const hit of vectors.hits) {

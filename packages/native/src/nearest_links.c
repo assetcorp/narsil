@@ -5,7 +5,6 @@
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #define NEAREST_LINK_FALLBACK_HOSTS 4U
 #define NEAREST_NOT_YET_FOUND (-2)
@@ -13,6 +12,7 @@
 typedef struct {
   const walk_context *context;
   int32_t *nearest;
+  int32_t *anchored_by;
 } nearest_pass;
 
 typedef struct {
@@ -79,7 +79,10 @@ static int64_t replaceable_slot(const nearest_pass *pass, int32_t host, const in
   for (uint32_t i = 1; i <= count; i++) {
     int32_t neighbour = list[i];
     if (incoming_count(context, neighbour) < 2) { continue; }
-    if (is_live(context, neighbour) && nearest_in_list(pass, neighbour) == host) { continue; }
+    if (is_live(context, neighbour) &&
+        (nearest_in_list(pass, neighbour) == host || pass->anchored_by[neighbour] == host)) {
+      continue;
+    }
     scored_node scored = {neighbour, pair_distance(context, host, neighbour)};
     if (farthest == -1 || nearer(farthest_node, scored)) {
       farthest = i;
@@ -116,15 +119,18 @@ static int link_from(const nearest_pass *pass, back_link link) {
       linked = 1;
     }
   }
+  if (linked) { pass->anchored_by[ordinal] = host; }
   node_unlock(context, host);
   return linked;
 }
 
-narsil_status link_from_nearest(const walk_context *context) {
+void link_from_nearest(const walk_context *context, int32_t *nearest_of, int32_t *anchored_by) {
   size_t slots = context->slots;
-  nearest_pass pass = {context, malloc((slots == 0 ? 1 : slots) * sizeof(int32_t))};
-  if (pass.nearest == NULL) { return NARSIL_OUT_OF_MEMORY; }
-  for (size_t i = 0; i < slots; i++) { pass.nearest[i] = NEAREST_NOT_YET_FOUND; }
+  nearest_pass pass = {context, nearest_of, anchored_by};
+  for (size_t i = 0; i < slots; i++) {
+    pass.nearest[i] = NEAREST_NOT_YET_FOUND;
+    pass.anchored_by[i] = NO_NODE;
+  }
   int32_t hosts[NEAREST_LINK_FALLBACK_HOSTS];
   for (uint32_t ordinal = 0; ordinal < slots; ordinal++) {
     _Atomic(uint8_t) *due = atomic_byte(context->graph->nearest_link_due, ordinal);
@@ -142,6 +148,4 @@ narsil_status link_from_nearest(const walk_context *context) {
       if (link_from(&pass, link)) { break; }
     }
   }
-  free(pass.nearest);
-  return NARSIL_OK;
 }

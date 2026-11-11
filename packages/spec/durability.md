@@ -76,6 +76,8 @@ A node must hold its write-ahead log directory alone, so that no two processes a
 - A node that fails after it creates the file and before it finishes starting must delete the file.
 - The node must delete `.narsil.lock` on a clean shutdown, and only while the file still contains its own token.
 
+The folder `_query-counts/` at the root holds [query counts](query-suggestions.md#history), and recovery must treat it as no index.
+
 A node must keep a file on disk while any reader holds the file open, on any worker thread, and it must delete the file at the first checkpoint after the last reader closes it.
 
 The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk, and read the token in `.narsil.lock`, before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, a directory with other numbers, and a lock file with another token are fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
@@ -279,7 +281,7 @@ A writer must store all three for a field whose `storage` is `disk`. A reader mu
 
 A reader must check each page against its section's `checksums` the first time it reads the page from the disk, and a mismatch raises `PERSISTENCE_CRC_MISMATCH`.
 
-`checkpoint` records, for each partition, the highest `seqNo` that the checkpoint holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
+`checkpoint` records, for each partition, the highest `seqNo` that the checkpoint holds, so recovery must replay each partition's log from its `lastSeqNo + 1`. The list must contain at least one entry and exactly one entry for every live partition, in ascending `partitionId` order from 0 with no gap. `partitions` must contain entries for the same partition ids. The length of `checkpoint` is the checkpoint's partition count. Once the atomic manifest write commits, that count overrides a different `partition_count` in the index metadata, and recovery must repair the metadata before the index serves a request.
 
 `termHistory` records the [term history](distribution/replication.md#term-history) of a cluster partition copy up to `lastSeqNo`, and recovery extends it with the terms of the records that it replays. A writer must leave `termHistory` out for a standalone index. A reader must raise `PERSISTENCE_LOAD_FAILED` where the terms or the first seqNos of `termHistory` fail to ascend strictly, or where a first seqNo lies above `lastSeqNo`. A reader that finds no `termHistory` for a cluster partition copy starts the copy's history from the records that it replays, so that the history covers no `seqNo` at or below `lastSeqNo`.
 
@@ -299,13 +301,13 @@ Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead`
 6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph parts may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
 7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge adjacent segments of its list into one segment under the next segment id, so that the count returns to the threshold. The manifest must list the merged segment in the place of the segments that it replaces. A writer must merge fewer segments, or none, where the merged segment's file would pass the [file size](envelope.md#file-size) limit, and it may merge fewer for any other reason, such as to bound the memory that it uses during the merge. A writer of a `disk` index must merge by reading its source segments in parts, and it must write the merged segment as it goes, so that it holds no whole segment in memory. It must end a merged segment before the segment's file would pass 1,073,741,824 bytes, in place of any limit on its document count.
 8. Write the manifest over `<indexName>/manifest` with an [atomic write](#atomic-write). The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
-9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not.
+9. Once the manifest is durable, delete every key that the previous manifest references, unless the new manifest or the manifest of a [published snapshot](sync.md#published-snapshot) references it.
 
 ### Structural-Merge Recovery
 
 Recovery must load a partition by reading the segments that the manifest lists for it, in the order of that list, and merging them, so that the occurrence of a document in the segment nearest the end of the list wins and a tombstone removes the document from every segment before it in the list. Recovery must load each segment's keyword index and field indexes from the arrays that the segment stores, with no new analysis of its documents. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph parts that the manifest lists for it. For each dead vector that the graph parts hold a node for, recovery must load the vector and keep its node as a tombstone. Recovery must treat a live vector that the graph parts hold no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
 
-Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
+Recovery must delete every key under `<indexName>/segments/` that neither the manifest nor the manifest inside `<indexName>/sync/published` references, because a checkpoint that crashes before its manifest write leaves such keys behind.
 
 ---
 
@@ -314,6 +316,39 @@ Recovery must delete every key under `<indexName>/segments/` that the manifest d
 On index creation, on any change that affects the schema, and on a change of the [BM25 setting](algorithms.md#parameter-levels), a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
 
 After it makes a checkpoint durable, the node must persist the checkpoint's total document count in `document_count` before it completes the checkpoint.
+
+### Partition Layout Transition
+
+A durable rebalance uses `<indexName>/layout-transition` to separate the log records written under the old partition count from the records written under the new count. The file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 1, whose payload is this MessagePack map:
+
+```text
+LayoutTransition {
+  version:           uint8   (1)
+  oldPartitionCount: uint32
+  newPartitionCount: uint32
+  oldHeads:          List<LayoutTransitionHead>
+}
+
+LayoutTransitionHead {
+  partitionId:  uint32
+  lastSeqNo:    uint64
+  primaryTerm:  uint64
+}
+```
+
+`oldPartitionCount` and `newPartitionCount` must both be at least 1 and must differ. `oldHeads` must contain exactly one entry for every old partition, in ascending `partitionId` order from 0 with no gap. A reader must raise `PERSISTENCE_LOAD_FAILED` when any of these rules fails.
+
+The node keeps routing durable writes under `oldPartitionCount` after the in-memory partition map changes. To change the durable routing count, it first blocks new log admissions and waits for every admitted write to finish its append. The node then replays every queued write and records each old partition's highest admitted `seqNo` in `oldHeads`. An atomic write of the transition commits the boundary. The node then changes durable routing to `newPartitionCount` and admits new log writes again. A write under the new count receives no acknowledgement before the transition is durable.
+
+The node then writes a full checkpoint of the new layout. The checkpoint may exclude a later write under the new count, because recovery can replay that write from the new-layout side of the log. Once the new manifest and its metadata are durable, the node may reclaim the retired partitions' logs and the covered prefixes of retained partitions' logs. It removes `layout-transition` only after that reclamation is durable.
+
+Recovery that finds a layout transition compares the live manifest's partition count with the two counts in the transition:
+
+1. Where the manifest has `oldPartitionCount`, recovery loads that checkpoint and replays each old partition only through its `oldHeads` entry. Recovery then redistributes the documents to `newPartitionCount` and replays the records above those heads under the new partition map. An absent manifest counts as an empty checkpoint of `oldPartitionCount` where the metadata has that count. A partition that exists only in the new layout starts that second replay at sequence number 0. A retired partition must hold no record above its old head. Recovery carries the greatest primary term that it reads on either side of the boundary into each retained partition.
+2. Where the manifest has `newPartitionCount`, recovery loads that checkpoint and replays only the live partitions above the manifest's checkpoint positions. Recovery never replays a retired partition over the new manifest.
+3. Any other manifest count raises `PERSISTENCE_LOAD_FAILED`.
+
+Recovery persists metadata with the recovered partition count before it removes the transition or any retired log. A crash at any point therefore repeats the same recovery path, while the transition's old heads define the only boundary between the two partition routings.
 
 When the metadata carries an `embedding` block, recovery restores the field mappings and rebinds the embedding adapter by its registered name. Rebinding validates the adapter's dimensions against every mapped vector field before the index uses it.
 
@@ -336,7 +371,7 @@ An interval, a mutation count since the last checkpoint, or both together trigge
 1. Capture each partition's current head sequence number, `N_p`.
 2. Write the [segmented checkpoint](#segmented-checkpoint), with the manifest's `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
 3. Persist the checkpoint's total document count in `document_count`.
-4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
+4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it. While `sync_active` is set for the index, the node moves those segments into history, as [History](sync.md#history) defines.
 
 The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash before step 4 leaves extra log segments, which recovery skips by sequence number with no harm done.
 
@@ -354,7 +389,7 @@ With persistence configured and no lifecycle settings, a node must recover on st
    1. Load `<indexName>/meta`, rebuild the schema, language, partition count, and vector fields, and create the index empty.
    2. Load `<indexName>/manifest` and verify the envelope CRC. When no manifest exists, every partition starts empty with `lastSeqNo` at 0.
    3. Load the partitions and vector indexes by [structural merge](#structural-merge-recovery) from the manifest, and read each partition's `lastSeqNo`.
-   4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
+   4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`. Recovery reads no key under `<indexName>/history/`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
 
 With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.
@@ -425,8 +460,9 @@ An archive must use the pax interchange format that POSIX.1-2008 defines for the
 1. An entry named `config`, holding an [index configuration payload](envelope.md#index-configuration-payload).
 2. An entry named `manifest`, holding the checkpoint's [manifest](#manifest).
 3. One entry for each file that the manifest lists, in the order that the manifest lists them, named by the file's key without its leading `<indexName>/`.
+4. Where the caller asks for history, one entry for each history file, named `query-history/<n>`, as [Snapshots and Restores](query-suggestions.md#snapshots-and-restores) defines.
 
-A writer must write each entry as a regular file. Where the ustar `name` and `prefix` fields cannot hold an entry's name, the writer must precede the entry with a pax extended header that holds a `path` record. A reader must accept those two entry types alone. It must raise `PERSISTENCE_LOAD_FAILED` for any other entry type, for an entry out of the order above, for a later entry whose name the manifest does not list or that appears twice, for an entry whose length or checksum differs from the manifest, and for an archive that ends before it holds every file that the manifest lists. It must compare each entry's length with the manifest, or with the [file size](envelope.md#file-size) limit for `config` and `manifest`, before it reads the entry, so that no entry can make it allocate more than that limit.
+A writer must write each entry as a regular file. Where the ustar `name` and `prefix` fields cannot hold an entry's name, the writer must precede the entry with a pax extended header that holds a `path` record. A reader must accept those two entry types alone. It must raise `PERSISTENCE_LOAD_FAILED` for any other entry type, for an entry out of the order above, for a later entry whose name the manifest does not list or that appears twice, other than the `query-history` entries that [Snapshots and Restores](query-suggestions.md#snapshots-and-restores) allows after every file that the manifest lists, for an entry whose length or checksum differs from the manifest, and for an archive that ends before it holds every file that the manifest lists. It must compare each entry's length with the manifest, with the [file size](envelope.md#file-size) limit for `config` and `manifest`, or with the limit that [History](query-suggestions.md#history) sets for a `query-history` entry, before it reads the entry, so that no entry can make it allocate more than that limit.
 
 A node with write-ahead log durability must take a checkpoint before it writes the archive of an index, and the archive must hold that checkpoint. That checkpoint must hold no effect of a log record above any partition's `lastSeqNo`, because nothing replays a log over an archive, so step 6 of [Writing a Checkpoint](#writing-a-checkpoint) doesn't apply to it. From the moment that the node captures each partition's `lastSeqNo` until it has written every vector file, it must keep readable every vector that a later update replaces or a later remove drops, and it must write the vector that each document held at `lastSeqNo`. The node must keep every file of that checkpoint until it finishes writing the archive or the caller abandons the archive, even after a later checkpoint stops listing those files. A node without write-ahead log durability, and a node that writes the archive of one partition of a `memory` index, must build the archive's files from the index in memory while it applies no mutation to the content that the archive holds. A node that writes the archive of one partition of a `disk` index must take the partition's segments from its disk, and it must stream them into the archive, so that it loads no whole segment into memory.
 
@@ -447,6 +483,8 @@ The keys of the restored checkpoint, each relative to `<indexName>/`, are `meta`
 1. Move each key of the restored checkpoint that is still under the staging prefix to the same key under `<indexName>/`.
 2. Remove every key under `<indexName>/` that is not a key of the restored checkpoint.
 3. Delete the journal.
+
+A restore leaves `_query-counts/<indexName>/` in place, except where the archive holds history, as [Snapshots and Restores](query-suggestions.md#snapshots-and-restores) defines.
 
 The node must delete the journal before the restored index writes any key under `<indexName>/`, such as a log record or a checkpoint file, because step 2 would remove that key if the steps ran again. Those steps leave the same keys however many times they run, whether the node moves directories, moves files one at a time, or saves each key under its new name and then deletes the staged key. On startup, before it enumerates the indexes, a node must finish every journal that it finds. It must then delete every staging prefix that no journal names, and it must leave `.narsil.lock`, which [Directory Ownership](#directory-ownership) defines, in place. A crash before the journal exists therefore leaves the old index, and a crash after the journal exists leaves the restored index, whole.
 

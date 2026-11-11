@@ -1,5 +1,6 @@
 import { EMPTY_POSITIONS, NO_SLICE, PositionPool, PostingPool, sliceCapacity, sliceClassFor } from '#platform/pools'
-import { MAX_TERM_FREQUENCY, POSTING_LIST_COMPACTION_THRESHOLD } from '../constants'
+import { bitsetHas } from '../bitset'
+import { MAX_TERM_FREQUENCY } from '../constants'
 import {
   CACHED_VIEW_MIN_ENTRIES,
   POOL_VACUUM_FREE_FRACTION,
@@ -9,7 +10,6 @@ import {
   POSTING_POOL_START_ENTRIES,
   RETIRED_DOCUMENTS_START_CAPACITY,
   TERM_TABLE_START_CAPACITY,
-  TERM_VACUUM_MIN_DEAD_TERMS,
 } from './constants'
 import { TERM_ORDERED, TERM_POSITIONS, TermColumns } from './terms'
 import { LivePostingView } from './view'
@@ -41,9 +41,7 @@ export class LivePostings {
   terms = new TermColumns(TERM_TABLE_START_CAPACITY)
   pool = new PostingPool(POSTING_POOL_START_ENTRIES)
   positions = new PositionPool(POSITION_POOL_START_VALUES)
-  retired = new Uint8Array(RETIRED_DOCUMENTS_START_CAPACITY)
-  private batchMode = false
-  private dirty = new Set<number>()
+  retired = new Uint32Array(RETIRED_DOCUMENTS_START_CAPACITY >>> 5)
   private cachedViews = new Map<number, LivePostingView>()
   private compactedSlack = 0
 
@@ -76,7 +74,9 @@ export class LivePostings {
   ): void {
     const terms = this.terms
     if (this.isRetired(internalId)) this.purgeRetired()
-    const ordinal = terms.ids.get(token) ?? terms.add(token)
+    const existing = terms.ids.get(token)
+    const ordinal = existing ?? terms.add(token)
+    if (existing !== undefined && terms.frequencyAt(ordinal) === 0) terms.nonemptyCount++
 
     const length = terms.lengths[ordinal]
     if (length >= sliceCapacity(terms.sliceClass[ordinal])) this.relocate(ordinal, length + 1)
@@ -119,51 +119,17 @@ export class LivePostings {
     this.repackIfSparse()
   }
 
-  remove(token: string, internalId: number, occurrences: number): void {
-    const terms = this.terms
-    const ordinal = terms.ids.get(token)
-    if (ordinal === undefined) return
-    const length = terms.lengths[ordinal]
-    const ordered = (terms.flags[ordinal] & TERM_ORDERED) !== 0
-    if (!holdsDocument(this.pool.docIds, terms.sliceStart[ordinal], length, internalId, ordered)) return
-
-    terms.revision[ordinal]++
-    terms.docFrequency[ordinal]--
-    terms.deadDocuments[ordinal]++
-    this.retire(internalId)
-    terms.totalTermFrequency[ordinal] = Math.max(0, terms.totalTermFrequency[ordinal] - occurrences)
-
-    if (terms.docFrequency[ordinal] === 0) {
-      this.dropTerm(ordinal)
-      return
-    }
-    if (this.batchMode) {
-      this.dirty.add(ordinal)
-      return
-    }
-    if (terms.deadDocuments[ordinal] / length > POSTING_LIST_COMPACTION_THRESHOLD) this.compact(ordinal)
-    this.repackIfSparse()
-  }
-
   isRetired(internalId: number): boolean {
-    return internalId < this.retired.length && this.retired[internalId] === 1
+    return bitsetHas(this.retired, internalId)
   }
 
-  beginBatch(): void {
-    this.batchMode = true
-    this.dirty.clear()
+  acceptCompaction(): void {
+    this.cachedViews.clear()
+    this.compactedSlack = 0
+    this.pool.epoch++
   }
 
   endBatch(): void {
-    this.batchMode = false
-    const terms = this.terms
-    for (const ordinal of this.dirty) {
-      if (!terms.isLive(ordinal)) continue
-      if (terms.deadDocuments[ordinal] / terms.lengths[ordinal] > POSTING_LIST_COMPACTION_THRESHOLD) {
-        this.compact(ordinal)
-      }
-    }
-    this.dirty.clear()
     this.repackIfSparse()
   }
 
@@ -173,23 +139,19 @@ export class LivePostings {
     this.pool = new PostingPool(POSTING_POOL_START_ENTRIES)
     this.pool.epoch = epoch
     this.positions = new PositionPool(POSITION_POOL_START_VALUES)
-    this.retired = new Uint8Array(RETIRED_DOCUMENTS_START_CAPACITY)
-    this.dirty.clear()
+    this.retired = new Uint32Array(RETIRED_DOCUMENTS_START_CAPACITY >>> 5)
     this.cachedViews.clear()
     this.compactedSlack = 0
   }
 
   byteLength(): number {
-    return this.terms.byteLength() + this.pool.byteLength() + this.positions.values.byteLength + this.retired.byteLength
-  }
-
-  private retire(internalId: number): void {
-    if (internalId >= this.retired.length) {
-      const grown = new Uint8Array(Math.max(internalId + 1, this.retired.length * 2))
-      grown.set(this.retired)
-      this.retired = grown
-    }
-    this.retired[internalId] = 1
+    return (
+      this.terms.byteLength() +
+      this.pool.byteLength() +
+      this.positions.values.byteLength +
+      this.positions.allocation.byteLength +
+      this.retired.byteLength
+    )
   }
 
   private purgeRetired(): void {
@@ -203,7 +165,8 @@ export class LivePostings {
   private compact(ordinal: number): void {
     if (this.terms.deadDocuments[ordinal] === 0) return
     const retired = this.retired
-    this.filterEntries(ordinal, id => id < retired.length && retired[id] === 1)
+    this.filterEntries(ordinal, id => bitsetHas(retired, id))
+    this.terms.docFrequency[ordinal] -= this.terms.deadDocuments[ordinal]
     this.terms.deadDocuments[ordinal] = 0
   }
 
@@ -250,30 +213,6 @@ export class LivePostings {
     this.pool.release(previousStart, previousClass)
     terms.sliceStart[ordinal] = nextStart
     terms.sliceClass[ordinal] = nextClass
-  }
-
-  private dropTerm(ordinal: number): void {
-    const terms = this.terms
-    const pool = this.pool
-    if ((terms.flags[ordinal] & TERM_POSITIONS) !== 0 && pool.positionStarts !== null) {
-      const start = terms.sliceStart[ordinal]
-      for (let i = start; i < start + terms.lengths[ordinal]; i++) this.positions.release(pool.positionStarts[i])
-    }
-    pool.release(terms.sliceStart[ordinal], terms.sliceClass[ordinal])
-    this.dirty.delete(ordinal)
-    this.cachedViews.delete(ordinal)
-    terms.kill(ordinal)
-    if (terms.deadCount >= TERM_VACUUM_MIN_DEAD_TERMS && terms.deadCount > terms.liveCount) this.renumberTerms()
-  }
-
-  private renumberTerms(): void {
-    const remap = this.terms.renumber()
-    const dirty = new Set<number>()
-    for (const ordinal of this.dirty) {
-      if (remap[ordinal] >= 0) dirty.add(remap[ordinal])
-    }
-    this.dirty = dirty
-    this.cachedViews.clear()
   }
 
   private repackIfSparse(): void {
