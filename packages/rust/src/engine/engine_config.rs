@@ -9,7 +9,9 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::MAX_SAFE_INTEGER;
 
 /// Returns the ID of a document inserted without one, in place of the UUID version 7 that the engine generates by
-/// default. When the function panics, the insert fails with `INTERNAL_ERROR` and the text of the panic.
+/// default. When the function panics, the insert fails with `INTERNAL_ERROR` and the text of the panic. The engine
+/// can hold a lock of the index while it calls the function, so a call from the function back into the same engine
+/// on that thread can wait forever.
 pub type IdGenerator = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// Hears each index whose stored terms came from an older analysis than its language module produces now,
