@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use super::backing::Backing;
 use super::checkpoint::write_checkpoint;
+use super::removed_documents::removed_share_exceeded;
 use crate::engine::EngineInner;
 use crate::engine::background_thread::BackgroundThread;
 use crate::engine::events::NarsilEvent;
@@ -28,13 +29,14 @@ fn due(index: &IndexState, threshold: u64, interval_elapsed: bool) -> bool {
     let Some(log) = index.log() else {
         return false;
     };
-    match log.backing() {
+    let due = match log.backing() {
         Backing::Log(store) => store.checkpoint_due(&index.name).unwrap_or(false),
         Backing::Snapshot(_) => {
             let unsaved = log.unsaved_writes();
             unsaved >= threshold || (interval_elapsed && unsaved > 0)
         }
-    }
+    };
+    due || (interval_elapsed && removed_share_exceeded(index))
 }
 
 fn checkpoint_due_indexes(engine: &EngineInner, threshold: u64, interval_elapsed: bool) {

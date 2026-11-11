@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use super::backing::Backing;
 use super::metadata::metadata_of;
+use super::saved_size::SavedSize;
 use crate::durability::log_segment::LogWrite;
 use crate::durability::store::DurabilityStore;
 use crate::engine::index::IndexState;
@@ -22,6 +23,7 @@ pub(crate) struct IndexLog {
     recorded: Mutex<IndexMetadata>,
     applied: Mutex<BTreeMap<u32, u64>>,
     unsaved_writes: AtomicU64,
+    saved: Mutex<SavedSize>,
 }
 
 /// A write that failed to reach the log, with the IDs of the documents whose writes it carried.
@@ -43,11 +45,50 @@ impl IndexLog {
             recorded: Mutex::new(recorded),
             applied: Mutex::new(BTreeMap::new()),
             unsaved_writes: AtomicU64::new(0),
+            saved: Mutex::new(SavedSize::default()),
         }
     }
 
     pub(crate) fn backing(&self) -> &Backing {
         &self.backing
+    }
+
+    /// Records the saved size of the manifest that the index's files hold now.
+    pub(crate) fn record_saved(&self, saved: SavedSize) {
+        *self
+            .saved
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = saved;
+    }
+
+    /// Returns the saved size of the index's current manifest, as the last commit, recovery, or restore recorded it.
+    pub(crate) fn saved_size(&self) -> SavedSize {
+        self.saved
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Returns the bytes that the index's log and history segments hold, or `None` under the snapshot tier.
+    pub(crate) fn log_bytes(&self) -> Option<u64> {
+        self.log_store().map(|store| {
+            store
+                .inner
+                .directory
+                .log_bytes()
+                .index_bytes(&self.index_name)
+        })
+    }
+
+    /// Returns the bytes that one partition's log and history segments hold, or `None` under the snapshot tier.
+    pub(crate) fn partition_log_bytes(&self, partition_id: u32) -> Option<u64> {
+        self.log_store().map(|store| {
+            store
+                .inner
+                .directory
+                .log_bytes()
+                .partition_bytes(&self.index_name, partition_id)
+        })
     }
 
     /// Returns the directory store of the write-ahead log tier, or `None` under the snapshot tier.

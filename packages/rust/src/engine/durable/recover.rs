@@ -5,6 +5,7 @@ use super::checkpoint::write_checkpoint;
 use super::earlier::load_earlier_checkpoint;
 use super::load::{load_current_checkpoint, restore_vector_bytes};
 use super::log::IndexLog;
+use super::saved_size::SavedSize;
 use crate::durability::recovery::{RecoveredIndex, StoredCheckpoint};
 use crate::durability::store::DurabilityStore;
 use crate::engine::EngineInner;
@@ -97,10 +98,12 @@ fn load_recovered(
     recovered: RecoveredIndex,
     compaction_threshold: u32,
 ) -> Result<()> {
+    let mut saved = SavedSize::default();
     let (checkpoint, upgraded) = match &recovered.checkpoint {
         StoredCheckpoint::Empty => (Vec::new(), None),
         StoredCheckpoint::Current(manifest) => {
             load_current_checkpoint(backing, index, manifest)?;
+            saved = SavedSize::of(manifest);
             (manifest.checkpoint.clone(), None)
         }
         StoredCheckpoint::Earlier(manifest) => {
@@ -113,8 +116,12 @@ fn load_recovered(
         }
     };
     let log = IndexLog::new(backing.clone(), recovered.metadata, compaction_threshold);
+    log.record_saved(saved);
     match backing {
-        Backing::Log(store) => replay_logs(store, index, &checkpoint)?,
+        Backing::Log(store) => {
+            replay_logs(store, index, &checkpoint)?;
+            store.inner.directory.measure_log_bytes(&index.name)?;
+        }
         Backing::Snapshot(_) => {
             let reached: Vec<(u32, u64)> = checkpoint
                 .iter()

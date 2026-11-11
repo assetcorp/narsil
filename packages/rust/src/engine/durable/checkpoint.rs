@@ -10,6 +10,8 @@ use super::checkpoint_segments::{
 use super::checkpoint_vectors::{WrittenField, vector_files_still_read, write_vector_fields};
 use super::compaction::{Listed, WindowMerge, choose_window, merge_window, removed_ids};
 use super::log::IndexLog;
+use super::removed_documents::rewrite_removed_documents;
+use super::saved_size::SavedSize;
 use crate::config::Storage;
 use crate::engine::index::IndexState;
 use crate::error::Result;
@@ -26,7 +28,7 @@ use crate::schema::flatten_schema;
 struct PartitionSwap {
     saved: Vec<SavedSegment>,
     replaces_every_segment: bool,
-    merged: Option<WindowMerge>,
+    merged: Vec<WindowMerge>,
 }
 
 struct PartitionPlan<'a> {
@@ -71,7 +73,7 @@ fn write_partition(
     let mut swap = PartitionSwap {
         saved: Vec::new(),
         replaces_every_segment: rewrites_every_segment,
-        merged: None,
+        merged: Vec::new(),
     };
     if rewrites_every_segment {
         let (entry, saved) = segments.rewrite_partition(snapshot, &index.schema, next_id)?;
@@ -147,10 +149,16 @@ fn write_partition(
             next_id,
         )?;
         next_id += 1;
-        swap.saved
-            .retain(|saved| !merged.replaced.contains(&saved.id));
-        swap.merged = Some(merged);
+        swap.merged.push(merged);
     }
+    let rewrites =
+        rewrite_removed_documents(&mut segments, index, partitions, &mut listed, &mut next_id)?;
+    swap.merged.extend(rewrites);
+    swap.saved.retain(|saved| {
+        swap.merged
+            .iter()
+            .all(|merged| !merged.replaced.contains(&saved.id))
+    });
     let entry = PartitionEntry {
         partition_id,
         next_segment_id: next_id,
@@ -166,14 +174,14 @@ fn apply_swap(partition: &Partition, swap: PartitionSwap) {
             .iter()
             .chain(
                 swap.merged
-                    .as_ref()
-                    .and_then(|merged| merged.saved.as_ref()),
+                    .iter()
+                    .filter_map(|merged| merged.saved.as_ref()),
             )
             .map(|saved| saved.id + 1)
             .max()
             .unwrap_or(0);
         snapshot.next_segment_id = snapshot.next_segment_id.max(max_id);
-        if let Some(merged) = swap.merged {
+        for merged in swap.merged {
             let first = snapshot
                 .segments
                 .iter()
@@ -214,6 +222,7 @@ fn apply_swap(partition: &Partition, swap: PartitionSwap) {
 pub(super) struct BuiltCheckpoint {
     pub(super) manifest: SegmentManifest,
     pub(super) metadata: IndexMetadata,
+    pub(super) saved: SavedSize,
     swaps: Vec<PartitionSwap>,
     written_fields: Vec<WrittenField>,
 }
@@ -226,10 +235,10 @@ impl BuiltCheckpoint {
             for saved in &mut swap.saved {
                 saved.read_from_file(backing);
             }
-            if let Some(saved) = swap
+            for saved in swap
                 .merged
-                .as_mut()
-                .and_then(|merged| merged.saved.as_mut())
+                .iter_mut()
+                .filter_map(|merged| merged.saved.as_mut())
             {
                 saved.read_from_file(backing);
             }
@@ -305,7 +314,7 @@ pub(super) fn build_checkpoint(
     let (vectors, written_fields) =
         write_vector_fields(writer, index, prior_vectors, rewrites_every_segment)?;
     let checkpoint = partition_checkpoints(writer, plan.applied, partitions.len())?;
-    let metadata = plan.metadata;
+    let mut metadata = plan.metadata;
     let manifest = SegmentManifest {
         schema: index
             .config()
@@ -319,9 +328,12 @@ pub(super) fn build_checkpoint(
         partitions: entries,
         vectors,
     };
+    let saved = SavedSize::of(&manifest);
+    metadata.saved_bytes = Some(saved.bytes);
     Ok(BuiltCheckpoint {
         manifest,
         metadata,
+        saved,
         swaps,
         written_fields,
     })
@@ -365,6 +377,7 @@ pub(super) fn write_checkpoint_locked(
     })?;
     built.read_paged_from(backing);
     log.remember(built.metadata.clone());
+    log.record_saved(built.saved.clone());
     log.checkpointed();
     built.apply(&partitions);
     Ok(())

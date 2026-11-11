@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
 
+use super::log_bytes::LogBytes;
 use super::platform::{remove_file, rename_replacing, sync_directory};
 use super::staged_file::StagedFile;
 
@@ -76,6 +77,7 @@ fn is_missing(error: &io::Error) -> bool {
 
 pub(crate) struct DurableDirectory {
     root: PathBuf,
+    log_bytes: LogBytes,
 }
 
 impl DurableDirectory {
@@ -95,11 +97,37 @@ impl DurableDirectory {
                 ),
             )
         })?;
-        Ok(DurableDirectory { root })
+        Ok(DurableDirectory {
+            root,
+            log_bytes: LogBytes::default(),
+        })
     }
 
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Returns the ledger of the bytes that each index's log and history segments hold in the directory.
+    pub(crate) fn log_bytes(&self) -> &LogBytes {
+        &self.log_bytes
+    }
+
+    /// Measures every log and history segment of `index_name` once, which the ledger then keeps up to date.
+    pub(crate) fn measure_log_bytes(&self, index_name: &str) -> Result<()> {
+        self.log_bytes.seed(index_name, || {
+            let mut files = Vec::new();
+            for prefix in [
+                format!("{index_name}/wal/"),
+                format!("{index_name}/history/"),
+            ] {
+                for key in self.list(&prefix)? {
+                    if let Some(bytes) = self.byte_length(&key)? {
+                        files.push((key, bytes));
+                    }
+                }
+            }
+            Ok(files)
+        })
     }
 
     pub(crate) fn path_of(&self, key: &str) -> Result<PathBuf> {
@@ -218,20 +246,32 @@ impl DurableDirectory {
 
     pub(crate) fn remove(&self, key: &str) -> Result<()> {
         let (path, parent) = self.parent_of(key)?;
-        self.settle_removal(key, &parent, remove_file(&path))
+        let removal = remove_file(&path);
+        if removal.as_ref().map_or_else(is_missing, |()| true) {
+            self.log_bytes.remove(key);
+        }
+        self.settle_removal(key, &parent, removal)
     }
 
     pub(crate) fn remove_tree(&self, prefix: &str) -> Result<()> {
         let key = prefix.trim_end_matches('/');
         let (path, parent) = self.parent_of(key)?;
-        self.settle_removal(key, &parent, std::fs::remove_dir_all(&path))
+        let removal = std::fs::remove_dir_all(&path);
+        if removal.as_ref().map_or_else(is_missing, |()| true) {
+            self.log_bytes.remove_tree(key);
+        }
+        self.settle_removal(key, &parent, removal)
     }
 
     pub(crate) fn rename(&self, from: &str, to: &str) -> Result<bool> {
         let (source, source_parent) = self.parent_of(from)?;
         let (target, target_parent) = self.ensure_parent(to)?;
         match rename_replacing(&source, &target) {
-            Ok(()) => {}
+            Ok(()) => self.log_bytes.moved(from, to, || {
+                std::fs::metadata(&target)
+                    .ok()
+                    .map(|metadata| metadata.len())
+            }),
             Err(error) if is_missing(&error) => return Ok(false),
             Err(error) => {
                 return Err(NarsilError::new(

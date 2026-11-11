@@ -19,6 +19,7 @@ fn closed_facts(index: &IndexState) -> ClosedIndex {
     ClosedIndex {
         config: index.config(),
         document_count: index.document_count(),
+        saved_bytes: None,
         partition_count: layout.len(),
         language: layout.analyser.language().name().to_string(),
         suggestions: index.suggestion_state(),
@@ -47,12 +48,13 @@ fn close_held(
     }
     residency.wait_for_writes();
     let writer = index.write_lock();
-    let closed = closed_facts(index);
+    let mut closed = closed_facts(index);
     if let Err(error) = durable.checkpoint_for_close(index) {
         drop(writer);
         residency.abandon_close();
         return Err(error);
     }
+    closed.saved_bytes = index.log().map(|log| log.saved_size().bytes);
     let released = durable.release_logs(&index.name);
     engine.lifecycle.record_closed(
         &index.name,
