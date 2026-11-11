@@ -10,6 +10,9 @@ const INDEX: &str = "notes";
 const TAR_BLOCK: usize = 512;
 const ENVELOPE_BYTES: usize = 32;
 const HEAD_PREFIX_BYTES: usize = 8;
+const BLOCK_SUMMARY_BYTES: usize = 22;
+const SHARED_WORD: &str = "harbour";
+const DOCUMENTS_SHARING_A_WORD: usize = 130;
 
 fn config() -> IndexConfig {
     IndexConfig {
@@ -76,7 +79,19 @@ fn consume(bytes: &[u8], cursor: &mut usize, expected: &[u8]) {
     *cursor += expected.len();
 }
 
-fn duplicate_id_order(archive: &mut [u8]) {
+fn section_key(name: &str) -> Vec<u8> {
+    assert!(
+        name.len() < 32,
+        "the section name fits a short MessagePack string"
+    );
+    let mut key = b"\xa4name".to_vec();
+    key.push(0xa0 | name.len() as u8);
+    key.extend_from_slice(name.as_bytes());
+    key.extend_from_slice(b"\xa6offset");
+    key
+}
+
+fn reseal_section(archive: &mut [u8], name: &str, edit: impl FnOnce(&mut [u8])) {
     let segment = entry_body(archive, "segments/0/s0000000000000000");
     let bytes = &mut archive[segment];
     assert_eq!(bytes[4], 6);
@@ -85,20 +100,20 @@ fn duplicate_id_order(archive: &mut [u8]) {
     let head_start = ENVELOPE_BYTES + HEAD_PREFIX_BYTES;
     let head_range = head_start..head_start + head_length;
     let head = &bytes[head_range.clone()];
-    let key = b"\xa4name\xa7idOrder\xa6offset";
-    let mut cursor = unique_offset(head, key) + key.len();
+    let key = section_key(name);
+    let mut cursor = unique_offset(head, &key) + key.len();
     let section_start = ENVELOPE_BYTES + unsigned(head, &mut cursor);
     consume(head, &mut cursor, b"\xa6length");
     let section_length = unsigned(head, &mut cursor);
-    assert_eq!(section_length, 8);
     consume(head, &mut cursor, b"\xa9pageBytes");
     let page_bytes = unsigned(head, &mut cursor);
-    assert!(page_bytes >= section_length);
+    assert!(
+        page_bytes >= section_length,
+        "the section fits one page, so that one checksum covers it"
+    );
     consume(head, &mut cursor, b"\xa9checksums\xc4\x04");
     let checksum_at = head_start + cursor;
-    let first: [u8; 4] = bytes[section_start..section_start + 4].try_into().unwrap();
-    assert_ne!(&bytes[section_start + 4..section_start + 8], &first);
-    bytes[section_start + 4..section_start + 8].copy_from_slice(&first);
+    edit(&mut bytes[section_start..section_start + section_length]);
     let page_crc = crc32fast::hash(&bytes[section_start..section_start + section_length]);
     bytes[checksum_at..checksum_at + 4].copy_from_slice(&page_crc.to_le_bytes());
     let head_crc = crc32fast::hash(&bytes[head_range]);
@@ -114,6 +129,27 @@ fn duplicate_id_order(archive: &mut [u8]) {
     bytes[checksum_at..checksum_at + 4].copy_from_slice(&payload_crc.to_be_bytes());
     let manifest_crc = crc32fast::hash(&bytes[ENVELOPE_BYTES..]);
     bytes[14..18].copy_from_slice(&manifest_crc.to_be_bytes());
+}
+
+fn duplicate_id_order(archive: &mut [u8]) {
+    reseal_section(archive, "idOrder", |section| {
+        assert_eq!(section.len(), 8);
+        let first: [u8; 4] = section[..4].try_into().unwrap();
+        assert_ne!(&section[4..8], &first);
+        section[4..8].copy_from_slice(&first);
+    });
+}
+
+fn raise_first_block_max_frequency(archive: &mut [u8]) {
+    reseal_section(archive, "blockSummaries", |section| {
+        assert_eq!(
+            section.len(),
+            2 * BLOCK_SUMMARY_BYTES,
+            "the one token that every document holds makes two blocks"
+        );
+        let stored = u16::from_le_bytes(section[4..6].try_into().unwrap());
+        section[4..6].copy_from_slice(&(stored + 1).to_le_bytes());
+    });
 }
 
 #[test]
@@ -148,5 +184,39 @@ fn a_restore_rejects_duplicate_paged_id_ordinals_before_replacing_the_index() {
     let error = restored.expect_err("the malformed snapshot must be refused");
     assert_eq!(error.code(), ErrorCode::PERSISTENCE_LOAD_FAILED);
     assert!(target.get(INDEX, "preserved").unwrap().is_some());
+    target.shutdown().unwrap();
+}
+
+#[test]
+fn a_restore_rejects_block_summaries_that_differ_from_the_postings_before_replacing_the_index() {
+    let source_root = ScratchDirectory::new("restore-paged-blocks-source");
+    let source = Tier::Log.open(source_root.path());
+    source.create_index(INDEX, config()).unwrap();
+    for number in 0..DOCUMENTS_SHARING_A_WORD {
+        let mut document = Map::new();
+        document.insert("title", Value::String(SHARED_WORD.into()));
+        source
+            .insert(INDEX, document, Some(&format!("shared-{number}")))
+            .unwrap();
+    }
+    let mut archive = snapshot_of(&source, INDEX);
+    source.shutdown().unwrap();
+
+    let root = ScratchDirectory::new("restore-paged-blocks-target");
+    let target = Tier::Log.open(root.path());
+    target.restore(INDEX, &mut archive.as_slice()).unwrap();
+    insert(&target, "preserved");
+    target.checkpoint(INDEX).unwrap();
+    let held = DOCUMENTS_SHARING_A_WORD as u64 + 1;
+    assert_eq!(target.count_documents(INDEX).unwrap(), held);
+    raise_first_block_max_frequency(&mut archive);
+
+    let error = target
+        .restore(INDEX, &mut archive.as_slice())
+        .expect_err("a snapshot whose block summary differs from its postings must be refused");
+    assert_eq!(error.code(), ErrorCode::PERSISTENCE_LOAD_FAILED);
+    assert_eq!(target.count_documents(INDEX).unwrap(), held);
+    assert!(target.get(INDEX, "preserved").unwrap().is_some());
+    assert!(target.get(INDEX, "shared-0").unwrap().is_some());
     target.shutdown().unwrap();
 }
