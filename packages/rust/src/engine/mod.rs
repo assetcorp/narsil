@@ -29,6 +29,7 @@ mod rerank_settings;
 mod restore;
 mod segments;
 mod settings;
+mod shutdown_gate;
 mod stale_review;
 mod stats;
 mod suggest;
@@ -84,6 +85,7 @@ pub use query_suggestions::{
     RecordQueryOutcome, RecordQueryResult, RecordedQuery,
 };
 pub use reads::IndexInfo;
+use shutdown_gate::ShutdownGate;
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
@@ -95,7 +97,7 @@ pub use writes::{BatchFailure, BatchResult};
 
 pub(crate) struct EngineInner {
     indexes: RwLock<BTreeMap<String, Arc<IndexState>>>,
-    creations: RwLock<()>,
+    shutdown_gate: ShutdownGate,
     pub(crate) names: NameTurns,
     pub(crate) analysis: AnalysisRegistry,
     pub(crate) adapters: Arc<AdapterRegistry>,
@@ -120,21 +122,10 @@ impl EngineInner {
         Ok(())
     }
 
-    pub(crate) fn admit_creation(&self) -> Result<RwLockReadGuard<'_, ()>> {
-        let admitted = self
-            .creations
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    pub(crate) fn admit_publication(&self) -> Result<RwLockReadGuard<'_, ()>> {
+        let admitted = self.shutdown_gate.admit();
         self.guard_shutdown()?;
         Ok(admitted)
-    }
-
-    fn await_admitted_creations(&self) {
-        drop(
-            self.creations
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        );
     }
 
     pub(crate) fn durable(&self) -> bool {
@@ -231,7 +222,7 @@ impl Narsil {
         Narsil {
             inner: Arc::new_cyclic(|self_ref| EngineInner {
                 indexes: RwLock::new(BTreeMap::new()),
-                creations: RwLock::new(()),
+                shutdown_gate: ShutdownGate::default(),
                 names: NameTurns::default(),
                 analysis: AnalysisRegistry::default(),
                 adapters: Arc::new(AdapterRegistry::with_rerank(settings.rerank)),
@@ -336,20 +327,20 @@ impl Narsil {
     /// Stops the engine, after which every call fails with `INSTANCE_SHUT_DOWN`.
     ///
     /// A search that is still checking pattern tests, phrases, or a paged vector graph when shutdown begins stops
-    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. The shutdown waits for
-    /// every index create that began before it, so the created index is saved and then closed with the others. A
-    /// durable engine first flushes every log to the disk and releases its directory, and fails with
-    /// `PERSISTENCE_SAVE_FAILED` where that flush fails; the engine stops either way.
+    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. An index create, restore,
+    /// or reopen that is about to put its index in the engine finishes first, so that index closes with the others,
+    /// and one that reaches that step later fails with `INSTANCE_SHUT_DOWN`. A durable engine first flushes every
+    /// log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where that flush fails;
+    /// the engine stops either way. A call from another thread while a shutdown is under way returns once that
+    /// shutdown finishes.
     pub fn shutdown(&self) -> Result<()> {
-        if self.inner.shut_down.load(Ordering::Acquire) {
+        let Some(_turn) = self.inner.shutdown_gate.turn(&self.inner.shut_down) else {
             return Ok(());
-        }
+        };
         self.inner.search_limits.stop.stop_every_search();
         self.inner.suggestions.stop(&self.inner);
-        if self.inner.shut_down.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        self.inner.await_admitted_creations();
+        self.inner.shut_down.store(true, Ordering::Release);
+        self.inner.shutdown_gate.await_admitted();
         self.inner.lifecycle.sweeper.stop();
         self.inner.lifecycle.clear();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());

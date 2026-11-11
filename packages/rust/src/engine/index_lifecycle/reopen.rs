@@ -103,6 +103,13 @@ fn load_closed(engine: &EngineInner, name: &str) -> Result<Claim> {
             return Err(error);
         }
     };
+    let admitted = match engine.admit_publication() {
+        Ok(admitted) => admitted,
+        Err(error) => {
+            durable.release_logs(name).ok();
+            return Err(error);
+        }
+    };
     let lifecycle = &engine.lifecycle;
     {
         let mut registry = lifecycle.registry();
@@ -116,6 +123,7 @@ fn load_closed(engine: &EngineInner, name: &str) -> Result<Claim> {
             .indexes_mut()
             .insert(name.to_string(), Arc::clone(&index));
     }
+    drop(admitted);
     lifecycle.changed.notify_all();
     Ok(Claim::Loaded(index))
 }

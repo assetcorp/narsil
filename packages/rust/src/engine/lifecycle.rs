@@ -154,9 +154,10 @@ fn create_unannounced(
     config: IndexConfig,
     suggestions: SuggestionState,
 ) -> Result<Arc<IndexState>> {
-    let _admitted = engine.admit_creation()?;
+    engine.guard_shutdown()?;
     validate_index_name(name)?;
     let _name = engine.names.take(name);
+    let _admitted = engine.admit_publication()?;
     if engine.index(name).is_ok() || engine.lifecycle.holds_closed(name) {
         return Err(NarsilError::new(
             ErrorCode::INDEX_ALREADY_EXISTS,
