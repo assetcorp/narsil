@@ -92,9 +92,11 @@ export function tableGrowthBytes(model: TableModel, shape: ShardEntryRange, adde
   const largestCapacity = largestCapacityFor(shape.largest)
   let grown = 0
   for (let capacity = capacityFor(shape.smallest); capacity <= largestCapacity; capacity *= 2) {
-    const reusedSlots = Math.min(model.deleted, capacity / 2 - 1)
-    if (shape.largest + added - 1 + reusedSlots < capacity) continue
-    let next = capacity * 2
+    const lastOccupied = shape.largest + added - 1
+    const deletedSlots = Math.max(0, Math.min(model.deleted, capacity - shape.largest))
+    if (lastOccupied + deletedSlots < capacity) continue
+    const doubles = lastOccupied + Math.min(deletedSlots, capacity / 2 - 1) >= capacity
+    let next = doubles ? capacity * 2 : capacity
     while (shape.largest + added > next) next *= 2
     grown = Math.max(grown, next)
   }

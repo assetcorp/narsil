@@ -1,7 +1,7 @@
 import { ClientErrorCodes, NarsilError } from '../errors'
 import type { Change, ChangePosition, ChangesEvent, ChangeType } from '../types/changes'
 import type { AnyDocument } from '../types/schema'
-import { MAX_VECTOR_FIELD_PATH_SEGMENTS } from './constants'
+import { MAX_CHANGE_DOCUMENT_DEPTH, MAX_VECTOR_FIELD_PATH_SEGMENTS } from './constants'
 
 const CHANGE_TYPES: ReadonlySet<string> = new Set<ChangeType>(['put', 'insert', 'update', 'remove'])
 const RESYNC_REASONS: ReadonlySet<string> = new Set(['epoch', 'history', 'ahead'])
@@ -71,8 +71,22 @@ function restoreVectorAt(document: Record<string, unknown>, path: readonly strin
   Object.defineProperty(holder, leaf, { value: vectorOf(value), enumerable: true, writable: true, configurable: true })
 }
 
+function requireShallow(document: Record<string, unknown>): void {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value: document, depth: 0 }]
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const { value, depth } = next
+    if (depth > MAX_CHANGE_DOCUMENT_DEPTH) throw malformed('a document nests too deeply')
+    const children = Array.isArray(value) ? (value as unknown[]) : isRecord(value) ? Object.values(value) : null
+    if (children === null) continue
+    for (const child of children) {
+      if (Array.isArray(child) || isRecord(child)) pending.push({ value: child, depth: depth + 1 })
+    }
+  }
+}
+
 function documentOf(raw: unknown, field: string, vectorFields: VectorFieldPaths): AnyDocument {
   if (!isRecord(raw)) throw malformed(`${field} must be a map`)
+  requireShallow(raw)
   for (const path of vectorFields) restoreVectorAt(raw, path)
   return raw as AnyDocument
 }
