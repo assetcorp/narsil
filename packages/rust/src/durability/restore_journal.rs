@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::io;
+use std::path::PathBuf;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
@@ -81,6 +82,8 @@ pub(crate) trait RestoreStorage: Send + Sync {
     fn move_key(&self, from: &str, to: &str) -> Result<()>;
     fn remove_prefix(&self, name: &str) -> Result<()>;
     fn top_level(&self) -> Result<Vec<(String, bool)>>;
+    /// Returns the path of the file under `key`, or `None` where the storage keeps no directory of files.
+    fn file_path(&self, key: &str) -> Result<Option<PathBuf>>;
 }
 
 pub(crate) fn top_level_names(directory: &DurableDirectory) -> Result<Vec<(String, bool)>> {
@@ -135,6 +138,10 @@ impl RestoreStorage for DurableDirectory {
     fn top_level(&self) -> Result<Vec<(String, bool)>> {
         top_level_names(self)
     }
+
+    fn file_path(&self, key: &str) -> Result<Option<PathBuf>> {
+        self.path_of(key).map(Some)
+    }
 }
 
 impl RestoreStorage for AdapterStore {
@@ -181,6 +188,10 @@ impl RestoreStorage for AdapterStore {
         names.sort();
         names.dedup();
         Ok(names)
+    }
+
+    fn file_path(&self, _key: &str) -> Result<Option<PathBuf>> {
+        Ok(None)
     }
 }
 

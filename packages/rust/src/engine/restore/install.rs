@@ -46,6 +46,14 @@ impl<'d> Staging<'d> {
         }
     }
 
+    /// Returns the staged files as a source that a restore validates and loads its checkpoint from.
+    pub(super) fn source(&self) -> StagedSource<'_> {
+        match self {
+            Staging::Stored(staging) => StagedSource::Directory(staging),
+            Staging::Memory(store) => StagedSource::Memory(store),
+        }
+    }
+
     /// Removes every file that the restore staged and did not commit.
     pub(super) fn discard(&self) {
         if let Staging::Stored(staging) = self {
@@ -92,7 +100,7 @@ pub(super) fn install(
         stored_bytes.saturating_mul(RESTORE_PROCESS_BYTES_PER_STORED_BYTE),
         replaces_index,
     )?;
-    load_current_checkpoint(&StagedSource(staging.store()), &index, manifest)?;
+    load_current_checkpoint(&staging.source(), &index, manifest)?;
     activate(engine, index, &recorded, Some(manifest), staging)
 }
 
