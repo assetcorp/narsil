@@ -186,6 +186,7 @@ export function restoredRegistryEntry(
     indexUuid: null,
     heldPartitions: null,
     documentCount: manager.countDocuments(),
+    savedBytes: null,
     partitionCount: manager.partitionCount,
     analysisRevision: prepared.storedRevision,
     arrayPositionGap: prepared.storedArrayPositionGap,

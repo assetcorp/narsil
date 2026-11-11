@@ -75,6 +75,7 @@ function buildMetadata(
   indexName: string,
   hooks: DurabilityIntegrationHooks,
   documentCount?: number,
+  savedBytes?: number,
 ): IndexMetadata | undefined {
   const config = hooks.getIndexConfig(indexName)
   if (config === undefined) {
@@ -86,6 +87,7 @@ function buildMetadata(
     config,
     manager === undefined ? undefined : metadataPartitionCount(manager),
     documentCount,
+    savedBytes,
   )
 }
 
@@ -97,7 +99,7 @@ export function createDurabilityIntegration(
     getManager: hooks.getManager,
     getVectorFieldPaths: hooks.getVectorFieldPaths,
     getVectorIndexes: hooks.getVectorIndexes,
-    buildMetadata: (indexName, documentCount) => buildMetadata(indexName, hooks, documentCount),
+    buildMetadata: (indexName, documentCount, savedBytes) => buildMetadata(indexName, hooks, documentCount, savedBytes),
     buildTermsMetadata(indexName) {
       const config = hooks.getTermsConfig(indexName)
       return config === undefined

@@ -24,6 +24,7 @@ export type IndexRegistryEntry = {
   indexUuid: string | null
   heldPartitions: number[] | null
   documentCount: number
+  savedBytes: number | null
   partitionCount: number
   analysisRevision: string | null
   arrayPositionGap: number | null

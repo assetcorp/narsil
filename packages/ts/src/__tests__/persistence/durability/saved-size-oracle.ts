@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { type Dirent, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect } from 'vitest'
 import type { Narsil } from '../../../narsil'
@@ -8,7 +8,7 @@ const HISTORY_FILE = /\/history\/\d+\/\d{16}-\d{16}$/
 const REWRITE_ABOVE_SHARE = 0.2
 
 function filesUnder(path: string): string[] {
-  let entries: ReturnType<typeof readdirSync>
+  let entries: Dirent[]
   try {
     entries = readdirSync(path, { withFileTypes: true })
   } catch {

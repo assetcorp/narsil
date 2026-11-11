@@ -257,8 +257,9 @@ async function finishBoundedCheckpoint(
     )
   }
   const checkpointDocumentCount = documentCount
+  const checkpointSavedBytes = written.saved.bytes
   await input.queueMetadataWrite(input.indexName, async () => {
-    const checkpointMetadata = input.hooks.buildMetadata(input.indexName, checkpointDocumentCount)
+    const checkpointMetadata = input.hooks.buildMetadata(input.indexName, checkpointDocumentCount, checkpointSavedBytes)
     if (checkpointMetadata === undefined) {
       return
     }
@@ -267,7 +268,12 @@ async function finishBoundedCheckpoint(
       { checksum: true },
     )
     await input.directory.atomicWrite(`${input.indexName}/meta`, bytes)
-    input.hooks.recordCheckpoint?.(input.indexName, checkpointDocumentCount, capture.partitionCount)
+    input.hooks.recordCheckpoint?.(
+      input.indexName,
+      checkpointDocumentCount,
+      capture.partitionCount,
+      checkpointSavedBytes,
+    )
   })
   const movedIntoHistoryAtMs = input.hooks.keepsSyncHistory?.(input.indexName) === true ? Date.now() : null
   await truncateCoveredSegments(input.directory, input.indexName, targets, movedIntoHistoryAtMs)

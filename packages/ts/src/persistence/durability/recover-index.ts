@@ -27,9 +27,10 @@ async function writeCountedMetadata(
   deps: RecoverPersistedIndexDeps,
   indexName: string,
   documentCount: number,
+  savedBytes?: number,
 ): Promise<void> {
   await deps.queueMetadataWrite(indexName, async () => {
-    const metadata = deps.hooks.buildMetadata(indexName, documentCount)
+    const metadata = deps.hooks.buildMetadata(indexName, documentCount, savedBytes)
     if (metadata === undefined) return
     const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
     await deps.directory.atomicWrite(`${indexName}/meta`, bytes)
@@ -136,7 +137,12 @@ export async function recoverPersistedIndex(
   }
   await deps.measureStoredBytes(indexName, recovered.saved)
   if (layout.transition === null && (recovered.upgradedDocumentCount !== null || promoted || layout.changedMetadata)) {
-    await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount ?? manager.countDocuments())
+    await writeCountedMetadata(
+      deps,
+      indexName,
+      recovered.upgradedDocumentCount ?? manager.countDocuments(),
+      recovered.saved.bytes,
+    )
   }
   return layout.transition === null ? null : removeUnread
 }

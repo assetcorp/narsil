@@ -48,6 +48,7 @@ export function createIndexUnloading(deps: IndexUnloadDeps): IndexUnloading {
       indexes.delete(indexName)
       metadataWrites.forget(indexName)
       deps.forgetSyncState(indexName)
+      deps.forgetStoredBytes(indexName)
     },
   }
 }
