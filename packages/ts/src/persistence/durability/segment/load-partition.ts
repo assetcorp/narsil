@@ -37,6 +37,21 @@ function requireAgreedSchema(agreed: Record<string, string>, schema: Record<stri
   }
 }
 
+function requireListedCounts(ref: SegmentRef, documentCount: number, tombstoneCount: number): void {
+  if (ref.docCount === documentCount && ref.tombstoneCount === tombstoneCount) return
+  throw new NarsilError(
+    ErrorCodes.PERSISTENCE_LOAD_FAILED,
+    `The segment "${ref.key}" holds ${documentCount} documents and ${tombstoneCount} tombstones where the manifest lists ${ref.docCount} and ${ref.tombstoneCount}`,
+    {
+      key: ref.key,
+      documentCount,
+      tombstoneCount,
+      listedDocCount: ref.docCount,
+      listedTombstoneCount: ref.tombstoneCount,
+    },
+  )
+}
+
 function removeWhatTheSegmentReplaces(
   manager: PartitionManager,
   segment: FrozenSegment,
@@ -84,6 +99,7 @@ async function attachPagedSegment(
 ): Promise<FrozenSegment | null> {
   if (options.decodesEveryDocument) await checkPagedSegmentFully(directory, ref)
   const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
+  requireListedCounts(ref, snapshot.documentCount, snapshot.tombstones.length)
   requireAgreedSchema(options.schema, snapshot.schema, ref.key)
   const segment = createPagedFrozenSegment(snapshot)
   removeFromPartition(manager, partitionId, snapshot.tombstones)
@@ -148,6 +164,7 @@ async function attachPartitionSegments(
       }
     }
     const contents = await readSegmentFile(store, ref)
+    requireListedCounts(ref, contents.arrays.documentCount, contents.tombstones.length)
     requireAgreedSchema(options.schema, contents.schema, ref.key)
     if (options.decodesEveryDocument) decodeEveryStoredDocument(contents.arrays.documentTable)
     const segment = createSharedFrozenSegment(shareSegmentArrays(contents.arrays, manager.partialWordAnalysis))
