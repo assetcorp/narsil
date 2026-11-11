@@ -8,30 +8,36 @@ use pyo3::buffer::PyBuffer;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyInt, PyString};
 
+use crate::callbacks::reentry::{EngineMark, Reentry, awaited};
 use crate::constants::STREAM_BUFFER_BYTES;
 use crate::errors::config_invalid;
 
 const PARTIAL_SUFFIX: &str = "partial";
+const DESTINATION_SUBJECT: &str = "The destination";
+const SOURCE_SUBJECT: &str = "The source";
 
 static PARTIAL_FILES_STARTED: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) enum Sink {
     Memory,
     Path(PathBuf),
-    Python(Py<PyAny>),
+    Python(PythonWriter),
 }
 
 pub(crate) enum Source {
     Memory(Vec<u8>),
     Path(PathBuf),
-    Python(Py<PyAny>),
+    Python(PythonReader),
 }
 
 fn is_path(value: &Bound<'_, PyAny>) -> bool {
     value.cast::<PyString>().is_ok() || value.hasattr("__fspath__").unwrap_or(false)
 }
 
-pub(crate) fn sink_of(value: Option<&Bound<'_, PyAny>>) -> Result<Sink, NarsilError> {
+pub(crate) fn sink_of(
+    value: Option<&Bound<'_, PyAny>>,
+    engine: EngineMark,
+) -> Result<Sink, NarsilError> {
     let Some(value) = value.filter(|value| !value.is_none()) else {
         return Ok(Sink::Memory);
     };
@@ -46,14 +52,20 @@ pub(crate) fn sink_of(value: Option<&Bound<'_, PyAny>>) -> Result<Sink, NarsilEr
         .map(|write| write.is_callable())
         .unwrap_or(false)
     {
-        return Ok(Sink::Python(value.clone().unbind()));
+        return Ok(Sink::Python(PythonWriter {
+            file: value.clone().unbind(),
+            engine,
+        }));
     }
     Err(config_invalid(
         "destination must be None, a path, or a writable binary file",
     ))
 }
 
-pub(crate) fn source_of(value: &Bound<'_, PyAny>) -> Result<Source, NarsilError> {
+pub(crate) fn source_of(
+    value: &Bound<'_, PyAny>,
+    engine: EngineMark,
+) -> Result<Source, NarsilError> {
     if is_path(value) {
         let path = value.extract::<PathBuf>().map_err(|_| {
             config_invalid("source must be bytes, a path, or a readable binary file")
@@ -74,7 +86,10 @@ pub(crate) fn source_of(value: &Bound<'_, PyAny>) -> Result<Source, NarsilError>
         .map(|read| read.is_callable())
         .unwrap_or(false)
     {
-        return Ok(Source::Python(value.clone().unbind()));
+        return Ok(Source::Python(PythonReader {
+            file: value.clone().unbind(),
+            engine,
+        }));
     }
     Err(config_invalid(
         "source must be bytes, a path, or a readable binary file",
@@ -98,13 +113,15 @@ fn is_raw_stream(file: &Bound<'_, PyAny>) -> io::Result<bool> {
     file.is_instance(&raw_type).map_err(python_io_error)
 }
 
-struct PythonWriter {
+pub(crate) struct PythonWriter {
     file: Py<PyAny>,
+    engine: EngineMark,
 }
 
 impl Write for PythonWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         Python::try_attach(|py| {
+            let _awaited = awaited(Reentry::Refused(self.engine), DESTINATION_SUBJECT);
             let written = self
                 .file
                 .bind(py)
@@ -140,6 +157,7 @@ impl Write for PythonWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Python::try_attach(|py| {
+            let _awaited = awaited(Reentry::Refused(self.engine), DESTINATION_SUBJECT);
             let file = self.file.bind(py);
             if file.hasattr("flush").unwrap_or(false) {
                 file.call_method0("flush").map_err(python_io_error)?;
@@ -150,13 +168,15 @@ impl Write for PythonWriter {
     }
 }
 
-struct PythonReader {
+pub(crate) struct PythonReader {
     file: Py<PyAny>,
+    engine: EngineMark,
 }
 
 impl Read for PythonReader {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         Python::try_attach(|py| {
+            let _awaited = awaited(Reentry::Refused(self.engine), SOURCE_SUBJECT);
             let chunk = self
                 .file
                 .bind(py)
@@ -234,7 +254,7 @@ pub(crate) fn write_to(
         }
         Sink::Path(path) => write_file(&path, write).map(|()| None),
         Sink::Python(file) => {
-            let mut writer = BufWriter::with_capacity(STREAM_BUFFER_BYTES, PythonWriter { file });
+            let mut writer = BufWriter::with_capacity(STREAM_BUFFER_BYTES, file);
             write(&mut writer)?;
             writer.flush().map_err(|error| {
                 NarsilError::new(
@@ -262,9 +282,6 @@ pub(crate) fn read_from<T>(
             })?;
             read(&mut BufReader::with_capacity(STREAM_BUFFER_BYTES, file))
         }
-        Source::Python(file) => read(&mut BufReader::with_capacity(
-            STREAM_BUFFER_BYTES,
-            PythonReader { file },
-        )),
+        Source::Python(file) => read(&mut BufReader::with_capacity(STREAM_BUFFER_BYTES, file)),
     }
 }

@@ -4,18 +4,39 @@ use narsil::{
     QuerySuggestionsStatus, RecordQueryResult, RecordedQuery, SuggestParams, SyncSetting,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyList, PyString};
 
 use super::fields::{Fields, string_of};
 use super::query::{filter_value, projection};
 use crate::callbacks::analysis::stop_words_setting;
 use crate::errors::{config_invalid, recoded};
 
+const SUGGESTION_KEYS_REFUSING_NONE: [&str; 17] = [
+    "minPeople",
+    "minResults",
+    "retentionDays",
+    "maxPhrasesPerDay",
+    "maxPhrasesPerPerson",
+    "maxPeoplePerDay",
+    "maxGroups",
+    "minLetters",
+    "maxLength",
+    "maxWords",
+    "maxDigits",
+    "maxMergePhrases",
+    "mergeMemoryBytes",
+    "saveIntervalMs",
+    "resultChecksPerSecond",
+    "schedule",
+    "timeZone",
+];
+
 pub(crate) fn list_params(value: Option<&Bound<'_, PyAny>>) -> Result<ListParams, NarsilError> {
     let Some(value) = value.filter(|value| !value.is_none()) else {
         return Ok(ListParams::default());
     };
     let mut fields = Fields::of(value, "params")?;
+    fields.refuse_none("filters", ErrorCode::SEARCH_INVALID_FILTER)?;
     let document_path = fields.path("document");
     let params = ListParams {
         cursor: fields.string("cursor")?,
@@ -42,6 +63,7 @@ pub(crate) fn suggest_params(value: &Bound<'_, PyAny>) -> Result<SuggestParams, 
 
 pub(crate) fn analysis_change(value: &Bound<'_, PyAny>) -> Result<AnalysisChange, NarsilError> {
     let mut fields = Fields::of(value, "change")?;
+    fields.refuse_none("language", ErrorCode::LANGUAGE_NOT_SUPPORTED)?;
     let language = fields
         .string("language")
         .map_err(recoded(ErrorCode::LANGUAGE_NOT_SUPPORTED))?;
@@ -69,6 +91,10 @@ pub(crate) fn analysis_change(value: &Bound<'_, PyAny>) -> Result<AnalysisChange
 
 pub(crate) fn sync_setting(value: &Bound<'_, PyAny>) -> Result<SyncSetting, NarsilError> {
     let mut fields = Fields::of(value, "setting")?;
+    fields.refuse_each_none(
+        &["historyMaxAgeMs", "historyMaxBytes"],
+        ErrorCode::CONFIG_INVALID,
+    )?;
     let setting = SyncSetting {
         enabled: fields
             .boolean("enabled")?
@@ -80,12 +106,30 @@ pub(crate) fn sync_setting(value: &Bound<'_, PyAny>) -> Result<SyncSetting, Nars
     Ok(setting)
 }
 
+fn recorded_text(fields: &mut Fields<'_>, key: &'static str) -> Result<String, NarsilError> {
+    Ok(fields
+        .present(key)?
+        .and_then(|value| {
+            value
+                .cast::<PyString>()
+                .ok()
+                .map(|text| text.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default())
+}
+
 pub(crate) fn recorded_query(value: &Bound<'_, PyAny>) -> Result<RecordedQuery, NarsilError> {
-    let mut fields = Fields::of(value, "query")?;
+    let Ok(mut fields) = Fields::of(value, "query") else {
+        return Ok(RecordedQuery {
+            query: String::new(),
+            person: String::new(),
+            group: String::new(),
+        });
+    };
     let query = RecordedQuery {
-        query: fields.required_string("query")?,
-        person: fields.required_string("person")?,
-        group: fields.required_string("group")?,
+        query: recorded_text(&mut fields, "query")?,
+        person: recorded_text(&mut fields, "person")?,
+        group: recorded_text(&mut fields, "group")?,
     };
     fields.finish()?;
     Ok(query)
@@ -95,6 +139,7 @@ pub(crate) fn manual_suggestion(
     value: &Bound<'_, PyAny>,
 ) -> Result<ManualQuerySuggestion, NarsilError> {
     let mut fields = Fields::of(value, "suggestion")?;
+    fields.refuse_none("count", ErrorCode::CONFIG_INVALID)?;
     let suggestion = ManualQuerySuggestion {
         group: fields.required_string("group")?,
         query: fields.required_string("query")?,
@@ -108,6 +153,7 @@ pub(crate) fn suggestions_setting(
     value: &Bound<'_, PyAny>,
 ) -> Result<QuerySuggestionsSetting, NarsilError> {
     let mut fields = Fields::of(value, "setting")?;
+    fields.refuse_each_none(&SUGGESTION_KEYS_REFUSING_NONE, ErrorCode::CONFIG_INVALID)?;
     let setting = QuerySuggestionsSetting {
         enabled: fields
             .boolean("enabled")?

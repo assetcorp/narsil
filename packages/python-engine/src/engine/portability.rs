@@ -21,7 +21,7 @@ impl PyNarsil {
         destination: Option<&Bound<'py, PyAny>>,
         query_history: bool,
     ) -> PyResult<Option<Bound<'py, PyBytes>>> {
-        let sink = sink_of(destination).map_err(to_py_err)?;
+        let sink = sink_of(destination, self.handle.mark).map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         let options = SnapshotOptions { query_history };
         let bytes = py
@@ -31,7 +31,7 @@ impl PyNarsil {
     }
 
     fn restore(&self, py: Python<'_>, index: &str, source: &Bound<'_, PyAny>) -> PyResult<()> {
-        let source = source_of(source).map_err(to_py_err)?;
+        let source = source_of(source, self.handle.mark).map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         py.detach(|| read_from(source, |data| engine.restore(index, data)))
             .map_err(to_py_err)
@@ -44,7 +44,7 @@ impl PyNarsil {
         index: &str,
         destination: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Option<Bound<'py, PyBytes>>> {
-        let sink = sink_of(destination).map_err(to_py_err)?;
+        let sink = sink_of(destination, self.handle.mark).map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         let bytes = py
             .detach(|| write_to(sink, |out| engine.export_documents(index, out)))
@@ -58,7 +58,7 @@ impl PyNarsil {
         index: &str,
         source: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let source = source_of(source).map_err(to_py_err)?;
+        let source = source_of(source, self.handle.mark).map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         let result = py
             .detach(|| read_from(source, |data| engine.import_documents(index, data)))

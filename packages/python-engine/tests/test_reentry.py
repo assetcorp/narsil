@@ -42,6 +42,7 @@ SUCCEEDED = {"code": None, "message": None}
         ("persistence_refused_on_background_thread", "The save method of the persistence adapter", 1),
         ("id_generator_refused", "The idGenerator", 1),
         ("embedding_refused", "The embedding adapter", 1),
+        ("restore_source_refused", "The source", 1),
     ],
 )
 def test_a_callback_that_calls_its_engine_is_refused_and_the_outer_call_finishes(

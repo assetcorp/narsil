@@ -5,4 +5,5 @@ pub(crate) mod index_config;
 pub(crate) mod operations;
 pub(crate) mod query;
 pub(crate) mod results;
+mod search_clauses;
 pub(crate) mod value;
