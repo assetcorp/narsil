@@ -87,7 +87,7 @@ pub use query_suggestions::{
     RecordQueryOutcome, RecordQueryResult, RecordedQuery,
 };
 pub use reads::IndexInfo;
-use shutdown_gate::ShutdownGate;
+use shutdown_gate::{Admission, ShutdownGate};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
@@ -124,8 +124,8 @@ impl EngineInner {
         Ok(())
     }
 
-    pub(crate) fn admit_publication(&self) -> Result<RwLockReadGuard<'_, ()>> {
-        let admitted = self.shutdown_gate.admit();
+    pub(crate) fn admit_publication(&self) -> Result<Admission<'_>> {
+        let admitted = self.shutdown_gate.admit().ok_or_else(instance_shut_down)?;
         self.guard_shutdown()?;
         Ok(admitted)
     }
