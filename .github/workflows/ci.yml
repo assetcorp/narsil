@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
+      check: ${{ steps.areas.outputs.check }}
+      conformance: ${{ steps.areas.outputs.conformance }}
       benchmark_harness: ${{ steps.areas.outputs.benchmark_harness }}
 
     steps:
@@ -41,7 +43,7 @@ jobs:
   check:
     name: Check
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.check == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -191,7 +193,7 @@ jobs:
   conformance:
     name: Conformance suite
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.conformance == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
