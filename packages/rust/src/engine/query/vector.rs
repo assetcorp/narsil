@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use super::constants::RESULT_WINDOW;
+use super::constants::{MAX_QUERY_EMBEDDINGS, RESULT_WINDOW};
 use super::documents::{Location, QuerySnapshots};
 use super::gather::QueryRun;
 use super::params::{QueryParams, SearchMode, VectorQuery};
@@ -140,6 +140,7 @@ fn query_adapter_missing(index: &IndexState) -> NarsilError {
 
 pub(crate) struct EmbeddedQuery<'a> {
     adapter: Option<Arc<dyn EmbeddingAdapter>>,
+    embeddings: u32,
     pub(crate) params: Cow<'a, QueryParams>,
 }
 
@@ -157,17 +158,30 @@ impl EmbeddedQuery<'_> {
 
 /// Turns a vector clause's `text` into its `value` through the index's embedding adapter, and returns the query
 /// unchanged where it gives no text. Where `earlier` holds a query that the same adapter embedded, it comes back
-/// as it stands.
+/// as it stands, and where restores have changed the adapter before each of [`MAX_QUERY_EMBEDDINGS`] embeddings,
+/// the query fails with `WORKER_BUSY`.
 pub(crate) fn resolve_vector_text<'a>(
     index: &IndexState,
     params: &'a QueryParams,
     earlier: Option<EmbeddedQuery<'a>>,
 ) -> Result<EmbeddedQuery<'a>> {
-    if let Some(earlier) = earlier.filter(|earlier| earlier.fits(index)) {
-        return Ok(earlier);
+    let embeddings = match earlier {
+        Some(earlier) if earlier.fits(index) => return Ok(earlier),
+        Some(earlier) => earlier.embeddings,
+        None => 0,
+    };
+    if embeddings >= MAX_QUERY_EMBEDDINGS {
+        return Err(NarsilError::new(
+            ErrorCode::WORKER_BUSY,
+            format!(
+                "Restores of index \"{}\" changed its embedding adapter after each of {embeddings} query embeddings",
+                index.name
+            ),
+        ));
     }
     let unchanged = EmbeddedQuery {
         adapter: None,
+        embeddings,
         params: Cow::Borrowed(params),
     };
     let Some(clause) = &params.vector else {
@@ -206,6 +220,7 @@ pub(crate) fn resolve_vector_text<'a>(
     });
     Ok(EmbeddedQuery {
         adapter: Some(adapter),
+        embeddings: embeddings + 1,
         params: Cow::Owned(resolved),
     })
 }
