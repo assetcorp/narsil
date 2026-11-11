@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use super::ClosedListing;
 use super::residency::{IndexResidency, held};
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
@@ -89,6 +90,35 @@ impl EngineInner {
         read: impl FnOnce(&IndexState) -> Result<T>,
     ) -> Result<T> {
         self.read_index_prepared(name, |_| Ok(()), |index, ()| read(index))
+    }
+
+    /// Runs `list` on every open index and every closed index that the engine holds, holding each open one as a
+    /// read does. Where a restore swaps the files of one of them, the listing waits for the swap and starts again,
+    /// so that it reports the index before the restore or after it, never one whose files the restore closed.
+    pub(crate) fn read_held_indexes<T>(
+        &self,
+        list: impl FnOnce(&[&IndexState], Vec<ClosedListing>) -> T,
+    ) -> T {
+        loop {
+            let (open, closed) = self.held_indexes();
+            let mut reading = Vec::with_capacity(open.len());
+            let mut swapped = None;
+            for index in open {
+                match ReadingIndex::enter(index) {
+                    Ok(held) => reading.push(held),
+                    Err(index) => {
+                        swapped = Some(index);
+                        break;
+                    }
+                }
+            }
+            let Some(index) = swapped else {
+                let held: Vec<&IndexState> = reading.iter().map(|held| &**held).collect();
+                return list(&held, closed);
+            };
+            drop(reading);
+            index.residency.wait_for_swap(&index);
+        }
     }
 
     /// Runs `prepare` on the index called `name` without holding it, then runs `read` on that same index with what
