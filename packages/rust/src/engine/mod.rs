@@ -95,6 +95,7 @@ pub use writes::{BatchFailure, BatchResult};
 
 pub(crate) struct EngineInner {
     indexes: RwLock<BTreeMap<String, Arc<IndexState>>>,
+    creations: RwLock<()>,
     pub(crate) names: NameTurns,
     pub(crate) analysis: AnalysisRegistry,
     pub(crate) adapters: Arc<AdapterRegistry>,
@@ -117,6 +118,23 @@ impl EngineInner {
             return Err(instance_shut_down());
         }
         Ok(())
+    }
+
+    pub(crate) fn admit_creation(&self) -> Result<RwLockReadGuard<'_, ()>> {
+        let admitted = self
+            .creations
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.guard_shutdown()?;
+        Ok(admitted)
+    }
+
+    fn await_admitted_creations(&self) {
+        drop(
+            self.creations
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
     }
 
     pub(crate) fn durable(&self) -> bool {
@@ -213,6 +231,7 @@ impl Narsil {
         Narsil {
             inner: Arc::new_cyclic(|self_ref| EngineInner {
                 indexes: RwLock::new(BTreeMap::new()),
+                creations: RwLock::new(()),
                 names: NameTurns::default(),
                 analysis: AnalysisRegistry::default(),
                 adapters: Arc::new(AdapterRegistry::with_rerank(settings.rerank)),
@@ -317,9 +336,10 @@ impl Narsil {
     /// Stops the engine, after which every call fails with `INSTANCE_SHUT_DOWN`.
     ///
     /// A search that is still checking pattern tests, phrases, or a paged vector graph when shutdown begins stops
-    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. A durable engine first
-    /// flushes every log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where
-    /// that flush fails; the engine stops either way.
+    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. The shutdown waits for
+    /// every index create that began before it, so the created index is saved and then closed with the others. A
+    /// durable engine first flushes every log to the disk and releases its directory, and fails with
+    /// `PERSISTENCE_SAVE_FAILED` where that flush fails; the engine stops either way.
     pub fn shutdown(&self) -> Result<()> {
         if self.inner.shut_down.load(Ordering::Acquire) {
             return Ok(());
@@ -329,6 +349,7 @@ impl Narsil {
         if self.inner.shut_down.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
+        self.inner.await_admitted_creations();
         self.inner.lifecycle.sweeper.stop();
         self.inner.lifecycle.clear();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());

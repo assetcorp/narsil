@@ -154,7 +154,7 @@ fn create_unannounced(
     config: IndexConfig,
     suggestions: SuggestionState,
 ) -> Result<Arc<IndexState>> {
-    engine.guard_shutdown()?;
+    let _admitted = engine.admit_creation()?;
     validate_index_name(name)?;
     let _name = engine.names.take(name);
     if engine.index(name).is_ok() || engine.lifecycle.holds_closed(name) {
