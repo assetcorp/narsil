@@ -12,6 +12,7 @@ on:
       - 'packages/ts/tsup.config.ts'
       - 'pnpm-lock.yaml'
       - '.github/workflows/react-native.yml'
+      - '!**/*.md'
   pull_request:
     branches: [main]
     paths:
@@ -23,6 +24,7 @@ on:
       - 'packages/ts/tsup.config.ts'
       - 'pnpm-lock.yaml'
       - '.github/workflows/react-native.yml'
+      - '!**/*.md'
 
 permissions:
   contents: read

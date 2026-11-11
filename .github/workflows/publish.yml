@@ -33,14 +33,38 @@ permissions:
   id-token: write
 
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      typescript: ${{ steps.areas.outputs.typescript }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: List the areas that this run touches
+        id: areas
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          WORKFLOW_FILE: .github/workflows/publish.yml
+        run: node .github/scripts/changed-areas.js
+
   native:
     name: Native search core
-    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil')
+    needs: changes
+    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil')) }}
     uses: ./.github/workflows/native-core.yml
 
   plan:
     name: Decide whether this push earns a prerelease
-    if: github.event_name == 'push'
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
