@@ -53,6 +53,16 @@ impl NameTurns {
         })
     }
 
+    /// Fails with `CONFIG_INVALID` where the calling thread holds `name`, as [`NameTurns::take`] would, so that a
+    /// caller can refuse before it changes anything else.
+    pub(crate) fn refuse_held_by_this_thread(&self, name: &str) -> Result<()> {
+        let caller = thread::current().id();
+        match guarded(&self.held).get(name) {
+            Some(holder) if *holder == caller => Err(held_by_this_thread(name)),
+            _ => Ok(()),
+        }
+    }
+
     /// Holds `name` where no call holds it, and otherwise returns `None` at once.
     pub(crate) fn try_take(&self, name: &str) -> Option<NameTurn<'_>> {
         let mut held = guarded(&self.held);
