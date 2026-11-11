@@ -1,0 +1,58 @@
+{
+  "walFormatVersion": 2,
+  "records": [
+    {
+      "seqNo": 7,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-006",
+      "document": {
+        "id": "note-006",
+        "title": "Note 6 about the lantern",
+        "body": "Remember that the heavy bucket goes back on shelf 0.",
+        "pinned": false,
+        "embedding": [-0.07388599216938019, -0.6144055128097534, -0.8857766389846802, -0.8979464173316956, 0.25368255376815796, -0.5525750517845154, -0.5469398498535156, -0.613220751285553]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 8,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-001",
+      "document": {
+        "id": "note-001",
+        "title": "Note 1 about the kettle",
+        "body": "Remember that the folding trowel goes back on shelf 1.",
+        "pinned": true,
+        "embedding": [0.49942880868911743, 0.19829262793064117, -0.49445822834968567, 0.39811834692955017, 0.39960697293281555, 0.26023077964782715, -0.8769690990447998, -0.4810216724872589]
+      },
+      "previousDocument": {
+        "id": "note-001",
+        "title": "Note 1 about the kettle",
+        "body": "Remember that the folding trowel goes back on shelf 1.",
+        "pinned": false,
+        "embedding": [0.49942880868911743, 0.19829262793064117, -0.49445822834968567, 0.39811834692955017, 0.39960697293281555, 0.26023077964782715, -0.8769690990447998, -0.4810216724872589]
+      }
+    },
+    {
+      "seqNo": 9,
+      "primaryTerm": 1,
+      "operation": "DELETE",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-002",
+      "previousDocument": {
+        "id": "note-002",
+        "title": "Note 2 about the trowel",
+        "body": "Remember that the enamelled ladder goes back on shelf 2.",
+        "pinned": false,
+        "embedding": [-0.12571069598197937, -0.12951919436454773, 0.5382367372512817, 0.9423294067382812, -0.6550607085227966, -0.4560432732105255, -0.9634056687355042, -0.3059852421283722]
+      }
+    }
+  ]
+}

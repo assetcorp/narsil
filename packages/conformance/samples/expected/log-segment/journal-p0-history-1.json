@@ -1,0 +1,101 @@
+{
+  "walFormatVersion": 2,
+  "records": [
+    {
+      "seqNo": 1,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-000",
+      "document": {
+        "id": "note-000",
+        "title": "Note 0 about the hammer",
+        "body": "Remember that the sturdy kettle goes back on shelf 0.",
+        "pinned": true,
+        "embedding": [-0.04625086113810539, 0.7582751512527466, 0.40897366404533386, -0.6373936533927917, 0.7562662363052368, 0.5143949389457703, -0.3107178509235382, 0.82194983959198]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 2,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-001",
+      "document": {
+        "id": "note-001",
+        "title": "Note 1 about the kettle",
+        "body": "Remember that the folding trowel goes back on shelf 1.",
+        "pinned": false,
+        "embedding": [0.49942880868911743, 0.19829262793064117, -0.49445822834968567, 0.39811834692955017, 0.39960697293281555, 0.26023077964782715, -0.8769690990447998, -0.4810216724872589]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 3,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-002",
+      "document": {
+        "id": "note-002",
+        "title": "Note 2 about the trowel",
+        "body": "Remember that the enamelled ladder goes back on shelf 2.",
+        "pinned": false,
+        "embedding": [-0.12571069598197937, -0.12951919436454773, 0.5382367372512817, 0.9423294067382812, -0.6550607085227966, -0.4560432732105255, -0.9634056687355042, -0.3059852421283722]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 4,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-003",
+      "document": {
+        "id": "note-003",
+        "title": "Note 3 about the ladder",
+        "body": "Remember that the cordless saucepan goes back on shelf 3.",
+        "pinned": false,
+        "embedding": [0.3699299097061157, 0.05586462467908859, 0.5334295034408569, -0.812328040599823, 0.1388063132762909, -0.945382297039032, -0.02064630389213562, 0.18237479031085968]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 5,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-004",
+      "document": {
+        "id": "note-004",
+        "title": "Note 4 about the saucepan",
+        "body": "Remember that the running shears goes back on shelf 4.",
+        "pinned": true,
+        "embedding": [-0.14087334275245667, -0.7217331528663635, -0.38863682746887207, 0.7344152927398682, -0.9328689575195312, 0.7806971073150635, 0.33089038729667664, -0.20052331686019897]
+      },
+      "previousDocument": null
+    },
+    {
+      "seqNo": 6,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "journal",
+      "documentId": "note-005",
+      "document": {
+        "id": "note-005",
+        "title": "Note 5 about the shears",
+        "body": "Remember that the polished lantern goes back on shelf 5.",
+        "pinned": false,
+        "embedding": [0.3934885859489441, 0.07383939623832703, -0.009940871968865395, -0.3585531413555145, -0.18462736904621124, -0.40785184502601624, 0.867392361164093, 0.7041224837303162]
+      },
+      "previousDocument": null
+    }
+  ]
+}
