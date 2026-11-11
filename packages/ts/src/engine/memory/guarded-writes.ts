@@ -12,6 +12,7 @@ import {
   updateDocument as updateUnguarded,
 } from '../mutations'
 import { providedDocId } from '../mutations/insert-admission'
+import { noteDocumentChurn } from './document-churn'
 import type { MemoryGroupedItem } from './grouped-writes'
 import type { MemoryWriteBlock, MemoryWriteGrouping } from './write-block-types'
 
@@ -22,6 +23,10 @@ interface UpdateItem extends MemoryGroupedItem {
 }
 
 const EMPTY_DOCUMENT: AnyDocument = {}
+
+function noteGroupedChurn(ctx: MutationContext, indexName: string, documents: number): void {
+  if (ctx.memoryWriteBlock?.grouping !== undefined) noteDocumentChurn(indexName, documents)
+}
 
 function blockFor(ctx: MutationContext, indexName: string): MemoryWriteBlock | undefined {
   const block = ctx.memoryWriteBlock
@@ -134,6 +139,7 @@ export async function updateDocument(
 ): Promise<void> {
   const block = blockFor(ctx, indexName)
   if (block === undefined) return updateUnguarded(ctx, indexName, docId, document, options)
+  noteGroupedChurn(ctx, indexName, 1)
   return withReservation(block.grouping, indexName, document, () =>
     updateUnguarded(ctx, indexName, docId, document, options),
   )
@@ -151,6 +157,7 @@ export async function updateDocumentBatch(
   if (grouping === undefined || !Array.isArray(updates) || updates.length === 0) {
     return updateBatchUnguarded(ctx, indexName, updates, options)
   }
+  noteGroupedChurn(ctx, indexName, updates.length)
   return writeInGroups(grouping, indexName, updates.map(updateItemOf), group =>
     updateBatchUnguarded(
       ctx,
@@ -167,6 +174,7 @@ export async function removeDocument(
   docId: string,
   options?: WriteOptions,
 ): Promise<void> {
+  noteGroupedChurn(ctx, indexName, 1)
   await removeUnguarded(ctx, indexName, docId, options)
   ctx.memoryWriteBlock?.memoryReleased()
 }
@@ -177,6 +185,7 @@ export async function removeDocumentBatch(
   docIds: string[],
   options?: WriteOptions,
 ): Promise<BatchResult> {
+  if (Array.isArray(docIds)) noteGroupedChurn(ctx, indexName, docIds.length)
   const result = await removeBatchUnguarded(ctx, indexName, docIds, options)
   if (result.succeeded.length > 0) ctx.memoryWriteBlock?.memoryReleased()
   return result

@@ -14,6 +14,7 @@ import { emitEngineEvent } from '../../engine/events'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
+import { createDocumentTableGrowth } from '../../engine/memory/document-tables'
 import { vectorGrowthBytesOf, writeAnalysisOf } from '../../engine/memory/write-analysis'
 import { importOptionalReads } from '../../engine/optional-reads-code'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
@@ -89,6 +90,7 @@ export interface ClusterLocalEngine extends Narsil {
   admitWritesWith(admission: WriteAdmission): void
   writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
   vectorGrowthBytesOf(indexName: string, documents: number): number
+  documentTableGrowthBytesOf(indexName: string, documents: number, pendingDocuments: number): number
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   isolateCopyFailures(onFailed: PartitionFailureHandler): void
   emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
@@ -236,6 +238,9 @@ export async function createClusterLocalEngine(
     },
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     vectorGrowthBytesOf: (indexName: string, documents: number) => vectorGrowthBytesOf(core, indexName, documents),
+    documentTableGrowthBytesOf: createDocumentTableGrowth(core, (indexName, visit) =>
+      writeRecords.visitTableSizes(indexName, visit),
+    ),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
     isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
