@@ -1,6 +1,7 @@
 mod close;
 pub(crate) mod constants;
 mod limits;
+mod reading;
 mod reopen;
 pub(crate) mod residency;
 mod sweep;
@@ -16,7 +17,7 @@ use super::query_suggestions::stored_state::SuggestionState;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
-pub(crate) use close::close_index;
+pub(crate) use close::{close_index, closed_facts};
 pub(crate) use limits::enforce_limits;
 pub(crate) use reopen::reopen_index;
 use residency::WritableIndex;

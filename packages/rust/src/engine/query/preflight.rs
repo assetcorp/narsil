@@ -76,25 +76,25 @@ fn text_count(run: &QueryRun<'_>, counting: &QueryParams) -> Result<u64> {
 fn preflight_count(
     index: &IndexState,
     params: &QueryParams,
+    resolved: &QueryParams,
     limits: &SearchLimits,
+    started: Instant,
 ) -> Result<PreflightResult> {
-    let started = Instant::now();
-    let resolved = resolve_vector_text(index, params)?;
-    let counting = counting_params(&resolved);
+    let counting = counting_params(resolved);
     let plan = plan_search(&counting)?;
     require_integer_up_to("tolerance", resolved.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", resolved.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, resolved.sort.as_deref())?;
     let scope = QueryScope::new(index, resolved.filters.as_ref(), limits)?;
-    require_usable_query_fields(index, &resolved)?;
-    require_vector_searchable(index, &resolved, plan)?;
+    require_usable_query_fields(index, resolved)?;
+    require_vector_searchable(index, resolved, plan)?;
     let shape = RunShape {
         requested: params,
         limit: PREFLIGHT_VECTOR_DEPTH,
         offset: 0,
         signature: None,
     };
-    let run = QueryRun::new(index, &resolved, &scope, shape)?;
+    let run = QueryRun::new(index, resolved, &scope, shape)?;
     if plan != SearchPlan::Vector {
         require_usable_phrases(
             &run.snapshots.layout.analyser,
@@ -131,10 +131,16 @@ impl Narsil {
     /// ignores every option that shapes the output alone, such as `limit`, `sort`, and `highlight`, and fails with
     /// the codes that [`Narsil::query`] raises for a query that it cannot run.
     pub fn preflight(&self, index: &str, params: &QueryParams) -> Result<PreflightResult> {
-        preflight_count(
-            &*self.inner.open_index(index)?,
-            params,
-            &self.inner.search_limits,
-        )
+        let started = Instant::now();
+        let resolved = resolve_vector_text(&*self.inner.open_index(index)?, params)?;
+        self.inner.read_index(index, |current| {
+            preflight_count(
+                current,
+                params,
+                &resolved,
+                &self.inner.search_limits,
+                started,
+            )
+        })
     }
 }

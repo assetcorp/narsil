@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::prepare::PreparedIndex;
+use super::swap::FileSwap;
 use crate::durability::checkpoint_store::{AdapterStore, CheckpointStore};
 use crate::durability::persistence::MemoryPersistence;
 use crate::durability::restore::RestoreStaging;
@@ -153,8 +154,9 @@ fn missing_manifest(name: &str) -> NarsilError {
 /// files the files that `staging` holds replace in the same step.
 ///
 /// The old index keeps serving until the swap, and its write lock is held across the swap so that no write lands
-/// in a log that the restored index then owns. A failure before the store commits the swap leaves the old index
-/// and its files as they were.
+/// in a log that the restored index then owns. A rebuild of the old index stops first, and a read that reaches
+/// the old index while the store moves the files waits, then reads the restored index. A failure before the store
+/// commits the swap leaves the old index and its files as they were.
 pub(super) fn activate(
     engine: &EngineInner,
     index: IndexState,
@@ -181,12 +183,21 @@ pub(super) fn activate(
     }
     index.set_analysis_stale(restored_analysis_stale(&index, recorded));
     let index = Arc::new(index);
+    let changes = previous
+        .as_ref()
+        .and_then(|old| old.changes.hold_for_restore());
     let writer = previous.as_ref().map(|old| old.write_lock());
     if let (Staging::Stored(staged), Some(durable), Some(manifest)) =
         (&mut *staging, &engine.durable, manifest)
     {
-        let log = durable.adopt_restore(staged, &manifest.checkpoint, metadata)?;
-        index.attach_log(log);
+        let swap = FileSwap {
+            engine,
+            durable,
+            restored: &index,
+            previous: previous.as_ref(),
+            manifest,
+        };
+        index.attach_log(swap.run(staged, metadata)?);
     }
     publish_without_source_bans(engine, &index, || {
         engine
@@ -197,8 +208,10 @@ pub(super) fn activate(
     engine.lifecycle.touch(&index);
     if let Some(old) = &previous {
         old.retire();
+        old.residency.end_swap();
     }
     drop(writer);
+    drop(changes);
     if let Staging::Stored(staged) = staging {
         let _ = staged.remove_retired();
     }

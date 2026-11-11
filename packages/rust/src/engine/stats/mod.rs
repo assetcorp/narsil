@@ -113,23 +113,24 @@ impl Narsil {
                 schema: closed.config.schema.clone(),
             });
         }
-        let index = self.inner.open_index(index)?;
-        let partitions = partition_stats(&index);
-        let document_count = partitions
-            .iter()
-            .map(|partition| partition.document_count)
-            .sum();
-        let estimated_memory_bytes = partitions
-            .iter()
-            .fold(vector_bytes(&index), |total, partition| {
-                total.saturating_add(partition.estimated_memory_bytes)
-            });
-        Ok(IndexStats {
-            document_count,
-            partition_count: partitions.len(),
-            estimated_memory_bytes,
-            language: index.analyser().language().name().to_string(),
-            schema: index.config().schema.clone(),
+        self.inner.read_index(index, |index| {
+            let partitions = partition_stats(index);
+            let document_count = partitions
+                .iter()
+                .map(|partition| partition.document_count)
+                .sum();
+            let estimated_memory_bytes = partitions
+                .iter()
+                .fold(vector_bytes(index), |total, partition| {
+                    total.saturating_add(partition.estimated_memory_bytes)
+                });
+            Ok(IndexStats {
+                document_count,
+                partition_count: partitions.len(),
+                estimated_memory_bytes,
+                language: index.analyser().language().name().to_string(),
+                schema: index.config().schema.clone(),
+            })
         })
     }
 
@@ -144,7 +145,8 @@ impl Narsil {
         {
             return Ok(Vec::new());
         }
-        Ok(partition_stats(&*self.inner.open_index(index)?))
+        self.inner
+            .read_index(index, |current| Ok(partition_stats(current)))
     }
 
     /// Returns the process's resident memory with the estimate of every open index, which works after

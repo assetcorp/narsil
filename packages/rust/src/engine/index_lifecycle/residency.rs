@@ -5,20 +5,23 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 
-/// The lifecycle facts of one open index: the writes that run on it now, whether a close is draining them, when a
-/// call last reached it, and how many times the engine has opened it again after a close.
+/// The lifecycle facts of one open index: the writes and the reads that run on it now, whether a close is draining
+/// the writes or a restore is draining the reads, when a call last reached it, and how many times the engine has
+/// opened it again after a close.
 #[derive(Default)]
 pub(crate) struct IndexResidency {
     active_writes: AtomicUsize,
+    pub(super) active_reads: AtomicUsize,
     closing: AtomicBool,
+    pub(super) swapping: AtomicBool,
     last_access_ms: AtomicU64,
     reopen_count: AtomicU64,
     waiters: AtomicUsize,
-    turn: Mutex<()>,
-    changed: Condvar,
+    pub(super) turn: Mutex<()>,
+    pub(super) changed: Condvar,
 }
 
-fn held(turn: &Mutex<()>) -> MutexGuard<'_, ()> {
+pub(super) fn held(turn: &Mutex<()>) -> MutexGuard<'_, ()> {
     turn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 

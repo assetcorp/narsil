@@ -88,6 +88,14 @@ impl IndexVectors {
         self.fields.is_empty()
     }
 
+    /// Drops every vector of every field and the files that the fields read them from, for a restore that takes
+    /// the index out of the engine.
+    pub(crate) fn release_files(&self) {
+        for entry in &self.fields {
+            entry.field.release_files();
+        }
+    }
+
     pub(crate) fn sequence(&self) -> &Arc<IndexSequence> {
         &self.sequence
     }

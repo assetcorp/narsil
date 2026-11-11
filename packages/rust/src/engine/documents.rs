@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::constants::MAX_REPLACED_WRITE_ATTEMPTS;
 use super::hooked;
@@ -212,22 +213,26 @@ impl Narsil {
 
     /// Returns the document stored under `doc_id`, or `None` where the index holds none.
     pub fn get(&self, index: &str, doc_id: &str) -> Result<Option<Map>> {
-        reads::get(&*self.inner.open_index(index)?, doc_id)
+        self.inner
+            .read_index(index, |state| reads::get(state, doc_id))
     }
 
     /// Returns the documents stored under each of `doc_ids` that the index holds, keyed by ID.
     pub fn get_multiple(&self, index: &str, doc_ids: &[String]) -> Result<BTreeMap<String, Map>> {
-        reads::get_multiple(&*self.inner.open_index(index)?, doc_ids)
+        self.inner
+            .read_index(index, |state| reads::get_multiple(state, doc_ids))
     }
 
     /// Reports whether the index holds a document under `doc_id`.
     pub fn has(&self, index: &str, doc_id: &str) -> Result<bool> {
-        reads::has(&*self.inner.open_index(index)?, doc_id)
+        self.inner
+            .read_index(index, |state| reads::has(state, doc_id))
     }
 
     /// Returns the number of documents in the index.
     pub fn count_documents(&self, index: &str) -> Result<u64> {
-        Ok(self.inner.open_index(index)?.document_count())
+        self.inner
+            .read_index(index, |state| Ok(state.document_count()))
     }
 
     /// Runs a query against the index and returns a page of hits, best first.
@@ -238,12 +243,19 @@ impl Narsil {
         let state = self.inner.open_index(index)?;
         let plugins = &self.inner.plugins;
         let limits = &self.inner.search_limits;
+        let started = Instant::now();
+        let run = |scoped: &QueryParams| {
+            let resolved = query::embed_query_text(&state, scoped)?;
+            self.inner.read_index(index, |current| {
+                query::run_query(current, scoped, &resolved, limits, started)
+            })
+        };
         if plugins.is_empty() {
-            return query::run_query(&state, params, limits);
+            return run(params);
         }
         let mut scoped = params.clone();
         plugins.before_search(&state.name, &mut scoped)?;
-        let result = query::run_query(&state, &scoped, limits)?;
+        let result = run(&scoped)?;
         plugins.after(|plugin| plugin.after_search(&state.name, &scoped, &result));
         Ok(result)
     }

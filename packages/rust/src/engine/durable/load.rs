@@ -298,13 +298,24 @@ pub(crate) fn load_current_checkpoint(
     index: &IndexState,
     manifest: &SegmentManifest,
 ) -> Result<()> {
+    load_partitions(store, index, manifest)?;
+    for listed in &manifest.vectors {
+        load_vector_field(store, index, listed)?;
+    }
+    Ok(())
+}
+
+/// Loads each partition's segments that `manifest` lists into an index whose partitions hold none, in manifest
+/// order, so that a later segment's copy of a document and its tombstones replace what an earlier segment holds.
+pub(crate) fn load_partitions(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    manifest: &SegmentManifest,
+) -> Result<()> {
     let ids = manifest.partitions.iter().map(|entry| entry.partition_id);
     grow_partitions(index, manifest.partitions.len(), ids)?;
     for entry in &manifest.partitions {
         load_partition(store, index, entry, &manifest.schema)?;
-    }
-    for listed in &manifest.vectors {
-        load_vector_field(store, index, listed)?;
     }
     Ok(())
 }

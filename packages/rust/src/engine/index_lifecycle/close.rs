@@ -14,7 +14,7 @@ fn needs_durability() -> NarsilError {
     )
 }
 
-fn closed_facts(index: &IndexState) -> ClosedIndex {
+pub(crate) fn closed_facts(index: &IndexState) -> ClosedIndex {
     let layout = index.partitions();
     ClosedIndex {
         config: index.config(),
