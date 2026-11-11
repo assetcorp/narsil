@@ -8,6 +8,7 @@ use pyo3::types::{
 use crate::constants::{
     MAX_SAFE_INTEGER, MAX_VALUE_DEPTH, NANOSECONDS_PER_MICROSECOND, SECONDS_PER_DAY,
 };
+use crate::errors::to_py_err;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ValueSource<'a> {
@@ -176,7 +177,8 @@ fn convert(value: &Bound<'_, PyAny>, depth: usize) -> Result<Value, Refusal> {
         return Ok(Value::String(text.to_string()));
     }
     if let Ok(map) = value.cast::<PyDict>() {
-        return object_of(map.iter().map(Ok), depth);
+        let entries: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)> = map.iter().collect();
+        return object_of(entries.into_iter().map(Ok), depth);
     }
     if let Ok(list) = value.cast::<PyList>() {
         return array_of(list.iter(), depth);
@@ -251,6 +253,18 @@ pub(crate) fn to_map(
 }
 
 fn timestamp_to_py<'py>(py: Python<'py>, timestamp: Timestamp) -> PyResult<Bound<'py, PyAny>> {
+    datetime_of(py, timestamp).map_err(|error| {
+        to_py_err(NarsilError::new(
+            ErrorCode::INTERNAL_ERROR,
+            format!(
+                "The index holds a timestamp {} seconds from 1970, which a Python datetime cannot hold ({error})",
+                timestamp.seconds
+            ),
+        ))
+    })
+}
+
+fn datetime_of<'py>(py: Python<'py>, timestamp: Timestamp) -> PyResult<Bound<'py, PyAny>> {
     let datetime = py.import("datetime")?;
     let utc = datetime.getattr("timezone")?.getattr("utc")?;
     let epoch = datetime

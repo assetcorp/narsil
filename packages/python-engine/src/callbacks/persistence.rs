@@ -15,7 +15,8 @@ use crate::errors::{config_invalid, to_py_err};
 
 const METHODS: [&str; 4] = ["save", "load", "delete", "list"];
 
-/// Keeps snapshot checkpoints in memory, which a test or a short-lived process uses as the `persistence` setting.
+/// This store keeps snapshot checkpoints in memory, so that a test or a short-lived process can pass it as the
+/// `persistence` setting.
 #[pyclass(frozen, module = "narsil._native", name = "MemoryPersistence")]
 pub(crate) struct PyMemoryPersistence {
     pub(crate) adapter: Arc<dyn PersistenceAdapter>,
@@ -31,7 +32,7 @@ impl PyMemoryPersistence {
     }
 }
 
-/// Keeps an engine's files under one directory, which the `persistence` setting takes.
+/// This store keeps an engine's files under one directory, and the `persistence` setting accepts it.
 #[pyclass(frozen, module = "narsil._native", name = "FilesystemPersistence")]
 pub(crate) struct PyFilesystemPersistence {
     pub(crate) adapter: Arc<dyn PersistenceAdapter>,

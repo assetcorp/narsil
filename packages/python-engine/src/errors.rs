@@ -68,6 +68,6 @@ pub(crate) fn callback_error(
 pub(crate) fn interpreter_finalizing(code: ErrorCode, subject: &str) -> NarsilError {
     NarsilError::new(
         code,
-        format!("{subject} cannot run because the Python interpreter is shutting down"),
+        format!("{subject} is unavailable because the Python interpreter is shutting down"),
     )
 }

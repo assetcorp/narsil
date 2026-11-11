@@ -154,6 +154,86 @@ def test_wrong_types_raise_the_documented_error_and_leave_the_index_usable(
     assert engine.count_documents(index_name) == 2
 
 
+class ChangesItsContainer:
+    def __init__(self, container: dict[str, Any] | list[Any]) -> None:
+        self.container = container
+
+    def tolist(self) -> list[float]:
+        if isinstance(self.container, dict):
+            self.container["added during conversion"] = 1
+            self.container.pop("body", None)
+        else:
+            self.container.clear()
+        return [1.0]
+
+
+def changing_document() -> dict[str, Any]:
+    document: dict[str, Any] = {"body": "quiet lake", "count": 3}
+    document["vector"] = ChangesItsContainer(document)
+    return document
+
+
+def shrinking_list_document() -> dict[str, Any]:
+    tags: list[Any] = ["first"]
+    tags.append(ChangesItsContainer(tags))
+    tags.append("last")
+    return {"body": "quiet lake", "tags": tags}
+
+
+def changing_filter() -> dict[str, Any]:
+    condition: dict[str, Any] = {"eq": "quiet lake"}
+    condition["also"] = ChangesItsContainer(condition)
+    return {"term": "lake", "filters": {"fields": {"body": condition}}}
+
+
+def changing_schema() -> dict[str, Any]:
+    schema: dict[str, Any] = {"body": "string"}
+    schema["extra"] = ChangesItsContainer(schema)
+    return {"schema": schema}
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda engine, index: engine.insert(index, changing_document(), "changed"),
+        lambda engine, index: engine.update(index, "kept", changing_document()),
+        lambda engine, index: engine.insert_batch(index, [changing_document(), shrinking_list_document()]),
+        lambda engine, index: engine.update_batch(index, [{"docId": "kept", "document": changing_document()}]),
+        lambda engine, index: engine.query(index, changing_filter()),
+        lambda engine, index: engine.create_index(f"{index}_other", changing_schema()),
+    ],
+)
+def test_a_container_that_changes_while_the_engine_reads_it_raises_narsil_error_or_is_stored(
+    engine: Narsil, index_name: str, operation: Any
+) -> None:
+    engine.create_index(index_name, {"schema": {"body": "string", "count": "number"}})
+    engine.insert(index_name, {"body": "quiet river", "count": 1}, "kept")
+
+    try:
+        operation(engine, index_name)
+    except NarsilError as error:
+        assert error.code
+        assert error.message
+
+    assert engine.has(index_name, "kept")
+    engine.insert(index_name, {"body": "second river", "count": 2}, "second")
+    assert {hit["id"] for hit in engine.query(index_name, {"term": "second"})["hits"]} == {"second"}
+
+
+def test_a_stored_date_beyond_the_range_of_datetime_raises_narsil_error_from_get_and_search(
+    engine: Narsil, index_name: str
+) -> None:
+    engine.create_index(index_name, {"schema": {"body": "string"}})
+    exported = engine.export_documents(index_name) or b""
+    far_future = b'{"id":"far","body":"distant star","when":{"$date":[400000000000,0]}}\n'
+    engine.drop_index(index_name)
+    engine.import_documents(index_name, exported + far_future)
+
+    assert raised(engine.get, index_name, "far").code == "INTERNAL_ERROR"
+    assert raised(engine.query, index_name, {"term": "star"}).code == "INTERNAL_ERROR"
+    assert engine.count_documents(index_name) == 1
+
+
 def test_a_deeply_nested_value_on_a_thread_with_a_small_stack_raises_instead_of_crashing_the_process(
     engine: Narsil, index_name: str
 ) -> None:

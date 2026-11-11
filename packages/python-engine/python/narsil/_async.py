@@ -38,7 +38,7 @@ async def _off_loop(
 
 
 class AsyncQuerySuggestions:
-    """The popular query suggestions of an :class:`AsyncNarsil` engine, with every method awaitable."""
+    """This class gives the popular query suggestions of an :class:`AsyncNarsil` engine as coroutines."""
 
     __slots__ = ("_suggestions",)
 
@@ -79,11 +79,11 @@ class AsyncQuerySuggestions:
 class AsyncNarsil:
     """A Narsil engine for asyncio programs, where every operation is a coroutine.
 
-    Each call runs on a worker thread of the event loop's default executor, and the engine releases the interpreter
-    lock while it works, so the event loop keeps serving other tasks. Open one with ``await AsyncNarsil.open(config)``
-    or wrap an engine that you already hold with ``AsyncNarsil(engine)``. Cancelling a call raises
-    ``asyncio.CancelledError`` in the awaiting task at once, while the engine finishes the call on its thread, so a
-    cancelled insert can still store its document and the index stays usable either way.
+    The class makes each call on a worker thread of the event loop's default executor, and the engine releases the
+    interpreter lock while it works, so the event loop keeps serving other tasks. Open one with
+    ``await AsyncNarsil.open(config)``, or wrap an engine that you already hold with ``AsyncNarsil(engine)``. When
+    you cancel a call, the awaiting task receives ``asyncio.CancelledError`` at once, while the engine finishes the
+    call on its thread, so a cancelled insert can store its document, and the index stays usable either way.
     """
 
     __slots__ = ("_engine",)

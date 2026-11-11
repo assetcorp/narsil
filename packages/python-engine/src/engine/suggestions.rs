@@ -10,7 +10,8 @@ use crate::convert::operations::{
 };
 use crate::errors::to_py_err;
 
-/// The popular query suggestions of an engine's indexes, which `Narsil.query_suggestions` returns.
+/// This class gives the popular query suggestions of an engine's indexes, and `Narsil.query_suggestions` returns
+/// it.
 #[pyclass(frozen, module = "narsil._native", name = "QuerySuggestions")]
 pub(crate) struct PyQuerySuggestions {
     pub(crate) owner: Py<PyNarsil>,

@@ -112,7 +112,7 @@ fn facets(fields: Fields<'_>, label: &str) -> Result<Vec<(String, FacetSpec)>, N
                         (Some(from), Some(to)) => bounds.push((from, to)),
                         _ => {
                             return Err(config_invalid(format!(
-                                "{path}.ranges[{at}] needs \"from\" and \"to\""
+                                "{path}.ranges[{at}] must hold \"from\" and \"to\""
                             )));
                         }
                     }

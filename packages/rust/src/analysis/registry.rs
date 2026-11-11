@@ -18,9 +18,9 @@ pub struct Token {
 ///
 /// The engine indexes each returned term as it stands, so a tokenizer that wants stemming or lower case applies
 /// them itself, and the engine removes no stop word from what it returns. The engine sorts the tokens by position
-/// where the tokenizer returns them out of order. Where `tokenize` panics, the write or search that called it fails
-/// with `INTERNAL_ERROR` and the text that the panic carried, or with the [`crate::NarsilError`] that the panic
-/// carried, and the index keeps what it held before.
+/// where the tokenizer returns them out of order. When `tokenize` panics, the write or search that called it fails
+/// with `INTERNAL_ERROR` and the text of the panic, or with the [`crate::NarsilError`] that the panic held as its
+/// payload, and the index keeps the documents that it held before.
 pub trait Tokenizer: Send + Sync {
     /// Returns the tokens of `text`.
     fn tokenize(&self, text: &str) -> Vec<Token>;
@@ -28,8 +28,8 @@ pub trait Tokenizer: Send + Sync {
 
 /// A function that receives a language's stop words and returns the set that an index uses.
 ///
-/// Where the function panics, the call that built the index's analysis fails with `CONFIG_INVALID` and the text
-/// that the panic carried, or with the [`crate::NarsilError`] that the panic carried.
+/// When the function panics, the call that built the index's analysis fails with `CONFIG_INVALID` and the text of
+/// the panic, or with the [`crate::NarsilError`] that the panic held as its payload.
 pub type StopWordFunction = Arc<dyn Fn(&HashSet<String>) -> HashSet<String> + Send + Sync>;
 
 /// The stop words of an index, which replace the stop words of its language.

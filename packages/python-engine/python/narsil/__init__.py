@@ -1,7 +1,7 @@
-"""Narsil search inside a Python process, over the Rust implementation of the engine.
+"""This package searches Narsil indexes inside a Python process through the Rust implementation of the engine.
 
-:class:`Narsil` gives the blocking API and :class:`AsyncNarsil` the asyncio API. Both raise :class:`NarsilError`,
-whose ``code`` holds the error code of the Narsil specification.
+:class:`Narsil` gives the blocking API, and :class:`AsyncNarsil` gives the asyncio API. When the engine refuses or
+fails a call, both raise :class:`NarsilError`, whose ``code`` holds the error code of the Narsil specification.
 """
 
 from narsil._async import AsyncNarsil, AsyncQuerySuggestions
