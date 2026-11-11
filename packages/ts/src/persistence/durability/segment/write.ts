@@ -316,6 +316,7 @@ export async function commitCheckpointManifest(
   metadata: IndexMetadata,
   written: CheckpointSegmentsWritten,
   vectors: VectorFieldRef[],
+  recordSavedBytes?: (saved: StoredBytes) => void,
 ): Promise<SegmentedCheckpointOutcome> {
   const indexName = metadata.indexName
   const manifest: SegmentManifest = {
@@ -329,7 +330,9 @@ export async function commitCheckpointManifest(
   }
   const packed = await encodeSegmentManifest(manifest)
   await store.write(manifestKey(indexName), packed.chunks)
-  return { garbage: await unreferencedKeys(store, indexName, manifest), saved: savedBytesOfManifest(manifest) }
+  const saved = savedBytesOfManifest(manifest)
+  recordSavedBytes?.(saved)
+  return { garbage: await unreferencedKeys(store, indexName, manifest), saved }
 }
 
 async function unreferencedKeys(
