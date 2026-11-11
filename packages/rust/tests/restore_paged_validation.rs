@@ -220,3 +220,64 @@ fn a_restore_rejects_block_summaries_that_differ_from_the_postings_before_replac
     assert!(target.get(INDEX, "shared-0").unwrap().is_some());
     target.shutdown().unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restore_refuses_out_of_range_positions_before_allocating_their_claimed_size() {
+    const CHILD_ROOT: &str = "NARSIL_RESTORE_POSITION_CHECK_ROOT";
+    const ADDRESS_SPACE_BYTES: u64 = 1024 * 1024 * 1024;
+    if let Some(root) = std::env::var_os(CHILD_ROOT) {
+        let root = std::path::PathBuf::from(root);
+        let target = Tier::Log.open(&root.join("target"));
+        let valid = std::fs::read(root.join("valid.tar")).unwrap();
+        target.restore(INDEX, &mut valid.as_slice()).unwrap();
+        assert!(target.get(INDEX, "harbour").unwrap().is_some());
+        eprintln!("The valid archive restored within the address-space limit");
+        let malformed = std::fs::read(root.join("malformed.tar")).unwrap();
+        let error = target
+            .restore(INDEX, &mut malformed.as_slice())
+            .expect_err("positions outside their section must be refused");
+        assert_eq!(error.code(), ErrorCode::PERSISTENCE_LOAD_FAILED);
+        assert!(target.get(INDEX, "harbour").unwrap().is_some());
+        target.shutdown().unwrap();
+        return;
+    }
+
+    let root = ScratchDirectory::new("restore-position-allocation");
+    let source = Tier::Log.open(&root.path().join("source"));
+    source.create_index(INDEX, config()).unwrap();
+    insert(&source, "harbour");
+    let mut archive = snapshot_of(&source, INDEX);
+    source.shutdown().unwrap();
+    std::fs::write(root.path().join("valid.tar"), &archive).unwrap();
+    reseal_section(&mut archive, "positionOffsets", |section| {
+        assert_eq!(section.len(), 8);
+        assert_eq!(&section[..4], &0u32.to_le_bytes());
+        section[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+    });
+    std::fs::write(root.path().join("malformed.tar"), &archive).unwrap();
+
+    let output = std::process::Command::new("prlimit")
+        .arg(format!("--as={ADDRESS_SPACE_BYTES}"))
+        .arg("--core=0")
+        .arg("--")
+        .arg(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_restore_refuses_out_of_range_positions_before_allocating_their_claimed_size",
+            "--nocapture",
+        ])
+        .env(CHILD_ROOT, root.path())
+        .output()
+        .expect("prlimit starts the restore in a process with bounded address space");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("The valid archive restored within the address-space limit"),
+        "the valid control must succeed before the malformed restore: {stderr}"
+    );
+    assert!(
+        output.status.success(),
+        "a malformed position offset must return an error without aborting the process: {}\n{stderr}",
+        output.status
+    );
+}
