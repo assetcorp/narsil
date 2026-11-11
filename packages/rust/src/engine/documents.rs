@@ -247,8 +247,10 @@ impl Narsil {
         let run = |scoped: &QueryParams| {
             self.inner.read_index_prepared(
                 index,
-                |current| query::embed_query_text(current, scoped),
-                |current, resolved| query::run_query(current, scoped, &resolved, limits, started),
+                |current, earlier| query::embed_query_text(current, scoped, earlier),
+                |current, embedded| {
+                    query::run_query(current, scoped, &embedded.params, limits, started)
+                },
             )
         };
         if plugins.is_empty() {

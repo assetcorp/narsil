@@ -7,7 +7,7 @@ use super::gather::QueryRun;
 use super::params::{QueryParams, SearchMode, VectorQuery};
 use super::results::FacetResult;
 use super::scope::QueryScope;
-use crate::adapters::EmbeddingPurpose;
+use crate::adapters::{EmbeddingAdapter, EmbeddingPurpose};
 use crate::config::Metric;
 use crate::engine::index::IndexState;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
@@ -138,17 +138,43 @@ fn query_adapter_missing(index: &IndexState) -> NarsilError {
     NarsilError::new(ErrorCode::EMBEDDING_CONFIG_INVALID, message)
 }
 
+pub(crate) struct EmbeddedQuery<'a> {
+    adapter: Option<Arc<dyn EmbeddingAdapter>>,
+    pub(crate) params: Cow<'a, QueryParams>,
+}
+
+impl EmbeddedQuery<'_> {
+    fn fits(&self, index: &IndexState) -> bool {
+        let Some(used) = &self.adapter else {
+            return true;
+        };
+        index
+            .vectors
+            .embedding_adapter()
+            .is_some_and(|current| Arc::ptr_eq(used, &current))
+    }
+}
+
 /// Turns a vector clause's `text` into its `value` through the index's embedding adapter, and returns the query
-/// unchanged where it gives no text.
+/// unchanged where it gives no text. Where `earlier` holds a query that the same adapter embedded, it comes back
+/// as it stands.
 pub(crate) fn resolve_vector_text<'a>(
     index: &IndexState,
     params: &'a QueryParams,
-) -> Result<Cow<'a, QueryParams>> {
+    earlier: Option<EmbeddedQuery<'a>>,
+) -> Result<EmbeddedQuery<'a>> {
+    if let Some(earlier) = earlier.filter(|earlier| earlier.fits(index)) {
+        return Ok(earlier);
+    }
+    let unchanged = EmbeddedQuery {
+        adapter: None,
+        params: Cow::Borrowed(params),
+    };
     let Some(clause) = &params.vector else {
-        return Ok(Cow::Borrowed(params));
+        return Ok(unchanged);
     };
     let Some(text) = &clause.text else {
-        return Ok(Cow::Borrowed(params));
+        return Ok(unchanged);
     };
     if clause.value.is_some() {
         return Err(NarsilError::new(
@@ -178,7 +204,10 @@ pub(crate) fn resolve_vector_text<'a>(
         text: None,
         ..clause.clone()
     });
-    Ok(Cow::Owned(resolved))
+    Ok(EmbeddedQuery {
+        adapter: Some(adapter),
+        params: Cow::Owned(resolved),
+    })
 }
 
 /// Returns how many vectors a page of a vector search fetches: one past the page, so that the engine knows whether
