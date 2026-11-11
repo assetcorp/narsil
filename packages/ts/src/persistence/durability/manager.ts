@@ -10,6 +10,7 @@ import {
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
   DEFAULT_COMPACTION_THRESHOLD,
+  DEFAULT_REWRITE_BYTES_PER_CHECKPOINT,
   DEFAULT_SEGMENT_MAX_BYTES,
 } from './constants'
 import { hasDeferredPublication } from './deferred-mutations'
@@ -65,6 +66,7 @@ export function createDurabilityManager(
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
   const compactionThreshold = config.compactionThreshold ?? DEFAULT_COMPACTION_THRESHOLD
+  const rewriteBytesPerCheckpoint = config.rewriteBytesPerCheckpoint ?? DEFAULT_REWRITE_BYTES_PER_CHECKPOINT
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
@@ -175,6 +177,7 @@ export function createDurabilityManager(
       indexName,
       indexState,
       compactionThreshold,
+      rewriteBytesPerCheckpoint,
       canOffload: canOffloadCheckpoint,
       fromMemory,
       mutationThreshold: checkpointMutationThreshold,

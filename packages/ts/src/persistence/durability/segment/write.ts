@@ -17,7 +17,7 @@ import type { IndexMetadata } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { pagedTombstonesFor } from '../../paged/older-holders'
-import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
+import { DEFAULT_COMPACTION_THRESHOLD, DEFAULT_REWRITE_BYTES_PER_CHECKPOINT } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from '../partition-checkpoint'
 import { type StoredBytes, savedBytesOfManifest } from '../stored-bytes'
@@ -29,7 +29,11 @@ import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import type { PartitionManifestEntry, SegmentManifest, SegmentRef, VectorFieldRef } from './manifest'
 import { MAX_SEGMENTS_PER_PARTITION, manifestReferencedKeys, SEGMENT_MANIFEST_VERSION } from './manifest'
 import { encodeSegmentManifest } from './manifest-encode'
-import { type PartitionDocumentCount, rewriteRemovedDocuments } from './removed-documents'
+import {
+  type PartitionDocumentCount,
+  type RemovedDocumentRewriteBudget,
+  rewriteRemovedDocuments,
+} from './removed-documents'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'
 
@@ -49,6 +53,7 @@ export interface CheckpointSegmentsInput {
   capturedPartitions?: readonly CapturedWholePartition[]
   keepsWriteRecords?: boolean
   liveDocuments?: readonly PartitionDocumentCount[]
+  rewriteBytesPerCheckpoint?: number
 }
 
 export interface CheckpointSegmentsWritten {
@@ -69,6 +74,7 @@ interface PartitionWriteContext {
   textAnalysis: TextAnalysis
   vectorFieldPaths: Set<string>
   compactionThreshold: number
+  rewriteBudget: RemovedDocumentRewriteBudget
 }
 
 interface ResolvedTextAnalysis {
@@ -230,6 +236,7 @@ async function writeLoggedChanges(
     nextSegmentId: compacted.nextSegmentId,
     paged: context.input.metadata.textStorage === 'disk',
     liveDocumentCount: context.input.liveDocuments?.find(entry => entry.partitionId === partitionId)?.documentCount,
+    budget: context.rewriteBudget,
   })
   segments = rewritten.segments
   nextSegmentId = rewritten.nextSegmentId
@@ -265,6 +272,10 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
     textAnalysis,
     vectorFieldPaths: new Set(extractVectorFieldsFromSchema(config.schema).keys()),
     compactionThreshold: resolveCompactionThreshold(input.compactionThreshold),
+    rewriteBudget: {
+      spentBytes: 0,
+      limitBytes: input.rewriteBytesPerCheckpoint ?? DEFAULT_REWRITE_BYTES_PER_CHECKPOINT,
+    },
   }
   const checkpointByPartition = new Map<number, PartitionCheckpoint>()
   for (const target of input.targets) checkpointByPartition.set(target.partitionId, { ...target })

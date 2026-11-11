@@ -15,6 +15,7 @@ export async function rebuildSegmentsFromDurable(
   capturedPartitions: readonly CapturedWholePartition[] = [],
   keepsWriteRecords = false,
   liveDocuments?: readonly PartitionDocumentCount[],
+  rewriteBytesPerCheckpoint?: number,
 ): Promise<CheckpointSegmentsWritten> {
   const directory = createDurableDirectory(root)
   return writeCheckpointSegments({
@@ -27,5 +28,6 @@ export async function rebuildSegmentsFromDurable(
     capturedPartitions,
     keepsWriteRecords,
     ...(liveDocuments === undefined ? {} : { liveDocuments }),
+    ...(rewriteBytesPerCheckpoint === undefined ? {} : { rewriteBytesPerCheckpoint }),
   })
 }

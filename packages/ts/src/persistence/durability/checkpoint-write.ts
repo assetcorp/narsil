@@ -12,6 +12,7 @@ export interface IndexCheckpointSegmentsWrite {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
+  rewriteBytesPerCheckpoint: number
   canOffload: boolean
   prior: PriorCheckpoint | null
   wholePartitions: readonly PartitionContents[]
@@ -33,8 +34,8 @@ export async function writeIndexCheckpointSegments(
   input: IndexCheckpointSegmentsWrite,
 ): Promise<CheckpointSegmentsWritten> {
   const { directory, metadata, targets, compactionThreshold, prior, wholePartitions, capturedPartitions } = input
-  const { keepsWriteRecords, liveDocuments } = input
-  const counted = liveDocuments === null ? {} : { liveDocuments }
+  const { keepsWriteRecords, liveDocuments, rewriteBytesPerCheckpoint } = input
+  const counted = liveDocuments === null ? {} : { liveDocuments, rewriteBytesPerCheckpoint }
 
   const offloaded = workerCanWriteEverySegment(input)
     ? await runCheckpointOnWorker({

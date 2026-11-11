@@ -151,6 +151,7 @@ export interface DurabilityConfig {
     directory?: string;
     flushIntervalMs?: number;
     mode?: 'sync' | 'async';
+    rewriteBytesPerCheckpoint?: number;
     segmentMaxBytes?: number;
     tier?: 'wal' | 'snapshot';
 }

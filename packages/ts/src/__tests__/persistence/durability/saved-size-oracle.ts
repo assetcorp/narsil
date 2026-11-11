@@ -37,6 +37,15 @@ export function partitionCheckpointFileBytes(directory: string, indexName: strin
   return sizeOf(filesUnder(join(directory, indexName, 'segments', String(partitionId))))
 }
 
+export function partitionSegmentIds(directory: string, indexName: string, partitionId: number): Set<string> {
+  const ids = new Set<string>()
+  for (const file of filesUnder(join(directory, indexName, 'segments', String(partitionId)))) {
+    const id = /\/s(\d{16})[^/]*$/.exec(file)?.[1]
+    if (id !== undefined) ids.add(id)
+  }
+  return ids
+}
+
 export function logFileBytes(directory: string, indexName: string): number {
   return sizeOf(filesUnder(join(directory, indexName)).filter(file => LOG_FILE.test(file) || HISTORY_FILE.test(file)))
 }
