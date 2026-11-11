@@ -26,7 +26,7 @@
       "k1": 1.4,
       "b": 0.7
     },
-    "created_at": 1793882169286,
+    "created_at": 1794313766170,
     "engine_version": "0.1.0",
     "vector_fields": {
       "embedding": {
@@ -37,7 +37,7 @@
     },
     "document_count": 43,
     "surface_forms_enabled": true,
-    "analysis_revision": "ebae3448ae674b59",
+    "analysis_revision": "4026533016c7f4b1",
     "array_position_gap": 100,
     "track_positions": true,
     "required": ["title"],

@@ -1,6 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type { ControllerMessageHandler } from '../cluster/controller/types'
 import { encodeRebalanceRefusal } from '../cluster/rebalance/reply'
 import type { ClusterNodeConfig } from '../cluster-node/types'
@@ -15,14 +16,18 @@ import { runBackupDeletion } from './drivers/delete'
 import { type RestoreRequest, runBackupRestore } from './drivers/restore'
 import { type BackupJob, type BackupJobKind, finishBackupJob, startBackupJob } from './jobs'
 import { validateBackupName } from './keys'
+import { SYNC_BACKUP_TAKER } from './manifest'
+import type { ClusterQueryHistory } from './query-history'
 import { type RestorePlacement, readRestorePlacement } from './restore-options'
 import type { BackupStore } from './store'
+import { surplusSyncBackups } from './sync-retention'
 
 export interface BackupControllerDeps {
   config: ClusterNodeConfig
   nodeId: string
   isActive: () => boolean
   onError: (error: unknown) => void
+  queryHistory: ClusterQueryHistory | null
   store: BackupStore | null
   driving: Set<string>
 }
@@ -80,18 +85,19 @@ export function driveBackupJob(
   jobId: string,
   job: BackupJob,
   run: (context: BackupDriverContext) => Promise<void>,
-): void {
+): Promise<void> {
   deps.driving.add(jobId)
   const context: BackupDriverContext = {
     config: deps.config,
     nodeId: deps.nodeId,
     isActive: deps.isActive,
     onError: deps.onError,
+    queryHistory: deps.queryHistory,
     store,
     jobId,
     job,
   }
-  void run(context)
+  return run(context)
     .then(
       () => finishBackupJob(deps.config.coordinator, jobId, null),
       error => (deps.isActive() ? finishBackupJob(deps.config.coordinator, jobId, error) : deps.onError(error)),
@@ -105,7 +111,8 @@ async function startJob(
   store: BackupStore,
   job: BackupJob,
   run: (context: BackupDriverContext) => Promise<void>,
-): Promise<BackupRequestResultPayload> {
+  afterJob?: () => Promise<void>,
+): Promise<BackupRequestResultPayload & { ended: Promise<void> }> {
   const jobId = generateId()
   deps.driving.add(jobId)
   try {
@@ -114,8 +121,40 @@ async function startJob(
     deps.driving.delete(jobId)
     throw error
   }
-  driveBackupJob(deps, store, jobId, job, run)
-  return { jobId }
+  const driven = driveBackupJob(deps, store, jobId, job, run)
+  const ended = afterJob === undefined ? driven : driven.then(afterJob).catch(deps.onError)
+  return { jobId, ended }
+}
+
+function takenByOf(request: Record<string, unknown>): string | undefined {
+  if (request.takenBy === undefined) return undefined
+  if (request.takenBy !== SYNC_BACKUP_TAKER) throw malformed('backup', `"takenBy" must be "${SYNC_BACKUP_TAKER}"`)
+  return SYNC_BACKUP_TAKER
+}
+
+function queryHistoryOf(request: Record<string, unknown>): boolean {
+  if (request.queryHistory === undefined) return false
+  if (typeof request.queryHistory !== 'boolean') throw malformed('backup', '"queryHistory" must be a boolean')
+  return request.queryHistory
+}
+
+function quietRefusal(error: unknown): boolean {
+  return (
+    error instanceof NarsilError &&
+    (error.code === ErrorCodes.BACKUP_IN_PROGRESS || error.code === ErrorCodes.BACKUP_NOT_FOUND)
+  )
+}
+
+async function deleteSurplusSyncBackups(deps: BackupControllerDeps, store: BackupStore, indexName: string) {
+  for (const backupName of await surplusSyncBackups(store, indexName)) {
+    if (!deps.isActive()) return
+    try {
+      await admitDeletion(deps.config.coordinator, store, backupName)
+      await (await startJob(deps, store, runningJob('delete', backupName), runBackupDeletion)).ended
+    } catch (error) {
+      if (!quietRefusal(error)) throw error
+    }
+  }
 }
 
 function runningJob(kind: BackupJobKind, backupName: string, indexName?: string): BackupJob {
@@ -146,18 +185,35 @@ async function acceptRequest(
   const { coordinator } = deps.config
   if (kind === 'backup') {
     const indexName = indexNameOf(kind, request)
+    const takenBy = takenByOf(request)
+    const queryHistory = queryHistoryOf(request)
     await admitBackup(coordinator, store, backupName, indexName)
-    return startJob(deps, store, runningJob(kind, backupName, indexName), runBackupCreation)
+    const afterJob = takenBy === undefined ? undefined : () => deleteSurplusSyncBackups(deps, store, indexName)
+    return jobIdOf(
+      startJob(
+        deps,
+        store,
+        runningJob(kind, backupName, indexName),
+        context => runBackupCreation(context, { takenBy, queryHistory }),
+        afterJob,
+      ),
+    )
   }
   if (kind === 'restore') {
     const indexName = indexNameOf(kind, request)
     const options = restoreOptionsOf(request)
     const manifest = await admitRestore(coordinator, store, backupName, indexName)
     const restore: RestoreRequest = { manifest, ...options }
-    return startJob(deps, store, runningJob(kind, backupName, indexName), context => runBackupRestore(context, restore))
+    return jobIdOf(
+      startJob(deps, store, runningJob(kind, backupName, indexName), context => runBackupRestore(context, restore)),
+    )
   }
   await admitDeletion(coordinator, store, backupName)
-  return startJob(deps, store, runningJob(kind, backupName), runBackupDeletion)
+  return jobIdOf(startJob(deps, store, runningJob(kind, backupName), runBackupDeletion))
+}
+
+async function jobIdOf(started: ReturnType<typeof startJob>): Promise<BackupRequestResultPayload> {
+  return { jobId: (await started).jobId }
 }
 
 function answer(deps: BackupControllerDeps, kind: BackupJobKind, message: TransportMessage, respond: RespondFn) {

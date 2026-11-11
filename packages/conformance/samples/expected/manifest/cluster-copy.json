@@ -45,7 +45,7 @@
             "docCount": 40,
             "tombstoneCount": 0,
             "bytes": 47904,
-            "checksum": 1557846741
+            "checksum": 1321954543
           },
           {
             "id": 1,
@@ -53,7 +53,7 @@
             "docCount": 4,
             "tombstoneCount": 1,
             "bytes": 8272,
-            "checksum": 3717663921
+            "checksum": 1209588875
           }
         ]
       }

@@ -5,18 +5,14 @@ import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from '.
 import { ErrorCodes, NarsilError } from '../../errors'
 import { sourceIndexNameOf } from '../../persistence/archive/read'
 import { archiveStream } from '../../persistence/archive/write'
-import {
-  encodeSegmentManifest,
-  type FileRef,
-  manifestFileRefs,
-  type SegmentManifest,
-} from '../../persistence/durability/segment/manifest'
+import { type FileRef, manifestFileRefs, type SegmentManifest } from '../../persistence/durability/segment/manifest'
 import {
   type DecodedManifest,
   decodeManifestPayload,
   listedKeysOf,
   openManifestPayload,
 } from '../../persistence/durability/segment/manifest-decode'
+import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { PartitionLogPosition } from '../../persistence/durability/types'
 import { joinChunks } from '../../persistence/object-store'
 import type { ByteSource } from '../../types/byte-source'
@@ -57,7 +53,7 @@ async function packedBytes(manifest: SegmentManifest): Promise<Uint8Array> {
   return joinChunks(encoded.chunks, encoded.byteLength)
 }
 
-async function readPartitionManifest(
+export async function readPartitionManifest(
   store: BackupStore,
   backupName: string,
   partition: BackupPartition,
@@ -68,7 +64,7 @@ async function readPartitionManifest(
   try {
     const raw = await openManifestPayload(bytes)
     sourceIndexName = sourceIndexNameOf(listedKeysOf(raw))
-    decoded = decodeManifestPayload(raw, sourceIndexName)
+    decoded = decodeManifestPayload(raw, sourceIndexName, partition.partitionId)
   } catch (error) {
     throw damaged(
       backupName,

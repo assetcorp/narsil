@@ -1,4 +1,5 @@
 import type { AnyDocument } from '../../../types/schema'
+import type { GrowingSegment } from '../../segment-writes/growing'
 import {
   GROWING_PARTIAL_ENTRY_BYTES,
   GROWING_PARTIAL_PENDING_ENTRIES_PER_ENTRY,
@@ -7,11 +8,13 @@ import {
   GROWING_PARTIAL_RUN_MEMBER_BYTES,
   PARTIAL_WORD_RUN_CODE_POINTS,
 } from './constants'
+import { growingSpellingReader, growingSpellings } from './growing-reader'
 import {
   codePointCountOf,
   countDocumentSpellings,
   type PartialSpellings,
   type PartialWordAnalysis,
+  type ReadonlySpellingCounts,
   type SpellingCounts,
   sameFields,
 } from './spellings'
@@ -25,6 +28,8 @@ import type {
 } from './types'
 
 export function createGrowingPartialWordSlot(view: GrowingPartialWordView): GrowingPartialWordSlot {
+  let source: GrowingSegment | null = null
+  let sourceReader: PartialWordReader | null = null
   let fields: readonly string[] = []
   let everyDocumentPending = false
   const pending = new Set<number>()
@@ -160,7 +165,7 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
     return encoded
   }
 
-  function applyCounts(source: SpellingCounts, direction: 1 | -1): void {
+  function applyCounts(source: ReadonlySpellingCounts, direction: 1 | -1): void {
     for (const [token, byToken] of source) {
       for (const [spelling, count] of byToken) change(token, spelling, count * direction)
     }
@@ -222,8 +227,28 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
   }
 
   const slot: GrowingPartialWordSlot = {
+    growingRegions: () => source?.spellings ?? null,
+    adopt(segment, nextFields): void {
+      resetSpellings()
+      fields = [...nextFields]
+      everyDocumentPending = false
+      source = segment
+      sourceReader = growingSpellingReader(segment)
+    },
+
+    detach(): void {
+      if (source === null) return
+      const encoded = growingSpellings(source, fields)
+      source = null
+      sourceReader = null
+      for (let at = 0; at < encoded.tokens.length; at++)
+        change(encoded.tokens[at], encoded.spellings[at], encoded.counts[at])
+    },
+
     readerFor(analysis: PartialWordAnalysis): PartialWordReader | null {
       if (analysis.fields.length === 0) return null
+      if (sourceReader !== null && sameFields(fields, analysis.fields)) return sourceReader
+      slot.detach()
       adoptFields(analysis.fields)
       resolvePending(analysis)
       addEntriesToRuns()
@@ -232,15 +257,17 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
 
     spellings(): PartialSpellings | null {
       if (fields.length === 0 || everyDocumentPending || pending.size > 0) return null
+      if (source !== null) return growingSpellings(source, fields)
       return encodedSpellings()
     },
 
     afterDocument(
       documentFields: readonly string[],
       internalId: number,
-      spellings: SpellingCounts | null,
+      spellings: ReadonlySpellingCounts | null,
       direction: 1 | -1,
     ): void {
+      if (source !== null) return
       if (documentFields.length === 0) return
       if (!sameFields(fields, documentFields)) {
         const holdsOnlyThisDocument = direction === 1 && view.docStore.count() === 1
@@ -260,6 +287,7 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
 
     afterMerge(spellings: PartialSpellings | null, internalIds: readonly number[]): void {
       if (internalIds.length === 0) return
+      slot.detach()
       if (fields.length === 0 && spellings !== null && view.docStore.count() === internalIds.length) {
         adoptFields(spellings.fields)
         everyDocumentPending = false
@@ -275,11 +303,15 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
     },
 
     forgetSpellings(): void {
+      source = null
+      sourceReader = null
       resetSpellings()
       everyDocumentPending = fields.length > 0
     },
 
     clear(): void {
+      source = null
+      sourceReader = null
       fields = []
       everyDocumentPending = false
       resetSpellings()

@@ -73,12 +73,13 @@ function BarNavLink({ tab, isLocked, isReady }: NavLinkProps) {
     <Link
       to={tab.to}
       disabled={isLocked}
-      className="relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground no-underline transition-colors hover:text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-40 [&.active]:bg-secondary [&.active]:text-foreground"
+      title={tab.label}
+      className="relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground no-underline transition-colors hover:text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-40 [&.active]:bg-secondary [&.active]:text-foreground"
       activeProps={{ className: 'active' }}
       activeOptions={{ exact: tab.to === '/' }}
     >
       <Icon className="size-3.5" />
-      <span className="hidden lg:inline">{tab.label}</span>
+      <span className="sr-only xl:not-sr-only">{tab.label}</span>
       {isLocked && <Lock className="size-2.5" />}
       {isReady && <Check className="size-2.5 text-chart-2" />}
     </Link>
@@ -137,7 +138,7 @@ export function AppHeader({ appLabel, tabs }: AppHeaderProps) {
           </Badge>
         </Link>
 
-        <nav className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] md:flex [&::-webkit-scrollbar]:hidden">
+        <nav className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
           {tabs.map(tab => (
             <BarNavLink
               key={tab.to}
@@ -154,10 +155,10 @@ export function AppHeader({ appLabel, tabs }: AppHeaderProps) {
             variant="outline"
             size="sm"
             onClick={openSearch}
+            aria-label="Open search"
             className="hidden text-muted-foreground md:inline-flex"
           >
             <Search className="size-3.5" />
-            <span className="text-xs">Search</span>
             <kbd className="ml-1 inline-flex items-center gap-0.5 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
               <span className="text-xs">Cmd</span>K
             </kbd>

@@ -1,8 +1,36 @@
-import { changeIndexOutsideExternalWaits } from '#platform/turn-budget'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  changeIndexOutsideExternalWaits,
+  ErrorCodes,
+  NarsilError,
+  prepareDocumentVectors,
+  removeDocumentVectors,
+} from '#platform/optional-writes-host'
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
+import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument } from '../../types/schema'
-import { removeDocumentVectors } from '../vector-coordinator'
+import type { VectorIndex } from '../../vector/vector-index'
 import type { MutationContext } from './context'
+
+export function holdVectorsForRollback(indexes: ReadonlyMap<string, VectorIndex>, docId: string): () => void {
+  const releases: Array<() => void> = []
+  for (const index of indexes.values()) releases.push(index.holdForRollback(docId))
+  return () => {
+    for (const release of releases) release()
+  }
+}
+
+function restoreDocumentVectors(
+  docId: string,
+  vectors: ReadonlyMap<string, Float32Array>,
+  indexes: ReadonlyMap<string, VectorIndex>,
+  partitionId: number | undefined,
+): void {
+  for (const [fieldPath, index] of indexes) {
+    const vector = vectors.get(fieldPath)
+    if (vector !== undefined) index.restore(docId, vector, partitionId)
+    else if (index.has(docId)) index.remove(docId)
+  }
+}
 
 function rollbackFailed(docId: string, originalError: unknown, rollbackError: unknown): never {
   throw new NarsilError(
@@ -22,15 +50,29 @@ export async function rollbackInsertedDocument(
   docId: string,
   inserted: boolean,
   originalError: unknown,
+  preparedText?: PreparedTextChange,
+  appliedRef?: AnyDocument,
+  removedSpellings?: RemovedSpellings,
 ): Promise<void> {
   if (!inserted) {
     return
   }
   try {
-    await changeIndexOutsideExternalWaits(async () => {
-      await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
-      removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
-    })
+    const manager = ctx.requireManager(indexName)
+    await manager.publication.write(() =>
+      changeIndexOutsideExternalWaits(async () => {
+        if (appliedRef !== undefined && manager.getRef(docId) !== appliedRef) return
+        manager.remove(docId, removedSpellings, { preparedText: { before: preparedText?.after } })
+        removeDocumentVectors(docId, manager.getVectorIndexes())
+        ctx.orchestrator.publishToWorkers({
+          type: 'remove',
+          indexName,
+          docId,
+          removedSpellings,
+          requestId: `rollback-${docId}`,
+        })
+      }),
+    )
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }
@@ -42,16 +84,35 @@ export async function rollbackRemovedDocument(
   docId: string,
   restoreDoc: AnyDocument | undefined,
   originalError: unknown,
+  preparedText?: PreparedTextChange,
 ): Promise<void> {
   if (restoreDoc === undefined) {
     return
   }
   const manager = ctx.requireManager(indexName)
   try {
-    await changeIndexOutsideExternalWaits(async () => {
-      if (manager.has(docId)) return
-      await ctx.executor.execute({ type: 'insert', indexName, docId, document: restoreDoc, requestId: docId })
-    })
+    await manager.publication.write(() =>
+      changeIndexOutsideExternalWaits(async () => {
+        if (manager.has(docId)) return
+        const previous = prepareDocumentVectors(restoreDoc, ctx.requireIndex(indexName).vectorFieldPaths)
+        manager.insert(docId, previous.partitionDoc, {
+          preparedText: { after: preparedText?.before },
+        })
+        restoreDocumentVectors(
+          docId,
+          previous.extractedVectors,
+          manager.getVectorIndexes(),
+          manager.partitionIdOf(docId),
+        )
+        ctx.orchestrator.publishToWorkers({
+          type: 'insert',
+          indexName,
+          docId,
+          document: previous.partitionDoc,
+          requestId: `rollback-${docId}`,
+        })
+      }),
+    )
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }
@@ -63,14 +124,39 @@ export async function rollbackUpdatedDocument(
   docId: string,
   restoreDoc: AnyDocument | undefined,
   originalError: unknown,
+  preparedText?: PreparedTextChange,
+  appliedRef?: AnyDocument,
+  rollbackRef?: AnyDocument,
 ): Promise<void> {
-  if (restoreDoc === undefined) {
+  if (restoreDoc === undefined || appliedRef === undefined) {
     return
   }
   try {
-    await changeIndexOutsideExternalWaits(async () => {
-      await ctx.executor.execute({ type: 'update', indexName, docId, document: restoreDoc, requestId: docId })
-    })
+    const manager = ctx.requireManager(indexName)
+    await manager.publication.write(() =>
+      changeIndexOutsideExternalWaits(async () => {
+        if (manager.getRef(docId) !== appliedRef) return
+        const fields = ctx.requireIndex(indexName).vectorFieldPaths
+        const previous = prepareDocumentVectors(restoreDoc, fields)
+        manager.update(docId, rollbackRef ?? previous.partitionDoc, {
+          skipClone: rollbackRef !== undefined,
+          preparedText: { before: preparedText?.after, after: preparedText?.before },
+        })
+        restoreDocumentVectors(
+          docId,
+          previous.extractedVectors,
+          manager.getVectorIndexes(),
+          manager.partitionIdOf(docId),
+        )
+        ctx.orchestrator.publishToWorkers({
+          type: 'update',
+          indexName,
+          docId,
+          document: previous.partitionDoc,
+          requestId: `rollback-${docId}`,
+        })
+      }),
+    )
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }

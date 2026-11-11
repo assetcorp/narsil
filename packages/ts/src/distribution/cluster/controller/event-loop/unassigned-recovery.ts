@@ -1,6 +1,6 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../../../core/id-generator'
 import { compareCodePoints } from '../../../../core/ordering'
+import { decode } from '../../../../serialization/msgpack'
 import type {
   AllocationTable,
   ClusterCoordinator,

@@ -1,6 +1,6 @@
 import type { BackupListing, DamagedBackup } from '../distribution/backups/types'
 import { encodeJson } from '../json-encoding'
-import type { RestoreBackupBody, TaskRecord } from '../server/types'
+import type { CreateBackupBody, RestoreBackupBody, TaskRecord } from '../server/types'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
@@ -24,12 +24,17 @@ export interface BackupOperations {
    * @param indexName - This names the index to back up.
    * @param backupName - This names the backup, with 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a
    * letter or a digit.
-   * @param options - This sets the signal, the deadline, and the headers for this request.
+   * @param options - This sets the signal, the deadline, and the headers for this request. Set `queryHistory` to add
+   * every node's popular query suggestion history of the index, which holds raw searches, to the backup.
    * @returns The record is the task to follow.
    * @throws A `NarsilError` with `CLUSTER_OPERATION_UNSUPPORTED` from a server that fronts a single engine. The task
    * reports `BACKUP_ALREADY_EXISTS` or `BACKUP_DURABILITY_REQUIRED` in its `error`.
    */
-  createBackup(indexName: string, backupName: string, options?: RequestOptions): Promise<TaskRecord>
+  createBackup(
+    indexName: string,
+    backupName: string,
+    options?: RequestOptions & Pick<CreateBackupBody, 'queryHistory'>,
+  ): Promise<TaskRecord>
   /**
    * Lists the backups under the cluster's key prefix, in name order.
    *
@@ -77,7 +82,9 @@ export function createBackupOperations(transport: Transport): BackupOperations {
 
   return {
     createBackup(indexName, backupName, options) {
-      return postTask(`${indexPath(indexName)}/backups`, { backup: backupName }, options)
+      const { queryHistory, ...request } = options ?? {}
+      const body: CreateBackupBody = { backup: backupName, ...(queryHistory === true ? { queryHistory } : {}) }
+      return postTask(`${indexPath(indexName)}/backups`, body, request)
     },
     async listBackups(options) {
       const path = '/backups'

@@ -1,9 +1,11 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
+import { createServer } from '../../../server'
 import type { Narsil } from '../../../types/engine'
 import type { IndexConfig } from '../../../types/schema'
 import { seededRandom } from './oracle'
@@ -86,7 +88,48 @@ describe('a vector field of an index with its text on disk', () => {
       ...(group === undefined ? {} : { filters: { fields: { group: { eq: group } } } }),
       limit: TOP,
     })
+    for (const hit of result.hits) {
+      const embedding = hit.document?.embedding
+      const vector = embedding instanceof Float32Array ? Array.from(embedding) : embedding
+      if (!Array.isArray(vector) || !vector.every(value => typeof value === 'number')) {
+        throw new Error('The search returned no vector with its score')
+      }
+      expect(hit.score).toBeCloseTo(cosine(vector, Array.from(query, Math.fround)), 5)
+    }
     return result.hits.map(hit => hit.id)
+  }
+
+  async function cancelHttpSearch(query: readonly number[]): Promise<void> {
+    const server = createServer(engine, { host: '127.0.0.1', port: 0 })
+    const controller = new AbortController()
+    await server.listen()
+    try {
+      let finished = false
+      const response = fetch(`http://127.0.0.1:${server.listeningPort}/indexes/${INDEX}/search`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ vector: { field: 'embedding', value: query, efSearch: PASSAGES }, limit: TOP }),
+        signal: controller.signal,
+      })
+        .then(
+          () => 'answered',
+          () => 'cancelled',
+        )
+        .finally(() => {
+          finished = true
+        })
+      const deadline = Date.now() + LOAD_FAILURE_WAIT_MS
+      while (engine.getStats(INDEX).heldSearchStates === 0 && !finished && Date.now() < deadline) await nextTurn()
+      expect(engine.getStats(INDEX).heldSearchStates).toBe(1)
+      expect(isLoading()).toBe(true)
+      controller.abort()
+      expect(await response).toBe('cancelled')
+      while (engine.getStats(INDEX).heldSearchStates !== 0 && Date.now() < deadline) await nextTurn()
+      expect(engine.getStats(INDEX).heldSearchStates).toBe(0)
+    } finally {
+      controller.abort()
+      await server.close()
+    }
   }
 
   function expectCloseTo(found: readonly string[], wanted: readonly string[]): void {
@@ -128,11 +171,10 @@ describe('a vector field of an index with its text on disk', () => {
 
     expect(isLoading()).toBe(true)
     const queries = Array.from({ length: 5 }, () => randomVector(random))
-    const beforeLoadEnds: string[][] = []
-    for (const query of queries) {
-      beforeLoadEnds.push(await nearest(query))
-      expectCloseTo(beforeLoadEnds[beforeLoadEnds.length - 1], nearestInOracle(oracle, query, undefined))
-    }
+    await cancelHttpSearch(queries[0])
+    const beforeLoadEnds = await Promise.all(queries.map(query => nearest(query)))
+    for (let at = 0; at < queries.length; at++)
+      expectCloseTo(beforeLoadEnds[at], nearestInOracle(oracle, queries[at], undefined))
     await untilLoaded()
     for (let at = 0; at < queries.length; at++) {
       expect(await nearest(queries[at])).toEqual(beforeLoadEnds[at])
@@ -173,6 +215,52 @@ describe('a vector field of an index with its text on disk', () => {
     expect((await nearest(replaced.embedding))[0]).toBe('passage-1')
     expect(await nearest(removedVector)).not.toContain('passage-2')
     await untilLoaded()
+    const query = randomVector(random)
+    expectCloseTo(await nearest(query), nearestInOracle(oracle, query, undefined))
+  }, 120_000)
+
+  it('keeps a passage that is removed and inserted again during the load, through another restart', async () => {
+    const random = seededRandom(174)
+    const oracle = new Map<string, Passage>()
+    await fill(oracle, random)
+    await engine.shutdown()
+    await open()
+    expect(isLoading()).toBe(true)
+
+    const unchanged = oracle.get('passage-5')
+    if (unchanged === undefined) throw new Error('The test lost a passage')
+    await engine.remove(INDEX, 'passage-5')
+    await engine.insert(INDEX, unchanged, 'passage-5')
+    const added: Passage = { title: 'passage added late', group: 'common', embedding: randomVector(random) }
+    await engine.insert(INDEX, added, 'added-late')
+    await engine.remove(INDEX, 'added-late')
+    await engine.insert(INDEX, added, 'added-late')
+    oracle.set('added-late', added)
+    const replacedVector = oracle.get('passage-6')?.embedding
+    if (replacedVector === undefined) throw new Error('The test lost a passage')
+    const replaced: Passage = { title: 'passage replaced late', group: 'common', embedding: randomVector(random) }
+    await engine.remove(INDEX, 'passage-6')
+    await engine.insert(INDEX, replaced, 'passage-6')
+    oracle.set('passage-6', replaced)
+
+    async function expectEveryLatePassage(): Promise<void> {
+      expect((await nearest(unchanged?.embedding ?? []))[0]).toBe('passage-5')
+      expect((await nearest(added.embedding))[0]).toBe('added-late')
+      expect((await nearest(replaced.embedding))[0]).toBe('passage-6')
+      expect((await nearest(replacedVector ?? []))[0]).not.toBe('passage-6')
+      expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
+    }
+
+    await expectEveryLatePassage()
+    await untilLoaded()
+    await expectEveryLatePassage()
+
+    await engine.checkpoint(INDEX)
+    await engine.shutdown()
+    await open()
+    await expectEveryLatePassage()
+    await untilLoaded()
+    await expectEveryLatePassage()
     const query = randomVector(random)
     expectCloseTo(await nearest(query), nearestInOracle(oracle, query, undefined))
   }, 120_000)
@@ -248,6 +336,12 @@ describe('a vector field of an index with its text on disk', () => {
 
     await open()
     await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
+    await expect(
+      engine.query(INDEX, {
+        vector: { field: 'embedding', value: Array.from(wanted), metric: 'cosine', efSearch: PASSAGES },
+        limit: TOP,
+      }),
+    ).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
     await new Promise(resolve => setTimeout(resolve, LOAD_FAILURE_WAIT_MS))
     expect(isLoading()).toBe(true)
     await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })

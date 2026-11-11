@@ -98,6 +98,30 @@ async function indexWithFrozenSegmentAndLiveTail(): Promise<WorkshopServer> {
 
 describe('completions served over HTTP from worker copies that hold a frozen segment and a live tail', () => {
   it.skipIf(!WORKERS_BUILT)(
+    'reselects completions and their scores when removals change the partition counts',
+    async () => {
+      const server = await indexWithFrozenSegmentAndLiveTail()
+      const search = searchOver(server.client)
+      const query = { term: 'ca', prefix: true }
+      expectSameHits(await search(query), createOracle(DOCUMENTS).search(query), 'before removal')
+      const removed = DOCUMENTS.filter(document =>
+        ['tail-canal', 'frozen-astral', 'tail-rare'].some(prefix => String(document.id).startsWith(prefix)),
+      )
+      const ids = new Set(removed.map(document => String(document.id)))
+      expect((await server.client.removeBatch(INDEX, [...ids])).failed).toEqual([])
+      await server.client.waitForWrites(INDEX)
+      const remaining = DOCUMENTS.filter(document => !ids.has(String(document.id)))
+      for (const query of PREFIX_QUERIES)
+        expectSameHits(await search(query), createOracle(remaining).search(query), `after removal ${query.term}`)
+      await insertAll(server, removed)
+      await server.client.waitForWrites(INDEX)
+      for (const query of PREFIX_QUERIES)
+        expectSameHits(await search(query), createOracle(DOCUMENTS).search(query), `after reinsertion ${query.term}`)
+    },
+    120_000,
+  )
+
+  it.skipIf(!WORKERS_BUILT)(
     'the engine scores the 50 completions that the most documents contain across both parts, as the oracle does',
     async () => {
       const server = await indexWithFrozenSegmentAndLiveTail()

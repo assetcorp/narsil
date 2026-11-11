@@ -1,0 +1,3 @@
+export const MAX_GRANT_RESPONSE_BYTES = 4_096
+export const GRANT_TIMEOUT_MS = 15_000
+export const CHANGE_COALESCE_MS = 150

@@ -1,5 +1,5 @@
 import { createDocumentStore } from '../../core/document-store'
-import type { FilterSubset } from '../../vector/filter-ordinals'
+import type { FilterSubset } from '../../vector/ordinal-filter'
 
 export function filterSubsetsForDocIds(docIds: Iterable<string>): FilterSubset[] {
   const docStore = createDocumentStore()

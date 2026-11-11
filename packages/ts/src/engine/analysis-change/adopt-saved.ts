@@ -1,12 +1,15 @@
-import { resolveIndexAnalysis } from '../../analysis/registry'
-import { getLanguage } from '../../languages/registry'
-import { resolvePartialWordAnalysis } from '../../partitioning/insert-options'
+import {
+  getLanguage,
+  prepareStoredSynonyms,
+  reconstructSchemaFromMetadata,
+  resolveIndexAnalysis,
+  resolvePartialWordAnalysis,
+  rulesOfStoredSynonyms,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { IndexMetadata } from '../../types/internal'
 import type { IndexConfig } from '../../types/schema'
 import type { IndexRegistryEntry } from '../core'
-import { reconstructSchemaFromMetadata } from '../recovery-schema'
-import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 
 export function adoptSavedAnalysis(
   manager: PartitionManager | undefined,

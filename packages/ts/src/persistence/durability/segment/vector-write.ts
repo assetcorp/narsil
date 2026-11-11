@@ -1,8 +1,12 @@
-import { encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { checksumOfChunks } from '../../../serialization/chunk-checksum'
+import {
+  checksumOfChunks,
+  ErrorCodes,
+  encode,
+  NarsilError,
+  packChecksummedEnvelope,
+  packEnvelopeWithChecksum,
+} from '#platform/storage-host'
 import { crc32Combine } from '../../../serialization/crc32-combine'
-import { packChecksummedEnvelope, packEnvelopeWithChecksum } from '../../../serialization/envelope-file'
 import type { VectorCheckpointPlan, WrittenVectorFile } from '../../../vector/vector-index'
 import { type PagedPartChunks, pagedGraphPartChunks, pagedVectorFileChunks } from '../../paged/vector-bytes'
 import { graphPartKey, vectorFileKey } from './layout'

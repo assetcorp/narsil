@@ -8,6 +8,7 @@ import type {
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25WithIDF, computeIDF } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
+import { orderRunByFieldName } from './field-order'
 import { bestSearchable, blockEntryBound, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
@@ -86,6 +87,7 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
     k1s,
     bs,
     boundPairs,
+    nameRanks,
   } = request.fields
   const onePair = boundPairs.length === 2
   const onlyK1 = boundPairs[0]
@@ -133,15 +135,20 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
       }
       let score = 0
       let scored = false
-      while (entry < end && docIds[entry] === internalId) {
-        const fieldIndex = fieldNameIndices[entry]
+      const ordered =
+        entry + 2 < end && docIds[entry + 2] === internalId
+          ? orderRunByFieldName(docIds, fieldNameIndices, nameRanks, entry, end)
+          : null
+      for (let at = 0; entry < end && docIds[entry] === internalId; at++, entry++) {
+        const row = ordered === null ? entry : ordered[at]
+        const fieldIndex = fieldNameIndices[row]
         if (fieldSearchable[fieldIndex] === 1) {
           const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, internalId, fieldAvgLengths[fieldIndex])
           score +=
             (scoresAreZero
               ? 0
               : computeBM25WithIDF(
-                  termFrequencies[entry],
+                  termFrequencies[row],
                   idf,
                   fieldLength,
                   fieldAvgLengths[fieldIndex],
@@ -150,7 +157,6 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
                 )) * fieldBoosts[fieldIndex]
           scored = true
         }
-        entry++
       }
       if (!scored) continue
       totalMatched++

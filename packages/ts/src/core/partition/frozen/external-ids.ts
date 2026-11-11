@@ -1,5 +1,5 @@
 import { compareCodePoints } from '../../ordering'
-import { codePointOrder, encodeLookupKey, encodeStringBlob } from './string-blob'
+import { codePointOrder, compareBytes, encodeLookupKey, encodeStringBlob } from './string-blob'
 
 export interface ExternalIdTable {
   readonly count: number
@@ -17,21 +17,11 @@ export interface ExternalIdTableData {
   sortedOrdinals: Uint32Array
 }
 
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 export function encodeExternalIdTableData(docIds: readonly string[]): ExternalIdTableData {
   const { blob, offsets } = encodeStringBlob(docIds)
   return { blob, offsets, sortedOrdinals: Uint32Array.from(codePointOrder(docIds)) }
-}
-
-function compareBytes(blob: Uint8Array, start: number, end: number, query: Uint8Array): number {
-  const length = end - start
-  const shared = length < query.length ? length : query.length
-  for (let i = 0; i < shared; i++) {
-    const diff = blob[start + i] - query[i]
-    if (diff !== 0) return diff
-  }
-  return length - query.length
 }
 
 export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable {

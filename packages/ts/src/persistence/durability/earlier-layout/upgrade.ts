@@ -2,6 +2,7 @@ import type { PartitionManager } from '../../../partitioning/manager'
 import type { IndexMetadata } from '../../../types/internal'
 import type { VectorIndex } from '../../../vector/vector-index'
 import type { VectorCheckpointPlan } from '../../../vector/vector-index/checkpoint-plan'
+import { whileGraphsStayComplete } from '../complete-graphs'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import { partitionContentsOf } from '../segment/captured-partition'
 import { reclaimUnlistedKeys } from '../segment/load'
@@ -89,14 +90,15 @@ async function writeCurrentLayout(
 ): Promise<void> {
   const priorVectors = priorVectorsOf(earlier, fileRefs)
   const plans = new Map<string, VectorCheckpointPlan>()
-  for (const [fieldPath, vectorIndex] of deps.vectorIndexes) {
-    await vectorIndex.completeGraph()
-    const listed = priorVectors.find(ref => ref.fieldPath === fieldPath)
-    plans.set(
-      fieldPath,
-      vectorIndex.planCheckpoint(listed === undefined ? null : listed.files.map(file => file.key), true),
-    )
-  }
+  await whileGraphsStayComplete(deps.vectorIndexes, () => {
+    for (const [fieldPath, vectorIndex] of deps.vectorIndexes) {
+      const listed = priorVectors.find(ref => ref.fieldPath === fieldPath)
+      plans.set(
+        fieldPath,
+        vectorIndex.planCheckpoint(listed === undefined ? null : listed.files.map(file => file.key), true),
+      )
+    }
+  })
   const written = await writeCheckpointSegments({
     store: deps.store,
     metadata: deps.metadata,

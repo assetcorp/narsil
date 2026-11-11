@@ -1,0 +1,3 @@
+export const TEXT_DECODE_UNITS = 1024
+export const VALUES_INITIAL_CAPACITY = 64
+export const PAYLOAD_INITIAL_CAPACITY = 128

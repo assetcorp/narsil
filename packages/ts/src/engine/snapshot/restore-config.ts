@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, MAX_PARTITIONS, NarsilError } from '#platform/storage-host'
 import type {
   BM25FieldParams,
   BM25Params,
@@ -30,6 +30,9 @@ export interface SnapshotEnvelope {
   patternValueLimit?: unknown
   synonyms?: unknown
   embedding?: unknown
+  querySuggestions?: unknown
+  bannedQueries?: unknown
+  querySuggestionsSource?: unknown
   partitions?: Uint8Array[]
   vectorIndexes?: Record<string, unknown>
 }
@@ -161,7 +164,7 @@ export function restoredPartitionConfig(
   }
   return {
     ...(typeof maxDocsPerPartition === 'number' ? { maxDocsPerPartition } : {}),
-    ...(typeof maxPartitions === 'number' ? { maxPartitions } : {}),
+    ...(typeof maxPartitions === 'number' ? { maxPartitions: Math.min(maxPartitions, MAX_PARTITIONS) } : {}),
     ...(typeof watermark === 'number' ? { watermark } : {}),
   }
 }

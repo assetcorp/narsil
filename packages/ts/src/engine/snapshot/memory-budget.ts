@@ -1,9 +1,12 @@
-import { readHeapStatistics } from '#platform/heap-statistics'
-import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
-import { readResidentMemory } from '#platform/process-limit'
-import { ErrorCodes, NarsilError } from '../../errors'
+import {
+  collectAndReturnPages,
+  ErrorCodes,
+  extractVectorFieldsFromSchema,
+  NarsilError,
+  readHeapStatistics,
+  readResidentMemory,
+} from '#platform/storage-host'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
-import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import {
   RESTORE_ESTIMATE_MARGIN,
   RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,

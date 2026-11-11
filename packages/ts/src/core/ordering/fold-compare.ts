@@ -1,4 +1,4 @@
-import { compareCodePoints } from './code-points'
+import { compareCodePoints } from '../../engine/optional-reads-host-bindings'
 import { multiFoldTable, singleFoldTable } from './fold-table'
 
 interface FoldCursor {

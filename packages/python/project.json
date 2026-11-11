@@ -1,5 +1,14 @@
 {
   "name": "narsil-python",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/toml-version-actions.js",
+      "versionActionsOptions": {
+        "manifest": "pyproject.toml",
+        "table": "project"
+      }
+    }
+  },
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

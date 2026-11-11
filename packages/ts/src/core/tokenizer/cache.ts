@@ -1,5 +1,6 @@
 import { createNarsilError, ErrorCodes } from '../../errors'
 import type { LanguageModule } from '../../types/language'
+import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
 import {
   CONSTRAINED_MEMORY_TOKEN_CACHE_FRACTION,
   LARGE_DEVICE_TOKEN_CACHE_ENTRIES,
@@ -13,6 +14,7 @@ import {
   TOKEN_CACHE_SIZE_FLOOR,
   UNKNOWN_MEMORY_TOKEN_CACHE_ENTRIES,
 } from './constants'
+import { nativeAnalysis } from './native-hook'
 import { stripDiacritics } from './normalize'
 
 function clampCacheSize(entries: number): number {
@@ -51,6 +53,7 @@ let normalizationCacheSize = 0
 let maxCacheSize = computeDefaultCacheSize()
 
 let cachedLangName = ''
+let cachedRevision = ''
 let cachedFlags = ''
 let cachedBucket: Map<string, string> | null = null
 
@@ -95,15 +98,18 @@ export function configureNormalizationCache(maxSize: number): void {
 }
 
 function getCacheBucket(language: LanguageModule, flags: string): Map<string, string> {
-  const langKey = `${language.name}@${language.revision}`
-  if (cachedBucket && langKey === cachedLangName && flags === cachedFlags) return cachedBucket
-  const key = `${langKey}:${flags}`
+  const name = language.name
+  const revision = language.revision
+  if (cachedBucket && name === cachedLangName && revision === cachedRevision && flags === cachedFlags)
+    return cachedBucket
+  const key = `${name}@${revision}:${flags}`
   let bucket = normalizationCache.get(key)
   if (!bucket) {
     bucket = new Map()
     normalizationCache.set(key, bucket)
   }
-  cachedLangName = langKey
+  cachedLangName = name
+  cachedRevision = revision
   cachedFlags = flags
   cachedBucket = bucket
   return bucket
@@ -131,6 +137,19 @@ function evictOldestEntries(count: number): void {
   }
 }
 
+function transformInTypeScript(
+  raw: string,
+  language: LanguageModule,
+  stem: boolean,
+  removeDiacritics: boolean,
+): string {
+  let normalized = raw
+  if (language.normalizer) normalized = language.normalizer(normalized)
+  if (removeDiacritics) normalized = stripDiacritics(normalized)
+  if (stem && language.stemmer) normalized = language.stemmer(normalized)
+  return normalized
+}
+
 export function transformToken(
   raw: string,
   language: LanguageModule,
@@ -142,19 +161,10 @@ export function transformToken(
   const cached = bucket.get(raw)
   if (cached !== undefined) return cached
 
-  let normalized = raw
-
-  if (language.normalizer) {
-    normalized = language.normalizer(normalized)
-  }
-
-  if (removeDiacritics) {
-    normalized = stripDiacritics(normalized)
-  }
-
-  if (stem && language.stemmer) {
-    normalized = language.stemmer(normalized)
-  }
+  const normalized = withUnpairedSurrogatesReplaced(
+    nativeAnalysis()?.transform(raw, language, stem, removeDiacritics) ??
+      transformInTypeScript(raw, language, stem, removeDiacritics),
+  )
 
   if (normalizationCacheSize >= maxCacheSize) {
     evictOldestEntries(Math.max(1, maxCacheSize >>> 2))

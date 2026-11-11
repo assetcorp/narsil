@@ -4,6 +4,7 @@ import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
 import type { ParseRefusal } from '../parse-heap'
 import type { ServerHandlers } from '../routes'
+import type { FeedAdmitRequest, FeedAdmittedReply } from '../sync/feed-messages'
 import type { RequestContext, RequestDenial } from '../types'
 
 export interface RequestThreadSettings {
@@ -35,6 +36,7 @@ export interface RequestThreadSettings {
   patternWorkCap: number
   maxRerankWindow: number
   allowRegex: boolean
+  sync: boolean
   /** Every request thread counts here the searches it has handed to the long-query thread and that have not yet answered. */
   longQueriesInFlight: SharedArrayBuffer
   longQueryPort: MessagePort | null
@@ -65,6 +67,7 @@ export type ThreadOnlyRoute = 'livez' | 'version' | 'capabilities'
 export type RelayedRoute = Exclude<keyof ServerHandlers, ThreadOnlyRoute>
 
 export interface RelayedRequest {
+  stop?: SharedArrayBuffer
   type: 'request'
   requestId: number
   route: RelayedRoute
@@ -75,6 +78,7 @@ export interface RelayedRequest {
   bodyRefusal: ParseRefusal | null
   spooledBody: { path: string; bytes: number } | null
   hookContext: RequestContext | null
+  requestHeaders: Record<string, string>
 }
 
 export interface StreamCreditNote {
@@ -133,12 +137,14 @@ export type RelayRequest =
   | LeavingNote
   | StreamCreditNote
   | StreamCancelNote
+  | FeedAdmitRequest
 
 export interface RelayedStreamStart {
   type: 'stream-start'
   requestId: number
   status: number
   headers: Array<[string, string]>
+  totalSize: number | null
 }
 
 export interface RelayedStreamChunk {
@@ -168,6 +174,7 @@ export interface AuthorizedReply {
   requestId: number
   denial: RequestDenial | null
   hookError: boolean
+  expiresAt: number | null
 }
 
 export interface EmbeddedReply {
@@ -189,7 +196,13 @@ export interface WritesAppliedReply {
   requestId: number
 }
 
-export type RelayReply = RelayedResponse | AuthorizedReply | EmbeddedReply | RerankedReply | WritesAppliedReply
+export type RelayReply =
+  | RelayedResponse
+  | AuthorizedReply
+  | EmbeddedReply
+  | RerankedReply
+  | WritesAppliedReply
+  | FeedAdmittedReply
 
 export interface ServeRequestsResult {
   descriptor: unknown

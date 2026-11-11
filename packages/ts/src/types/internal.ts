@@ -1,4 +1,5 @@
 import type { GroupSynonyms } from '../core/synonyms/types'
+import type { QuerySuggestionsSetting, QuerySuggestionsSource } from './query-suggestions'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
 
 export interface PostingEntry {
@@ -182,6 +183,22 @@ export interface IndexMetadata {
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
   synonyms?: unknown
+  sync?: StoredSyncSetting
+  syncActive?: boolean
+  syncEpoch?: string
+  querySuggestions?: StoredQuerySuggestions
+}
+
+export interface StoredQuerySuggestions {
+  querySuggestions?: QuerySuggestionsSetting
+  bannedQueries?: string[]
+  querySuggestionsSource?: QuerySuggestionsSource
+}
+
+export interface StoredSyncSetting {
+  enabled: boolean
+  historyMaxAgeMs?: number
+  historyMaxBytes?: number
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

@@ -11,7 +11,7 @@ import { createMockAdapter } from '../embedding/fixtures'
 
 const schema = { title: 'string' as const, category: 'string' as const }
 
-const indexConfig: IndexConfig = { schema, language: 'english' }
+const indexConfig: IndexConfig = { schema, language: 'english', partitions: { maxPartitions: 4 } }
 
 function seedDocs(count: number): Array<Record<string, unknown>> {
   const docs: Array<Record<string, unknown>> = []
@@ -122,6 +122,7 @@ describe('rebalance write buffering', () => {
       await embedded.createIndex('articles', {
         schema: { title: 'string', embedding: 'vector[8]' },
         embedding: { adapter, fields: { embedding: ['title'] } },
+        partitions: { maxPartitions: 2 },
       })
       const docs: Array<Record<string, unknown>> = []
       for (let i = 0; i < 2500; i++) {
@@ -148,6 +149,7 @@ describe('rebalance write buffering', () => {
       partitions: { maxDocsPerPartition: 2500 },
     })
     await narsil.insertBatch('bounded', seedDocs(2500))
+    await narsil.updatePartitionConfig('bounded', { maxPartitions: 2 })
 
     const rebalancePromise = narsil.rebalance('bounded', 2)
     await expect(
@@ -198,6 +200,7 @@ describe('rebalance write buffering', () => {
     await narsil.insert('watched', { id: 'beyond', title: 'beyond doc', category: 'edge' })
     expect(events).toHaveLength(1)
 
+    await narsil.updatePartitionConfig('watched', { maxPartitions: 2 })
     await narsil.rebalance('watched', 2)
     await narsil.insertBatch(
       'watched',
@@ -283,6 +286,32 @@ describe('rebalance durability', () => {
     await rm(diskAtCrash, { recursive: true, force: true })
   })
 
+  it(
+    'exports each document once and reopens with the merged partition count after merging partitions',
+    { timeout: 60_000 },
+    async () => {
+      const seeded = seedDocs(300)
+      const expectedIds = seeded.map(doc => String(doc.id)).sort()
+      engine = await createNarsil({ durability: { directory: dir, mode: 'sync' }, workers: { enabled: false } })
+      await engine.createIndex('products', indexConfig)
+      await engine.insertBatch('products', seeded)
+      await engine.rebalance('products', 4)
+      expect(await exportedIds(engine, 'products')).toEqual(expectedIds)
+      await engine.rebalance('products', 1)
+
+      expect(await exportedIds(engine, 'products')).toEqual(expectedIds)
+      await engine.shutdown()
+
+      engine = await createNarsil({ durability: { directory: dir, mode: 'sync' }, workers: { enabled: false } })
+      expect(narsilStatsPartitionCount(engine)).toBe(1)
+      expect(await engine.countDocuments('products')).toBe(300)
+      expect(await exportedIds(engine, 'products')).toEqual(expectedIds)
+
+      await engine.rebalance('products', 3)
+      expect(await exportedIds(engine, 'products')).toEqual(expectedIds)
+    },
+  )
+
   it('persists an updated partition configuration across recovery', async () => {
     engine = await createNarsil({ durability: { directory: dir, mode: 'sync' } })
     await engine.createIndex('products', {
@@ -303,6 +332,12 @@ describe('rebalance durability', () => {
 
 function narsilStatsPartitionCount(engine: Narsil): number {
   return engine.getStats('products').partitionCount
+}
+
+async function exportedIds(engine: Narsil, indexName: string): Promise<string[]> {
+  const text = await new Response(await engine.exportDocuments(indexName)).text()
+  const documentLines = text.trim().split('\n').slice(1)
+  return documentLines.map(line => String((JSON.parse(line) as { id: unknown }).id)).sort()
 }
 
 describe('rebalance guards', () => {

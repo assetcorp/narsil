@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { encode } from '#platform/storage-host'
 
 const FIXMAP = 0x80
 const MAP16 = 0xde

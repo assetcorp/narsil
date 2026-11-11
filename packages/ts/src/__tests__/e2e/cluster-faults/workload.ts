@@ -8,6 +8,8 @@ const OPERATIONS_PER_DOCUMENT = 5
 const REMOVE_SHARE = 0.3
 const SEARCH_PAUSE_MS = 50
 const IDLE_PAUSE_MS = 100
+const SEARCH_CONTEXT_MISSING = 'SEARCH_CONTEXT_MISSING'
+const SEARCH_CONTEXT_RETRIES = 5
 
 export const SEARCH_TERM = 'ledger'
 
@@ -112,6 +114,24 @@ function settle(
   ledger.record(docId, next, 'unanswered')
 }
 
+async function searchAsAClient(base: string, indexName: string): Promise<{ reply: Reply | null; failure: string }> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const reply = await send(
+        base,
+        'POST',
+        `/indexes/${indexName}/search`,
+        { term: SEARCH_TERM, limit: 1 },
+        SEARCH_TIMEOUT_MS,
+      )
+      if (reply.code !== SEARCH_CONTEXT_MISSING || attempt >= SEARCH_CONTEXT_RETRIES) return { reply, failure: '' }
+    } catch (error) {
+      return { reply: null, failure: error instanceof Error ? error.message : String(error) }
+    }
+    await sleep(SEARCH_PAUSE_MS)
+  }
+}
+
 export function startWorkload(options: {
   fleet: Fleet
   ledger: Ledger
@@ -156,19 +176,7 @@ export function startWorkload(options: {
       }
       const startedOn = faults.startedOn[slot] ?? 0
       const during = faults.describe()
-      let reply: Reply | null = null
-      let failure = ''
-      try {
-        reply = await send(
-          fleet.nodes[slot]?.base ?? '',
-          'POST',
-          `/indexes/${indexName}/search`,
-          { term: SEARCH_TERM, limit: 1 },
-          SEARCH_TIMEOUT_MS,
-        )
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error)
-      }
+      const { reply, failure } = await searchAsAClient(fleet.nodes[slot]?.base ?? '', indexName)
       searchCount += 1
       const faultedMeanwhile = (faults.startedOn[slot] ?? 0) !== startedOn || !(fleet.nodes[slot]?.running() ?? false)
       if (!faultedMeanwhile && (reply === null || reply.status !== 200)) {

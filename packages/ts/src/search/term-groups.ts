@@ -1,4 +1,3 @@
-import { codePointCount } from '../core/ordering/code-points'
 import type { PartitionIndex } from '../core/partition'
 import { addPartialWordMembers } from '../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
@@ -58,11 +57,9 @@ function addCompletions(
 ): void {
   if (typedPrefix === undefined || typedPrefix.length === 0) return
   const group = groupFor(groups, lastToken.token, false)
-  const ownLength = codePointCount(lastToken.token)
   for (const completion of partition.expandTermPrefix(typedPrefix, lastToken.token, PREFIX_MAX_EXPANSIONS)) {
-    if (completion === lastToken.token) continue
-    const factor = Math.min(1, ownLength / codePointCount(completion))
-    group.members.push({ token: completion, factor, partialFactor: factor })
+    if (completion.token === lastToken.token) continue
+    group.members.push({ token: completion.token, factor: completion.factor, partialFactor: completion.factor })
   }
 }
 

@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, flattenSchema, NarsilError } from '#platform/storage-host'
 import type { ByteReader } from '../../persistence/archive/byte-reader'
 import { writeArchiveFile } from '../../persistence/archive/file-entry'
 import { memoryCheckpointStore } from '../../persistence/archive/memory-store'
@@ -7,13 +7,20 @@ import { validateStagedCheckpoint } from '../../persistence/archive/validate'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
 import { manifestKey } from '../../persistence/durability/segment/layout'
 import { loadSegmentedCheckpoint } from '../../persistence/durability/segment/load'
-import { encodeSegmentManifest, type SegmentManifest } from '../../persistence/durability/segment/manifest'
+import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
+import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
-import { flattenSchema } from '../../schema/validator'
-import { decodeIndexConfiguration } from './index-configuration'
+import { bytesThatSegmentsHoldInMemory } from '../../persistence/paged/segment-scan'
+import { decodeIndexConfiguration } from './index-configuration-decode'
 import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
-import { type PreparedIndex, prepareDetachedIndex, prepareRestoredIndex, type RestoreDeps } from './restore-setup'
+import {
+  type PreparedIndex,
+  prepareDetachedIndex,
+  prepareRestoredIndex,
+  type RestoreDeps,
+  type RestoredHistorySink,
+} from './restore-setup'
 
 function rejectConfiguration(message: string): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Invalid index configuration: ${message}`)
@@ -57,6 +64,7 @@ function partitionCountOf(manifest: SegmentManifest): number {
 interface StagedArchive {
   prepared: PreparedIndex | null
   manifest: SegmentManifest | null
+  history: RestoredHistorySink | null | undefined
 }
 
 function missingPart(what: string): never {
@@ -67,9 +75,20 @@ function keepsTextOnDisk(prepared: PreparedIndex, staging: CheckpointStore): boo
   return prepared.config.textStorage === 'disk' && staging.directory !== undefined
 }
 
-async function stageArchive(indexName: string, reader: ByteReader, staging: CheckpointStore, deps: RestoreDeps) {
-  const staged: StagedArchive = { prepared: null, manifest: null }
+async function stageArchive(
+  indexName: string,
+  reader: ByteReader,
+  staging: CheckpointStore,
+  deps: RestoreDeps,
+  staged: StagedArchive,
+) {
   await readSnapshotArchive(reader, {
+    history: async chunks => {
+      if (staged.history === undefined) {
+        staged.history = (await deps.querySuggestions?.historySink(staged.prepared?.querySuggestions ?? null)) ?? null
+      }
+      await staged.history?.add(chunks)
+    },
     config: async bytes => {
       staged.prepared = prepareRestoredIndex(await decodeIndexConfiguration(bytes), deps, rejectConfiguration)
     },
@@ -95,7 +114,6 @@ async function stageArchive(indexName: string, reader: ByteReader, staging: Chec
   if (manifest === null) missingPart('manifest')
   const { directory } = staging
   if (keepsTextOnDisk(prepared, staging) && directory !== undefined) {
-    const { bytesThatSegmentsHoldInMemory } = await import('../../persistence/paged/module')
     const replacesIndex = deps.indexRegistry.has(indexName)
     const segmentBytes = await bytesThatSegmentsHoldInMemory(directory, manifest)
     requireRestoreMemory(indexName, archiveFootprint(prepared, manifest, replacesIndex, segmentBytes), replacesIndex)
@@ -132,9 +150,14 @@ export async function loadStagedIndex(
 export async function restoreArchive(indexName: string, reader: ByteReader, deps: RestoreDeps): Promise<void> {
   const staging = deps.durability?.manager.stageRestore?.(indexName) ?? null
   const store = staging?.store ?? memoryCheckpointStore()
+  const archive: StagedArchive = { prepared: null, manifest: null, history: undefined }
   try {
-    const staged = await stageArchive(indexName, reader, store, deps)
-    await installRestoredIndex(indexName, await loadStagedIndex(indexName, staged, staging, store, deps), deps)
+    const staged = await stageArchive(indexName, reader, store, deps, archive)
+    const restored = await loadStagedIndex(indexName, staged, staging, store, deps)
+    await installRestoredIndex(indexName, restored, deps, archive.history ?? null)
+  } catch (error) {
+    await archive.history?.abandon().catch(() => undefined)
+    throw error
   } finally {
     await staging?.discard().catch(() => undefined)
     await reader.close()

@@ -15,6 +15,126 @@
     "url": "https://github.com/assetcorp/narsil/issues"
   },
   "imports": {
+    "#platform/stored-field-merges": {
+      "react-native": "./src/core/field-merges/stored-host.ts",
+      "browser": "./src/core/field-merges/stored-host.browser.ts",
+      "default": "./src/core/field-merges/stored-host.ts"
+    },
+    "#platform/highlight": {
+      "react-native": "./src/highlighting/native.ts",
+      "browser": "./src/highlighting/native.browser.ts",
+      "default": "./src/highlighting/native.ts"
+    },
+    "#platform/term-suggestions": {
+      "react-native": "./src/core/expansion/suggestions-native.ts",
+      "browser": "./src/core/expansion/suggestions.ts",
+      "default": "./src/core/expansion/suggestions-native.ts"
+    },
+    "#platform/phrase-core": {
+      "react-native": "./src/core/phrases/native.ts",
+      "browser": "./src/core/phrases/portable.ts",
+      "default": "./src/core/phrases/native.ts"
+    },
+    "#platform/synonym-expansion": {
+      "react-native": "./src/core/synonyms/native.ts",
+      "browser": "./src/core/synonyms/portable.ts",
+      "default": "./src/core/synonyms/native.ts"
+    },
+    "#platform/field-merges": {
+      "react-native": "./src/core/field-merges/native.ts",
+      "browser": "./src/core/field-merges/portable.ts",
+      "default": "./src/core/field-merges/native.ts"
+    },
+    "#platform/segment-merges": {
+      "react-native": "./src/core/segment-merges/native.ts",
+      "browser": "./src/core/segment-merges/portable.ts",
+      "default": "./src/core/segment-merges/native.ts"
+    },
+    "#platform/frozen-writes": {
+      "react-native": "./src/core/frozen-writes/native.ts",
+      "browser": "./src/core/frozen-writes/bound-kernel.ts",
+      "default": "./src/core/frozen-writes/native.ts"
+    },
+    "#platform/frozen-kernel-host": {
+      "react-native": "./src/core/frozen-writes/kernel-host.ts",
+      "browser": "./src/core/frozen-writes/kernel-host.browser.ts",
+      "default": "./src/core/frozen-writes/kernel-host.ts"
+    },
+    "#platform/segment-writes": {
+      "react-native": "./src/core/segment-writes/native.ts",
+      "browser": "./src/core/segment-writes/portable.ts",
+      "default": "./src/core/segment-writes/native.ts"
+    },
+    "#platform/segment-removal": {
+      "react-native": "./src/core/segment-writes/remove.ts",
+      "browser": "./src/core/segment-writes/bound-removal.ts",
+      "default": "./src/core/segment-writes/remove.ts"
+    },
+    "#platform/segment-removal-host": {
+      "react-native": "./src/core/segment-writes/removal-host.ts",
+      "browser": "./src/core/segment-writes/removal-host.browser.ts",
+      "default": "./src/core/segment-writes/removal-host.ts"
+    },
+    "#platform/term-lookups": {
+      "react-native": "./src/core/term-table/native.ts",
+      "browser": "./src/core/term-table/portable.ts",
+      "default": "./src/core/term-table/native.ts"
+    },
+    "#platform/pattern-test": {
+      "react-native": "./src/pattern/native.ts",
+      "browser": "./src/pattern/evaluate.ts",
+      "default": "./src/pattern/evaluate.ts"
+    },
+    "#platform/filter-plan": {
+      "react-native": "./src/core/filters/native.ts",
+      "browser": "./src/core/filters/portable.ts",
+      "default": "./src/core/filters/native.ts"
+    },
+    "#platform/facet-count": {
+      "react-native": "./src/core/facets/native.ts",
+      "browser": "./src/core/facets/browser.ts",
+      "default": "./src/core/facets/native.ts"
+    },
+    "#platform/sort-value": {
+      "react-native": "./src/core/sort-values/native.ts",
+      "browser": "./src/core/sort-values/browser.ts",
+      "default": "./src/core/sort-values/native.ts"
+    },
+    "#platform/group-hits": {
+      "react-native": "./src/core/groups/native.ts",
+      "browser": "./src/core/groups/portable.ts",
+      "default": "./src/core/groups/native.ts"
+    },
+    "#platform/group-merge": {
+      "react-native": "./src/core/merges/groups.native.ts",
+      "browser": "./src/core/merges/groups.ts",
+      "default": "./src/core/merges/groups.native.ts"
+    },
+    "#platform/facet-merge": {
+      "react-native": "./src/core/merges/facets.native.ts",
+      "browser": "./src/core/merges/facets.ts",
+      "default": "./src/core/merges/facets.native.ts"
+    },
+    "#platform/pinned-core": {
+      "react-native": "./src/search/pinned-core.native.ts",
+      "browser": "./src/search/pinned-core.ts",
+      "default": "./src/search/pinned-core.native.ts"
+    },
+    "#platform/result-merges": {
+      "react-native": "./src/core/merges/native.ts",
+      "browser": "./src/core/merges/portable.ts",
+      "default": "./src/core/merges/native.ts"
+    },
+    "#platform/fusion-core": {
+      "react-native": "./src/search/fusion-core.native.ts",
+      "browser": "./src/search/fusion-core.ts",
+      "default": "./src/search/fusion-core.native.ts"
+    },
+    "#platform/page-start": {
+      "react-native": "./src/search/page-start.native.ts",
+      "browser": "./src/search/page-start.ts",
+      "default": "./src/search/page-start.native.ts"
+    },
     "#platform/worker-factory": {
       "react-native": "./src/workers/factory.react-native.ts",
       "browser": "./src/workers/factory.browser.ts",
@@ -27,6 +147,11 @@
     "#platform/checkpoint-worker-entry": {
       "react-native": "./src/persistence/durability/checkpoint-worker-entry.react-native.ts",
       "default": "./src/persistence/durability/checkpoint-worker-entry.ts"
+    },
+    "#platform/query-merge-worker-entry": {
+      "react-native": "./src/query-suggestions/merge-worker-entry.react-native.ts",
+      "browser": "./src/query-suggestions/merge-worker-entry.react-native.ts",
+      "default": "./src/query-suggestions/merge-worker-entry.ts"
     },
     "#platform/vector-promoter": {
       "browser": "./src/vector/promoter.browser.ts",
@@ -49,6 +174,10 @@
     "#platform/heap-statistics": {
       "browser": "./src/runtime/heap-statistics.browser.ts",
       "default": "./src/runtime/heap-statistics.ts"
+    },
+    "#platform/stored-value-copy": {
+      "browser": "./src/core/document-copy.browser.ts",
+      "default": "./src/core/document-copy.ts"
     },
     "#platform/process-limit": {
       "react-native": "./src/runtime/process-limit.react-native.ts",
@@ -100,6 +229,7 @@
       "default": "./src/vector/native/loader.ts"
     },
     "#platform/search-backend-settings": {
+      "react-native": "./src/engine/search-backend-settings.react-native.ts",
       "browser": "./src/engine/search-backend-settings.browser.ts",
       "default": "./src/engine/search-backend-settings.ts"
     },
@@ -114,6 +244,14 @@
     "#platform/partial-word-search": {
       "browser": "./src/core/partition/partial-words/platform.browser.ts",
       "default": "./src/core/partition/partial-words/platform.ts"
+    },
+    "#platform/prefix-expansion": {
+      "browser": "./src/core/expansion/portable.ts",
+      "default": "./src/core/expansion/native.ts"
+    },
+    "#platform/partial-expansion": {
+      "browser": "./src/core/expansion/partial.ts",
+      "default": "./src/core/expansion/partial-native.ts"
     },
     "#platform/synonym-search": {
       "browser": "./src/core/synonyms/platform.browser.ts",
@@ -143,6 +281,86 @@
       "react-native": "./src/core/inverted-index/growing-postings.ts",
       "browser": "./src/core/inverted-index/postings.ts",
       "default": "./src/core/inverted-index/postings.ts"
+    },
+    "#platform/vector-host": {
+      "react-native": "./src/vector/vector-host/index.ts",
+      "browser": "./src/vector/vector-host/index.browser.ts",
+      "default": "./src/vector/vector-host/index.ts"
+    },
+    "#platform/vector-core-host": {
+      "react-native": "./src/vector/core-host.ts",
+      "browser": "./src/vector/core-host.browser.ts",
+      "default": "./src/vector/core-host.ts"
+    },
+    "#platform/optional-writes-host": {
+      "react-native": "./src/engine/optional-writes-host.ts",
+      "browser": "./src/engine/optional-writes-host.browser.ts",
+      "default": "./src/engine/optional-writes-host.ts"
+    },
+    "#platform/segment-codec-host": {
+      "react-native": "./src/core/segment-codec-host.ts",
+      "browser": "./src/core/segment-codec-host.browser.ts",
+      "default": "./src/core/segment-codec-host.ts"
+    },
+    "#platform/worker-copies-host": {
+      "react-native": "./src/engine/orchestration/worker-copies-host.ts",
+      "browser": "./src/engine/orchestration/worker-copies-host.browser.ts",
+      "default": "./src/engine/orchestration/worker-copies-host.ts"
+    },
+    "#platform/segment-merge-host": {
+      "react-native": "./src/core/segment-merge-host.ts",
+      "browser": "./src/core/segment-merge-host.browser.ts",
+      "default": "./src/core/segment-merge-host.ts"
+    },
+    "#platform/msgpack-host": {
+      "react-native": "./src/serialization/msgpack-host.ts",
+      "browser": "./src/serialization/msgpack-host.browser.ts",
+      "default": "./src/serialization/msgpack-host.ts"
+    },
+    "#platform/storage-host": {
+      "react-native": "./src/persistence/storage-host/index.ts",
+      "browser": "./src/persistence/storage-host/index.browser.ts",
+      "default": "./src/persistence/storage-host/index.ts"
+    },
+    "#platform/embed-host": {
+      "react-native": "./src/engine/embed-host.ts",
+      "browser": "./src/engine/embed-host.browser.ts",
+      "default": "./src/engine/embed-host.ts"
+    },
+    "#platform/durability-config-host": {
+      "react-native": "./src/engine/durability-config-host.ts",
+      "browser": "./src/engine/durability-config-host.browser.ts",
+      "default": "./src/engine/durability-config-host.ts"
+    },
+    "#platform/thread-heap-host": {
+      "react-native": "./src/runtime/thread-heap-host.ts",
+      "browser": "./src/runtime/thread-heap-host.browser.ts",
+      "default": "./src/runtime/thread-heap-host.ts"
+    },
+    "#platform/resource-limits-host": {
+      "react-native": "./src/workers/resource-limits-host.ts",
+      "browser": "./src/workers/resource-limits-host.browser.ts",
+      "default": "./src/workers/resource-limits-host.ts"
+    },
+    "#platform/restore-queue-host": {
+      "react-native": "./src/narsil/restore-queue-host.ts",
+      "browser": "./src/narsil/restore-queue-host.browser.ts",
+      "default": "./src/narsil/restore-queue-host.ts"
+    },
+    "#platform/resolve-vector-text-host": {
+      "react-native": "./src/engine/resolve-vector-text-host.ts",
+      "browser": "./src/engine/resolve-vector-text-host.browser.ts",
+      "default": "./src/engine/resolve-vector-text-host.ts"
+    },
+    "#platform/suggestion-store-host": {
+      "react-native": "./src/query-suggestions/store-host.ts",
+      "browser": "./src/query-suggestions/store-host.browser.ts",
+      "default": "./src/query-suggestions/store-host.ts"
+    },
+    "#platform/suggestions-host": {
+      "react-native": "./src/query-suggestions/suggestions-host.ts",
+      "browser": "./src/query-suggestions/suggestions-host.browser.ts",
+      "default": "./src/query-suggestions/suggestions-host.ts"
     }
   },
   "sideEffects": false,
@@ -161,9 +379,10 @@
   "scripts": {
     "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && node scripts/check-vector-chunk.mjs && tsx scripts/api-surface.ts",
     "build:code": "rm -rf dist && NARSIL_BUILD_CODE_ONLY=1 tsup",
-    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts' --exclude='**/persistence/live-object-stores/**'",
+    "build:types": "NARSIL_BUILD_TYPES_ONLY=1 tsup",
+    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/vector/id-table-limit.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts' --exclude='**/persistence/live-object-stores/**'",
     "test:object-stores": "vitest run src/__tests__/persistence/live-object-stores",
-    "test:native": "vitest run src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",
+    "test:native": "vitest run src/__tests__/core/tokenizer src/__tests__/core/keyword-score src/__tests__/math src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread src/__tests__/integration/sort-value-reduction.test.ts src/__tests__/integration/hybrid-fusion-extreme-scores.test.ts",
     "test:cluster": "vitest run src/__tests__/e2e/cluster-memory --no-file-parallelism",
     "test:faults": "vitest run src/__tests__/e2e/cluster-faults --no-file-parallelism",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
@@ -171,12 +390,15 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
+    "test:id-table-limit": "vitest run src/__tests__/vector/id-table-limit.test.ts",
     "test:embeddings": "NARSIL_TEST_EMBEDDINGS=1 vitest run embedding-e2e",
     "bench": "vitest bench",
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
     "revisions:record": "tsx scripts/analysis-revisions.ts --record",
+    "native-analysis": "tsx scripts/native-analysis/unicode.ts && tsx scripts/native-analysis/languages.ts",
+    "native-analysis:write": "tsx scripts/native-analysis/unicode.ts --write && tsx scripts/native-analysis/languages.ts --write",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
     "openapi": "tsx scripts/openapi/generate.ts",
@@ -256,6 +478,10 @@
         "types": "./dist/pattern.d.ts",
         "default": "./dist/react-native/pattern.mjs"
       },
+      "browser": {
+        "types": "./dist/pattern.d.ts",
+        "default": "./dist/pattern.browser.mjs"
+      },
       "import": "./dist/pattern.mjs",
       "types": "./dist/pattern.d.ts"
     },
@@ -264,6 +490,10 @@
         "types": "./dist/partial-words.d.ts",
         "default": "./dist/react-native/partial-words.mjs"
       },
+      "browser": {
+        "types": "./dist/partial-words.d.ts",
+        "default": "./dist/partial-words.browser.mjs"
+      },
       "import": "./dist/partial-words.mjs",
       "types": "./dist/partial-words.d.ts"
     },
@@ -271,6 +501,10 @@
       "react-native": {
         "types": "./dist/synonyms.d.ts",
         "default": "./dist/react-native/synonyms.mjs"
+      },
+      "browser": {
+        "types": "./dist/synonyms.d.ts",
+        "default": "./dist/synonyms.browser.mjs"
       },
       "import": "./dist/synonyms.mjs",
       "types": "./dist/synonyms.d.ts"
@@ -315,6 +549,42 @@
       "import": "./dist/react.mjs",
       "types": "./dist/react.d.ts"
     },
+    "./sync": {
+      "react-native": {
+        "types": "./dist/sync.d.ts",
+        "default": "./dist/react-native/sync.mjs"
+      },
+      "browser": {
+        "import": "./dist/sync.browser.mjs",
+        "types": "./dist/sync.d.ts"
+      },
+      "import": "./dist/sync.mjs",
+      "types": "./dist/sync.d.ts"
+    },
+    "./sync/filesystem": {
+      "import": "./dist/sync/filesystem.mjs",
+      "types": "./dist/sync/filesystem.d.ts"
+    },
+    "./sync/indexeddb": {
+      "browser": {
+        "import": "./dist/sync/indexeddb.browser.mjs",
+        "types": "./dist/sync/indexeddb.d.ts"
+      },
+      "import": "./dist/sync/indexeddb.mjs",
+      "types": "./dist/sync/indexeddb.d.ts"
+    },
+    "./query-suggestions": {
+      "react-native": {
+        "types": "./dist/query-suggestions.d.ts",
+        "default": "./dist/react-native/query-suggestions.mjs"
+      },
+      "browser": {
+        "import": "./dist/query-suggestions.browser.mjs",
+        "types": "./dist/query-suggestions.d.ts"
+      },
+      "import": "./dist/query-suggestions.mjs",
+      "types": "./dist/query-suggestions.d.ts"
+    },
     "./openapi.json": "./openapi.json"
   },
   "files": [
@@ -350,7 +620,7 @@
     "tsup": "8.5.1",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#ba110e817908b56c61d625b02f367b4ec9cfc8ab",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#b1092c70692ddbcc87464a77da44848614f6342a",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
   },

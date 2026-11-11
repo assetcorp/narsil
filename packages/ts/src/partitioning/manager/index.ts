@@ -16,20 +16,18 @@ import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../in
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
 import { rebuildDocLocations, rebuildPartitionDocLocations } from './doc-locations'
+import { createDocumentWrites } from './document-writes'
 import { copyVectorsInto } from './nested-values'
+import { leftBehind, ownReadsOf, replaceVectorIndexes, retirePartitions, watchVectorWritesFor } from './pinned-reads'
+import { createPublicationGate } from './publication-gate'
+import { createRemovalSettlement } from './removal-settlement'
 import { createSegmentOperations } from './segment-operations'
-import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
+import { createStatePins, type PinnedReads, type StatePin } from './state-pins'
+import { createStatsOperations } from './stats'
 import type { PartitionManager } from './types'
 import { createWriteLogRecorder, REANALYSIS_WRITE_LOG } from './write-log'
 
 export type { PartitionManager } from './types'
-
-function closePagedSegmentsLeftBehind(earlier: readonly PartitionIndex[], kept: readonly PartitionIndex[]): void {
-  for (const partition of earlier) {
-    if (!isCompositePartition(partition) || kept.includes(partition)) continue
-    for (const segment of partition.frozenSegments()) segment.paged?.close()
-  }
-}
 
 export function createPartitionManager(
   indexName: string,
@@ -52,6 +50,9 @@ export function createPartitionManager(
   let partitions: PartitionIndex[] = []
   const docPartitionMap = createDocIdMap<number>()
   const writeLogs = createWriteLogRecorder()
+  const pins = createStatePins(() => [...vecIndexes.keys()])
+  const vectorWrites = watchVectorWritesFor(vecIndexes, pins)
+  const ownReads = ownReadsOf({ locate: locateDocument, partitionOf }, vecIndexes)
 
   for (let i = 0; i < count; i++) {
     partitions.push(createPartitionIndex(i, trackPositions))
@@ -94,7 +95,13 @@ export function createPartitionManager(
     return composite
   }
 
+  function partitionOf(docId: string): PartitionIndex | undefined {
+    const partitionId = locateDocument(docId)
+    return partitionId === undefined ? undefined : partitions[partitionId]
+  }
+
   const manager: PartitionManager = {
+    publication: createPublicationGate(createRemovalSettlement(() => partitions)),
     get partitionCount() {
       return partitions.length
     },
@@ -138,7 +145,16 @@ export function createPartitionManager(
       writeLogs.partitionsReplaced()
       const earlier = partitions
       partitions = [...newPartitions]
-      closePagedSegmentsLeftBehind(earlier, partitions)
+      retirePartitions(pins, leftBehind(earlier, partitions), true)
+      rebuildDocLocations(docPartitionMap, partitions)
+    },
+
+    clearPartitions(): void {
+      writeLogs.partitionsReplaced()
+      const earlier = partitions
+      partitions = earlier.map((_, partitionId) => createPartitionIndex(partitionId, trackPositions))
+      for (let partitionId = 0; partitionId < partitions.length; partitionId++) preparePartialWords(partitionId)
+      retirePartitions(pins, earlier, true)
       rebuildDocLocations(docPartitionMap, partitions)
     },
 
@@ -154,9 +170,10 @@ export function createPartitionManager(
           { indexName, partitionCount: partitions.length, rebuiltCount: rebuilt.length },
         )
       }
+      writeLogs.contentChanged()
       const earlier = partitions
       partitions = [...rebuilt]
-      closePagedSegmentsLeftBehind(earlier, partitions)
+      retirePartitions(pins, leftBehind(earlier, partitions), true)
     },
 
     adoptAnalysis(change): void {
@@ -183,10 +200,17 @@ export function createPartitionManager(
       return partition
     },
 
+    growToSavedPartitionCount(partitionCount: number): void {
+      if (partitions.length >= partitionCount) return
+      writeLogs.partitionsReplaced()
+      while (partitions.length < partitionCount)
+        partitions.push(createPartitionIndex(partitions.length, trackPositions))
+    },
+
     removePartition(partitionId: number): void {
       validatePartitionId(partitionId)
       writeLogs.partitionsReplaced()
-      partitions.splice(partitionId, 1)
+      retirePartitions(pins, partitions.splice(partitionId, 1), false)
       rebuildDocLocations(docPartitionMap, partitions)
     },
 
@@ -206,7 +230,7 @@ export function createPartitionManager(
           docPartitionMap.delete(docId)
         }
       }
-      partitions.length = newCount
+      retirePartitions(pins, partitions.splice(newCount), false)
     },
 
     ...createCapacityChecks({
@@ -221,13 +245,18 @@ export function createPartitionManager(
       return router.route(docId, partitions.length)
     },
 
-    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
-      const pid = router.route(docId, partitions.length)
-      const insertOpts = resolveInsertOptions(options)
-      partitions[pid].insert(docId, document, config.schema, language, insertOpts)
-      docPartitionMap.set(docId, pid)
-      writeLogs.documentWritten(docId)
-    },
+    ...createDocumentWrites({
+      docPartitionMap,
+      writeLogs,
+      pins,
+      config: () => config,
+      language: () => language,
+      partitionAt: partitionId => partitions[partitionId],
+      asCompositePartition,
+      locate: locateDocument,
+      route: docId => router.route(docId, partitions.length),
+      resolveOptions: resolveInsertOptions,
+    }),
 
     removedSpellingsOf(docId: string): RemovedSpellings | undefined {
       const pid = locateDocument(docId)
@@ -237,12 +266,13 @@ export function createPartitionManager(
         : undefined
     },
 
-    remove(docId: string, removedSpellings?: RemovedSpellings): void {
+    remove(docId: string, removedSpellings?: RemovedSpellings, options?: PartitionInsertOptions): void {
       const pid = locateDocument(docId)
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions(), removedSpellings)
+      pins.beforeWrite(docId)
+      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions(options), removedSpellings)
       docPartitionMap.delete(docId)
       writeLogs.documentWritten(docId)
     },
@@ -259,22 +289,6 @@ export function createPartitionManager(
       }
     },
 
-    update(
-      docId: string,
-      document: AnyDocument,
-      options?: PartitionInsertOptions,
-      removedSpellings?: RemovedSpellings,
-    ): void {
-      const pid = locateDocument(docId)
-      if (pid === undefined) {
-        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
-      }
-      const updateOpts = resolveInsertOptions(options)
-      partitions[pid].update(docId, document, config.schema, language, updateOpts, removedSpellings)
-      docPartitionMap.set(docId, pid)
-      writeLogs.documentWritten(docId)
-    },
-
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
@@ -289,10 +303,24 @@ export function createPartitionManager(
       return partitions[pid].getRef(docId)
     },
 
+    get heldSearchStates() {
+      return pins.held
+    },
+
+    pinState(reads?: PinnedReads): StatePin {
+      vectorWrites.watch()
+      return pins.open(reads ?? ownReads.current())
+    },
+
+    afterSearchesRelease(free: () => void): void {
+      pins.afterRelease(free)
+    },
+
     fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
       const pid = locateDocument(docId)
       return pid === undefined ? undefined : partitions[pid].fieldValues(docId, fieldPaths)
     },
+    storedFields: (docId, fields) => ownReads.current().storedFields(docId, fields),
 
     sortValues(docId, fields, fieldTypes, modes): ComparableSortValue[] {
       const pid = locateDocument(docId)
@@ -316,49 +344,47 @@ export function createPartitionManager(
       return total
     },
 
-    serializePartition(partitionId: number): SerializablePartition {
+    serializePartition(partitionId, serializePartition): SerializablePartition {
       validatePartitionId(partitionId)
-      return partitions[partitionId].serialize(indexName, partitions.length, language.name, config.schema)
+      return partitions[partitionId].serialize(
+        indexName,
+        partitions.length,
+        language.name,
+        config.schema,
+        serializePartition,
+      )
     },
 
     ...createSegmentOperations({
       docPartitionMap,
       writeLogs,
+      pins,
       partitionAt: partitionId => partitions[partitionId],
       validatePartitionId,
       asCompositePartition,
       resolveInsertOptions: () => resolveInsertOptions(),
     }),
 
-    deserializePartition(partitionId: number, data: SerializablePartition): void {
+    deserializePartition(partitionId, data, deserializePartition): void {
       validatePartitionId(partitionId)
       writeLogs.partitionsReplaced()
-      partitions[partitionId].deserialize(data, config.schema)
+      const earlier = partitions[partitionId]
+      const restored = createPartitionIndex(partitionId, trackPositions)
+      restored.deserialize(data, config.schema, deserializePartition)
+      partitions[partitionId] = restored
+      retirePartitions(pins, [earlier], false)
       preparePartialWords(partitionId)
       rebuildPartitionDocLocations(docPartitionMap, partitionId, partitions[partitionId])
     },
 
-    getAggregateStats() {
-      return aggregateStatsOf(partitions)
-    },
-
-    estimateMemoryBytes(): number {
-      return estimateBytesOf(partitions, vecIndexes)
-    },
-
-    getPartitionStats() {
-      return partitionStatsOf(partitions)
-    },
+    ...createStatsOperations(() => partitions, vecIndexes, writeLogs),
 
     getVectorIndexes(): Map<string, VectorIndex> {
       return vecIndexes
     },
 
     resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void {
-      vecIndexes.clear()
-      for (const [key, value] of newIndexes) {
-        vecIndexes.set(key, value)
-      }
+      replaceVectorIndexes(vecIndexes, newIndexes, pins)
     },
   }
 

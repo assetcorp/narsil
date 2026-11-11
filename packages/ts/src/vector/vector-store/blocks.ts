@@ -1,4 +1,10 @@
-import { MAX_WASM_PAGES, VECTOR_BLOCK_INITIAL_SLOTS, VECTOR_SCRATCH_SLOTS, WASM_PAGE_BYTES } from '../constants'
+import {
+  MAX_WASM_PAGES,
+  VECTOR_BLOCK_INITIAL_SLOTS,
+  VECTOR_BLOCK_MAX_BYTES,
+  VECTOR_SCRATCH_SLOTS,
+  WASM_PAGE_BYTES,
+} from '#platform/vector-core-host'
 import {
   createGrowableBuffer,
   fixedView,
@@ -11,7 +17,6 @@ import {
 import { type ArenaSimd, createArenaSimd, createSharedArenaSimd } from '../simd'
 
 const SCRATCH_ALIGNMENT_BYTES = 16
-export const BLOCK_MAX_BYTES = MAX_WASM_PAGES * WASM_PAGE_BYTES
 
 export function alignUp(bytes: number): number {
   return Math.ceil(bytes / SCRATCH_ALIGNMENT_BYTES) * SCRATCH_ALIGNMENT_BYTES
@@ -45,7 +50,10 @@ export interface VectorBlockLayout extends BlockGeometry {
   dimension: number
 }
 
-export function computeVectorBlockLayout(dimension: number, blockBytes: number = BLOCK_MAX_BYTES): VectorBlockLayout {
+export function computeVectorBlockLayout(
+  dimension: number,
+  blockBytes: number = VECTOR_BLOCK_MAX_BYTES,
+): VectorBlockLayout {
   const scratchStride = alignUp(dimension * 4)
   const slotsOffset = alignUp(VECTOR_SCRATCH_SLOTS * scratchStride)
   const slotStride = alignUp(dimension * 4)
@@ -54,7 +62,7 @@ export function computeVectorBlockLayout(dimension: number, blockBytes: number =
     scratchStride,
     slotsOffset,
     slotStride,
-    capacity: Math.max(1, Math.floor((Math.min(blockBytes, BLOCK_MAX_BYTES) - slotsOffset) / slotStride)),
+    capacity: Math.max(1, Math.floor((Math.min(blockBytes, VECTOR_BLOCK_MAX_BYTES) - slotsOffset) / slotStride)),
   }
 }
 
@@ -118,7 +126,7 @@ export function createVectorBlock<Layout extends BlockGeometry>(layout: Layout):
 }
 
 function fullBlockBytes(layout: BlockGeometry): number {
-  return Math.min(BLOCK_MAX_BYTES, layout.slotsOffset + layout.capacity * layout.slotStride)
+  return Math.min(VECTOR_BLOCK_MAX_BYTES, layout.slotsOffset + layout.capacity * layout.slotStride)
 }
 
 function growMemoryTo(memory: WebAssembly.Memory, bytes: number, layout: BlockGeometry): void {

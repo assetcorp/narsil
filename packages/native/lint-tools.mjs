@@ -82,9 +82,11 @@ export function lintTools() {
   const digest = lockDigest()
   if (!existsSync(INSTALLED_LOCK_DIGEST) || readFileSync(INSTALLED_LOCK_DIGEST, 'utf8') !== digest) install(digest)
   for (const pin of pinnedVersions()) checkVersion(pin)
+  const libcHeaders = join(zigLibraryDirectory(), 'libc', 'include')
   return {
     clangTidy: executable('clang-tidy'),
     clangFormat: executable('clang-format'),
-    windowsHeaderDirectory: join(zigLibraryDirectory(), 'libc', 'include', 'any-windows-any'),
+    windowsHeaderDirectory: join(libcHeaders, 'any-windows-any'),
+    darwinHeaderDirectory: join(libcHeaders, 'any-darwin-any'),
   }
 }

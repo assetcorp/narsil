@@ -31,9 +31,10 @@ export function createDetachedIndex(
   language: LanguageModule,
   synonyms: SynonymLookup | null,
   executor: Pick<IndexReplacement, 'vectorWorkerCopies' | 'createDetachedEntry'>,
+  partitionCount?: number,
 ): DetachedIndex {
   const { policy, attach } = attachablePolicy(executor.vectorWorkerCopies)
-  const entry = executor.createDetachedEntry(indexName, config, language, policy)
+  const entry = executor.createDetachedEntry(indexName, config, language, policy, partitionCount)
   entry.manager.synonyms = synonyms
   return { indexName, manager: entry.manager, entry, attach }
 }

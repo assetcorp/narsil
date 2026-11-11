@@ -1,0 +1,2 @@
+export const LOG_READ_CHUNK_BYTES = 1_048_576
+export const DEFAULT_HISTORY_MAX_AGE_MS = 2_592_000_000

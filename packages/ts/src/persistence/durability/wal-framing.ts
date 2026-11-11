@@ -1,8 +1,7 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode, ErrorCodes, encode, NarsilError } from '#platform/storage-host'
 import { validateEntryPayload } from '../../distribution/replication/codec'
 import { computeEntryChecksum } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
-import { ErrorCodes, NarsilError } from '../../errors'
 import { crc32 } from './checksum'
 
 export const WAL_MAGIC = new Uint8Array([0x4e, 0x52, 0x53, 0x57])
@@ -58,7 +57,7 @@ export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
   return { ok: true }
 }
 
-function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
+export function decodeWalEntry(payload: Uint8Array): ReplicationLogEntry {
   const decoded = decode(payload)
   const { entry } = validateEntryPayload({ entry: decoded })
   if (computeEntryChecksum(entry) !== entry.checksum) {
@@ -114,7 +113,7 @@ export function readDurableRegion(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch (err) {
       corrupt('WAL record payload failed to decode inside the durable region', {
         offset,
@@ -176,7 +175,7 @@ export function readTailBeyondFrontier(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch {
       break
     }

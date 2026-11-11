@@ -12,12 +12,13 @@ await narsil.createIndex('logs', {
   partitions: { maxPartitions: 4, maxDocsPerPartition: 250_000, watermark: 0.8 },
 })
 
+await narsil.updatePartitionConfig('logs', { maxPartitions: 8 })
 await narsil.rebalance('logs', 8)
 
 await narsil.updatePartitionConfig('logs', { maxDocsPerPartition: 500_000 })
 ```
 
-`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout. While a reshape runs, the engine starts each read on the index one turn of the event loop late, so the reshape keeps moving even while a caller sends one query straight after another.
+`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. A rebalance above `maxPartitions` fails with `PARTITION_CAPACITY_EXCEEDED`, so raise the limit with `updatePartitionConfig` first, as the example does. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout. While a reshape runs, the engine starts each read on the index one turn of the event loop late, so the reshape keeps moving even while a caller sends one query straight after another.
 
 `updatePartitionConfig` adjusts `maxDocsPerPartition`, `maxPartitions`, and `watermark` at runtime, and it writes the new limits into durability metadata, so they survive recovery. Three checks reject a change: a `maxPartitions` below the current partition count and a new capacity (`maxDocsPerPartition` times the current partition count) below the current document count both fail with `PARTITION_CAPACITY_EXCEEDED`, and any change while a rebalance runs fails with `PARTITION_REBALANCING_BACKPRESSURE`.
 

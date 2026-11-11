@@ -40,11 +40,11 @@ nothing.
 the implementation alongside each module's own sources and reports the two cases apart:
 
 ```text
-src/core/tokenizer/ changed, so every language analyses text differently: 107 revisions must bump
+src/core/tokenizer/ changed, so every language analyses text differently: <count> revisions must bump
 greek: analysis changed while revision stayed 4f02e255d00e5848
 ```
 
-`revisions:write` then bumps all 107 revisions in one go, which is the correct result when
+`revisions:write` then bumps every revision in one go, which is the correct result when
 the analysis changed because every stored index holds terms the old code produced. The
 script digests analysis constants such as `DEFAULT_MIN_TOKEN_LENGTH`, and skips cache sizes
 and host-memory thresholds. Those values change resource use, not the terms an index

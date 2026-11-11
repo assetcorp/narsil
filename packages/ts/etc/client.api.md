@@ -17,7 +17,7 @@ export interface AdminOperations {
     rebalance(indexName: string, targetPartitionCount: number, options?: RequestOptions): Promise<TaskRecord>;
     rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>;
     restore(indexName: string, data: Uint8Array | ReadableStream<Uint8Array>, options?: RequestOptions): Promise<TaskRecord>;
-    snapshot(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
+    snapshot(indexName: string, options?: RequestOptions & SnapshotOptions): Promise<ReadableStream<Uint8Array>>;
     updateBM25(indexName: string, bm25: BM25Params, options?: RequestOptions): Promise<void>;
     updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>, options?: RequestOptions): Promise<void>;
     updateSynonyms(indexName: string, synonyms: SynonymRule[], options?: RequestOptions): Promise<void>;
@@ -37,7 +37,7 @@ export interface BackupListResponse {
 
 // @public
 export interface BackupOperations {
-    createBackup(indexName: string, backupName: string, options?: RequestOptions): Promise<TaskRecord>;
+    createBackup(indexName: string, backupName: string, options?: RequestOptions & Pick<CreateBackupBody, 'queryHistory'>): Promise<TaskRecord>;
     deleteBackup(backupName: string, options?: RequestOptions): Promise<TaskRecord>;
     listBackups(options?: RequestOptions): Promise<BackupListing[]>;
     restoreBackup(backupName: string, restore: RestoreBackupBody, options?: RequestOptions): Promise<TaskRecord>;
@@ -98,6 +98,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -171,6 +172,12 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -178,6 +185,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly SEARCH_STATE_MOVED: "SEARCH_STATE_MOVED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
     readonly BM25_NOT_READY: "BM25_NOT_READY";
@@ -339,12 +347,19 @@ export interface IndexOperations {
 export function isNarsilError(value: unknown): value is NarsilError;
 
 // @public
+export interface ManualQuerySuggestion {
+    count?: number;
+    group: string;
+    query: string;
+}
+
+// @public
 export interface MemoryStatsResponse extends MemoryStats {
     requestThreads: number;
 }
 
 // @public
-export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations {
+export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations, SyncSettingOperations, QuerySuggestionOperations {
 }
 
 // @public
@@ -376,7 +391,90 @@ export interface PutResult {
 }
 
 // @public
+export interface QuerySuggestionOperations {
+    addManualSuggestion(indexName: string, suggestion: ManualQuerySuggestion, options?: RequestOptions): Promise<string>;
+    buildQuerySuggestions(indexName: string, options?: RequestOptions): Promise<TaskRecord>;
+    previewQuerySuggestions(indexName: string, limit?: number, options?: RequestOptions): Promise<QuerySuggestionsPreview>;
+    querySuggestionsStatus(indexName: string, options?: RequestOptions): Promise<QuerySuggestionsStatus>;
+    readQueryBans(indexName: string, options?: RequestOptions): Promise<string[]>;
+    recordQuery(indexName: string, query: string, options?: RequestOptions): Promise<RecordQueryResult>;
+    removeQuery(indexName: string, query: string, options?: RequestOptions): Promise<number>;
+    replaceQueryBans(indexName: string, bans: string[], options?: RequestOptions): Promise<string[]>;
+    updateQuerySuggestions(indexName: string, setting: QuerySuggestionsSetting, options?: RequestOptions): Promise<void>;
+}
+
+// @public
+export interface QuerySuggestionPreviewEntry {
+    count: number;
+    group: string;
+    query: string;
+}
+
+// @public
+export interface QuerySuggestionsBuild {
+    buildId: string;
+    discarded: number;
+    endedAt: number | null;
+    errorCode: string | null;
+    published: number;
+    removed: number;
+    startedAt: number;
+    status: 'running' | 'completed' | 'failed' | 'skipped';
+    trigger: QuerySuggestionsBuildTrigger;
+}
+
+// @public
+export type QuerySuggestionsBuildTrigger = 'schedule' | 'missed' | 'caller';
+
+// @public
+export interface QuerySuggestionsPreview {
+    entries: QuerySuggestionPreviewEntry[];
+    truncated: boolean;
+}
+
+// @public
+export interface QuerySuggestionsSetting {
+    enabled: boolean;
+    fields: string[];
+    maxDigits?: number;
+    maxGroups?: number;
+    maxLength?: number;
+    maxMergePhrases?: number;
+    maxPeoplePerDay?: number;
+    maxPhrasesPerDay?: number;
+    maxPhrasesPerPerson?: number;
+    maxWords?: number;
+    mergeMemoryBytes?: number;
+    minLetters?: number;
+    minPeople?: number;
+    minResults?: number;
+    resultChecksPerSecond?: number;
+    retentionDays?: number;
+    saveIntervalMs?: number;
+    schedule?: string;
+    timeZone?: string;
+}
+
+// @public
+export interface QuerySuggestionsStatus {
+    indexName: string;
+    lastBuild: QuerySuggestionsBuild | null;
+    nextBuildAt: number | null;
+    setting: QuerySuggestionsSetting | null;
+    suggestionIndexes: string[];
+}
+
+// @public
 export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
+
+// @public
+export type RecordQueryOutcome = 'recorded' | 'repeat' | 'invalid' | 'banned' | 'person-limit' | 'phrase-limit' | 'people-limit' | 'group-limit' | 'no-key' | 'unidentified';
+
+// @public
+export interface RecordQueryResult {
+    outcome: RecordQueryOutcome;
+    recorded: boolean;
+}
 
 // @public
 export interface RequestOptions {
@@ -441,6 +539,45 @@ export interface ServerVersion {
 }
 
 // @public
+export interface SnapshotOptions {
+    queryHistory?: boolean;
+}
+
+// @public
+export interface SyncSetting {
+    enabled: boolean;
+    historyMaxAgeMs?: number;
+    historyMaxBytes?: number;
+}
+
+// @public
+export interface SyncSettingOperations {
+    getSync(indexName: string, options?: RequestOptions): Promise<SyncStatus>;
+    syncSnapshot(indexName: string, resume?: SyncSnapshotResume, options?: RequestOptions): Promise<SyncSnapshotDownload>;
+    updateSync(indexName: string, setting: SyncSetting, options?: RequestOptions): Promise<void>;
+}
+
+// @public
+export interface SyncSnapshotDownload {
+    entityTag: string;
+    offset: number;
+    stream: ReadableStream<Uint8Array>;
+    totalBytes: number;
+}
+
+// @public
+export interface SyncSnapshotResume {
+    entityTag: string;
+    offset: number;
+}
+
+// @public
+export interface SyncStatus extends SyncSetting {
+    active: boolean;
+    epoch: string | null;
+}
+
+// @public
 export const SYNONYMS_CAPABILITY = "indexes.synonyms";
 
 // @public
@@ -486,6 +623,7 @@ export interface TaskProgress {
 // @public
 export interface TaskRecord {
     backupName?: string;
+    build?: QuerySuggestionsBuild;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -511,7 +649,7 @@ export interface TaskStepProgress {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete' | 'querySuggestionsBuild';
 
 // @public
 export interface WaitForTaskOptions extends RequestOptions {

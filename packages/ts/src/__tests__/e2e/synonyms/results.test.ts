@@ -2,10 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { FIRST_RULES, garageCorpus, INDEX, registerGarageLanguage, SECOND_RULES } from './corpus'
+import { CODE_WORDS, FIRST_RULES, garageCorpus, INDEX, registerGarageLanguage, SECOND_RULES } from './corpus'
 import {
   createGarageIndex,
   expectEveryProbe,
+  expectSameHits,
   type GarageServer,
   insertAll,
   NO_WORKERS,
@@ -37,6 +38,28 @@ async function started(config: Parameters<typeof startGarageServer>[0]): Promise
 }
 
 describe('a synonym search sent over HTTP matches the independent oracle', () => {
+  it('shares the expansion budget in query order and excludes repeated terms before allocating shares', async () => {
+    const sources = CODE_WORDS.slice(0, 53)
+    const rules = sources.map(word => ({ word, synonyms: [`z${word}`, `a${word}`] }))
+    const documents = sources.flatMap(word => [word, `a${word}`, `z${word}`]).map(word => ({ id: word, title: word }))
+    const server = await started({ workers: NO_WORKERS })
+    await createGarageIndex(server, documents, rules)
+    const search = searchOver(server.client)
+    const oracle = createOracle(documents, rules)
+    const query = { term: ['absent', sources[0], ...sources, sources[0]].join(' ') }
+    expectSameHits(await search(query), oracle.search(query), query.term)
+
+    const replacements = [
+      { word: 'car', synonyms: sources.map(word => `z${word}`) },
+      { word: 'movie', synonyms: [`a${sources[0]}`] },
+      { word: 'fast', synonyms: sources.map(word => `a${word}`) },
+    ]
+    await server.client.updateSynonyms(INDEX, replacements)
+    const replaced = createOracle(documents, replacements)
+    const replacementQuery = { term: 'car movie fast' }
+    expectSameHits(await search(replacementQuery), replaced.search(replacementQuery), replacementQuery.term)
+  })
+
   it('on the main thread, after a replaced set, and after the set is removed', async () => {
     const documents = garageCorpus(CORPUS_SIZE, 62)
     const server = await started({ workers: NO_WORKERS })

@@ -12,16 +12,31 @@ static int32_t capacity_word(const narsil_graph *graph, uint32_t word) {
   return capacity < 0 ? 0 : capacity;
 }
 
+static int64_t upper_words_of(const narsil_graph *graph, int32_t top_layer) {
+  return (int64_t)top_layer * ((int64_t)list_limit(graph, 1) + NARSIL_LIST_WORDS_OVER_NEIGHBOURS);
+}
+
+static int upper_room_for(const narsil_graph *graph, int32_t offset, int64_t words) {
+  return offset >= 0 && (int64_t)offset + words <= capacity_word(graph, NARSIL_GRAPH_WORD_UPPER_CAPACITY);
+}
+
+static narsil_status room_for_node(const narsil_graph *graph, const narsil_place_request *request) {
+  int32_t ordinal = request->ordinal;
+  if (ordinal >= capacity_word(graph, NARSIL_GRAPH_WORD_SLOT_CAPACITY)) { return NARSIL_NEEDS_ROOM; }
+  if (atomic_load(atomic_byte(graph->node_levels, (uint32_t)ordinal)) != 0) { return NARSIL_INVALID_ARGUMENT; }
+  if (request->top_layer < 1) { return NARSIL_OK; }
+  int32_t offset = load_word(graph->header, NARSIL_GRAPH_WORD_UPPER_USED);
+  return upper_room_for(graph, offset, upper_words_of(graph, request->top_layer)) ? NARSIL_OK : NARSIL_NEEDS_ROOM;
+}
+
 static narsil_status claim_upper_lists(const narsil_graph *graph, int32_t top_layer, int32_t *upper_base) {
   *upper_base = 0;
   if (top_layer < 1) { return NARSIL_OK; }
-  int64_t words = (int64_t)top_layer * ((int64_t)list_limit(graph, 1) + NARSIL_LIST_WORDS_OVER_NEIGHBOURS);
+  int64_t words = upper_words_of(graph, top_layer);
   _Atomic(int32_t) *used = atomic_word(graph->header, NARSIL_GRAPH_WORD_UPPER_USED);
   for (;;) {
     int32_t offset = atomic_load(used);
-    if (offset < 0 || (int64_t)offset + words > capacity_word(graph, NARSIL_GRAPH_WORD_UPPER_CAPACITY)) {
-      return NARSIL_NEEDS_ROOM;
-    }
+    if (!upper_room_for(graph, offset, words)) { return NARSIL_NEEDS_ROOM; }
     if (!atomic_compare_exchange_strong(used, &offset, (int32_t)(offset + words))) { continue; }
     memset(graph->upper + offset, 0, (size_t)words * sizeof(int32_t));
     *upper_base = offset + 1;
@@ -58,32 +73,33 @@ static narsil_status create_node(const narsil_graph *graph, const narsil_place_r
   return NARSIL_OK;
 }
 
-static void retire_unlinked_node(const narsil_graph *graph, int32_t ordinal) {
-  uint8_t live = 0;
-  if (atomic_compare_exchange_strong(atomic_byte(graph->tombstones, (uint32_t)ordinal), &live, 1)) {
-    atomic_fetch_add(atomic_word(graph->header, NARSIL_GRAPH_WORD_TOMBSTONE_COUNT), 1);
-  }
-}
-
-static int claim_entry_if_empty(const walk_context *context, const narsil_place_request *request) {
+static int place_into_an_empty_graph(const walk_context *context, const narsil_place_request *request,
+                                     narsil_status *status) {
   int32_t *header = context->graph->header;
   if (load_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT) != NO_ENTRY_POINT) { return 0; }
   entry_lock(context);
-  int claimed = load_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT) == NO_ENTRY_POINT;
-  if (claimed) {
-    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
-    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
+  int empty = load_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT) == NO_ENTRY_POINT;
+  if (empty) {
+    *status = create_node(context->graph, request);
+    if (*status == NARSIL_OK) {
+      atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
+      atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
+    }
   }
   entry_unlock(context);
-  return claimed;
+  return empty;
+}
+
+static void include_placed_node(walk_context *context, int32_t ordinal) {
+  if ((uint32_t)ordinal >= context->slots) { context->slots = (uint32_t)ordinal + 1; }
 }
 
 static void raise_entry(const walk_context *context, const narsil_place_request *request) {
   int32_t *header = context->graph->header;
   entry_lock(context);
   if (request->top_layer > load_word(header, NARSIL_GRAPH_WORD_TOP_LAYER)) {
-    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
+    atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
   }
   entry_unlock(context);
 }
@@ -113,10 +129,10 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
   scored_list *found = &workspace->layer_candidates;
   if (ef_construction == 0 || ef_construction > found->capacity) { return NARSIL_INVALID_ARGUMENT; }
   narsil_candidates candidates = {found->ordinals, found->distances, found->capacity, 0};
-  use_single_entry(workspace, load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT));
+  use_single_entry(workspace, span.entry);
   narsil_status status = descend_layers(context, span.graph_top, request->top_layer + 1, &candidates);
   for (int32_t layer = span.link_top; layer >= 0 && status == NARSIL_OK; layer--) {
-    layer_search search = {ef_construction, layer, 0, {NULL, 0}};
+    layer_search search = {ef_construction, layer, 0, {NULL, 0}, 0};
     status = search_layer(context, search, &candidates);
     if (status != NARSIL_OK) { break; }
     if (candidates.count > 0) {
@@ -156,12 +172,16 @@ static void link_neighbours_back(const walk_context *context, const narsil_place
 }
 
 static narsil_status link_node(walk_context *context, const narsil_place_request *request) {
-  link_span span = {load_word(context->graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 0};
   int32_t former_entry = load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
+  narsil_status status = read_graph_extent(context);
+  if (status != NARSIL_OK) { return status; }
+  link_span span = {former_entry, entry_top_layer(context, former_entry), 0};
   span.link_top = request->top_layer < span.graph_top ? request->top_layer : span.graph_top;
+  if (span.link_top >= 0) { status = select_every_layer(context, request, span); }
+  if (status == NARSIL_OK) { status = create_node(context->graph, request); }
+  if (status != NARSIL_OK) { return status; }
+  include_placed_node(context, request->ordinal);
   if (span.link_top >= 0) {
-    narsil_status status = select_every_layer(context, request, span);
-    if (status != NARSIL_OK) { return status; }
     write_own_lists(context, request, span.link_top);
     link_neighbours_back(context, request, span.link_top);
   }
@@ -176,12 +196,9 @@ static narsil_status link_node(walk_context *context, const narsil_place_request
 
 static narsil_status place_under_the_graph_lock(walk_context *context, const narsil_place_request *request) {
   narsil_status status = reserve_for_placement(context, request);
-  if (status == NARSIL_OK) { status = create_node(context->graph, request); }
-  if (status != NARSIL_OK) { return status; }
-  status = read_graph_extent(context);
-  if (status == NARSIL_OK && !claim_entry_if_empty(context, request)) { status = link_node(context, request); }
-  if (status != NARSIL_OK) { retire_unlinked_node(context->graph, request->ordinal); }
-  return status;
+  if (status == NARSIL_OK) { status = room_for_node(context->graph, request); }
+  if (status != NARSIL_OK || place_into_an_empty_graph(context, request, &status)) { return status; }
+  return link_node(context, request);
 }
 
 narsil_status narsil_place(narsil_workspace *workspace, const narsil_graph *graph, const narsil_store *store,

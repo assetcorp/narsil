@@ -99,6 +99,27 @@ describe('a range test on a sortable text field', () => {
       code: ErrorCodes.SEARCH_INVALID_FIELD,
     })
   })
+
+  it('keeps a supplementary character whole at the range boundary across dirty writes and removals', async () => {
+    const prefix = 'x'.repeat(511)
+    await narsil.insert('invoices', { title: 'invoice', code: `${prefix}😀a` }, 'boundary-a')
+    await narsil.insert('invoices', { title: 'invoice', code: `${prefix}😀z` }, 'boundary-z')
+    await narsil.insert('invoices', { title: 'invoice', code: `${prefix}😁` }, 'after-boundary')
+    expect(await idsWhere(narsil, 'code', { between: [`${prefix}😀`, `${prefix}😀tail`] })).toEqual([
+      'boundary-a',
+      'boundary-z',
+    ])
+    expect(await idsWhere(narsil, 'code', { gt: `${prefix}😀` })).toEqual(['after-boundary'])
+    await narsil.update('invoices', 'after-boundary', { title: 'invoice', code: `${prefix}😀replacement` })
+    await narsil.remove('invoices', 'boundary-a')
+    expect(await idsWhere(narsil, 'code', { between: [`${prefix}😀`, `${prefix}😀`] })).toEqual([
+      'after-boundary',
+      'boundary-z',
+    ])
+    await narsil.insert('invoices', { title: 'invoice', code: '' }, 'empty-code')
+    expect(await idsWhere(narsil, 'code', { lte: '' })).toEqual(['empty-code'])
+    expect(await idsWhere(narsil, 'code', { lt: '' })).toEqual([])
+  })
 })
 
 describe('a range test on a reopened index', () => {

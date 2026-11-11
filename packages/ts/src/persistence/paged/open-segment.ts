@@ -1,29 +1,33 @@
-import { decode } from '@msgpack/msgpack'
 import {
   assemblePagedFrozenSegment,
-  type FrozenSegment,
-  type FrozenSegmentSource,
-  type PagedSegmentAccess,
-} from '../../core/partition/frozen'
-import { createEncodedDocumentSource } from '../../core/partition/frozen/document-source'
+  createEncodedDocumentSource,
+  decode,
+  decodeSurfaceTable,
+  ErrorCodes,
+  NarsilError,
+  wrapFrozenTokenTable,
+} from '#platform/storage-host'
+import type { FrozenSegment, FrozenSegmentSource, PagedSegmentAccess } from '../../core/partition/frozen'
 import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-snapshot'
-import { decodeSurfaceTable, type SurfaceTableData } from '../../core/partition/frozen/surface-table'
-import { wrapFrozenTokenTable } from '../../core/partition/frozen/token-table'
-import { ErrorCodes, NarsilError } from '../../errors'
+import type { SurfaceTableData } from '../../core/partition/frozen/surface-table'
 import { decodeSurfaceForms } from '../../serialization/keyword-segment/decode-columns'
 import { createPagedLiveCounts } from './counts'
 import { createDocumentBlockReader } from './documents'
 import { type FileSection, loadFailed, sectionNamed } from './format'
 import { createPagedIdTable } from './ids'
 import { createListReader, createPagedPostingViews } from './lists'
+import { requireNativePage } from './native-file'
 import { type ReadCache, readCacheOfThisThread } from './read-cache'
 import { residentBytesOf } from './resident'
 import {
+  cachedFileBytes,
   closePagedFile,
   createSectionReader,
   openPagedFile,
-  relocatePagedFile,
+  type PagedFile,
+  resumePagedFile,
   type SectionReader,
+  suspendPagedFile,
 } from './section-file'
 import { createSurfaceTableReader } from './surface-candidates'
 import { termFrequenciesAcross } from './term-frequencies'
@@ -48,6 +52,15 @@ export function createPagedFrozenSegment(
   cache: ReadCache = readCacheOfThisThread(),
 ): FrozenSegment {
   const file = openPagedFile(snapshot.path, cache)
+  try {
+    return assembleOpenedSegment(file, snapshot, cache)
+  } catch (error) {
+    closePagedFile(file)
+    throw error
+  }
+}
+
+function assembleOpenedSegment(file: PagedFile, snapshot: PagedSegmentSnapshot, cache: ReadCache): FrozenSegment {
   const sections = snapshot.sections as FileSection[]
 
   function reader(name: string): SectionReader | null {
@@ -67,9 +80,14 @@ export function createPagedFrozenSegment(
   const documents = createDocumentBlockReader(snapshot, required('documents'), cache, file.fileNumber)
   const removalOffsets = required('removalOffsets')
   const removals = required('removals')
+  const totals = required('tokenTotals')
   const surfaceSection = reader('surfaceForms')
   const seqNos = reader('seqNos')
   const primaryTerms = reader('primaryTerms')
+  if ((seqNos === null) !== (primaryTerms === null))
+    loadFailed(`The segment "${snapshot.key}" holds an incomplete write record`)
+  const writeRecord = new BigUint64Array(2)
+  const fault = new BigUint64Array(3)
   const resident = residentBytesOf(snapshot)
 
   function readSurfaceTable(): SurfaceTableData | null {
@@ -89,17 +107,42 @@ export function createPagedFrozenSegment(
     key: snapshot.key,
     snapshot,
     writeRecordsHeld: seqNos !== null && primaryTerms !== null,
+    payloadChecked: false,
     listAt: lists.listAt,
     positionsAt: lists.positionsAt,
     encodedDocumentAt: documents.encodedDocumentAt,
     writeRecordAt(ordinal: number) {
       if (seqNos === null || primaryTerms === null) return { seqNo: 0, primaryTerm: 0 }
-      return { seqNo: readUint64(seqNos, ordinal), primaryTerm: readUint64(primaryTerms, ordinal) }
+      const sequences = seqNos.native
+      const terms = primaryTerms.native
+      let seqNo: number
+      let primaryTerm: number
+      if (sequences !== null && terms !== null && file.native !== null) {
+        const status = file.native.core.readPagedWriteRecord(
+          sequences,
+          terms,
+          cache.pageCache(),
+          ordinal,
+          writeRecord,
+          fault,
+        )
+        requireNativePage(status, file.path, fault[1] === sequences.offset ? 'seqNos' : 'primaryTerms', fault[2])
+        if (writeRecord[0] > BigInt(Number.MAX_SAFE_INTEGER) || writeRecord[1] > BigInt(Number.MAX_SAFE_INTEGER))
+          loadFailed(`A write record of document ${ordinal} lies above 2^53 - 1`)
+        seqNo = Number(writeRecord[0])
+        primaryTerm = Number(writeRecord[1])
+      } else {
+        seqNo = readUint64(seqNos, ordinal)
+        primaryTerm = readUint64(primaryTerms, ordinal)
+      }
+      if (seqNo === 0 && primaryTerm !== 0)
+        loadFailed(`Document ${ordinal} holds a primary term without a sequence number`)
+      return { seqNo, primaryTerm }
     },
     heldBytes(segment) {
       return (
         resident +
-        cache.bytesOfFile(file.fileNumber) +
+        cachedFileBytes(file) +
         segment.removalBytes() +
         segment.surfaces.heldBytes() +
         (segment.vectorOrdinalMaps?.bytes ?? 0)
@@ -109,8 +152,11 @@ export function createPagedFrozenSegment(
     close() {
       closePagedFile(file)
     },
-    relocate(rewrite) {
-      relocatePagedFile(file, rewrite(file.path))
+    suspend() {
+      suspendPagedFile(file)
+    },
+    resume(rewrite) {
+      resumePagedFile(file, rewrite(file.path))
       snapshot.path = file.path
     },
   }
@@ -169,7 +215,8 @@ export function createPagedFrozenSegment(
 
   return assemblePagedFrozenSegment(snapshot.segmentId, source, documentSource, snapshot.partialWords, {
     access,
-    createCounts: tombstones => createPagedLiveCounts(snapshot, tokenTable, tombstones, removalOffsets, removals),
+    createCounts: tombstones =>
+      createPagedLiveCounts(file, snapshot, tokenTable, tombstones, removalOffsets, removals, totals),
     createViews: (tombstones, counts) => createPagedPostingViews(snapshot, lists, tombstones, counts),
   })
 }

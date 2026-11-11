@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { decode } from '../../serialization/msgpack'
 import type { TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
 import { optionalIndexUuid } from './codec'

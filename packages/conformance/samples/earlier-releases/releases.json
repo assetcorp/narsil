@@ -26,6 +26,14 @@
       }
     },
     {
+      "release": "a6ddec94",
+      "layout": "checkpoint-directory",
+      "path": "earlier-releases/a6ddec94/rebalanced",
+      "indexes": {
+        "catalog": "earlier-releases/a6ddec94/expected/rebalanced-catalog.json"
+      }
+    },
+    {
       "release": "0.3.0",
       "layout": "index-snapshot",
       "path": "earlier-releases/0.3.0/products-0.3.0.nrsl",

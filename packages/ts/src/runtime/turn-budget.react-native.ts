@@ -1,5 +1,5 @@
 import { UI_THREAD_APP_TIMER_WAIT_BEFORE_RUN_LOOP_HOP_MS } from './constants'
-import { createTurnScheduler } from './turn-scheduler'
+import { createTurnScheduler, type TurnScheduler } from './turn-scheduler'
 
 type Hop = (run: () => void) => void
 
@@ -50,6 +50,8 @@ const scheduler = createTurnScheduler(run => {
 
 export const turnsAreBudgeted = true
 
+export function adoptSharedTurns(_scheduler: TurnScheduler): void {}
+
 export function turnIsSpent(): boolean {
   return scheduler.turnIsSpent()
 }
@@ -74,11 +76,11 @@ export function waitOutsideCountedWrite<T>(wait: () => Promise<T>): Promise<T> {
   return scheduler.waitOutsideCountedWrite(wait)
 }
 
-export function changeIndexOutsideExternalWaits<T>(change: () => Promise<T>): Promise<T> {
+export function changeIndexOutsideExternalWaits<T>(change: () => T | Promise<T>): Promise<T> {
   return scheduler.changeIndexOutsideExternalWaits(change)
 }
 
-export function indexChangeOutsideExternalWaits<T>(change: () => Promise<T>): () => Promise<T> {
+export function indexChangeOutsideExternalWaits<T>(change: () => T | Promise<T>): () => Promise<T> {
   return () => scheduler.changeIndexOutsideExternalWaits(change)
 }
 

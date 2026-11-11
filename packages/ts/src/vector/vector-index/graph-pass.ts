@@ -1,4 +1,4 @@
-import { turnsAreBudgeted } from '#platform/shared-turns'
+import { turnsAreBudgeted } from '#platform/vector-host'
 import type { HNSWIndex } from '../hnsw'
 import type { GraphsHeldOffThread, VectorIndexState } from './shared'
 

@@ -1,11 +1,16 @@
-import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { requireValidFieldTypes } from '../../../schema/validator/schema'
+import {
+  decode,
+  decodeVectorIndexParts,
+  deserializePartition,
+  ErrorCodes,
+  MIN_M,
+  NarsilError,
+  requireValidFieldTypes,
+} from '#platform/storage-host'
+import { requireSavedPartitionCount } from '../../../partitioning/saved-partitions'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
-import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
-import { decodeVectorIndexParts } from '../../../vector/vector-index/payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { EarlierLoadDeps } from './load'
 
@@ -88,10 +93,11 @@ export function countSnapshotBundleDocuments(bundle: SnapshotBundle): number {
 
 export async function loadSnapshotBundle(bytes: Uint8Array, deps: EarlierLoadDeps): Promise<PartitionCheckpoint[]> {
   const bundle = await decodeSnapshotBundle(bytes)
-  while (deps.manager.partitionCount < bundle.partitions.length) deps.manager.addPartition()
+  requireSavedPartitionCount(bundle.partitions.length, 'snapshot bundle', deps.manager.indexName)
+  deps.manager.growToSavedPartitionCount(bundle.partitions.length)
   if (bundle.partitions.length > 0) deps.manager.trimPartitions(bundle.partitions.length)
   for (let i = 0; i < bundle.partitions.length; i += 1) {
-    deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
+    deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]), deserializePartition)
   }
   for (const [fieldPath, parts] of Object.entries(bundle.vectorIndexes)) {
     const rebuildsGraph = parts.some(part => part.graphs.some(graph => graph.m < MIN_M))

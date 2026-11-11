@@ -154,22 +154,48 @@ describe('suggest', () => {
     }
   })
 
-  it('aggregates document frequencies across partitions', async () => {
+  it('preserves suggestion counts and display spellings after a restored document is removed', async () => {
     await narsil.createIndex('multi', {
-      schema,
+      schema: { body: 'string' },
       language: 'english',
       surfaceForms: true,
       partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
     })
-
-    for (const doc of documents) {
-      await narsil.insert('multi', doc)
+    const corpus = [
+      { id: 'one', body: 'cats cats cat cap' },
+      { id: 'two', body: 'cat cabs cabs' },
+      { id: 'three', body: 'caps cap cat' },
+      { id: 'four', body: 'cab cap cap' },
+      { id: 'five', body: 'cats cabs' },
+      { id: 'six', body: 'cab caps' },
+    ]
+    await narsil.insertBatch('multi', corpus)
+    await narsil.restore('restored', await narsil.snapshot('multi'))
+    await narsil.remove('restored', 'one')
+    const groups = new Map<string, { documents: number; spellings: Map<string, number> }>()
+    for (const document of corpus.filter(document => document.id !== 'one')) {
+      const seen = new Set<string>()
+      for (const word of document.body.split(' ')) {
+        const token = word.endsWith('s') ? word.slice(0, -1) : word
+        let group = groups.get(token)
+        if (group === undefined) {
+          group = { documents: 0, spellings: new Map() }
+          groups.set(token, group)
+        }
+        if (!seen.has(token)) group.documents++
+        seen.add(token)
+        group.spellings.set(word, (group.spellings.get(word) ?? 0) + 1)
+      }
     }
-
-    const result = await narsil.suggest('multi', { prefix: 'run' })
-    const running = result.terms.find(t => t.term === 'running')
-    expect(running).toBeDefined()
-    expect(running?.documentFrequency).toBe(2)
+    const alphabetically = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0)
+    const expected = [...groups.values()]
+      .map(group => ({
+        term: [...group.spellings].sort((left, right) => right[1] - left[1] || alphabetically(left[0], right[0]))[0][0],
+        documentFrequency: group.documents,
+      }))
+      .sort((left, right) => right.documentFrequency - left.documentFrequency || alphabetically(left.term, right.term))
+    const result = await narsil.suggest('restored', { prefix: 'ca' })
+    expect(result.terms).toEqual(expected)
   })
 
   it('returns the words users wrote without any configuration, which is the default', async () => {

@@ -1,5 +1,6 @@
 import { NarsilProvider, useIndexes } from '@delali/narsil/react'
 import {
+  EngineActionsContext,
   IndexWorkspaceContext,
   type SearchRunners,
   SearchRunnersContext,
@@ -8,9 +9,11 @@ import {
 import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
 import { Footer } from '@delali/narsil-example-shared/components/layout/Footer'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '#/components/Header'
 import ServerStatusBanner from '#/components/ServerStatusBanner'
+import { createHttpEngineActions } from '#/lib/engine-actions'
+import { IndexChangesContext } from '#/lib/index-changes'
 import { narsilClient } from '#/lib/narsil/browser-client'
 import appCss from '../styles.css?url'
 
@@ -20,9 +23,12 @@ const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
 
 const INDEX_REFRESH_MS = 10_000
 
+const AVAILABLE_TABS = ['datasets', 'search', 'ask', 'relevance', 'benchmark', 'inspector', 'documents', 'map']
+
 const SEARCH_RUNNERS: SearchRunners = {
   query: (indexName, params, signal) => narsilClient.query(indexName, params, { signal }),
   suggest: (indexName, params, signal) => narsilClient.suggest(indexName, params, { signal }),
+  list: (indexName, params, signal) => narsilClient.listDocuments(indexName, params, { signal }),
 }
 
 export const Route = createRootRoute({
@@ -68,6 +74,14 @@ function AppShell() {
     [indexes.data, indexes.isLoading, indexes.error, indexes.refresh],
   )
   const workspace = useWorkspace(source)
+  const [changeRevision, setChangeRevision] = useState(0)
+  const handleIndexChanged = useCallback(() => setChangeRevision(current => current + 1), [])
+  const engineActions = useMemo(() => createHttpEngineActions(handleIndexChanged), [handleIndexChanged])
+  const refreshIndexes = indexes.refresh
+
+  useEffect(() => {
+    if (changeRevision > 0) refreshIndexes()
+  }, [changeRevision, refreshIndexes])
 
   const navigate = useNavigate()
   const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
@@ -76,16 +90,20 @@ function AppShell() {
   return (
     <IndexWorkspaceContext value={workspace}>
       <SearchRunnersContext value={SEARCH_RUNNERS}>
-        <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch}>
-          <div className="flex min-h-dvh flex-col">
-            <Header />
-            <ServerStatusBanner isConnecting={indexes.isLoading} error={workspace.error} />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <Footer />
-          </div>
-        </CommandPaletteProvider>
+        <EngineActionsContext value={engineActions}>
+          <IndexChangesContext value={changeRevision}>
+            <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch} availableTabs={AVAILABLE_TABS}>
+              <div className="flex min-h-dvh flex-col">
+                <Header />
+                <ServerStatusBanner isConnecting={indexes.isLoading} error={workspace.error} />
+                <main className="flex-1">
+                  <Outlet />
+                </main>
+                <Footer />
+              </div>
+            </CommandPaletteProvider>
+          </IndexChangesContext>
+        </EngineActionsContext>
       </SearchRunnersContext>
     </IndexWorkspaceContext>
   )

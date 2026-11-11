@@ -2,23 +2,23 @@ import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import { describe, expect, it } from 'vitest'
 import { ServerErrorCodes } from '../../../server/errors'
 import type { RouteContext } from '../../../server/request'
+import { createCapturingResponse } from '../../../server/request-threads/captured-response'
 import { createRelayClient } from '../../../server/request-threads/relay-client'
 
 const CONTEXT = { method: 'get', path: '/indexes', headers: {}, remoteAddress: '127.0.0.1' }
-const NO_ABORT = { aborted: false, onAbort: () => undefined }
-
-function routeContext(rawBody: Buffer): RouteContext {
-  const res = {} as RouteContext['res']
+function routeContext(rawBody: Buffer, port: MessagePort): RouteContext {
+  const captured = createCapturingResponse('127.0.0.1', 0, (part, moved) => port.postMessage(part, moved))
   return {
-    res,
+    res: captured.sink,
     params: ['products'],
     query: new URLSearchParams(),
     contentType: 'application/x-ndjson',
     rawBody,
     spooledBody: null,
     bodyRefusal: null,
-    abort: { ...NO_ABORT, aborted: true },
+    abort: captured.abort,
     hookContext: null,
+    requestHeaders: {},
   }
 }
 
@@ -26,7 +26,13 @@ function answerWithTheBodyReceived(port: MessagePort): Promise<Uint8Array> {
   return new Promise(resolve => {
     port.on('message', (message: { requestId: number; rawBody: Uint8Array }) => {
       resolve(message.rawBody)
-      port.postMessage({ type: 'response', requestId: message.requestId, status: 200, headers: [], body: null })
+      port.postMessage({
+        type: 'response',
+        requestId: message.requestId,
+        status: 200,
+        headers: [],
+        body: new Uint8Array(0),
+      })
     })
   })
 }
@@ -39,7 +45,7 @@ describe('the relay client when it passes a request body to the main thread', ()
     const body = Buffer.allocUnsafeSlow(64 * 1024).fill(7)
     const memory = body.buffer
 
-    await relay.request('importNdjson', routeContext(body))
+    await relay.request('importNdjson', routeContext(body, port1))
 
     expect(memory.byteLength).toBe(0)
     const arrived = await received
@@ -56,7 +62,7 @@ describe('the relay client when it passes a request body to the main thread', ()
     const shared = Buffer.allocUnsafeSlow(32).fill(1)
     const body = shared.subarray(8, 16).fill(9)
 
-    await relay.request('importNdjson', routeContext(body))
+    await relay.request('importNdjson', routeContext(body, port1))
 
     expect(shared.buffer.byteLength).toBe(32)
     expect([...(await received)]).toEqual([9, 9, 9, 9, 9, 9, 9, 9])

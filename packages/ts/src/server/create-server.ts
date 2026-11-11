@@ -1,11 +1,13 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import type { EngineCore } from '../engine/core'
 import { readMemoryFigures } from '../engine/memory/measure'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
 import { detectRuntime } from '../runtime/detect'
+import { createFeedHub } from '../sync/feed/hub'
 import { createBodyBudgetBuffer, createSharedBodyBudget } from './body-budget'
 import {
   createSharedGateBuffer,
@@ -40,13 +42,26 @@ import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createMetricsHandler } from './handlers/metrics'
+import { createQuerySuggestionHandlers } from './handlers/query-suggestions'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
-import { assertAllowRegex, assertServerEngine, assertServerLimits } from './options-validation'
-import { authorizerFor, createRouteRunner } from './request'
+import {
+  assertAllowRegex,
+  assertQuerySuggestionsOptions,
+  assertServerEngine,
+  assertServerLimits,
+} from './options-validation'
+import { type Authorizer, authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
 import { loadUWebSockets, type UWebSockets } from './runtime'
+import { engineSyncServing } from './sync/engine-serving'
+import { createFeedHost, type FeedHost } from './sync/feed-host'
+import { registerFeedRoute } from './sync/feed-route'
+import { assertSyncHasAuthentication, type ResolvedSyncOptions, resolveSyncOptions } from './sync/options'
+import { type SyncServing, syncServingSourceOf } from './sync/serving'
+import { createSyncSettingHandlers } from './sync/setting-handlers'
+import { createSyncSnapshotHandler } from './sync/snapshot-handler'
 import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
 import type { NarsilServer, ServerLimits, ServerOptions } from './types'
@@ -99,7 +114,7 @@ function assertSecureBinding(host: string, options: ServerOptions): void {
   )
 }
 
-function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
+function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | null): ServerHandlers {
   const idx = createIndexHandlers(deps)
   const doc = createDocumentHandlers(deps)
   const search = createSearchHandlers(deps)
@@ -110,6 +125,8 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
   const backups = createBackupHandlers(deps)
   const version = createVersionHandler(deps)
   const capabilities = createCapabilitiesHandler()
+  const syncSetting = createSyncSettingHandlers(deps.engine)
+  const suggestions = createQuerySuggestionHandlers(deps, deps.querySuggestions)
 
   return {
     livez: health.livez,
@@ -167,6 +184,18 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     restore: admin.restore,
     exportDocuments: documentExport.exportDocuments,
     importExport: documentExport.importExport,
+    getSync: syncSetting.getSync,
+    updateSync: syncSetting.updateSync,
+    syncSnapshot: createSyncSnapshotHandler(syncServing),
+    updateQuerySuggestions: suggestions.update,
+    querySuggestionsStatus: suggestions.status,
+    recordQuery: suggestions.record,
+    buildQuerySuggestions: suggestions.build,
+    previewQuerySuggestions: suggestions.preview,
+    readQueryBans: suggestions.readBans,
+    replaceQueryBans: suggestions.replaceBans,
+    removeQuery: suggestions.remove,
+    addManualSuggestion: suggestions.manual,
   }
 }
 
@@ -180,6 +209,9 @@ class NarsilHttpServer implements NarsilServer {
   private listenSocket: us_listen_socket | null = null
   private ready = false
   private threads: RequestThreadHost | null = null
+  private readonly sync: ResolvedSyncOptions | null
+  private syncServing: SyncServing | null = null
+  private feeds: FeedHost | null = null
   private stopIdleHeapCleanup: () => void = () => undefined
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
@@ -187,6 +219,8 @@ class NarsilHttpServer implements NarsilServer {
     const engineRerankWindow = rerankWindowCapOf(engine)
     assertServerLimits(options.limits, engineRerankWindow)
     assertAllowRegex(options.allowRegex)
+    assertQuerySuggestionsOptions(options.querySuggestions)
+    this.sync = resolveSyncOptions(options.sync)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
@@ -210,10 +244,12 @@ class NarsilHttpServer implements NarsilServer {
       build: resolveBuild(options.build),
       cluster: options.cluster,
       requestThreadCount: () => this.requestThreadCount,
+      querySuggestions: options.querySuggestions,
     }
   }
 
   async listen(): Promise<void> {
+    assertSyncHasAuthentication(this.sync, this.options)
     assertSecureBinding(this.host, this.options)
     const uws = await loadUWebSockets()
     this.uws = uws
@@ -242,6 +278,9 @@ class NarsilHttpServer implements NarsilServer {
       this.uws.us_listen_socket_close(this.listenSocket)
       this.listenSocket = null
     }
+    this.feeds?.close()
+    this.feeds = null
+    this.syncServing = null
     if (this.threads !== null) {
       const threads = this.threads
       this.threads = null
@@ -263,6 +302,22 @@ class NarsilHttpServer implements NarsilServer {
     return this.threads?.threadCount ?? 0
   }
 
+  private startSync(app: TemplatedApp, authorize: Authorizer | undefined, core: EngineCore | undefined): void {
+    if (this.sync === null) return
+    const servingOfNode = syncServingSourceOf(this.engine)
+    let serving: SyncServing
+    if (servingOfNode !== undefined) serving = servingOfNode()
+    else if (core !== undefined) serving = engineSyncServing(this.engine, core)
+    else return
+    const hub = createFeedHub(serving.feed, {
+      ...this.sync,
+      onError: error => console.warn('A device sync feed failed to read its index:', error),
+    })
+    this.syncServing = serving
+    this.feeds = createFeedHost(hub, serving, authorize)
+    registerFeedRoute(app, this.feeds.gateway)
+  }
+
   private async registerRoutes(app: TemplatedApp): Promise<void> {
     const cors = resolveCors(this.options.cors)
     const authorize = this.options.onRequest ? authorizerFor(this.options.onRequest) : undefined
@@ -271,7 +326,8 @@ class NarsilHttpServer implements NarsilServer {
     const gate = createSharedGateBuffer(gateSlotOfWorker(threadCount))
     const bodyBudget = createBodyBudgetBuffer(gateSlotOfWorker(threadCount))
     const { limits, build, allowRegex } = this.deps
-    const handlers = mainThreadHandlers(this.deps)
+    const handlers = mainThreadHandlers(this.deps, () => this.syncServing)
+    this.startSync(app, authorize, core)
     const run = createRouteRunner({
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
@@ -294,6 +350,7 @@ class NarsilHttpServer implements NarsilServer {
         allowRegex,
         build,
         cors,
+        feeds: this.feeds,
       })
     } catch (err) {
       console.warn('The server could not start request threads, so the main thread answers every request:', err)

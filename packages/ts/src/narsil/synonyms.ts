@@ -1,6 +1,7 @@
 import { availableSynonymModule, isEmptySynonymSet, synonymModule } from '../core/synonyms/registry'
 import type { EngineCore } from '../engine/core'
 import { rulesOfStoredSynonyms } from '../engine/synonym-sets'
+import { loadMessagePack } from '../serialization/msgpack-code'
 import type { SynonymOperations } from '../types/synonym-operations'
 import type { SynonymRule } from '../types/synonyms'
 
@@ -10,7 +11,9 @@ export function synonymOperations(core: EngineCore): SynonymOperations {
       core.guardShutdown()
       const absent = core.requireIndex(indexName).synonyms === null && isEmptySynonymSet(synonyms)
       if (absent && availableSynonymModule() === null) return
-      await synonymModule().replace(core, indexName, synonyms, true)
+      const module = synonymModule()
+      await loadMessagePack()
+      await module.replace(core, indexName, synonyms, true)
     },
 
     async getSynonyms(indexName: string): Promise<SynonymRule[]> {

@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError, ServerErrorCodes } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import { pause } from '../cluster/rebalance/pause'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'

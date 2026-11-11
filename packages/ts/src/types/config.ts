@@ -97,6 +97,26 @@ export interface NarsilConfig {
    * engine there ignores this setting and leaves it unchecked.
    */
   memory?: MemoryConfig
+  /**
+   * The secret key that popular query suggestions scramble each person's ID
+   * with. Give every node of a cluster the same key. Without it, the engine
+   * counts no search and builds no suggestion. Import
+   * `@delali/narsil/query-suggestions` to reach the feature.
+   */
+  querySuggestions?: QuerySuggestionsConfig
+}
+
+/**
+ * The engine settings of popular query suggestions.
+ *
+ * @public
+ */
+export interface QuerySuggestionsConfig {
+  /**
+   * A secret of at least 32 bytes, as bytes or as text whose UTF-8 bytes the
+   * engine takes. No snapshot, backup, or payload holds it.
+   */
+  key: string | Uint8Array
 }
 
 /**
@@ -104,7 +124,7 @@ export interface NarsilConfig {
  * updates.
  *
  * The engine measures its process memory and its heap before a write whenever
- * its latest measurement is more than one second old. It counts as full once
+ * its latest measurement is more than 10 milliseconds old. It counts as full once
  * either figure passes `blockWritesAbove` of its limit, and as clear again once
  * both fall below `resumeWritesBelow`, so that an engine near the threshold
  * does not switch writes on and off. While the engine is full, it refuses every

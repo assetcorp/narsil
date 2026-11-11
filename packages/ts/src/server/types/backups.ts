@@ -9,6 +9,11 @@ import type { AllocationConstraints } from '../../distribution/coordinator/types
 export interface CreateBackupBody {
   /** The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or a digit. */
   backup: string
+  /**
+   * Set this to true to add every node's popular query suggestion history of the index to the backup. The history
+   * holds the scrambled text of what people searched for, and the backup keeps it after `retentionDays` ends.
+   */
+  queryHistory?: boolean
 }
 
 /**

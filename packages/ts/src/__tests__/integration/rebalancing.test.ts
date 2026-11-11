@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getLanguage } from '../../languages/registry'
+import { createNarsil } from '../../narsil'
 import { fanOutQuery } from '../../partitioning/fan-out'
 import { createPartitionManager } from '../../partitioning/manager'
 import { createRebalancer } from '../../partitioning/rebalancer'
@@ -226,56 +227,34 @@ describe('Rebalancing Integration', () => {
   })
 
   it('maintains search functionality with filters after rebalancing', async () => {
-    const manager = createPartitionManager('products', indexConfig, language, router, 2)
-
+    const engine = await createNarsil({ workers: { enabled: false } })
     const docs = generateDocs(300)
-    for (const { docId, doc } of docs) {
-      manager.insert(docId, doc)
-    }
-
-    const resultBefore = await fanOutQuery(
-      manager,
-      {
+    const expected = docs
+      .filter(({ doc }) => doc.category === 'electronics' && doc.title.split(' ').includes('premium'))
+      .map(({ docId }) => docId)
+      .sort()
+    try {
+      await engine.createIndex('products', { ...indexConfig, partitions: { maxPartitions: 2 } })
+      expect(
+        (
+          await engine.insertBatch(
+            'products',
+            docs.map(({ docId, doc }) => ({ id: docId, ...doc })),
+          )
+        ).failed,
+      ).toEqual([])
+      const params = {
         term: 'premium',
         limit: 500,
-        filters: {
-          fields: {
-            category: { eq: 'electronics' },
-          },
-        },
-      },
-      language,
-      schema,
-      { scoringMode: 'local' },
-    )
-    const matchedBefore = new Set(resultBefore.scored.map(s => s.docId))
-
-    const rebalancer = createRebalancer()
-    await rebalancer.rebalance(manager, 5, router)
-
-    expect(manager.partitionCount).toBe(5)
-    expect(manager.countDocuments()).toBe(300)
-
-    const resultAfter = await fanOutQuery(
-      manager,
-      {
-        term: 'premium',
-        limit: 500,
-        filters: {
-          fields: {
-            category: { eq: 'electronics' },
-          },
-        },
-      },
-      language,
-      schema,
-      { scoringMode: 'local' },
-    )
-    const matchedAfter = new Set(resultAfter.scored.map(s => s.docId))
-
-    expect(matchedAfter.size).toBe(matchedBefore.size)
-    for (const id of matchedBefore) {
-      expect(matchedAfter.has(id)).toBe(true)
+        filters: { fields: { category: { eq: 'electronics' } } },
+      }
+      expect((await engine.query('products', params)).hits.map(hit => hit.id).sort()).toEqual(expected)
+      await engine.updatePartitionConfig('products', { maxPartitions: 5 })
+      await engine.rebalance('products', 5)
+      expect(await engine.countDocuments('products')).toBe(docs.length)
+      expect((await engine.query('products', params)).hits.map(hit => hit.id).sort()).toEqual(expected)
+    } finally {
+      await engine.shutdown()
     }
   })
 })

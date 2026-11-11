@@ -1,6 +1,6 @@
 # Language support
 
-Narsil includes 107 language modules for tokenization, stemming, and stop word removal. This guide lists what each one covers, what the engine does when that analysis changes, and how to register analysis of your own.
+Narsil includes a language module for tokenization, stemming, and stop word removal in each language that the tables below list. This guide lists what each one covers, what the engine does when that analysis changes, and how to register analysis of your own.
 
 ## Full support (tokenizer + stemmer + stop words)
 

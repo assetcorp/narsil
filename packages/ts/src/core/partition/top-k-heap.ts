@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../ordering'
+import { compareScores } from '../ordering/scores'
 
 export interface TopKCandidate {
   internalId: number
@@ -15,8 +16,13 @@ export interface TopKCandidate {
  * @returns True where `a` ranks below `b`.
  */
 export function candidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
-  if (a.score !== b.score) return a.score < b.score
-  return compareCodePoints(a.externalId, b.externalId) > 0
+  if (a.score < b.score) return true
+  if (a.score > b.score) return false
+  return unorderedCandidateWorse(a, b)
+}
+
+function unorderedCandidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
+  return (compareScores(a.score, b.score) || compareCodePoints(a.externalId, b.externalId)) > 0
 }
 
 /**
@@ -60,5 +66,5 @@ export function siftDown(heap: TopKCandidate[], start: number): void {
  * @param heap - The selection heap.
  */
 export function sortSelection(heap: TopKCandidate[]): void {
-  heap.sort((a, b) => b.score - a.score || compareCodePoints(a.externalId, b.externalId))
+  heap.sort((a, b) => compareScores(a.score, b.score) || compareCodePoints(a.externalId, b.externalId))
 }

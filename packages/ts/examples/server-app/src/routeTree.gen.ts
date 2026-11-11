@@ -14,9 +14,12 @@ import { Route as AskRouteImport } from './routes/ask'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as InspectorRouteImport } from './routes/inspector'
+import { Route as MapRouteImport } from './routes/map'
 import { Route as RelevanceRouteImport } from './routes/relevance'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as ApiAskRouteImport } from './routes/api/ask'
+import { Route as ApiNotesSpaceRouteImport } from './routes/api/notes-space'
+import { Route as ApiSyncGrantRouteImport } from './routes/api/sync-grant'
 import { Route as ApiNarsilSplatRouteImport } from './routes/api/narsil.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -44,6 +47,11 @@ const InspectorRoute = InspectorRouteImport.update({
   path: '/inspector',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MapRoute = MapRouteImport.update({
+  id: '/map',
+  path: '/map',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RelevanceRoute = RelevanceRouteImport.update({
   id: '/relevance',
   path: '/relevance',
@@ -59,6 +67,16 @@ const ApiAskRoute = ApiAskRouteImport.update({
   path: '/api/ask',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotesSpaceRoute = ApiNotesSpaceRouteImport.update({
+  id: '/api/notes-space',
+  path: '/api/notes-space',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSyncGrantRoute = ApiSyncGrantRouteImport.update({
+  id: '/api/sync-grant',
+  path: '/api/sync-grant',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiNarsilSplatRoute = ApiNarsilSplatRouteImport.update({
   id: '/api/narsil/$',
   path: '/api/narsil/$',
@@ -71,9 +89,12 @@ export interface FileRoutesByFullPath {
   '/benchmark': typeof BenchmarkRoute
   '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
+  '/map': typeof MapRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
+  '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRoutesByTo {
@@ -82,9 +103,12 @@ export interface FileRoutesByTo {
   '/benchmark': typeof BenchmarkRoute
   '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
+  '/map': typeof MapRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
+  '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRoutesById {
@@ -94,9 +118,12 @@ export interface FileRoutesById {
   '/benchmark': typeof BenchmarkRoute
   '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
+  '/map': typeof MapRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/notes-space': typeof ApiNotesSpaceRoute
+  '/api/sync-grant': typeof ApiSyncGrantRoute
   '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRouteTypes {
@@ -107,9 +134,12 @@ export interface FileRouteTypes {
     | '/benchmark'
     | '/documents'
     | '/inspector'
+    | '/map'
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
+    | '/api/sync-grant'
     | '/api/narsil/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -118,9 +148,12 @@ export interface FileRouteTypes {
     | '/benchmark'
     | '/documents'
     | '/inspector'
+    | '/map'
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
+    | '/api/sync-grant'
     | '/api/narsil/$'
   id:
     | '__root__'
@@ -129,9 +162,12 @@ export interface FileRouteTypes {
     | '/benchmark'
     | '/documents'
     | '/inspector'
+    | '/map'
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/notes-space'
+    | '/api/sync-grant'
     | '/api/narsil/$'
   fileRoutesById: FileRoutesById
 }
@@ -141,9 +177,12 @@ export interface RootRouteChildren {
   BenchmarkRoute: typeof BenchmarkRoute
   DocumentsRoute: typeof DocumentsRoute
   InspectorRoute: typeof InspectorRoute
+  MapRoute: typeof MapRoute
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
   ApiAskRoute: typeof ApiAskRoute
+  ApiNotesSpaceRoute: typeof ApiNotesSpaceRoute
+  ApiSyncGrantRoute: typeof ApiSyncGrantRoute
   ApiNarsilSplatRoute: typeof ApiNarsilSplatRoute
 }
 
@@ -184,6 +223,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InspectorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/map': {
+      id: '/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof MapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/relevance': {
       id: '/relevance'
       path: '/relevance'
@@ -205,6 +251,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAskRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notes-space': {
+      id: '/api/notes-space'
+      path: '/api/notes-space'
+      fullPath: '/api/notes-space'
+      preLoaderRoute: typeof ApiNotesSpaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sync-grant': {
+      id: '/api/sync-grant'
+      path: '/api/sync-grant'
+      fullPath: '/api/sync-grant'
+      preLoaderRoute: typeof ApiSyncGrantRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/narsil/$': {
       id: '/api/narsil/$'
       path: '/api/narsil/$'
@@ -221,9 +281,12 @@ const rootRouteChildren: RootRouteChildren = {
   BenchmarkRoute: BenchmarkRoute,
   DocumentsRoute: DocumentsRoute,
   InspectorRoute: InspectorRoute,
+  MapRoute: MapRoute,
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
   ApiAskRoute: ApiAskRoute,
+  ApiNotesSpaceRoute: ApiNotesSpaceRoute,
+  ApiSyncGrantRoute: ApiSyncGrantRoute,
   ApiNarsilSplatRoute: ApiNarsilSplatRoute,
 }
 export const routeTree = rootRouteImport

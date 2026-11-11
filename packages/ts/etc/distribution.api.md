@@ -128,7 +128,7 @@ export interface ClusterMetrics {
 
 // @public
 export interface ClusterNamespace {
-    createBackup(indexName: string, backupName: string, options?: BackupOperationOptions): Promise<BackupSummary>;
+    createBackup(indexName: string, backupName: string, options?: CreateBackupOptions): Promise<BackupSummary>;
     deleteBackup(backupName: string, options?: BackupOperationOptions): Promise<void>;
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getControllerNodeId(): Promise<string | null>;
@@ -144,7 +144,7 @@ export interface ClusterNamespace {
 }
 
 // @public
-export interface ClusterNode extends ClusterNodeSearchSettings {
+export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings {
     changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
@@ -223,6 +223,12 @@ export interface ClusterNodeSearchSettings {
 }
 
 // @public
+export interface ClusterNodeSyncSettings {
+    getSync(indexName: string): Promise<SyncStatus>;
+    updateSync(indexName: string, setting: SyncSetting): Promise<void>;
+}
+
+// @public
 export interface ClusterQueryConfig {
     allowPartialResults?: boolean;
     partitionTimeout?: number;
@@ -242,6 +248,11 @@ export interface CoordinatorRequestFigure {
     count: number;
     operation: string;
     sumSeconds: number;
+}
+
+// @public
+export interface CreateBackupOptions extends BackupOperationOptions {
+    queryHistory?: boolean;
 }
 
 // @public

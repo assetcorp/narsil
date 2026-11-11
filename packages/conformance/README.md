@@ -12,7 +12,7 @@ This package lets you check a Narsil implementation in any language against the 
 | `samples/checkpoints/` | Five checkpoint directories: `products` with vectors in memory, `notes` with vectors and text on disk, and three `readings` indexes quantised at 8, 2, and 1 bits |
 | `samples/files/` | The kinds that a checkpoint directory doesn't hold, which are the backup manifest, the index configuration, the snapshot archives, and the document export, together with the gzip envelopes, the files of a cluster partition copy, and the variants that set every optional key or take the other form of a value, such as a nil entry point or a torn commit marker slot |
 | `samples/expected/` | The expected JSON of every sample, one file per entry of `samples.json` |
-| `samples/earlier-releases/` | The files that engine 0.3.0 wrote, listed in `releases.json` with the documents that a reader must recover from each |
+| `samples/earlier-releases/` | The files that engine 0.3.0 and commit `a6ddec94` wrote, listed in `releases.json` with the documents that a reader must recover from each |
 | `samples/damaged/cases.json` | Every damaged file and every file that must open, with the rule that it covers and the outcome that a reader must give |
 | `searches/queries.json` | The pinned dataset's digest, the index settings, the text queries with their ranked results, and the vector queries with their nearest neighbours and recall floors |
 
@@ -45,7 +45,7 @@ Both commands print `pass` or `FAIL` with the reason for each sample, then the c
 
 ### Damaged files and files that must open
 
-`samples/damaged/cases.json` lists 140 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of four ways:
+`samples/damaged/cases.json` lists 150 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of four ways:
 
 - **`checkpoint`**: copy the directory in `base` to `<root>/<index>`, copy each file under `files` over the copy at the same relative path, and open the directory as a durable index. Where the case gives `remove`, remove that document. Where it gives `search`, run that text query. Then run one vector query on every vector field and export every document.
 - **`archive`**: restore `file` as a snapshot archive into a new index named by `index`.
@@ -60,7 +60,9 @@ A case passes where your implementation gives the outcome under `expect`:
 
 ### Earlier releases
 
-`samples/earlier-releases/releases.json` lists a checkpoint directory, two snapshot bundles, and an index snapshot that engine 0.3.0 wrote. Open each one, and compare every document that your implementation recovers with the JSON under `indexes`. The `layout` of each entry tells you how the release saved it.
+`samples/earlier-releases/releases.json` lists a checkpoint directory, two snapshot bundles, and an index snapshot that engine 0.3.0 wrote, together with a second checkpoint directory that commit `a6ddec94` wrote. Open each one, and compare every document that your implementation recovers with the JSON under `indexes`. The `layout` of each entry tells you how the release saved it.
+
+Commit `a6ddec94` let a rebalance pass the default `maxPartitions` of one, so its `catalog` index holds four partitions and sets no `maxPartitions`. Your implementation must open it with all four partitions and every document, as [`packages/spec/partitioning.md`](../spec/partitioning.md) requires, and must then refuse a rebalance to any count above one.
 
 ### Searches
 
@@ -72,7 +74,7 @@ node packages/conformance/dist/cli.mjs fetch
 
 The command stores the dataset in `packages/conformance/.dataset`. Index the documents with the settings under `index` in `searches/queries.json`, then run each query. Text results must hold the listed IDs in the listed order, and the reference's scores match the listed scores to a relative difference of 10<sup>-9</sup>. Vector results must reach each recall floor under `vector.floors` against the 100 nearest neighbours that a brute-force cosine scan found for each query, and their order is free.
 
-The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `ebae3448ae674b59`, and it stops with exit code 2 when the revision moves:
+The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `4026533016c7f4b1`, and it stops with exit code 2 when the revision moves:
 
 | Setting | Where the oracle takes it |
 | --- | --- |

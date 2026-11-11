@@ -1,6 +1,6 @@
 const RELEASE_BASE = 'https://github.com/assetcorp/narsil/releases/download/data-v0'
 
-export type DatasetId = 'tmdb' | 'wikipedia' | 'scifact' | 'custom'
+export type DatasetId = 'tmdb' | 'wikipedia' | 'scifact' | 'places' | 'custom'
 
 export interface DatasetTier {
   label: string
@@ -50,12 +50,22 @@ export interface ScifactDataset {
   qrelCount: number
 }
 
+export interface PlacesDataset {
+  id: 'places'
+  name: string
+  indexName: string
+  file: string
+  sizeBytes: number
+  docCount: number
+  vectorFile: string
+}
+
 export interface CustomDataset {
   id: 'custom'
   name: string
 }
 
-export type Dataset = TmdbDataset | WikipediaDataset | ScifactDataset | CustomDataset
+export type Dataset = TmdbDataset | WikipediaDataset | ScifactDataset | PlacesDataset | CustomDataset
 
 export const COMMITTED_SIZE_THRESHOLD = 10 * 1024 * 1024
 
@@ -168,9 +178,19 @@ export const scifact: ScifactDataset = {
   qrelCount: 339,
 }
 
+export const places: PlacesDataset = {
+  id: 'places',
+  name: 'World Places',
+  indexName: 'places',
+  file: 'places.json',
+  sizeBytes: 340_935,
+  docCount: 1_251,
+  vectorFile: 'places-vectors-384.bin',
+}
+
 export const custom: CustomDataset = {
   id: 'custom',
   name: 'Your Dataset',
 }
 
-export const datasets: Dataset[] = [tmdb, wikipedia, scifact, custom]
+export const datasets: Dataset[] = [tmdb, wikipedia, scifact, places, custom]

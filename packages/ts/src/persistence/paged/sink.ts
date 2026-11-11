@@ -1,4 +1,4 @@
-import { crc32 } from '../../serialization/crc32'
+import { crc32 } from '#platform/storage-host'
 import type { AppendHandle, DurableDirectory } from '../durability/durable-filesystem'
 import { SECTION_WRITE_BUFFER_BYTES } from './constants'
 import { SEGMENT_PAGE_BYTES } from './format'
@@ -17,11 +17,11 @@ export interface SectionSink {
 }
 
 export async function openSectionSink(directory: DurableDirectory, temporaryKey: string): Promise<SectionSink> {
-  await directory.remove(temporaryKey)
-  const handle: AppendHandle = await directory.appendHandle(temporaryKey)
   const buffer = new Uint8Array(SECTION_WRITE_BUFFER_BYTES)
   const page = new Uint8Array(SEGMENT_PAGE_BYTES)
   const checksums: number[] = []
+  await directory.remove(temporaryKey)
+  const handle: AppendHandle = await directory.appendHandle(temporaryKey)
   let buffered = 0
   let pageFilled = 0
   let length = 0

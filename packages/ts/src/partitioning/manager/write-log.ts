@@ -11,10 +11,12 @@ export const REANALYSIS_WRITE_LOG = 0
 export const CHECKPOINT_WRITE_LOG = 1
 
 export interface WriteLogRecorder {
+  readonly generation: number
   open(owner: number): PartitionWriteLog
   documentWritten(docId: string): void
   segmentWritten(segment: FrozenSegment): void
   partitionsReplaced(): void
+  contentChanged(): void
 }
 
 interface OpenLog {
@@ -24,8 +26,17 @@ interface OpenLog {
 
 export function createWriteLogRecorder(): WriteLogRecorder {
   const current: Array<OpenLog | null> = [null, null]
+  let generation = 0
 
   return {
+    get generation() {
+      return generation
+    },
+
+    contentChanged(): void {
+      generation++
+    },
+
     open(owner: number): PartitionWriteLog {
       const log: OpenLog = { docIds: new Set(), replaced: false }
       current[owner] = log
@@ -48,11 +59,13 @@ export function createWriteLogRecorder(): WriteLogRecorder {
     },
 
     documentWritten(docId: string): void {
+      generation++
       current[0]?.docIds.add(docId)
       current[1]?.docIds.add(docId)
     },
 
     segmentWritten(segment: FrozenSegment): void {
+      generation++
       for (const log of current) {
         if (log === null) continue
         for (const internalId of segment.docStore.allInternalIds()) {
@@ -63,6 +76,7 @@ export function createWriteLogRecorder(): WriteLogRecorder {
     },
 
     partitionsReplaced(): void {
+      generation++
       for (const log of current) {
         if (log !== null) log.replaced = true
       }

@@ -1,4 +1,8 @@
+import type { TurnScheduler } from './turn-scheduler'
+
 export const turnsAreBudgeted = false
+
+export function adoptSharedTurns(_scheduler: TurnScheduler): void {}
 
 export function turnIsSpent(): boolean {
   return false
@@ -24,11 +28,11 @@ export function waitOutsideCountedWrite<T>(wait: () => Promise<T>): Promise<T> {
   return wait()
 }
 
-export function changeIndexOutsideExternalWaits<T>(change: () => Promise<T>): Promise<T> {
+export function changeIndexOutsideExternalWaits<T>(change: () => T | Promise<T>): T | Promise<T> {
   return change()
 }
 
-export function indexChangeOutsideExternalWaits<T>(change: () => Promise<T>): () => Promise<T> {
+export function indexChangeOutsideExternalWaits<T>(change: () => T | Promise<T>): () => T | Promise<T> {
   return change
 }
 

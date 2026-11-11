@@ -119,7 +119,7 @@ const stopWords = new Set([
  */
 export const marathi: LanguageModule = {
   name: 'marathi',
-  revision: '1',
+  revision: '82a776f0c644e2b7',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },

@@ -1,4 +1,7 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, NarsilError } from '#platform/resolve-vector-text-host'
+
+export { bindResolveVectorTextHost } from '#platform/resolve-vector-text-host'
+
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { QueryParams, VectorQueryConfig } from '../types/search'
 
@@ -56,6 +59,14 @@ export async function resolveVectorText(
       ErrorCodes.EMBEDDING_DIMENSION_MISMATCH,
       `Adapter returned ${raw.length}-dimensional vector for query, expected ${embeddingAdapter.dimensions}`,
       { expected: embeddingAdapter.dimensions, actual: raw.length },
+    )
+  }
+  for (let index = 0; index < raw.length; index++) {
+    if (Number.isFinite(raw[index])) continue
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_FAILED,
+      `Adapter returned vector with ${raw[index]} at index ${index} for query embedding`,
+      { index },
     )
   }
   const resolved: VectorQueryConfig = { ...params.vector, value: Array.from(raw) }

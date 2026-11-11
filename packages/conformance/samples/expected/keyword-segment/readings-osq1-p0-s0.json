@@ -182,18 +182,18 @@
     "pattern": [],
     "surfaceForms": {
       "text": [
-        ["remember", "rememb"],
-        ["sturdy", "sturdi"],
-        ["kettle", "kettl"],
-        ["goes", "goe"],
-        ["folding", "fold"],
         ["enamelled", "enamel"],
+        ["folding", "fold"],
+        ["goes", "goe"],
+        ["heavy", "heavi"],
+        ["kettle", "kettl"],
+        ["polished", "polish"],
+        ["remember", "rememb"],
         ["running", "run"],
         ["shears", "shear"],
-        ["polished", "polish"],
-        ["heavy", "heavi"]
+        ["sturdy", "sturdi"]
       ],
-      "counts": [20, 3, 6, 20, 3, 3, 2, 4, 2, 2]
+      "counts": [3, 3, 20, 2, 6, 2, 20, 2, 4, 3]
     },
     "partialWords": null
   }

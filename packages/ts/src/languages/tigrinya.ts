@@ -203,7 +203,7 @@ const stopWords = new Set([
  */
 export const tigrinya: LanguageModule = {
   name: 'tigrinya',
-  revision: '1',
+  revision: '22b8392a8cbaa29b',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u1200-\u135f\u1369-\u137ca-z0-9]+/gi },

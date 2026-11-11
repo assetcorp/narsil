@@ -1,8 +1,22 @@
 import type { EngineCore } from '../engine/core'
 import type { Narsil } from '../types/engine'
+import type { QueryParams } from '../types/search'
 
 const engineCores = new WeakMap<Narsil, EngineCore>()
 const rerankWindowSources = new WeakMap<object, () => number | undefined>()
+const queryReadOptions = new WeakMap<QueryParams, { signal: AbortSignal }>()
+
+export function bindQuerySignal(params: QueryParams, signal: AbortSignal): void {
+  queryReadOptions.set(params, { signal })
+}
+
+export function clearQuerySignal(params: QueryParams): void {
+  queryReadOptions.delete(params)
+}
+
+export function queryReadOptionsOf(params: QueryParams): { signal: AbortSignal } | undefined {
+  return queryReadOptions.get(params)
+}
 
 export function bindEngineCore(engine: Narsil, core: EngineCore): void {
   engineCores.set(engine, core)
