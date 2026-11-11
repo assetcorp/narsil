@@ -89,6 +89,15 @@ fn finalizing() -> io::Error {
     io::Error::other("the Python interpreter is shutting down")
 }
 
+fn is_raw_stream(file: &Bound<'_, PyAny>) -> io::Result<bool> {
+    let raw_type = file
+        .py()
+        .import("io")
+        .and_then(|module| module.getattr("RawIOBase"))
+        .map_err(python_io_error)?;
+    file.is_instance(&raw_type).map_err(python_io_error)
+}
+
 struct PythonWriter {
     file: Py<PyAny>,
 }
@@ -104,6 +113,12 @@ impl Write for PythonWriter {
             if written.is_instance_of::<PyInt>() {
                 let count: usize = written.extract().map_err(python_io_error)?;
                 return Ok(count.min(buffer.len()));
+            }
+            if written.is_none() && is_raw_stream(self.file.bind(py))? {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "the nonblocking stream accepted none of the bytes",
+                ));
             }
             Ok(buffer.len())
         })

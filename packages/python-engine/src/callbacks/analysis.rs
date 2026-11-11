@@ -7,6 +7,7 @@ use narsil::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyFrozenSet, PySet, PyString, PyTuple};
 
+use super::retained::Retained;
 use super::{CallbackFailure, call_python};
 use crate::convert::fields::{items_of, string_of, strings_of, whole_of};
 use crate::errors::config_invalid;
@@ -56,13 +57,13 @@ fn token_of(entry: &Bound<'_, PyAny>, at: usize) -> Result<Token, NarsilError> {
 }
 
 pub(crate) struct PythonTokenizer {
-    object: Py<PyAny>,
+    object: Retained,
 }
 
 impl PythonTokenizer {
     fn tokens(&self, text: &str) -> Result<Vec<Token>, NarsilError> {
         call_python(ErrorCode::INTERNAL_ERROR, TOKENIZER_SUBJECT, |py| {
-            let entries = self.object.bind(py).call_method1("tokenize", (text,))?;
+            let entries = self.object.bind(py)?.call_method1("tokenize", (text,))?;
             let entries = items_of(&entries, "the list that tokenize returned")?;
             let mut tokens = Vec::with_capacity(entries.len());
             for (at, entry) in entries.iter().enumerate() {
@@ -106,7 +107,7 @@ pub(crate) fn tokenizer_object(
         )));
     }
     Ok(Arc::new(PythonTokenizer {
-        object: value.clone().unbind(),
+        object: Retained::new(value),
     }))
 }
 
@@ -114,13 +115,13 @@ fn word_set(value: &Bound<'_, PyAny>, label: &str) -> Result<HashSet<String>, Na
     Ok(strings_of(value, label)?.into_iter().collect())
 }
 
-fn stop_word_function(function: Py<PyAny>) -> StopWords {
+fn stop_word_function(function: Retained) -> StopWords {
     StopWords::Function(Arc::new(move |defaults: &HashSet<String>| {
         let mut sorted: Vec<&String> = defaults.iter().collect();
         sorted.sort();
         let chosen = call_python(ErrorCode::CONFIG_INVALID, STOP_WORDS_SUBJECT, |py| {
             let defaults = PyFrozenSet::new(py, &sorted)?;
-            let chosen = function.bind(py).call1((defaults,))?;
+            let chosen = function.bind(py)?.call1((defaults,))?;
             Ok(word_set(
                 &chosen,
                 "the stop words that the function returned",
@@ -138,7 +139,7 @@ pub(crate) fn stop_words_value(
     label: &str,
 ) -> Result<StopWords, NarsilError> {
     if value.cast::<PyString>().is_err() && value.is_callable() {
-        return Ok(stop_word_function(value.clone().unbind()));
+        return Ok(stop_word_function(Retained::new(value)));
     }
     if value.cast::<PySet>().is_ok() || value.cast::<PyFrozenSet>().is_ok() {
         let words: Vec<String> = value

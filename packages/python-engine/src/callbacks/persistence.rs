@@ -8,6 +8,7 @@ use narsil::{
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyBytes};
 
+use super::retained::Retained;
 use super::{CallbackFailure, call_python};
 use crate::convert::fields::strings_of;
 use crate::errors::{config_invalid, to_py_err};
@@ -50,7 +51,7 @@ impl PyFilesystemPersistence {
 }
 
 struct PythonPersistence {
-    object: Py<PyAny>,
+    object: Retained,
     directory: Option<PathBuf>,
 }
 
@@ -69,7 +70,7 @@ impl PythonPersistence {
         let subject = format!("The {method} method of the persistence adapter");
         call_python(code, &subject, |py| {
             let arguments = arguments(py)?;
-            let returned = self.object.bind(py).call_method1(method, arguments)?;
+            let returned = self.object.bind(py)?.call_method1(method, arguments)?;
             read(py, returned)
         })
         .map_err(boxed)
@@ -169,7 +170,7 @@ pub(crate) fn persistence_adapter(
         _ => None,
     };
     Ok(Arc::new(PythonPersistence {
-        object: value.clone().unbind(),
+        object: Retained::new(value),
         directory,
     }))
 }

@@ -64,7 +64,7 @@ class AsyncQuerySuggestions:
         return await _off_loop(self._suggestions.bans, index)
 
     async def update_bans(self, index: str, phrases: Iterable[str]) -> list[str]:
-        return await _off_loop(self._suggestions.update_bans, index, list(phrases))
+        return await _off_loop(self._suggestions.update_bans, index, phrases)
 
     async def remove_query(self, index: str, query: str) -> int:
         return await _off_loop(self._suggestions.remove_query, index, query)
@@ -157,25 +157,25 @@ class AsyncNarsil:
         return await _off_loop(self._engine.insert, index, document, doc_id)
 
     async def insert_batch(self, index: str, documents: Iterable[Mapping[str, Any]]) -> BatchResult:
-        return await _off_loop(self._engine.insert_batch, index, list(documents))
+        return await _off_loop(self._engine.insert_batch, index, documents)
 
     async def update(self, index: str, doc_id: str, document: Mapping[str, Any]) -> None:
         await _off_loop(self._engine.update, index, doc_id, document)
 
     async def update_batch(self, index: str, updates: Iterable[Settings]) -> BatchResult:
-        return await _off_loop(self._engine.update_batch, index, list(updates))
+        return await _off_loop(self._engine.update_batch, index, updates)
 
     async def remove(self, index: str, doc_id: str) -> None:
         await _off_loop(self._engine.remove, index, doc_id)
 
     async def remove_batch(self, index: str, doc_ids: Iterable[str]) -> BatchResult:
-        return await _off_loop(self._engine.remove_batch, index, list(doc_ids))
+        return await _off_loop(self._engine.remove_batch, index, doc_ids)
 
     async def get(self, index: str, doc_id: str) -> Document | None:
         return await _off_loop(self._engine.get, index, doc_id)
 
     async def get_multiple(self, index: str, doc_ids: Iterable[str]) -> dict[str, Document]:
-        return await _off_loop(self._engine.get_multiple, index, list(doc_ids))
+        return await _off_loop(self._engine.get_multiple, index, doc_ids)
 
     async def has(self, index: str, doc_id: str) -> bool:
         return await _off_loop(self._engine.has, index, doc_id)
@@ -217,7 +217,7 @@ class AsyncNarsil:
         await _off_loop(self._engine.update_partition_config, index, partitions)
 
     async def update_synonyms(self, index: str, rules: Iterable[Settings]) -> None:
-        await _off_loop(self._engine.update_synonyms, index, list(rules))
+        await _off_loop(self._engine.update_synonyms, index, rules)
 
     async def get_synonyms(self, index: str) -> list[dict[str, Any]]:
         return await _off_loop(self._engine.get_synonyms, index)

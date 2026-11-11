@@ -4,6 +4,7 @@ use narsil::{ErrorCode, IndexConfig, Map, NarsilError, Plugin, QueryParams, Quer
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use super::retained::Retained;
 use super::{CallbackFailure, call_python, report_unraisable};
 use crate::convert::encode::{index_config_dict, query_dict};
 use crate::convert::fields::string_of;
@@ -27,7 +28,7 @@ const HOOKS: [&str; 11] = [
 ];
 
 pub(crate) struct PythonPlugin {
-    object: Py<PyAny>,
+    object: Retained,
     name: String,
     hooks: [bool; HOOKS.len()],
 }
@@ -56,7 +57,7 @@ impl PythonPlugin {
                 .unwrap_or(false);
         }
         Ok(Arc::new(PythonPlugin {
-            object: object.clone().unbind(),
+            object: Retained::new(object),
             name,
             hooks,
         }))
@@ -80,7 +81,7 @@ impl PythonPlugin {
         call_python(code, &self.subject(hook), |py| {
             let context = context(py)?;
             self.object
-                .bind(py)
+                .bind(py)?
                 .call_method1(hook, (context.clone(),))?;
             read(&context)
         })
@@ -95,10 +96,12 @@ impl PythonPlugin {
             return;
         }
         let _ = Python::try_attach(|py| {
-            let plugin = self.object.bind(py);
+            let Ok(plugin) = self.object.bind(py) else {
+                return;
+            };
             let outcome = context(py).and_then(|context| plugin.call_method1(hook, (context,)));
             if let Err(error) = outcome {
-                report_unraisable(py, error, plugin);
+                report_unraisable(py, error, &plugin);
             }
         });
     }
