@@ -38,6 +38,12 @@ function requireValidDurabilityConfig(durability: DurabilityConfig): void {
     )
   }
   requireKnob('compactionThreshold', durability.compactionThreshold, 1)
+  const rewriteBytes = durability.rewriteBytesPerCheckpoint
+  if (rewriteBytes !== undefined && !(Number.isSafeInteger(rewriteBytes) && rewriteBytes >= 1)) {
+    throw configError(
+      `durability.rewriteBytesPerCheckpoint must be an integer of at least 1, got ${String(rewriteBytes)}`,
+    )
+  }
 
   if (durability.tier === 'snapshot') {
     for (const field of WAL_ONLY_FIELDS) {

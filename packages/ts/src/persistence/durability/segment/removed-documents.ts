@@ -1,6 +1,6 @@
 import { openPagedSegmentScan } from '../../paged/segment-scan'
 import { isPagedSegmentFile } from '../../paged/verify'
-import { REMOVED_DOCUMENT_REWRITE_BYTES_PER_CHECKPOINT, REWRITE_ABOVE_REMOVED_DOCUMENT_SHARE } from '../constants'
+import { REWRITE_ABOVE_REMOVED_DOCUMENT_SHARE } from '../constants'
 import { type CompactionResult, mergeSegmentWindow, type SegmentWindowWriter } from './compaction'
 import type { SegmentRef } from './manifest'
 import { readSegmentFile } from './segment-file'
@@ -11,9 +11,15 @@ export interface PartitionDocumentCount {
   documentCount: number
 }
 
+export interface RemovedDocumentRewriteBudget {
+  spentBytes: number
+  limitBytes: number
+}
+
 export interface RemovedDocumentRewrite extends SegmentWindowWriter {
   segments: SegmentRef[]
   liveDocumentCount: number | undefined
+  budget: RemovedDocumentRewriteBudget
 }
 
 interface SegmentIds {
@@ -67,7 +73,11 @@ function freedBytesOf(ref: SegmentRef, replacedCount: number): number {
   return ref.docCount === 0 ? 0 : (ref.bytes * replacedCount) / ref.docCount
 }
 
-function chooseRewrites(segments: readonly SegmentRef[], replaced: readonly string[][]): number[] {
+function chooseRewrites(
+  segments: readonly SegmentRef[],
+  replaced: readonly string[][],
+  budget: RemovedDocumentRewriteBudget,
+): number[] {
   let held = 0
   let removed = 0
   for (let at = 0; at < segments.length; at++) {
@@ -81,13 +91,12 @@ function chooseRewrites(segments: readonly SegmentRef[], replaced: readonly stri
       freedBytesOf(segments[right], replaced[right].length) - freedBytesOf(segments[left], replaced[left].length),
   )
   const chosen: number[] = []
-  let rewrittenBytes = 0
   for (const at of candidates) {
     if (!exceedsRemovedShare(removed, held)) break
     const bytes = segments[at].bytes
-    if (chosen.length > 0 && rewrittenBytes + bytes > REMOVED_DOCUMENT_REWRITE_BYTES_PER_CHECKPOINT) continue
+    if (chosen.length > 0 && budget.spentBytes + bytes > budget.limitBytes) continue
     chosen.push(at)
-    rewrittenBytes += bytes
+    budget.spentBytes += bytes
     held -= replaced[at].length
     removed -= replaced[at].length
   }
@@ -107,7 +116,7 @@ export async function rewriteRemovedDocuments(input: RemovedDocumentRewrite): Pr
   if (!exceedsRemovedShare(held - liveDocumentCount, held)) return unchanged
 
   const replaced = await documentsReplacedLater(input.store, segments)
-  const chosen = new Set(chooseRewrites(segments, replaced))
+  const chosen = new Set(chooseRewrites(segments, replaced, input.budget))
   if (chosen.size === 0) return unchanged
   const rewritten: SegmentRef[] = []
   let nextSegmentId = input.nextSegmentId

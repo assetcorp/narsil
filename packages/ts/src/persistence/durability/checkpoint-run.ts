@@ -45,6 +45,7 @@ interface DurableCheckpointInput {
   indexName: string
   indexState: IndexState
   compactionThreshold: number
+  rewriteBytesPerCheckpoint: number
   canOffload: boolean
   fromMemory: boolean
   mutationThreshold: number
@@ -226,6 +227,7 @@ async function finishBoundedCheckpoint(
       metadata,
       targets,
       compactionThreshold: input.compactionThreshold,
+      rewriteBytesPerCheckpoint: input.rewriteBytesPerCheckpoint,
       canOffload: input.canOffload,
       prior: priorForLayout(priorManifest, capture.partitionCount),
       wholePartitions: capture.wholePartitions.contents,

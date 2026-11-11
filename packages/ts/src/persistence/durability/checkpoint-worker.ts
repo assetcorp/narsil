@@ -18,6 +18,7 @@ export interface CheckpointWorkerRequest {
   capturedPartitions?: CapturedWholePartition[]
   keepsWriteRecords?: boolean
   liveDocuments?: PartitionDocumentCount[]
+  rewriteBytesPerCheckpoint?: number
 }
 
 export interface CheckpointWorkerSuccess {
@@ -56,6 +57,10 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (request.liveDocuments !== undefined && !Array.isArray(request.liveDocuments)) {
     throw new Error('Checkpoint request gives partition document counts in a shape the worker cannot read')
   }
+  const rewriteBytes = request.rewriteBytesPerCheckpoint
+  if (rewriteBytes !== undefined && (!Number.isSafeInteger(rewriteBytes) || rewriteBytes < 1)) {
+    throw new Error('Checkpoint request has an invalid rewrite budget')
+  }
   const loadingGeoCode = loadGeoCodeFor(request.metadata.schema)
   if (loadingGeoCode !== null) await loadingGeoCode
   const segments = await rebuildSegmentsFromDurable(
@@ -67,6 +72,7 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
     request.capturedPartitions,
     request.keepsWriteRecords === true,
     request.liveDocuments,
+    rewriteBytes,
   )
   return { type: 'success', segments }
 }
