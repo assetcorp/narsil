@@ -32,6 +32,7 @@ describe('a restart on the write-ahead-log tier after a rebalance', { timeout: 3
       Array.from({ length: DOCUMENT_COUNT }, (_, i) => ({ id: `p${i}`, title: `Product ${i}`, price: i })),
     )
     const before = writer.getPartitionStats('products').length
+    await writer.updatePartitionConfig('products', { maxPartitions: targetPartitions })
     await writer.rebalance('products', targetPartitions)
     for (let i = 0; i < writesAfter; i++) {
       await writer.insert('products', { title: `Later ${i}`, price: i }, `later${i}`)

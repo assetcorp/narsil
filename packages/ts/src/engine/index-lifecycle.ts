@@ -73,7 +73,7 @@ export async function createEngineIndex(
   creation: IndexCreationOptions = {},
 ): Promise<void> {
   const { indexUuid, adapterBinding = 'required', appliesCreationLimits = false } = creation
-  const loadingSchemaCode = loadSchemaCodeFor(requestedConfig.schema)
+  const loadingSchemaCode = loadSchemaCodeFor(requestedConfig.schema, requestedConfig.tokenizer)
   if (loadingSchemaCode !== null) await loadingSchemaCode
   core.guardShutdown()
   validateIndexName(name)

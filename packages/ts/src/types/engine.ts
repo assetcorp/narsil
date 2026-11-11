@@ -336,7 +336,11 @@ export interface Narsil
    * that arrive while the work runs, replaying them in order once it finishes.
    *
    * @param indexName - The index to rebalance.
-   * @param targetPartitionCount - Partitions the index ends up with.
+   * @param targetPartitionCount - Partitions the index ends up with, at most
+   * the index's `maxPartitions`, which defaults to 1. Raise that limit first
+   * with {@link Narsil.updatePartitionConfig}.
+   * @throws A `NarsilError` with `PARTITION_CAPACITY_EXCEEDED` when
+   * `targetPartitionCount` is above `maxPartitions`.
    */
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   /**

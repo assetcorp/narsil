@@ -113,6 +113,7 @@ describe('a synced device after the server copy changes under it', () => {
     await started.sync.put('queued-offline', note('queued-offline'))
     oracle.set('queued-offline', note('queued-offline'))
 
+    await serving().admin.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     const rebalance = await serving().admin.rebalance(INDEX, 3)
     await serving().admin.waitForTask(rebalance.id)
     await serving().admin.put(INDEX, 'after-rebalance', { ...note('after-rebalance') })
@@ -136,6 +137,7 @@ describe('a synced device after the server copy changes under it', () => {
     const snapshot = new Uint8Array(await new Response(await serving().admin.snapshot(INDEX)).arrayBuffer())
     const snapshotOracle = new Map(oracle)
 
+    await serving().admin.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     const rebalance = await serving().admin.rebalance(INDEX, 3)
     await serving().admin.waitForTask(rebalance.id)
     await serving().admin.put(INDEX, 'after-rebalance', { ...note('after-rebalance') })

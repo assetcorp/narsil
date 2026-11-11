@@ -88,7 +88,13 @@ export {
 } from '../osq/quantize'
 export { openSharedQuantizer } from '../osq/view'
 export { requireUsableVectorOptions } from '../search-depth'
-export { fixedView, growBufferTo, grownByteLength, sharedMemoryAvailable } from '../shared-buffers/growable'
+export {
+  fixedView,
+  growBufferTo,
+  grownByteLength,
+  requireBytesWithinLimit,
+  sharedMemoryAvailable,
+} from '../shared-buffers/growable'
 export { arenaFloat32Distance } from '../simd'
 export { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 export { planCheckpoint, recordCheckpoint, signatureOf } from '../vector-index/checkpoint-plan'

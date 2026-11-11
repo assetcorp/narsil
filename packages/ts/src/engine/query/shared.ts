@@ -23,6 +23,7 @@ import type { BM25Params, IndexConfig } from '../../types/schema'
 import type { QueryParams, SearchMode } from '../../types/search'
 import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
 import type { WorkerHitReads } from '../../workers/protocol'
+import { requireLoadedVectorCode } from '../../workers/vector-code'
 
 export interface RerankRunner {
   maxWindow: number
@@ -259,7 +260,12 @@ export function requireVectorSearchable(params: QueryParams, context: QueryConte
       { mode: params.mode },
     )
   }
-  if (vectorSearchersOf(context).has(field)) return
+  if (vectorSearchersOf(context).has(field)) {
+    const vectorCode = requireLoadedVectorCode()
+    vectorCode.requireUsableQueryVector(params.vector?.value)
+    vectorCode.requireUsableVectorOptions(params.vector)
+    return
+  }
   throw new NarsilError(
     ErrorCodes.SEARCH_INVALID_FIELD,
     `Field "${field}" has no vector index, so a vector search cannot use it`,

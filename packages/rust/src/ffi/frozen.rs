@@ -44,6 +44,8 @@ pub struct narsil_frozen_segment {
     pub partial_fields: *const u8,
     pub field_count: u32,
     pub document_count: u32,
+    pub exact_slots: *const i32,
+    pub exact_slot_count: usize,
 }
 
 #[repr(C)]

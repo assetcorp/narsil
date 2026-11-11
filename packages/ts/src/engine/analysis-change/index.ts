@@ -3,6 +3,7 @@ import {
   ErrorCodes,
   emitEngineEvent,
   holdSyncEpochChange,
+  loadSchemaCodeFor,
   NarsilError,
   prepareStoredSynonyms,
   rebuildTextIndexes,
@@ -249,6 +250,9 @@ export { executeRebalance } from '../rebalance-executor'
 export { adoptSavedAnalysis } from './adopt-saved'
 
 export async function changeIndexAnalysis(core: EngineCore, indexName: string, change: AnalysisChange): Promise<void> {
+  const changedTokenizer = change !== null && typeof change === 'object' ? change.tokenizer : undefined
+  const loadingTokenizerCode = loadSchemaCodeFor(null, changedTokenizer)
+  if (loadingTokenizerCode !== null) await loadingTokenizerCode
   const entry = core.requireIndex(indexName)
   requireNotRebalancing(core, indexName)
   requireNoRestoreInFlight(core, indexName)
@@ -271,6 +275,8 @@ export async function changeIndexAnalysis(core: EngineCore, indexName: string, c
 
 export function resumeAnalysisChange(core: EngineCore, indexName: string): Promise<void> {
   const entry = core.requireIndex(indexName)
+  const loadingTokenizerCode = loadSchemaCodeFor(null, entry.pendingAnalysis?.tokenizer)
+  if (loadingTokenizerCode !== null) return loadingTokenizerCode.then(() => resumeAnalysisChange(core, indexName))
   const runs = runsOf(core)
   const running = runs.get(indexName)
   if (running !== undefined) return running.finished
@@ -330,6 +336,8 @@ export async function buildHeldAnalysisChange(
   indexName: string,
   pending: PendingAnalysisMetadata,
 ): Promise<void> {
+  const loadingTokenizerCode = loadSchemaCodeFor(null, pending.tokenizer)
+  if (loadingTokenizerCode !== null) await loadingTokenizerCode
   const running = runsOf(core).get(indexName)
   const entry = core.indexRegistry.get(indexName)
   if (running?.hold != null && entry !== undefined && holdServes(running, entry, pending)) return running.hold.ready

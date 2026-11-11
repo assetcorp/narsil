@@ -48,10 +48,10 @@ function validateVector(vector: unknown, targetField: string, expectedDimensions
     )
   }
   for (let i = 0; i < vector.length; i++) {
-    if (Number.isNaN(vector[i])) {
+    if (!Number.isFinite(vector[i])) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_FAILED,
-        `Adapter returned vector with NaN at index ${i} for field "${targetField}"`,
+        `Adapter returned vector with ${vector[i]} at index ${i} for field "${targetField}"`,
         { field: targetField, index: i },
       )
     }

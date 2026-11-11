@@ -16,8 +16,10 @@ on:
           - '@delali/narsil-certutil'
           - 'narsil-client'
           - 'github.com/assetcorp/narsil/packages/go'
+          - 'github.com/assetcorp/narsil/packages/go/engine'
+          - 'delali-narsil'
       version:
-        description: 'Version bump (patch, minor, major, or explicit like 1.2.3). The Python and Go clients take only the explicit version, and the Python one must equal packages/python/pyproject.toml'
+        description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
         required: true
         type: string
       dry-run:
@@ -33,7 +35,7 @@ permissions:
 jobs:
   native:
     name: Native search core
-    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go')
+    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil')
     uses: ./.github/workflows/native-core.yml
 
   plan:
@@ -148,7 +150,7 @@ jobs:
   publish:
     name: Publish to npm
     needs: native
-    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go'
+    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -311,7 +313,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write
       id-token: write
     concurrency:
       group: publish-to-pypi
@@ -320,26 +322,57 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main
+        run: |
+          git fetch origin main
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          MAIN_TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$CHECKED_OUT_SHA" != "$MAIN_TIP_SHA" ]; then
+            echo "::error::This run holds $CHECKED_OUT_SHA and main is at $MAIN_TIP_SHA, so the release commit would be rejected as non-fast-forward. Dispatch a fresh run, because re-running replays the commit the original dispatch pinned."
+            exit 1
+          fi
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Setup Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
 
-      - name: Verify this run holds the tip of main and the version in pyproject.toml
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
         env:
           VERSION: ${{ inputs.version }}
-        run: |
-          git fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
-            exit 1
-          fi
-          COMMITTED="$(python3 -c 'import tomllib; print(tomllib.load(open("packages/python/pyproject.toml", "rb"))["project"]["version"])')"
-          if [ "$VERSION" != "$COMMITTED" ]; then
-            echo "::error::The run asks for $VERSION while packages/python/pyproject.toml holds $COMMITTED. Raise the version in a pull request first."
-            exit 1
-          fi
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects=narsil-python --skip-publish
 
       - name: Build the package
         working-directory: packages/python
@@ -369,29 +402,179 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Verify this run holds the tip of main, the version, and a free tag
+      - name: Verify this run holds the tip of main and resolve the version
+        id: resolve
         env:
-          VERSION: ${{ inputs.version }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           git fetch origin main
           if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
             echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
             exit 1
           fi
-          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::The Go module takes an explicit version such as 0.1.0, and the run asks for '$VERSION'."
-            exit 1
-          fi
+          VERSION="$(node .github/scripts/next-tag-version.js packages/go/ "$REQUESTED_VERSION")"
           if git rev-parse -q --verify "refs/tags/packages/go/v$VERSION" >/dev/null; then
             echo "::error::The tag packages/go/v$VERSION already exists."
             exit 1
           fi
+          echo "Releasing github.com/assetcorp/narsil/packages/go v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Push the tag and ask the Go module proxy to fetch it
         if: ${{ !inputs.dry-run }}
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           git tag "packages/go/v$VERSION"
           git push origin "packages/go/v$VERSION"
           curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/@v/v$VERSION.info"
+
+  go-engine-checks:
+    name: Check the Go engine
+    if: github.event_name == 'workflow_dispatch' && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/go-engine.yml
+
+  go-engine:
+    name: Tag the Go engine module
+    needs: go-engine-checks
+    if: inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: tag-go-engine-module
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main and resolve the version
+        id: resolve
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
+            exit 1
+          fi
+          VERSION="$(node .github/scripts/next-tag-version.js packages/go/engine/ "$REQUESTED_VERSION")"
+          if git rev-parse -q --verify "refs/tags/packages/go/engine/v$VERSION" >/dev/null; then
+            echo "::error::The tag packages/go/engine/v$VERSION already exists."
+            exit 1
+          fi
+          echo "Releasing github.com/assetcorp/narsil/packages/go/engine v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push the tag and ask the Go module proxy to fetch it
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          git tag "packages/go/engine/v$VERSION"
+          git push origin "packages/go/engine/v$VERSION"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/engine/@v/v$VERSION.info"
+
+  rust-checks:
+    name: Check the Rust crate
+    if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/rust.yml
+
+  rust:
+    name: Publish delali-narsil to crates.io
+    needs: rust-checks
+    if: inputs.package == 'delali-narsil'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: crates-io
+    permissions:
+      contents: write
+      id-token: write
+    concurrency:
+      group: publish-to-crates-io
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main
+        run: |
+          git fetch origin main
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          MAIN_TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$CHECKED_OUT_SHA" != "$MAIN_TIP_SHA" ]; then
+            echo "::error::This run holds $CHECKED_OUT_SHA and main is at $MAIN_TIP_SHA, so the release commit would be rejected as non-fast-forward. Dispatch a fresh run, because re-running replays the commit the original dispatch pinned."
+            exit 1
+          fi
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust
+        run: rustup toolchain install
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects=narsil-rust --skip-publish
+
+      - name: Copy the C sources of the core into the crate
+        run: |
+          rm -rf packages/rust/core
+          mkdir -p packages/rust/core
+          cp -R packages/native/include packages/rust/core/include
+          cp -R packages/native/src packages/rust/core/src
+
+      - name: Package the crate and build it from the package alone
+        working-directory: packages/rust
+        run: cargo package --locked --allow-dirty
+
+      - name: Sign in to crates.io with a short-lived token
+        if: ${{ !inputs.dry-run }}
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        working-directory: packages/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked --allow-dirty

@@ -50,7 +50,7 @@ public:
     auto frequencies = views.read<const uint32_t>(runtime, FREQUENCIES, "The document frequencies");
     auto removed = views.read<const uint32_t>(runtime, REMOVED, "The removed document counts");
     return {_growing ? &table : nullptr, tokens.data, tokens.length, offsets.data, offsets.length,
-            frequencies.data, frequencies.length, removed.data, removed.length};
+            frequencies.data, frequencies.length, removed.data, removed.length, nullptr, 0};
   }
 
 private:

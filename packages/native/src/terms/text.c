@@ -4,8 +4,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 enum {
+  UTF8_WIDEST = 4,
+  UTF8_TWO_LEAD = 0xc0,
   UTF8_CONTINUATION = 0x80,
   UTF8_CONTINUATION_MASK = 0xc0,
   UTF8_PAYLOAD_MASK = 0x3f,
@@ -58,4 +61,43 @@ int term_next(term_cursor *cursor, uint32_t *point) {
   }
   *point = value;
   return 1;
+}
+
+static size_t utf8_of(uint32_t point, uint8_t encoded[UTF8_WIDEST]) {
+  if (point < NARSIL_ASCII_END) {
+    encoded[0] = (uint8_t)point;
+    return 1;
+  }
+  if (point < UTF8_THREE_MINIMUM) {
+    encoded[0] = (uint8_t)(UTF8_TWO_LEAD | (point >> UTF8_PAYLOAD_BITS));
+    encoded[1] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+    return 2;
+  }
+  if (point < NARSIL_SUPPLEMENTARY_FIRST) {
+    encoded[0] = (uint8_t)(UTF8_THREE_FIRST | (point >> (2 * UTF8_PAYLOAD_BITS)));
+    encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+    encoded[2] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+    return 3;
+  }
+  encoded[0] = (uint8_t)(UTF8_FOUR_FIRST | (point >> (3 * UTF8_PAYLOAD_BITS)));
+  encoded[1] = (uint8_t)(UTF8_CONTINUATION | ((point >> (2 * UTF8_PAYLOAD_BITS)) & UTF8_PAYLOAD_MASK));
+  encoded[2] = (uint8_t)(UTF8_CONTINUATION | ((point >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+  encoded[3] = (uint8_t)(UTF8_CONTINUATION | (point & UTF8_PAYLOAD_MASK));
+  return UTF8_WIDEST;
+}
+
+int term_compare_units(const uint8_t *bytes, size_t length, const uint16_t *units, size_t count) {
+  size_t compared = 0;
+  size_t index = 0;
+  while (index < count) {
+    uint8_t encoded[UTF8_WIDEST];
+    size_t width = utf8_of(narsil_decode_next(units, count, &index), encoded);
+    size_t available = length - compared;
+    size_t shared = available < width ? available : width;
+    int order = shared == 0 ? 0 : memcmp(bytes + compared, encoded, shared);
+    if (order != 0) { return order; }
+    if (available < width) { return -1; }
+    compared += width;
+  }
+  return compared < length ? 1 : 0;
 }

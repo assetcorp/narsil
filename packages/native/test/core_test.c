@@ -611,8 +611,8 @@ static void term_lookup_boundaries(narsil_workspace *workspace) {
   uint32_t frequencies[] = {2, 3, 1};
   uint32_t removed[] = {0, 1, 0};
   uint16_t text[] = {'a', 'b'};
-  narsil_term_dictionary dictionary = {NULL,        tokens,     TOKEN_BYTES, offsets,   TERM_TOTAL + 1,
-                                       frequencies, TERM_TOTAL, removed,     TERM_TOTAL};
+  narsil_term_dictionary dictionary = {
+      NULL, tokens, TOKEN_BYTES, offsets, TERM_TOTAL + 1, frequencies, TERM_TOTAL, removed, TERM_TOTAL, NULL, 0};
   exact_batch_boundaries(workspace, &dictionary);
   packed_analysis_boundaries();
   narsil_term_lookup request = {&dictionary, text, 1, NARSIL_LOOKUP_PREFIX, TERM_TOTAL, 0, 0};
@@ -740,6 +740,7 @@ int main(int argc, char **argv) {
   paged_vector_checks(workspace);
   paged_posting_checks(workspace);
   segment_write_checks(workspace);
+  exact_term_checks(workspace);
   frozen_removal_checks(workspace);
   field_merge_checks(workspace);
   keyword_region_boundaries(workspace);

@@ -60,6 +60,7 @@ export {
   fixedView,
   growBufferTo,
   grownByteLength,
+  requireBytesWithinLimit,
   sharedMemoryAvailable,
 } from './shared-buffers/growable'
 export { arenaFloat32Distance, simdModuleLoaded } from './simd'
@@ -117,6 +118,7 @@ export {
   VECTOR_WORKER_COPIES_ALLOWED,
   yieldBuildTurn,
 } from './vector-index/shared'
+export { requireBoundedUpperLists } from './vector-index/upper-list-bound'
 export { admissionAt, holdAdmission, withTransientAdmission } from './vector-store/admission'
 export {
   blocksGrowthBytes,

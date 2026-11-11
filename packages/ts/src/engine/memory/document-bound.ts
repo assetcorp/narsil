@@ -1,3 +1,4 @@
+import { customTokensOf } from '../../analysis/custom-token-code'
 import { getNestedValue } from '../../core/partition/utils'
 import { visitTokens } from '../../core/tokenizer/tokenize'
 import { schemaFieldsOf } from '../../schema/validator/schema'
@@ -99,7 +100,7 @@ function vectorBytesOf(document: AnyDocument, fields: readonly VectorFieldBound[
 function customTermBytes(text: string, tokenizer: CustomTokenizer, partial: boolean): number {
   let bytes = 0
   const termBytes = DISTINCT_TERM_HEAP_BYTES + (partial ? PARTIAL_SPELLING_HEAP_BYTES : 0)
-  for (const { token } of tokenizer.tokenize(text)) {
+  for (const { token } of customTokensOf(tokenizer, text, 'document')) {
     bytes += termBytes + token.length * TERM_UNIT_HEAP_BYTES
   }
   return bytes
@@ -118,7 +119,7 @@ function countedTermBytes(text: string, analysis: IndexWriteAnalysis, partial: b
   visitTokens(
     text,
     analysis.language,
-    { stem: false, removeStopWords: false, customTokenizer: analysis.customTokenizer },
+    { stem: false, removeStopWords: false, customTokenizer: analysis.customTokenizer, textSource: 'document' },
     token => {
       distinct.add(token)
       units += token.length

@@ -28,6 +28,8 @@ impl GrowingRead {
             frequency_count: columns.capacity,
             removed: columns.dead_documents,
             removed_count: columns.capacity,
+            exact_slots: std::ptr::null(),
+            exact_slot_count: 0,
         }
     }
 }

@@ -32,6 +32,7 @@ type VectorCoreNames = Pick<
   | 'osqQuantize'
   | 'osqRecordBytes'
   | 'readTrailer'
+  | 'requireBoundedUpperLists'
   | 'rescoreDepth'
   | 'scalarQueryProducts'
   | 'stageQueryLevels'
@@ -71,6 +72,7 @@ export let osqEstimate: VectorCoreNames['osqEstimate']
 export let osqQuantize: VectorCoreNames['osqQuantize']
 export let osqRecordBytes: VectorCoreNames['osqRecordBytes']
 export let readTrailer: VectorCoreNames['readTrailer']
+export let requireBoundedUpperLists: VectorCoreNames['requireBoundedUpperLists']
 export let rescoreDepth: VectorCoreNames['rescoreDepth']
 export let scalarQueryProducts: VectorCoreNames['scalarQueryProducts']
 export let stageQueryLevels: VectorCoreNames['stageQueryLevels']
@@ -111,6 +113,7 @@ export function bindVectorCoreNames(vectorCore: VectorCoreNames): void {
     osqQuantize,
     osqRecordBytes,
     readTrailer,
+    requireBoundedUpperLists,
     rescoreDepth,
     scalarQueryProducts,
     stageQueryLevels,

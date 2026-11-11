@@ -1,4 +1,15 @@
-import { crc32, decode, decodeMulti, ErrorCodes, HEADER_SIZE, NarsilError, readHeader } from '#platform/storage-host'
+import {
+  crc32,
+  decode,
+  decodeMulti,
+  ErrorCodes,
+  HEADER_SIZE,
+  MAX_M,
+  MIN_M,
+  NarsilError,
+  readHeader,
+  requireBoundedUpperLists,
+} from '#platform/storage-host'
 import type { VectorMetric } from '../../../vector/brute-force'
 import type { OsqBits } from '../../../vector/osq'
 import type { FileRef, VectorFileRef } from '../../durability/segment/manifest'
@@ -278,6 +289,9 @@ export function openParts(input: ColdVectorFieldInput): { parts: ColdGraphPart[]
       }
       const { entryPoint, maxLayer, m } = layout
       if (typeof maxLayer !== 'number' || typeof m !== 'number') loadFailed(`The head of "${ref.key}" holds no layers`)
+      if (!Number.isInteger(m) || m < MIN_M || m > MAX_M) {
+        loadFailed(`The head of "${ref.key}" gives m ${m}, while m must be a whole number from ${MIN_M} to ${MAX_M}`)
+      }
       if (entryPoint !== null && typeof entryPoint !== 'number') loadFailed(`The head of "${ref.key}" holds no entry`)
       if (graph === null) graph = { entryPoint, maxLayer, m }
       const levels = readWholeSectionChecked(path, layout.levels, false)
@@ -288,6 +302,13 @@ export function openParts(input: ColdVectorFieldInput): { parts: ColdGraphPart[]
         nodeOffsets: layout.nodeOffsets,
         neighbours: createSectionReader(file, layout.neighbours),
       })
+    }
+    if (graph !== null) {
+      requireBoundedUpperLists(
+        parts.map(part => part.levels),
+        graph.m,
+        `The vector graph parts of field "${input.fieldPath}"`,
+      )
     }
   } catch (error) {
     closeHeldFiles(parts)

@@ -104,6 +104,7 @@ describe('segmented snapshot recovery', () => {
     await writer.createIndex('docs', {
       schema: { title: 'string', embedding: 'vector[4]' },
       language: 'english',
+      partitions: { maxPartitions: 4 },
     })
     await writer.insertBatch(
       'docs',

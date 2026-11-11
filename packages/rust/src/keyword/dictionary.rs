@@ -27,6 +27,8 @@ fn empty_dictionary() -> ffi::narsil_term_dictionary {
         frequency_count: 0,
         removed: ptr::null(),
         removed_count: 0,
+        exact_slots: ptr::null(),
+        exact_slot_count: 0,
     }
 }
 

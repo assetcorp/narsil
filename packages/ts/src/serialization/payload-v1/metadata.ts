@@ -6,6 +6,7 @@ import {
   encode,
   isQuantizationMode,
   isStorageMode,
+  MAX_PARTITIONS,
   NarsilError,
   storedStateFromWire,
   storedStateToWire,
@@ -247,7 +248,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
         ? { maxDocsPerPartition: raw.partition_limits.max_docs_per_partition }
         : {}),
       ...(isPositiveInteger(raw.partition_limits.max_partitions)
-        ? { maxPartitions: raw.partition_limits.max_partitions }
+        ? { maxPartitions: Math.min(raw.partition_limits.max_partitions, MAX_PARTITIONS) }
         : {}),
       ...(isWatermarkFraction(raw.partition_limits.watermark) ? { watermark: raw.partition_limits.watermark } : {}),
     }

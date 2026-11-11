@@ -7,6 +7,7 @@ type EngineNames = Pick<
   | 'ARRAY_POSITION_GAP'
   | 'DEFAULT_BM25_B'
   | 'DEFAULT_BM25_K1'
+  | 'DEFAULT_MAX_PARTITIONS'
   | 'EXPORT_CHUNK_BYTES'
   | 'ErrorCodes'
   | 'FOREIGN_STATS_TTL_MS'
@@ -18,6 +19,8 @@ type EngineNames = Pick<
   | 'MAX_IMPORT_REFUSALS_REPORTED'
   | 'MAX_INDEX_NAME_LENGTH'
   | 'MAX_LAYER_CAP'
+  | 'MAX_M'
+  | 'MAX_PARTITIONS'
   | 'MIN_M'
   | 'NarsilError'
   | 'STATISTICS_BROADCAST_INTERVAL_MS'
@@ -119,6 +122,7 @@ export let ANALYSIS_HOLD_APPLY_INTERVAL_MS: EngineNames['ANALYSIS_HOLD_APPLY_INT
 export let ARRAY_POSITION_GAP: EngineNames['ARRAY_POSITION_GAP']
 export let DEFAULT_BM25_B: EngineNames['DEFAULT_BM25_B']
 export let DEFAULT_BM25_K1: EngineNames['DEFAULT_BM25_K1']
+export let DEFAULT_MAX_PARTITIONS: EngineNames['DEFAULT_MAX_PARTITIONS']
 export let EXPORT_CHUNK_BYTES: EngineNames['EXPORT_CHUNK_BYTES']
 export let ErrorCodes: EngineNames['ErrorCodes']
 export let FOREIGN_STATS_TTL_MS: EngineNames['FOREIGN_STATS_TTL_MS']
@@ -130,6 +134,8 @@ export let MAX_FILE_BYTES: EngineNames['MAX_FILE_BYTES']
 export let MAX_IMPORT_REFUSALS_REPORTED: EngineNames['MAX_IMPORT_REFUSALS_REPORTED']
 export let MAX_INDEX_NAME_LENGTH: EngineNames['MAX_INDEX_NAME_LENGTH']
 export let MAX_LAYER_CAP: EngineNames['MAX_LAYER_CAP']
+export let MAX_M: EngineNames['MAX_M']
+export let MAX_PARTITIONS: EngineNames['MAX_PARTITIONS']
 export let MIN_M: EngineNames['MIN_M']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
@@ -235,6 +241,7 @@ export function bindEngineNames(host: EngineNames): void {
     ARRAY_POSITION_GAP,
     DEFAULT_BM25_B,
     DEFAULT_BM25_K1,
+    DEFAULT_MAX_PARTITIONS,
     EXPORT_CHUNK_BYTES,
     ErrorCodes,
     FOREIGN_STATS_TTL_MS,
@@ -246,6 +253,8 @@ export function bindEngineNames(host: EngineNames): void {
     MAX_IMPORT_REFUSALS_REPORTED,
     MAX_INDEX_NAME_LENGTH,
     MAX_LAYER_CAP,
+    MAX_M,
+    MAX_PARTITIONS,
     MIN_M,
     NarsilError,
     STATISTICS_BROADCAST_INTERVAL_MS,

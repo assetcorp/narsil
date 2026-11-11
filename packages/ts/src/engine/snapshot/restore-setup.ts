@@ -16,6 +16,7 @@ import {
 } from '#platform/storage-host'
 import type { PreparedSynonyms } from '../../core/synonyms/types'
 import type { PartitionManager } from '../../partitioning/manager'
+import { requireSavedPartitionCount } from '../../partitioning/saved-partitions'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { StoredQuerySuggestions } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -35,6 +36,7 @@ import {
   restoredEmbedding,
   type SnapshotEnvelope,
 } from './restore-config'
+import { nestedSchemaOf } from './stored-schema'
 
 export interface RestoreDeps {
   executor: Executor & DirectExecutorExtensions & IndexReplacement
@@ -90,7 +92,7 @@ export function prepareRestoredIndex(
   const embedding = restoredEmbedding(configuration.embedding, reject)
   const languageName = configuration.language ?? ''
   const language = getLanguage(languageName)
-  const schema = validateSchema(configuration.schema as SchemaDefinition)
+  const schema = validateSchema(nestedSchemaOf(configuration.schema))
   validatePatternValueLimit(configFields.patternValueLimit)
   requireSurfaceFormsForPartialFields(schema, configFields.surfaceForms)
   validateVectorPromotion(configFields.vectorPromotion)
@@ -154,20 +156,20 @@ function restoredSynonyms(
 export async function prepareDetachedIndex(
   indexName: string,
   prepared: PreparedIndex,
-  partitionCount: number,
+  partitionCount: number | null,
   deps: RestoreDeps,
 ): Promise<DetachedIndex> {
-  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema)
+  if (partitionCount !== null) requireSavedPartitionCount(partitionCount, 'snapshot', indexName)
+  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema, prepared.config.tokenizer)
   if (loadingSchemaCode !== null) await loadingSchemaCode
-  const detached = createDetachedIndex(
+  return createDetachedIndex(
     indexName,
     prepared.config,
     prepared.language,
     prepared.synonyms?.lookup ?? null,
     deps.executor,
+    partitionCount ?? undefined,
   )
-  while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
-  return detached
 }
 
 export function restoredRegistryEntry(

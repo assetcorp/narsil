@@ -1,5 +1,15 @@
 {
   "name": "narsil-rust",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/toml-version-actions.js",
+      "versionActionsOptions": {
+        "manifest": "Cargo.toml",
+        "table": "package",
+        "lockfile": "Cargo.lock"
+      }
+    }
+  },
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

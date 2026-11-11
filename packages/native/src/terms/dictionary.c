@@ -26,13 +26,24 @@ int dictionary_regions(const narsil_term_dictionary *dictionary, memory_region r
   } else if (dictionary->frequency_count == SIZE_MAX || dictionary->offset_count != dictionary->frequency_count + 1) {
     return 0;
   }
-  enum { METADATA = TERM_TABLE_REGIONS, TOKENS, OFFSETS, FREQUENCIES, REMOVED };
+  if (dictionary->exact_slot_count > 0 &&
+      (dictionary->growing != NULL || (uintptr_t)dictionary->exact_slots % _Alignof(int32_t) != 0 ||
+       !dictionary_exact_capacity(dictionary->exact_slot_count, dictionary->frequency_count))) {
+    return 0;
+  }
+  enum { METADATA = TERM_TABLE_REGIONS, TOKENS, OFFSETS, FREQUENCIES, REMOVED, EXACT };
   return region_of(dictionary, 1, sizeof *dictionary, &regions[METADATA]) &&
+         region_of(dictionary->exact_slots, dictionary->exact_slot_count, sizeof *dictionary->exact_slots,
+                   &regions[EXACT]) &&
          region_of(dictionary->tokens, dictionary->token_bytes, sizeof *dictionary->tokens, &regions[TOKENS]) &&
          region_of(dictionary->offsets, dictionary->offset_count, sizeof *dictionary->offsets, &regions[OFFSETS]) &&
          region_of(dictionary->frequencies, dictionary->frequency_count, sizeof *dictionary->frequencies,
                    &regions[FREQUENCIES]) &&
          region_of(dictionary->removed, dictionary->removed_count, sizeof *dictionary->removed, &regions[REMOVED]);
+}
+
+int dictionary_exact_capacity(size_t slot_count, size_t term_count) {
+  return slot_count > term_count && slot_count <= (size_t)INT32_MAX + 1 && (slot_count & (slot_count - 1)) == 0;
 }
 
 uint32_t dictionary_frequency(const narsil_term_dictionary *dictionary, uint32_t ordinal) {

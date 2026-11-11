@@ -56,8 +56,11 @@ static narsil_status write_document(narsil_workspace *workspace, fuzz_input *inp
 static narsil_term_dictionary growing_dictionary(const fuzz_growing *growing) {
   const narsil_growing_segment *segment = &growing->segment;
   size_t count = segment->columns.capacity;
-  return (narsil_term_dictionary){
-      &segment->terms, NULL, 0, NULL, 0, segment->columns.doc_frequency, count, segment->columns.dead_documents, count};
+  return (narsil_term_dictionary){.growing = &segment->terms,
+                                  .frequencies = segment->columns.doc_frequency,
+                                  .frequency_count = count,
+                                  .removed = segment->columns.dead_documents,
+                                  .removed_count = count};
 }
 
 static void merge(narsil_workspace *workspace, fuzz_input *input, const fuzz_growing *growing) {

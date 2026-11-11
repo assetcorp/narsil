@@ -1,0 +1,218 @@
+package engine
+
+import (
+	"context"
+	"fmt"
+	"math"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
+)
+
+func (entry *indexEntry) embedQueryText(ctx context.Context, params model.QueryParams) (model.QueryParams, error) {
+	vector := params.Vector
+	if vector == nil {
+		return params, nil
+	}
+	text, hasText := vector.Text.Get()
+	if !hasText {
+		return params, nil
+	}
+	if vector.Value != nil {
+		return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid, "Vector query cannot have both 'text' and 'value'", nil)
+	}
+	adapter := entry.boundEmbedder()
+	if adapter == nil {
+		if entry.embeddingName != "" {
+			return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid,
+				fmt.Sprintf("Vector query with 'text' needs embedding adapter %q, which is not registered on this engine. Register it with RegisterEmbeddingAdapter or supply a raw vector.", entry.embeddingName),
+				map[string]any{"adapter": entry.embeddingName})
+		}
+		return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid,
+			"Vector query with 'text' requires an embedding adapter on the index or instance", nil)
+	}
+	if text == "" {
+		return params, narsilerr.New(narsilerr.CodeDocValidationFailed, "Vector query 'text' must not be empty", nil)
+	}
+	embedder := safeEmbedder{adapter: adapter}
+	raw, err := embedder.Embed(ctx, text, model.EmbeddingForQuery)
+	if err != nil {
+		if _, isEngineError := narsilerr.As(err); isEngineError {
+			return params, err
+		}
+		return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
+			"The embedding adapter cannot embed the query: "+err.Error(), map[string]any{"cause": err.Error()})
+	}
+	if raw == nil {
+		return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
+			"Adapter returned undefined for query embedding, expected Float32Array", nil)
+	}
+	dimensions := embedder.Dimensions()
+	if len(raw) != dimensions {
+		return params, narsilerr.New(narsilerr.CodeEmbeddingDimensionMismatch,
+			fmt.Sprintf("Adapter returned %d-dimensional vector for query, expected %d", len(raw), dimensions),
+			map[string]any{"expected": dimensions, "actual": len(raw)})
+	}
+	for at, value := range raw {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
+				fmt.Sprintf("Adapter returned vector with %s at index %d for query embedding", formatNonFinite(value), at),
+				map[string]any{"index": at})
+		}
+	}
+	resolved := *vector
+	resolved.Value = append([]float32(nil), raw...)
+	resolved.Text = model.Optional[string]{}
+	params.Vector = &resolved
+	return params, nil
+}
+
+func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
+	requested model.DocumentProjection) error {
+	if len(entry.vectorPaths) == 0 {
+		return nil
+	}
+	shown := projection.Resolve(requested)
+	for _, hit := range result.Hits {
+		if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+			return err
+		}
+	}
+	for _, group := range result.Groups {
+		for _, hit := range group.Hits {
+			if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
+	options index.QueryOptions) (model.QueryResult, error) {
+	pinned, unpin, err := target.Pin(ctx)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer unpin()
+	var result model.QueryResult
+	if resolved.Rerank != nil {
+		result, err = target.QueryReranked(pinned, resolved, n.rerank.maxWindow, n.rerankScorer, options)
+	} else {
+		result, err = target.QueryWith(pinned, resolved, options)
+	}
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	if err := entry.attachHitVectors(pinned, &result, resolved.Document); err != nil {
+		return model.QueryResult{}, err
+	}
+	return result, nil
+}
+
+func (n *Narsil) prepareSearch(ctx context.Context, entry *indexEntry, params model.QueryParams) (model.QueryParams, index.QueryOptions, error) {
+	if err := index.RequireUsableVectorSettings(&params); err != nil {
+		return params, index.QueryOptions{}, err
+	}
+	params, err := n.beforeSearch(ctx, entry.name, params)
+	if err != nil {
+		return params, index.QueryOptions{}, err
+	}
+	options := index.QueryOptions{CursorParams: model.Some(params), PhraseReady: entry.phraseReady}
+	resolved, err := entry.embedQueryText(ctx, index.WithRerankQueryText(params))
+	return resolved, options, err
+}
+
+func (n *Narsil) beforeSearch(ctx context.Context, indexName string, params model.QueryParams) (model.QueryParams, error) {
+	if !n.plugins.hasBeforeSearchHooks() {
+		return params, nil
+	}
+	hooked := params
+	err := n.plugins.search(ctx, hookBeforeSearch, &model.SearchContext{IndexName: indexName, Params: &hooked})
+	return hooked, err
+}
+
+func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model.QueryParams, result model.QueryResult) {
+	if !n.plugins.hasAfterSearchHooks() {
+		return
+	}
+	observed := result
+	observed.Hits = append([]model.Hit(nil), result.Hits...)
+	_ = n.plugins.search(ctx, hookAfterSearch, &model.SearchContext{IndexName: indexName, Params: &params, Results: &observed})
+}
+
+// Query searches the index called indexName and returns one page of ranked
+// hits with the match count, facets, groups, and the cursor for the next
+// page. params.Mode picks keyword, vector, or hybrid search; a vector clause
+// with Text set is embedded with the index's adapter first. Plugins' search
+// hooks run around the query. It returns a search code for an invalid query,
+// such as CodeSearchInvalidField for a field that the schema does not
+// declare, and an embedding code when the query text cannot be embedded.
+func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams) (QueryResult, error) {
+	entry, release, err := n.acquire(indexName)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer release()
+	resolved, options, err := n.prepareSearch(ctx, entry, params)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.QueryResult, error) {
+		return n.queryPinned(ctx, entry, target, resolved, options)
+	})
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	result.AnalysisStale = stale
+	n.afterSearch(ctx, indexName, resolved, result)
+	return result, nil
+}
+
+// Preflight counts the documents that a query matches without building any
+// hits, so that a caller can show a match count before it runs the query.
+// It validates params the same way Query does.
+func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryParams) (PreflightResult, error) {
+	entry, release, err := n.acquire(indexName)
+	if err != nil {
+		return model.PreflightResult{}, err
+	}
+	defer release()
+	resolved, options, err := n.prepareSearch(ctx, entry, params)
+	if err != nil {
+		return model.PreflightResult{}, err
+	}
+	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.PreflightResult, error) {
+		return target.PreflightWith(ctx, resolved, index.QueryOptions{PhraseReady: options.PhraseReady})
+	})
+	if err != nil {
+		return model.PreflightResult{}, err
+	}
+	result.AnalysisStale = stale
+	return result, nil
+}
+
+func readUnderOneAnalysis[R any](ctx context.Context, n *Narsil, entry *indexEntry, read func(*index.Index) (R, error)) (R, bool, error) {
+	for {
+		target := entry.index()
+		stale := entry.analysisIsStale()
+		var result R
+		err := n.workers.run(ctx, entry, func() error {
+			var readErr error
+			result, readErr = read(target)
+			return readErr
+		})
+		unchanged := entry.index() == target
+		if err != nil && unchanged {
+			return result, false, queryTokensRefused(err)
+		}
+		if err == nil && unchanged && entry.analysisIsStale() == stale {
+			return result, stale, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return result, false, ctxErr
+		}
+	}
+}

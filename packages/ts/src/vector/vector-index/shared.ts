@@ -13,10 +13,11 @@ import type { VectorStore } from '../vector-store'
 import type { OrdinalAdmission } from '../vector-store/admission'
 import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
-import type { ColdVectorHold } from './cold'
+import type { ColdFieldClaims, ColdVectorHold } from './cold'
 import { BUILD_TURN_HANDOVER_AFTER_MS, DRIFT_CHECK_GROWTH_FACTOR, REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
 import type { UnplacedVectors } from './flagged-documents'
+import type { RollbackHold } from './rollback-holds'
 import type { SearchWatch } from './search-writes'
 
 export type { VectorIndexPayload } from './payload'
@@ -50,6 +51,8 @@ export interface VectorSearchOptions {
 export interface ColdVectorField {
   readonly liveCount: number
   readonly residentBytes: number
+  readonly claimsAtMost: ColdFieldClaims
+  claims(): ColdFieldClaims
   numberOf(docId: string): number | undefined
   vectorOfNumber(number: number): Float32Array
   reusedVectorOfNumber(number: number): Float32Array
@@ -192,6 +195,7 @@ export interface VectorIndexState {
   readonly graphsPlacedIntoSinceConnect: WeakSet<HNSWIndex>
   readonly searchWatches: Set<SearchWatch>
   readonly writeListeners: Set<(docId: string) => void>
+  readonly rollbackHolds: Map<string, RollbackHold>
 }
 
 export interface GraphsHeldOffThread {

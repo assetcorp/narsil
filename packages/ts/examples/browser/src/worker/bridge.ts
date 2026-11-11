@@ -73,7 +73,7 @@ export class NarsilWorkerClient {
     this.pending.delete(message.id)
 
     if (message.kind === 'failure') {
-      pending.reject(new NarsilError(message.code, message.message))
+      pending.reject(new NarsilError(message.code, message.message, message.details))
       return
     }
     pending.resolve(message.result)

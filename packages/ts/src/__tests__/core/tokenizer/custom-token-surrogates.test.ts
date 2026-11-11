@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerTokenizer } from '../../../analysis/registry'
+import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { CustomTokenizer } from '../../../types/schema'
@@ -31,6 +32,36 @@ const twoCodeUnits: CustomTokenizer = {
     }
     return tokens
   },
+}
+
+const LAST_UNIT_DROPPING_TOKENIZER = 'drops-the-last-code-unit'
+
+const lastUnitDropping: CustomTokenizer = {
+  tokenize: text =>
+    text
+      .split(' ')
+      .filter(word => word.length > 0)
+      .map((word, position) => ({ token: word.slice(0, -1), position })),
+}
+
+const HALF_CHARACTER_DOCUMENTS: Record<string, string> = {
+  smile: 'a\u{1F600}',
+  replaced: 'a\u{FFFD}x',
+  plain: 'ab',
+}
+
+const HALF_CHARACTER_EXPECTED_HITS: Record<string, string[]> = {
+  'a\u{1F600}': ['replaced', 'smile'],
+  'a\u{1F642}': ['replaced', 'smile'],
+  'a\u{FFFD}z': ['replaced', 'smile'],
+  ab: ['plain'],
+}
+
+async function requireHalfCharacterHits(narsil: Narsil, stage: string): Promise<void> {
+  for (const [term, expected] of Object.entries(HALF_CHARACTER_EXPECTED_HITS)) {
+    const ids = (await narsil.query('notes', { term })).hits.map(hit => hit.id).sort()
+    expect(ids, `${stage}: ${term}`).toEqual(expected)
+  }
 }
 
 describe('a custom tokeniser that cuts a surrogate pair in half', () => {
@@ -75,5 +106,24 @@ describe('a custom tokeniser that cuts a surrogate pair in half', () => {
 
     const after = await engine.query('notes', { term: 'a\u{1F600}bzz' })
     expect(after.hits.map(hit => [hit.id, hit.score])).toEqual(before.hits.map(hit => [hit.id, hit.score]))
+  })
+
+  it('stores and looks up a cut token as U+FFFD, before and after a freeze, and refuses a lone surrogate in a document', async () => {
+    registerTokenizer(LAST_UNIT_DROPPING_TOKENIZER, lastUnitDropping)
+    engine = await open(dir)
+    await engine.createIndex('notes', { schema: { title: 'string' }, tokenizer: LAST_UNIT_DROPPING_TOKENIZER })
+    for (const [id, title] of Object.entries(HALF_CHARACTER_DOCUMENTS)) await engine.insert('notes', { id, title })
+    await expect(engine.insert('notes', { id: 'lone', title: 'a\uD800' })).rejects.toMatchObject({
+      code: ErrorCodes.DOC_VALIDATION_FAILED,
+    })
+
+    await requireHalfCharacterHits(engine, 'growing')
+    await engine.checkpoint('notes')
+    await requireHalfCharacterHits(engine, 'frozen')
+    await engine.shutdown()
+    engine = await open(dir)
+
+    await requireHalfCharacterHits(engine, 'reopened')
+    expect(await engine.has('notes', 'lone')).toBe(false)
   })
 })

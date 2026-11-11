@@ -249,6 +249,7 @@ export async function loadIndexOntoWorkers(
             analysisStale,
             copyLoad,
             publication: held.publication,
+            partitionCount: captured.length,
             ...(synonyms !== null ? { synonyms } : {}),
           },
           held.retain(),

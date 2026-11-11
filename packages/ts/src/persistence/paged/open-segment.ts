@@ -25,8 +25,9 @@ import {
   createSectionReader,
   openPagedFile,
   type PagedFile,
-  relocatePagedFile,
+  resumePagedFile,
   type SectionReader,
+  suspendPagedFile,
 } from './section-file'
 import { createSurfaceTableReader } from './surface-candidates'
 import { termFrequenciesAcross } from './term-frequencies'
@@ -151,8 +152,11 @@ function assembleOpenedSegment(file: PagedFile, snapshot: PagedSegmentSnapshot, 
     close() {
       closePagedFile(file)
     },
-    relocate(rewrite) {
-      relocatePagedFile(file, rewrite(file.path))
+    suspend() {
+      suspendPagedFile(file)
+    },
+    resume(rewrite) {
+      resumePagedFile(file, rewrite(file.path))
       snapshot.path = file.path
     },
   }

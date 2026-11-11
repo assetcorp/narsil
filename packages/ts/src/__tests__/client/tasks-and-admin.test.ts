@@ -125,7 +125,7 @@ describe('client task and maintenance routes', () => {
       'succeeded',
     )
 
-    await client.updatePartitionConfig('movies', { maxDocsPerPartition: 1000 })
+    await client.updatePartitionConfig('movies', { maxDocsPerPartition: 1000, maxPartitions: 2 })
     const rebalanced = await client.waitForTask((await client.rebalance('movies', 2)).id, { pollIntervalMs: 5 })
     expect(rebalanced.status).toBe('succeeded')
     expect((await client.getStats('movies')).partitionCount).toBe(2)

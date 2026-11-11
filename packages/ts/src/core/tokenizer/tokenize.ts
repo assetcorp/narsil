@@ -1,3 +1,4 @@
+import { customTokensOf } from '../../analysis/custom-token-code'
 import type { LanguageModule } from '../../types/language'
 import type { CustomTokenizer } from '../../types/schema'
 import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
@@ -13,6 +14,8 @@ export interface TokenizerResult {
   surfaces?: Array<string | undefined>
 }
 
+export type TokenizedTextSource = 'document' | 'query'
+
 export interface TokenizeOptions {
   stem?: boolean
   removeStopWords?: boolean
@@ -20,6 +23,7 @@ export interface TokenizeOptions {
   collectSurfaces?: boolean
   customTokenizer?: CustomTokenizer
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
+  textSource?: TokenizedTextSource
 }
 
 export function producesSurfaceForms(language: LanguageModule, options?: TokenizeOptions): boolean {
@@ -64,19 +68,6 @@ function stripPossessive(token: string): string {
   return token
 }
 
-function customTokensOf(tokenizer: CustomTokenizer, text: string): Array<{ token: string; position: number }> {
-  const entries = tokenizer.tokenize(text)
-  let repaired: Array<{ token: string; position: number }> | null = null
-  for (let at = 0; at < entries.length; at++) {
-    const entry = entries[at]
-    const token = withUnpairedSurrogatesReplaced(entry.token)
-    if (token === entry.token) continue
-    repaired ??= entries.slice()
-    repaired[at] = { token, position: entry.position }
-  }
-  return repaired ?? entries
-}
-
 export type TokenVisitor = (token: string, position: number, surface: string | undefined, original: string) => void
 
 export function visitTokens(
@@ -96,7 +87,7 @@ export function visitTokens(
   } = options ?? {}
 
   if (customTokenizer) {
-    for (const entry of customTokensOf(customTokenizer, text)) {
+    for (const entry of customTokensOf(customTokenizer, text, options?.textSource ?? 'query')) {
       visit(entry.token, entry.position, undefined, entry.token)
     }
     return
@@ -148,7 +139,7 @@ export function visitSurfaceSpellings(text: string, language: LanguageModule, vi
 
 export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
   if (options?.customTokenizer) {
-    const customResult = customTokensOf(options.customTokenizer, text)
+    const customResult = customTokensOf(options.customTokenizer, text, options.textSource ?? 'query')
     return { tokens: customResult, originalTokens: customResult.map(entry => entry.token) }
   }
 
@@ -178,7 +169,7 @@ export function* tokenizeIterator(
   } = options ?? {}
 
   if (customTokenizer) {
-    const customResult = customTokensOf(customTokenizer, text)
+    const customResult = customTokensOf(customTokenizer, text, options?.textSource ?? 'query')
     for (const entry of customResult) {
       yield entry
     }

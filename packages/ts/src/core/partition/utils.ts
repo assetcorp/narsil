@@ -1,5 +1,6 @@
 import type { GeoIndex } from '../../geo/geo-index'
 import { flattenSchema, isWordIndexedBase, type SchemaField } from '../../schema/validator'
+import { vectorDimensionOf } from '../../schema/validator/shared'
 import type { FieldNameTable } from '../../types/internal'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
 import type { DocumentStore, DocumentStoreReader } from '../document-store'
@@ -51,8 +52,6 @@ export interface PartitionInsertOptions {
   collectSurfaces?: boolean
 }
 
-const VECTOR_PATTERN = /^vector\[(\d+)]$/
-
 export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   if (obj === null || typeof obj !== 'object') return undefined
   if (!path.includes('.')) return Object.hasOwn(obj, path) ? obj[path] : undefined
@@ -95,8 +94,7 @@ export function textFieldsChanged(
 }
 
 export function parseVectorDimension(fieldType: string): number | null {
-  const match = VECTOR_PATTERN.exec(fieldType)
-  return match ? Number.parseInt(match[1], 10) : null
+  return vectorDimensionOf(fieldType)
 }
 
 export function tokenizeOptions(options?: PartitionInsertOptions) {
@@ -106,6 +104,7 @@ export function tokenizeOptions(options?: PartitionInsertOptions) {
     collectSurfaces: options?.collectSurfaces === true,
     stopWordOverride: options?.stopWordOverride,
     customTokenizer: options?.customTokenizer,
+    textSource: 'document' as const,
   }
 }
 

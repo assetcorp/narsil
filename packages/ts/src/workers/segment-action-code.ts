@@ -30,9 +30,7 @@ export function isSegmentAction(action: WorkerAction): action is SegmentAction {
 }
 
 export function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
-  while (manager.partitionCount <= partitionId) {
-    manager.addPartition()
-  }
+  manager.growToSavedPartitionCount(partitionId + 1)
 }
 
 export const runSegmentAction: typeof Segments.runSegmentAction = async (...args) => {

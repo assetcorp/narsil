@@ -1,4 +1,10 @@
-import { ErrorCodes, emitEngineEvent, NarsilError, rewriteSpillOf } from '#platform/storage-host'
+import {
+  DEFAULT_MAX_PARTITIONS,
+  ErrorCodes,
+  emitEngineEvent,
+  NarsilError,
+  rewriteSpillOf,
+} from '#platform/storage-host'
 import type { PartitionManager } from '../partitioning/manager'
 import { registerCheckpointQueue, releaseCheckpointQueue } from '../partitioning/manager/checkpoint-prefix'
 import { createRebalancer } from '../partitioning/rebalancer'
@@ -50,8 +56,8 @@ export async function executeRebalance(
   }
 
   const entry = ctx.requireIndex(indexName)
-  const maxPartitions = entry.config.partitions?.maxPartitions
-  if (maxPartitions !== undefined && targetPartitionCount > maxPartitions) {
+  const maxPartitions = entry.config.partitions?.maxPartitions ?? DEFAULT_MAX_PARTITIONS
+  if (targetPartitionCount > maxPartitions) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
       `Target partition count (${targetPartitionCount}) is above the maximum of ${maxPartitions} partitions`,

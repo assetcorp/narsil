@@ -118,7 +118,8 @@ export interface PagedSegmentAccess {
   heldBytes(segment: FrozenSegment): number
   termFrequenciesAcross(states: () => readonly PartitionReadState[]): Readonly<Record<string, number>>
   close(): void
-  relocate(rewrite: (path: string) => string): void
+  suspend(): void
+  resume(rewrite: (path: string) => string): void
 }
 
 function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
