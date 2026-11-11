@@ -14,6 +14,7 @@ const AREAS_BY_PREFIX = [
   ['benchmarks/', []],
   ['packages/rust/', []],
   ['packages/go/engine/', []],
+  ['packages/go/changes/', []],
   ['packages/react-native/', []],
   ['packages/embeddings-transformers/', []],
   ['packages/native/fuzz/', []],
