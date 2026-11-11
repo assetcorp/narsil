@@ -31,6 +31,7 @@ def free_port() -> int:
 @dataclass
 class NodeProcess:
     settings: dict[str, Any]
+    launcher: Path = LAUNCHER
     process: subprocess.Popen[str] | None = None
     url: str = ""
     output: list[str] = field(default_factory=list)
@@ -42,7 +43,7 @@ class NodeProcess:
         environment = {key: value for key, value in os.environ.items() if key != "NODE_OPTIONS"}
         environment["NARSIL_CLIENT_TEST_SERVER"] = json.dumps(self.settings)
         self.process = subprocess.Popen(
-            [node, str(LAUNCHER)],
+            [node, str(self.launcher)],
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

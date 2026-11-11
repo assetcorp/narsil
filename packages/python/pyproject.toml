@@ -30,6 +30,12 @@ dependencies = [
     "typing-extensions>=4.12",
 ]
 
+[project.optional-dependencies]
+changes = [
+    "msgpack>=1.1,<2",
+    "websockets>=17,<18",
+]
+
 [project.urls]
 Homepage = "https://narsil.sondelali.com"
 Documentation = "https://github.com/assetcorp/narsil/blob/main/docs/python-client.md"
@@ -69,6 +75,10 @@ warn_unreachable = true
 [[tool.mypy.overrides]]
 module = ["narsil_client._client", "narsil_client._async_client"]
 disable_error_code = ["override"]
+
+[[tool.mypy.overrides]]
+module = ["msgpack"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = false
