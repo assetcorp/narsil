@@ -1,6 +1,7 @@
 pub(crate) mod adapter_registry;
 mod analysis_change;
 mod background_thread;
+mod callback_scope;
 pub(crate) mod changes;
 mod clear;
 mod constants;
@@ -332,9 +333,16 @@ impl Narsil {
     /// and one that reaches that step later fails with `INSTANCE_SHUT_DOWN`. A durable engine first flushes every
     /// log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where that flush fails;
     /// the engine stops either way. A call from another thread while a shutdown is under way returns once that
-    /// shutdown finishes.
+    /// shutdown finishes. A call from an event listener or a plugin hook of this engine returns at once while
+    /// another shutdown is under way, because that shutdown can be waiting for the thread that runs the callback.
     pub fn shutdown(&self) -> Result<()> {
-        let Some(_turn) = self.inner.shutdown_gate.turn(&self.inner.shut_down) else {
+        let inside_callback = callback_scope::dispatching_on_current_thread(&self.inner.events)
+            || callback_scope::dispatching_on_current_thread(&self.inner.plugins);
+        let turn = self
+            .inner
+            .shutdown_gate
+            .turn(&self.inner.shut_down, inside_callback);
+        let Some(_turn) = turn else {
             return Ok(());
         };
         self.inner.search_limits.stop.stop_every_search();

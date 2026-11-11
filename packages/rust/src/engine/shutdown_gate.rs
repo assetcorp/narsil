@@ -39,12 +39,17 @@ impl ShutdownGate {
         );
     }
 
-    pub(crate) fn turn(&self, shut_down: &AtomicBool) -> Option<ShutdownTurn<'_>> {
+    pub(crate) fn turn(
+        &self,
+        shut_down: &AtomicBool,
+        inside_callback: bool,
+    ) -> Option<ShutdownTurn<'_>> {
         let caller = thread::current().id();
         let mut running = self.running();
         loop {
             match *running {
                 Some(holder) if holder == caller => return None,
+                Some(_) if inside_callback => return None,
                 Some(_) => {
                     running = self
                         .finished
