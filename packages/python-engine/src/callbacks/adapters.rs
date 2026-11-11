@@ -5,6 +5,7 @@ use narsil::{
 };
 use pyo3::prelude::*;
 
+use super::reentry::Reentry;
 use super::retained::Retained;
 use super::{CallbackFailure, call_python};
 use crate::convert::fields::{floats_of, items_of, number_of, whole_of};
@@ -72,7 +73,8 @@ impl EmbeddingAdapter for PythonEmbeddingAdapter {
     }
 
     fn embed(&self, input: &str, purpose: EmbeddingPurpose) -> Result<Vec<f32>, AdapterError> {
-        call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, |py| {
+        let reentry = self.object.awaited_by_engine();
+        call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, reentry, |py| {
             let vector = self
                 .object
                 .bind(py)?
@@ -93,7 +95,8 @@ impl EmbeddingAdapter for PythonEmbeddingAdapter {
                 .map(|input| self.embed(input, purpose))
                 .collect();
         }
-        call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, |py| {
+        let reentry = self.object.awaited_by_engine();
+        call_python(ErrorCode::EMBEDDING_FAILED, &self.subject, reentry, |py| {
             let vectors = self
                 .object
                 .bind(py)?
@@ -138,19 +141,24 @@ impl PythonRerankAdapter {
 
 impl RerankAdapter for PythonRerankAdapter {
     fn score(&self, query: &str, documents: &[String]) -> Result<Vec<f64>, AdapterError> {
-        call_python(ErrorCode::RERANK_FAILED, &self.subject, |py| {
-            let scores = self
-                .object
-                .bind(py)?
-                .call_method1("score", (query, documents.to_vec()))?;
-            let label = "the scores that score returned";
-            let items = items_of(&scores, label)?;
-            let mut numbers = Vec::with_capacity(items.len());
-            for (at, item) in items.iter().enumerate() {
-                numbers.push(number_of(item, &format!("{label}[{at}]"))?);
-            }
-            Ok(numbers)
-        })
+        call_python(
+            ErrorCode::RERANK_FAILED,
+            &self.subject,
+            Reentry::Allowed,
+            |py| {
+                let scores = self
+                    .object
+                    .bind(py)?
+                    .call_method1("score", (query, documents.to_vec()))?;
+                let label = "the scores that score returned";
+                let items = items_of(&scores, label)?;
+                let mut numbers = Vec::with_capacity(items.len());
+                for (at, item) in items.iter().enumerate() {
+                    numbers.push(number_of(item, &format!("{label}[{at}]"))?);
+                }
+                Ok(numbers)
+            },
+        )
         .map_err(boxed)
     }
 }

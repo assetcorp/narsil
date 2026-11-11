@@ -1,5 +1,5 @@
 use narsil::{
-    AnalysisChange, AnalysisSetting, ListParams, ManualQuerySuggestion, NarsilError,
+    AnalysisChange, AnalysisSetting, ErrorCode, ListParams, ManualQuerySuggestion, NarsilError,
     QuerySuggestionsBuild, QuerySuggestionsPreview, QuerySuggestionsSetting,
     QuerySuggestionsStatus, RecordQueryResult, RecordedQuery, SuggestParams, SyncSetting,
 };
@@ -9,7 +9,7 @@ use pyo3::types::{PyDict, PyList};
 use super::fields::{Fields, string_of};
 use super::query::{filter_value, projection};
 use crate::callbacks::analysis::stop_words_setting;
-use crate::errors::config_invalid;
+use crate::errors::{config_invalid, recoded};
 
 pub(crate) fn list_params(value: Option<&Bound<'_, PyAny>>) -> Result<ListParams, NarsilError> {
     let Some(value) = value.filter(|value| !value.is_none()) else {
@@ -42,7 +42,9 @@ pub(crate) fn suggest_params(value: &Bound<'_, PyAny>) -> Result<SuggestParams, 
 
 pub(crate) fn analysis_change(value: &Bound<'_, PyAny>) -> Result<AnalysisChange, NarsilError> {
     let mut fields = Fields::of(value, "change")?;
-    let language = fields.string("language")?;
+    let language = fields
+        .string("language")
+        .map_err(recoded(ErrorCode::LANGUAGE_NOT_SUPPORTED))?;
     let tokenizer_path = fields.path("tokenizer");
     let tokenizer = match fields.present("tokenizer")? {
         None => AnalysisSetting::Keep,

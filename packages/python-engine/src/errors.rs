@@ -20,6 +20,10 @@ pub(crate) fn config_invalid(message: impl Into<String>) -> NarsilError {
     NarsilError::new(ErrorCode::CONFIG_INVALID, message)
 }
 
+pub(crate) fn recoded(code: ErrorCode) -> impl Fn(NarsilError) -> NarsilError {
+    move |error| NarsilError::new(code, error.message())
+}
+
 fn exception_text(py: Python<'_>, error: &PyErr) -> String {
     let kind = error
         .get_type(py)

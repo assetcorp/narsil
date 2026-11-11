@@ -14,7 +14,8 @@ class EmbeddingAdapter(Protocol):
     ``embed`` receives the text and ``"document"`` or ``"query"``, and returns that many numbers. An adapter can
     add ``embed_batch(texts, purpose)``, which returns one vector per text, so that the engine makes one call for a
     batch insert. The engine can call these methods from any of its threads, so they must be safe to call from any
-    thread.
+    thread. A call from these methods to the engine that is calling them raises :class:`NarsilError` with the code
+    ``CONFIG_INVALID``, and a call that they hand to another thread and wait for can wait forever.
     """
 
     @property
@@ -35,7 +36,9 @@ class Tokenizer(Protocol):
     """A tokenizer splits text into tokens for every index whose ``tokenizer`` setting refers to it.
 
     ``tokenize`` returns ``(token, position)`` pairs or ``{"token": ..., "position": ...}`` dicts, where a position
-    counts tokens from 0, so that the engine can match a phrase only where its tokens are next to each other.
+    counts tokens from 0, so that the engine can match a phrase only where its tokens are next to each other. A call
+    from ``tokenize`` to the engine that is calling it raises :class:`NarsilError` with the code ``CONFIG_INVALID``,
+    and a call that it hands to another thread and waits for can wait forever.
     """
 
     def tokenize(self, text: str) -> Iterable[tuple[str, int] | dict[str, str | int]]: ...
@@ -43,7 +46,11 @@ class Tokenizer(Protocol):
 
 @runtime_checkable
 class PersistenceAdapter(Protocol):
-    """A persistence adapter stores the files of an engine under string keys."""
+    """A persistence adapter stores the files of an engine under string keys.
+
+    A call from these methods to the engine that is calling them raises :class:`NarsilError` with the code
+    ``CONFIG_INVALID``, and a call that they hand to another thread and wait for can wait forever.
+    """
 
     def save(self, key: str, data: bytes) -> None: ...
 

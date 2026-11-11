@@ -1,9 +1,11 @@
+use narsil::NarsilError;
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use super::documents::ids_of;
 use super::{EngineHandle, PyNarsil};
+use crate::convert::fields::whole_of;
 use crate::convert::operations::{
     build_dict, manual_suggestion, preview_dict, record_dict, recorded_query, status_dict,
     suggestions_setting,
@@ -21,6 +23,14 @@ impl PyQuerySuggestions {
     fn handle(&self) -> &EngineHandle {
         &self.owner.get().handle
     }
+}
+
+fn preview_limit(limit: Option<&Bound<'_, PyAny>>) -> Result<Option<u32>, NarsilError> {
+    let Some(limit) = limit.filter(|limit| !limit.is_none()) else {
+        return Ok(None);
+    };
+    let limit = whole_of(limit, "limit")?;
+    Ok(Some(u32::try_from(limit).unwrap_or(u32::MAX)))
 }
 
 #[pymethods]
@@ -76,8 +86,9 @@ impl PyQuerySuggestions {
         &self,
         py: Python<'py>,
         index: &str,
-        limit: Option<u32>,
+        limit: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
+        let limit = preview_limit(limit).map_err(to_py_err)?;
         let engine = self.handle().engine()?;
         let preview = py
             .detach(|| engine.query_suggestions().preview(index, limit))

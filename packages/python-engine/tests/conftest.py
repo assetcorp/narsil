@@ -11,6 +11,7 @@ from narsil import Narsil
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY_ROOT = PACKAGE_ROOT.parent.parent
 CONFORMANCE_ROOT = REPOSITORY_ROOT / "packages" / "conformance"
+PREPARED_REFERENCE_VARIABLE = "NARSIL_TYPESCRIPT_REFERENCE"
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 use narsil::{
-    AdapterSetting, EmbeddingConfig, HnswSettings, IndexConfig, NarsilError, PartitionConfig,
-    Quantization, Storage, SynonymRule, VectorPromotion,
+    AdapterSetting, EmbeddingConfig, ErrorCode, HnswSettings, IndexConfig, NarsilError,
+    PartitionConfig, Quantization, Storage, SynonymRule, VectorPromotion,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyString;
@@ -9,7 +9,7 @@ use super::fields::{Fields, items_of, string_of, strings_of};
 use super::query::{METRICS, SCORING_MODES, bm25_params};
 use crate::callbacks::adapters::PythonEmbeddingAdapter;
 use crate::callbacks::analysis::{stop_words_setting, tokenizer_setting};
-use crate::errors::config_invalid;
+use crate::errors::{config_invalid, recoded};
 
 const STORAGES: [(&str, Storage); 2] = [("memory", Storage::Memory), ("disk", Storage::Disk)];
 const QUANTIZATIONS: [(&str, Quantization); 5] = [
@@ -120,10 +120,13 @@ pub(crate) fn index_config(
     value: &Bound<'_, PyAny>,
     label: &str,
 ) -> Result<IndexConfig, NarsilError> {
-    let mut fields = Fields::of(value, label)?;
-    let schema = fields
-        .value("schema")?
-        .ok_or_else(|| config_invalid(format!("{label}.schema is required")))?;
+    let mut fields = Fields::of(value, label).map_err(recoded(ErrorCode::SCHEMA_INVALID_TYPE))?;
+    let schema = fields.value("schema")?.ok_or_else(|| {
+        NarsilError::new(
+            ErrorCode::SCHEMA_INVALID_TYPE,
+            format!("{label}.schema is required"),
+        )
+    })?;
     let partitions_path = fields.path("partitions");
     let bm25_path = fields.path("bm25");
     let stop_words_path = fields.path("stopWords");
@@ -132,7 +135,9 @@ pub(crate) fn index_config(
     let synonyms_path = fields.path("synonyms");
     let config = IndexConfig {
         schema,
-        language: fields.string("language")?,
+        language: fields
+            .string("language")
+            .map_err(recoded(ErrorCode::LANGUAGE_NOT_SUPPORTED))?,
         partitions: fields
             .get("partitions")?
             .map(|partitions| partition_config(&partitions, &partitions_path))

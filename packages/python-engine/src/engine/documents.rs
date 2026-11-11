@@ -3,10 +3,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyString};
 
 use super::PyNarsil;
-use crate::convert::fields::{Fields, items_of, strings_of};
+use crate::convert::fields::{Fields, items_of, string_of, strings_of};
 use crate::convert::results::batch_result;
 use crate::convert::value::{ValueSource, map_to_py, to_map};
-use crate::errors::{invalid, to_py_err};
+use crate::errors::{invalid, recoded, to_py_err};
 
 const DOCUMENT: ValueSource<'static> = ValueSource {
     code: ErrorCode::DOC_VALIDATION_FAILED,
@@ -97,7 +97,7 @@ fn update_of(update: &Bound<'_, PyAny>, label: &str) -> Result<(String, Map), Na
 }
 
 fn updates_of(updates: &Bound<'_, PyAny>) -> Result<Converted<(String, Map)>, NarsilError> {
-    let items = items_of(updates, "updates")?;
+    let items = items_of(updates, "updates").map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
     let mut converted = Converted::with_capacity(items.len());
     for (at, update) in items.iter().enumerate() {
         let outcome = update_of(update, &format!("updates[{at}]")).map_err(|error| {
@@ -108,6 +108,27 @@ fn updates_of(updates: &Bound<'_, PyAny>) -> Result<Converted<(String, Map)>, Na
             }
         });
         converted.settle(update, "docId", outcome);
+    }
+    Ok(converted)
+}
+
+fn removals_of(doc_ids: &Bound<'_, PyAny>) -> Result<Converted<String>, NarsilError> {
+    if doc_ids.cast::<PyString>().is_ok() {
+        return Err(invalid(
+            ErrorCode::DOC_VALIDATION_FAILED,
+            "doc_ids must be a list of IDs, and it is a single string",
+        ));
+    }
+    let items = items_of(doc_ids, "doc_ids").map_err(recoded(ErrorCode::DOC_VALIDATION_FAILED))?;
+    let mut converted = Converted::with_capacity(items.len());
+    for (at, item) in items.iter().enumerate() {
+        match string_of(item, &format!("doc_ids[{at}]")) {
+            Ok(doc_id) => converted.accepted.push(doc_id),
+            Err(error) => converted.refused.push(BatchFailure {
+                doc_id: String::new(),
+                error: invalid(ErrorCode::DOC_VALIDATION_FAILED, error.message()),
+            }),
+        }
     }
     Ok(converted)
 }
@@ -183,12 +204,13 @@ impl PyNarsil {
         index: &str,
         doc_ids: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let doc_ids = ids_of(doc_ids)?;
+        let mut converted = removals_of(doc_ids).map_err(to_py_err)?;
+        let doc_ids = std::mem::take(&mut converted.accepted);
         let engine = self.handle.engine()?;
         let result = py
             .detach(|| engine.remove_batch(index, doc_ids))
             .map_err(to_py_err)?;
-        batch_result(py, result)
+        batch_result(py, converted.merged(result))
     }
 
     fn get<'py>(

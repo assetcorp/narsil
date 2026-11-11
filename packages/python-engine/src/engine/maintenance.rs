@@ -1,5 +1,6 @@
+use narsil::{ErrorCode, NarsilError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList};
 
 use super::PyNarsil;
 use crate::convert::encode::synonyms;
@@ -11,14 +12,50 @@ use crate::convert::results::{
 };
 use crate::errors::to_py_err;
 
+fn partition_count(value: &Bound<'_, PyAny>) -> Result<usize, NarsilError> {
+    let refused = || {
+        let shown = value
+            .repr()
+            .map(|text| text.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "a value that has no repr".to_string());
+        NarsilError::new(
+            ErrorCode::PARTITION_CAPACITY_EXCEEDED,
+            format!("Target partition count must be a positive integer, got {shown}"),
+        )
+    };
+    if value.cast::<PyBool>().is_ok() {
+        return Err(refused());
+    }
+    if value.is_instance_of::<PyInt>() {
+        return match value.extract::<i128>() {
+            Ok(count) if count >= 1 => Ok(usize::try_from(count).unwrap_or(usize::MAX)),
+            Ok(_) => Err(refused()),
+            Err(_) if value.gt(0).unwrap_or(false) => Ok(usize::MAX),
+            Err(_) => Err(refused()),
+        };
+    }
+    if let Ok(number) = value.cast::<PyFloat>() {
+        let count = number.value();
+        if count.is_finite() && count.fract() == 0.0 && count >= 1.0 {
+            return Ok(if count >= usize::MAX as f64 {
+                usize::MAX
+            } else {
+                count as usize
+            });
+        }
+    }
+    Err(refused())
+}
+
 #[pymethods]
 impl PyNarsil {
     fn rebalance(
         &self,
         py: Python<'_>,
         index: &str,
-        target_partition_count: usize,
+        target_partition_count: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
+        let target_partition_count = partition_count(target_partition_count).map_err(to_py_err)?;
         let engine = self.handle.engine()?;
         py.detach(|| engine.rebalance(index, target_partition_count))
             .map_err(to_py_err)

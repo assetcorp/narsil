@@ -4,6 +4,7 @@ use narsil::{ErrorCode, IndexConfig, Map, NarsilError, Plugin, QueryParams, Quer
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use super::reentry::Reentry;
 use super::retained::Retained;
 use super::{CallbackFailure, call_python, report_unraisable};
 use crate::convert::encode::{index_config_dict, query_dict};
@@ -78,7 +79,7 @@ impl PythonPlugin {
         context: impl for<'py> FnOnce(Python<'py>) -> PyResult<Bound<'py, PyDict>>,
         read: impl for<'py> FnOnce(&Bound<'py, PyDict>) -> Result<T, CallbackFailure>,
     ) -> Result<T, NarsilError> {
-        call_python(code, &self.subject(hook), |py| {
+        call_python(code, &self.subject(hook), Reentry::Allowed, |py| {
             let context = context(py)?;
             self.object
                 .bind(py)?

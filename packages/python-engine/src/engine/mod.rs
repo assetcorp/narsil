@@ -17,6 +17,7 @@ use pyo3::types::PyList;
 pub(crate) use suggestions::PyQuerySuggestions;
 
 use crate::callbacks::functions::event_listener;
+use crate::callbacks::reentry::{EngineMark, refuse_reentry};
 use crate::callbacks::retained::RetainedSet;
 use crate::convert::engine_config::{EngineSetup, engine_setup};
 use crate::convert::index_config::index_config;
@@ -25,10 +26,12 @@ use crate::errors::to_py_err;
 
 pub(crate) struct EngineHandle {
     engine: Option<Narsil>,
+    mark: EngineMark,
 }
 
 impl EngineHandle {
     pub(crate) fn engine(&self) -> PyResult<&Narsil> {
+        refuse_reentry(self.mark).map_err(to_py_err)?;
         self.engine.as_ref().ok_or_else(|| {
             to_py_err(NarsilError::new(
                 ErrorCode::INSTANCE_SHUT_DOWN,
@@ -93,7 +96,7 @@ impl PyNarsil {
     #[new]
     #[pyo3(signature = (config = None))]
     fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> PyResult<PyNarsil> {
-        let retained = RetainedSet::default();
+        let retained = RetainedSet::new();
         let setup = retained
             .collect(|| engine_setup(config))
             .map_err(to_py_err)?;
@@ -101,6 +104,7 @@ impl PyNarsil {
         Ok(PyNarsil {
             handle: Arc::new(EngineHandle {
                 engine: Some(engine),
+                mark: retained.engine(),
             }),
             listeners: Mutex::new(HashMap::new()),
             next_listener: AtomicU64::new(1),

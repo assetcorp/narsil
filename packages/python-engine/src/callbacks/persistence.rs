@@ -69,7 +69,7 @@ impl PythonPersistence {
         arguments: impl for<'py> FnOnce(Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyTuple>>,
     ) -> Result<T, AdapterError> {
         let subject = format!("The {method} method of the persistence adapter");
-        call_python(code, &subject, |py| {
+        call_python(code, &subject, self.object.awaited_by_engine(), |py| {
             let arguments = arguments(py)?;
             let returned = self.object.bind(py)?.call_method1(method, arguments)?;
             read(py, returned)
