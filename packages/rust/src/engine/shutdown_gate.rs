@@ -1,6 +1,12 @@
+use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
+
+thread_local! {
+    static GATES_ADMITTING_ON_THREAD: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
 
 #[derive(Default)]
 struct Publications {
@@ -18,10 +24,18 @@ pub(crate) struct ShutdownGate {
 
 pub(crate) struct Admission<'gate> {
     gate: &'gate ShutdownGate,
+    held_on_admitting_thread: PhantomData<*const ()>,
 }
 
 impl Drop for Admission<'_> {
     fn drop(&mut self) {
+        let address = self.gate.address();
+        let _ = GATES_ADMITTING_ON_THREAD.try_with(|held| {
+            let mut held = held.borrow_mut();
+            if let Some(at) = held.iter().rposition(|entry| *entry == address) {
+                held.remove(at);
+            }
+        });
         let mut publications = self.gate.publications();
         publications.admitted = publications.admitted.saturating_sub(1);
         if publications.admitted == 0 {
@@ -58,7 +72,24 @@ impl ShutdownGate {
             return None;
         }
         publications.admitted += 1;
-        Some(Admission { gate: self })
+        drop(publications);
+        let address = self.address();
+        let _ = GATES_ADMITTING_ON_THREAD.try_with(|held| held.borrow_mut().push(address));
+        Some(Admission {
+            gate: self,
+            held_on_admitting_thread: PhantomData,
+        })
+    }
+
+    fn address(&self) -> usize {
+        std::ptr::from_ref(self).addr()
+    }
+
+    pub(crate) fn admitted_on_current_thread(&self) -> bool {
+        let address = self.address();
+        GATES_ADMITTING_ON_THREAD
+            .try_with(|held| held.borrow().contains(&address))
+            .unwrap_or(false)
     }
 
     pub(crate) fn await_admitted(&self) {

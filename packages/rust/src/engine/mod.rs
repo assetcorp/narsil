@@ -336,7 +336,16 @@ impl Narsil {
     /// the engine stops either way. A call from another thread while a shutdown is under way returns once that
     /// shutdown finishes. A call from an event listener or a plugin hook of this engine returns at once while
     /// another shutdown is under way, because that shutdown can be waiting for the thread that runs the callback.
+    /// A call from a callback that an index create, restore, or reopen runs while it puts its index in the engine,
+    /// such as a persistence adapter's save, fails with `CONFIG_INVALID` and leaves the engine running, because the
+    /// shutdown would wait for that create, restore, or reopen to finish.
     pub fn shutdown(&self) -> Result<()> {
+        if self.inner.shutdown_gate.admitted_on_current_thread() {
+            return Err(NarsilError::new(
+                ErrorCode::CONFIG_INVALID,
+                "A callback asked the engine to shut down while the index create, restore, or reopen that runs it waits to finish, so the engine refuses the call instead of waiting for itself",
+            ));
+        }
         let inside_callback = callback_scope::dispatching_on_current_thread(&self.inner.events)
             || callback_scope::dispatching_on_current_thread(&self.inner.plugins);
         let turn = self
