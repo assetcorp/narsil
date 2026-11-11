@@ -110,12 +110,12 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
     },
     withPartitionStoredSizes(indexName, stats) {
       if (!sizeIsKnown(indexName)) return stats
-      const saved = partitionSavedBytes(savedBytes.of(indexName))
-      return stats.map(partition => ({
-        ...partition,
-        savedBytes: saved.get(partition.partitionId) ?? 0,
-        logBytes: logBytes.partitionBytesOf(indexName, partition.partitionId),
-      }))
+      const saved = partitionSavedBytes(savedBytes.of(indexName) ?? NOTHING_SAVED)
+      for (const partition of stats) {
+        partition.savedBytes = saved.get(partition.partitionId) ?? 0
+        partition.logBytes = logBytes.partitionBytesOf(indexName, partition.partitionId)
+      }
+      return stats
     },
     vectorSavedBytes(indexName) {
       return sizeIsKnown(indexName) ? (savedBytes.of(indexName)?.vectorBytes ?? 0) : undefined
