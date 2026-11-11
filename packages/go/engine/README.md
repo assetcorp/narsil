@@ -1,6 +1,6 @@
 # Narsil Go engine
 
-`github.com/assetcorp/narsil/packages/go/engine` lets a Go program create, change, and search a Narsil index inside its own process, with no Node.js server beside it. It offers every single-node operation of the TypeScript package, and it analyses text and searches vectors through the same native C core. It saves every file in the layouts of [the Narsil specification](https://github.com/assetcorp/narsil/tree/main/packages/spec), so the TypeScript package can open an index that this module saves, and this module can open one that the TypeScript package saves.
+`github.com/assetcorp/narsil/packages/go/engine` lets a Go program create, change, and search a Narsil index inside its process, with no Node.js server beside it. It offers every single-node operation of the TypeScript package. It analyses text, scores keyword searches, fuses hybrid rankings, and searches vectors through [Narsil's native core in C](https://github.com/assetcorp/narsil/tree/main/packages/native), which the TypeScript package and the Rust crate also call. It saves every file in the layouts of [the Narsil specification](https://github.com/assetcorp/narsil/tree/main/packages/spec), so the TypeScript package can open an index that this module saves, and this module can open one that the TypeScript package saves.
 
 The module needs Go 1.26 or later and a C compiler, because it calls the core through cgo.
 
@@ -113,3 +113,9 @@ The race detector runs on every target here except Windows arm64, where Go doesn
 - **Adapters, tokenisers, and stop words.** You write embedding adapters, rerank adapters, custom tokenisers, stop-word functions, and plugins in Go. Register each one by name with `RegisterEmbeddingAdapter`, `RegisterRerankAdapter`, `RegisterTokenizer`, or `RegisterStopWords`, or pass it in `engine.Config`, and name it in the index settings, so that a saved index can find it again after a restart.
 - **The server stays in TypeScript.** The HTTP server, cluster mode, and the HTTP client stay in the TypeScript package. To call a Narsil server from Go, use [the Go client](https://github.com/assetcorp/narsil/tree/main/packages/go). Because the routes that send sync history to devices belong to the server, `UpdateSync` and `GetSync` store and read the sync setting in the index metadata, and the setting takes effect for devices once a TypeScript server opens the same directory.
 - **Unicode version.** Popular query suggestions normalise each phrase to NFKC through `golang.org/x/text`, which carries the Unicode 17.0.0 tables when you build with Go 1.27 or later and the Unicode 15.0.0 tables below that. A phrase that uses a character added after the version that your build carries can normalise differently from a node built on a newer version.
+
+The module passes [the conformance suite](https://github.com/assetcorp/narsil/tree/main/packages/conformance), which checks that it reads and writes every kind of Narsil file with the same content as the TypeScript package and that it ranks a fixed set of searches the same way.
+
+## License
+
+Apache-2.0
