@@ -2,8 +2,8 @@ use crate::conformance::forms::{form_error, list, object};
 use crate::error::Result;
 use crate::format::wal::{
     COMMIT_MARKER_FILE_BYTES, COMMIT_MARKER_SLOT_BYTES, CommitMarker, LogEntry, Operation,
-    decode_marker_slot, encode_marker_slot, entry_checksum, frame_record, read_durable_region,
-    segment_header,
+    WAL_FORMAT_VERSION, decode_marker_slot, encode_marker_slot, entry_checksum, frame_record,
+    read_durable_region, segment_header,
 };
 use crate::value::{Map, Value, decode_value, encode_value};
 
@@ -28,7 +28,22 @@ fn record_form(entry: &LogEntry) -> Result<Value> {
     if let Some(document) = &entry.document {
         map.insert("document", decode_value(document)?);
     }
+    if let Some(previous) = &entry.previous_document {
+        let value = match previous {
+            Some(previous) => decode_value(previous)?,
+            None => Value::Null,
+        };
+        map.insert("previousDocument", value);
+    }
     Ok(Value::Object(map))
+}
+
+fn previous_document_of(map: &Map) -> Result<Option<Option<Vec<u8>>>> {
+    match map.get("previousDocument") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(previous) => Ok(Some(Some(encode_value(previous)?))),
+    }
 }
 
 pub(crate) fn read_log_segment(bytes: &[u8]) -> Result<Value> {
@@ -57,10 +72,11 @@ fn text(map: &Map, key: &str) -> Result<String> {
 }
 
 pub(crate) fn write_log_segment(form: &Map) -> Result<Vec<u8>> {
-    let mut out = segment_header().to_vec();
-    if let Some(version) = form.get("walFormatVersion").and_then(Value::as_f64) {
-        out[4] = version as u8;
-    }
+    let version = form
+        .get("walFormatVersion")
+        .and_then(Value::as_f64)
+        .map_or(WAL_FORMAT_VERSION, |version| version as u8);
+    let mut out = segment_header(version).to_vec();
     for record in list(form.get("records"), "records")? {
         let map = object(Some(record), "record")?;
         let operation = match map.get("operation").and_then(Value::as_str) {
@@ -77,6 +93,7 @@ pub(crate) fn write_log_segment(form: &Map) -> Result<Vec<u8>> {
             index_name: text(map, "indexName")?,
             document_id: text(map, "documentId")?,
             document,
+            previous_document: previous_document_of(map)?,
             checksum: 0.0,
         };
         entry.checksum = entry_checksum(&entry) as f64;

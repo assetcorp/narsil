@@ -1,12 +1,17 @@
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::wal::{LogEntry, SEGMENT_HEADER_BYTES, frame_record};
+use crate::format::wal::{
+    EntryPlace, LogEntry, SEGMENT_HEADER_BYTES, WAL_FORMAT_VERSION,
+    WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT, frame_record,
+};
 
-use super::files::{DurableDirectory, fsync_failed};
+mod flushing;
+
+use super::files::DurableDirectory;
 use super::log_segment::{ActiveSegment, ActiveTail, LogStart, LogWrite, wal_segment_key};
-use super::marker::{MarkerFile, marker_key};
-use super::platform::sync_file;
+use super::marker::MarkerFile;
 
 const MAX_SEQ_NO: u64 = 9_007_199_254_740_991;
 
@@ -25,6 +30,7 @@ pub(crate) struct PartitionLog {
     index_name: String,
     partition_id: u32,
     segment_max_bytes: u64,
+    records_previous_documents: Arc<AtomicBool>,
     state: Mutex<LogState>,
     marker: Mutex<Option<MarkerFile>>,
     changed: Condvar,
@@ -42,7 +48,7 @@ struct DurablePoint {
     start: u64,
     bytes: u64,
     highest: u64,
-    file: std::sync::Arc<std::fs::File>,
+    file: Arc<std::fs::File>,
 }
 
 impl PartitionLog {
@@ -50,12 +56,14 @@ impl PartitionLog {
         index_name: &str,
         partition_id: u32,
         segment_max_bytes: u64,
+        records_previous_documents: Arc<AtomicBool>,
         start: LogStart,
     ) -> PartitionLog {
         PartitionLog {
             index_name: index_name.to_string(),
             partition_id,
             segment_max_bytes,
+            records_previous_documents,
             state: Mutex::new(LogState {
                 active: None,
                 resume: start.active,
@@ -116,46 +124,17 @@ impl PartitionLog {
         Ok(self.lock()?.highest_appended)
     }
 
-    fn durable_point(state: &LogState) -> Option<DurablePoint> {
-        state.active.as_ref().map(|active| DurablePoint {
-            key: active.key.clone(),
-            start: active.start,
-            bytes: active.bytes,
-            highest: state.highest_appended.max(state.highest_durable),
-            file: active.file.clone(),
-        })
+    pub(crate) fn highest_durable(&self) -> Result<u64> {
+        let state = self.lock()?;
+        Ok(state.highest_durable.min(state.highest_appended))
     }
 
-    fn make_durable(&self, directory: &DurableDirectory, point: &DurablePoint) -> Result<()> {
-        sync_file(&point.file).map_err(|error| fsync_failed(&point.key, &error))?;
-        let mut slot = self.marker.lock().map_err(|_| poisoned())?;
-        if slot.is_none() {
-            *slot = Some(MarkerFile::open(
-                directory,
-                &marker_key(&self.index_name, self.partition_id),
-            )?);
+    fn new_segment_version(&self, holds_previous_documents: bool) -> u8 {
+        if holds_previous_documents || self.records_previous_documents.load(Ordering::Acquire) {
+            WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT
+        } else {
+            WAL_FORMAT_VERSION
         }
-        let Some(marker) = slot.as_mut() else {
-            return Err(poisoned());
-        };
-        let mut highest = point.highest;
-        if let Some(current) = marker.existing() {
-            let committed = (current.active_segment_seq_no, current.durable_byte_length);
-            if (point.start, point.bytes) < committed {
-                return Ok(());
-            }
-            highest = highest.max(current.highest_durable_seq_no);
-        }
-        marker.commit(point.start, point.bytes, highest)
-    }
-
-    fn flush_locked(&self, state: &mut LogState, directory: &DurableDirectory) -> Result<()> {
-        let Some(point) = Self::durable_point(state) else {
-            return Ok(());
-        };
-        self.make_durable(directory, &point)?;
-        state.highest_durable = state.highest_durable.max(point.highest);
-        Ok(())
     }
 
     fn start_segment(
@@ -163,12 +142,13 @@ impl PartitionLog {
         state: &mut LogState,
         directory: &DurableDirectory,
         start: u64,
+        version: u8,
     ) -> Result<()> {
         self.flush_locked(state, directory)?;
         state.active = None;
         state.resume = None;
         let key = wal_segment_key(&self.index_name, self.partition_id, start);
-        state.active = Some(ActiveSegment::create(directory, key, start)?);
+        state.active = Some(ActiveSegment::create(directory, key, start, version)?);
         self.flush_locked(state, directory)
     }
 
@@ -177,18 +157,28 @@ impl PartitionLog {
         state: &mut LogState,
         directory: &DurableDirectory,
         first: u64,
+        version: u8,
     ) -> Result<()> {
-        if state.active.is_some() {
+        if state.active.is_none() {
+            match state.resume.take() {
+                Some(tail) => {
+                    let key =
+                        wal_segment_key(&self.index_name, self.partition_id, tail.start_seq_no);
+                    state.active = Some(ActiveSegment::resume(directory, key, tail)?);
+                }
+                None => return self.start_segment(state, directory, first, version),
+            }
+        }
+        let Some(active) = state.active.as_mut() else {
+            return Err(poisoned());
+        };
+        if active.version >= version {
             return Ok(());
         }
-        match state.resume.take() {
-            Some(tail) => {
-                let key = wal_segment_key(&self.index_name, self.partition_id, tail.start_seq_no);
-                state.active = Some(ActiveSegment::resume(directory, key, tail)?);
-                Ok(())
-            }
-            None => self.start_segment(state, directory, first),
+        if active.holds_records() {
+            return self.start_segment(state, directory, first, version);
         }
+        active.raise_empty_version(directory, version)
     }
 
     fn write_pending(state: &mut LogState, pending: &mut Vec<u8>, last_seq_no: u64) -> Result<()> {
@@ -220,19 +210,25 @@ impl PartitionLog {
                 ),
             ));
         }
-        self.ensure_active(state, directory, first)?;
+        let holds_previous = writes.iter().any(|write| write.previous_document.is_some());
+        let version = self.new_segment_version(holds_previous);
+        self.ensure_active(state, directory, first, version)?;
         let (mut pending, mut frame) = (Vec::new(), Vec::new());
         let mut seq_no = state.highest_appended;
         for write in writes {
             seq_no += 1;
-            let entry = LogEntry::new(
+            let place = EntryPlace {
                 seq_no,
-                state.primary_term,
+                primary_term: state.primary_term,
+                partition_id: self.partition_id,
+                index_name: &self.index_name,
+            };
+            let entry = LogEntry::new(
+                place,
                 write.operation,
-                self.partition_id,
-                &self.index_name,
                 &write.document_id,
                 write.document,
+                write.previous_document,
             );
             frame.clear();
             frame_record(&entry, &mut frame)?;
@@ -241,7 +237,7 @@ impl PartitionLog {
             let holds_records = held > SEGMENT_HEADER_BYTES as u64;
             if holds_records && held + frame.len() as u64 > self.segment_max_bytes {
                 Self::write_pending(state, &mut pending, seq_no - 1)?;
-                self.start_segment(state, directory, seq_no)?;
+                self.start_segment(state, directory, seq_no, version)?;
             }
             pending.extend_from_slice(&frame);
         }
@@ -264,60 +260,6 @@ impl PartitionLog {
         outcome
     }
 
-    pub(crate) fn flush_to(
-        &self,
-        directory: &DurableDirectory,
-        target: u64,
-        verify: &dyn Fn() -> Result<()>,
-    ) -> Result<()> {
-        let mut state = self.lock()?;
-        loop {
-            if let Some(failure) = &state.failure {
-                return Err(failure.clone());
-            }
-            if state.highest_durable >= target {
-                return Ok(());
-            }
-            if state.flushing {
-                state = self.changed.wait(state).map_err(|_| poisoned())?;
-                continue;
-            }
-            let Some(point) = Self::durable_point(&state) else {
-                return Err(NarsilError::new(
-                    ErrorCode::PERSISTENCE_SAVE_FAILED,
-                    format!(
-                        "Partition {} of index \"{}\" has no log record {target} to make durable",
-                        self.partition_id, self.index_name
-                    ),
-                ));
-            };
-            state.flushing = true;
-            drop(state);
-            let outcome = self.make_durable(directory, &point).and_then(|_| verify());
-            let mut relocked = self
-                .state
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            relocked.flushing = false;
-            if outcome.is_ok() {
-                relocked.highest_durable = relocked.highest_durable.max(point.highest);
-            }
-            self.record_failure(&mut relocked, &outcome);
-            self.changed.notify_all();
-            outcome?;
-            state = relocked;
-        }
-    }
-
-    pub(crate) fn flush(
-        &self,
-        directory: &DurableDirectory,
-        verify: &dyn Fn() -> Result<()>,
-    ) -> Result<()> {
-        let target = self.highest_appended()?;
-        self.flush_to(directory, target, verify)
-    }
-
     pub(crate) fn roll_for_checkpoint(&self, directory: &DurableDirectory) -> Result<()> {
         let mut state = self.idle()?;
         self.usable(&state)?;
@@ -333,39 +275,12 @@ impl PartitionLog {
         }
         let next = state.highest_appended + 1;
         let outcome = self
-            .ensure_active(&mut state, directory, next)
-            .and_then(|_| self.start_segment(&mut state, directory, next));
+            .ensure_active(&mut state, directory, next, WAL_FORMAT_VERSION)
+            .and_then(|_| {
+                let version = self.new_segment_version(false);
+                self.start_segment(&mut state, directory, next, version)
+            });
         self.record_failure(&mut state, &outcome);
-        outcome
-    }
-
-    pub(crate) fn fail(&self, error: &NarsilError) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if state.failure.is_none() {
-            state.failure = Some(error.clone());
-        }
-        self.changed.notify_all();
-    }
-
-    pub(crate) fn close(&self, directory: &DurableDirectory) -> Result<()> {
-        let mut state = self.idle()?;
-        if state.closed {
-            return Ok(());
-        }
-        let outcome = if state.failure.is_none() && state.highest_appended > state.highest_durable {
-            self.flush_locked(&mut state, directory)
-        } else {
-            Ok(())
-        };
-        state.closed = true;
-        state.active = None;
-        if let Ok(mut marker) = self.marker.lock() {
-            *marker = None;
-        }
-        self.changed.notify_all();
         outcome
     }
 }

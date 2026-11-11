@@ -169,7 +169,7 @@ impl NarsilEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ListenerId(u64);
 
-type Listener = Arc<dyn Fn(&NarsilEvent) + Send + Sync>;
+pub(crate) type Listener = Arc<dyn Fn(&NarsilEvent) + Send + Sync>;
 
 /// The listeners of one engine, with the capacity at which each index last reported its watermark.
 #[derive(Default)]
@@ -203,6 +203,25 @@ impl EventBus {
         for listener in listeners {
             let _ = catch_unwind(AssertUnwindSafe(|| listener(&event)));
         }
+    }
+
+    pub(crate) fn add_listener(&self, kind: NarsilEventKind, listener: Listener) -> ListenerId {
+        let id = ListenerId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        self.listeners
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push((id, kind, listener));
+        id
+    }
+
+    pub(crate) fn remove_listener(&self, id: ListenerId) -> bool {
+        let mut listeners = self
+            .listeners
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = listeners.len();
+        listeners.retain(|(registered, _, _)| *registered != id);
+        listeners.len() != before
     }
 
     /// Raises a write event for `index_name` where any listener hears one.
@@ -271,27 +290,12 @@ impl Narsil {
         kind: NarsilEventKind,
         listener: impl Fn(&NarsilEvent) + Send + Sync + 'static,
     ) -> ListenerId {
-        let events = &self.inner.events;
-        let id = ListenerId(events.next_id.fetch_add(1, Ordering::Relaxed));
-        events
-            .listeners
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((id, kind, Arc::new(listener)));
-        id
+        self.inner.events.add_listener(kind, Arc::new(listener))
     }
 
     /// Removes the listener that `id` names, so that it hears no further events, and reports whether it was
     /// registered.
     pub fn off(&self, id: ListenerId) -> bool {
-        let mut listeners = self
-            .inner
-            .events
-            .listeners
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let before = listeners.len();
-        listeners.retain(|(registered, _, _)| *registered != id);
-        listeners.len() != before
+        self.inner.events.remove_listener(id)
     }
 }
