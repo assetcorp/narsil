@@ -254,9 +254,9 @@ impl Narsil {
     /// Returns an engine that keeps its indexes as `config` says, after it recovers every index that the
     /// durability directory or the persistence adapter holds.
     ///
-    /// Fails with `CONFIG_INVALID` where the durability settings break a rule, with `PERSISTENCE_LOCK_HELD`
-    /// where another engine holds the directory, and with `PERSISTENCE_LOAD_FAILED` where a stored file is
-    /// damaged. Recovery fails with `CONFIG_INVALID` for an index whose stored settings give a tokenizer or a
+    /// Fails with `CONFIG_INVALID` where the durability settings break a rule or where another engine holds the
+    /// directory, with `PERSISTENCE_SAVE_FAILED` where the engine cannot create or lock the directory, and with
+    /// `PERSISTENCE_LOAD_FAILED` where a stored file is damaged. Recovery fails with `CONFIG_INVALID` for an index whose stored settings give a tokenizer or a
     /// stop word set by name, so open such a directory with [`Narsil::open_with`], which registers them first.
     pub fn open(config: NarsilConfig) -> Result<Narsil> {
         Narsil::open_with(config, |_| Ok(()))

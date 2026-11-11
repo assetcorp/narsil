@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 pub(crate) use registry::{AnalysisRegistry, ResolvedAnalysis};
-pub use registry::{StopWordFunction, StopWords, Token, Tokenizer};
+pub use registry::{StopWordFunction, StopWords, Token, TokenSource, Tokenizer};
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
@@ -179,7 +179,7 @@ impl Analyser {
         visit: &mut TokenVisitor<'_>,
     ) -> Result<()> {
         if let Some(tokenizer) = &self.tokenizer {
-            for token in &tokens_in_position_order(tokenizer.as_ref(), text)? {
+            for token in &tokens_in_position_order(tokenizer.as_ref(), text, TokenSource::Query)? {
                 visit(&token.token, token.position, None, &token.token);
             }
             return Ok(());
@@ -219,7 +219,7 @@ impl Analyser {
         packed: &mut PackedTokens,
     ) -> Result<Option<u32>> {
         if let Some(tokenizer) = &self.tokenizer {
-            let tokens = tokens_in_position_order(tokenizer.as_ref(), text)?;
+            let tokens = tokens_in_position_order(tokenizer.as_ref(), text, TokenSource::Document)?;
             let mut units = Vec::new();
             for token in &tokens {
                 units.clear();
@@ -264,10 +264,14 @@ impl Analyser {
     }
 }
 
-fn tokens_in_position_order(tokenizer: &dyn Tokenizer, text: &str) -> Result<Vec<Token>> {
+fn tokens_in_position_order(
+    tokenizer: &dyn Tokenizer,
+    text: &str,
+    source: TokenSource,
+) -> Result<Vec<Token>> {
     let mut tokens = guarded(ErrorCode::INTERNAL_ERROR, "The tokenizer", || {
-        tokenizer.tokenize(text)
-    })?;
+        tokenizer.try_tokenize(text, source)
+    })??;
     if tokens
         .windows(2)
         .any(|pair| pair[1].position < pair[0].position)

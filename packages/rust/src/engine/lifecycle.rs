@@ -167,17 +167,12 @@ fn create_unannounced(
     let registered = engine.adapters.embedding();
     let state = Arc::new(build_index(engine, &registered, name, config)?);
     state.replace_suggestion_state(suggestions);
-    let mut indexes = engine.indexes_mut();
-    if indexes.contains_key(name) {
-        return Err(NarsilError::new(
-            ErrorCode::INDEX_ALREADY_EXISTS,
-            format!("Index \"{name}\" already exists"),
-        ));
-    }
     if let Some(durable) = &engine.durable {
         durable.attach_created(&state)?;
     }
-    indexes.insert(name.to_string(), Arc::clone(&state));
+    engine
+        .indexes_mut()
+        .insert(name.to_string(), Arc::clone(&state));
     Ok(state)
 }
 
