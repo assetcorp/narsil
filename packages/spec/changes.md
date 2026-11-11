@@ -23,6 +23,8 @@ ChangesSetting {
 
 The checkpoint length is the sum of the lengths of the files that the index's [manifest](durability.md#manifest) lists. The default never falls below 1,073,741,824 bytes, because an index that receives many updates and removals can stay small while its log grows. `previousDocument` takes effect only while `enabled` is true.
 
+A node must refuse the setting with `CONFIG_INVALID` where `historyMaxAgeMs` or `historyMaxBytes` is present and is not a whole number from 1 to 9,007,199,254,740,991, because that range is the widest in which float64 represents every integer exactly.
+
 A node must refuse the setting with `CHANGES_DURABILITY_REQUIRED` for an index without [write-ahead log durability](durability.md#tier-1-write-ahead-log-durability-filesystem-only), because the feed takes its entries from the log. In a cluster, a node must refuse the setting with `CHANGES_BACKUP_STORE_REQUIRED` where the cluster has no [backup store](distribution/backups.md), because a cluster node builds a document export from a backup. It must also refuse the setting with `CHANGES_NOT_READY` while any registered node has a specification version below 1.5, because such a node keeps no history for change capture.
 
 A node must persist the setting before it answers the caller, and every checkpoint of the index from then on must keep [history](#history).
