@@ -179,7 +179,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
     ...(entry.heldPartitions !== null ? { heldPartitions: entry.heldPartitions } : {}),
     documentCount: entry.documentCount,
-    ...(entry.savedBytes !== null ? { savedBytes: entry.savedBytes } : {}),
+    savedBytes: entry.savedBytes,
     partitionCount: entry.partitionCount,
     schema: flattenSchema(entry.config.schema) as Record<string, string>,
     language: entry.language.name,

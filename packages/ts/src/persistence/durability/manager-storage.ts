@@ -37,7 +37,7 @@ export interface IndexStorageAccessDeps {
 }
 
 export interface StoredBytesAccess {
-  storedSize(indexName: string): StoredSize
+  storedSize(indexName: string, recordedSavedBytes?: number): StoredSize
   withPartitionStoredSizes(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
   measureRestoredStorage(indexName: string): Promise<void>
 }
@@ -103,8 +103,8 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
   }
   const sizeIsKnown = (indexName: string): boolean => savedBytes.of(indexName) !== undefined || indexes.has(indexName)
   const storedBytesAccess: StoredBytesAccess = {
-    storedSize(indexName) {
-      if (!sizeIsKnown(indexName)) return {}
+    storedSize(indexName, recordedSavedBytes) {
+      if (!sizeIsKnown(indexName)) return recordedSavedBytes === undefined ? {} : { savedBytes: recordedSavedBytes }
       return { savedBytes: savedBytes.of(indexName)?.bytes ?? 0, logBytes: logBytes.bytesOf(indexName) ?? 0 }
     },
     withPartitionStoredSizes(indexName, stats) {

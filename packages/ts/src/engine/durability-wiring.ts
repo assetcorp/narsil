@@ -19,7 +19,6 @@ interface DurabilityWiring {
   emitLayoutUpgrade: (event: LayoutUpgradeEvent) => void
   emitCheckpointHeld: (report: HeldCheckpointReport) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
-  recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number, savedBytes?: number) => void
   engineCore: () => EngineCore
   queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
   awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']
@@ -48,7 +47,13 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     queueDiskAdoption: wiring.queueDiskAdoption,
     awaitCopiesOfIndex: wiring.awaitCopiesOfIndex,
     createIndexFromMetadata: wiring.createIndexFromMetadata,
-    recordCheckpoint: wiring.recordCheckpoint,
+    recordCheckpoint(indexName, documentCount, partitionCount, savedBytes) {
+      const entry = wiring.indexRegistry.get(indexName)
+      if (entry === undefined) return
+      entry.documentCount = documentCount
+      entry.partitionCount = partitionCount
+      entry.savedBytes = savedBytes
+    },
     onLayoutUpgrade: wiring.emitLayoutUpgrade,
     onCheckpointHeld: wiring.emitCheckpointHeld,
     onFatalError: wiring.emitFatalError,

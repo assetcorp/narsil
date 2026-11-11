@@ -507,7 +507,9 @@ export interface IndexStats {
     estimatedMemoryBytes: number;
     heldSearchStates?: number;
     language: string;
+    logBytes?: number;
     partitionCount: number;
+    savedBytes?: number;
     schema: SchemaDefinition;
 }
 
@@ -1590,7 +1592,9 @@ export interface PartitionStatistics {
 export interface PartitionStatsResult {
     documentCount: number;
     estimatedMemoryBytes: number;
+    logBytes?: number;
     partitionId: number;
+    savedBytes?: number;
 }
 
 // @public

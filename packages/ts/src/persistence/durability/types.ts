@@ -56,7 +56,7 @@ export interface IndexDurabilityHooks {
   queueDiskAdoption?(action: DiskAdoptionAction): void
   awaitCopiesOfIndex?(indexName: string): Promise<void>
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
-  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number, savedBytes?: number): void
+  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number, savedBytes: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
@@ -118,7 +118,7 @@ export interface DurabilityManager {
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
   measureRestoredStorage?(indexName: string): Promise<void>
-  storedSize?(indexName: string): StoredSize
+  storedSize?(indexName: string, recordedSavedBytes?: number): StoredSize
   withPartitionStoredSizes?(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
   syncStorage?(): SyncStorage
   historyStorage?(): HistoryStorage

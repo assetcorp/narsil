@@ -54,9 +54,11 @@ export function createSnapshotSavedSize(
       entries.delete(indexName)
     },
     access: {
-      storedSize(indexName) {
+      storedSize(indexName, recordedSavedBytes) {
         const saved = knownSize(indexName)
-        return saved === null ? {} : { savedBytes: saved.bytes }
+        if (saved !== null) return { savedBytes: saved.bytes }
+        if (entries.has(indexName) || recordedSavedBytes === undefined) return {}
+        return { savedBytes: recordedSavedBytes }
       },
       withPartitionStoredSizes(indexName, stats) {
         const saved = knownSize(indexName)
