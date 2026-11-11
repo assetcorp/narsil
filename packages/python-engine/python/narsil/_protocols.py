@@ -8,12 +8,13 @@ EmbeddingPurpose = Literal["document", "query"]
 
 @runtime_checkable
 class EmbeddingAdapter(Protocol):
-    """Turns text into vectors for the vector fields that an index embeds.
+    """An embedding adapter turns text into vectors for the vector fields that an index embeds.
 
-    ``dimensions`` gives the length of every vector, and the engine reads it once, when the adapter is registered.
+    ``dimensions`` gives the length of every vector, and the engine reads it once, when you register the adapter.
     ``embed`` receives the text and ``"document"`` or ``"query"``, and returns that many numbers. An adapter can
-    add ``embed_batch(texts, purpose)``, which returns one vector per text, so that a batch insert makes one call.
-    The engine calls these methods from its own threads, so they must be safe to call from any thread.
+    add ``embed_batch(texts, purpose)``, which returns one vector per text, so that the engine makes one call for a
+    batch insert. The engine can call these methods from any of its threads, so they must be safe to call from any
+    thread.
     """
 
     @property
@@ -24,17 +25,17 @@ class EmbeddingAdapter(Protocol):
 
 @runtime_checkable
 class RerankAdapter(Protocol):
-    """Scores the documents of a reranked query: ``score`` returns one number per document, in the same order."""
+    """A rerank adapter scores the documents of a reranked query, one number per document, in their order."""
 
     def score(self, query: str, documents: Sequence[str]) -> Sequence[float]: ...
 
 
 @runtime_checkable
 class Tokenizer(Protocol):
-    """Splits text into tokens for an index that names it.
+    """A tokenizer splits text into tokens for every index whose ``tokenizer`` setting refers to it.
 
     ``tokenize`` returns ``(token, position)`` pairs or ``{"token": ..., "position": ...}`` dicts, where a position
-    counts tokens from 0, so that a phrase query can tell which tokens sit next to each other.
+    counts tokens from 0, so that the engine can match a phrase only where its tokens are next to each other.
     """
 
     def tokenize(self, text: str) -> Iterable[tuple[str, int] | dict[str, str | int]]: ...
@@ -42,7 +43,7 @@ class Tokenizer(Protocol):
 
 @runtime_checkable
 class PersistenceAdapter(Protocol):
-    """Stores the files of an engine's persistence under string keys."""
+    """A persistence adapter stores the files of an engine under string keys."""
 
     def save(self, key: str, data: bytes) -> None: ...
 

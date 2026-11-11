@@ -72,7 +72,7 @@ def command_for(program: str, arguments: list[str]) -> list[str]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("Name the program to run, such as develop, ruff, mypy, pytest, or python.", file=sys.stderr)
+        print("Give the program to start, such as develop, ruff, mypy, pytest, or python.", file=sys.stderr)
         return 2
     ensure_environment()
     program, *arguments = sys.argv[1:]

@@ -46,7 +46,7 @@ impl Drop for EngineHandle {
     }
 }
 
-/// An engine that holds Narsil indexes inside this Python process.
+/// This engine holds Narsil indexes inside this Python process.
 #[pyclass(frozen, subclass, weakref, module = "narsil._native", name = "Narsil")]
 pub(crate) struct PyNarsil {
     pub(crate) handle: Arc<EngineHandle>,

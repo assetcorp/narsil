@@ -110,7 +110,7 @@ impl PythonPlugin {
 fn document_under(context: &Bound<'_, PyDict>, key: &str) -> Result<Map, CallbackFailure> {
     let Some(document) = context.get_item(key)? else {
         return Err(CallbackFailure::Refused(config_invalid(format!(
-            "the context lost \"{key}\""
+            "the hook removed \"{key}\" from the context"
         ))));
     };
     let subject = format!("context[\"{key}\"]");
@@ -239,7 +239,7 @@ impl Plugin for PythonPlugin {
             |context| {
                 let Some(params) = context.get_item("params")? else {
                     return Err(CallbackFailure::Refused(config_invalid(
-                        "the context lost \"params\"",
+                        "the hook removed \"params\" from the context",
                     )));
                 };
                 Ok(query_params(&params, "context[\"params\"]")?)

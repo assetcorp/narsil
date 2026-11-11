@@ -183,8 +183,8 @@ pub(crate) fn event_listener(function: Retained) -> impl Fn(&NarsilEvent) + Send
     }
 }
 
-/// Runs the rebuild of one index whose stored analysis differs from its language module, for the
-/// `analysis.onStaleAnalysis` function to call.
+/// This handle rebuilds one index whose stored analysis differs from its language module, when the
+/// `analysis.onStaleAnalysis` function calls it.
 #[pyclass(frozen, module = "narsil._native", name = "StaleRebuild")]
 pub(crate) struct PyStaleRebuild {
     rebuild: StaleRebuild,
@@ -234,8 +234,8 @@ pub(crate) fn stale_listener(
     ))
 }
 
-/// Holds the reducer of a grouped query, so that a `before_search` hook that receives the query as a dict can hand
-/// the same reducer back.
+/// This handle holds the reducer of a grouped query, so that a `before_search` hook that receives the query as a
+/// dict can return the same reducer.
 #[pyclass(frozen, module = "narsil._native", name = "GroupReducerHandle")]
 pub(crate) struct GroupReducerHandle {
     pub(crate) reducer: GroupReducer,
@@ -290,7 +290,7 @@ pub(crate) fn group_reducer(
             })
             .unwrap_or_else(|| {
                 Err(
-                    "The reducer cannot run because the Python interpreter is shutting down"
+                    "The reducer is unavailable because the Python interpreter is shutting down"
                         .to_string(),
                 )
             })

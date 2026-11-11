@@ -7,17 +7,20 @@ from typing import IO, Any, Literal, TypedDict
 from narsil._errors import NarsilError
 
 Destination = str | PathLike[str] | IO[bytes] | None
-"""Where a snapshot or an export goes: ``None`` returns the bytes, a path names a file, and a binary file object
-receives them through its ``write`` method."""
+"""This type tells a snapshot or an export where its bytes go. With ``None``, the call returns the bytes; with a
+path, the engine writes them to that file; and with a binary file object, the engine passes them to its ``write``
+method."""
 
 Source = bytes | bytearray | memoryview | str | PathLike[str] | IO[bytes]
-"""Where a restore or an import reads from: the bytes themselves, a path to a file, or a binary file object."""
+"""This type gives a restore or an import its bytes, as the bytes themselves, a path to a file, or a binary file
+object."""
 
 Document = dict[str, Any]
-"""A stored document: field names map to strings, numbers, booleans, lists, nested dicts, and ``None``."""
+"""A stored document maps its field names to strings, numbers, booleans, lists, nested dicts, and ``None``."""
 
 Settings = Mapping[str, Any]
-"""A configuration or a set of query parameters, with the field names of the Narsil specification."""
+"""This type holds a configuration or a set of query parameters, keyed by the field names of the Narsil
+specification."""
 
 EventKind = Literal[
     "write",

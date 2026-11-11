@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::error::{ErrorCode, NarsilError, Result};
 
-/// Returns the text that a panic carried, or `None` where its payload holds no text.
+/// Returns the text in the payload of a panic, or `None` when the payload holds no text.
 pub(crate) fn panic_text(payload: &(dyn Any + Send)) -> Option<String> {
     if let Some(text) = payload.downcast_ref::<&str>() {
         return Some((*text).to_string());
@@ -16,8 +16,9 @@ pub(crate) fn panic_text(payload: &(dyn Any + Send)) -> Option<String> {
         .map(|error| error.message().to_string())
 }
 
-/// Turns the payload of a panic inside caller code into an error: a [`NarsilError`] payload passes unchanged, and
-/// any other payload raises `code` with a message that names `subject` and holds the text that the panic carried.
+/// Converts the payload of a panic inside caller code into an error. A [`NarsilError`] payload comes back
+/// unchanged, and any other payload becomes an error with `code` and a message that holds `subject` and the text
+/// of the panic.
 pub(crate) fn unwound_error(
     payload: Box<dyn Any + Send>,
     code: ErrorCode,
@@ -32,8 +33,8 @@ pub(crate) fn unwound_error(
     }
 }
 
-/// Runs caller code, such as a tokenizer or a stop word function, and returns the error that [`unwound_error`]
-/// builds where that code panics, so that the panic leaves the engine as it was.
+/// Calls caller code, such as a tokenizer or a stop word function, and returns the error that [`unwound_error`]
+/// builds when that code panics, so that a panic leaves the state of the engine unchanged.
 pub(crate) fn guarded<T>(code: ErrorCode, subject: &str, call: impl FnOnce() -> T) -> Result<T> {
     catch_unwind(AssertUnwindSafe(call)).map_err(|payload| unwound_error(payload, code, subject))
 }

@@ -190,7 +190,8 @@ impl<'py> Fields<'py> {
     }
 
     pub(crate) fn finish(self) -> Result<(), NarsilError> {
-        for (key, _) in self.dict.iter() {
+        let keys: Vec<Bound<'py, PyAny>> = self.dict.iter().map(|(key, _)| key).collect();
+        for key in keys {
             let named = key
                 .cast::<PyString>()
                 .ok()
@@ -199,7 +200,7 @@ impl<'py> Fields<'py> {
                 Some(name) if self.known.contains(&name.as_str()) => {}
                 Some(name) => {
                     return Err(config_invalid(format!(
-                        "{} holds the key \"{name}\", which it does not take",
+                        "{} holds the key \"{name}\", which Narsil does not accept there",
                         self.label
                     )));
                 }

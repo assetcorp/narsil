@@ -90,7 +90,7 @@ jobs:
         working-directory: packages/python-engine
         run: cargo fmt --all --check
 
-      - name: Run Clippy with every warning as an error
+      - name: Check the Rust code with Clippy, treating every warning as an error
         working-directory: packages/python-engine
         run: cargo clippy --all-targets --locked -- -D warnings
 
@@ -286,7 +286,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install the wheel and run the tests
+      - name: Install the wheel and test it
         if: ${{ !matrix.platform.musl }}
         shell: bash
         working-directory: packages/python-engine
@@ -297,7 +297,7 @@ jobs:
           python -m pip install --disable-pip-version-check --no-index --find-links ../../wheelhouse delali-narsil
           python -m pytest
 
-      - name: Install the wheel and run the tests in Alpine Linux
+      - name: Install the wheel and test it in Alpine Linux
         if: ${{ matrix.platform.musl }}
         env:
           PYTHON_VERSION: ${{ matrix.python }}

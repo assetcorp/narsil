@@ -1,7 +1,7 @@
 [project]
 name = "delali-narsil"
 dynamic = ["version"]
-description = "Narsil search engine inside a Python process: full-text, vector, and hybrid search over the Rust implementation, with a blocking API and an asyncio API."
+description = "The Narsil search engine works inside a Python process, with full-text, vector, and hybrid search through the Rust implementation, a blocking API, and an asyncio API."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
