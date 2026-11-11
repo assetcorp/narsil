@@ -94,6 +94,7 @@ fn check_paged_segment(
     require_payload_checksum(store, file)?;
     require_schema_of_manifest(&file.key, &resident.schema, manifest)?;
     sections.require_ids_ascend()?;
+    sections.require_postings_match(&resident)?;
     let frozen = FrozenSegment::from_paged(resident, sections);
     for ordinal in 0..frozen.capacity() {
         frozen.document(ordinal)?;
