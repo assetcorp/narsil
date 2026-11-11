@@ -1,0 +1,122 @@
+# Narsil for Python
+
+`delali-narsil` lets a Python program create, change, and search a Narsil index inside its process, with no server beside it. The package wraps [the Rust implementation of Narsil](https://github.com/assetcorp/narsil/tree/main/packages/rust), so it answers full-text, vector, hybrid, and geo searches, and it saves every file in the layouts of [the Narsil specification](https://github.com/assetcorp/narsil/tree/main/packages/spec). An index that the TypeScript package saves opens here, and an index that this package saves opens in TypeScript.
+
+## Install
+
+```sh
+pip install delali-narsil
+```
+
+The package needs Python 3.11 or later. PyPI holds wheels for Linux with glibc or musl, macOS, and Windows, each on x64 and arm64, so pip installs it without a Rust toolchain. A program imports it as `narsil`.
+
+## Create, fill, and search an index
+
+```python
+from narsil import Narsil
+
+with Narsil() as engine:
+    engine.create_index("films", {"schema": {"title": "string", "year": "number", "embedding": "vector[3]"}})
+    engine.insert_batch(
+        "films",
+        [
+            {"id": "heat", "title": "Heat", "year": 1995, "embedding": [0.9, 0.1, 0.2]},
+            {"id": "ronin", "title": "Ronin", "year": 1998, "embedding": [0.8, 0.3, 0.1]},
+            {"id": "solaris", "title": "Solaris", "year": 1972, "embedding": [0.1, 0.9, 0.7]},
+        ],
+    )
+
+    keyword = engine.query("films", {"term": "ronin", "filters": {"fields": {"year": {"gte": 1990}}}})
+    print(keyword["count"], keyword["hits"][0]["id"])
+
+    nearest = engine.query("films", {"vector": {"field": "embedding", "value": [0.85, 0.2, 0.15]}, "limit": 2})
+    for hit in nearest["hits"]:
+        print(hit["id"], hit["score"])
+```
+
+The program prints `1 ronin`, then `heat` and `ronin` with their cosine scores. A query that sets both `term` and `vector` fuses the two rankings into one hybrid ranking.
+
+Every setting, query, and result is a plain dict whose keys are the field names of the Narsil specification, the same names that the TypeScript package and the HTTP server use, so a query from their documentation works here unchanged. Method names and keyword arguments follow Python's style, such as `insert_batch` and `doc_id`.
+
+## Use it from asyncio
+
+```python
+import asyncio
+
+from narsil import AsyncNarsil
+
+
+async def main() -> None:
+    async with await AsyncNarsil.open() as engine:
+        await engine.create_index("films", {"schema": {"title": "string", "year": "number"}})
+        await engine.insert_batch(
+            "films",
+            [
+                {"id": "heat", "title": "Heat", "year": 1995},
+                {"id": "ronin", "title": "Ronin", "year": 1998},
+            ],
+        )
+        found = await engine.query("films", {"term": "heat"})
+        print(found["count"], found["hits"][0]["id"])
+
+
+asyncio.run(main())
+```
+
+The program prints `1 heat`. Each call of `AsyncNarsil` runs on a worker thread, so the event loop keeps serving other tasks while the engine works. Cancelling a call raises `asyncio.CancelledError` in the waiting task at once, while the engine finishes that call on its thread and leaves the index usable.
+
+## Threads and the interpreter lock
+
+Every method releases the interpreter lock while the engine works, so several Python threads can search one engine at once and run in parallel. A search never waits for a write, because each search reads the index as it stood when the search began.
+
+## Keep the index on disk
+
+```python
+from narsil import Narsil
+
+engine = Narsil({"durability": {"directory": "./search-data"}})
+```
+
+The engine writes each change to a write-ahead log before the call returns, writes checkpoints in the background, and finds every index again when a later program opens the same directory. The engine flushes its logs as it shuts down, which happens when a `with` block ends, when `shutdown()` runs, or when the interpreter exits.
+
+## Errors
+
+Every failure raises `narsil.NarsilError`. Its `code` holds the code that the TypeScript package raises for the same input, such as `DOC_VALIDATION_FAILED` for a malformed document or `CONFIG_INVALID` for a setting with the wrong type, and its `message` explains the failure.
+
+## Write adapters, tokenizers, and plugins in Python
+
+An embedding adapter is an object with a `dimensions` attribute and an `embed(text, purpose)` method, and the engine calls it to fill the vector fields that an index embeds. A rerank adapter has `score(query, documents)`, a tokenizer has `tokenize(text)`, and a plugin has a `name` and any of the hooks `before_insert`, `after_insert`, `before_update`, `after_update`, `before_remove`, `after_remove`, `before_search`, `after_search`, `on_index_create`, `on_index_drop`, and `on_partition_split`. `narsil.EmbeddingAdapter`, `narsil.RerankAdapter`, and `narsil.Tokenizer` describe each shape for a type checker.
+
+```python
+from narsil import Narsil, NarsilError
+
+
+class Letters:
+    dimensions = 3
+
+    def embed(self, text: str, purpose: str) -> list[float]:
+        return [text.count("a"), text.count("e"), text.count("o")]
+
+
+with Narsil({"embeddingAdapters": {"letters": Letters()}}) as engine:
+    engine.create_index(
+        "notes",
+        {
+            "schema": {"body": "string", "embedding": "vector[3]"},
+            "embedding": {"adapter": "letters", "fields": {"embedding": "body"}},
+        },
+    )
+    engine.insert("notes", {"body": "a short note"})
+```
+
+An exception that Python code raises inside the engine reaches the caller of the operation as a `NarsilError`, and its message names the exception's type and text. An embedding adapter that raises fails the insert with `EMBEDDING_FAILED`, and the index keeps every document that it held before. Raise a `NarsilError` with a code from the Narsil specification to choose the code and message that the caller receives.
+
+The engine calls Python code from its own threads, so an adapter, tokenizer, or plugin must be safe to call from any thread.
+
+## Build from source
+
+The repository builds the package with [maturin](https://www.maturin.rs). From `packages/python-engine`, `python3 scripts/tools.py develop` builds the extension into a local environment, and `python3 scripts/tools.py pytest` runs the tests. The build needs Rust 1.88 or later and a C11 compiler.
+
+## Licence
+
+Apache-2.0. See `LICENSE` and `NOTICE`.

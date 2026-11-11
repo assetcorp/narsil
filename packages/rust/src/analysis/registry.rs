@@ -3,6 +3,7 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::unwind::guarded;
 
 /// One token that a [`Tokenizer`] returns: the term to index and its position in the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,13 +18,18 @@ pub struct Token {
 ///
 /// The engine indexes each returned term as it stands, so a tokenizer that wants stemming or lower case applies
 /// them itself, and the engine removes no stop word from what it returns. The engine sorts the tokens by position
-/// where the tokenizer returns them out of order.
+/// where the tokenizer returns them out of order. Where `tokenize` panics, the write or search that called it fails
+/// with `INTERNAL_ERROR` and the text that the panic carried, or with the [`crate::NarsilError`] that the panic
+/// carried, and the index keeps what it held before.
 pub trait Tokenizer: Send + Sync {
     /// Returns the tokens of `text`.
     fn tokenize(&self, text: &str) -> Vec<Token>;
 }
 
 /// A function that receives a language's stop words and returns the set that an index uses.
+///
+/// Where the function panics, the call that built the index's analysis fails with `CONFIG_INVALID` and the text
+/// that the panic carried, or with the [`crate::NarsilError`] that the panic carried.
 pub type StopWordFunction = Arc<dyn Fn(&HashSet<String>) -> HashSet<String> + Send + Sync>;
 
 /// The stop words of an index, which replace the stop words of its language.
@@ -45,10 +51,14 @@ impl fmt::Debug for StopWords {
 }
 
 impl StopWords {
-    pub(crate) fn resolve(&self, defaults: &HashSet<String>) -> HashSet<String> {
+    pub(crate) fn resolve(&self, defaults: &HashSet<String>) -> Result<HashSet<String>> {
         match self {
-            StopWords::Set(words) => words.clone(),
-            StopWords::Function(function) => function(defaults),
+            StopWords::Set(words) => Ok(words.clone()),
+            StopWords::Function(function) => {
+                guarded(ErrorCode::CONFIG_INVALID, "The stop word function", || {
+                    function(defaults)
+                })
+            }
         }
     }
 }

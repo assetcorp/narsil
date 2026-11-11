@@ -2,6 +2,7 @@ use std::fmt::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::unwind::guarded;
 
 const UUID_VERSION_SEVEN: u8 = 0x70;
 const UUID_VERSION_FOUR: u8 = 0x40;
@@ -10,12 +11,7 @@ const UUID_BYTES: usize = 16;
 const UUID_TEXT_LENGTH: usize = 36;
 
 pub(crate) fn generated_id(generator: &super::engine_config::IdGenerator) -> Result<String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| generator())).map_err(|_| {
-        NarsilError::new(
-            ErrorCode::INTERNAL_ERROR,
-            "The idGenerator panicked while the engine asked it for a document ID",
-        )
-    })
+    guarded(ErrorCode::INTERNAL_ERROR, "The idGenerator", || generator())
 }
 
 fn random_bytes(what: &str) -> Result<[u8; UUID_BYTES]> {
