@@ -472,18 +472,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Verify that the module requires a released Go client
-        run: |
-          if grep -Eq '^replace[[:space:]]' packages/go/changes/go.mod; then
-            echo "::error::packages/go/changes/go.mod replaces the Go client with the local copy. Release the Go client, then require that version and remove the replace directive."
-            exit 1
-          fi
-          if grep -Eq 'github.com/assetcorp/narsil/packages/go v0\.0\.0-' packages/go/changes/go.mod; then
-            echo "::error::packages/go/changes/go.mod requires an unreleased Go client. Release the Go client, then require that version."
-            exit 1
-          fi
-
-      - name: Verify this run holds the tip of main and resolve the version
+      - name: Verify this run holds the tip of main and resolve the versions
         id: resolve
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
@@ -498,14 +487,46 @@ jobs:
             echo "::error::The tag packages/go/changes/v$VERSION already exists."
             exit 1
           fi
-          echo "Releasing github.com/assetcorp/narsil/packages/go/changes v$VERSION"
+          CLIENT_TAG="$(git tag --list 'packages/go/v*' --sort=-v:refname | grep -E '^packages/go/v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          if [ -z "$CLIENT_TAG" ]; then
+            echo "::error::The Go client has no release, so release github.com/assetcorp/narsil/packages/go first."
+            exit 1
+          fi
+          if ! git diff --quiet "$CLIENT_TAG" HEAD -- ':(glob)packages/go/**/*.go' ':(glob)packages/go/go.mod' ':(glob)packages/go/go.sum' ':(exclude)packages/go/changes' ':(exclude)packages/go/engine'; then
+            echo "::error::The Go client on main differs from $CLIENT_TAG, so release github.com/assetcorp/narsil/packages/go first, then dispatch this release again."
+            exit 1
+          fi
+          echo "Releasing github.com/assetcorp/narsil/packages/go/changes v$VERSION on the Go client ${CLIENT_TAG#packages/go/}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "client=${CLIENT_TAG#packages/go/}" >> "$GITHUB_OUTPUT"
 
-      - name: Push the tag and ask the Go module proxy to fetch it
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/go/changes/go.mod
+          cache: false
+
+      - name: Require the released Go client and build against it
+        working-directory: packages/go/changes
+        env:
+          CLIENT_VERSION: ${{ steps.resolve.outputs.client }}
+        run: |
+          go mod edit -dropreplace=github.com/assetcorp/narsil/packages/go -require="github.com/assetcorp/narsil/packages/go@$CLIENT_VERSION"
+          go mod tidy
+          go build ./...
+          go vet ./...
+          git diff -- go.mod go.sum
+
+      - name: Commit the release go.mod, push its tag, and ask the Go module proxy to fetch it
         if: ${{ !inputs.dry-run }}
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
+          CLIENT_VERSION: ${{ steps.resolve.outputs.client }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/go/changes/go.mod packages/go/changes/go.sum
+          git commit -m "chore(go): require the Go client $CLIENT_VERSION in the change feed module v$VERSION"
           git tag "packages/go/changes/v$VERSION"
           git push origin "packages/go/changes/v$VERSION"
           curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/changes/@v/v$VERSION.info"
