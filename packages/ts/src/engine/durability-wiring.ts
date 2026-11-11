@@ -19,7 +19,7 @@ interface DurabilityWiring {
   emitLayoutUpgrade: (event: LayoutUpgradeEvent) => void
   emitCheckpointHeld: (report: HeldCheckpointReport) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
-  recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number) => void
+  recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number, savedBytes?: number) => void
   engineCore: () => EngineCore
   queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
   awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']

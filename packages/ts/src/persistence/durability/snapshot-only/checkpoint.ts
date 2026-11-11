@@ -14,6 +14,7 @@ import { garbageThatNoFieldStillReads, recordWrittenVectors } from '../segment/v
 import { writeLiveVectors } from '../segment/vector-write'
 import { commitCheckpointManifest, removeCheckpointGarbage, writeCheckpointSegments } from '../segment/write'
 import { SINGLE_NODE_PRIMARY_TERM } from '../seq-owner'
+import type { StoredBytes } from '../stored-bytes'
 
 export interface SnapshotOnlyCheckpointInput {
   adapter: PersistenceAdapter
@@ -88,7 +89,7 @@ async function writeCaptured(
   store: CheckpointStore,
   prior: SegmentManifest | null,
   captured: CapturedState,
-): Promise<void> {
+): Promise<StoredBytes> {
   const priorWithinCount = prior === null ? null : manifestWithinPartitionCount(prior, captured.partitionCount)
   const written = await writeCheckpointSegments({
     store,
@@ -110,11 +111,15 @@ async function writeCaptured(
     store,
     await garbageThatNoFieldStillReads(store, input.vectorIndexes, committed.garbage),
   )
+  return committed.saved
 }
 
-export async function writeSnapshotOnlyCheckpoint(
-  input: SnapshotOnlyCheckpointInput,
-): Promise<{ documentCount: number; positions: ReadonlyMap<number, number>; partitionCount: number }> {
+export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointInput): Promise<{
+  documentCount: number
+  positions: ReadonlyMap<number, number>
+  partitionCount: number
+  saved: StoredBytes
+}> {
   const store = adapterCheckpointStore(input.adapter)
   const { prior, captured } = await whileGraphsStayComplete(input.vectorIndexes, async () => {
     const prior = await readCurrentManifest(store, input.indexName)
@@ -122,11 +127,12 @@ export async function writeSnapshotOnlyCheckpoint(
     return { prior, captured }
   })
   try {
-    await writeCaptured(input, store, prior, captured)
+    const saved = await writeCaptured(input, store, prior, captured)
     return {
       documentCount: captured.documentCount,
       positions: captured.positions,
       partitionCount: captured.partitionCount,
+      saved,
     }
   } finally {
     for (const plan of captured.plans.values()) plan.release()

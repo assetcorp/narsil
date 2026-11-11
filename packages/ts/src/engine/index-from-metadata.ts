@@ -168,6 +168,7 @@ export async function createIndexFromMetadata(
     indexUuid: metadata.indexUuid ?? null,
     heldPartitions: metadata.heldPartitions ?? null,
     documentCount: metadata.documentCount ?? 0,
+    savedBytes: metadata.savedBytes ?? null,
     partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
     arrayPositionGap: metadata.arrayPositionGap ?? null,

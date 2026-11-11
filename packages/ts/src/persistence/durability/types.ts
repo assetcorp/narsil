@@ -49,14 +49,14 @@ export interface IndexDurabilityHooks {
   getManager(indexName: string): PartitionManager | undefined
   getVectorFieldPaths(indexName: string): Set<string>
   getVectorIndexes(indexName: string): Map<string, VectorIndex>
-  buildMetadata(indexName: string, documentCount?: number): IndexMetadata | undefined
+  buildMetadata(indexName: string, documentCount?: number, savedBytes?: number): IndexMetadata | undefined
   buildTermsMetadata(indexName: string): IndexMetadata | undefined
   mustRewriteTerms(indexName: string): boolean
   onManifestCommitted(indexName: string, analysisGeneration: number): void
   queueDiskAdoption?(action: DiskAdoptionAction): void
   awaitCopiesOfIndex?(indexName: string): Promise<void>
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
-  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
+  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number, savedBytes?: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
