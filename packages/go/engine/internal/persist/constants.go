@@ -35,6 +35,6 @@ const (
 )
 
 const (
-	RewriteAboveRemovedDocumentShare         = 0.2
-	RemovedDocumentRewriteBytesPerCheckpoint = 268_435_456
+	RewriteAboveRemovedDocumentShare = 0.2
+	DefaultRewriteBytesPerCheckpoint = 268_435_456
 )

@@ -15,6 +15,7 @@ type removedRewrite struct {
 	handle    *Handle
 	prior     map[string]struct{}
 	pagedText bool
+	limit     uint64
 	spent     uint64
 }
 
@@ -102,7 +103,7 @@ func (rewrite *removedRewrite) choose(listed []manifest.SegmentRef, replaced [][
 			break
 		}
 		bytes := listed[at].File.Bytes
-		if rewrite.spent > 0 && rewrite.spent+bytes > RemovedDocumentRewriteBytesPerCheckpoint {
+		if len(chosen) > 0 && rewrite.spent+bytes > rewrite.limit {
 			continue
 		}
 		chosen[at] = true
