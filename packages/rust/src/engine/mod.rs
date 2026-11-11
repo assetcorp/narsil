@@ -87,7 +87,7 @@ pub use query_suggestions::{
     RecordQueryOutcome, RecordQueryResult, RecordedQuery,
 };
 pub use reads::IndexInfo;
-use shutdown_gate::{Admission, ShutdownGate};
+use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
@@ -125,8 +125,13 @@ impl EngineInner {
     }
 
     pub(crate) fn admit_publication(&self) -> Result<Admission<'_>> {
-        let admitted = self.shutdown_gate.admit().ok_or_else(instance_shut_down)?;
-        self.guard_shutdown()?;
+        let admitted = self
+            .shutdown_gate
+            .admit()
+            .ok_or_else(shut_down_before_publication)?;
+        if self.shut_down.load(Ordering::Acquire) {
+            return Err(shut_down_before_publication());
+        }
         Ok(admitted)
     }
 
@@ -326,7 +331,8 @@ impl Narsil {
         reads::list_indexes(&self.inner)
     }
 
-    /// Stops the engine, after which every call fails with `INSTANCE_SHUT_DOWN`.
+    /// Stops the engine, after which a call on an index fails with `INSTANCE_SHUT_DOWN`, `list_indexes` returns an
+    /// empty list, and a later `shutdown` returns `Ok`.
     ///
     /// A search that is still checking pattern tests, phrases, or a paged vector graph when shutdown begins stops
     /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. An index create, restore,
@@ -360,7 +366,6 @@ impl Narsil {
         self.inner.shut_down.store(true, Ordering::Release);
         self.inner.shutdown_gate.await_admitted();
         self.inner.lifecycle.sweeper.stop();
-        self.inner.lifecycle.clear();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());
         for index in indexes.values() {
             let writer = index.write_lock();
@@ -368,6 +373,7 @@ impl Narsil {
             drop(writer);
             index.residency.finish_close();
         }
+        self.inner.lifecycle.clear();
         let closed = match &self.inner.durable {
             Some(durable) => durable.close(),
             None => Ok(()),

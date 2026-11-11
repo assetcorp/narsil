@@ -47,6 +47,11 @@ fn close_held(
     }
     residency.wait_for_writes();
     let writer = index.write_lock();
+    if let Err(error) = engine.guard_shutdown() {
+        drop(writer);
+        residency.abandon_close();
+        return Err(error);
+    }
     let closed = closed_facts(index);
     if let Err(error) = durable.checkpoint_for_close(index) {
         drop(writer);
