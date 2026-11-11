@@ -165,7 +165,7 @@ async function buildRestoredIndex(
   let manifest: SegmentManifest
   try {
     insertSnapshotDocuments(envelope, built.manager)
-    if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [] }
+    if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [], saved: null }
     manifest = await stageBuiltIndex(indexName, prepared, built, staging, deps)
   } catch (err) {
     deps.executor.discardDetachedIndex(built)

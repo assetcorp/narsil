@@ -15,6 +15,13 @@ const DOCUMENTS = 3000
 const BODY_LENGTH = 600
 const CHILD_TIMEOUT_MS = 60_000
 const KILL_POINTS = ['segment-1', 'segment-2', 'manifest']
+const WROTE_SEGMENT = /^WROTE s\d{16}$/
+
+function reachedKillPoint(lines: string[], killAt: string): boolean {
+  if (killAt === 'manifest') return lines.includes('WROTE manifest')
+  const segmentsWritten = lines.filter(line => WROTE_SEGMENT.test(line)).length
+  return segmentsWritten === Number(killAt.slice('segment-'.length)) && !lines.includes('WROTE manifest')
+}
 
 function runUntilKilled(directory: string, killAt: string): Promise<number> {
   const child = spawn(process.execPath, [CHILD_SCRIPT], {
@@ -36,16 +43,22 @@ function runUntilKilled(directory: string, killAt: string): Promise<number> {
     stderr += chunk.toString()
   })
   return new Promise<number>((resolve, reject) => {
-    const timer = setTimeout(() => child.kill('SIGKILL'), CHILD_TIMEOUT_MS)
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, CHILD_TIMEOUT_MS)
     child.on('error', reject)
     child.on('exit', (_code, signal) => {
       clearTimeout(timer)
       const lines = stdout.split('\n').filter(line => line.length > 0)
       const saved = lines.find(line => line.startsWith('SAVED '))
       if (
+        timedOut ||
         signal !== 'SIGKILL' ||
         !lines.includes('READY') ||
         saved === undefined ||
+        !reachedKillPoint(lines, killAt) ||
         lines.some(l => l.startsWith('DONE'))
       ) {
         reject(new Error(`The child ended without reaching ${killAt}: ${lines.slice(-3).join(' | ')} ${stderr}`))

@@ -69,7 +69,11 @@ export function createSnapshotSavedSize(
       vectorSavedBytes(indexName) {
         return knownSize(indexName)?.vectorBytes
       },
-      async measureRestoredStorage(indexName) {
+      async measureRestoredStorage(indexName, restored) {
+        if (restored !== undefined) {
+          replace(indexName, restored)
+          return
+        }
         const generation = replace(indexName, null)
         void measureAfterRestore(indexName, generation).catch(() => undefined)
       },
