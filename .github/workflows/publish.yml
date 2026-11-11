@@ -17,6 +17,7 @@ on:
           - 'narsil-client'
           - 'github.com/assetcorp/narsil/packages/go'
           - 'github.com/assetcorp/narsil/packages/go/engine'
+          - 'github.com/assetcorp/narsil/packages/go/changes'
           - 'delali-narsil'
       version:
         description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
@@ -58,7 +59,7 @@ jobs:
   native:
     name: Native search core
     needs: changes
-    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil')) }}
+    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil')) }}
     uses: ./.github/workflows/native-core.yml
 
   plan:
@@ -174,7 +175,7 @@ jobs:
   publish:
     name: Publish to npm
     needs: native
-    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil'
+    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -325,7 +326,7 @@ jobs:
 
   client-checks:
     name: Check the Python and Go clients
-    if: github.event_name == 'workflow_dispatch' && (inputs.package == 'narsil-client' || inputs.package == 'github.com/assetcorp/narsil/packages/go')
+    if: github.event_name == 'workflow_dispatch' && (inputs.package == 'narsil-client' || inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes')
     permissions:
       contents: read
     uses: ./.github/workflows/clients.yml
@@ -452,6 +453,62 @@ jobs:
           git tag "packages/go/v$VERSION"
           git push origin "packages/go/v$VERSION"
           curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/@v/v$VERSION.info"
+
+  go-changes:
+    name: Tag the Go change feed module
+    needs: client-checks
+    if: inputs.package == 'github.com/assetcorp/narsil/packages/go/changes'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: tag-go-changes-module
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify that the module requires a released Go client
+        run: |
+          if grep -Eq '^replace[[:space:]]' packages/go/changes/go.mod; then
+            echo "::error::packages/go/changes/go.mod replaces the Go client with the local copy. Release the Go client, then require that version and remove the replace directive."
+            exit 1
+          fi
+          if grep -Eq 'github.com/assetcorp/narsil/packages/go v0\.0\.0-' packages/go/changes/go.mod; then
+            echo "::error::packages/go/changes/go.mod requires an unreleased Go client. Release the Go client, then require that version."
+            exit 1
+          fi
+
+      - name: Verify this run holds the tip of main and resolve the version
+        id: resolve
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
+            exit 1
+          fi
+          VERSION="$(node .github/scripts/next-tag-version.js packages/go/changes/ "$REQUESTED_VERSION")"
+          if git rev-parse -q --verify "refs/tags/packages/go/changes/v$VERSION" >/dev/null; then
+            echo "::error::The tag packages/go/changes/v$VERSION already exists."
+            exit 1
+          fi
+          echo "Releasing github.com/assetcorp/narsil/packages/go/changes v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push the tag and ask the Go module proxy to fetch it
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          git tag "packages/go/changes/v$VERSION"
+          git push origin "packages/go/changes/v$VERSION"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/changes/@v/v$VERSION.info"
 
   go-engine-checks:
     name: Check the Go engine

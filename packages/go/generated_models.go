@@ -150,6 +150,44 @@ type ChangeAnalysisBody struct {
 	StopWords Nullable[ChangeAnalysisBodyStopWords] `json:"stopWords,omitzero"`
 }
 
+// ChangesSetting: The change capture setting of one index, which ChangesOperations.updateChanges
+// takes. A subscriber receives the documents of the whole index, so decide which callers may follow an
+// index before you turn capture on. A filter only chooses which changes a subscriber receives, and it
+// grants no access.
+type ChangesSetting struct {
+	// This turns change capture on or off. Turning it on gives the index a new epoch unless device sync is
+	// on.
+	Enabled bool `json:"enabled"`
+	// Set this to write into each log entry the document that the entry replaces or removes. A change then
+	// holds the document before the write, and a subscription can hold a filter. It defaults to false,
+	// because the engine then reads the stored document and writes it to the log again on every update and
+	// removal.
+	PreviousDocument *bool `json:"previousDocument,omitempty"`
+	// This is the age in milliseconds after which the engine deletes a log segment from history. It
+	// defaults to 30 days.
+	HistoryMaxAgeMs *float64 `json:"historyMaxAgeMs,omitempty"`
+	// This is the byte count above which the engine deletes the oldest log segment from history. It
+	// defaults to the larger of the checkpoint's length and 1 GiB.
+	HistoryMaxBytes *float64 `json:"historyMaxBytes,omitempty"`
+}
+
+// ChangesStatus: The change capture state of one index, which ChangesOperations.getChanges returns.
+type ChangesStatus struct {
+	// This is true when the engine writes the document before the write into each log entry.
+	PreviousDocument bool `json:"previousDocument"`
+	// This is the index epoch, 32 lowercase hexadecimal digits, or `null` while capture is off.
+	Epoch *string `json:"epoch"`
+	// This turns change capture on or off. Turning it on gives the index a new epoch unless device sync is
+	// on.
+	Enabled bool `json:"enabled"`
+	// This is the age in milliseconds after which the engine deletes a log segment from history. It
+	// defaults to 30 days.
+	HistoryMaxAgeMs *float64 `json:"historyMaxAgeMs,omitempty"`
+	// This is the byte count above which the engine deletes the oldest log segment from history. It
+	// defaults to the larger of the checkpoint's length and 1 GiB.
+	HistoryMaxBytes *float64 `json:"historyMaxBytes,omitempty"`
+}
+
 // ClusterAllocationResponse: The body of `GET /indexes/{name}/cluster`.
 type ClusterAllocationResponse struct {
 	// The report covers the index with this name.

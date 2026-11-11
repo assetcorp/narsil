@@ -8,6 +8,7 @@ on:
       - 'packages/go/**'
       - 'packages/ts/openapi.json'
       - 'packages/ts/src/server/**'
+      - 'packages/ts/src/changes/**'
       - 'packages/ts/scripts/client-test-server.mjs'
       - '.github/workflows/clients.yml'
       - '!**/*.md'
@@ -19,6 +20,7 @@ on:
       - 'packages/go/**'
       - 'packages/ts/openapi.json'
       - 'packages/ts/src/server/**'
+      - 'packages/ts/src/changes/**'
       - 'packages/ts/scripts/client-test-server.mjs'
       - '.github/workflows/clients.yml'
       - '!**/*.md'
@@ -152,3 +154,12 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-go:test
+
+      - name: Lint the change feed subscriber
+        run: pnpm nx run narsil-go-changes:lint
+
+      - name: Typecheck the change feed subscriber
+        run: pnpm nx run narsil-go-changes:typecheck
+
+      - name: Test the change feed subscriber on a live server
+        run: pnpm nx run narsil-go-changes:test
