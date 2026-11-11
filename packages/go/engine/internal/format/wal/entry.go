@@ -14,19 +14,43 @@ const (
 	OperationIndex  Operation = "INDEX"
 	OperationDelete Operation = "DELETE"
 
-	checksumFieldCount = 7
-	entryFieldCount    = 8
+	checksumFieldCount             = 7
+	checksumFieldCountWithPrevious = 8
+	entryFieldCount                = 8
+	entryFieldCountWithPrevious    = 9
+	previousDocumentKey            = "previousDocument"
+)
+
+type PreviousDocumentState uint8
+
+const (
+	PreviousDocumentAbsent PreviousDocumentState = iota
+	PreviousDocumentNone
+	PreviousDocumentHeld
 )
 
 type Entry struct {
-	SeqNo       uint64
-	PrimaryTerm uint64
-	Operation   Operation
-	PartitionID uint32
-	IndexName   string
-	DocumentID  string
-	Document    []byte
-	Checksum    uint32
+	SeqNo            uint64
+	PrimaryTerm      uint64
+	Operation        Operation
+	PartitionID      uint32
+	IndexName        string
+	DocumentID       string
+	Document         []byte
+	Previous         PreviousDocumentState
+	PreviousDocument []byte
+	Checksum         uint32
+}
+
+func (entry Entry) HoldsPreviousDocumentKey() bool {
+	return entry.Previous != PreviousDocumentAbsent
+}
+
+func appendPreviousDocument(destination []byte, entry Entry) []byte {
+	if entry.Previous == PreviousDocumentHeld {
+		return codec.AppendBinary(destination, entry.PreviousDocument)
+	}
+	return codec.AppendNil(destination)
 }
 
 func appendDocument(destination []byte, document []byte) []byte {
@@ -55,7 +79,11 @@ func crc32UpdateString(state uint32, value string) uint32 {
 
 func (entry Entry) ComputeChecksum() uint32 {
 	var scratch [checksumHeadBytes]byte
-	head := codec.AppendArrayHeader(scratch[:0], checksumFieldCount)
+	fieldCount := checksumFieldCount
+	if entry.HoldsPreviousDocumentKey() {
+		fieldCount = checksumFieldCountWithPrevious
+	}
+	head := codec.AppendArrayHeader(scratch[:0], fieldCount)
 	head = codec.AppendNumber(head, float64(entry.SeqNo), false)
 	head = codec.AppendNumber(head, float64(entry.PrimaryTerm), false)
 	head = codec.AppendString(head, string(entry.Operation))
@@ -63,12 +91,19 @@ func (entry Entry) ComputeChecksum() uint32 {
 	state := codec.CRC32Update(codec.CRC32Init(), head)
 	state = updateWithString(state, scratch[:], entry.IndexName)
 	state = updateWithString(state, scratch[:], entry.DocumentID)
-	if entry.Document == nil {
-		state = codec.CRC32Update(state, codec.AppendNil(scratch[:0]))
-		return codec.CRC32Final(state)
+	state = updateWithBody(state, scratch[:], entry.Document, entry.Document != nil)
+	if entry.HoldsPreviousDocumentKey() {
+		state = updateWithBody(state, scratch[:], entry.PreviousDocument, entry.Previous == PreviousDocumentHeld)
 	}
-	state = codec.CRC32Update(state, codec.AppendBinaryHeader(scratch[:0], len(entry.Document)))
-	return codec.CRC32Final(codec.CRC32Update(state, entry.Document))
+	return codec.CRC32Final(state)
+}
+
+func updateWithBody(state uint32, scratch []byte, body []byte, held bool) uint32 {
+	if !held {
+		return codec.CRC32Update(state, codec.AppendNil(scratch[:0]))
+	}
+	state = codec.CRC32Update(state, codec.AppendBinaryHeader(scratch[:0], len(body)))
+	return codec.CRC32Update(state, body)
 }
 
 func Build(entry Entry) Entry {
@@ -87,6 +122,9 @@ func (entry Entry) validate(code string) error {
 	if entry.Operation == OperationIndex && entry.Document == nil {
 		return narsilerr.New(code, "An INDEX log entry holds no document", nil)
 	}
+	if entry.Previous > PreviousDocumentHeld {
+		return narsilerr.New(code, "A log entry holds a previous document state that the format lacks", nil)
+	}
 	return nil
 }
 
@@ -94,7 +132,11 @@ func AppendEntry(destination []byte, entry Entry) ([]byte, error) {
 	if err := entry.validate(narsilerr.CodePersistenceSaveFailed); err != nil {
 		return destination, err
 	}
-	destination = codec.AppendMapHeader(destination, entryFieldCount)
+	fieldCount := entryFieldCount
+	if entry.HoldsPreviousDocumentKey() {
+		fieldCount = entryFieldCountWithPrevious
+	}
+	destination = codec.AppendMapHeader(destination, fieldCount)
 	destination = codec.AppendNumber(codec.AppendString(destination, "seqNo"), float64(entry.SeqNo), false)
 	destination = codec.AppendNumber(codec.AppendString(destination, "primaryTerm"), float64(entry.PrimaryTerm), false)
 	destination = codec.AppendString(codec.AppendString(destination, "operation"), string(entry.Operation))
@@ -102,6 +144,9 @@ func AppendEntry(destination []byte, entry Entry) ([]byte, error) {
 	destination = codec.AppendString(codec.AppendString(destination, "indexName"), entry.IndexName)
 	destination = codec.AppendString(codec.AppendString(destination, "documentId"), entry.DocumentID)
 	destination = appendDocument(codec.AppendString(destination, "document"), entry.Document)
+	if entry.HoldsPreviousDocumentKey() {
+		destination = appendPreviousDocument(codec.AppendString(destination, previousDocumentKey), entry)
+	}
 	destination = codec.AppendNumber(codec.AppendString(destination, "checksum"), float64(entry.Checksum), false)
 	return destination, nil
 }
@@ -164,6 +209,14 @@ func (reader entryReader) field(key []byte, entry *Entry) (int, error) {
 			return 0, nil
 		}
 		entry.Document, err = reader.decoder.ReadBinary()
+		return 0, err
+	case previousDocumentKey:
+		if reader.decoder.TryReadNil() {
+			entry.Previous, entry.PreviousDocument = PreviousDocumentNone, nil
+			return 0, nil
+		}
+		entry.Previous = PreviousDocumentHeld
+		entry.PreviousDocument, err = reader.decoder.ReadBinary()
 		return 0, err
 	case "checksum":
 		checksum, readErr := reader.unsigned(math.MaxUint32, "checksum")

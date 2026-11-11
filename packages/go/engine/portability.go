@@ -66,12 +66,31 @@ func (n *Narsil) ExportDocuments(ctx context.Context, indexName string, destinat
 	if err != nil {
 		return err
 	}
-	opened, err := n.openArchive(ctx, entry)
+	opened, epoch, err := n.openExportArchive(ctx, entry)
 	if err != nil {
 		return err
 	}
 	defer opened.Release()
-	return opened.Export(ctx, destination, configuration.Value())
+	return opened.Export(ctx, destination, configuration.Value(), epoch)
+}
+
+func (n *Narsil) openExportArchive(ctx context.Context, entry *indexEntry) (*persist.Archive, model.Optional[string],
+	error) {
+	if entry.sync.changesOn() == nil {
+		opened, err := n.openArchive(ctx, entry)
+		return opened, model.Optional[string]{}, err
+	}
+	entry.sync.changeMu.Lock()
+	defer entry.sync.changeMu.Unlock()
+	opened, err := n.openArchive(ctx, entry)
+	if err != nil {
+		return nil, model.Optional[string]{}, err
+	}
+	state := entry.sync.current()
+	if state == nil || state.changes == nil {
+		return opened, model.Optional[string]{}, nil
+	}
+	return opened, model.Some(state.epoch), nil
 }
 
 func (n *Narsil) prepareImportTarget(ctx context.Context, indexName string, configuration indexconfig.Configuration) error {
