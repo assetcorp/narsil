@@ -4,6 +4,7 @@ use super::PagedSections;
 use super::cache::with_page_cache;
 use crate::error::{Result, load_failed};
 use crate::ffi;
+use crate::format::paged_segment::ID_SAMPLE_INTERVAL;
 use crate::index::constants::PAGED_ID_START_BYTES;
 use crate::value::MAX_SAFE_INTEGER;
 
@@ -70,6 +71,36 @@ impl PagedSections {
             })?;
         self.file.require(&[&self.id_order], status)?;
         Ok(ordinal)
+    }
+
+    /// Reads every ID in the segment's ID order and fails with `PERSISTENCE_LOAD_FAILED` unless each one sorts after
+    /// the one before it and the ID sample holds every `ID_SAMPLE_INTERVAL`th of them at its position, which refuses
+    /// an ID order that names a document twice.
+    pub(crate) fn require_ids_ascend(&self) -> Result<()> {
+        let mut previous: Option<String> = None;
+        for position in 0..self.document_count {
+            let id = self.id(self.sorted_ordinal(position)?)?;
+            if previous
+                .as_deref()
+                .is_some_and(|before| before.as_bytes() >= id.as_bytes())
+            {
+                return load_failed(format!(
+                    "The ID order of \"{}\" does not ascend at position {position}",
+                    self.key
+                ));
+            }
+            if (position as usize).is_multiple_of(ID_SAMPLE_INTERVAL) {
+                let sampled = self.id_sample.get(position as usize / ID_SAMPLE_INTERVAL);
+                if sampled.is_none_or(|(sampled, at)| *at != position || *sampled != id) {
+                    return load_failed(format!(
+                        "The ID sample of \"{}\" differs at position {position}",
+                        self.key
+                    ));
+                }
+            }
+            previous = Some(id);
+        }
+        Ok(())
     }
 
     fn window_of(&self, id: &str) -> (u32, u32) {
