@@ -30,6 +30,7 @@ type Settings struct {
 	CheckpointMutationThreshold int64
 	SegmentMaxBytes             int64
 	CompactionThreshold         int
+	RewriteBytesPerCheckpoint   int64
 	OnFatal                     func(error)
 }
 
@@ -71,6 +72,9 @@ func Open(ctx context.Context, settings Settings, hooks Hooks) (*Manager, error)
 	}
 	if settings.CompactionThreshold <= 0 || settings.CompactionThreshold > manifest.MaxSegmentsPerPartition {
 		settings.CompactionThreshold = DefaultCompactionThreshold
+	}
+	if settings.RewriteBytesPerCheckpoint <= 0 {
+		settings.RewriteBytesPerCheckpoint = DefaultRewriteBytesPerCheckpoint
 	}
 	manager := &Manager{settings: settings, hooks: hooks, indexes: map[string]*Durable{},
 		stop: make(chan struct{}), wake: make(chan struct{}, 1), sizes: newStoredSizes()}

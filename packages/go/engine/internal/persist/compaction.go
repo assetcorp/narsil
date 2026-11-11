@@ -205,18 +205,36 @@ func liveDocumentsOf(live []int, partitionID uint32) int {
 	return live[partitionID]
 }
 
+type checkpointLimits struct {
+	compactionThreshold int
+	rewriteBytes        int64
+}
+
+var defaultCheckpointLimits = checkpointLimits{
+	compactionThreshold: DefaultCompactionThreshold,
+	rewriteBytes:        DefaultRewriteBytesPerCheckpoint,
+}
+
+func (settings Settings) checkpointLimits() checkpointLimits {
+	return checkpointLimits{
+		compactionThreshold: settings.CompactionThreshold,
+		rewriteBytes:        settings.RewriteBytesPerCheckpoint,
+	}
+}
+
 func compactWritten(ctx context.Context, store checkpoint.Store, handle *Handle, prior *manifest.Manifest,
-	written *checkpoint.Written, threshold int, pagedText bool, live []int) (map[uint32]bool, error) {
+	written *checkpoint.Written, limits checkpointLimits, pagedText bool, live []int) (map[uint32]bool, error) {
 	priorKeys := map[string]struct{}{}
 	if prior != nil {
 		priorKeys = checkpoint.ReferencedKeys(*prior)
 	}
-	rewrite := &removedRewrite{store: store, handle: handle, prior: priorKeys, pagedText: pagedText}
+	rewrite := &removedRewrite{store: store, handle: handle, prior: priorKeys, pagedText: pagedText,
+		limit: uint64(limits.rewriteBytes)}
 	rewrittenPartitions := map[uint32]bool{}
 	compacted := false
 	for at := range written.Manifest.Partitions {
 		entry := &written.Manifest.Partitions[at]
-		merged, err := compactPartition(ctx, store, handle, priorKeys, entry, threshold, pagedText)
+		merged, err := compactPartition(ctx, store, handle, priorKeys, entry, limits.compactionThreshold, pagedText)
 		if err != nil {
 			return nil, err
 		}

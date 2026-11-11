@@ -85,6 +85,7 @@ type DurabilityConfig struct {
 	CheckpointInterval          Optional[time.Duration]
 	CheckpointMutationThreshold Optional[int]
 	CompactionThreshold         Optional[int]
+	RewriteBytesPerCheckpoint   Optional[int64]
 }
 
 type MainCopyQueries string

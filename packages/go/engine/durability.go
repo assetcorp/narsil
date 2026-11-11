@@ -80,6 +80,9 @@ func validateDurability(durability *model.DurabilityConfig) error {
 	if threshold, set := durability.CompactionThreshold.Get(); set && threshold < 1 {
 		return configInvalid(fmt.Sprintf("durability.compactionThreshold must be a finite number of at least 1, got %d", threshold))
 	}
+	if budget, set := durability.RewriteBytesPerCheckpoint.Get(); set && budget < 1 {
+		return configInvalid(fmt.Sprintf("durability.rewriteBytesPerCheckpoint must be an integer of at least 1, got %d", budget))
+	}
 	if interval, set := durability.CheckpointInterval.Get(); set && interval < 0 {
 		return configInvalid("durability.checkpointIntervalMs must be a finite number of at least 0")
 	}
@@ -109,6 +112,7 @@ func (n *Narsil) persistSettings() (persist.Settings, model.DurabilityTier, bool
 		CheckpointMutationThreshold: int64(durability.CheckpointMutationThreshold.Or(0)),
 		SegmentMaxBytes:             durability.SegmentMaxBytes.Or(0),
 		CompactionThreshold:         durability.CompactionThreshold.Or(0),
+		RewriteBytesPerCheckpoint:   durability.RewriteBytesPerCheckpoint.Or(0),
 		OnFatal: func(err error) {
 			n.events.emit(model.DurabilityErrorEvent{Err: err})
 		},

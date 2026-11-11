@@ -289,7 +289,7 @@ func (durable *Durable) commitCheckpoint(ctx context.Context, store checkpoint.S
 		return manifest.Manifest{}, err
 	}
 	rewritten, err := compactWritten(ctx, store, durable.handle, prior, &written,
-		durable.manager.settings.CompactionThreshold, durable.textStoredOnDisk(), held.live)
+		durable.manager.settings.checkpointLimits(), durable.textStoredOnDisk(), held.live)
 	if err != nil {
 		return manifest.Manifest{}, err
 	}

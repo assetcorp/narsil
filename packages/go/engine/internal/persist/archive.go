@@ -95,7 +95,7 @@ func ArchiveFromMemory(ctx context.Context, handle *Handle) (*Archive, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := compactWritten(ctx, store, handle, nil, &written, DefaultCompactionThreshold, false, nil); err != nil {
+	if _, err := compactWritten(ctx, store, handle, nil, &written, defaultCheckpointLimits, false, nil); err != nil {
 		return nil, err
 	}
 	if err := checkpoint.CommitManifest(ctx, store, handle.Name, written); err != nil {
