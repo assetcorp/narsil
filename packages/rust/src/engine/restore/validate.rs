@@ -93,6 +93,7 @@ fn check_paged_segment(
     let (resident, sections) = open_paged_segment(&listing)?;
     require_payload_checksum(store, file)?;
     require_schema_of_manifest(&file.key, &resident.schema, manifest)?;
+    sections.require_ids_ascend()?;
     let frozen = FrozenSegment::from_paged(resident, sections);
     for ordinal in 0..frozen.capacity() {
         frozen.document(ordinal)?;
