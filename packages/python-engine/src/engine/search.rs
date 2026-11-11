@@ -1,11 +1,24 @@
+use narsil::{ErrorCode, Narsil, NarsilError, QueryParams};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use super::PyNarsil;
 use crate::convert::operations::{list_params, suggest_params};
-use crate::convert::query::{ConvertedQuery, converted_query, with_text_refusal};
+use crate::convert::query::{ConvertedQuery, converted_query};
 use crate::convert::results::{list_result, preflight_result, query_result, suggest_result};
 use crate::errors::to_py_err;
+
+fn text_refusal_on(
+    engine: &Narsil,
+    index: &str,
+    params_with_empty_text: &QueryParams,
+    refusal: NarsilError,
+) -> NarsilError {
+    match engine.preflight(index, params_with_empty_text) {
+        Err(error) if error.code() != ErrorCode::DOC_VALIDATION_FAILED => error,
+        _ => refusal,
+    }
+}
 
 #[pymethods]
 impl PyNarsil {
@@ -20,9 +33,14 @@ impl PyNarsil {
             text_refusal,
         } = converted_query(params, "params").map_err(to_py_err)?;
         let engine = self.handle.engine()?;
+        if let Some(refusal) = text_refusal {
+            return Err(to_py_err(
+                py.detach(|| text_refusal_on(engine, index, &params, refusal)),
+            ));
+        }
         let result = py
             .detach(|| engine.query(index, &params))
-            .map_err(|error| to_py_err(with_text_refusal(error, text_refusal)))?;
+            .map_err(to_py_err)?;
         query_result(py, &result)
     }
 
@@ -37,9 +55,14 @@ impl PyNarsil {
             text_refusal,
         } = converted_query(params, "params").map_err(to_py_err)?;
         let engine = self.handle.engine()?;
+        if let Some(refusal) = text_refusal {
+            return Err(to_py_err(
+                py.detach(|| text_refusal_on(engine, index, &params, refusal)),
+            ));
+        }
         let result = py
             .detach(|| engine.preflight(index, &params))
-            .map_err(|error| to_py_err(with_text_refusal(error, text_refusal)))?;
+            .map_err(to_py_err)?;
         preflight_result(py, &result)
     }
 

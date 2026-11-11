@@ -6,6 +6,7 @@ import io
 import os
 import sys
 import threading
+import time
 import uuid
 import weakref
 from collections import UserDict, defaultdict
@@ -20,6 +21,11 @@ DOCUMENTS_PAST_A_PIPE_BUFFER = 4_000
 WORDS_PER_DOCUMENT = 4
 SNAPSHOT_BYTES_PAST_A_PIPE_BUFFER = 256 * 1024
 GENERATED_DOCUMENTS = 3
+COUNT_FILE_PREFIX = "_query-counts/"
+SUGGESTIONS_KEY = "suggestions-test-key-0123456789ab"
+COUNT_SAVE_INTERVAL_MS = 1_000
+LISTENER_RELEASE_SECONDS = 30
+SHUTDOWN_REACHES_THE_TIMER_JOIN_SECONDS = 0.5
 
 
 class EngineTokenizer:
@@ -244,3 +250,62 @@ def test_an_asyncio_batch_reads_its_generator_on_a_worker_thread(index_name: str
         assert loop_thread not in readers
 
     asyncio.run(scenario())
+
+
+class FirstCountSaveFails:
+    def __init__(self) -> None:
+        self.stored: dict[str, bytes] = {}
+        self.refused_a_count_file = False
+
+    def save(self, key: str, data: bytes) -> None:
+        if key.startswith(COUNT_FILE_PREFIX) and not self.refused_a_count_file:
+            self.refused_a_count_file = True
+            raise OSError("the disk refuses the first count file")
+        self.stored[key] = bytes(data)
+
+    def load(self, key: str) -> bytes | None:
+        return self.stored.get(key)
+
+    def delete(self, key: str) -> None:
+        self.stored.pop(key, None)
+
+    def list(self, prefix: str) -> list[str]:
+        return [key for key in self.stored if key.startswith(prefix)]
+
+
+def test_a_shutdown_inside_a_listener_keeps_the_persistence_adapter_until_the_running_shutdown_saves(
+    index_name: str,
+) -> None:
+    persistence = FirstCountSaveFails()
+    engine = Narsil(
+        {
+            "workers": {"enabled": False},
+            "persistence": persistence,
+            "durability": {"tier": "snapshot"},
+            "querySuggestions": {"key": SUGGESTIONS_KEY},
+        }
+    )
+    engine.create_index(index_name, {"schema": {"title": "string"}})
+    engine.insert(index_name, {"title": "quiet river"}, "one")
+    engine.query_suggestions.update_setting(
+        index_name, {"enabled": True, "fields": ["title"], "saveIntervalMs": COUNT_SAVE_INTERVAL_MS, "schedule": "off"}
+    )
+    warned = threading.Event()
+    released = threading.Event()
+
+    def shut_down_after_release(event: dict[str, Any]) -> None:
+        warned.set()
+        released.wait(LISTENER_RELEASE_SECONDS)
+        engine.shutdown()
+
+    engine.on("querySuggestionsWarning", shut_down_after_release)
+    engine.query_suggestions.record_query(index_name, {"query": "quiet river", "person": "one", "group": "web"})
+    assert warned.wait(LISTENER_RELEASE_SECONDS), "the failed count save raises a warning"
+    running_shutdown = threading.Thread(target=engine.shutdown)
+    running_shutdown.start()
+    time.sleep(SHUTDOWN_REACHES_THE_TIMER_JOIN_SECONDS)
+    released.set()
+    running_shutdown.join(LISTENER_RELEASE_SECONDS)
+
+    assert not running_shutdown.is_alive()
+    assert [key for key in persistence.stored if key.startswith(COUNT_FILE_PREFIX)] != []
