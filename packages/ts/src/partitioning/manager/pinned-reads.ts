@@ -77,8 +77,10 @@ export interface VectorWriteWatch {
   watch(): void
 }
 
-export function createSearchRetirement(pins: StatePins): (free: () => void | Promise<void>) => Promise<void> {
-  const pending = new Set<Promise<void>>()
+export function createSearchRetirement(
+  pins: StatePins,
+  pending = new Set<Promise<void>>(),
+): (free: () => void | Promise<void>) => Promise<void> {
   return free => {
     pins.afterRelease(() => {
       const disposal = free()
