@@ -60,15 +60,21 @@ pub(crate) enum ChunkWrite {
 pub(crate) struct InsertChunk {
     held: HeldChunk,
     ids: Vec<Option<String>>,
+    refused: Vec<bool>,
+    refusals: Vec<BatchFailure>,
 }
 
 impl InsertChunk {
     /// Refuses every document of the chunk with `error`.
     pub(crate) fn refuse(self, error: &NarsilError, result: &mut BatchResult) {
-        for (document, id) in self.held.documents().iter().zip(&self.ids) {
-            result
-                .failed
-                .push(refused_without_id(document, id.as_deref(), error.clone()));
+        result.failed.extend(self.refusals);
+        let documents = self.held.documents().iter().zip(&self.refused);
+        for ((document, refused), id) in documents.zip(&self.ids) {
+            if !*refused {
+                result
+                    .failed
+                    .push(refused_without_id(document, id.as_deref(), error.clone()));
+            }
         }
     }
 }
@@ -93,8 +99,10 @@ pub(crate) fn insert_chunks(
             .map(|_| pending_ids.next().flatten())
             .collect();
         chunks.push(InsertChunk {
+            refused: vec![false; documents.len()],
             held: HeldChunk::new(documents),
             ids,
+            refusals: Vec::new(),
         });
     }
 }
@@ -110,21 +118,35 @@ pub(crate) fn insert_chunk(
     result: &mut BatchResult,
     next_id: &NextDocumentId<'_>,
 ) -> Result<ChunkWrite> {
-    let mut failed = Vec::new();
-    let mut refused = vec![false; chunk.ids.len()];
     let documents = chunk.held.documents();
-    for ((document, refused), id) in documents.iter().zip(refused.iter_mut()).zip(&chunk.ids) {
+    let checked = documents.iter().zip(chunk.refused.iter_mut());
+    for ((document, refused), id) in checked.zip(&chunk.ids) {
+        if *refused {
+            continue;
+        }
         if let Err(error) = require_required_fields(index, document) {
             *refused = true;
-            failed.push(refused_without_id(document, id.as_deref(), error));
+            let refusal = refused_without_id(document, id.as_deref(), error);
+            chunk.refusals.push(refusal);
         }
     }
-    let embedding_failures =
-        index
-            .vectors
-            .embed_held_chunk(&index.name, &mut chunk.held, &mut refused);
+    let mut failed = chunk.refusals.clone();
+    let mut refused = chunk.refused.clone();
+    let refusals = index
+        .vectors
+        .embed_held_chunk(&index.name, &mut chunk.held, &mut refused);
     let documents = chunk.held.documents();
-    for (at, error) in embedding_failures {
+    for (at, error) in refusals.lasting {
+        let (Some(document), Some(slot)) = (documents.get(at), chunk.refused.get_mut(at)) else {
+            continue;
+        };
+        *slot = true;
+        let id = chunk.ids.get(at).and_then(Option::as_deref);
+        let refusal = refused_without_id(document, id, error);
+        chunk.refusals.push(refusal.clone());
+        failed.push(refusal);
+    }
+    for (at, error) in refusals.embedded {
         if let Some(document) = documents.get(at) {
             let id = chunk.ids.get(at).and_then(Option::as_deref);
             failed.push(refused_without_id(document, id, error));

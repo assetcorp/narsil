@@ -141,6 +141,22 @@ impl HeldChunk {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct ChunkRefusals {
+    pub(crate) lasting: Vec<(usize, NarsilError)>,
+    pub(crate) embedded: Vec<(usize, NarsilError)>,
+}
+
+impl ChunkRefusals {
+    fn lasting(refused: &mut [bool], lasting: Vec<(usize, NarsilError)>) -> Self {
+        mark(refused, &lasting);
+        ChunkRefusals {
+            lasting,
+            embedded: Vec::new(),
+        }
+    }
+}
+
 fn mark(refused: &mut [bool], failures: &[(usize, NarsilError)]) {
     for (at, _) in failures {
         if let Some(slot) = refused.get_mut(*at) {
@@ -211,10 +227,10 @@ impl IndexVectors {
         index_name: &str,
         held: &mut HeldChunk,
         refused: &mut [bool],
-    ) -> Vec<(usize, NarsilError)> {
+    ) -> ChunkRefusals {
         let Some(binding) = self.embedding() else {
             held.embedded = None;
-            return Vec::new();
+            return ChunkRefusals::default();
         };
         let Some(adapter) = binding.adapter(self.adapters()) else {
             held.embedded = None;
@@ -229,8 +245,7 @@ impl IndexVectors {
                         .map(|error| (at, error))
                 })
                 .collect();
-            mark(refused, &failures);
-            return failures;
+            return ChunkRefusals::lasting(refused, failures);
         };
         let fits = held
             .embedded
@@ -244,20 +259,22 @@ impl IndexVectors {
                 .enumerate()
                 .any(|(at, document)| !refused[at] && lacks_vectors(binding, document));
             if !lacking {
-                return Vec::new();
+                return ChunkRefusals::default();
             }
             if held.embeddings >= MAX_CALLS_ACROSS_INDEX_CHANGES {
-                let failures = fail_each(
-                    refused,
-                    &adapter_changes_refusal(index_name, held.embeddings),
-                );
-                mark(refused, &failures);
-                return failures;
+                let refusal = adapter_changes_refusal(index_name, held.embeddings);
+                let failures = fail_each(refused, &refusal);
+                return ChunkRefusals::lasting(refused, failures);
             }
             held.embeddings += 1;
             let mut filled = held.documents.clone();
-            let failures = embed_documents(binding, adapter.as_ref(), &mut filled, refused)
-                .unwrap_or_else(|error| fail_each(refused, &error));
+            let failures = match embed_documents(binding, adapter.as_ref(), &mut filled, refused) {
+                Ok(failures) => failures,
+                Err(error) => {
+                    let failures = fail_each(refused, &error);
+                    return ChunkRefusals::lasting(refused, failures);
+                }
+            };
             held.embedded = Some(Embedded {
                 adapter,
                 fields: binding.fields.clone(),
@@ -267,14 +284,17 @@ impl IndexVectors {
                 },
             });
         }
-        let failures: Vec<(usize, NarsilError)> = held
+        let embedded: Vec<(usize, NarsilError)> = held
             .embedded
             .iter()
             .flat_map(|embedded| &embedded.held.failures)
             .filter(|(at, _)| !refused.get(*at).copied().unwrap_or(true))
             .cloned()
             .collect();
-        mark(refused, &failures);
-        failures
+        mark(refused, &embedded);
+        ChunkRefusals {
+            lasting: Vec::new(),
+            embedded,
+        }
     }
 }
