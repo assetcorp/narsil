@@ -1,14 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
-import type { SyncEntriesPayload } from '../../transport/types'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
-import type { ApplyEntriesResult, BootstrapSyncDeps } from './types'
+import type { ApplyEntriesResult, BootstrapSyncDeps, ReceivedSyncEntries } from './types'
 
 export async function applySyncEntries(
   indexName: string,
   partitionId: number,
-  entriesPayloads: SyncEntriesPayload[],
+  entriesPayloads: ReceivedSyncEntries[],
   expectedFirstSeqNo: number,
   localPrimaryTerm: number,
   deps: BootstrapSyncDeps,
@@ -118,7 +117,7 @@ async function applySyncRunOnce(
   return { processed, error }
 }
 
-export function validateSyncEntryBatchTermination(entriesPayloads: SyncEntriesPayload[]): NarsilError | null {
+export function validateSyncEntryBatchTermination(entriesPayloads: ReceivedSyncEntries[]): NarsilError | null {
   if (entriesPayloads.length === 0) {
     return null
   }

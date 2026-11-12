@@ -4,6 +4,7 @@ import { createInsyncConfirmMessage } from '../../../replication/codec'
 import { INSYNC_CAS_ATTEMPTS } from '../../../replication/constants'
 import type { PrimaryResignPayload, RespondFn, TransportMessage } from '../../../transport/types'
 import { handleLostNodes } from '../../allocator/lost-nodes'
+import { putAllocationOver } from '../../in-sync-version'
 import { getIndexMetadata } from '../../index-metadata'
 import { rewriteForCurrentIndex } from '../../table-identity'
 import { scheduleDebouncedAllocation } from './allocation'
@@ -56,7 +57,7 @@ async function resign(
     assignments.set(payload.partitionId, failedOver(assignment, sourceId, registered))
     const rewritten = await rewriteForCurrentIndex(coordinator, { ...table, version: table.version + 1, assignments })
     if (rewritten === null) return false
-    if (await coordinator.putAllocation(payload.indexName, rewritten, table.version, controllerNodeId)) return true
+    if (await putAllocationOver(coordinator, payload.indexName, table, rewritten, controllerNodeId)) return true
   }
   return false
 }

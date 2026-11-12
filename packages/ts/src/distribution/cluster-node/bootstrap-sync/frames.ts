@@ -7,7 +7,6 @@ import {
   type SnapshotStreamFailure,
 } from '../../replication/snapshot-stream-assembler'
 import type { ReplicationLogEntry } from '../../replication/types'
-import type { SyncEntriesPayload } from '../../transport/types'
 import type { LiveSyncFrameState } from './types'
 
 export function createLiveSyncFrameState(
@@ -18,6 +17,7 @@ export function createLiveSyncFrameState(
   return {
     snapshotState: createSnapshotStreamState({ indexName, partitionId, spoolDirectory }),
     syncEntries: [],
+    syncSession: null,
     sawSnapshotFrame: false,
     error: null,
   }
@@ -54,7 +54,8 @@ export function handleLiveSyncFrame(state: LiveSyncFrameState, frame: Uint8Array
       state.error = new NarsilError(ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'received sync_entries before snapshot_end')
       return
     }
-    state.syncEntries.push(entriesPayload)
+    if (!noteSyncSession(state, entriesPayload.syncSession)) return
+    state.syncEntries.push({ entries: entriesPayload.entries, isLast: entriesPayload.isLast })
     return
   }
 
@@ -70,10 +71,32 @@ export function handleLiveSyncFrame(state: LiveSyncFrameState, frame: Uint8Array
   handleIncomingSnapshotRecord(state.snapshotState, record)
   if (state.snapshotState.failure !== null) {
     state.error = streamFailureToError(state.snapshotState.failure)
+    return
   }
+  noteSyncSession(state, state.snapshotState.syncSession)
 }
 
-export function decodeSyncEntriesRecord(record: Record<string, unknown>): SyncEntriesPayload | NarsilError | null {
+function noteSyncSession(state: LiveSyncFrameState, syncSession: string | null): boolean {
+  if (syncSession === null) return true
+  if (state.syncSession === null) {
+    state.syncSession = syncSession
+    return true
+  }
+  if (state.syncSession === syncSession) return true
+  state.error = new NarsilError(
+    ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
+    'one sync answer carried two different sync sessions',
+  )
+  return false
+}
+
+interface DecodedSyncEntries {
+  entries: ReplicationLogEntry[]
+  isLast: boolean
+  syncSession: string | null
+}
+
+export function decodeSyncEntriesRecord(record: Record<string, unknown>): DecodedSyncEntries | NarsilError | null {
   if (!('entries' in record) && !('isLast' in record)) {
     return null
   }
@@ -81,6 +104,13 @@ export function decodeSyncEntriesRecord(record: Record<string, unknown>): SyncEn
     return new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
       'Invalid SyncEntriesPayload: expected entries array and isLast boolean',
+    )
+  }
+  const syncSession: unknown = record.syncSession ?? null
+  if (syncSession !== null && (typeof syncSession !== 'string' || syncSession === '')) {
+    return new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
+      'Invalid SyncEntriesPayload: syncSession must be a non-empty string or absent',
     )
   }
 
@@ -93,7 +123,7 @@ export function decodeSyncEntriesRecord(record: Record<string, unknown>): SyncEn
     }
   }
 
-  return { entries, isLast: record.isLast }
+  return { entries, isLast: record.isLast, syncSession }
 }
 
 export function streamFailureToError(failure: SnapshotStreamFailure): NarsilError {

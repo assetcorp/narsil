@@ -14,6 +14,7 @@ export interface SnapshotSyncHandlerDeps {
 
 export interface SnapshotSyncStreamOptions {
   metadata: SnapshotHeaderMetadata
+  syncSession: string
   buildSnapshot: (indexName: string) => Promise<SnapshotBuildResult>
   afterSnapshot: (sink: SingleResponseSink, build: SnapshotBuildResult) => Promise<void>
 }

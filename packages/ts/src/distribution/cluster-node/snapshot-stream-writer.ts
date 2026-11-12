@@ -44,6 +44,7 @@ export async function streamSnapshotToReplica(
   indexName: string,
   build: SnapshotBuildResult,
   metadata: SnapshotHeaderMetadata,
+  syncSession: string,
 ): Promise<void> {
   const totalBytes = build.totalBytes
   const checksum = build.checksum
@@ -56,7 +57,7 @@ export async function streamSnapshotToReplica(
     checksum,
   }
 
-  const startPayload: SnapshotStartPayload = { header, totalBytes }
+  const startPayload: SnapshotStartPayload = { header, totalBytes, syncSession }
   const startBytes = encode(startPayload)
   assertMessageWithinLimit(startBytes, 'SNAPSHOT_START')
   await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_START, nodeId, requestId, startBytes)

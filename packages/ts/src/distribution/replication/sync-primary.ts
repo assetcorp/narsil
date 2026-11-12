@@ -14,6 +14,16 @@ export function decideSyncTier(
   return primaryTerm !== undefined && primaryTerm === replicaLastPrimaryTerm ? 'incremental' : 'snapshot'
 }
 
+function optionalSyncSession(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Invalid SyncRequestPayload: "syncSession" must be a non-empty string or absent')
+  }
+  return value
+}
+
 export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
     throw new Error('Invalid SyncRequestPayload: expected an object')
@@ -35,6 +45,14 @@ export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   ) {
     throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a non-negative integer')
   }
-  optionalIndexUuid(record.indexUuid, 'SyncRequestPayload')
-  return record as unknown as SyncRequestPayload
+  const indexUuid = optionalIndexUuid(record.indexUuid, 'SyncRequestPayload')
+  const syncSession = optionalSyncSession(record.syncSession)
+  return {
+    indexName: record.indexName,
+    partitionId: record.partitionId,
+    lastSeqNo: record.lastSeqNo,
+    lastPrimaryTerm: record.lastPrimaryTerm,
+    ...(indexUuid === undefined ? {} : { indexUuid }),
+    ...(syncSession === undefined ? {} : { syncSession }),
+  }
 }

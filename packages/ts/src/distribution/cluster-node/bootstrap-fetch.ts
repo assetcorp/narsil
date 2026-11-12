@@ -18,6 +18,7 @@ const TRANSIENT_PRIMARY_CODES: ReadonlySet<string> = new Set<string>([
   ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED,
   ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED,
   ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE,
+  ErrorCodes.REPLICATION_SYNC_FAILED,
 ])
 
 export function isTransientFailure(code: NarsilErrorCode, details: Record<string, unknown>): boolean {

@@ -10,6 +10,7 @@ import type {
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 import { BOOTSTRAP_CAS_ATTEMPTS } from '../constants'
+import { putAllocationOver } from '../in-sync-version'
 import { rewriteForCurrentIndex } from '../table-identity'
 
 /**
@@ -195,7 +196,7 @@ async function processBootstrapComplete(
     if (rewritten === null) {
       return false
     }
-    const written = await coordinator.putAllocation(payload.indexName, rewritten, table.version, controllerNodeId)
+    const written = await putAllocationOver(coordinator, payload.indexName, table, rewritten, controllerNodeId)
     if (written) {
       return true
     }

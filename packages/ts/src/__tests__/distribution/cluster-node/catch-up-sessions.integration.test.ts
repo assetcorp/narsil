@@ -21,6 +21,7 @@ import {
   TransportErrorCodes,
   type TransportMessage,
 } from '../../../distribution/transport/types'
+import { ErrorCodes } from '../../../errors'
 
 const INDEX_NAME = 'harbour-berths'
 const PARTITION_ID = 0
@@ -33,6 +34,7 @@ const REMOVAL_REPLY_REPLICATION_TIMEOUT_MS = 8_000
 const BERTHS_AFTER_READMISSION = 12
 const BERTHS_AFTER_REFRESH = 6
 const ADMISSION_REPLY_SETTLE_MS = 250
+const PENDING_ADMISSION_RELEASE_MARGIN_MS = 250
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
 const POLL_MS = 25
@@ -339,11 +341,12 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.controllerEvents = []
   }
 
-  async function requestSync(primary: string, lastSeqNo: number, lastPrimaryTerm: number): Promise<void> {
+  async function requestSync(primary: string, lastSeqNo: number, lastPrimaryTerm: number): Promise<string | undefined> {
     const replica = replicaOf()
     const transport = inner.get(replica)
     if (transport === undefined) throw new Error(`${replica} has no transport`)
     syncRequests += 1
+    let syncSession: string | undefined
     await transport.stream(
       primary,
       {
@@ -352,8 +355,51 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
         requestId: `scripted-sync-${syncRequests}`,
         payload: encode({ indexName: INDEX_NAME, partitionId: PARTITION_ID, lastSeqNo, lastPrimaryTerm }),
       },
-      () => {},
+      chunk => {
+        const session = (decodeWire(chunk) as { syncSession?: unknown }).syncSession
+        if (typeof session === 'string') syncSession = session
+      },
     )
+    return syncSession
+  }
+
+  async function reportSyncedPosition(
+    primary: string,
+    lastSeqNo: number,
+    lastPrimaryTerm: number,
+    syncSession: string | undefined,
+  ): Promise<string | null> {
+    const replica = replicaOf()
+    const transport = inner.get(replica)
+    if (transport === undefined) throw new Error(`${replica} has no transport`)
+    syncRequests += 1
+    let refusal: string | null = null
+    await transport.stream(
+      primary,
+      {
+        type: ReplicationMessageTypes.SYNC_REQUEST,
+        sourceId: replica,
+        requestId: `scripted-sync-${syncRequests}`,
+        payload: encode({
+          indexName: INDEX_NAME,
+          partitionId: PARTITION_ID,
+          lastSeqNo,
+          lastPrimaryTerm,
+          ...(syncSession === undefined ? {} : { syncSession }),
+        }),
+      },
+      chunk => {
+        const frame = decodeWire(chunk) as { error?: unknown; code?: unknown }
+        if (frame.error === true && typeof frame.code === 'string') refusal = frame.code
+      },
+    )
+    return refusal
+  }
+
+  async function syncAndReport(primary: string, lastSeqNo: number, lastPrimaryTerm: number): Promise<void> {
+    const syncSession = await requestSync(primary, lastSeqNo, lastPrimaryTerm)
+    const refusal = await reportSyncedPosition(primary, lastSeqNo, lastPrimaryTerm, syncSession)
+    if (refusal !== null) throw new Error(`the primary refused the report of the synced position with ${refusal}`)
   }
 
   afterEach(async () => {
@@ -384,10 +430,10 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmission = true
-    await requestSync(primary, 0, 0)
+    const syncSession = await requestSync(primary, 0, 0)
     const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
     const term = (await allocation()).assignments.get(PARTITION_ID)?.primaryTerm ?? 0
-    await requestSync(primary, script.highestAcked, term)
+    expect(await reportSyncedPosition(primary, script.highestAcked, term, syncSession)).toBeNull()
     const proposalsBefore = script.controllerEvents.length
     script.heldAdmission = null
     await releaseAdmission()
@@ -441,7 +487,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmission = true
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
     expect(script.controllerEvents).toContainEqual({ type: ReplicationMessageTypes.INSYNC_ADD, appliedSeqNo: logEnd })
 
@@ -458,14 +504,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       'the primary to withdraw the admission it proposed before the diverged report',
     )
 
-    await requestSync(primary, logEnd + 3, term)
+    await syncAndReport(primary, logEnd + 3, term)
     await new Promise(resolve => setTimeout(resolve, REPLICATION_TIMEOUT_MS + 3 * CATCH_UP_TICK_MS))
     expect(script.controllerEvents.slice(eventsBefore)).not.toContainEqual(
       expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_ADD }),
     )
     expect(await inSyncSet()).not.toContain(replica)
 
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     await waitFor(async () => ((await inSyncSet()).includes(replica) ? true : null), 'the replica to join the set')
     expect(script.controllerEvents.slice(eventsBefore)).toContainEqual({
       type: ReplicationMessageTypes.INSYNC_ADD,
@@ -485,7 +531,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmission = true
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
     await requestSync(primary, logEnd, term - 1)
     await new Promise(resolve => setTimeout(resolve, ADMISSION_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
@@ -518,7 +564,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmission = true
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     const releaseStaleAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
     await requestSync(primary, logEnd, term - 1)
     await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
@@ -537,7 +583,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.holdAdmission = true
     script.heldAdmissionAccepted = null
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     const releaseReadmission = await waitFor(
       () => script.heldAdmission,
       'the primary to propose the replica again while the withdrawal reply is held',
@@ -590,7 +636,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     if (missed === undefined) throw new Error('the primary never sent the replica the write that it missed')
 
     script.mode = 'ack'
-    await requestSync(primary, missed.last, term)
+    await syncAndReport(primary, missed.last, term)
     await waitFor(
       async () => ((await inSyncSet()).includes(replica) ? true : null),
       'the replica to rejoin the set while the reply to its removal is held',
@@ -628,7 +674,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmissionReply = true
-    await requestSync(primary, logEnd, term)
+    await syncAndReport(primary, logEnd, term)
     const releaseAdmissionReply = await waitFor(
       () => script.heldAdmissionReply,
       'the controller to apply the admission and hold its reply',
@@ -699,6 +745,96 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     expect(writesSentToRemovedReplica).toEqual([])
     expect(acknowledged).toEqual(written)
     expect(script.controllerEvents.slice(eventsAfterRefresh)).not.toContainEqual(
+      expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_REMOVE }),
+    )
+    expect(await inSyncSet()).not.toContain(replica)
+  }, 90_000)
+
+  it('refuses the late report of a sync that the replica abandoned, so the primary never proposes the replica at the position that report carried', async () => {
+    const { router, primary, replica, term } = await startCluster()
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    const abandonedSession = await requestSync(primary, 0, 0)
+    await requestSync(primary, 0, 0)
+    const eventsBefore = script.controllerEvents.length
+    const refusal = await reportSyncedPosition(primary, logEnd, term, abandonedSession)
+
+    await new Promise(resolve => setTimeout(resolve, 2 * REPLICATION_TIMEOUT_MS + 3 * CATCH_UP_TICK_MS))
+    expect(script.controllerEvents.slice(eventsBefore)).not.toContainEqual(
+      expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_ADD }),
+    )
+    expect(await inSyncSet()).not.toContain(replica)
+    expect(refusal).toBe(ErrorCodes.REPLICATION_SYNC_FAILED)
+  }, 90_000)
+
+  it('refuses an admission that reaches the controller after the replica was admitted and then removed for a missed write, so the replica stays out of the set', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      requestTimeout: ADMISSION_REPLY_TIMEOUT_MS,
+    })
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseDelayedAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    await waitFor(
+      async () => ((await inSyncSet()).includes(replica) ? true : null),
+      'the primary to propose the replica again once the held admission timed out, and the controller to admit it',
+    )
+
+    script.mode = 'silent'
+    await router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE })
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+
+    script.heldAdmission = null
+    await releaseDelayedAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the delayed admission')).toBe(
+      false,
+    )
+    expect(await inSyncSet()).not.toContain(replica)
+  }, 90_000)
+
+  it('removes a replica that the controller admits while a write that the replica failed waits on that admission, before acknowledging the write', async () => {
+    const { router, primary, replica, term } = await startCluster()
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+
+    script.mode = 'silent'
+    const deliveriesBefore = script.deliveries.length
+    const replicaInSetAtAcknowledgement = router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE }).then(
+      async () => (await inSyncSet()).includes(replica),
+      (error: unknown) => error,
+    )
+    await waitFor(
+      () => (script.deliveries.length > deliveriesBefore ? true : null),
+      'the primary to send the write to the replica whose admission is pending',
+    )
+    await new Promise(resolve => setTimeout(resolve, REPLICATION_TIMEOUT_MS + PENDING_ADMISSION_RELEASE_MARGIN_MS))
+
+    const eventsBefore = script.controllerEvents.length
+    script.heldAdmission = null
+    await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the pending admission')).toBe(
+      true,
+    )
+    expect(await replicaInSetAtAcknowledgement).toBe(false)
+    expect(script.controllerEvents.slice(eventsBefore)).toContainEqual(
       expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_REMOVE }),
     )
     expect(await inSyncSet()).not.toContain(replica)

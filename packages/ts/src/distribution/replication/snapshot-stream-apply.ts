@@ -31,6 +31,7 @@ export interface SnapshotStreamState {
   endPayload: SnapshotEndPayload | null
   failure: SnapshotStreamFailure | null
   firstFrameSeen: boolean
+  syncSession: string | null
 }
 
 export function fail(
@@ -112,6 +113,11 @@ export function applyStartPayload(state: SnapshotStreamState, record: Record<str
     fail(state, ErrorCodes.SNAPSHOT_SYNC_HEADER_INVALID, 'totalBytes must be a non-negative integer')
     return
   }
+  const syncSession: unknown = record.syncSession
+  if (syncSession !== undefined && syncSession !== null && (typeof syncSession !== 'string' || syncSession === '')) {
+    fail(state, ErrorCodes.SNAPSHOT_SYNC_HEADER_INVALID, 'syncSession must be a non-empty string or absent')
+    return
+  }
 
   try {
     state.spool = openSnapshotSpoolWriter(state.expectation.spoolDirectory)
@@ -121,6 +127,7 @@ export function applyStartPayload(state: SnapshotStreamState, record: Record<str
   }
   state.header = header
   state.totalBytes = start.totalBytes
+  state.syncSession = typeof syncSession === 'string' ? syncSession : null
 }
 
 export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotChunkPayload): void {
