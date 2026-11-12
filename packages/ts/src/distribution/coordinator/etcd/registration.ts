@@ -83,8 +83,10 @@ async function putUnderLease(
   startedAt: string,
   data: Buffer,
 ): Promise<void> {
-  await lease.put(context.startedAtKey).value(startedAt).exec()
-  await lease.put(context.key).value(data).exec()
+  await context.client
+    .if(context.key, 'Create', '>', -1)
+    .then(lease.put(context.startedAtKey).value(startedAt), lease.put(context.key).value(data))
+    .commit()
 }
 
 async function grantFollowedLease(context: RegistrationWriteContext): Promise<Lease> {

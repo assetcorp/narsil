@@ -147,8 +147,10 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       if (entry !== undefined) {
         await entry.lease.revoke().catch(() => {})
       }
-      await client.delete().key(keys.nodeStartedAt(nodeId)).exec()
-      await client.delete().key(key).exec()
+      await client
+        .if(key, 'Create', '>', -1)
+        .then(client.delete().key(keys.nodeStartedAt(nodeId)), client.delete().key(key))
+        .commit()
     },
 
     registrationLease(nodeId: string): RegistrationLease | null {
@@ -233,6 +235,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const commitGuarded = async (txn: ComparatorBuilder): Promise<boolean> => {
         txn.and(controllerLeaseKey, 'Value', '==', writerNodeId)
         if (replicaRegistration !== undefined) {
+          txn.and(keys.node(replicaRegistration.nodeId), 'Create', '>', 0)
           txn.and(keys.nodeStartedAt(replicaRegistration.nodeId), 'Value', '==', replicaRegistration.startedAt)
         }
         return (await txn.then(client.put(key).value(data)).commit()).succeeded

@@ -188,7 +188,8 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
         }
         if (
           replicaRegistration !== undefined &&
-          registeredStartedAt.get(replicaRegistration.nodeId) !== replicaRegistration.startedAt
+          (registeredStartedAt.get(replicaRegistration.nodeId) !== replicaRegistration.startedAt ||
+            (registrationsHeldUntil.get(replicaRegistration.nodeId) ?? 0) <= performance.now())
         ) {
           return false
         }
