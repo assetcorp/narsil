@@ -27,6 +27,7 @@ interface CacheEntry {
   value: unknown
   bytes: number
   fileNumber: number
+  referenced: boolean
 }
 
 export interface ReadCache {
@@ -68,6 +69,12 @@ export function createReadCache(capacity: number): ReadCache {
   function evictDownTo(limit: number): void {
     for (const [key, entry] of entries) {
       if (held <= limit) return
+      if (entry.referenced) {
+        entry.referenced = false
+        entries.delete(key)
+        entries.set(key, entry)
+        continue
+      }
       drop(key, entry)
     }
   }
@@ -131,8 +138,7 @@ export function createReadCache(capacity: number): ReadCache {
       const key = fileNumber * FILE_NUMBER_SCALE + entry * ENTRY_NUMBER_SCALE + kind
       const found = entries.get(key)
       if (found === undefined) return undefined
-      entries.delete(key)
-      entries.set(key, found)
+      found.referenced = true
       return found.value as Value
     },
 
@@ -141,7 +147,7 @@ export function createReadCache(capacity: number): ReadCache {
       const key = fileNumber * FILE_NUMBER_SCALE + entry * ENTRY_NUMBER_SCALE + kind
       const existing = entries.get(key)
       if (existing !== undefined) drop(key, existing)
-      entries.set(key, { value, bytes, fileNumber })
+      entries.set(key, { value, bytes, fileNumber, referenced: true })
       held += bytes
       perFile.set(fileNumber, (perFile.get(fileNumber) ?? 0) + bytes)
       evictDownTo(capacity - reserved)
