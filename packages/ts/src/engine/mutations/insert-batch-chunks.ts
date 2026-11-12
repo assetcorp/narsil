@@ -10,12 +10,14 @@ import {
 } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
 import { asBatchInsertError } from './batch-admissions'
 import type { MutationContext } from './context'
 import { type AdmittedInsert, prepareInsertDocuments } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { runAfterInsertHooks } from './insert-batch-documents'
+import { embeddingOfDocuments } from './write-preparation'
 
 export interface ChunkedInserts {
   succeeded: string[]
@@ -31,6 +33,7 @@ async function admitChunk(
   hold: IndexHold | undefined,
   hooked: boolean,
   failed: BatchResult['failed'],
+  earlier: WriteEmbedding | null,
 ): Promise<AdmittedInsert[]> {
   const { entry, candidates } = await prepareInsertDocuments(
     ctx,
@@ -41,6 +44,7 @@ async function admitChunk(
     hold,
     hooked,
     failed,
+    earlier,
   )
   const manager = ctx.requireManager(indexName)
   const vecIndexes = manager.getVectorIndexes()
@@ -74,6 +78,7 @@ export async function insertInChunks(
   hold: IndexHold | undefined,
   hooked: boolean,
   failed: BatchResult['failed'],
+  embedded: WriteEmbedding | null = null,
 ): Promise<ChunkedInserts> {
   const succeeded: string[] = []
   const touchedVectorFields = new Set<string>()
@@ -82,7 +87,8 @@ export async function insertInChunks(
     if (ctx.abortController.signal.aborted) break
 
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
-    const prepared = await admitChunk(ctx, indexName, documents, chunkStart, chunkEnd, hold, hooked, failed)
+    const earlier = embeddingOfDocuments(embedded, documents.slice(chunkStart, chunkEnd))
+    const prepared = await admitChunk(ctx, indexName, documents, chunkStart, chunkEnd, hold, hooked, failed, earlier)
 
     if (prepared.length > 0) {
       const applications = await applyInsertChunk(ctx, indexName, prepared, options)

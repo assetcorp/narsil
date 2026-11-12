@@ -280,7 +280,22 @@ export async function embedBatchDocumentFields(
 
 export interface WriteEmbedding {
   adapter: EmbeddingAdapter
+  mapping: EmbeddingFieldConfig['fields']
   fields: Map<Record<string, unknown>, Set<string>>
+}
+
+export function lacksMappedVectors(
+  documents: Record<string, unknown>[],
+  embeddingConfig: EmbeddingFieldConfig,
+): boolean {
+  const targets = Object.keys(embeddingConfig.fields)
+  for (const document of documents) {
+    for (const target of targets) {
+      const existing = resolveFieldValue(document, target)
+      if (existing === undefined || existing === null) return true
+    }
+  }
+  return false
 }
 
 export function clearWriteEmbedding(earlier: WriteEmbedding): void {
@@ -319,5 +334,5 @@ export async function embedDocumentsForWrite(
       }
     }
   }
-  return { embedding: { adapter, fields }, failed }
+  return { embedding: { adapter, mapping: embeddingConfig.fields, fields }, failed }
 }

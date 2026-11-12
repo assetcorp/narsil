@@ -62,7 +62,7 @@ async function prepareChunk(
       failed.push({ docId, error: asUpdateError(err) })
     }
   }
-  const entry = await prepareDocumentWrites(
+  const { entry } = await prepareDocumentWrites(
     ctx,
     indexName,
     preparations.map(pending => pending.preparation),

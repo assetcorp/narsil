@@ -21,10 +21,20 @@ export interface WritePreparation {
   failure: unknown
 }
 
+export interface PreparedWrites {
+  entry: WriteEntry
+  embedding: WriteEmbedding | null
+}
+
 interface EmbeddingSettings {
   required: string[] | undefined
   embedding: EmbeddingFieldConfig | undefined
   adapter: EmbeddingAdapter | null
+}
+
+interface EmbeddingPass {
+  embedding: WriteEmbedding | null
+  called: boolean
 }
 
 function settingsOf(entry: WriteEntry): EmbeddingSettings {
@@ -35,8 +45,45 @@ function embedsThroughAdapter(entry: WriteEntry): boolean {
   return entry.config.embedding !== undefined && entry.embeddingAdapter !== null
 }
 
+function sourcesOf(sources: string | string[]): string[] {
+  return typeof sources === 'string' ? [sources] : sources
+}
+
+function sameMapping(left: EmbeddingFieldConfig['fields'], right: EmbeddingFieldConfig['fields']): boolean {
+  if (left === right) return true
+  const targets = Object.keys(left)
+  if (targets.length !== Object.keys(right).length) return false
+  for (const target of targets) {
+    if (!Object.hasOwn(right, target)) return false
+    const leftSources = sourcesOf(left[target])
+    const rightSources = sourcesOf(right[target])
+    if (leftSources.length !== rightSources.length) return false
+    if (leftSources.some((source, position) => source !== rightSources[position])) return false
+  }
+  return true
+}
+
 function embeddingFits(entry: WriteEntry, embedding: WriteEmbedding | null): boolean {
-  return embedsThroughAdapter(entry) ? embedding?.adapter === entry.embeddingAdapter : embedding === null
+  const embeddingConfig = entry.config.embedding
+  if (embeddingConfig === undefined || entry.embeddingAdapter === null) return embedding === null
+  return (
+    embedding !== null &&
+    embedding.adapter === entry.embeddingAdapter &&
+    sameMapping(embedding.mapping, embeddingConfig.fields)
+  )
+}
+
+export function embeddingOfDocuments(
+  embedding: WriteEmbedding | null,
+  documents: AnyDocument[],
+): WriteEmbedding | null {
+  if (embedding === null) return null
+  const fields: WriteEmbedding['fields'] = new Map()
+  for (const document of documents) {
+    const embedded = embedding.fields.get(document as Record<string, unknown>)
+    if (embedded !== undefined) fields.set(document as Record<string, unknown>, embedded)
+  }
+  return { adapter: embedding.adapter, mapping: embedding.mapping, fields }
 }
 
 function writable(preparations: WritePreparation[]): WritePreparation[] {
@@ -81,27 +128,32 @@ async function embedWith(
   preparations: WritePreparation[],
   earlier: WriteEmbedding | null,
   together: boolean,
-): Promise<WriteEmbedding | null> {
+): Promise<EmbeddingPass> {
   requireFieldsOf(settings.required, preparations)
-  const { clearWriteEmbedding, embedDocumentsForWrite } = await loadEmbedCode()
+  const { clearWriteEmbedding, embedDocumentsForWrite, lacksMappedVectors } = await loadEmbedCode()
   if (earlier !== null) clearWriteEmbedding(earlier)
   const { embedding: embeddingConfig, adapter } = settings
   const embeddable = writable(preparations)
-  if (embeddingConfig === undefined || adapter === null || embeddable.length === 0) return null
+  if (embeddingConfig === undefined || adapter === null || embeddable.length === 0) {
+    return { embedding: null, called: false }
+  }
   const fields: WriteEmbedding['fields'] = new Map()
+  const embedding: WriteEmbedding = { adapter, mapping: embeddingConfig.fields, fields }
+  const documents = embeddable.map(preparation => preparation.document as Record<string, unknown>)
+  if (!lacksMappedVectors(documents, embeddingConfig)) return { embedding, called: false }
   for (let chunkStart = 0; chunkStart < embeddable.length; chunkStart += BATCH_CHUNK_SIZE) {
     const chunk = embeddable.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
-    const { embedding, failed } = await embedDocumentsForWrite(
+    const { embedding: embedded, failed } = await embedDocumentsForWrite(
       chunk.map(preparation => preparation.document as Record<string, unknown>),
       embeddingConfig,
       adapter,
       signal,
       together,
     )
-    for (const [document, embedded] of embedding.fields) fields.set(document, embedded)
+    for (const [document, embeddedFields] of embedded.fields) fields.set(document, embeddedFields)
     for (const [position, error] of failed) chunk[position].failure = error
   }
-  return { adapter, fields }
+  return { embedding, called: true }
 }
 
 async function runBeforeWrites(preparations: WritePreparation[]): Promise<void> {
@@ -119,28 +171,34 @@ async function embedThenRunHooks(
   settings: EmbeddingSettings,
   signal: AbortSignal,
   preparations: WritePreparation[],
-): Promise<WriteEmbedding | null> {
-  const embedding = await embedWith(settings, signal, preparations, null, true)
+  earlier: WriteEmbedding | null,
+): Promise<EmbeddingPass> {
+  const pass = await embedWith(settings, signal, preparations, earlier, true)
   await runBeforeWrites(preparations)
-  return embedding
+  return pass
 }
 
 async function runHooksThenEmbedEach(
   ctx: MutationContext,
   indexName: string,
   preparations: WritePreparation[],
-): Promise<WriteEmbedding | null> {
+  earlier: WriteEmbedding | null,
+): Promise<EmbeddingPass> {
   let settings: EmbeddingSettings | null = null
   let embedding: WriteEmbedding | null = null
+  let called = false
+  let uncleared = earlier
   for (const preparation of preparations) {
     await runBeforeWrites([preparation])
     settings ??= settingsOf(ctx.requireIndex(indexName))
-    const embedded = await embedWith(settings, ctx.abortController.signal, [preparation], null, false)
-    if (embedded === null) continue
-    if (embedding === null) embedding = embedded
-    else for (const [document, fields] of embedded.fields) embedding.fields.set(document, fields)
+    const pass = await embedWith(settings, ctx.abortController.signal, [preparation], uncleared, false)
+    uncleared = null
+    called ||= pass.called
+    if (pass.embedding === null) continue
+    if (embedding === null) embedding = pass.embedding
+    else for (const [document, fields] of pass.embedding.fields) embedding.fields.set(document, fields)
   }
-  return embedding
+  return { embedding, called }
 }
 
 function adapterChangesRefusal(indexName: string, embeddings: number): NarsilError {
@@ -157,25 +215,28 @@ export async function prepareDocumentWrites(
   preparations: WritePreparation[],
   hold: IndexHold | undefined,
   together: boolean,
-): Promise<WriteEntry> {
+  earlier: WriteEmbedding | null = null,
+): Promise<PreparedWrites> {
   let entry = ctx.requireIndex(indexName)
-  if (writable(preparations).length === 0) return entry
+  let embedding = earlier
+  if (writable(preparations).length === 0) return { entry, embedding }
   const signal = ctx.abortController.signal
-  let embedding: WriteEmbedding | null = null
   let embeddings = 0
   const hooked = preparations.some(preparation => preparation.beforeWrite !== null)
-  if (hooked || embedsThroughAdapter(entry)) {
+  if (hooked || (embedsThroughAdapter(entry) && !embeddingFits(entry, embedding))) {
     if (together && !embedsThroughAdapter(entry)) {
       requireFieldsOf(entry.config.required, preparations)
       await requireMappedVectors(entry, preparations)
     }
     const settings = settingsOf(entry)
-    embedding = await runOutside(hold, () =>
+    const uncleared = embedding
+    const pass = await runOutside(hold, () =>
       together
-        ? embedThenRunHooks(settings, signal, preparations)
-        : runHooksThenEmbedEach(ctx, indexName, preparations),
+        ? embedThenRunHooks(settings, signal, preparations, uncleared)
+        : runHooksThenEmbedEach(ctx, indexName, preparations, uncleared),
     )
-    embeddings += 1
+    embedding = pass.embedding
+    if (pass.called) embeddings += 1
     entry = ctx.requireIndex(indexName)
   }
   while (writable(preparations).length > 0 && !embeddingFits(entry, embedding)) {
@@ -183,15 +244,16 @@ export async function prepareDocumentWrites(
       failAll(preparations, adapterChangesRefusal(indexName, embeddings))
       break
     }
-    const earlier = embedding
+    const uncleared = embedding
     const settings = settingsOf(entry)
-    embedding = await runOutside(hold, () => embedWith(settings, signal, preparations, earlier, together))
-    embeddings += 1
+    const pass = await runOutside(hold, () => embedWith(settings, signal, preparations, uncleared, together))
+    embedding = pass.embedding
+    if (pass.called) embeddings += 1
     entry = ctx.requireIndex(indexName)
   }
   requireFieldsOf(entry.config.required, preparations)
   await requireMappedVectors(entry, preparations)
-  return entry
+  return { entry, embedding }
 }
 
 export async function prepareDocumentWrite(
@@ -202,7 +264,7 @@ export async function prepareDocumentWrite(
   beforeWrite: (() => void | Promise<void>) | null,
 ): Promise<WriteEntry> {
   const preparation: WritePreparation = { document, beforeWrite, failure: undefined }
-  const entry = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
+  const { entry } = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
   if (preparation.failure !== undefined) throw preparation.failure
   return entry
 }

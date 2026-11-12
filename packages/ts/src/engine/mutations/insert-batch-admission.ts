@@ -16,6 +16,7 @@ import {
 } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
+import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
 import { asBatchInsertError, createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
 import type { MutationContext } from './context'
@@ -31,6 +32,17 @@ export interface AdmittedInsert {
 export interface InsertCandidate {
   docId: string
   document: AnyDocument
+}
+
+interface PreparedInserts {
+  entry: ReturnType<MutationContext['requireIndex']>
+  candidates: InsertCandidate[]
+  embedding: WriteEmbedding | null
+}
+
+export interface AdmittedBatch {
+  admitted: AdmittedInsert[]
+  embedding: WriteEmbedding | null
 }
 
 interface PendingInsert {
@@ -73,7 +85,8 @@ export async function prepareInsertDocuments(
   hold: IndexHold | undefined,
   hooked: boolean,
   failed: BatchResult['failed'],
-): Promise<{ entry: ReturnType<MutationContext['requireIndex']>; candidates: InsertCandidate[] }> {
+  earlier: WriteEmbedding | null = null,
+): Promise<PreparedInserts> {
   const pending: PendingInsert[] = []
   for (let i = start; i < end; i++) {
     if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
@@ -89,12 +102,13 @@ export async function prepareInsertDocuments(
       failed.push({ docId, error: asBatchInsertError(err) })
     }
   }
-  const entry = await prepareDocumentWrites(
+  const { entry, embedding } = await prepareDocumentWrites(
     ctx,
     indexName,
     pending.map(item => item.preparation),
     hold,
     true,
+    earlier,
   )
   const candidates: InsertCandidate[] = []
   for (const item of pending) {
@@ -106,7 +120,7 @@ export async function prepareInsertDocuments(
     const docId = item.refusedByHook ? item.docId : (providedDocId(document) ?? '')
     failed.push({ docId, error: asBatchInsertError(failure) })
   }
-  return { entry, candidates }
+  return { entry, candidates, embedding }
 }
 
 export async function admitBatchDocuments(
@@ -115,8 +129,8 @@ export async function admitBatchDocuments(
   documents: AnyDocument[],
   failed: BatchResult['failed'],
   hold: IndexHold | undefined,
-): Promise<AdmittedInsert[]> {
-  const { entry, candidates } = await prepareInsertDocuments(
+): Promise<AdmittedBatch> {
+  const { entry, candidates, embedding } = await prepareInsertDocuments(
     ctx,
     indexName,
     documents,
@@ -165,5 +179,5 @@ export async function admitBatchDocuments(
     }
   }
 
-  return admitted
+  return { admitted, embedding }
 }

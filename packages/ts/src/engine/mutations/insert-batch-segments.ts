@@ -286,11 +286,11 @@ export async function insertBatchViaSegments(
   hold: IndexHold | undefined,
 ): Promise<BatchResult> {
   const failed: BatchResult['failed'] = []
-  const admitted = await admitBatchDocuments(ctx, indexName, documents, failed, hold)
+  const { admitted, embedding } = await admitBatchDocuments(ctx, indexName, documents, failed, hold)
   const outcome = await ingestAdmitted(ctx, indexName, admitted, options, hold, failed)
   if (outcome.unrecorded.length > 0) {
     const unrecorded = outcome.unrecorded.map(doc => doc.document)
-    const rest = await insertInChunks(ctx, indexName, unrecorded, options, hold, false, failed)
+    const rest = await insertInChunks(ctx, indexName, unrecorded, options, hold, false, failed, embedding)
     outcome.succeeded.push(...rest.succeeded)
     for (const fieldPath of rest.touchedVectorFields) outcome.touchedVectorFields.add(fieldPath)
   }
