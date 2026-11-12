@@ -72,7 +72,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: native-core-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+      group: native-core-${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
       cancel-in-progress: true
     uses: ./.github/workflows/native-core.yml
 
@@ -83,7 +83,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: react-native-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+      group: react-native-${{ github.workflow }}-${{ github.event_name != 'push' && github.run_id || (needs.changes.result == 'success' && needs.changes.outputs.typescript != 'true') && github.sha || github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/react-native.yml
 
