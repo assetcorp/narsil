@@ -2,9 +2,11 @@ use super::backing::Backing;
 use super::build::recovered_index;
 use super::bundle::load_bundle;
 use super::checkpoint::write_checkpoint;
+use super::config::CheckpointLimits;
 use super::earlier::load_earlier_checkpoint;
 use super::load::{load_current_checkpoint, restore_vector_bytes};
 use super::log::IndexLog;
+use super::saved_size::SavedSize;
 use crate::durability::recovery::{RecoveredIndex, StoredCheckpoint};
 use crate::durability::store::DurabilityStore;
 use crate::engine::EngineInner;
@@ -55,7 +57,7 @@ fn replay_logs(
 pub(super) fn recover_index(
     engine: &EngineInner,
     backing: &Backing,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
     name: &str,
 ) -> Result<Option<Arc<IndexState>>> {
     let Some(mut recovered) = backing.open_index(name)? else {
@@ -81,7 +83,7 @@ pub(super) fn recover_index(
         }
     };
     report(WorkStatus::Started, None);
-    match load_recovered(backing, &index, recovered, compaction_threshold) {
+    match load_recovered(backing, &index, recovered, limits) {
         Ok(()) => report(WorkStatus::Completed, None),
         Err(error) => {
             report(WorkStatus::Failed, Some(error.clone()));
@@ -95,12 +97,14 @@ fn load_recovered(
     backing: &Backing,
     index: &Arc<IndexState>,
     recovered: RecoveredIndex,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
 ) -> Result<()> {
+    let mut saved = SavedSize::default();
     let (checkpoint, upgraded) = match &recovered.checkpoint {
         StoredCheckpoint::Empty => (Vec::new(), None),
         StoredCheckpoint::Current(manifest) => {
             load_current_checkpoint(backing, index, manifest)?;
+            saved = SavedSize::of(manifest);
             (manifest.checkpoint.clone(), None)
         }
         StoredCheckpoint::Earlier(manifest) => {
@@ -112,9 +116,13 @@ fn load_recovered(
             (loaded.checkpoint, Some(loaded.prior))
         }
     };
-    let log = IndexLog::new(backing.clone(), recovered.metadata, compaction_threshold);
+    let log = IndexLog::new(backing.clone(), recovered.metadata, limits);
+    log.record_saved(saved);
     match backing {
-        Backing::Log(store) => replay_logs(store, index, &checkpoint)?,
+        Backing::Log(store) => {
+            replay_logs(store, index, &checkpoint)?;
+            store.inner.directory.measure_log_bytes(&index.name)?;
+        }
         Backing::Snapshot(_) => {
             let reached: Vec<(u32, u64)> = checkpoint
                 .iter()
@@ -139,10 +147,10 @@ fn load_recovered(
 pub(crate) fn recover_indexes(
     engine: &EngineInner,
     backing: &Backing,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
 ) -> Result<()> {
     for name in backing.index_names()? {
-        if let Some(index) = recover_index(engine, backing, compaction_threshold, &name)? {
+        if let Some(index) = recover_index(engine, backing, limits, &name)? {
             engine.indexes_mut().insert(name, index);
         }
     }

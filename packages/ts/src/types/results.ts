@@ -1,5 +1,7 @@
 import type { NarsilError, NarsilErrorCode } from '../errors'
-import type { AnyDocument, SchemaDefinition } from './schema'
+import type { AnyDocument } from './schema'
+
+export type { IndexInfo, IndexStats, PartitionStatsResult } from './index-stats'
 
 /**
  * What {@link Narsil.query} returns: the ranked hits and everything the query
@@ -221,81 +223,6 @@ export interface DocumentImportResult {
   refusedCount: number
   /** These are the 1,000 refusals with the lowest line numbers. Each entry contains the line number, where the header is line 1, along with the error code and a message. */
   refused: Array<{ line: number; code: NarsilErrorCode; message: string }>
-}
-
-/**
- * What {@link Narsil.getStats} returns about one index.
- *
- * @public
- */
-export interface IndexStats {
-  /** The index holds this many documents. A closed index reports its count as of the last checkpoint. */
-  documentCount: number
-  /** The index is spread across this many partitions. */
-  partitionCount: number
-  /**
-   * Formula-based estimate of the index's main-thread memory footprint, summed
-   * across every partition and vector index for this index. Computed from
-   * structural counters (document count, posting counts, field-index sizes),
-   * not measured. Per-object V8 overhead (hidden classes, map transitions,
-   * GC headers) is not captured here, so this number routinely undershoots
-   * the real heap by a meaningful factor. Use {@link Narsil.getMemoryStats}
-   * when sizing host memory.
-   */
-  estimatedMemoryBytes: number
-  /** The index analyses text with this language module. */
-  language: string
-  /** The index was created with this field layout. */
-  schema: SchemaDefinition
-  /**
-   * This many searches on this instance's main copy hold a state of the index
-   * open right now. Each search holds one state from its start until it
-   * answers, fails, or is cancelled, so the figure falls back to 0 once every
-   * search has finished. A cluster reports no figure.
-   */
-  heldSearchStates?: number
-}
-
-/**
- * A summary of one index, as {@link Narsil.listIndexes} reports it.
- *
- * @public
- */
-export interface IndexInfo {
-  /** The index was created under this name. */
-  name: string
-  /** The index holds this many documents. A closed index reports its count as of the last checkpoint. */
-  documentCount: number
-  /** The index is spread across this many partitions. */
-  partitionCount: number
-  /** The index analyses text with this language module. */
-  language: string
-  /** This turns true when the index's terms came from an older analysis than its language module produces now. */
-  analysisStale?: boolean
-  /** This is `open` in memory, `closed` after release, and `reopen-failed` after five recovery failures. */
-  state: 'open' | 'closed' | 'reopen-failed'
-  /** This counts successful loads since this engine started. */
-  reopenCount: number
-}
-
-/**
- * What {@link Narsil.getPartitionStats} reports for one partition, which is
- * where you look when an index grows unevenly.
- *
- * @public
- */
-export interface PartitionStatsResult {
-  /** This identifies the partition within its index. */
-  partitionId: number
-  /** The partition holds this many documents. */
-  documentCount: number
-  /**
-   * Formula-based estimate of this partition's memory footprint. V8 has no
-   * per-object heap accounting API, so this number is derived from structural
-   * counters (document count, posting counts, field-index sizes) and does not
-   * include per-object overhead. Treat as an estimate, not a measurement.
-   */
-  estimatedMemoryBytes: number
 }
 
 /**

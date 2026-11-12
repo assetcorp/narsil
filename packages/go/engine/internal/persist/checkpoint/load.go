@@ -95,6 +95,18 @@ func RequireAgreedSchema(agreed map[string]string, found map[string]string, key 
 	return nil
 }
 
+func RequireListedCounts(ref manifest.SegmentRef, documentCount int, tombstoneCount int) error {
+	if int64(ref.DocCount) == int64(documentCount) && int64(ref.TombstoneCount) == int64(tombstoneCount) {
+		return nil
+	}
+	return narsilerr.New(narsilerr.CodePersistenceLoadFailed,
+		`The segment "`+ref.File.Key+`" holds `+strconv.Itoa(documentCount)+` documents and `+
+			strconv.Itoa(tombstoneCount)+` tombstones where the manifest lists `+
+			strconv.FormatUint(uint64(ref.DocCount), 10)+` and `+strconv.FormatUint(uint64(ref.TombstoneCount), 10),
+		map[string]any{"key": ref.File.Key, "documentCount": documentCount, "tombstoneCount": tombstoneCount,
+			"listedDocCount": ref.DocCount, "listedTombstoneCount": ref.TombstoneCount})
+}
+
 func liveVectorsOf(ref manifest.VectorFieldRef) int {
 	live := 0
 	for _, file := range ref.Files {

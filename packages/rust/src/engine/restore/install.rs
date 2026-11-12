@@ -8,6 +8,7 @@ use crate::engine::EngineInner;
 use crate::engine::durable::load::load_current_checkpoint;
 use crate::engine::durable::load_source::StagedSource;
 use crate::engine::durable::metadata::metadata_of;
+use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
 use crate::engine::memory::constants::RESTORE_PROCESS_BYTES_PER_STORED_BYTE;
 use crate::engine::memory::require_restore_memory;
@@ -132,6 +133,7 @@ pub(super) fn activate(
     }
     if let Staging::Stored(staged) = &*staging {
         let manifest = manifest.ok_or_else(|| missing_manifest(&index.name))?;
+        metadata.saved_bytes = Some(SavedSize::of(manifest).bytes);
         staged.stage_commit(manifest, &metadata)?;
     }
     index.set_analysis_stale(restored_analysis_stale(&index, recorded));
@@ -140,7 +142,7 @@ pub(super) fn activate(
     if let (Staging::Stored(staged), Some(durable), Some(manifest)) =
         (&mut *staging, &engine.durable, manifest)
     {
-        let log = durable.adopt_restore(staged, &manifest.checkpoint, metadata)?;
+        let log = durable.adopt_restore(staged, manifest, metadata)?;
         index.attach_log(log);
     }
     publish_without_source_bans(engine, &index, || {

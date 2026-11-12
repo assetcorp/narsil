@@ -1,9 +1,10 @@
 use super::Durable;
 use super::backing::Backing;
 use super::log::IndexLog;
+use super::saved_size::SavedSize;
 use crate::durability::restore::RestoreStaging;
 use crate::error::Result;
-use crate::format::manifest::PartitionCheckpoint;
+use crate::format::manifest::SegmentManifest;
 use crate::format::metadata::IndexMetadata;
 
 impl Durable {
@@ -17,14 +18,17 @@ impl Durable {
     }
 
     /// Moves a staged restore into the index's place, and returns the log that the restored index writes to,
-    /// which numbers each partition's writes after the restored checkpoint.
+    /// which numbers each partition's writes after the restored checkpoint and reports the saved size of
+    /// `manifest`.
     pub(crate) fn adopt_restore(
         &self,
         staging: &mut RestoreStaging<'_>,
-        checkpoint: &[PartitionCheckpoint],
+        manifest: &SegmentManifest,
         metadata: IndexMetadata,
     ) -> Result<IndexLog> {
-        let log = IndexLog::new(self.backing.clone(), metadata, self.compaction_threshold);
+        let log = IndexLog::new(self.backing.clone(), metadata, self.limits);
+        log.record_saved(SavedSize::of(manifest));
+        let checkpoint = &manifest.checkpoint;
         match &self.backing {
             Backing::Log(store) => store.adopt_restore(staging, checkpoint)?,
             Backing::Snapshot(store) => {

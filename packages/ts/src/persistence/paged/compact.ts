@@ -25,6 +25,7 @@ export interface PagedWindowMerge {
   nextSegmentId: number
   refs: readonly SegmentRef[]
   dropsEveryTombstone: boolean
+  replacedAfterWindow?: readonly string[]
 }
 
 interface OpenedSource {
@@ -68,6 +69,9 @@ export async function mergePagedWindow(
       for (const docId of sources[newer].replaces) {
         for (let older = 0; older < newer; older++) sources[older].segment.tombstoneDocument(docId)
       }
+    }
+    for (const docId of input.replacedAfterWindow ?? []) {
+      for (const source of sources) source.segment.tombstoneDocument(docId)
     }
     const tombstones = new Set<string>()
     if (!input.dropsEveryTombstone) {

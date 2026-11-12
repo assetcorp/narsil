@@ -5,7 +5,7 @@ import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/sn
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
-import { recordReplicaPosition } from '../catch-up/state'
+import { recordReplicaPosition, recordSnapshotSyncRequest } from '../catch-up/state'
 import { holdsAnotherIndex } from '../request-identity'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSingleResponseSink } from '../snapshot-stream-writer'
@@ -89,23 +89,26 @@ export async function handleSyncRequestMessage(
     )
   }
   const release = await deps.engine.acquireIndexForReplication(request.indexName)
-  const notePosition = (appliedSeqNo: number): void => {
-    if (message.sourceId === deps.nodeId) return
-    recordReplicaPosition(
-      deps.writeDeps.catchUp,
-      request.indexName,
-      request.partitionId,
-      message.sourceId,
-      appliedSeqNo,
-    )
-  }
+  const fromReplica = message.sourceId !== deps.nodeId
   try {
     const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
     const tier = decideSyncTier(log, request.lastSeqNo, request.lastPrimaryTerm)
     if (tier === 'incremental') {
-      notePosition(request.lastSeqNo)
+      if (fromReplica) {
+        recordReplicaPosition(
+          deps.writeDeps.catchUp,
+          request.indexName,
+          request.partitionId,
+          message.sourceId,
+          request.lastSeqNo,
+          log.localLogEnd,
+        )
+      }
       await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
       return
+    }
+    if (fromReplica) {
+      recordSnapshotSyncRequest(deps.writeDeps.catchUp, request.indexName, request.partitionId, message.sourceId)
     }
 
     const snapshotSeqNo = log.localLogEnd
