@@ -115,12 +115,14 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	}
 	touched := touchedVectors{}
 	touched.note(write)
-	n.settleWrites(entry, touched)
+	entry.scheduleVectorBuilds(touched)
 	if n.plugins.hasHook(hookAfterInsert) {
 		release()
 		release = releasedNothing
 		_ = n.plugins.insert(ctx, hookAfterInsert, insert)
+		entry = nil
 	}
+	n.afterWriteOn(entry, indexName)
 	return id, nil
 }
 
@@ -166,12 +168,14 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	}
 	touched := touchedVectors{}
 	touched.note(write)
-	n.settleWrites(entry, touched)
+	entry.scheduleVectorBuilds(touched)
 	if n.plugins.hasHook(hookAfterUpdate) {
 		release()
 		release = releasedNothing
 		_ = n.plugins.update(ctx, hookAfterUpdate, update)
+		entry = nil
 	}
+	n.afterWriteOn(entry, indexName)
 	return nil
 }
 

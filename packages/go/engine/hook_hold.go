@@ -27,8 +27,27 @@ func (holder indexHolder) outside(release func(), run func() error) (*indexEntry
 	return entry, held, ranErr
 }
 
-func (n *Narsil) settleWrites(entry *indexEntry, touched touchedVectors) {
+func scheduleTouched(entry *indexEntry, touched touchedVectors) {
 	entry.scheduleVectorBuilds(touched)
 	clear(touched)
-	n.afterWrite(entry)
+}
+
+func (n *Narsil) onIndexInPlace(indexName string, check func(*indexEntry)) {
+	entry, found := n.lookup(indexName)
+	if !found {
+		return
+	}
+	entry.useMu.RLock()
+	defer entry.useMu.RUnlock()
+	if !entry.retired {
+		check(entry)
+	}
+}
+
+func (n *Narsil) afterWriteOn(entry *indexEntry, indexName string) {
+	if entry != nil {
+		n.afterWrite(entry)
+		return
+	}
+	n.onIndexInPlace(indexName, n.afterWrite)
 }
