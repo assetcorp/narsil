@@ -87,8 +87,13 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 		return "", err
 	}
 	insert := &model.InsertContext{IndexName: indexName, DocID: id, Document: working}
-	if err := n.plugins.insert(ctx, hookBeforeInsert, insert); err != nil {
-		return "", err
+	if n.plugins.hasHook(hookBeforeInsert) {
+		entry, release, err = n.holderOf(indexName).outside(release, func() error {
+			return n.plugins.insert(ctx, hookBeforeInsert, insert)
+		})
+		if err != nil {
+			return "", err
+		}
 	}
 	entry, release, insert.Document, err = n.embedForWrite(ctx, indexName, entry, release, insert.Document)
 	if err != nil {
@@ -111,8 +116,13 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	touched := touchedVectors{}
 	touched.note(write)
 	entry.scheduleVectorBuilds(touched)
-	_ = n.plugins.insert(ctx, hookAfterInsert, insert)
-	n.afterWrite(entry)
+	if n.plugins.hasHook(hookAfterInsert) {
+		release()
+		release = releasedNothing
+		_ = n.plugins.insert(ctx, hookAfterInsert, insert)
+		entry = nil
+	}
+	n.afterWriteOn(entry, indexName)
 	return id, nil
 }
 
@@ -152,20 +162,26 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	}
 	var update *model.UpdateContext
 	var write persist.Write
-	entry, release, update, write, err = n.replaceDocument(ctx, entry, release, indexName, docID, working)
+	entry, release, update, write, err = n.replaceDocument(ctx, entry, release, n.holderOf(indexName), docID, working)
 	if err != nil {
 		return err
 	}
 	touched := touchedVectors{}
 	touched.note(write)
 	entry.scheduleVectorBuilds(touched)
-	_ = n.plugins.update(ctx, hookAfterUpdate, update)
-	n.afterWrite(entry)
+	if n.plugins.hasHook(hookAfterUpdate) {
+		release()
+		release = releasedNothing
+		_ = n.plugins.update(ctx, hookAfterUpdate, update)
+		entry = nil
+	}
+	n.afterWriteOn(entry, indexName)
 	return nil
 }
 
-func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release func(), indexName string, docID string,
+func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release func(), holder indexHolder, docID string,
 	working *model.Document) (*indexEntry, func(), *model.UpdateContext, persist.Write, error) {
+	indexName := holder.name
 	if err := schema.RequireMatchingDocID(docID, working); err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
@@ -179,8 +195,13 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 			previous = model.NewDocument()
 		}
 		update.OldDocument = previous
-		if err := n.plugins.update(ctx, hookBeforeUpdate, update); err != nil {
-			return entry, release, nil, persist.Write{}, err
+		if n.plugins.hasHook(hookBeforeUpdate) {
+			entry, release, err = holder.outside(release, func() error {
+				return n.plugins.update(ctx, hookBeforeUpdate, update)
+			})
+			if err != nil {
+				return entry, release, nil, persist.Write{}, err
+			}
 		}
 	}
 	entry, release, embedded, err := n.embedForWrite(ctx, indexName, entry, release, update.NewDocument)
@@ -223,14 +244,19 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(indexName)
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
 	remove := &model.RemoveContext{IndexName: indexName, DocID: docID}
-	if err := n.plugins.remove(ctx, hookBeforeRemove, remove); err != nil {
-		return err
+	if n.plugins.hasHook(hookBeforeRemove) {
+		entry, release, err = n.holderOf(indexName).outside(release, func() error {
+			return n.plugins.remove(ctx, hookBeforeRemove, remove)
+		})
+		if err != nil {
+			return err
+		}
 	}
 	entry.writeMu.Lock()
 	err = n.applyRemoveLocked(ctx, entry, docID)
@@ -238,7 +264,11 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	if err != nil {
 		return err
 	}
-	_ = n.plugins.remove(ctx, hookAfterRemove, remove)
+	if n.plugins.hasHook(hookAfterRemove) {
+		release()
+		release = releasedNothing
+		_ = n.plugins.remove(ctx, hookAfterRemove, remove)
+	}
 	return nil
 }
 

@@ -192,34 +192,44 @@ func (n *Narsil) createIndex(ctx context.Context, name string, config IndexConfi
 	if err := validateIndexName(name); err != nil {
 		return err
 	}
-	unlock := n.names.lock(name)
-	defer unlock()
-	if n.known(name) {
-		return narsilerr.New(narsilerr.CodeIndexAlreadyExists, `Index "`+name+`" already exists`, map[string]any{"indexName": name})
-	}
-	entry, err := n.prepareEntry(name, config, true, schemaOrder)
+	created, err := n.createUnannounced(ctx, name, config, schemaOrder)
 	if err != nil {
 		return err
 	}
+	return n.plugins.index(ctx, hookOnIndexCreate, &model.IndexContext{IndexName: name, Config: created})
+}
+
+func (n *Narsil) createUnannounced(ctx context.Context, name string, config IndexConfig, schemaOrder []string) (
+	model.IndexConfig, error) {
+	unlock := n.names.lock(name)
+	defer unlock()
+	if n.known(name) {
+		return model.IndexConfig{}, narsilerr.New(narsilerr.CodeIndexAlreadyExists, `Index "`+name+`" already exists`,
+			map[string]any{"indexName": name})
+	}
+	entry, err := n.prepareEntry(name, config, true, schemaOrder)
+	if err != nil {
+		return model.IndexConfig{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		entry.dispose()
-		return err
+		return model.IndexConfig{}, err
 	}
 	if err := n.beforeSuggestionsCreate(ctx, entry); err != nil {
 		entry.dispose()
-		return err
+		return model.IndexConfig{}, err
 	}
 	if n.manager != nil {
 		durable, err := n.manager.Create(ctx, entry.handle)
 		if err != nil {
 			entry.dispose()
-			return err
+			return model.IndexConfig{}, err
 		}
 		entry.durable = durable
 	}
 	n.install(entry)
 	n.enforceOpenLimits(ctx, name)
-	return n.plugins.index(ctx, hookOnIndexCreate, &model.IndexContext{IndexName: name, Config: entry.currentConfig()})
+	return entry.currentConfig(), nil
 }
 
 func (n *Narsil) prepareEntry(name string, config model.IndexConfig, creating bool, schemaOrder []string) (
