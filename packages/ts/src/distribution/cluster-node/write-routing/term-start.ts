@@ -6,7 +6,8 @@ import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import { replicationTimeoutOf, withinDeadline } from './deadline'
 import type { PrimaryWriteScope } from './numbered-write'
-import { chunkReplicationEntries, removeFailedReplicasFromInsync } from './replication'
+import { removeOutOfStepCopies } from './out-of-step-removal'
+import { chunkReplicationEntries } from './replication'
 
 export async function startTermInQueue(scope: PrimaryWriteScope): Promise<boolean> {
   const { deps, indexName, partitionId, assignment } = scope
@@ -35,8 +36,10 @@ async function startTermOnCopies(scope: PrimaryWriteScope, copies: string[]): Pr
   }
   if (scope.indexUuid !== undefined) request.indexUuid = scope.indexUuid
   const inStep = await Promise.all(copies.map(copy => settleCopy(scope, log, request, copy).catch(() => false)))
-  const removed = copies.filter((_, at) => !inStep[at])
-  await removeFailedReplicasFromInsync({ indexName, partitionId, primaryTerm: assignment.primaryTerm }, removed, deps)
+  await removeOutOfStepCopies(
+    scope,
+    copies.filter((_, at) => !inStep[at]),
+  )
 }
 
 async function settleCopy(
