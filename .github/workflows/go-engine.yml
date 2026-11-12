@@ -96,6 +96,12 @@ jobs:
           go-version: ${{ matrix.target.go }}
           cache: false
 
+      - name: Download the conformance dataset
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: conformance-dataset
+          path: packages/conformance/.dataset
+
       - name: Use llvm-mingw as the C compiler
         if: matrix.target.llvm-mingw-archive
         shell: pwsh

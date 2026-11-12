@@ -158,6 +158,12 @@ jobs:
           - 2379:2379
 
     steps:
+      - name: Require the shared engine when an affected suite needs it
+        if: needs.engine.result != 'success' && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true')
+        run: |
+          echo "::error::The shared engine did not finish successfully."
+          exit 1
+
       - name: Report that this change touches no TypeScript test input
         if: env.SUITE_NEEDED != 'true'
         run: echo "This change touches only files outside the TypeScript suite, so the suite does not run."
@@ -209,8 +215,8 @@ jobs:
 
   conformance:
     name: Conformance suite
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.conformance == 'true') }}
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.conformance == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -230,11 +236,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Restore the pinned conformance dataset
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Download the conformance dataset
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
+          name: conformance-dataset
           path: packages/conformance/.dataset
-          key: conformance-dataset-${{ hashFiles('packages/conformance/dataset-pin.json') }}
 
       - name: Lint
         run: pnpm nx run narsil-conformance:lint
@@ -244,10 +250,6 @@ jobs:
 
       - name: Build
         run: pnpm nx run narsil-conformance:build
-
-      - name: Fetch the pinned dataset and check every digest
-        working-directory: packages/conformance
-        run: node dist/cli.mjs fetch
 
       - name: Install the text search oracle
         working-directory: packages/conformance
