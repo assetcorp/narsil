@@ -322,6 +322,7 @@ PartitionAssignment {
   primary:          string or absent   (nodeId of the primary)
   replicas:         List<string>       (nodeIds of the replica nodes)
   inSyncSet:        List<string>       (nodeIds of the replicas fully caught up)
+  inSyncVersion:    uint64 or absent   (raised on every change to inSyncSet)
   removingReplicas: List<string>       (nodeIds that a move takes the partition off, or absent)
   lastHolders:      List<string>       (nodeIds that still hold a copy of an unserved partition, or absent)
   state:            PartitionState
@@ -352,6 +353,10 @@ The name of the index that serves this index name, which the controller writes w
 ### assignments
 
 A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
+
+### inSyncVersion
+
+A counter for one partition that the controller raises by 1 in every table write that changes the partition's `inSyncSet`, whatever the reason for the change. A primary sends the value that it last read in each [replication.insync_add](transport.md#replicationinsync_add), and the controller refuses a request whose value differs from the stored one, so that a request delayed past a removal can never add the replica back. The counter covers one partition alone, because a version for the whole table would refuse a request after a change to any other partition. A table written by a release that predates the field carries none, and every reader treats an absent value as 0.
 
 ### removingReplicas
 
