@@ -169,6 +169,7 @@ func TestARestoreClosesTheIndexThatAnAnalysisChangeRetiredWhileARerankedQuerySti
 	archived, archive := archivedLedger(t, 0)
 	directory := resolvedDirectory(t)
 	target := openFilesEngine(t, directory)
+	t.Cleanup(func() { _ = target.Shutdown(ctx) })
 	createDiskTextIndex(t, target)
 	replaced := &diskTextLedger{bodies: map[string]string{}, inserted: diskTextDocuments}
 	replaced.insert(t, target, diskTextDocuments)
@@ -179,19 +180,22 @@ func TestARestoreClosesTheIndexThatAnAnalysisChangeRetiredWhileARerankedQuerySti
 	result, err := target.Query(ctx, diskTextIndex, engine.QueryParams{Term: retiringSearchedWord,
 		Limit:  engine.Some(retiringHitLimit),
 		Rerank: &engine.RerankConfig{Adapter: retiringRerankAdapter, Fields: []string{"body"}}})
-	if reranker.failure != nil {
+	reranker.mu.Lock()
+	failure, calls, openFiles := reranker.failure, reranker.calls, slices.Clone(reranker.openFiles)
+	reranker.mu.Unlock()
+	if failure != nil {
 		t.Fatalf("inside the rerank call, the analysis change or the restore failed with %s: %v",
-			codeOrMessage(reranker.failure), reranker.failure)
+			codeOrMessage(failure), failure)
 	}
 	if err != nil {
 		t.Fatalf("the reranked query failed with %s: %v", codeOrMessage(err), err)
 	}
-	if len(reranker.openFiles) > 0 {
+	if len(openFiles) > 0 {
 		t.Fatalf("once the restore returned, the process held %d files open under a retired index folder: %v",
-			len(reranker.openFiles), reranker.openFiles)
+			len(openFiles), openFiles)
 	}
-	if reranker.calls != retiringRerankCalls {
-		t.Fatalf("the reranker ran %d times, expected %d", reranker.calls, retiringRerankCalls)
+	if calls != retiringRerankCalls {
+		t.Fatalf("the reranker ran %d times, expected %d", calls, retiringRerankCalls)
 	}
 	expected := archived.holding(holdsWord(retiringSearchedWord))
 	if result.Count != len(expected) || len(result.Hits) != min(retiringHitLimit, len(expected)) {
