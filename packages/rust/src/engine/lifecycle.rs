@@ -156,7 +156,8 @@ fn create_unannounced(
 ) -> Result<Arc<IndexState>> {
     engine.guard_shutdown()?;
     validate_index_name(name)?;
-    let _name = engine.names.take(name);
+    let _name = engine.names.take(name)?;
+    let _admitted = engine.admit_publication()?;
     if engine.index(name).is_ok() || engine.lifecycle.holds_closed(name) {
         return Err(NarsilError::new(
             ErrorCode::INDEX_ALREADY_EXISTS,
@@ -167,17 +168,12 @@ fn create_unannounced(
     let registered = engine.adapters.embedding();
     let state = Arc::new(build_index(engine, &registered, name, config)?);
     state.replace_suggestion_state(suggestions);
-    let mut indexes = engine.indexes_mut();
-    if indexes.contains_key(name) {
-        return Err(NarsilError::new(
-            ErrorCode::INDEX_ALREADY_EXISTS,
-            format!("Index \"{name}\" already exists"),
-        ));
-    }
     if let Some(durable) = &engine.durable {
         durable.attach_created(&state)?;
     }
-    indexes.insert(name.to_string(), Arc::clone(&state));
+    engine
+        .indexes_mut()
+        .insert(name.to_string(), Arc::clone(&state));
     Ok(state)
 }
 
@@ -192,7 +188,8 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
         ));
     }
     let config = {
-        let _writes = engine.suggestions.write_turns.take(name);
+        let _writes = engine.suggestions.write_turns.take(name)?;
+        engine.names.refuse_held_by_this_thread(name)?;
         drop_suggestion_indexes_of(engine, name)?;
         drop_unannounced(engine, name)?
     };
@@ -206,7 +203,7 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
 
 fn drop_unannounced(engine: &EngineInner, name: &str) -> Result<Arc<IndexConfig>> {
     engine.guard_shutdown()?;
-    let _name = engine.names.take(name);
+    let _name = engine.names.take(name)?;
     let Some(index) = engine.open_index_named(name) else {
         return drop_closed(engine, name);
     };

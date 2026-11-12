@@ -13,6 +13,8 @@ use support::ScratchDirectory;
 const INDEX: &str = "notes";
 const STALLED_RESTORE_START: Duration = Duration::from_secs(30);
 const STALLED_RESTORE_RELEASE: Duration = Duration::from_secs(120);
+const CREATE_QUEUES_BEHIND_RESTORE: Duration = Duration::from_millis(300);
+const SHUTDOWN_ANSWER: Duration = Duration::from_secs(10);
 
 fn log_tier(root: &Path) -> NarsilConfig {
     NarsilConfig {
@@ -88,6 +90,67 @@ fn title_of(narsil: &Narsil, id: &str) -> Option<Value> {
         .and_then(|document| document.get("title").cloned())
 }
 
+fn stalling_archive(bytes: Vec<u8>) -> (StallingArchive, Receiver<()>, Sender<()>) {
+    let (reached, reached_receiver) = channel();
+    let (release, release_receiver) = channel();
+    let archive = StallingArchive {
+        stall_at: bytes.len() / 2,
+        bytes,
+        at: 0,
+        reached: Some(reached),
+        release: release_receiver,
+    };
+    (archive, reached_receiver, release)
+}
+
+fn answered<'scope, T: Send + 'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
+    call: impl FnOnce() -> T + Send + 'scope,
+) -> Receiver<T> {
+    let (answer, answers) = channel();
+    scope.spawn(move || {
+        let _ = answer.send(call());
+    });
+    answers
+}
+
+#[test]
+fn a_shutdown_beside_a_stalled_restore_and_a_create_of_its_name_returns_and_keeps_no_index() {
+    let engine = Narsil::new();
+    let (mut archive, reached, release) = stalling_archive(archive_of_one_note());
+
+    std::thread::scope(|scope| {
+        let restore = answered(scope, || engine.restore(INDEX, &mut archive));
+        reached
+            .recv_timeout(STALLED_RESTORE_START)
+            .expect("the restore reads half of its archive");
+        let create = answered(scope, || engine.create_index(INDEX, titled_index()));
+        std::thread::sleep(CREATE_QUEUES_BEHIND_RESTORE);
+        let shutdown = answered(scope, || engine.shutdown());
+        let shut_down_while_restore_stalls = shutdown.recv_timeout(SHUTDOWN_ANSWER).ok();
+        let _ = release.send(());
+
+        shut_down_while_restore_stalls
+            .expect("the shutdown returns while the restore waits on its input")
+            .expect("the engine shuts down");
+        let refused = restore
+            .recv_timeout(STALLED_RESTORE_RELEASE)
+            .expect("the restore returns")
+            .expect_err("a restore that the shutdown overtook is refused");
+        assert_eq!(refused.code(), ErrorCode::INSTANCE_SHUT_DOWN);
+        let refused = create
+            .recv_timeout(STALLED_RESTORE_RELEASE)
+            .expect("the create returns")
+            .expect_err("a create that the shutdown overtook is refused");
+        assert_eq!(refused.code(), ErrorCode::INSTANCE_SHUT_DOWN);
+    });
+
+    assert!(
+        engine.list_indexes().is_empty(),
+        "the shut-down engine holds no index"
+    );
+}
+
 #[test]
 fn a_restore_stalled_on_its_input_changes_no_file_after_the_engine_shuts_down() {
     let root = ScratchDirectory::new("shutdown-beside-restore");
@@ -99,19 +162,11 @@ fn a_restore_stalled_on_its_input_changes_no_file_after_the_engine_shuts_down() 
     stopped
         .insert(INDEX, note("earlier", "written before the restore"), None)
         .expect("the earlier note is inserted");
-    let (reached, reached_receiver) = channel();
-    let (release, release_receiver) = channel();
-    let mut archive = StallingArchive {
-        stall_at: bytes.len() / 2,
-        bytes,
-        at: 0,
-        reached: Some(reached),
-        release: release_receiver,
-    };
+    let (mut archive, reached, release) = stalling_archive(bytes);
 
     std::thread::scope(|scope| {
         let restore = scope.spawn(|| stopped.restore(INDEX, &mut archive));
-        reached_receiver
+        reached
             .recv_timeout(STALLED_RESTORE_START)
             .expect("the restore reads half of its archive");
         stopped.shutdown().expect("the first engine shuts down");

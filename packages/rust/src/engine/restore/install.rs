@@ -118,6 +118,7 @@ pub(super) fn activate(
     staging: &mut Staging<'_>,
 ) -> Result<()> {
     before_install(engine, &index)?;
+    let admitted = engine.admit_publication()?;
     let previous = engine.index(&index.name).ok();
     let mut metadata = metadata_of(&index, recorded);
     let replaced = match (&previous, &engine.durable) {
@@ -155,6 +156,7 @@ pub(super) fn activate(
         old.retire();
     }
     drop(writer);
+    drop(admitted);
     if let Staging::Stored(staged) = staging {
         let _ = staged.remove_retired();
     }

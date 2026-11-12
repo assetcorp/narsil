@@ -87,6 +87,14 @@ impl Durable {
         matches!(self.backing, Backing::Log(_))
     }
 
+    /// Reports whether the calling thread is inside a call to the engine's persistence adapter.
+    pub(crate) fn calling_adapter_on_current_thread(&self) -> bool {
+        match &self.backing {
+            Backing::Log(_) => false,
+            Backing::Snapshot(store) => store.store().calling_adapter_on_current_thread(),
+        }
+    }
+
     /// Recovers every index that the store holds into `engine`, then starts the checkpoint thread.
     pub(crate) fn recover(&self, engine: &Arc<EngineInner>) -> Result<()> {
         recover::recover_indexes(engine, &self.backing, self.limits)?;

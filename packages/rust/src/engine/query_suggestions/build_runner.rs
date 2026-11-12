@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex};
+use std::thread::{self, ThreadId};
 
 use super::build::run_build;
 use super::build_record::{BuildRecord, new_build_id};
@@ -15,9 +16,14 @@ use crate::engine::{EngineInner, Narsil};
 use crate::error::Result;
 use crate::format::metadata_parts::config_invalid;
 
+struct RunningBuild {
+    build: QuerySuggestionsBuild,
+    thread: ThreadId,
+}
+
 #[derive(Default)]
 pub(crate) struct BuildRunner {
-    running: Mutex<HashMap<String, QuerySuggestionsBuild>>,
+    running: Mutex<HashMap<String, RunningBuild>>,
     finished: Mutex<HashMap<String, QuerySuggestionsBuild>>,
     settled: Condvar,
 }
@@ -71,8 +77,8 @@ impl BuildRunner {
         engine: &EngineInner,
         index_name: &str,
     ) -> Option<QuerySuggestionsBuild> {
-        if let Some(build) = locked(&self.running).get(index_name) {
-            return Some(build.clone());
+        if let Some(running) = locked(&self.running).get(index_name) {
+            return Some(running.build.clone());
         }
         if let Some(build) = locked(&self.finished).get(index_name) {
             return Some(build.clone());
@@ -81,8 +87,9 @@ impl BuildRunner {
     }
 
     pub(crate) fn settle(&self) {
+        let caller = thread::current().id();
         let mut running = locked(&self.running);
-        while !running.is_empty() {
+        while running.values().any(|build| build.thread != caller) {
             running = self
                 .settled
                 .wait(running)
@@ -119,7 +126,13 @@ impl BuildRunner {
                 return Ok(skipped);
             }
             let build = new_build(trigger, QuerySuggestionsBuildStatus::Running)?;
-            running.insert(index_name.to_string(), build.clone());
+            running.insert(
+                index_name.to_string(),
+                RunningBuild {
+                    build: build.clone(),
+                    thread: thread::current().id(),
+                },
+            );
             build
         };
         emit_phase(engine, index_name, &build);

@@ -91,11 +91,11 @@ impl Narsil {
         let engine = &*self.inner;
         engine.guard_shutdown()?;
         validate_index_name(index)?;
-        let restored = {
-            let _name = engine.names.take(index);
-            restore_index(engine, index, data)
-        }
-        .or_else(|error| engine.guard_shutdown().and(Err(error)));
+        let restored = engine
+            .names
+            .take(index)
+            .and_then(|_name| restore_index(engine, index, data))
+            .or_else(|error| engine.guard_shutdown().and(Err(error)));
         if restored.is_ok() {
             enforce_limits(engine, Some(index));
         }

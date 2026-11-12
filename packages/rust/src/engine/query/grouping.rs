@@ -1,3 +1,4 @@
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use super::constants::DEFAULT_MAX_PER_GROUP;
@@ -11,6 +12,7 @@ use crate::index::core_values::CoreStoredValues;
 use crate::native::status::query_accepted;
 use crate::native::workspace::with_workspace;
 use crate::search::rankings::id_ranks;
+use crate::util::unwind::panic_text;
 use crate::value::Value;
 
 type GroupValues = Vec<(String, Option<Value>)>;
@@ -166,19 +168,30 @@ fn head_values(config: &GroupConfig, located: &LocatedFields, head: &Ranked) -> 
     record
 }
 
+fn reducer_panic_text(payload: Box<dyn std::any::Any + Send>, function: &str) -> String {
+    panic_text(payload.as_ref()).unwrap_or_else(|| format!("The {function} function panicked"))
+}
+
 fn fold_reducer<'h>(
     run: &QueryRun<'_>,
     reduce: &GroupReducer,
     hits: impl Iterator<Item = &'h Ranked>,
 ) -> Result<(Option<Value>, Option<String>)> {
-    let mut accumulator = (reduce.initial_value)();
+    let mut accumulator = match catch_unwind(AssertUnwindSafe(|| (reduce.initial_value)())) {
+        Ok(initial) => initial,
+        Err(payload) => return Ok((None, Some(reducer_panic_text(payload, "initialValue")))),
+    };
     for hit in hits {
         let Some(document) = run.document(&hit.id, hit.location)? else {
             continue;
         };
-        match (reduce.reducer)(accumulator, &document, hit.score) {
-            Ok(next) => accumulator = next,
-            Err(message) => return Ok((None, Some(message))),
+        let folded = catch_unwind(AssertUnwindSafe(|| {
+            (reduce.reducer)(accumulator, &document, hit.score)
+        }));
+        match folded {
+            Ok(Ok(next)) => accumulator = next,
+            Ok(Err(message)) => return Ok((None, Some(message))),
+            Err(payload) => return Ok((None, Some(reducer_panic_text(payload, "reducer")))),
         }
     }
     Ok((Some(accumulator), None))
