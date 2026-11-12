@@ -55,8 +55,7 @@ function applyNewerTombstones(prepared: readonly PreparedSegment[]): void {
     }
     const ids = segment.arrays.idTable
     for (let ordinal = 0; ordinal < ids.count; ordinal++) {
-      const docId = ids.idAt(ordinal)
-      if (tombstoned.has(docId)) segment.tombstoneDocument(docId)
+      if (tombstoned.has(ids.idAt(ordinal))) segment.tombstoneOrdinal(ordinal)
     }
   }
 }
@@ -77,8 +76,7 @@ async function applyNewerTombstonesInTurns(prepared: readonly PreparedSegment[])
     }
     const ids = segment.arrays.idTable
     for (let ordinal = 0; ordinal < ids.count; ordinal++) {
-      const docId = ids.idAt(ordinal)
-      if (tombstoned.has(docId)) segment.tombstoneDocument(docId)
+      if (tombstoned.has(ids.idAt(ordinal))) segment.tombstoneOrdinal(ordinal)
       steps += 1
       if (steps % TOMBSTONES_BETWEEN_YIELDS === 0) await yieldToEventLoop()
     }
