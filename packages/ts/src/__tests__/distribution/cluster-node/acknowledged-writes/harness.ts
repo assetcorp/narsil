@@ -68,6 +68,28 @@ function openHold(registry: Set<Hold>, rule: MessageRule): HeldMessages {
   }
 }
 
+export interface LeaseLookupGate {
+  coordinator: ClusterCoordinator
+  hold(): HeldMessages
+}
+
+export function gateLeaseLookups(inner: ClusterCoordinator): LeaseLookupGate {
+  const holds = new Set<Hold>()
+  const coordinator = new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property !== 'getLeaseHolder') return Reflect.get(target, property, receiver)
+      return async (key: string) => {
+        for (const hold of holds) {
+          hold.held += 1
+          await hold.gate
+        }
+        return target.getLeaseHolder(key)
+      }
+    },
+  })
+  return { coordinator, hold: () => openHold(holds, () => true) }
+}
+
 export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTransport {
   const rules = new Set<MessageRule>()
   const lostReplies = new Set<MessageRule>()
