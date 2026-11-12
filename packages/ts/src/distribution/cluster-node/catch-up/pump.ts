@@ -14,6 +14,7 @@ import {
   type CatchUpState,
   clearPendingAdmission,
   forgetReplica,
+  getPendingAdmissions,
   type ReplicaCursor,
 } from './state'
 
@@ -203,7 +204,7 @@ async function sendBatch(
   if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
     return false
   }
-  cursor.appliedSeqNo = batch[batch.length - 1].seqNo
+  cursor.appliedSeqNo = Math.max(cursor.appliedSeqNo, batch[batch.length - 1].seqNo)
   return true
 }
 
@@ -250,8 +251,14 @@ async function pumpPartition(
     const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, table?.version).includes(
       replicaNodeId,
     )
-    if (!assignment.replicas.includes(replicaNodeId) || assignment.inSyncSet.includes(replicaNodeId) || admitted) {
+    if (!assignment.replicas.includes(replicaNodeId)) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
+      continue
+    }
+    if (assignment.inSyncSet.includes(replicaNodeId) || admitted) {
+      if (!getPendingAdmissions(state, indexName, partitionId).includes(replicaNodeId)) {
+        forgetReplica(state, indexName, partitionId, replicaNodeId)
+      }
       continue
     }
     if (cursor.busy) {
