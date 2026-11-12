@@ -252,7 +252,7 @@ export async function updateDocument(
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
   const preparation = updatePreparationOf(ctx, indexName, docId, document)
-  const entry = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
+  const { entry } = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
   if (preparation.failure !== undefined) throw preparation.failure
   const prepared = await finishUpdate(ctx, indexName, entry, docId, document)
   const apply = applyOfUpdate(ctx, indexName, prepared)
