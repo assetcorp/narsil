@@ -71,9 +71,6 @@ jobs:
     if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI')) }}
     permissions:
       contents: read
-    concurrency:
-      group: native-core-${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
-      cancel-in-progress: true
     uses: ./.github/workflows/native-core.yml
 
   react-native-checks:
@@ -82,9 +79,6 @@ jobs:
     if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
     permissions:
       contents: read
-    concurrency:
-      group: react-native-${{ github.workflow }}-${{ github.event_name != 'push' && github.run_id || (needs.changes.result == 'success' && needs.changes.outputs.typescript != 'true') && github.sha || github.ref }}
-      cancel-in-progress: true
     uses: ./.github/workflows/react-native.yml
 
   plan:
@@ -109,6 +103,9 @@ jobs:
     needs: [plan, native, react-native-checks]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    concurrency:
+      group: publish-prerelease-to-npm
+      cancel-in-progress: false
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -175,12 +172,20 @@ jobs:
           pattern: narsil-native-*
           path: packages/native/artifacts
 
+      - name: Check that no newer prerelease holds the next dist-tag
+        id: newest
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: node .github/scripts/prerelease-is-newest.js "$VERSION"
+
       - name: Version and publish the platform packages
+        if: steps.newest.outputs.newest == 'true'
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-native-packages.js "${{ needs.plan.outputs.version }}" next
 
       - name: Publish
+        if: steps.newest.outputs.newest == 'true'
         working-directory: packages/ts
         env:
           NPM_CONFIG_PROVENANCE: true
@@ -193,6 +198,7 @@ jobs:
           fi
 
       - name: Publish the React Native package
+        if: steps.newest.outputs.newest == 'true'
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-react-native-package.js "${{ needs.plan.outputs.version }}" next
