@@ -76,9 +76,7 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 		}
 		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
 	}
-	if entry != nil {
-		n.afterWrite(entry)
-	}
+	n.afterWriteOn(entry, indexName)
 	return outcome.result, nil
 }
 
@@ -110,7 +108,7 @@ func (n *Narsil) updateOne(ctx context.Context, holder indexHolder, entry *index
 	if !n.plugins.hasHook(hookAfterUpdate) {
 		return entry, release, nil
 	}
-	n.settleWrites(entry, touched)
+	scheduleTouched(entry, touched)
 	release()
 	_ = n.plugins.update(ctx, hookAfterUpdate, hook)
 	return nil, releasedNothing, nil

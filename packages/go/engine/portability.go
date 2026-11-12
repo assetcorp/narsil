@@ -203,8 +203,6 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 			failures[at] = failure.Err
 		}
 	}
-	if entry != nil {
-		n.afterWrite(entry)
-	}
+	n.afterWriteOn(entry, indexName)
 	return failures, nil
 }

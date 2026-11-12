@@ -107,9 +107,7 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	if err != nil {
 		return outcome.result, err
 	}
-	if entry != nil {
-		n.afterWrite(entry)
-	}
+	n.afterWriteOn(entry, indexName)
 	return outcome.result, nil
 }
 
@@ -156,7 +154,7 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 	if err != nil || len(inserted) == 0 || !n.plugins.hasHook(hookAfterInsert) {
 		return entry, release, err
 	}
-	n.settleWrites(entry, outcome.touched)
+	scheduleTouched(entry, outcome.touched)
 	release()
 	for _, insert := range inserted {
 		_ = n.plugins.insert(ctx, hookAfterInsert, insert)

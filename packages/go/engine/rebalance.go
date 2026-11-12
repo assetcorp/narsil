@@ -159,6 +159,7 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 			}
 			return func(ctx context.Context) error { return plugin.OnPartitionSplit(ctx, split) }
 		})
+		n.onIndexInPlace(indexName, n.checkWatermark)
 	}
 	return err
 }
@@ -197,7 +198,6 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 		return nil, err
 	}
 	n.events.emit(model.PartitionRebalanceEvent{IndexName: entry.name, OldCount: oldCount, NewCount: targetPartitionCount})
-	n.checkWatermark(entry)
 	return &model.PartitionContext{IndexName: entry.name, OldPartitionCount: oldCount,
 		NewPartitionCount: targetPartitionCount}, err
 }

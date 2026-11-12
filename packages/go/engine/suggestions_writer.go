@@ -62,9 +62,7 @@ func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents [
 	if entry, release, err = n.insertChunk(ctx, n.suggestionsHolder(name), entry, release, documents, outcome); err != nil {
 		return outcome.result, err
 	}
-	if entry != nil {
-		n.afterWrite(entry)
-	}
+	n.afterWriteOn(entry, name)
 	return outcome.result, nil
 }
 
@@ -98,9 +96,7 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 		}
 		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
 	}
-	if entry != nil {
-		n.afterWrite(entry)
-	}
+	n.afterWriteOn(entry, name)
 	return outcome.result, nil
 }
 
