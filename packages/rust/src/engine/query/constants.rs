@@ -2,6 +2,7 @@ pub(crate) const RESULT_WINDOW: usize = 10_000;
 pub(crate) const DEFAULT_PAGE_SIZE: usize = 10;
 pub(crate) const PREFLIGHT_VECTOR_DEPTH: usize = 1_000;
 pub(crate) const MAX_QUERY_EMBEDDINGS: u32 = 3;
+pub(crate) const MAX_QUERY_RERANKS: u32 = 3;
 pub(crate) const DEFAULT_FUZZY_PREFIX_LENGTH: u32 = 2;
 pub(crate) const MAX_TOLERANCE: u32 = 10;
 pub(crate) const MAX_PREFIX_LENGTH: u32 = 1024;

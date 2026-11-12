@@ -36,7 +36,6 @@ mod validate;
 mod vector;
 mod work;
 
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -45,7 +44,9 @@ use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
-use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
+use constants::{
+    DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_QUERY_RERANKS, MAX_TOLERANCE, RESULT_WINDOW,
+};
 use cursor::sort_signature_of;
 use embedded::{EmbeddedQuery, resolve_vector_text};
 use gather::{QueryRun, RunShape};
@@ -144,34 +145,19 @@ fn shaped_query(
     })
 }
 
-/// Returns `params` with the vector that the index's embedding adapter makes from the text of its vector clause,
-/// or `params` as they stand where the clause gives a vector or no clause appears. Where `earlier` holds a query
-/// that the same adapter embedded and that no read found superseded, it comes back as it stands.
-pub(crate) fn embed_query_text<'a>(
-    index: &IndexState,
-    params: &'a QueryParams,
-    earlier: Option<EmbeddedQuery<'a>>,
-) -> Result<EmbeddedQuery<'a>> {
-    resolve_vector_text(index, params, earlier)
-}
-
-/// Runs a query whose vector clause [`embed_query_text`] has resolved against one index, which a read holds. Where
-/// `params` asks for a rerank, the query stops once its first stage has ranked the hits that the rerank adapter
-/// scores, and [`finish_query`] completes it. Each search of the query may spend the work cap of `limits` on its
-/// pattern tests and phrases, and stops once the engine shuts down.
-pub(crate) fn run_query<'a>(
+fn run_query<'a>(
     index: &Arc<IndexState>,
     params: &'a QueryParams,
-    resolved: Cow<'a, QueryParams>,
+    embedded: EmbeddedQuery<'a>,
     limits: &'a SearchLimits,
 ) -> Result<QueryStep<'a>> {
     spread::counted(|| {
         let Some(rerank) = &params.rerank else {
-            let answered = shaped_query(index, &resolved, params, limits)?;
+            let answered = shaped_query(index, &embedded.params, params, limits)?;
             return Ok(QueryStep::Answered(answered));
         };
         let request = RerankRequest {
-            params: resolved,
+            embedded,
             requested: params,
             rerank,
             query_text: rerank_query_text(params),
@@ -181,24 +167,63 @@ pub(crate) fn run_query<'a>(
     })
 }
 
-/// Returns the result of a query that [`run_query`] ran on the index called `name`, reporting the time since
-/// `started`. A query that waits for a rerank adapter asks it for scores while the engine holds no index, then
-/// builds its page under a new read of the index that holds the name by then.
-pub(crate) fn finish_query(
+fn index_replaced_during_reranks(name: &str, reranks: u32) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::WORKER_BUSY,
+        format!(
+            "Changes to index \"{name}\" replaced it during each of {reranks} calls to its rerank adapter"
+        ),
+    )
+}
+
+/// Returns the result of `params` on the index called `name`, reporting the time since `started`. Each search of
+/// the query may spend the work cap of `limits` on its pattern tests and phrases, and stops once the engine shuts
+/// down. A reranked query asks its rerank adapter for scores while the engine holds no index, then builds its page
+/// under a new read. Where a restore or a reopen has put another index under the name by then, the query runs
+/// again from its first stage on that index, and it fails with `WORKER_BUSY` once that has happened during each of
+/// [`constants::MAX_QUERY_RERANKS`] calls to the adapter.
+pub(crate) fn answer_query(
     engine: &EngineInner,
     name: &str,
-    step: QueryStep<'_>,
+    params: &QueryParams,
+    limits: &SearchLimits,
     started: Instant,
 ) -> Result<QueryResult> {
-    let mut result = match step {
-        QueryStep::Answered(result) => result,
-        QueryStep::Reranking(mut awaiting) => {
-            let scores = awaiting.score()?;
-            engine.read_index(name, |current| {
-                spread::counted(|| awaiting.finish(current, scores))
-            })?
+    let mut earlier = None;
+    let mut replaced_reranks = 0;
+    loop {
+        let step = engine.read_index_prepared(
+            name,
+            earlier.take(),
+            |current, earlier| resolve_vector_text(current, params, earlier),
+            |current, embedded| run_query(current, params, embedded, limits),
+        )?;
+        let mut awaiting = match step {
+            QueryStep::Answered(mut result) => {
+                result.elapsed = started.elapsed();
+                return Ok(result);
+            }
+            QueryStep::Reranking(awaiting) => awaiting,
+        };
+        let scored = awaiting.score();
+        let finished = engine.read_index(name, |current| {
+            if !awaiting.ranked_on(current) {
+                return Ok(Err(awaiting));
+            }
+            let scores = scored?;
+            spread::counted(|| awaiting.finish(current, scores)).map(Ok)
+        })?;
+        let replaced = match finished {
+            Ok(mut result) => {
+                result.elapsed = started.elapsed();
+                return Ok(result);
+            }
+            Err(replaced) => replaced,
+        };
+        replaced_reranks += 1;
+        if replaced_reranks >= MAX_QUERY_RERANKS {
+            return Err(index_replaced_during_reranks(name, replaced_reranks));
         }
-    };
-    result.elapsed = started.elapsed();
-    Ok(result)
+        earlier = Some(replaced.into_embedded());
+    }
 }

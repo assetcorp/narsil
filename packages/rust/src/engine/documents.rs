@@ -244,14 +244,8 @@ impl Narsil {
         let plugins = &self.inner.plugins;
         let limits = &self.inner.search_limits;
         let started = Instant::now();
-        let run = |scoped: &QueryParams| {
-            let step = self.inner.read_index_prepared(
-                index,
-                |current, earlier| query::embed_query_text(current, scoped, earlier),
-                |current, embedded| query::run_query(current, scoped, embedded.params, limits),
-            )?;
-            query::finish_query(&self.inner, index, step, started)
-        };
+        let run =
+            |scoped: &QueryParams| query::answer_query(&self.inner, index, scoped, limits, started);
         if plugins.is_empty() {
             return run(params);
         }

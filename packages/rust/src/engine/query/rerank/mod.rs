@@ -3,11 +3,11 @@ mod finish;
 mod order;
 mod plan;
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use super::constants::{DEFAULT_PAGE_SIZE, RESULT_WINDOW};
 use super::cursor::{decode_page_cursor, query_binding_of, require_matching_cursor};
+use super::embedded::EmbeddedQuery;
 use super::fusion::{fixed_hybrid_depth, require_within_hybrid_depth};
 use super::params::{DocumentProjection, Pin, QueryParams, RerankConfig, SearchMode};
 use super::projection::resolve_projection;
@@ -29,7 +29,7 @@ pub(crate) use finish::AwaitingScores;
 pub(crate) use plan::rerank_query_text;
 
 pub(crate) struct RerankRequest<'a> {
-    pub(crate) params: Cow<'a, QueryParams>,
+    pub(crate) embedded: EmbeddedQuery<'a>,
     pub(crate) requested: &'a QueryParams,
     pub(crate) rerank: &'a RerankConfig,
     pub(crate) query_text: Option<String>,
@@ -131,13 +131,13 @@ pub(crate) fn reranked_query<'a>(
     request: RerankRequest<'a>,
 ) -> Result<QueryStep<'a>> {
     let RerankRequest {
-        params: resolved,
+        embedded,
         requested,
         rerank,
         query_text,
         limits,
     } = request;
-    let params = resolved.as_ref();
+    let params = embedded.params.as_ref();
     let fuses = fuses_rankings(params);
     let hybrid_depth = match fuses {
         true => fixed_hybrid_depth(params.hybrid.as_ref())?,
@@ -234,7 +234,7 @@ pub(crate) fn reranked_query<'a>(
         .collect::<Result<Vec<String>>>()?;
     Ok(QueryStep::Reranking(Box::new(AwaitingScores {
         ranked_on: Arc::clone(index),
-        params: resolved,
+        embedded,
         plan,
         ranked,
         texts,
