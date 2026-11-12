@@ -47,10 +47,11 @@ jobs:
         {"parts": 2, "shard": 1, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true}},
         {"parts": 2, "shard": 2, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true}},
         {"parts": 1, "shard": 1, "target": {"platform": "darwin-arm64", "runner": "macos-15", "go": "stable", "race": true}},
-        {"parts": 4, "shard": 1, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
-        {"parts": 4, "shard": 2, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
-        {"parts": 4, "shard": 3, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
-        {"parts": 4, "shard": 4, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}}
+        {"parts": 5, "shard": 1, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 2, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 3, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 4, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 5, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}}
         ]}' || '{"parts": [4], "shard": [1, 2, 3, 4], "target": [
         {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "1.26", "race": true},
         {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true},
@@ -67,8 +68,9 @@ jobs:
 
     env:
       PART_1_TESTS: TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact
-      PART_2_TESTS: TestEveryAcknowledgedVectorFindsItselfWhileGrowthPassesPlaceNewOnes|TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew|TestCrossImplementationSavesOpenWithTheSameAnswers|TestEmbeddingsUpdatedWhileTheVectorFieldPromotesReachSnapshotsAndRestarts
+      PART_2_TESTS: TestEveryAcknowledgedVectorFindsItselfWhileGrowthPassesPlaceNewOnes|TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew|TestCrossImplementationSavesOpenWithTheSameAnswers
       PART_3_TESTS: TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally|TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory|TestCrashKeepsEveryAcknowledgedWrite
+      PROMOTION_TEST: TestEmbeddingsUpdatedWhileTheVectorFieldPromotesReachSnapshotsAndRestarts
 
     defaults:
       run:
@@ -136,12 +138,14 @@ jobs:
         run: |
           case "$PARTS/$PART" in
             1/1) selection=() timeout=30m ;;
-            4/1) selection=(-run "^(${PART_1_TESTS})\$") timeout=8m ;;
-            4/2) selection=(-run "^(${PART_2_TESTS})\$") timeout=8m ;;
-            4/3) selection=(-run "^(${PART_3_TESTS})\$") timeout=8m ;;
-            4/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS})\$") timeout=8m ;;
-            2/1) selection=(-run "^(${PART_1_TESTS}|${PART_2_TESTS})\$") timeout=12m ;;
-            2/2) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS})\$") timeout=12m ;;
+            4/1|5/1) selection=(-run "^(${PART_1_TESTS})\$") timeout=8m ;;
+            4/2) selection=(-run "^(${PART_2_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
+            4/3|5/3) selection=(-run "^(${PART_3_TESTS})\$") timeout=8m ;;
+            4/4|5/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
+            5/2) selection=(-run "^(${PART_2_TESTS})\$") timeout=8m ;;
+            5/5) selection=(-run "^(${PROMOTION_TEST})\$") timeout=8m ;;
+            2/1) selection=(-run "^(${PART_1_TESTS}|${PART_2_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            2/2) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
           go test -count=1 $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./...
