@@ -106,6 +106,7 @@ jobs:
     concurrency:
       group: publish-prerelease-to-npm
       cancel-in-progress: false
+      queue: max
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
