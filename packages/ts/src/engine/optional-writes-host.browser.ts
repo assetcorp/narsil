@@ -15,19 +15,17 @@ type EngineNames = Pick<
   OptionalCodeHost,
   | 'BATCH_CHUNK_SIZE'
   | 'ErrorCodes'
+  | 'MAX_CALLS_ACROSS_INDEX_CHANGES'
   | 'MIN_DOCUMENTS_FOR_SEGMENTS'
   | 'NarsilError'
   | 'admitBufferedUpsert'
   | 'admitInsert'
   | 'arrayPositionsAreStale'
-  | 'asBatchInsertError'
   | 'awaitWriteVisibility'
+  | 'capsEachPartition'
   | 'changeIndexOutsideExternalWaits'
-  | 'collectRequiredFieldFailures'
   | 'createFrozenSegment'
-  | 'createPendingAdmissions'
   | 'deleteNestedValue'
-  | 'embedChunkDocuments'
   | 'emitSyncChange'
   | 'extractVectorFromDoc'
   | 'fnv1a'
@@ -49,7 +47,6 @@ type EngineNames = Pick<
   | 'prepareStoredSynonyms'
   | 'providedDocId'
   | 'readHeapStatistics'
-  | 'recordPendingAdmission'
   | 'removeDocumentVectors'
   | 'requireDocumentObject'
   | 'requireDocumentWithinSizeLimit'
@@ -79,20 +76,18 @@ type SegmentCodecNames = Pick<typeof SegmentCodecCode, 'createSharedFrozenSegmen
 
 export let BATCH_CHUNK_SIZE: EngineNames['BATCH_CHUNK_SIZE']
 export let ErrorCodes: EngineNames['ErrorCodes']
+export let MAX_CALLS_ACROSS_INDEX_CHANGES: EngineNames['MAX_CALLS_ACROSS_INDEX_CHANGES']
 export let MIN_DOCUMENTS_FOR_SEGMENTS: EngineNames['MIN_DOCUMENTS_FOR_SEGMENTS']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let admitBufferedUpsert: EngineNames['admitBufferedUpsert']
 export let admitInsert: EngineNames['admitInsert']
 export let arrayPositionsAreStale: EngineNames['arrayPositionsAreStale']
-export let asBatchInsertError: EngineNames['asBatchInsertError']
 export let awaitWriteVisibility: EngineNames['awaitWriteVisibility']
+export let capsEachPartition: EngineNames['capsEachPartition']
 export let changeIndexOutsideExternalWaits: EngineNames['changeIndexOutsideExternalWaits']
-export let collectRequiredFieldFailures: EngineNames['collectRequiredFieldFailures']
 export let createFrozenSegment: EngineNames['createFrozenSegment']
-export let createPendingAdmissions: EngineNames['createPendingAdmissions']
 export let deleteNestedValue: EngineNames['deleteNestedValue']
-export let embedChunkDocuments: EngineNames['embedChunkDocuments']
 export let emitSyncChange: EngineNames['emitSyncChange']
 export let extractVectorFromDoc: EngineNames['extractVectorFromDoc']
 export let fnv1a: EngineNames['fnv1a']
@@ -114,7 +109,6 @@ export let prepareDocumentVectors: EngineNames['prepareDocumentVectors']
 export let prepareStoredSynonyms: EngineNames['prepareStoredSynonyms']
 export let providedDocId: EngineNames['providedDocId']
 export let readHeapStatistics: EngineNames['readHeapStatistics']
-export let recordPendingAdmission: EngineNames['recordPendingAdmission']
 export let removeDocumentVectors: EngineNames['removeDocumentVectors']
 export let requireDocumentObject: EngineNames['requireDocumentObject']
 export let requireDocumentWithinSizeLimit: EngineNames['requireDocumentWithinSizeLimit']
@@ -156,19 +150,17 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
   ;({
     BATCH_CHUNK_SIZE,
     ErrorCodes,
+    MAX_CALLS_ACROSS_INDEX_CHANGES,
     MIN_DOCUMENTS_FOR_SEGMENTS,
     NarsilError,
     admitBufferedUpsert,
     admitInsert,
     arrayPositionsAreStale,
-    asBatchInsertError,
     awaitWriteVisibility,
+    capsEachPartition,
     changeIndexOutsideExternalWaits,
-    collectRequiredFieldFailures,
     createFrozenSegment,
-    createPendingAdmissions,
     deleteNestedValue,
-    embedChunkDocuments,
     emitSyncChange,
     extractVectorFromDoc,
     fnv1a,
@@ -190,7 +182,6 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     prepareStoredSynonyms,
     providedDocId,
     readHeapStatistics,
-    recordPendingAdmission,
     removeDocumentVectors,
     requireDocumentObject,
     requireDocumentWithinSizeLimit,

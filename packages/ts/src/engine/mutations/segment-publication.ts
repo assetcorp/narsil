@@ -1,17 +1,16 @@
 import {
   admitInsert,
-  createPendingAdmissions,
   ErrorCodes,
   indexChangeOutsideExternalWaits,
   insertDocumentVectors,
   NarsilError,
-  recordPendingAdmission,
   removeDocumentVectors,
 } from '#platform/optional-writes-host'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { InsertOptions } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
+import { createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
 import type { ApplyMutation, MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertDocument, type InsertProgress } from './insert-batch-apply'

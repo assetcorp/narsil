@@ -33,12 +33,13 @@ const (
 )
 
 const (
-	defaultRerankTimeout   = 30 * time.Second
-	minRerankTimeout       = time.Millisecond
-	maxRerankTimeout       = 2_147_483_647 * time.Millisecond
-	defaultMaxRerankWindow = 100
-	minRerankWindow        = 1
-	maxRerankWindow        = 1000
+	defaultRerankTimeout       = 30 * time.Second
+	minRerankTimeout           = time.Millisecond
+	maxRerankTimeout           = 2_147_483_647 * time.Millisecond
+	defaultMaxRerankWindow     = 100
+	minRerankWindow            = 1
+	maxRerankWindow            = 1000
+	maxCallsAcrossIndexChanges = 3
 )
 
 const (

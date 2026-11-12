@@ -2,72 +2,11 @@ package engine
 
 import (
 	"context"
-	"fmt"
-	"math"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
-
-func (entry *indexEntry) embedQueryText(ctx context.Context, params model.QueryParams) (model.QueryParams, error) {
-	vector := params.Vector
-	if vector == nil {
-		return params, nil
-	}
-	text, hasText := vector.Text.Get()
-	if !hasText {
-		return params, nil
-	}
-	if vector.Value != nil {
-		return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid, "Vector query cannot have both 'text' and 'value'", nil)
-	}
-	adapter := entry.boundEmbedder()
-	if adapter == nil {
-		if entry.embeddingName != "" {
-			return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid,
-				fmt.Sprintf("Vector query with 'text' needs embedding adapter %q, which is not registered on this engine. Register it with RegisterEmbeddingAdapter or supply a raw vector.", entry.embeddingName),
-				map[string]any{"adapter": entry.embeddingName})
-		}
-		return params, narsilerr.New(narsilerr.CodeEmbeddingConfigInvalid,
-			"Vector query with 'text' requires an embedding adapter on the index or instance", nil)
-	}
-	if text == "" {
-		return params, narsilerr.New(narsilerr.CodeDocValidationFailed, "Vector query 'text' must not be empty", nil)
-	}
-	embedder := safeEmbedder{adapter: adapter}
-	raw, err := embedder.Embed(ctx, text, model.EmbeddingForQuery)
-	if err != nil {
-		if _, isEngineError := narsilerr.As(err); isEngineError {
-			return params, err
-		}
-		return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
-			"The embedding adapter cannot embed the query: "+err.Error(), map[string]any{"cause": err.Error()})
-	}
-	if raw == nil {
-		return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
-			"Adapter returned undefined for query embedding, expected Float32Array", nil)
-	}
-	dimensions := embedder.Dimensions()
-	if len(raw) != dimensions {
-		return params, narsilerr.New(narsilerr.CodeEmbeddingDimensionMismatch,
-			fmt.Sprintf("Adapter returned %d-dimensional vector for query, expected %d", len(raw), dimensions),
-			map[string]any{"expected": dimensions, "actual": len(raw)})
-	}
-	for at, value := range raw {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return params, narsilerr.New(narsilerr.CodeEmbeddingFailed,
-				fmt.Sprintf("Adapter returned vector with %s at index %d for query embedding", formatNonFinite(value), at),
-				map[string]any{"index": at})
-		}
-	}
-	resolved := *vector
-	resolved.Value = append([]float32(nil), raw...)
-	resolved.Text = model.Optional[string]{}
-	params.Vector = &resolved
-	return params, nil
-}
 
 func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
 	requested model.DocumentProjection) error {
@@ -97,12 +36,7 @@ func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *ind
 		return model.QueryResult{}, err
 	}
 	defer unpin()
-	var result model.QueryResult
-	if resolved.Rerank != nil {
-		result, err = target.QueryReranked(pinned, resolved, n.rerank.maxWindow, n.rerankScorer, options)
-	} else {
-		result, err = target.QueryWith(pinned, resolved, options)
-	}
+	result, err := target.QueryWith(pinned, resolved, options)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
@@ -112,30 +46,36 @@ func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *ind
 	return result, nil
 }
 
-func (n *Narsil) prepareSearch(ctx context.Context, entry *indexEntry, params model.QueryParams) (model.QueryParams, index.QueryOptions, error) {
+func (n *Narsil) prepareSearch(ctx context.Context, indexName string, entry *indexEntry, release func(),
+	params model.QueryParams) (*indexEntry, func(), model.QueryParams, index.QueryOptions, error) {
 	if err := index.RequireUsableVectorSettings(&params); err != nil {
-		return params, index.QueryOptions{}, err
+		release()
+		return nil, releasedNothing, params, index.QueryOptions{}, err
 	}
-	params, err := n.beforeSearch(ctx, entry.name, params)
-	if err != nil {
-		return params, index.QueryOptions{}, err
+	if n.plugins.hasHook(hookBeforeSearch) {
+		var err error
+		entry, release, err = n.holderOf(indexName).outside(release, func() error {
+			var hookErr error
+			params, hookErr = n.beforeSearch(ctx, indexName, params)
+			return hookErr
+		})
+		if err != nil {
+			release()
+			return nil, releasedNothing, params, index.QueryOptions{}, err
+		}
 	}
 	options := index.QueryOptions{CursorParams: model.Some(params), PhraseReady: entry.phraseReady}
-	resolved, err := entry.embedQueryText(ctx, index.WithRerankQueryText(params))
-	return resolved, options, err
+	return entry, release, index.WithRerankQueryText(params), options, nil
 }
 
 func (n *Narsil) beforeSearch(ctx context.Context, indexName string, params model.QueryParams) (model.QueryParams, error) {
-	if !n.plugins.hasBeforeSearchHooks() {
-		return params, nil
-	}
 	hooked := params
 	err := n.plugins.search(ctx, hookBeforeSearch, &model.SearchContext{IndexName: indexName, Params: &hooked})
 	return hooked, err
 }
 
 func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model.QueryParams, result model.QueryResult) {
-	if !n.plugins.hasAfterSearchHooks() {
+	if !n.plugins.hasHook(hookAfterSearch) {
 		return
 	}
 	observed := result
@@ -150,42 +90,57 @@ func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model
 // hooks run around the query. It returns a search code for an invalid query,
 // such as CodeSearchInvalidField for a field that the schema does not
 // declare, and an embedding code when the query text cannot be embedded.
+//
+// The engine calls the embedding adapter and the rerank adapter while it
+// holds no lock on the index, so an adapter can query or restore the index
+// that the query reads. When a restore puts another embedding adapter on the
+// index during the embedding, the engine embeds the text again with that
+// adapter, and when a restore replaces the index during the rerank call, the
+// query runs again on the restored index. A rebalance or an analysis change
+// during the rerank call also runs the query again, on the index that it put
+// in place. The query returns CodeWorkerBusy once the adapter has changed
+// after three embeddings, or once a restore, a drop, or a close has replaced
+// the index during each of three rerank calls, while the reruns after a
+// rebalance or an analysis change count toward no limit.
 func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams) (QueryResult, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	defer release()
-	resolved, options, err := n.prepareSearch(ctx, entry, params)
+	entry, release, hooked, options, err := n.prepareSearch(ctx, indexName, entry, release, params)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.QueryResult, error) {
-		return n.queryPinned(ctx, entry, target, resolved, options)
-	})
+	result, resolved, release, err := n.answerQuery(ctx, indexName, entry, release, hooked, options)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	result.AnalysisStale = stale
+	release()
 	n.afterSearch(ctx, indexName, resolved, result)
 	return result, nil
 }
 
 // Preflight counts the documents that a query matches without building any
 // hits, so that a caller can show a match count before it runs the query.
-// It validates params the same way Query does.
+// It validates params the same way Query does, and it embeds a vector
+// clause's Text the same way, with no lock held on the index during the
+// embedding.
 func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryParams) (PreflightResult, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
-	defer release()
-	resolved, options, err := n.prepareSearch(ctx, entry, params)
+	entry, release, hooked, _, err := n.prepareSearch(ctx, indexName, entry, release, params)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
+	entry, release, embedded, err := n.embedForQuery(ctx, indexName, entry, release, hooked, nil)
+	if err != nil {
+		return model.PreflightResult{}, err
+	}
+	defer release()
 	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.PreflightResult, error) {
-		return target.PreflightWith(ctx, resolved, index.QueryOptions{PhraseReady: options.PhraseReady})
+		return target.PreflightWith(ctx, embedded.params, index.QueryOptions{PhraseReady: entry.phraseReady})
 	})
 	if err != nil {
 		return model.PreflightResult{}, err
@@ -195,6 +150,11 @@ func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryPa
 }
 
 func readUnderOneAnalysis[R any](ctx context.Context, n *Narsil, entry *indexEntry, read func(*index.Index) (R, error)) (R, bool, error) {
+	return readUnderOneAnalysisDiscarding(ctx, n, entry, read, nil)
+}
+
+func readUnderOneAnalysisDiscarding[R any](ctx context.Context, n *Narsil, entry *indexEntry, read func(*index.Index) (R, error),
+	discard func(R)) (R, bool, error) {
 	for {
 		target := entry.index()
 		stale := entry.analysisIsStale()
@@ -210,6 +170,9 @@ func readUnderOneAnalysis[R any](ctx context.Context, n *Narsil, entry *indexEnt
 		}
 		if err == nil && unchanged && entry.analysisIsStale() == stale {
 			return result, stale, nil
+		}
+		if err == nil && discard != nil {
+			discard(result)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return result, false, ctxErr

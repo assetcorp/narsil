@@ -48,8 +48,27 @@ function applyEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceCo
   }
 }
 
+export async function withinRebalanceHook(
+  ctx: RebalanceContext,
+  indexName: string,
+  hook: () => Promise<void>,
+): Promise<void> {
+  ctx.indexesInRebalanceHooks ??= new Set()
+  const running = ctx.indexesInRebalanceHooks
+  running.add(indexName)
+  try {
+    await hook()
+  } finally {
+    running.delete(indexName)
+  }
+}
+
 async function afterEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
   for (const field of entry.vectors.keys()) manager.getVectorIndexes().get(field)?.scheduleBuild()
+  await withinRebalanceHook(ctx, entry.indexName, () => runEntryHooks(entry, ctx))
+}
+
+async function runEntryHooks(entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
   try {
     if (entry.action === 'remove') {
       await ctx.pluginRegistry.runHook('afterRemove', { indexName: entry.indexName, docId: entry.docId })
