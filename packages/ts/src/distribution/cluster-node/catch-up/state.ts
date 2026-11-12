@@ -120,13 +120,15 @@ export function recordSnapshotSyncRequest(
   indexName: string,
   partitionId: number,
   replicaNodeId: string,
-  appliedSeqNo: number,
 ): void {
   const key = partitionKey(indexName, partitionId)
-  const existing = state.cursors.get(key)?.get(replicaNodeId)
-  if (existing === undefined) return
-  openFreshSyncSession(existing, Math.min(existing.appliedSeqNo, appliedSeqNo))
-  noteAcknowledgedPosition(state, key, replicaNodeId, existing.appliedSeqNo)
+  const partition = state.cursors.get(key)
+  const existing = partition?.get(replicaNodeId)
+  if (partition === undefined || existing === undefined) return
+  openFreshSyncSession(existing, 0)
+  partition.delete(replicaNodeId)
+  if (partition.size === 0) state.cursors.delete(key)
+  state.acknowledgedSeqNos.get(key)?.delete(replicaNodeId)
 }
 
 /**
