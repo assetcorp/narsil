@@ -238,6 +238,12 @@ pub(crate) fn index_stats<'py>(
     dict.set_item("documentCount", stats.document_count)?;
     dict.set_item("partitionCount", stats.partition_count)?;
     dict.set_item("estimatedMemoryBytes", stats.estimated_memory_bytes)?;
+    if let Some(saved_bytes) = stats.saved_bytes {
+        dict.set_item("savedBytes", saved_bytes)?;
+    }
+    if let Some(log_bytes) = stats.log_bytes {
+        dict.set_item("logBytes", log_bytes)?;
+    }
     dict.set_item("language", &stats.language)?;
     dict.set_item("schema", value_to_py(py, &stats.schema)?)?;
     Ok(dict)
@@ -253,6 +259,12 @@ pub(crate) fn partition_stats<'py>(
         dict.set_item("partitionId", partition.partition_id)?;
         dict.set_item("documentCount", partition.document_count)?;
         dict.set_item("estimatedMemoryBytes", partition.estimated_memory_bytes)?;
+        if let Some(saved_bytes) = partition.saved_bytes {
+            dict.set_item("savedBytes", saved_bytes)?;
+        }
+        if let Some(log_bytes) = partition.log_bytes {
+            dict.set_item("logBytes", log_bytes)?;
+        }
         list.append(dict)?;
     }
     Ok(list)

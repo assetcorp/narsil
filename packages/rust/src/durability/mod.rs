@@ -9,6 +9,7 @@ pub(crate) mod envelope_sink;
 pub(crate) mod files;
 pub(crate) mod index_state;
 pub(crate) mod lock;
+pub(crate) mod log_bytes;
 pub(crate) mod log_reader;
 pub(crate) mod log_segment;
 pub(crate) mod log_writer;

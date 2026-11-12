@@ -24,7 +24,7 @@ impl Durable {
         engine: &EngineInner,
         name: &str,
     ) -> Result<Option<Arc<IndexState>>> {
-        recover_index(engine, &self.backing, self.compaction_threshold, name)
+        recover_index(engine, &self.backing, self.limits, name)
     }
 
     /// Writes a checkpoint of `index` while the caller holds its write lock, so that the checkpoint holds every
@@ -63,6 +63,7 @@ impl Durable {
             let closed = ClosedIndex {
                 config: Arc::new(config),
                 document_count: metadata.document_count.unwrap_or(0),
+                saved_bytes: metadata.saved_bytes,
                 partition_count: usize::try_from(metadata.partition_count).unwrap_or(usize::MAX),
                 language: metadata.language.clone(),
                 suggestions: Arc::new(

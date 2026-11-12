@@ -5,6 +5,7 @@ use crate::durability::restore::RestoreStaging;
 use crate::engine::EngineInner;
 use crate::engine::durable::Durable;
 use crate::engine::durable::log::IndexLog;
+use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
 use crate::engine::index_lifecycle::{ClosedEntry, ClosedIndex, closed_facts};
 use crate::error::Result;
@@ -71,16 +72,21 @@ impl FileSwap<'_> {
         staged: &mut RestoreStaging<'_>,
         metadata: IndexMetadata,
     ) -> Result<IndexLog> {
-        let previous_facts = self.previous.map(|previous| closed_facts(previous));
-        let restored_facts = closed_facts(self.restored);
+        let previous_facts = self.previous.map(|previous| {
+            let mut facts = closed_facts(previous);
+            facts.saved_bytes = previous.log().map(|log| log.saved_size().bytes);
+            facts
+        });
+        let mut restored_facts = closed_facts(self.restored);
+        restored_facts.saved_bytes = Some(SavedSize::of(self.manifest).bytes);
         let mut released = false;
         let mut release = || {
             released = true;
             self.release_files();
         };
-        let adopted =
-            self.durable
-                .adopt_restore(staged, &self.manifest.checkpoint, metadata, &mut release);
+        let adopted = self
+            .durable
+            .adopt_restore(staged, self.manifest, metadata, &mut release);
         let log = match adopted {
             Ok(log) => log,
             Err(error) => {

@@ -10,8 +10,9 @@ import (
 )
 
 type AppendFile struct {
-	key  string
-	file *os.File
+	key   string
+	file  *os.File
+	sizes FileSizes
 }
 
 func (directory *Directory) OpenAppend(key string) (*AppendFile, error) {
@@ -26,7 +27,9 @@ func (directory *Directory) OpenAppend(key string) (*AppendFile, error) {
 	if err != nil {
 		return nil, saveFailed(`Failed to open "`+key+`" for appending`, key, err)
 	}
-	return &AppendFile{key: key, file: file}, nil
+	opened := &AppendFile{key: key, file: file, sizes: directory.sizesOf(key)}
+	measureFile(opened.sizes, key, file)
+	return opened, nil
 }
 
 func (handle *AppendFile) Key() string {
@@ -35,7 +38,11 @@ func (handle *AppendFile) Key() string {
 
 func (handle *AppendFile) Append(bytes []byte) error {
 	if _, err := handle.file.Write(bytes); err != nil {
+		measureFile(handle.sizes, handle.key, handle.file)
 		return saveFailed(`Write to "`+handle.key+`" failed; the write is not acknowledged`, handle.key, err)
+	}
+	if handle.sizes != nil {
+		handle.sizes.Grew(handle.key, int64(len(bytes)))
 	}
 	return nil
 }
@@ -48,7 +55,9 @@ func (handle *AppendFile) Sync() error {
 }
 
 func (handle *AppendFile) Truncate(length int64) error {
-	if err := handle.file.Truncate(length); err != nil {
+	err := handle.file.Truncate(length)
+	measureFile(handle.sizes, handle.key, handle.file)
+	if err != nil {
 		return saveFailed(`Failed to truncate "`+handle.key+`"`, handle.key, err)
 	}
 	if _, err := handle.file.Seek(length, io.SeekStart); err != nil {

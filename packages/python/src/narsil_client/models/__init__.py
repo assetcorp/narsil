@@ -1645,6 +1645,23 @@ class PartitionStatsResult(ApiModel):
     counts, field-index sizes) and does not include per-object overhead. Treat as an estimate,
     not a measurement.
     """
+    saved_bytes: int | float | None = Field(default=None, alias="savedBytes")
+    """The segment files that the index's current checkpoint lists for this partition hold this
+    many bytes. The vector files and graph parts belong to the whole index, so only
+    IndexStats.savedBytes counts them.
+    """
+    log_bytes: int | float | None = Field(default=None, alias="logBytes")
+    """This partition's write-ahead log files and device-sync history files hold this many bytes."""
+    saved_bytes_of_every_copy: int | float | None = Field(default=None, alias="savedBytesOfEveryCopy")
+    """A cluster adds up PartitionStatsResult.savedBytes over every copy of this partition. The
+    figure is absent outside a cluster, and it is absent whenever a copy fails to answer or
+    reports no saved size.
+    """
+    log_bytes_of_every_copy: int | float | None = Field(default=None, alias="logBytesOfEveryCopy")
+    """A cluster adds up PartitionStatsResult.logBytes over every copy of this partition. The
+    figure is absent outside a cluster, and it is absent whenever a copy fails to answer or
+    reports no log size.
+    """
 
 
 class IndexPartitionsResponse(ApiModel):
@@ -1679,6 +1696,30 @@ class IndexStats(ApiModel):
     classes, map transitions, GC headers) is not captured here, so this number routinely
     undershoots the real heap by a meaningful factor. Use Narsil.getMemoryStats when sizing host
     memory.
+    """
+    saved_bytes: int | float | None = Field(default=None, alias="savedBytes")
+    """The files that the index's current checkpoint lists hold this many bytes: the segment files
+    of every partition, the vector files, and the graph parts. The figure changes only when a
+    checkpoint commits, so an unchanged index reports the same size before and after a restart.
+    A closed index reports the size that its last checkpoint recorded, and an index that saves
+    nothing reports no figure. In a cluster, the figure covers the copy of each partition that
+    the stats call read.
+    """
+    log_bytes: int | float | None = Field(default=None, alias="logBytes")
+    """The index's write-ahead log and the history that it keeps for device sync hold this many
+    bytes. The figure grows with every write, and it falls when the engine deletes log or
+    history files. A closed index reports no figure, and neither does an index that saves
+    nothing.
+    """
+    saved_bytes_of_every_copy: int | float | None = Field(default=None, alias="savedBytesOfEveryCopy")
+    """A cluster adds up IndexStats.savedBytes over every copy of every partition, which shows the
+    disk space that the index takes across all of its nodes. The figure is absent outside a
+    cluster, and it is absent whenever a copy fails to answer or reports no saved size.
+    """
+    log_bytes_of_every_copy: int | float | None = Field(default=None, alias="logBytesOfEveryCopy")
+    """A cluster adds up IndexStats.logBytes over every copy of every partition. The figure is
+    absent outside a cluster, and it is absent whenever a copy fails to answer or reports no log
+    size.
     """
     language: str
     """The index analyses text with this language module."""

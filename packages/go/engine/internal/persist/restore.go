@@ -248,6 +248,7 @@ func (manager *Manager) restoreStaged(ctx context.Context, read *archiveRead, so
 	if err != nil {
 		return nil, err
 	}
+	stampSavedBytes(&meta, savedSizeOf(read.restoring.Manifest))
 	encoded, err := metadata.Write(meta, false, true)
 	if err != nil {
 		return nil, err
@@ -286,6 +287,7 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 		if replaces {
 			previous.reopen()
 			_ = manager.register(previous)
+			manager.measureStoredFromDisk(context.WithoutCancel(ctx), handle.Name)
 		}
 		return nil, err
 	}
@@ -304,6 +306,7 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 		}
 	}
 	durable := manager.newDurable(handle, appliedOf(listed, handle.Index.PartitionCount()))
+	_ = manager.measureStored(handle.Name, savedSizeOf(listed))
 	if err := manager.register(durable); err != nil {
 		return nil, err
 	}

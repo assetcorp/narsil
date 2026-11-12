@@ -95,6 +95,22 @@ fn attach_segment(target: &Partition, id: u64, frozen: Arc<FrozenSegment>) {
     });
 }
 
+fn require_listed_counts(
+    listed: &SegmentRef,
+    document_count: u32,
+    tombstone_count: usize,
+) -> Result<()> {
+    if listed.document_count == document_count
+        && usize::try_from(listed.tombstone_count).is_ok_and(|listed| listed == tombstone_count)
+    {
+        return Ok(());
+    }
+    Err(load_failed(format!(
+        "The segment \"{}\" holds {document_count} documents and {tombstone_count} tombstones where the manifest lists {} and {}",
+        listed.file.key, listed.document_count, listed.tombstone_count
+    )))
+}
+
 /// Reports whether a listed segment is a paged segment that the index reads from its file, which an index whose
 /// text stays on disk does for every segment whose header gives the paged envelope format.
 pub(crate) fn holds_paged_text(
@@ -130,6 +146,7 @@ fn load_paged_segment(
         checksum: listed.file.checksum,
     };
     let (mut resident, sections) = open_paged_segment(&listing)?;
+    require_listed_counts(listed, resident.document_count, resident.tombstones.len())?;
     require_agreed_schema(schema, &resident.schema, key)?;
     let tombstones = std::mem::take(&mut resident.tombstones);
     let holds_documents = resident.document_count > 0;
@@ -168,6 +185,7 @@ fn load_partition(
             true,
         )?;
         let mut segment = decode_keyword_segment(&payload)?;
+        require_listed_counts(listed, segment.document_count, segment.tombstones.len())?;
         require_agreed_schema(schema, &segment.schema, key)?;
         let tombstones = std::mem::take(&mut segment.tombstones);
         let holds_documents = segment.document_count > 0;

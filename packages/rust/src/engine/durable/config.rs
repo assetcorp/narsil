@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::durability::constants::DEFAULT_COMPACTION_THRESHOLD;
+use crate::durability::constants::{
+    DEFAULT_COMPACTION_THRESHOLD, DEFAULT_REWRITE_BYTES_PER_CHECKPOINT,
+};
 use crate::durability::persistence::PersistenceAdapter;
 use crate::durability::store_config::{DurabilityMode as StoreMode, StoreConfig};
 use crate::engine::query_suggestions::types::QuerySuggestionsConfig;
@@ -51,6 +53,27 @@ pub struct DurabilityConfig {
     /// The engine merges a partition's checkpoint segments once the partition holds more than this many, 12 by
     /// default.
     pub compaction_threshold: Option<u32>,
+    /// A checkpoint rewrites at most this many bytes of existing segment files to drop the copies of removed and
+    /// replaced documents, 268,435,456 by default. Beyond that budget, each partition whose removed share exceeds
+    /// 0.2 still rewrites one segment, so every such partition shrinks at every checkpoint.
+    pub rewrite_bytes_per_checkpoint: Option<u64>,
+}
+
+/// The limits that a checkpoint applies as it merges segments and rewrites the segments that hold removed
+/// documents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CheckpointLimits {
+    pub(crate) compaction_threshold: u32,
+    pub(crate) rewrite_bytes_per_checkpoint: u64,
+}
+
+impl Default for CheckpointLimits {
+    fn default() -> CheckpointLimits {
+        CheckpointLimits {
+            compaction_threshold: DEFAULT_COMPACTION_THRESHOLD,
+            rewrite_bytes_per_checkpoint: DEFAULT_REWRITE_BYTES_PER_CHECKPOINT,
+        }
+    }
 }
 
 /// Everything that an engine opens with.
@@ -123,13 +146,26 @@ pub(crate) fn resolve_pattern_work_cap(config: &NarsilConfig) -> Result<i64> {
 
 pub(crate) struct LogTier {
     pub(crate) store: StoreConfig,
-    pub(crate) compaction_threshold: u32,
+    pub(crate) limits: CheckpointLimits,
 }
 
 pub(crate) struct SnapshotTier {
     pub(crate) adapter: Arc<dyn PersistenceAdapter>,
     pub(crate) checkpoint_interval_ms: Option<u64>,
     pub(crate) checkpoint_mutation_threshold: Option<u64>,
+    pub(crate) limits: CheckpointLimits,
+}
+
+fn limits_of(durability: &DurabilityConfig) -> CheckpointLimits {
+    let defaults = CheckpointLimits::default();
+    CheckpointLimits {
+        compaction_threshold: durability
+            .compaction_threshold
+            .unwrap_or(defaults.compaction_threshold),
+        rewrite_bytes_per_checkpoint: durability
+            .rewrite_bytes_per_checkpoint
+            .unwrap_or(defaults.rewrite_bytes_per_checkpoint),
+    }
 }
 
 pub(crate) enum ResolvedTier {
@@ -167,6 +203,11 @@ fn require_valid(durability: &DurabilityConfig) -> Result<()> {
     require_at_least(
         "compactionThreshold",
         durability.compaction_threshold.map(u64::from),
+        1,
+    )?;
+    require_at_least(
+        "rewriteBytesPerCheckpoint",
+        durability.rewrite_bytes_per_checkpoint,
         1,
     )?;
     if durability.tier != Some(DurabilityTier::Snapshot) {
@@ -215,9 +256,7 @@ fn log_tier(durability: &DurabilityConfig, directory: PathBuf) -> LogTier {
     }
     LogTier {
         store,
-        compaction_threshold: durability
-            .compaction_threshold
-            .unwrap_or(DEFAULT_COMPACTION_THRESHOLD),
+        limits: limits_of(durability),
     }
 }
 
@@ -239,6 +278,7 @@ pub(crate) fn resolve_tier(config: &NarsilConfig) -> Result<Option<ResolvedTier>
                     adapter: Arc::clone(adapter),
                     checkpoint_interval_ms: None,
                     checkpoint_mutation_threshold: None,
+                    limits: CheckpointLimits::default(),
                 }),
             }));
     };
@@ -253,6 +293,7 @@ pub(crate) fn resolve_tier(config: &NarsilConfig) -> Result<Option<ResolvedTier>
             adapter: Arc::clone(adapter),
             checkpoint_interval_ms: durability.checkpoint_interval_ms,
             checkpoint_mutation_threshold: durability.checkpoint_mutation_threshold,
+            limits: limits_of(durability),
         })));
     }
     if let Some(directory) = usable_directory(durability.directory.as_deref()) {

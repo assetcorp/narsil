@@ -55,6 +55,7 @@ const DURABILITY_CONFIG_KEYS: Record<keyof DurabilityConfig, true> = {
   checkpointIntervalMs: true,
   checkpointMutationThreshold: true,
   compactionThreshold: true,
+  rewriteBytesPerCheckpoint: true,
 }
 
 const WORKER_CONFIG_KEYS: Record<keyof WorkerConfig, true> = {

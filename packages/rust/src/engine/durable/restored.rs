@@ -2,10 +2,11 @@ use super::Durable;
 use super::backing::Backing;
 use super::load::load_partitions;
 use super::log::IndexLog;
+use super::saved_size::SavedSize;
 use crate::durability::restore::RestoreStaging;
 use crate::engine::index::IndexState;
 use crate::error::Result;
-use crate::format::manifest::{PartitionCheckpoint, SegmentManifest};
+use crate::format::manifest::SegmentManifest;
 use crate::format::metadata::IndexMetadata;
 
 impl Durable {
@@ -19,16 +20,19 @@ impl Durable {
     }
 
     /// Moves a staged restore into the index's place, and returns the log that the restored index writes to,
-    /// which numbers each partition's writes after the restored checkpoint. A store that keeps a directory of
-    /// files calls `release_files` once the journal commits and before it moves any file.
+    /// which numbers each partition's writes after the restored checkpoint and reports the saved size of
+    /// `manifest`. A store that keeps a directory of files calls `release_files` once the journal commits and
+    /// before it moves any file.
     pub(crate) fn adopt_restore(
         &self,
         staging: &mut RestoreStaging<'_>,
-        checkpoint: &[PartitionCheckpoint],
+        manifest: &SegmentManifest,
         metadata: IndexMetadata,
         release_files: &mut dyn FnMut(),
     ) -> Result<IndexLog> {
-        let log = IndexLog::new(self.backing.clone(), metadata, self.compaction_threshold);
+        let log = IndexLog::new(self.backing.clone(), metadata, self.limits);
+        log.record_saved(SavedSize::of(manifest));
+        let checkpoint = &manifest.checkpoint;
         match &self.backing {
             Backing::Log(store) => store.adopt_restore(staging, checkpoint, release_files)?,
             Backing::Snapshot(store) => {

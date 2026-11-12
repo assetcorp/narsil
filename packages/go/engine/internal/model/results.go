@@ -100,6 +100,8 @@ type IndexStats struct {
 	DocumentCount        int
 	PartitionCount       int
 	EstimatedMemoryBytes int64
+	SavedBytes           Optional[int64]
+	LogBytes             Optional[int64]
 	Language             string
 	Schema               Schema
 }
@@ -126,6 +128,8 @@ type PartitionStatsResult struct {
 	PartitionID          int
 	DocumentCount        int
 	EstimatedMemoryBytes int64
+	SavedBytes           Optional[int64]
+	LogBytes             Optional[int64]
 }
 
 type SuggestedTerm struct {
