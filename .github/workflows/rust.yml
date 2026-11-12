@@ -58,7 +58,9 @@ jobs:
       PART_1_TESTS: durable_crash
       PART_2_TESTS: removed_rewrite_crash
       PART_3_TESTS: pattern_segment_merge vector_build_race rebalance filter_parity
-      PART_4_TESTS: analysis_change parallel_search vector_writes saved_size shaping_parity index_lifecycle
+      PART_4_TESTS: >-
+        analysis_change parallel_search vector_writes saved_size shaping_parity index_lifecycle
+        device_sync change_capture_resync disk_vectors change_capture
 
     steps:
       - name: Checkout
