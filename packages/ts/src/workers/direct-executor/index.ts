@@ -126,15 +126,16 @@ export function createDirectExecutor(
     return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
   }
 
-  function dropIndex(indexName: string): void {
-    disposeEntry(requireIndex(indexName))
+  async function dropIndex(indexName: string): Promise<void> {
+    const entry = requireIndex(indexName)
     indexes.delete(indexName)
+    await disposeEntry(entry)
   }
 
-  function installDetachedIndex(detached: DetachedIndex): void {
+  async function installDetachedIndex(detached: DetachedIndex): Promise<void> {
     const previous = indexes.get(detached.indexName)
     indexes.set(detached.indexName, detached.entry)
-    if (previous !== undefined && previous !== detached.entry) disposeEntry(previous)
+    if (previous !== undefined && previous !== detached.entry) await disposeEntry(previous)
   }
 
   function listIndexes(): string[] {
@@ -203,7 +204,7 @@ export function createDirectExecutor(
             options?.initializeCopyPublication?.(entry, action.publication, threadSlot)
           }
         } catch (err) {
-          dropIndex(action.indexName)
+          await dropIndex(action.indexName)
           throw err
         }
         return undefined as T
@@ -216,7 +217,7 @@ export function createDirectExecutor(
       }
 
       case 'dropIndex': {
-        dropIndex(action.indexName)
+        await dropIndex(action.indexName)
         return undefined as T
       }
 
@@ -318,7 +319,7 @@ export function createDirectExecutor(
       case 'clear': {
         const entry = requireIndex(action.indexName)
         entry.manager.clearPartitions()
-        entry.manager.resetVectorIndexes(
+        await entry.manager.resetVectorIndexes(
           vectorIndexesFor(
             action.indexName,
             entry.config,

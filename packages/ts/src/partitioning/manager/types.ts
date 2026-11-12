@@ -81,7 +81,7 @@ export interface PartitionManager {
   /** Pins the current state, so that every read through the pin returns that state until the search that holds it releases it. */
   pinState(reads?: PinnedReads): StatePin
   /** Calls free once every search that holds a state of this index right now has released it, or at once where none does. */
-  afterSearchesRelease(free: () => void): void
+  afterSearchesRelease(free: () => void | Promise<void>): Promise<void>
   fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
   storedFields(docId: string, fieldPaths: readonly string[]): StoredFieldReference[] | undefined
   sortValues(
@@ -124,5 +124,5 @@ export interface PartitionManager {
   estimateMemoryBytes(): number
   getPartitionStats(): PartitionStatsResult[]
   getVectorIndexes(): Map<string, VectorIndex>
-  resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void
+  resetVectorIndexes(newIndexes: Map<string, VectorIndex>): Promise<void>
 }

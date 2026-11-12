@@ -39,12 +39,13 @@ export function vectorIndexesFor(
   return vectorIndexes
 }
 
-export function disposeEntry(entry: IndexEntry): void {
+export function disposeEntry(entry: IndexEntry): Promise<void> {
   closeCopyPublicationOrder(entry.copyPublications)
-  entry.manager.afterSearchesRelease(() => {
-    for (const vectorIndex of entry.vectorIndexes.values()) vectorIndex.dispose()
+  return entry.manager.afterSearchesRelease(() => {
+    const disposals = [...entry.vectorIndexes.values()].map(vectorIndex => vectorIndex.dispose())
     closeHeldVectorCopies(entry.vectorCopies)
     for (const partition of entry.manager.getAllPartitions()) partition.clear()
+    return Promise.all(disposals).then(() => undefined)
   })
 }
 

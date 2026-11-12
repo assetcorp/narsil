@@ -62,6 +62,6 @@ export async function publishPartitionCopy(
     })
     for (const vector of current.getVectorIndexes().values()) vector.scheduleBuild()
   } finally {
-    core.executor.discardDetachedIndex(detached)
+    await core.executor.discardDetachedIndex(detached)
   }
 }

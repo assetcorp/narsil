@@ -77,18 +77,32 @@ export interface VectorWriteWatch {
   watch(): void
 }
 
+export function createSearchRetirement(pins: StatePins): (free: () => void | Promise<void>) => Promise<void> {
+  const pending = new Set<Promise<void>>()
+  return free => {
+    pins.afterRelease(() => {
+      const disposal = free()
+      if (disposal === undefined) return
+      pending.add(disposal)
+      void disposal.then(
+        () => pending.delete(disposal),
+        () => pending.delete(disposal),
+      )
+    })
+    return Promise.all(pending).then(() => undefined)
+  }
+}
+
 export function replaceVectorIndexes(
   current: Map<string, VectorIndex>,
   replacement: Map<string, VectorIndex>,
-  pins: StatePins,
-): void {
+  retire: (free: () => Promise<void>) => Promise<void>,
+): Promise<void> {
   const kept = new Set(replacement.values())
   const retired = [...current.values()].filter(index => !kept.has(index))
   current.clear()
   for (const [field, index] of replacement) current.set(field, index)
-  pins.afterRelease(() => {
-    for (const index of retired) index.dispose()
-  })
+  return retire(() => Promise.all(retired.map(index => index.dispose())).then(() => undefined))
 }
 
 export function watchVectorWritesFor(
