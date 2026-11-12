@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::io;
+use std::path::PathBuf;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
@@ -13,10 +14,10 @@ use super::constants::{MAX_INDEX_NAME_LENGTH, MAX_RESTORE_JOURNAL_BYTES};
 use super::files::{DurableDirectory, TEMPORARY_MARK};
 use super::lock::LOCK_FILE_NAME;
 use super::platform::random_token;
+use super::restore_swap::{SwapFailure, move_trees};
 
 const RESTORE_JOURNAL_PREFIX: &str = ".swap-";
 pub(crate) const RESTORE_STAGING_PREFIX: &str = ".restore-";
-const RETIRED_INDEX_PREFIX: &str = ".retired-";
 
 pub(crate) fn is_valid_index_name(name: &str) -> bool {
     let mut bytes = name.bytes();
@@ -81,6 +82,8 @@ pub(crate) trait RestoreStorage: Send + Sync {
     fn move_key(&self, from: &str, to: &str) -> Result<()>;
     fn remove_prefix(&self, name: &str) -> Result<()>;
     fn top_level(&self) -> Result<Vec<(String, bool)>>;
+    /// Returns the path of the file under `key`, or `None` where the storage keeps no directory of files.
+    fn file_path(&self, key: &str) -> Result<Option<PathBuf>>;
 }
 
 pub(crate) fn top_level_names(directory: &DurableDirectory) -> Result<Vec<(String, bool)>> {
@@ -135,6 +138,10 @@ impl RestoreStorage for DurableDirectory {
     fn top_level(&self) -> Result<Vec<(String, bool)>> {
         top_level_names(self)
     }
+
+    fn file_path(&self, key: &str) -> Result<Option<PathBuf>> {
+        self.path_of(key).map(Some)
+    }
 }
 
 impl RestoreStorage for AdapterStore {
@@ -181,6 +188,10 @@ impl RestoreStorage for AdapterStore {
         names.sort();
         names.dedup();
         Ok(names)
+    }
+
+    fn file_path(&self, _key: &str) -> Result<Option<PathBuf>> {
+        Ok(None)
     }
 }
 
@@ -261,37 +272,56 @@ fn listed_keys(
     Ok(keys)
 }
 
+/// Moves the staged files of a committed restore into the index's place, removes every file of the index that the
+/// staged manifest does not list, and removes the journal, returning the directory that holds the index's earlier
+/// files where the storage moves whole directories.
+///
+/// A failed move of a directory moves the index's directory back where it stood, so that the index keeps its
+/// earlier files whole and the journal stays for the caller to remove.
+pub(crate) fn finish_swap(
+    storage: &dyn RestoreStorage,
+    index_name: &str,
+    staging: &str,
+) -> std::result::Result<Option<String>, SwapFailure> {
+    let store = storage.store();
+    let listed = listed_keys(store, index_name, staging).map_err(SwapFailure::Untouched)?;
+    let staged: BTreeSet<String> = store
+        .list(&format!("{staging}/"))
+        .map_err(SwapFailure::Untouched)?
+        .into_iter()
+        .collect();
+    let mut retired = None;
+    if !staged.is_empty() && storage.moves_trees() {
+        retired = Some(move_trees(storage, index_name, staging)?);
+    } else {
+        for key in &listed {
+            let from = format!("{staging}/{key}");
+            if staged.contains(&from) {
+                storage
+                    .move_key(&from, &format!("{index_name}/{key}"))
+                    .map_err(SwapFailure::Lost)?;
+            }
+        }
+    }
+    let root = format!("{index_name}/");
+    for key in store.list(&root).map_err(SwapFailure::Lost)? {
+        let relative = key.strip_prefix(&root).unwrap_or(&key);
+        if !listed.contains(relative) {
+            store.remove(&key).map_err(SwapFailure::Lost)?;
+        }
+    }
+    store
+        .remove(&journal_key(index_name))
+        .map_err(SwapFailure::Lost)?;
+    Ok(retired)
+}
+
 pub(crate) fn finish_journal(
     storage: &dyn RestoreStorage,
     index_name: &str,
     staging: &str,
 ) -> Result<Option<String>> {
-    let store = storage.store();
-    let listed = listed_keys(store, index_name, staging)?;
-    let staged: BTreeSet<String> = store.list(&format!("{staging}/"))?.into_iter().collect();
-    let mut retired = None;
-    if !staged.is_empty() && storage.moves_trees() {
-        let name = unique_name(RETIRED_INDEX_PREFIX, "a retired index directory")?;
-        storage.move_tree(index_name, &name)?;
-        storage.move_tree(staging, index_name)?;
-        retired = Some(name);
-    } else {
-        for key in &listed {
-            let from = format!("{staging}/{key}");
-            if staged.contains(&from) {
-                storage.move_key(&from, &format!("{index_name}/{key}"))?;
-            }
-        }
-    }
-    let root = format!("{index_name}/");
-    for key in store.list(&root)? {
-        let relative = key.strip_prefix(&root).unwrap_or(&key);
-        if !listed.contains(relative) {
-            store.remove(&key)?;
-        }
-    }
-    store.remove(&journal_key(index_name))?;
-    Ok(retired)
+    finish_swap(storage, index_name, staging).map_err(SwapFailure::into_error)
 }
 
 pub(crate) fn finish_restore_journals(storage: &dyn RestoreStorage) -> Result<()> {

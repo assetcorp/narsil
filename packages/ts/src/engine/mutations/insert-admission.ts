@@ -1,10 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
-import type { EmbeddingAdapter } from '../../types/adapters'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument, EmbeddingFieldConfig, IndexConfig } from '../../types/schema'
-import { loadEmbedCode } from '../embed-code'
+import { requireDocumentWithinSizeLimit } from '../../schema/validator'
+import type { AnyDocument } from '../../types/schema'
+import type { PendingAdmissions } from './batch-admissions'
 import type { MutationContext } from './context'
 
 /** Resolves a document's own `id` field as its identifier when present, so a
@@ -41,33 +39,8 @@ export function requireMatchingDocId(docId: string, document: AnyDocument): void
   )
 }
 
-export function asBatchInsertError(err: unknown): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
-}
-
-export interface PendingAdmissions {
-  total: number
-  byPartition: Map<number, number>
-}
-
-export function createPendingAdmissions(): PendingAdmissions {
-  return { total: 0, byPartition: new Map() }
-}
-
-function capsEachPartition(ctx: MutationContext, manager: PartitionManager): boolean {
+export function capsEachPartition(ctx: MutationContext, manager: PartitionManager): boolean {
   return ctx.capacityScope === 'partition' && manager.config.partitions?.maxDocsPerPartition !== undefined
-}
-
-export function recordPendingAdmission(
-  ctx: MutationContext,
-  pending: PendingAdmissions,
-  manager: PartitionManager,
-  docId: string,
-): void {
-  pending.total += 1
-  if (!capsEachPartition(ctx, manager)) return
-  const partitionId = manager.routePartition(docId)
-  pending.byPartition.set(partitionId, (pending.byPartition.get(partitionId) ?? 0) + 1)
 }
 
 export function admitInsert(
@@ -120,90 +93,4 @@ function assertRoomFor(
     ctx.pendingRebalanceWrites(indexName) + pendingAdmitted,
     ctx.rebalanceTargetPartitionCount(indexName),
   )
-}
-
-export function collectRequiredFieldFailures(
-  documents: AnyDocument[],
-  chunkStart: number,
-  chunkEnd: number,
-  required: string[],
-  chunkFailedIndexes: Set<number>,
-  failed: BatchResult['failed'],
-): void {
-  for (let i = chunkStart; i < chunkEnd; i++) {
-    try {
-      validateRequiredFields(documents[i] as Record<string, unknown>, required)
-    } catch (err) {
-      chunkFailedIndexes.add(i)
-      failed.push({ docId: providedDocId(documents[i]) ?? '', error: asBatchInsertError(err) })
-    }
-  }
-}
-
-export interface EmbeddingChunkEntry {
-  config: IndexConfig
-  embeddingAdapter: EmbeddingAdapter | null
-  embeddingAdapterName: string | null
-}
-
-export async function embedChunkDocuments(
-  entry: EmbeddingChunkEntry,
-  documents: AnyDocument[],
-  chunkStart: number,
-  chunkEnd: number,
-  signal: AbortSignal,
-  chunkFailedIndexes: Set<number>,
-  failed: BatchResult['failed'],
-): Promise<void> {
-  if (entry.config.embedding === undefined) return
-  const { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } = await loadEmbedCode()
-
-  if (entry.embeddingAdapter === null) {
-    for (let i = chunkStart; i < chunkEnd; i++) {
-      if (chunkFailedIndexes.has(i)) continue
-      try {
-        assertDocumentCarriesMappedVectors(
-          documents[i] as Record<string, unknown>,
-          entry.config.embedding as EmbeddingFieldConfig,
-          entry.embeddingAdapterName,
-        )
-      } catch (err) {
-        chunkFailedIndexes.add(i)
-        failed.push({
-          docId: providedDocId(documents[i]) ?? '',
-          error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err)),
-        })
-      }
-    }
-    return
-  }
-
-  const embeddableSlice: Record<string, unknown>[] = []
-  const embeddableOriginalIndexes: number[] = []
-  for (let i = chunkStart; i < chunkEnd; i++) {
-    if (chunkFailedIndexes.has(i)) continue
-    embeddableSlice.push(documents[i] as Record<string, unknown>)
-    embeddableOriginalIndexes.push(i)
-  }
-  if (embeddableSlice.length === 0) return
-
-  try {
-    const embedResult = await embedBatchDocumentFields(
-      embeddableSlice,
-      entry.config.embedding as EmbeddingFieldConfig,
-      entry.embeddingAdapter,
-      signal,
-    )
-    for (const [sliceIndex, error] of embedResult.failed) {
-      const originalIdx = embeddableOriginalIndexes[sliceIndex]
-      chunkFailedIndexes.add(originalIdx)
-      failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error })
-    }
-  } catch (err) {
-    const embeddingError = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
-    for (const originalIdx of embeddableOriginalIndexes) {
-      chunkFailedIndexes.add(originalIdx)
-      failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error: embeddingError })
-    }
-  }
 }

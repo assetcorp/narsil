@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use super::prepare::PreparedIndex;
+use super::swap::FileSwap;
 use crate::durability::checkpoint_store::{AdapterStore, CheckpointStore};
 use crate::durability::persistence::MemoryPersistence;
 use crate::durability::restore::RestoreStaging;
 use crate::engine::EngineInner;
-use crate::engine::durable::load::load_current_checkpoint;
-use crate::engine::durable::load_source::StagedSource;
+use crate::engine::durable::load::{holds_paged_text, load_current_checkpoint};
+use crate::engine::durable::load_source::{CheckpointSource, StagedSource};
 use crate::engine::durable::metadata::metadata_of;
 use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
@@ -20,6 +21,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::manifest::SegmentManifest;
 use crate::format::metadata::IndexMetadata;
 use crate::index::constants::ARRAY_POSITION_GAP;
+use crate::index::paged::{PagedListing, resident_section_bytes};
 use crate::schema::BaseType;
 
 /// Where a restore keeps the files that it reads from its source until the index takes them: the engine's store,
@@ -44,6 +46,14 @@ impl<'d> Staging<'d> {
         match self {
             Staging::Stored(staging) => staging,
             Staging::Memory(store) => store,
+        }
+    }
+
+    /// Returns the staged files as a source that a restore validates and loads its checkpoint from.
+    pub(super) fn source(&self) -> StagedSource<'_> {
+        match self {
+            Staging::Stored(staging) => StagedSource::Directory(staging),
+            Staging::Memory(store) => StagedSource::Memory(store),
         }
     }
 
@@ -75,6 +85,45 @@ fn restored_analysis_stale(index: &IndexState, recorded: &IndexMetadata) -> bool
         && holds_string_list_field(index)
 }
 
+/// Returns the bytes of the staged checkpoint that the restored index holds in memory: every file that the
+/// manifest lists, except that a paged segment of an index whose text stays on disk counts only the sections that
+/// the index reads whole.
+fn bytes_held_in_memory(
+    source: &StagedSource<'_>,
+    index: &IndexState,
+    manifest: &SegmentManifest,
+) -> Result<u64> {
+    let mut bytes = 0u64;
+    for partition in &manifest.partitions {
+        for segment in &partition.segments {
+            let file = &segment.file;
+            let paged_path = match holds_paged_text(source, index, &file.key)? {
+                true => source.paged_path_of(&file.key)?,
+                false => None,
+            };
+            let held = match paged_path {
+                Some(path) => resident_section_bytes(&PagedListing {
+                    key: file.key.clone(),
+                    path,
+                    bytes: file.bytes,
+                    checksum: file.checksum,
+                })?,
+                None => file.bytes,
+            };
+            bytes = bytes.saturating_add(held);
+        }
+    }
+    for field in &manifest.vectors {
+        for file in &field.files {
+            bytes = bytes.saturating_add(file.file.bytes);
+        }
+        for part in &field.graph_parts {
+            bytes = bytes.saturating_add(part.bytes);
+        }
+    }
+    Ok(bytes)
+}
+
 /// Loads the staged checkpoint into the prepared index, then puts the index in the engine as [`activate`] does.
 pub(super) fn install(
     engine: &EngineInner,
@@ -84,16 +133,14 @@ pub(super) fn install(
 ) -> Result<()> {
     let PreparedIndex { index, recorded } = prepared;
     let replaces_index = engine.holds_index(&index.name);
-    let stored_bytes = manifest
-        .file_refs()
-        .iter()
-        .fold(0u64, |total, file| total.saturating_add(file.bytes));
+    let source = staging.source();
+    let held_bytes = bytes_held_in_memory(&source, &index, manifest)?;
     require_restore_memory(
         &index.name,
-        stored_bytes.saturating_mul(RESTORE_PROCESS_BYTES_PER_STORED_BYTE),
+        held_bytes.saturating_mul(RESTORE_PROCESS_BYTES_PER_STORED_BYTE),
         replaces_index,
     )?;
-    load_current_checkpoint(&StagedSource(staging.store()), &index, manifest)?;
+    load_current_checkpoint(&source, &index, manifest)?;
     activate(engine, index, &recorded, Some(manifest), staging)
 }
 
@@ -108,8 +155,9 @@ fn missing_manifest(name: &str) -> NarsilError {
 /// files the files that `staging` holds replace in the same step.
 ///
 /// The old index keeps serving until the swap, and its write lock is held across the swap so that no write lands
-/// in a log that the restored index then owns. A failure before the store commits the swap leaves the old index
-/// and its files as they were.
+/// in a log that the restored index then owns. A rebuild of the old index stops first, and a read that reaches
+/// the old index while the store moves the files waits, then reads the restored index. A failure before the store
+/// commits the swap leaves the old index and its files as they were.
 pub(super) fn activate(
     engine: &EngineInner,
     index: IndexState,
@@ -138,12 +186,21 @@ pub(super) fn activate(
     }
     index.set_analysis_stale(restored_analysis_stale(&index, recorded));
     let index = Arc::new(index);
+    let changes = previous
+        .as_ref()
+        .and_then(|old| old.changes.hold_for_restore());
     let writer = previous.as_ref().map(|old| old.write_lock());
     if let (Staging::Stored(staged), Some(durable), Some(manifest)) =
         (&mut *staging, &engine.durable, manifest)
     {
-        let log = durable.adopt_restore(staged, manifest, metadata)?;
-        index.attach_log(log);
+        let swap = FileSwap {
+            engine,
+            durable,
+            restored: &index,
+            previous: previous.as_ref(),
+            manifest,
+        };
+        index.attach_log(swap.run(staged, metadata)?);
     }
     publish_without_source_bans(engine, &index, || {
         engine
@@ -154,8 +211,10 @@ pub(super) fn activate(
     engine.lifecycle.touch(&index);
     if let Some(old) = &previous {
         old.retire();
+        old.residency.end_swap();
     }
     drop(writer);
+    drop(changes);
     drop(admitted);
     if let Staging::Stored(staged) = staging {
         let _ = staged.remove_retired();

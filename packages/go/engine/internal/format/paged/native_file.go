@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"weak"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
@@ -40,7 +41,9 @@ func OpenNativeFile(file *os.File, path string) (*NativeFile, error) {
 		_ = file.Close()
 		return nil, cannotOpen(path, err)
 	}
-	return &NativeFile{file: file, native: native, path: path, size: info.Size()}, nil
+	opened := &NativeFile{file: file, native: native, path: path, size: info.Size()}
+	openFiles.add(opened)
+	return opened, nil
 }
 
 func (file *NativeFile) ReadAt(target []byte, offset int64) (int, error) {
@@ -119,6 +122,7 @@ func (file *NativeFile) ReadPage(section Section, page int64, target []byte) err
 }
 
 func (file *NativeFile) Close() error {
+	openFiles.remove(weak.Make(file))
 	file.mu.Lock()
 	defer file.mu.Unlock()
 	file.native.Close()

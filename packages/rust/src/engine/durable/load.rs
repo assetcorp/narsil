@@ -95,8 +95,6 @@ fn attach_segment(target: &Partition, id: u64, frozen: Arc<FrozenSegment>) {
     });
 }
 
-/// Reports whether a listed segment is a paged segment that the index reads from its file, which an index whose
-/// text stays on disk does for every segment whose header gives the paged envelope format.
 fn require_listed_counts(
     listed: &SegmentRef,
     document_count: u32,
@@ -113,7 +111,13 @@ fn require_listed_counts(
     )))
 }
 
-fn holds_paged_text(store: &dyn CheckpointSource, index: &IndexState, key: &str) -> Result<bool> {
+/// Reports whether a listed segment is a paged segment that the index reads from its file, which an index whose
+/// text stays on disk does for every segment whose header gives the paged envelope format.
+pub(crate) fn holds_paged_text(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    key: &str,
+) -> Result<bool> {
     if index.config().text_storage != Some(Storage::Disk) {
         return Ok(false);
     }
@@ -130,7 +134,7 @@ fn load_paged_segment(
     schema: &Map,
 ) -> Result<()> {
     let key = &listed.file.key;
-    let Some(path) = store.path_of(key)? else {
+    let Some(path) = store.paged_path_of(key)? else {
         return Err(load_failed(format!(
             "The segment \"{key}\" is not in a directory that the index reads by position"
         )));
@@ -312,13 +316,24 @@ pub(crate) fn load_current_checkpoint(
     index: &IndexState,
     manifest: &SegmentManifest,
 ) -> Result<()> {
+    load_partitions(store, index, manifest)?;
+    for listed in &manifest.vectors {
+        load_vector_field(store, index, listed)?;
+    }
+    Ok(())
+}
+
+/// Loads each partition's segments that `manifest` lists into an index whose partitions hold none, in manifest
+/// order, so that a later segment's copy of a document and its tombstones replace what an earlier segment holds.
+pub(crate) fn load_partitions(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    manifest: &SegmentManifest,
+) -> Result<()> {
     let ids = manifest.partitions.iter().map(|entry| entry.partition_id);
     grow_partitions(index, manifest.partitions.len(), ids)?;
     for entry in &manifest.partitions {
         load_partition(store, index, entry, &manifest.schema)?;
-    }
-    for listed in &manifest.vectors {
-        load_vector_field(store, index, listed)?;
     }
     Ok(())
 }

@@ -149,19 +149,33 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 	if err != nil {
 		return err
 	}
-	defer release()
 	defer n.emitWrite(indexName)
+	split, err := n.rebalanceHeld(ctx, entry, targetPartitionCount)
+	release()
+	if split != nil {
+		_ = n.plugins.each(ctx, hookOnPartitionSplit, func(plugin model.Plugin) func(context.Context) error {
+			if plugin.OnPartitionSplit == nil {
+				return nil
+			}
+			return func(ctx context.Context) error { return plugin.OnPartitionSplit(ctx, split) }
+		})
+		n.onIndexInPlace(indexName, n.checkWatermark)
+	}
+	return err
+}
+
+func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPartitionCount int) (*model.PartitionContext, error) {
 	if err := validateRebalanceTarget(entry.currentConfig(), targetPartitionCount); err != nil {
-		return err
+		return nil, err
 	}
 	releaseEpoch, err := n.holdRenewedSyncEpoch(ctx, entry)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer releaseEpoch()
 	run, err := entry.startRebalance(targetPartitionCount)
 	if err != nil || run == nil {
-		return err
+		return nil, err
 	}
 	entry.maintenance.Add(1)
 	defer entry.maintenance.Add(-1)
@@ -177,25 +191,15 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 		err = copyDocuments(ctx, entry.handle, live, built, proceed, func(int) {})
 	}
 	if err != nil {
-		return errors.Join(err, entry.abandonRebalance(ctx, run))
+		return nil, errors.Join(err, entry.abandonRebalance(ctx, run))
 	}
 	err = entry.swapLayout(ctx, run, built, settings, proceed)
-	if entry.index() == built {
-		n.announceRebalance(ctx, entry, oldCount, targetPartitionCount)
+	if entry.index() != built {
+		return nil, err
 	}
-	return err
-}
-
-func (n *Narsil) announceRebalance(ctx context.Context, entry *indexEntry, oldCount int, newCount int) {
-	n.events.emit(model.PartitionRebalanceEvent{IndexName: entry.name, OldCount: oldCount, NewCount: newCount})
-	partition := &model.PartitionContext{IndexName: entry.name, OldPartitionCount: oldCount, NewPartitionCount: newCount}
-	_ = n.plugins.each(ctx, hookOnPartitionSplit, func(plugin model.Plugin) func(context.Context) error {
-		if plugin.OnPartitionSplit == nil {
-			return nil
-		}
-		return func(ctx context.Context) error { return plugin.OnPartitionSplit(ctx, partition) }
-	})
-	n.checkWatermark(entry)
+	n.events.emit(model.PartitionRebalanceEvent{IndexName: entry.name, OldCount: oldCount, NewCount: targetPartitionCount})
+	return &model.PartitionContext{IndexName: entry.name, OldPartitionCount: oldCount,
+		NewPartitionCount: targetPartitionCount}, err
 }
 
 // UpdatePartitionConfig changes the capacity limits of the index called

@@ -1,12 +1,20 @@
+use std::path::PathBuf;
+
 use crate::durability::checkpoint_store::{CheckpointStore, read_listed_payload};
+use crate::engine::durable::load_source::{CheckpointSource, StagedSource};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::envelope::HEADER_BYTES;
 use crate::format::graph_part::{
     GRAPH_PART_ENVELOPE_VERSION, assemble_graph_parts, decode_graph_part,
 };
 use crate::format::keyword_segment::{KEYWORD_SEGMENT_ENVELOPE_VERSION, decode_keyword_segment};
 use crate::format::manifest::SegmentManifest;
+use crate::format::manifest_refs::FileRef;
+use crate::format::paged_segment::PAGED_SEGMENT_ENVELOPE_VERSION;
+use crate::format::paged_segment::constants::FILE_ASSEMBLY_CHUNK_BYTES;
 use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, decode_vector_file};
 use crate::index::frozen::FrozenSegment;
+use crate::index::paged::{PagedListing, open_paged_segment};
 use crate::schema::{BaseType, parse_field_type};
 use crate::value::{Map, Value};
 
@@ -49,9 +57,61 @@ fn require_dimension(key: &str, found: usize, expected: Option<usize>) -> Result
     )))
 }
 
-fn check_segments(store: &dyn CheckpointStore, manifest: &SegmentManifest) -> Result<()> {
+fn require_payload_checksum(store: &dyn CheckpointStore, file: &FileRef) -> Result<()> {
+    let mut hasher = crc32fast::Hasher::new();
+    let mut at = HEADER_BYTES as u64;
+    while at < file.bytes {
+        let length = (file.bytes - at).min(FILE_ASSEMBLY_CHUNK_BYTES as u64);
+        hasher.update(&store.read_range(&file.key, at, length)?);
+        at += length;
+    }
+    let computed = hasher.finalize();
+    if computed == file.checksum {
+        return Ok(());
+    }
+    Err(NarsilError::new(
+        ErrorCode::PERSISTENCE_CRC_MISMATCH,
+        format!(
+            "The checksum of the segment \"{}\" does not match its payload",
+            file.key
+        ),
+    ))
+}
+
+fn check_paged_segment(
+    store: &dyn CheckpointStore,
+    file: &FileRef,
+    path: PathBuf,
+    manifest: &SegmentManifest,
+) -> Result<()> {
+    let listing = PagedListing {
+        key: file.key.clone(),
+        path,
+        bytes: file.bytes,
+        checksum: file.checksum,
+    };
+    let (resident, sections) = open_paged_segment(&listing)?;
+    require_payload_checksum(store, file)?;
+    require_schema_of_manifest(&file.key, &resident.schema, manifest)?;
+    sections.require_ids_ascend()?;
+    sections.require_postings_match(&resident)?;
+    let frozen = FrozenSegment::from_paged(resident, sections);
+    for ordinal in 0..frozen.capacity() {
+        frozen.document(ordinal)?;
+    }
+    Ok(())
+}
+
+fn check_segments(source: &StagedSource<'_>, manifest: &SegmentManifest) -> Result<()> {
+    let store = source.store();
     for partition in &manifest.partitions {
         for listed in &partition.segments {
+            if source.envelope_version(&listed.file.key)? == Some(PAGED_SEGMENT_ENVELOPE_VERSION)
+                && let Some(path) = source.paged_path_of(&listed.file.key)?
+            {
+                check_paged_segment(store, &listed.file, path, manifest)?;
+                continue;
+            }
             let payload = read_listed_payload(
                 store,
                 &listed.file,
@@ -104,12 +164,13 @@ fn check_vectors(store: &dyn CheckpointStore, manifest: &SegmentManifest) -> Res
 }
 
 /// Reads every file that a staged checkpoint lists before the restore loads any of it: each segment with every
-/// document that it stores, and each vector field's files and graph parts, refusing a vector file whose vectors
-/// hold another dimension than the schema gives the field.
+/// document that it stores, checking a paged segment's whole payload against its checksum, and each vector
+/// field's files and graph parts, refusing a vector file whose vectors hold another dimension than the schema
+/// gives the field.
 pub(crate) fn validate_staged_checkpoint(
-    store: &dyn CheckpointStore,
+    source: &StagedSource<'_>,
     manifest: &SegmentManifest,
 ) -> Result<()> {
-    check_segments(store, manifest)?;
-    check_vectors(store, manifest)
+    check_segments(source, manifest)?;
+    check_vectors(source.store(), manifest)
 }

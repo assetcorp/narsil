@@ -173,6 +173,16 @@ impl IndexState {
         self.publish_layout(Arc::new(layout));
     }
 
+    /// Gives the index an empty partition in place of each one that it holds, which drops every segment and closes
+    /// the file of each segment that it reads from disk, while the caller holds the write lock and no read runs on
+    /// the index.
+    pub(crate) fn empty_partitions(&self) {
+        let partitions = (0..self.partitions().len())
+            .map(|_| Arc::new(Partition::new(PartitionSnapshot::new(self.track_positions))))
+            .collect();
+        self.replace_partitions(partitions);
+    }
+
     /// Replaces the partitions, their analysis, and the synonym set together, while the caller holds the write lock.
     pub(crate) fn replace_layout(&self, layout: TextLayout) {
         self.publish_layout(Arc::new(layout));

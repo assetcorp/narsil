@@ -21,6 +21,7 @@ pub(crate) use apply::DocumentVectors;
 pub(crate) use embedding::EmbeddingBinding;
 pub use maintenance::VectorMaintenanceStatus;
 use paths::{set_value_at, take_value_at, value_at};
+pub(crate) use write_embedding::{HeldChunk, HeldWrite};
 
 /// One vector field of an index: its schema path and the store and graph that hold its vectors.
 pub(crate) struct IndexVectorField {
@@ -86,6 +87,14 @@ impl IndexVectors {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.fields.is_empty()
+    }
+
+    /// Drops every vector of every field and the files that the fields read them from, for a restore that takes
+    /// the index out of the engine.
+    pub(crate) fn release_files(&self) {
+        for entry in &self.fields {
+            entry.field.release_files();
+        }
     }
 
     pub(crate) fn sequence(&self) -> &Arc<IndexSequence> {
