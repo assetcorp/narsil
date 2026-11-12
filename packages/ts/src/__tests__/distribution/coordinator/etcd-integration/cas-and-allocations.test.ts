@@ -264,4 +264,40 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
       raw.close()
     }
   }, 20_000)
+
+  it('refuses to admit a replica whose registration is gone while its start-time record remains', async () => {
+    if (container === null) {
+      throw new Error('Etcd integration container is not available')
+    }
+    const keyPrefix = `_narsil_etcd_replica_gone_${randomUUID()}`
+    const controller = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const replica = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const raw = new Etcd3({ hosts: [container.endpoint] })
+    const registration = makeNodeRegistration({ nodeId: 'plum-store', startedAt: '2026-11-12T09:00:00.000Z' })
+    const expected = { nodeId: registration.nodeId, startedAt: registration.startedAt }
+
+    try {
+      expect(await controller.acquireLease(CONTROLLER_LEASE, 'controller-a', 30_000)).toBe(true)
+      await replica.registerNode(registration)
+      const registrationKey = `${keyPrefix}/nodes/${registration.nodeId}`
+      const startedAtKey = `${keyPrefix}/node-started-at/${registration.nodeId}`
+      const registrationLease = (await raw.get(registrationKey).exec()).kvs[0]?.lease
+      expect(registrationLease).toBeDefined()
+      expect((await raw.get(startedAtKey).exec()).kvs[0]?.lease).toBe(registrationLease)
+
+      await raw.delete().key(registrationKey).exec()
+      expect(await raw.get(startedAtKey).string()).toBe(registration.startedAt)
+      expect(
+        await controller.putAllocation('orchards', makeAllocationTable('orchards'), null, 'controller-a', expected),
+      ).toBe(false)
+      expect(await controller.getAllocation('orchards')).toBeNull()
+
+      await replica.deregisterNode(registration.nodeId)
+      expect(await raw.getAll().prefix(`${keyPrefix}/node`).keys()).toEqual([])
+    } finally {
+      await controller.shutdown()
+      await replica.shutdown()
+      raw.close()
+    }
+  }, 20_000)
 })
