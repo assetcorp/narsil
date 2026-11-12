@@ -1,20 +1,18 @@
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::call::score_documents;
 use super::order::{Reordered, placed_hits, reorder_by_rerank};
 use super::plan::RerankPlan;
-use super::stored_pins;
 use crate::engine::index::IndexState;
 use crate::engine::query::documents::QuerySnapshots;
+use crate::engine::query::embedded::EmbeddedQuery;
 use crate::engine::query::highlight::highlight_hits;
 use crate::engine::query::pagination::{PositionWindow, page_by_position};
 use crate::engine::query::params::{Pin, QueryParams};
 use crate::engine::query::projection::{Projection, project_document};
 use crate::engine::query::results::{GroupResult, Hit, QueryResult};
 use crate::error::Result;
-use crate::index::partition::Partition;
 
 /// What a reranked query keeps from its first stage to build its page once the rerank adapter has ordered its best
 /// hits: the pins it places, the page it cuts, and the counts, facets, and groups that the first stage gave.
@@ -32,14 +30,14 @@ pub(super) struct StagedPage {
 /// adapter can search or restore the index that the query reads.
 pub(crate) struct AwaitingScores<'a> {
     pub(super) ranked_on: Arc<IndexState>,
-    pub(super) params: Cow<'a, QueryParams>,
+    pub(super) embedded: EmbeddedQuery<'a>,
     pub(super) plan: RerankPlan,
     pub(super) ranked: Vec<Hit>,
     pub(super) texts: Vec<String>,
     pub(super) page: StagedPage,
 }
 
-impl AwaitingScores<'_> {
+impl<'a> AwaitingScores<'a> {
     /// Returns the scores that the rerank adapter gives the texts of the best hits, in the order of those hits.
     pub(crate) fn score(&mut self) -> Result<Vec<f64>> {
         let texts = std::mem::take(&mut self.texts);
@@ -51,9 +49,13 @@ impl AwaitingScores<'_> {
         )
     }
 
-    /// Returns the page of the query with its best hits in the order of `scores`, filled from `index`, which a read
-    /// holds now. Where a restore or a reopen has put another index under the name since the first stage, the
-    /// page keeps only the hits and pins whose documents `index` holds.
+    /// Reports whether `index`, which a read holds now, is the index that the first stage ranked the hits of.
+    pub(crate) fn ranked_on(&self, index: &IndexState) -> bool {
+        std::ptr::eq(index, Arc::as_ptr(&self.ranked_on))
+    }
+
+    /// Returns the page of the query with its best hits in the order of `scores`, filled from `index`, the index
+    /// that [`AwaitingScores::ranked_on`] reports the first stage ranked them on, which a read holds now.
     pub(crate) fn finish(
         self: Box<Self>,
         index: &IndexState,
@@ -61,38 +63,15 @@ impl AwaitingScores<'_> {
     ) -> Result<QueryResult> {
         let awaiting = *self;
         let window_size = scores.len();
-        let mut ordered = reorder_by_rerank(awaiting.ranked, window_size, &scores);
-        let mut page = awaiting.page;
-        let replaced = !std::ptr::eq(index, Arc::as_ptr(&awaiting.ranked_on));
-        if replaced {
-            let partitions = index.partitions();
-            ordered.hits = held_hits(index, &partitions, ordered.hits)?;
-            for group in page.summary.groups.iter_mut().flatten() {
-                let ranked = std::mem::take(&mut group.hits);
-                group.hits = held_hits(index, &partitions, ranked)?;
-            }
-            if page.pins.is_some()
-                && let Some(requested) = awaiting.params.pinned.as_deref()
-            {
-                page.pins = Some(stored_pins(index, &partitions, requested)?);
-            }
-        }
-        finish_page(index, &awaiting.params, page, ordered)
+        let ordered = reorder_by_rerank(awaiting.ranked, window_size, &scores);
+        finish_page(index, &awaiting.embedded.params, awaiting.page, ordered)
     }
-}
 
-fn held_hits(
-    index: &IndexState,
-    partitions: &[Arc<Partition>],
-    hits: Vec<Hit>,
-) -> Result<Vec<Hit>> {
-    let mut held = Vec::with_capacity(hits.len());
-    for hit in hits {
-        if index.locate(partitions, &hit.id)?.is_some() {
-            held.push(hit);
-        }
+    /// Returns the embedded query that the first stage ran, so that a query that runs again on an index that a
+    /// restore put under the name embeds its text again only where that index has another embedding adapter.
+    pub(crate) fn into_embedded(self: Box<Self>) -> EmbeddedQuery<'a> {
+        self.embedded
     }
-    Ok(held)
 }
 
 fn with_documents(index: &IndexState, hits: Vec<Hit>, projection: &Projection) -> Result<Vec<Hit>> {

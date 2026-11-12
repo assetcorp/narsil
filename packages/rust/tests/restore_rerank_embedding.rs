@@ -1,11 +1,12 @@
 mod support;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use narsil::{
-    AdapterSetting, DurabilityConfig, EmbeddingConfig, IndexConfig, Map, Narsil, NarsilConfig,
-    QueryParams, RerankConfig, Storage, Value, VectorQuery, parse_json,
+    AdapterSetting, DurabilityConfig, EmbeddingConfig, ErrorCode, IndexConfig, Map, Narsil,
+    NarsilConfig, QueryParams, RerankConfig, Storage, Value, VectorQuery, parse_json,
 };
 use support::ScratchDirectory;
 use support::adapters::{EmbedWith, RerankWith};
@@ -14,6 +15,7 @@ use support::portable::{Tier, snapshot_of};
 const INDEX: &str = "documents";
 const RERANK_TIMEOUT_MS: u64 = 1_000;
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+const QUERY_RERANKS_BEFORE_REFUSAL: usize = 3;
 
 fn config() -> IndexConfig {
     IndexConfig {
@@ -89,10 +91,13 @@ fn require_embedding_from_rerank(preflight: bool) {
 
     let searching = Arc::downgrade(&target);
     let (finished, finishing) = mpsc::channel();
+    let reranks = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&reranks);
     target
         .register_rerank_adapter(
             "searching",
             Arc::new(RerankWith(move |_: &str, documents: &[String]| {
+                counted.fetch_add(1, Ordering::SeqCst);
                 let params = QueryParams {
                     vector: Some(VectorQuery {
                         field: "embedding".into(),
@@ -130,17 +135,17 @@ fn require_embedding_from_rerank(preflight: bool) {
         .expect("the nested search reaches its embedding callback");
     assert_eq!(finishing.recv_timeout(CALLBACK_TIMEOUT).unwrap(), 1);
     target.shutdown().unwrap();
-    let answer = outcome.expect("the outer query releases its read before calling the reranker");
-    assert_eq!(answer.hits.len(), 1);
-    assert_eq!(answer.hits[0].id, "wanted");
+    let error = outcome.expect_err("the outer query refuses once every rerank call restores");
+    assert_eq!(error.code(), ErrorCode::WORKER_BUSY, "{error}");
+    assert_eq!(reranks.load(Ordering::SeqCst), QUERY_RERANKS_BEFORE_REFUSAL);
 }
 
 #[test]
-fn a_query_embedding_from_rerank_can_restore_the_same_index() {
+fn a_query_refuses_once_an_embedding_from_each_rerank_restores_the_same_index() {
     require_embedding_from_rerank(false);
 }
 
 #[test]
-fn a_preflight_embedding_from_rerank_can_restore_the_same_index() {
+fn a_preflight_embedding_from_each_rerank_restoring_the_same_index_refuses_the_query() {
     require_embedding_from_rerank(true);
 }

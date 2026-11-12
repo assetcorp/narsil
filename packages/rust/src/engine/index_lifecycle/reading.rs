@@ -139,6 +139,7 @@ impl EngineInner {
 
     /// Runs `prepare` on the index called `name` without holding it, then runs `read` on that same index with what
     /// `prepare` returned, once the read holds the index and finds that what `prepare` returned still holds for it.
+    /// `prepare` first runs given `earlier`, which a call that reads the index again passes on from its last read.
     /// Where a restore replaces the index in between, `prepare` runs again on the index that holds the name
     /// afterwards, given what it returned before, and where the read finds it superseded, `prepare` runs again
     /// given it marked as such, so that a query embeds its text with the adapter of the index that it searches.
@@ -147,10 +148,10 @@ impl EngineInner {
     pub(crate) fn read_index_prepared<P: PreparedRead, T>(
         &self,
         name: &str,
+        mut earlier: Option<P>,
         mut prepare: impl FnMut(&IndexState, Option<P>) -> Result<P>,
         read: impl FnOnce(&Arc<IndexState>, P) -> Result<T>,
     ) -> Result<T> {
-        let mut earlier = None;
         loop {
             let index = self.open_index(name)?;
             let mut prepared = prepare(&index, earlier.take())?;

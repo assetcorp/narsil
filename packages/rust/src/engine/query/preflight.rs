@@ -133,6 +133,7 @@ impl Narsil {
         let started = Instant::now();
         self.inner.read_index_prepared(
             index,
+            None,
             |current, earlier| resolve_vector_text(current, params, earlier),
             |current, embedded| {
                 preflight_count(
