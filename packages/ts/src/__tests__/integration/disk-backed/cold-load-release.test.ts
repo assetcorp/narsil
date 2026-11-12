@@ -28,7 +28,14 @@ function handlesUnder(root: string): string[] {
 
 it
   .skipIf(process.platform !== 'linux')
-  .each(['clear', 'shutdown', 'clear during rerank', 'drop after rerank', 'restore during rerank'])(
+  .each([
+    'clear',
+    'shutdown',
+    'clear during rerank',
+    'drop after rerank',
+    'restore during rerank',
+    'drop unrelated index',
+  ])(
   'closes a cancelled graph read after %s',
   async action => {
     const root = await mkdtemp(join(tmpdir(), 'narsil-cold-release-'))
@@ -41,6 +48,7 @@ it
         vectorPromotion: { threshold: 16, storage: 'disk' },
       })
       const emptyArchive = action === 'restore during rerank' ? await archiveBytes(engine, INDEX) : null
+      if (action === 'drop unrelated index') await engine.createIndex('unrelated', { schema: { title: 'string' } })
       const inserted = await engine.insertBatch(
         INDEX,
         Array.from({ length: DOCUMENTS }, (_, at) => ({
@@ -77,7 +85,8 @@ it
       } else if (
         action === 'clear during rerank' ||
         action === 'drop after rerank' ||
-        action === 'restore during rerank'
+        action === 'restore during rerank' ||
+        action === 'drop unrelated index'
       ) {
         engine.registerRerankAdapter('clearing', {
           async rerank(_query, texts) {
@@ -103,6 +112,11 @@ it
       if (action === 'drop after rerank') {
         await engine.dropIndex(INDEX)
         expect(handlesUnder(join(root, INDEX))).toEqual([])
+      }
+      if (action === 'drop unrelated index') {
+        expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
+        await engine.dropIndex('unrelated')
+        expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
       }
       await engine.shutdown()
       expect(handlesUnder(root)).toEqual([])

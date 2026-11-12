@@ -43,7 +43,7 @@ export function createPartitionManager(
   router: PartitionRouter,
   initialPartitionCount?: number,
   vectorIndexes?: Map<string, VectorIndex>,
-  pendingDisposals?: Set<Promise<void>>,
+  pendingDisposals?: Map<Promise<void>, string>,
 ): PartitionManager {
   let config = initialConfig
   let language = initialLanguage
@@ -59,7 +59,7 @@ export function createPartitionManager(
   const docPartitionMap = createDocIdMap<number>()
   const writeLogs = createWriteLogRecorder()
   const pins = createStatePins(() => [...vecIndexes.keys()])
-  const afterSearchesRelease = createSearchRetirement(pins, pendingDisposals)
+  const afterSearchesRelease = createSearchRetirement(pins, indexName, pendingDisposals)
   const vectorWrites = watchVectorWritesFor(vecIndexes, pins)
   const ownReads = ownReadsOf({ locate: locateDocument, partitionOf }, vecIndexes)
 
