@@ -260,15 +260,16 @@ export async function prepareDocumentWrites(
     const uncleared = embedding
     const settings = settingsOf(entry)
     const hooking = unhooked
-    unhooked = []
     const pass = await runOutside(hold, async () => {
-      await runBeforeWrites(hooking)
-      return embedWith(settings, signal, preparations, uncleared, together)
+      const embedded = await embedWith(settings, signal, preparations, uncleared, together)
+      await runBeforeWrites(hooking.filter(preparation => !embedded.documentFailures.has(preparation)))
+      return embedded
     })
     embedding = pass.embedding
     if (pass.called) embeddings += 1
     entry = ctx.requireIndex(indexName)
-    settleDocumentFailures(entry, pass)
+    const stale = settleDocumentFailures(entry, pass)
+    unhooked = hooking.filter(preparation => stale.includes(preparation))
   }
   requireFieldsOf(entry.config.required, preparations)
   await requireMappedVectors(entry, preparations)
