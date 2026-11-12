@@ -39,6 +39,8 @@ const (
 	defaultMaxRerankWindow = 100
 	minRerankWindow        = 1
 	maxRerankWindow        = 1000
+	maxQueryEmbeddings     = 3
+	maxQueryReranks        = 3
 )
 
 const (
