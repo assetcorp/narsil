@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -7,6 +6,7 @@ use crate::config::{AdapterSetting, EmbeddingConfig};
 use crate::engine::adapter_registry::{AdapterRegistry, EmbeddingAdapters};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::{BaseType, CompiledSchema, flatten_schema};
+use crate::util::unwind::panic_text;
 use crate::value::{Map, Value};
 
 /// Where an index finds the adapter that fills its embedded vector fields.
@@ -171,16 +171,6 @@ pub(crate) fn bind_embedding(
     Ok(Some(EmbeddingBinding { fields, source }))
 }
 
-fn panic_text(payload: &(dyn Any + Send)) -> String {
-    if let Some(text) = payload.downcast_ref::<&str>() {
-        return (*text).to_string();
-    }
-    if let Some(text) = payload.downcast_ref::<String>() {
-        return text.clone();
-    }
-    "the adapter panicked".to_string()
-}
-
 /// What an adapter call returned, with a panic turned into the text that it carried.
 pub(crate) enum AdapterFailure {
     Raised(NarsilError),
@@ -214,7 +204,9 @@ pub(crate) fn call_adapter<T>(
     match catch_unwind(AssertUnwindSafe(call)) {
         Ok(Ok(found)) => Ok(found),
         Ok(Err(error)) => Err(AdapterFailure::of(error)),
-        Err(payload) => Err(AdapterFailure::Failed(panic_text(payload.as_ref()))),
+        Err(payload) => Err(AdapterFailure::Failed(
+            panic_text(payload.as_ref()).unwrap_or_else(|| "the adapter panicked".to_string()),
+        )),
     }
 }
 

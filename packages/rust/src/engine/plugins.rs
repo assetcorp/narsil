@@ -2,6 +2,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, RwLock};
 
 use super::Narsil;
+use super::callback_scope::CallbackScope;
 use super::query::params::QueryParams;
 use super::query::results::QueryResult;
 use crate::config::IndexConfig;
@@ -136,6 +137,7 @@ impl PluginRegistry {
         label: &str,
         mut hook: impl FnMut(&dyn Plugin) -> Result<()>,
     ) -> Result<()> {
+        let _scope = CallbackScope::enter(self);
         for plugin in self.current() {
             match catch_unwind(AssertUnwindSafe(|| hook(plugin.as_ref()))) {
                 Ok(outcome) => outcome?,
@@ -171,6 +173,7 @@ impl PluginRegistry {
 
     /// Runs a hook that reports finished work on every plugin in order, ignoring a panic inside any of them.
     pub(crate) fn after(&self, mut hook: impl FnMut(&dyn Plugin)) {
+        let _scope = CallbackScope::enter(self);
         for plugin in self.current() {
             let _ = catch_unwind(AssertUnwindSafe(|| hook(plugin.as_ref())));
         }
