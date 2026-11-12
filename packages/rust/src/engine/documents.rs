@@ -245,13 +245,12 @@ impl Narsil {
         let limits = &self.inner.search_limits;
         let started = Instant::now();
         let run = |scoped: &QueryParams| {
-            self.inner.read_index_prepared(
+            let step = self.inner.read_index_prepared(
                 index,
                 |current, earlier| query::embed_query_text(current, scoped, earlier),
-                |current, embedded| {
-                    query::run_query(current, scoped, &embedded.params, limits, started)
-                },
-            )
+                |current, embedded| query::run_query(current, scoped, embedded.params, limits),
+            )?;
+            query::finish_query(&self.inner, index, step, started)
         };
         if plugins.is_empty() {
             return run(params);
