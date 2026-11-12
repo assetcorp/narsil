@@ -70,25 +70,52 @@ func (n *Narsil) scoreWithoutHoldingEntry(entry *indexEntry, staged *stagedReran
 	return staged.stage.Score(staged.pinned, n.rerankScorer)
 }
 
+type rerankOutcome uint8
+
+const (
+	rerankSettled rerankOutcome = iota
+	rerankIndexSwapped
+	rerankEntryReplaced
+)
+
 func (n *Narsil) queryReranked(ctx context.Context, entry *indexEntry, resolved model.QueryParams,
 	options index.QueryOptions) (model.QueryResult, bool, error) {
+	for {
+		result, outcome, err := n.rerankOnce(ctx, entry, resolved, options)
+		if err != nil {
+			return model.QueryResult{}, false, err
+		}
+		if outcome != rerankIndexSwapped {
+			return result, outcome == rerankSettled, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return model.QueryResult{}, false, ctxErr
+		}
+	}
+}
+
+func (n *Narsil) rerankOnce(ctx context.Context, entry *indexEntry, resolved model.QueryParams,
+	options index.QueryOptions) (model.QueryResult, rerankOutcome, error) {
 	staged, stale, err := readUnderOneAnalysisDiscarding(ctx, n, entry, func(target *index.Index) (*stagedRerank, error) {
 		return n.stageRerank(ctx, entry, target, resolved, options)
 	}, (*stagedRerank).release)
 	if err != nil {
-		return model.QueryResult{}, false, err
+		return model.QueryResult{}, rerankSettled, err
 	}
 	defer staged.release()
 	if staged.answered {
 		staged.result.AnalysisStale = stale
-		return staged.result, true, nil
+		return staged.result, rerankSettled, nil
 	}
 	scores, scoreErr := n.scoreWithoutHoldingEntry(entry, staged)
-	if entry.retired || entry.index() != staged.target || entry.analysisIsStale() != stale {
-		return model.QueryResult{}, false, ctx.Err()
+	if entry.retired {
+		return model.QueryResult{}, rerankEntryReplaced, ctx.Err()
+	}
+	if entry.index() != staged.target || entry.analysisIsStale() != stale {
+		return model.QueryResult{}, rerankIndexSwapped, nil
 	}
 	if scoreErr != nil {
-		return model.QueryResult{}, false, scoreErr
+		return model.QueryResult{}, rerankSettled, scoreErr
 	}
 	var result model.QueryResult
 	err = n.workers.run(ctx, entry, func() error {
@@ -97,10 +124,10 @@ func (n *Narsil) queryReranked(ctx context.Context, entry *indexEntry, resolved 
 		return finishErr
 	})
 	if err != nil {
-		return model.QueryResult{}, false, queryTokensRefused(err)
+		return model.QueryResult{}, rerankSettled, queryTokensRefused(err)
 	}
 	result.AnalysisStale = stale
-	return result, true, nil
+	return result, rerankSettled, nil
 }
 
 func indexReplacedDuringReranks(indexName string, reranks int) error {
@@ -138,7 +165,7 @@ func (n *Narsil) answerQuery(ctx context.Context, indexName string, entry *index
 			return result, embedded.params, releaseHeld, nil
 		}
 		releaseHeld()
-		if replacedReranks++; replacedReranks >= maxQueryReranks {
+		if replacedReranks++; replacedReranks >= maxCallsAcrossIndexChanges {
 			return model.QueryResult{}, params, nil, indexReplacedDuringReranks(indexName, replacedReranks)
 		}
 		earlier = &embedded

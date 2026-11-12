@@ -129,8 +129,13 @@ func archiveOfTrails(t *testing.T, config engine.IndexConfig, prepare func(*engi
 
 func requireRestoredTrailPage(t *testing.T, result engine.QueryResult) {
 	t.Helper()
-	matching := make([]trail, 0, len(restoredTrails))
-	for _, held := range restoredTrails {
+	requireTrailPage(t, result, restoredTrails)
+}
+
+func requireTrailPage(t *testing.T, result engine.QueryResult, trails []trail) {
+	t.Helper()
+	matching := make([]trail, 0, len(trails))
+	for _, held := range trails {
 		if holdsSearchedWord(held.title) {
 			matching = append(matching, held)
 		}
@@ -143,22 +148,22 @@ func requireRestoredTrailPage(t *testing.T, result engine.QueryResult) {
 		categories[held.category]++
 	}
 	if len(result.Hits) != len(matching) {
-		t.Fatalf("the page holds %v, and the restored index ranks %d matching trails", hitIDs(result.Hits), len(matching))
+		t.Fatalf("the page holds %v, and the index ranks %d matching trails", hitIDs(result.Hits), len(matching))
 	}
 	for at, hit := range result.Hits {
 		expected := matching[at]
 		if hit.ID != expected.id {
-			t.Fatalf("the page holds %v, and the restored index ranks %s at %d", hitIDs(result.Hits), expected.id, at)
+			t.Fatalf("the page holds %v, and the index ranks %s at %d", hitIDs(result.Hits), expected.id, at)
 		}
 		title, _ := hit.Document.Get("title")
 		category, _ := hit.Document.Get("category")
 		if title != expected.title || category != expected.category {
-			t.Fatalf("hit %s carries %v and %v, and the restored index holds %q and %q", hit.ID, title, category,
+			t.Fatalf("hit %s carries %v and %v, and the index holds %q and %q", hit.ID, title, category,
 				expected.title, expected.category)
 		}
 	}
 	if result.Count != len(matching) {
-		t.Fatalf("the page counts %d matches, and the restored index holds %d", result.Count, len(matching))
+		t.Fatalf("the page counts %d matches, and the index holds %d", result.Count, len(matching))
 	}
 	facet, found := result.Facets[trailCategoryFacet]
 	if !found || len(result.Facets) != 1 {
@@ -169,7 +174,7 @@ func requireRestoredTrailPage(t *testing.T, result engine.QueryResult) {
 		counted[value.Value] = value.Count
 	}
 	if !maps.Equal(counted, categories) {
-		t.Fatalf("the page counts categories %v, and the restored index holds %v", counted, categories)
+		t.Fatalf("the page counts categories %v, and the index holds %v", counted, categories)
 	}
 }
 

@@ -126,7 +126,7 @@ func (n *Narsil) embedForQuery(ctx context.Context, indexName string, entry *ind
 			}
 			embeddings = earlier.embeddings
 		}
-		if embeddings >= maxQueryEmbeddings {
+		if embeddings >= maxCallsAcrossIndexChanges {
 			release()
 			return nil, nil, queryEmbedding{}, queryAdapterKeptChanging(indexName, embeddings)
 		}
