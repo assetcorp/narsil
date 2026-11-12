@@ -401,7 +401,7 @@ The primary sends this to the active controller, found through `getLeaseHolder('
 }
 ```
 
-A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender.
+A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender. It accepts the request for a replica already outside the in-sync set, and it still raises the partition's [inSyncVersion](cluster.md#insyncversion) with a table write, so that an admission request still in flight for that replica can never add it back.
 
 ### replication.insync_confirm
 
