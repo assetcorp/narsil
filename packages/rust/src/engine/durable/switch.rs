@@ -36,7 +36,7 @@ pub(crate) fn checkpoint_switch(
     let plan = CheckpointPlan {
         applied: &applied,
         metadata,
-        compaction_threshold: log.compaction_threshold(),
+        limits: log.limits(),
         upgraded: None,
     };
     let mut built = build_checkpoint(&mut writer, index, &partitions, plan)
@@ -49,6 +49,7 @@ pub(crate) fn checkpoint_switch(
         .map_err(SwitchFailure::AtCommit)?;
     built.read_paged_from(backing);
     log.remember(built.metadata.clone());
+    log.record_saved(built.saved.clone());
     log.checkpointed();
     built.apply(&partitions);
     Ok(())

@@ -17,6 +17,15 @@ pub struct IndexStats {
     pub partition_count: usize,
     /// An estimate of the heap bytes that the index holds, which [`Narsil::get_memory_stats`] describes.
     pub estimated_memory_bytes: u64,
+    /// The bytes that the files of the index's current checkpoint hold: the segment files of every partition, the
+    /// vector files, and the graph parts. The figure changes only when a checkpoint commits, so an unchanged index
+    /// reports the same size before and after a restart. It is `None` for an index that saves nothing, and for a
+    /// closed index whose metadata records no saved size.
+    pub saved_bytes: Option<u64>,
+    /// The bytes that the index's write-ahead log files and device-sync history files hold. The figure grows with
+    /// every write and falls when the engine deletes log or history files. It is `None` for an index that keeps no
+    /// write-ahead log, which covers the snapshot tier, and for a closed index.
+    pub log_bytes: Option<u64>,
     /// The language that analyses the index's text.
     pub language: String,
     /// The index's schema, in the shape that [`crate::IndexConfig::schema`] takes.
@@ -32,6 +41,13 @@ pub struct PartitionStats {
     pub document_count: u64,
     /// An estimate of the heap bytes that the partition's text segments hold.
     pub estimated_memory_bytes: u64,
+    /// The bytes of the segment files that the index's current checkpoint lists for this partition. The vector
+    /// files and graph parts belong to the whole index, so only [`IndexStats::saved_bytes`] counts them. It is
+    /// `None` for an index that saves nothing.
+    pub saved_bytes: Option<u64>,
+    /// The bytes that this partition's write-ahead log files and device-sync history files hold. It is `None` for
+    /// an index that keeps no write-ahead log.
+    pub log_bytes: Option<u64>,
 }
 
 /// The figures that [`Narsil::get_memory_stats`] reports for the whole engine.
@@ -50,16 +66,21 @@ fn vector_bytes(index: &IndexState) -> u64 {
 }
 
 fn partition_stats(index: &IndexState) -> Vec<PartitionStats> {
+    let log = index.log();
+    let saved = log.map(|log| log.saved_size());
     index
         .partitions()
         .iter()
         .enumerate()
         .map(|(partition_id, partition)| {
             let snapshot = partition.snapshot();
+            let id = u32::try_from(partition_id).unwrap_or(u32::MAX);
             PartitionStats {
                 partition_id,
                 document_count: snapshot.document_count(),
                 estimated_memory_bytes: partition_bytes(&snapshot),
+                saved_bytes: saved.as_ref().map(|saved| saved.partition_bytes(id)),
+                log_bytes: log.and_then(|log| log.partition_log_bytes(id)),
             }
         })
         .collect()
@@ -109,6 +130,8 @@ impl Narsil {
                 document_count: closed.document_count,
                 partition_count: closed.partition_count,
                 estimated_memory_bytes: 0,
+                saved_bytes: closed.saved_bytes,
+                log_bytes: None,
                 language: closed.language,
                 schema: closed.config.schema.clone(),
             });
@@ -124,10 +147,13 @@ impl Narsil {
                 .fold(vector_bytes(index), |total, partition| {
                     total.saturating_add(partition.estimated_memory_bytes)
                 });
+            let log = index.log();
             Ok(IndexStats {
                 document_count,
                 partition_count: partitions.len(),
                 estimated_memory_bytes,
+                saved_bytes: log.map(|log| log.saved_size().bytes),
+                log_bytes: log.and_then(|log| log.log_bytes()),
                 language: index.analyser().language().name().to_string(),
                 schema: index.config().schema.clone(),
             })

@@ -76,6 +76,7 @@ impl ActiveSegment {
                 ),
             ));
         }
+        directory.log_bytes().set(&key, length);
         Ok(ActiveSegment {
             key,
             start: tail.start_seq_no,
@@ -96,8 +97,15 @@ impl ActiveSegment {
             .write(true)
             .open(&path)
             .map_err(|error| write_failed(&key, &error))?;
-        file.write_all(&segment_header())
-            .map_err(|error| write_failed(&key, &error))?;
+        let header = file.write_all(&segment_header());
+        let measured = match &header {
+            Ok(()) => Some(SEGMENT_HEADER_BYTES as u64),
+            Err(_) => file.metadata().ok().map(|metadata| metadata.len()),
+        };
+        directory
+            .log_bytes()
+            .set(&key, measured.unwrap_or_default());
+        header.map_err(|error| write_failed(&key, &error))?;
         directory.sync_directory_of(&key)?;
         Ok(ActiveSegment {
             key,

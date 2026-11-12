@@ -65,6 +65,21 @@ func (durable *Durable) planPartitions(prior *manifest.Manifest, logged bool, op
 	}
 }
 
+func (durable *Durable) liveDocumentCounts(ctx context.Context, held *capture) []int {
+	if held.left > 0 {
+		return nil
+	}
+	live := make([]int, len(held.seqNos))
+	for partitionID := range live {
+		count, err := durable.handle.Index.PartitionDocumentCount(ctx, partitionID)
+		if err != nil {
+			return nil
+		}
+		live[partitionID] = count
+	}
+	return live
+}
+
 func (durable *Durable) buildLoggedPartitions(ctx context.Context, store checkpoint.Store, prior *manifest.Manifest,
 	held *capture) error {
 	for partitionID, fromLog := range held.logged {

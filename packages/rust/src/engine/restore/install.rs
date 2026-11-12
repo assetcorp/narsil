@@ -9,6 +9,7 @@ use crate::engine::EngineInner;
 use crate::engine::durable::load::{holds_paged_text, load_current_checkpoint};
 use crate::engine::durable::load_source::{CheckpointSource, StagedSource};
 use crate::engine::durable::metadata::metadata_of;
+use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
 use crate::engine::memory::constants::RESTORE_PROCESS_BYTES_PER_STORED_BYTE;
 use crate::engine::memory::require_restore_memory;
@@ -180,6 +181,7 @@ pub(super) fn activate(
     }
     if let Staging::Stored(staged) = &*staging {
         let manifest = manifest.ok_or_else(|| missing_manifest(&index.name))?;
+        metadata.saved_bytes = Some(SavedSize::of(manifest).bytes);
         staged.stage_commit(manifest, &metadata)?;
     }
     index.set_analysis_stale(restored_analysis_stale(&index, recorded));

@@ -41,6 +41,7 @@ pub enum IndexResidencyState {
 pub(crate) struct ClosedIndex {
     pub(crate) config: Arc<IndexConfig>,
     pub(crate) document_count: u64,
+    pub(crate) saved_bytes: Option<u64>,
     pub(crate) partition_count: usize,
     pub(crate) language: String,
     pub(crate) suggestions: Arc<SuggestionState>,

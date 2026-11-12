@@ -41,6 +41,9 @@ func readOptional(record map[string]any, meta *Metadata) {
 	if count, ok := is.AsCount(record["document_count"], form.MaxSafeInteger); ok {
 		meta.DocumentCount = model.Some(count)
 	}
+	if bytes, ok := is.AsCount(record["saved_bytes"], form.MaxSafeInteger); ok {
+		meta.SavedBytes = model.Some(bytes)
+	}
 	if embedding, ok, _ := is.ReadEmbedding(record["embedding"], nil); ok {
 		meta.Embedding = &embedding
 	}

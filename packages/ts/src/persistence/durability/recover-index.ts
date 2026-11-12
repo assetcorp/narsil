@@ -8,6 +8,7 @@ import { loadMetadata, replayWal, snapshotCheckpointFor } from './recovery'
 import { directoryCheckpointStore } from './segment/store'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import { settleStoredAnalysis } from './stored-analysis'
+import type { StoredBytes } from './stored-bytes'
 import type { SyncStorage } from './sync/storage'
 import type { IndexDurabilityHooks } from './types'
 
@@ -19,15 +20,17 @@ export interface RecoverPersistedIndexDeps {
   holdsCheckpointFiles(indexName: string): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   syncStorage: SyncStorage
+  measureStoredBytes(indexName: string, saved: StoredBytes): Promise<void>
 }
 
 async function writeCountedMetadata(
   deps: RecoverPersistedIndexDeps,
   indexName: string,
   documentCount: number,
+  savedBytes?: number,
 ): Promise<void> {
   await deps.queueMetadataWrite(indexName, async () => {
-    const metadata = deps.hooks.buildMetadata(indexName, documentCount)
+    const metadata = deps.hooks.buildMetadata(indexName, documentCount, savedBytes)
     if (metadata === undefined) return
     const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
     await deps.directory.atomicWrite(`${indexName}/meta`, bytes)
@@ -132,8 +135,14 @@ export async function recoverPersistedIndex(
   for (const { partitionId, lastSeqNo, primaryTerm } of recovered.checkpoint) {
     deps.registerPartition(indexName, partitionId, lastSeqNo, primaryTerm)
   }
+  await deps.measureStoredBytes(indexName, recovered.saved)
   if (layout.transition === null && (recovered.upgradedDocumentCount !== null || promoted || layout.changedMetadata)) {
-    await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount ?? manager.countDocuments())
+    await writeCountedMetadata(
+      deps,
+      indexName,
+      recovered.upgradedDocumentCount ?? manager.countDocuments(),
+      recovered.saved.bytes,
+    )
   }
   return layout.transition === null ? null : removeUnread
 }

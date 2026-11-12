@@ -10,7 +10,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: performance-${{ github.ref }}
+  group: performance-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

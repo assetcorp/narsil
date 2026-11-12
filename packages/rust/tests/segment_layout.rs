@@ -1,5 +1,6 @@
 mod support;
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -204,30 +205,29 @@ fn reference_segment_files(index: &str, schema: &Value, stages: &[Stage<'_>]) ->
         "the TypeScript reference failed; build packages/ts first: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let partition = copied.join("0");
-    let mut names: Vec<_> = std::fs::read_dir(&partition)
-        .expect("the reference wrote partition 0")
-        .map(|entry| entry.expect("the directory lists").path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with('s'))
+    let mut earlier = BTreeSet::new();
+    (0..stages.len())
+        .map(|checkpoint| {
+            let partition = copied.join(checkpoint.to_string()).join("0");
+            let names: BTreeSet<String> = std::fs::read_dir(&partition)
+                .expect("the reference wrote partition 0")
+                .map(|entry| entry.expect("the directory lists").file_name())
+                .filter_map(|name| name.into_string().ok())
+                .filter(|name| name.starts_with('s'))
+                .collect();
+            let tail = names
+                .difference(&earlier)
+                .next()
+                .cloned()
+                .expect("the checkpoint writes a segment for its writes");
+            earlier = names;
+            std::fs::read(partition.join(tail)).expect("the segment file reads")
         })
-        .collect();
-    names.sort();
-    names
-        .iter()
-        .map(|path| std::fs::read(path).expect("the segment file reads"))
         .collect()
 }
 
 fn require_reference_layout(index: &str, schema: &Value, stages: &[Stage<'_>]) {
     let wanted = reference_segment_files(index, schema, stages);
-    assert_eq!(
-        wanted.len(),
-        stages.len(),
-        "the reference writes one segment per checkpoint"
-    );
     let engine = Narsil::new();
     engine
         .create_index(index, config_of(schema))

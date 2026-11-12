@@ -23,6 +23,23 @@ pub fn repository_root() -> PathBuf {
         .expect("the repository root exists")
 }
 
+pub fn rewrite_saved_file(file: &Path, arguments: &[&str]) {
+    assert!(file.is_file(), "{} exists", file.display());
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/reference_partitions.mjs");
+    let output = std::process::Command::new("node")
+        .arg(script)
+        .arg(repository_root())
+        .args(arguments)
+        .output()
+        .expect("node runs the rewriter");
+    assert!(
+        output.status.success(),
+        "the rewriter failed; install packages/ts first: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 pub fn conformance_root() -> PathBuf {
     repository_root().join("packages/conformance")
 }

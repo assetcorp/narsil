@@ -2,6 +2,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { PendingAnalysisMetadata, StoredQuerySuggestions } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
+import type { IndexStoredSizes } from './stored-sizes'
 
 export interface DurableAnalysis extends PendingAnalysisMetadata {
   analysisRevision: string | null
@@ -24,6 +25,8 @@ export type IndexRegistryEntry = {
   indexUuid: string | null
   heldPartitions: number[] | null
   documentCount: number
+  savedBytes?: number
+  storedSizes?: IndexStoredSizes
   partitionCount: number
   analysisRevision: string | null
   arrayPositionGap: number | null

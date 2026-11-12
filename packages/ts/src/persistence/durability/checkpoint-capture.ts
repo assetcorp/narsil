@@ -19,6 +19,7 @@ import {
   type WriteRecordCapture,
 } from './segment/captured-partition'
 import type { SegmentManifest, VectorFieldRef } from './segment/manifest'
+import type { PartitionDocumentCount } from './segment/removed-documents'
 import type { CheckpointStore } from './segment/store'
 import { type VectorCheckpointLayout, type VectorFieldWritten, writeLiveVectors } from './segment/vector-write'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
@@ -31,6 +32,7 @@ export interface CheckpointCapture {
   wholePartitions: WholePartitions
   recordsLeftInLog: number
   unreplayedCutoffs: ReadonlyMap<number, number>
+  liveDocuments: PartitionDocumentCount[] | null
 }
 
 export interface LiveVectorsWritten {
@@ -167,6 +169,10 @@ export function wholePartitionsWhereMostChanged(
   }
 }
 
+function liveDocumentsOf(manager: PartitionManager, targets: readonly PartitionCheckpoint[]): PartitionDocumentCount[] {
+  return targets.map(({ partitionId }) => ({ partitionId, documentCount: manager.getPartition(partitionId).count() }))
+}
+
 export async function captureCheckpoint(
   indexState: IndexState,
   manager: PartitionManager,
@@ -225,6 +231,7 @@ export async function captureCheckpoint(
           wholePartitions,
           recordsLeftInLog,
           unreplayedCutoffs: cutoffs,
+          liveDocuments: memoryMatchesTheTargets && cutoffs.size === 0 ? liveDocumentsOf(manager, targets) : null,
         }
       } catch (error) {
         for (const plan of vectorPlans.values()) plan.release()

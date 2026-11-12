@@ -255,7 +255,9 @@ impl DurabilityStore {
                     release_files();
                     inner.close_index_logs(&index_name)
                 };
-                commit_staged(staging, before_swap, &lost)?;
+                let committed = commit_staged(staging, before_swap, &lost);
+                let _ = inner.directory.measure_log_bytes(&index_name);
+                committed?;
                 for partition in checkpoint {
                     let start = LogStart {
                         active: None,

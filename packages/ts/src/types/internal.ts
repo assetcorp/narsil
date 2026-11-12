@@ -153,6 +153,8 @@ export interface IndexMetadata {
   indexName: string
   /** Number of documents represented by the last completed checkpoint. */
   documentCount?: number
+  /** The saved size of the last completed checkpoint. */
+  savedBytes?: number
   /** The identity a cluster gave the index at creation; absent on a single engine. */
   indexUuid?: string
   /** The partitions this copy holds, which a cluster node answers a partition-stores request from. */
