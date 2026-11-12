@@ -59,7 +59,7 @@ func writeThroughPromotion(narsil *engine.Narsil, seed int64) (map[string]any, e
 			if promotionDue.IsZero() {
 				promotionDue = time.Now()
 			} else if waited := time.Since(promotionDue); waited > promotingBuildLimit {
-				return nil, fmt.Errorf("the vector graph was still unbuilt %s after the field held %d vectors",
+				return nil, fmt.Errorf("the vector field had not reported an idle graph after waiting %s with at least %d vectors",
 					waited.Round(time.Second), promotingThreshold)
 			}
 		}
