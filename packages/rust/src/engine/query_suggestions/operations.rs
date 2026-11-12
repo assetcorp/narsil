@@ -187,7 +187,7 @@ impl QuerySuggestions<'_> {
         let engine = &self.narsil.inner;
         engine.guard_shutdown()?;
         let phrases = ban_list_from_input(phrases)?;
-        let _writes = engine.suggestions.write_turns.take(index);
+        let _writes = engine.suggestions.write_turns.take(index)?;
         let (stored, added) = self.ban_phrases(index, |_| Ok(phrases))?;
         self.remove_from_suggestions(index, &added)?;
         Ok(stored)
@@ -202,7 +202,7 @@ impl QuerySuggestions<'_> {
         let engine = &self.narsil.inner;
         engine.guard_shutdown()?;
         let phrase = normalise_ban(query)?;
-        let _writes = engine.suggestions.write_turns.take(index);
+        let _writes = engine.suggestions.write_turns.take(index)?;
         self.ban_phrases(index, |current| {
             union_of_bans(current, std::slice::from_ref(&phrase))
         })?;
@@ -233,7 +233,7 @@ impl QuerySuggestions<'_> {
                 "A suggestion's count must be a whole number from 0 to {MAX_MANUAL_SUGGESTION_COUNT}"
             )));
         }
-        let _writes = engine.suggestions.write_turns.take(index);
+        let _writes = engine.suggestions.write_turns.take(index)?;
         let source = engine.open_index(index)?;
         require_source(&source)?;
         let state = source.suggestion_state();

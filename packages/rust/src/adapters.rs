@@ -15,7 +15,8 @@ pub enum EmbeddingPurpose {
 /// Turns text into the vectors of a vector field, such as a call to an embedding model.
 ///
 /// The engine checks every returned vector: one with the wrong length raises `EMBEDDING_DIMENSION_MISMATCH`, and
-/// one that holds an infinite or NaN element raises `EMBEDDING_FAILED`.
+/// one that holds an infinite or NaN element raises `EMBEDDING_FAILED`. A close of the index waits for the write
+/// that embeds a document, so an adapter that closes that index from the same thread never returns.
 pub trait EmbeddingAdapter: Send + Sync {
     /// Returns the length of every vector that this adapter returns, which must equal the `vector[n]` of each field
     /// that it fills.

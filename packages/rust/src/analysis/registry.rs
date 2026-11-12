@@ -3,6 +3,7 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::unwind::guarded;
 
 /// One token that a [`Tokenizer`] returns: the term to index and its position in the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,13 +18,53 @@ pub struct Token {
 ///
 /// The engine indexes each returned term as it stands, so a tokenizer that wants stemming or lower case applies
 /// them itself, and the engine removes no stop word from what it returns. The engine sorts the tokens by position
-/// where the tokenizer returns them out of order.
+/// where the tokenizer returns them out of order. When `tokenize` panics, the write or search that called it fails
+/// with `INTERNAL_ERROR` and the text of the panic, or with the [`crate::NarsilError`] that the panic held as its
+/// payload, and the index keeps the documents that it held before. The engine can hold a lock of the index while
+/// it calls the tokenizer, so a call from the tokenizer back into the same engine on that thread can wait forever.
 pub trait Tokenizer: Send + Sync {
     /// Returns the tokens of `text`.
     fn tokenize(&self, text: &str) -> Vec<Token>;
+
+    /// Returns the tokens of `text`, which comes from `source`, or the error that refuses them.
+    ///
+    /// The engine calls this method, and the default returns what [`Tokenizer::tokenize`] returns. A tokenizer that
+    /// receives its tokens from code that the engine can't vouch for, such as a function in another language,
+    /// returns an error with the code of [`TokenSource::refusal_code`] for a token that isn't valid, and the write
+    /// or search that called it fails with that error unchanged.
+    fn try_tokenize(&self, text: &str, source: TokenSource) -> Result<Vec<Token>> {
+        let _ = source;
+        Ok(self.tokenize(text))
+    }
+}
+
+/// Where the text that a [`Tokenizer`] receives comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TokenSource {
+    /// A document that a write indexes, or that a rebuild indexes again.
+    Document,
+    /// The text of a query, a highlight, a group, or a synonym rule.
+    Query,
+}
+
+impl TokenSource {
+    /// Returns the code that refuses a token from this source: `DOC_VALIDATION_FAILED` for a document and
+    /// `CONFIG_INVALID` for any other text.
+    pub fn refusal_code(self) -> ErrorCode {
+        match self {
+            TokenSource::Document => ErrorCode::DOC_VALIDATION_FAILED,
+            TokenSource::Query => ErrorCode::CONFIG_INVALID,
+        }
+    }
 }
 
 /// A function that receives a language's stop words and returns the set that an index uses.
+///
+/// When the function panics, the call that built the index's analysis fails with `CONFIG_INVALID` and the text of
+/// the panic, or with the [`crate::NarsilError`] that the panic held as its payload. The engine can hold a lock of
+/// the index while it calls the function, so a call from the function back into the same engine on that thread
+/// can wait forever.
 pub type StopWordFunction = Arc<dyn Fn(&HashSet<String>) -> HashSet<String> + Send + Sync>;
 
 /// The stop words of an index, which replace the stop words of its language.
@@ -45,10 +86,14 @@ impl fmt::Debug for StopWords {
 }
 
 impl StopWords {
-    pub(crate) fn resolve(&self, defaults: &HashSet<String>) -> HashSet<String> {
+    pub(crate) fn resolve(&self, defaults: &HashSet<String>) -> Result<HashSet<String>> {
         match self {
-            StopWords::Set(words) => words.clone(),
-            StopWords::Function(function) => function(defaults),
+            StopWords::Set(words) => Ok(words.clone()),
+            StopWords::Function(function) => {
+                guarded(ErrorCode::CONFIG_INVALID, "The stop word function", || {
+                    function(defaults)
+                })
+            }
         }
     }
 }
