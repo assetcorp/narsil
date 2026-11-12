@@ -62,22 +62,35 @@ export function createCatchUpState(): CatchUpState {
   }
 }
 
+function openFreshSyncSession(cursor: ReplicaCursor, appliedSeqNo: number): void {
+  cursor.feed?.cancel()
+  cursor.appliedSeqNo = appliedSeqNo
+  cursor.syncEpoch += 1
+}
+
+function noteAcknowledgedPosition(state: CatchUpState, key: string, replicaNodeId: string, appliedSeqNo: number) {
+  const acknowledged = state.acknowledgedSeqNos.get(key) ?? new Map<string, number>()
+  acknowledged.set(replicaNodeId, appliedSeqNo)
+  state.acknowledgedSeqNos.set(key, acknowledged)
+}
+
 /**
- * Records the position a replica reports for a partition, so that the pump sends it the right entries next.
+ * Records the position a replica reports for a partition in a sync request that the primary's log matches, so that
+ * the pump sends it the right entries next.
  *
- * A replica that reports a position ahead of the recorded one has made progress, and the cursor follows it. A
- * replica that reports a position behind the recorded one has lost data and started a new sync session, so the
- * cursor drops to the reported position and the sync epoch rises. Raising the epoch makes the pump discard an
- * acknowledgement still in flight from the session before, because that acknowledgement would otherwise move the
- * cursor back to a position the replica no longer holds. A report that arrives while the pump is feeding the replica
- * comes from a new sync session whatever position it carries, so the cursor takes that position, the epoch rises, and
- * the feed in flight is cancelled, which lets the next tick feed or propose the replica from where it now stands.
+ * The recorded position never passes `logEnd`, the primary's own log end. A replica that reports a position at or
+ * ahead of the recorded one keeps its sync session, and the cursor rises to the reported position, so a feed or an
+ * admission already in flight stays valid. A replica that reports a position behind the recorded one has lost data
+ * and started a new sync session, so the cursor drops to the reported position, the sync epoch rises, and the feed in
+ * flight is cancelled. Raising the epoch makes the pump discard an acknowledgement still in flight from the session
+ * before, and makes the primary withdraw an admission it proposed in that session.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
  * @param partitionId - The partition's id within that index.
  * @param replicaNodeId - The replica that reported the position.
  * @param appliedSeqNo - The highest sequence number the replica reports having applied.
+ * @param logEnd - The primary's own log end for the partition.
  */
 export function recordReplicaPosition(
   state: CatchUpState,
@@ -85,26 +98,35 @@ export function recordReplicaPosition(
   partitionId: number,
   replicaNodeId: string,
   appliedSeqNo: number,
+  logEnd: number,
 ): void {
   const key = partitionKey(indexName, partitionId)
+  const reported = Math.min(appliedSeqNo, logEnd)
   const partition = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
   const existing = partition.get(replicaNodeId)
   if (existing === undefined) {
-    partition.set(replicaNodeId, { appliedSeqNo, busy: false, syncEpoch: 0, feed: null })
-  } else if (existing.feed !== null) {
-    existing.feed.cancel()
-    existing.appliedSeqNo = appliedSeqNo
-    existing.syncEpoch += 1
-  } else if (appliedSeqNo > existing.appliedSeqNo) {
-    existing.appliedSeqNo = appliedSeqNo
-  } else if (appliedSeqNo < existing.appliedSeqNo) {
-    existing.appliedSeqNo = appliedSeqNo
-    existing.syncEpoch += 1
+    partition.set(replicaNodeId, { appliedSeqNo: reported, busy: false, syncEpoch: 0, feed: null })
+  } else if (reported < existing.appliedSeqNo) {
+    openFreshSyncSession(existing, reported)
+  } else {
+    existing.appliedSeqNo = reported
   }
   state.cursors.set(key, partition)
-  const acknowledged = state.acknowledgedSeqNos.get(key) ?? new Map<string, number>()
-  acknowledged.set(replicaNodeId, appliedSeqNo)
-  state.acknowledgedSeqNos.set(key, acknowledged)
+  noteAcknowledgedPosition(state, key, replicaNodeId, reported)
+}
+
+export function recordSnapshotSyncRequest(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  appliedSeqNo: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const existing = state.cursors.get(key)?.get(replicaNodeId)
+  if (existing === undefined) return
+  openFreshSyncSession(existing, Math.min(existing.appliedSeqNo, appliedSeqNo))
+  noteAcknowledgedPosition(state, key, replicaNodeId, existing.appliedSeqNo)
 }
 
 /**
