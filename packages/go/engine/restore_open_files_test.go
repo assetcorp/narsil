@@ -201,6 +201,14 @@ func TestARestoreClosesTheIndexThatAnAnalysisChangeRetiredWhileARerankedQuerySti
 			t.Fatalf("the reranked query returned %q, which the restored archive does not hold with %q", hit.ID,
 				retiringSearchedWord)
 		}
+		if hit.Document == nil {
+			t.Fatalf("the reranked query returned %q without its document", hit.ID)
+		}
+		body, _ := hit.Document.Get("body")
+		if body != archived.bodies[hit.ID] {
+			t.Fatalf("the reranked query returned %q with the body %v, while the restored archive holds %q", hit.ID, body,
+				archived.bodies[hit.ID])
+		}
 	}
 	archived.requireAnswers(t, target, "after the restore under the reranked query")
 	requireNoRetiredFileOpen(t, directory, "after the reranked query")
