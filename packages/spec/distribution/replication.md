@@ -222,7 +222,7 @@ The retention mechanism is implementation-defined. A circular buffer, an append-
 
 A replica that needs to catch up with the primary, whether it is a new node, a node returning after downtime, or a node newly assigned the partition, runs the sync protocol against the primary.
 
-A replica must send `replication.sync_request` again once it has applied the sync so that the primary records its new position.
+A replica must send `replication.sync_request` again once it has applied the sync so that the primary records its new position, and that request must carry the `syncSession` that the primary sent with the sync, as [Catch-Up Feed](#catch-up-feed) defines.
 
 ### Two-Tier Recovery
 
@@ -356,9 +356,13 @@ The primary keeps one applied position for each such replica. It takes that posi
 
 A `replication.sync_request` reporting a position below the recorded one opens a fresh sync session, so the primary must lower the recorded position to the reported one, and must discard every acknowledgement still in flight from before that request. A primary that kept the higher position instead would count entries the replica no longer holds, and a failover to that replica would then lose acknowledged writes.
 
+The transport keeps no order between two requests, so a report from a sync that the replica has since abandoned can reach the primary after the request that opened the next one. The primary must therefore keep one current sync session for each replica of each partition that it leads. For each `replication.sync_request` that carries no `syncSession`, the primary opens a new session under a fresh identifier that no other session of that primary can share, such as a random UUID, makes it the replica's current session, and sends it in every `replication.sync_entries` batch and in `replication.snapshot_start`. The primary records the position of a request that carries a `syncSession` only where that session is the replica's current one, and it refuses any other such request with `REPLICATION_SYNC_FAILED` and leaves the recorded position and the current session as they stand. A replica that receives that refusal opens a new sync. A primary that took a new term holds no session from the term before, so it refuses every report from a sync of the earlier term in the same way.
+
+A request that opens a sync can itself arrive after a later one, so its position only starts the feed. The primary may count a position toward admission only where the replica confirmed it in its current session, through a request that carries that session or through the acknowledgement of a `replication.entry_batch`, because [Log Matching](#log-matching) makes such an acknowledgement prove every entry below it. A replica must discard the answer to any sync request other than the last one that it sent for the partition.
+
 The primary sends the entries above the recorded position in sequence-number order, and it may group contiguous entries into one `replication.entry_batch` message. It must bound the bytes it holds in flight across every partition it leads, so that a replica rejoining an idle cluster cannot exhaust the primary's memory.
 
-The primary asks the controller to admit a replica once that replica's recorded position reaches the primary's own log end; see [replication.insync_add](transport.md#replicationinsync_add). The controller admits it only when the position is at or above the stored commit point.
+The primary asks the controller to admit a replica once that replica's recorded position reaches the primary's own log end; see [replication.insync_add](transport.md#replicationinsync_add). The controller admits it only when the position is at or above the stored commit point, and only when the request carries the partition's current [inSyncVersion](cluster.md#insyncversion). A primary whose request the controller refuses for a changed `inSyncVersion` reads the allocation table again and asks again where the replica still qualifies.
 
 A replica whose recorded position falls below the oldest entry the primary retains must leave the feed and run the [Sync Protocol](#sync-protocol) again, because the primary can no longer send it what it lacks.
 
