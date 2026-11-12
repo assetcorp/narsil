@@ -3,7 +3,6 @@ import type { CatchUpFeed } from './feed'
 export interface ReplicaCursor {
   appliedSeqNo: number
   confirmed: boolean
-  provenInSyncVersion: number | null
   busy: boolean
   syncEpoch: number
   feed: CatchUpFeed | null
@@ -146,7 +145,6 @@ export function recordReplicaPosition(
     partition.set(replicaNodeId, {
       appliedSeqNo: reported,
       confirmed: confirmsPosition,
-      provenInSyncVersion: null,
       busy: false,
       syncEpoch: 0,
       feed: null,
@@ -158,7 +156,6 @@ export function recordReplicaPosition(
       existing.appliedSeqNo = reported
     }
     existing.confirmed = confirmsPosition
-    existing.provenInSyncVersion = null
   }
   state.cursors.set(key, partition)
   noteAcknowledgedPosition(state, key, replicaNodeId, reported)

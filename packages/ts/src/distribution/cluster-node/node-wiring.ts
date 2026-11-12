@@ -17,6 +17,7 @@ import {
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
 import type { ReshardState } from './reshard/state'
+import { nextStartedAt } from './started-at'
 import type { ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import type { WriteRoutingDeps } from './write-routing'
@@ -82,7 +83,7 @@ export function createNodeWiring(input: {
     address: config.address,
     roles: [...input.roles],
     capacity: config.capacity ?? DEFAULT_CAPACITY,
-    startedAt: new Date().toISOString(),
+    startedAt: nextStartedAt(),
     version: SPEC_VERSION,
   }
 

@@ -302,27 +302,42 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     return (await allocation()).assignments.get(PARTITION_ID)?.inSyncSet ?? []
   }
 
-  async function startCluster(logRetentionBytes?: number, timeouts: ClusterTimeouts = {}) {
+  async function startDataNode(
+    nodeId: string,
+    directory: string,
+    timeouts: ClusterTimeouts = {},
+    logRetentionBytes?: number,
+  ) {
+    const node = await createClusterNode({
+      coordinator: dataNodeCoordinator(nodeId),
+      transport: dataNodeTransport(nodeId, timeouts),
+      address: `${nodeId}:9200`,
+      nodeId,
+      roles: ['data'],
+      engine: { workers: { enabled: false }, durability: { directory } },
+      ...(logRetentionBytes === undefined ? {} : { replication: { logRetentionBytes } }),
+    })
+    running.push(node)
+    await node.start()
+    return node
+  }
+
+  async function startCluster(
+    logRetentionBytes?: number,
+    timeouts: ClusterTimeouts = {},
+    controllerAddress = 'harbour-master:9200',
+  ) {
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     root = await mkdtemp(join(tmpdir(), 'narsil-catch-up-sessions-'))
+    const dataNodes = new Map<string, ClusterNode>()
     for (const nodeId of DATA_NODES) {
-      const node = await createClusterNode({
-        coordinator: dataNodeCoordinator(nodeId),
-        transport: dataNodeTransport(nodeId, timeouts),
-        address: `${nodeId}:9200`,
-        nodeId,
-        roles: ['data'],
-        engine: { workers: { enabled: false }, durability: { directory: join(root, nodeId) } },
-        ...(logRetentionBytes === undefined ? {} : { replication: { logRetentionBytes } }),
-      })
-      running.push(node)
-      await node.start()
+      dataNodes.set(nodeId, await startDataNode(nodeId, join(root, nodeId), timeouts, logRetentionBytes))
     }
     const router = await createClusterNode({
       coordinator,
       transport: controllerTransport(timeouts),
-      address: 'harbour-master:9200',
+      address: controllerAddress,
       nodeId: 'harbour-master',
       roles: ['coordinator', 'controller'],
     })
@@ -335,7 +350,15 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       if (entry?.state !== 'ACTIVE' || entry.primary === null || replica === undefined) return null
       return entry.inSyncSet.includes(replica) ? { ...entry, primary: entry.primary, replica } : null
     }, 'the replica to join the in-sync set')
-    return { router, primary: assignment.primary, replica: assignment.replica, term: assignment.primaryTerm }
+    const replicaNode = dataNodes.get(assignment.replica)
+    if (replicaNode === undefined) throw new Error(`${assignment.replica} is not a data node of this cluster`)
+    return {
+      router,
+      primary: assignment.primary,
+      replica: assignment.replica,
+      replicaNode,
+      term: assignment.primaryTerm,
+    }
   }
 
   async function heldPartitionIds(asker: string, holder: string): Promise<unknown[]> {
@@ -961,6 +984,57 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.heldAdmission = null
     await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))
+    expect(await inSyncSet()).not.toContain(replica)
+    expect(await heldPartitionIds(primary, replica)).toEqual([])
+  }, 90_000)
+
+  it('asks the replica to acknowledge its position again before every admission request, so a replica that restarts with an empty copy while the in-sync version stays the same stays out of the in-sync set', async () => {
+    const { router, primary, replica, replicaNode, term } = await startCluster(undefined, {}, 'harbour-master')
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+
+    await coordinator.deregisterNode(replica)
+    script.heldAdmission = null
+    await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
+
+    await replicaNode.shutdown()
+    script.mode = 'apply'
+    await startDataNode(replica, join(root, `${replica}-restarted`))
+    await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))
+    expect(await inSyncSet()).not.toContain(replica)
+    expect(await heldPartitionIds(primary, replica)).toEqual([])
+  }, 90_000)
+
+  it('refuses an admission that reaches the controller after its replica acknowledged the proof and restarted with an empty copy, because the registration start time no longer matches', async () => {
+    const { router, primary, replica, replicaNode, term } = await startCluster(undefined, {}, 'harbour-master')
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+
+    await replicaNode.shutdown()
+    script.mode = 'apply'
+    await startDataNode(replica, join(root, `${replica}-restarted`))
+    script.heldAdmission = null
+    await releaseAdmission()
+
     expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
     await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))
     expect(await inSyncSet()).not.toContain(replica)

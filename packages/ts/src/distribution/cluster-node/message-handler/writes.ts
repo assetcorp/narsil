@@ -160,7 +160,13 @@ async function applyEntriesInLogOrder(
       continue
     }
     if (entry.seqNo <= tailSeqNo && log.termAt(entry.seqNo) === entry.primaryTerm) {
-      continue
+      if (log.verifyChecksum(entry)) continue
+      await applyRun(run, log, deps)
+      throw new NarsilError(ErrorCodes.REPLICATION_ENTRY_CORRUPT, `Invalid replication entry ${entry.seqNo}`, {
+        indexName: entry.indexName,
+        partitionId: entry.partitionId,
+        seqNo: entry.seqNo,
+      })
     }
 
     const heldTermBefore = run.at(-1)?.primaryTerm ?? (tailSeqNo === 0 ? 0 : log.termAt(tailSeqNo))

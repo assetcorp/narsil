@@ -332,6 +332,7 @@ export interface InsyncAddPayload {
   appliedSeqNo: number
   commitPoint: number
   inSyncVersion: number
+  replicaStartedAt: string
 }
 
 export interface InsyncConfirmPayload {

@@ -69,11 +69,15 @@ export function validateInsyncAddPayload(decoded: unknown): InsyncAddPayload | n
   if (!isValidInteger(decoded.inSyncVersion) || decoded.inSyncVersion < 0) {
     return null
   }
+  if (typeof decoded.replicaStartedAt !== 'string' || decoded.replicaStartedAt.length === 0) {
+    return null
+  }
   return {
     ...base,
     appliedSeqNo: decoded.appliedSeqNo,
     commitPoint: decoded.commitPoint,
     inSyncVersion: decoded.inSyncVersion,
+    replicaStartedAt: decoded.replicaStartedAt,
   }
 }
 
