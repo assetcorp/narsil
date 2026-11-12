@@ -1,13 +1,22 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import { decode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPACITY } from '../../../../distribution'
 import type { AllocationTable, PartitionAssignment } from '../../../../distribution/coordinator/types'
-import { DEFAULT_TRANSPORT_CONFIG } from '../../../../distribution/transport/types'
+import {
+  DEFAULT_TRANSPORT_CONFIG,
+  type TransportConfig,
+  type TransportMessage,
+} from '../../../../distribution/transport/types'
 import {
   createTestCluster,
   entryForDocument,
+  gateLeaseLookups,
   INDEX,
+  type LeaseLookupGate,
+  type MessageRule,
   ofType,
+  onceFor,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -23,6 +32,19 @@ const WRITES_AFTER_SWAP_MS = 1_000
 const REPLICATION_TIMEOUT_MS = DEFAULT_TRANSPORT_CONFIG.replicationTimeout
 const WRITE_MARGIN_MS = 2_000
 const WRITE_PACE_MS = 20
+const RETRIED_REMOVALS = 3
+const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
+const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
+const TERM_END_QUIET_MS = 3_000
+const SHORT_REPLICATION_TIMEOUT_MS = 500
+const LATE_REMOVAL_REPLICATION_TIMEOUT_MS = 40_000
+const ADMISSION_REPLY_SETTLE_MS = 250
+const LATE_REMOVAL_REPLY_SETTLE_MS = 250
+const WRITES_AFTER_READMISSION = 3
+const STALLED_TRIES = 4
+const STALL_RELEASE_SETTLE_MS = 300
+const MAX_REQUESTS_AFTER_STALL = 1
+const ENTRY_TYPES = new Set(['replication.entry', 'replication.entry_batch'])
 
 type Ledger = Map<string, Record<string, unknown>>
 
@@ -35,6 +57,29 @@ function fields(label: string, amount: number): Record<string, unknown> {
   return { title: `transfer ${label}`, amount }
 }
 
+function primaryTermOf(message: TransportMessage): unknown {
+  return (decode(message.payload) as { primaryTerm?: unknown }).primaryTerm
+}
+
+function removalOf(replicaNodeId: string): MessageRule {
+  return (_to, message) =>
+    message.type === 'replication.insync_remove' &&
+    (decode(message.payload) as { replicaNodeId?: unknown }).replicaNodeId === replicaNodeId
+}
+
+function isEntry(_to: string, message: TransportMessage): boolean {
+  return ENTRY_TYPES.has(message.type)
+}
+
+function documentIdsOf(message: TransportMessage): unknown[] {
+  const payload = decode(message.payload) as {
+    entry?: { documentId?: unknown }
+    entries?: Array<{ documentId?: unknown }>
+  }
+  if (message.type === 'replication.entry') return [payload.entry?.documentId]
+  return (payload.entries ?? []).map(entry => entry.documentId)
+}
+
 describe('a new primary that starts its term on every in-sync copy', () => {
   let cluster: TestCluster | undefined
   const watches: InSyncWatch[] = []
@@ -45,11 +90,22 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     cluster = undefined
   })
 
-  async function startLedger(): Promise<{ running: TestCluster; settled: PartitionAssignment; ledger: Ledger }> {
+  async function startLedger(copies: { durable?: boolean; timeouts?: Partial<TransportConfig> } = {}): Promise<{
+    running: TestCluster
+    settled: PartitionAssignment
+    ledger: Ledger
+    leaseLookups: Map<string, LeaseLookupGate>
+  }> {
     const running = await createTestCluster()
     cluster = running
     await running.start('controller', { roles: ['controller', 'coordinator'], durable: false })
-    for (const nodeId of ['node-a', 'node-b', 'node-c']) await running.start(nodeId, { durable: false })
+    const { durable = false, timeouts } = copies
+    const leaseLookups = new Map<string, LeaseLookupGate>()
+    for (const nodeId of ['node-a', 'node-b', 'node-c']) {
+      const gate = gateLeaseLookups(running.coordinator)
+      leaseLookups.set(nodeId, gate)
+      await running.start(nodeId, { durable, timeouts, coordinator: gate.coordinator })
+    }
     await running.node('controller').createIndex(INDEX, { schema: SCHEMA }, { partitionCount: 1, replicationFactor: 2 })
     const settled = await waitUntil('every data node to hold the partition in sync', async () => {
       const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
@@ -60,7 +116,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
       await running.node(settled.primary ?? '').insert(INDEX, fields(`settled ${i}`, i), `settled-${i}`)
       ledger.set(`settled-${i}`, fields(`settled ${i}`, i))
     }
-    return { running, settled, ledger }
+    return { running, settled, ledger, leaseLookups }
   }
 
   async function watchInSync(running: TestCluster, nodeId: string): Promise<InSyncWatch> {
@@ -249,6 +305,360 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     await expectEveryCopyHolds(running, ledger, [ahead])
     expect(running.transport(ahead).syncTiers()).toContain('snapshot')
   }, 90_000)
+
+  it('removes a copy that holds an entry beyond the new primary once the controller answers, though the first removal request is lost and nothing is written', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const oldPrimary = settled.primary ?? ''
+    const candidate = candidateOf(settled)
+    const ahead = otherCopyOf(settled)
+    const withheld = running
+      .transport(oldPrimary)
+      .holdWhen((target, message) => target === candidate && entryForDocument('stranded')(target, message))
+    void outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
+    await waitUntil('the copy ahead to hold the stranded write', async () =>
+      (await readCopy(running.probe, ahead)).has('stranded'),
+    )
+    const aheadWatch = await watchInSync(running, ahead)
+    running.transport(candidate).dropWhen(onceFor(ofType('replication.insync_remove')))
+
+    const handover = await failOver(running, settled, () => withheld.release())
+    const leftAt = await waitUntil(
+      'the copy ahead to leave the in-sync set',
+      () => aheadWatch.leftAt(),
+      REPLICATION_TIMEOUT_MS + REJOIN_TIMEOUT_MS,
+    )
+    expect(leftAt - handover.at).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+
+    await expectEveryCopyHolds(running, ledger, [ahead])
+    expect(running.transport(ahead).syncTiers()).toContain('snapshot')
+  }, 120_000)
+
+  async function strandOnCopyAhead(running: TestCluster, settled: PartitionAssignment) {
+    const oldPrimary = settled.primary ?? ''
+    const candidate = candidateOf(settled)
+    const ahead = otherCopyOf(settled)
+    const withheld = running
+      .transport(oldPrimary)
+      .holdWhen((target, message) => target === candidate && entryForDocument('stranded')(target, message))
+    void outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
+    await waitUntil('the copy ahead to hold the stranded write', async () =>
+      (await readCopy(running.probe, ahead)).has('stranded'),
+    )
+    const removals = running.transport(candidate)
+    const restoreRemovals = removals.dropWhen(ofType('replication.insync_remove'))
+    const droppedRemovals = () =>
+      removals.dropped().filter(message => message.type === 'replication.insync_remove').length
+    const strandedWrite: Ledger = new Map([['stranded', fields('stranded', 999)]])
+    return { candidate, ahead, release: () => withheld.release(), restoreRemovals, droppedRemovals, strandedWrite }
+  }
+
+  async function expectCopiesAgree(
+    running: TestCluster,
+    ledger: Ledger,
+    rejoining: string[],
+    unsettled: Ledger,
+  ): Promise<void> {
+    const healed = await waitUntil(
+      `${rejoining.join(', ')} to be in sync and every copy to agree`,
+      async () => {
+        const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
+        if (current?.state !== 'ACTIVE' || current.primary === null) return null
+        if (!rejoining.every(nodeId => current.inSyncSet.includes(nodeId))) return null
+        const holders = [current.primary, ...current.inSyncSet]
+        const copies = await Promise.all(holders.map(holder => readCopy(running.probe, holder)))
+        const primaryCopy = copies[0]
+        if (primaryCopy === undefined || [...ledger.keys()].some(docId => !primaryCopy.has(docId))) return null
+        if (!copies.every(copy => copy.size === primaryCopy.size)) return null
+        return { holders, copies, primaryCopy }
+      },
+      REJOIN_TIMEOUT_MS,
+    )
+    const primaryDocuments = Object.fromEntries(healed.primaryCopy)
+    healed.copies.forEach((copy, at) => {
+      expect(Object.fromEntries(copy), healed.holders[at]).toEqual(primaryDocuments)
+    })
+    for (const [docId, document] of ledger) expect(primaryDocuments[docId], docId).toEqual(document)
+    for (const [docId, document] of healed.primaryCopy) {
+      if (!ledger.has(docId)) expect(document, docId).toEqual(unsettled.get(docId))
+    }
+  }
+
+  it('keeps asking for the removal of a copy ahead through a removal outage longer than the replication timeout, refuses a write in that outage within the timeout, and settles once the controller answers', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const { ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const aheadWatch = await watchInSync(running, ahead)
+
+    const handover = await failOver(running, settled, release)
+    await waitUntil('the new primary to ask again for the removal', () => droppedRemovals() >= RETRIED_REMOVALS)
+    const startedAt = Date.now()
+    const unsettled: Ledger = new Map([['during-outage', fields('during the outage', 31)]])
+    const outageWrite = await outcomeOf(
+      running.node('controller').insert(INDEX, fields('during the outage', 31), 'during-outage'),
+    )
+    const writeMs = Date.now() - startedAt
+    expect(outageWrite.state).toBe('refused')
+    expect(writeMs).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+
+    await sleep(Math.max(0, handover.at + REPLICATION_TIMEOUT_MS + REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS - Date.now()))
+    expect(aheadWatch.leftAt()).toBeNull()
+    expect(droppedRemovals()).toBeLessThan(MAX_REMOVAL_REQUESTS_IN_OUTAGE)
+    const restoredAt = Date.now()
+    restoreRemovals()
+
+    const leftAt = await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    expect(leftAt - restoredAt).toBeLessThan(WRITE_MARGIN_MS)
+    await expectCopiesAgree(running, ledger, [ahead], unsettled)
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).not.toHaveProperty('stranded')
+  }, 120_000)
+
+  it('stops asking for the removal once its term ends, and every copy follows the next primary', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const { candidate, ahead, release, droppedRemovals, strandedWrite } = await strandOnCopyAhead(running, settled)
+
+    const handover = await failOver(running, settled, release)
+    await waitUntil('the new primary to ask again for the removal', () => droppedRemovals() >= RETRIED_REMOVALS)
+    const allowRegistration = running.coordinator.refuseRegistrationOf(candidate)
+    await running.coordinator.deregisterNode(candidate)
+    await waitUntil(
+      'the controller to promote the copy ahead',
+      async () => {
+        const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
+        return current?.primary === ahead && current.primaryTerm > handover.assignment.primaryTerm ? current : null
+      },
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(TERM_END_QUIET_MS)
+    const askedByTermEnd = droppedRemovals()
+    await sleep(TERM_END_QUIET_MS)
+    expect(droppedRemovals()).toBe(askedByTermEnd)
+
+    allowRegistration()
+    await expectCopiesAgree(running, ledger, [candidate], strandedWrite)
+  }, 120_000)
+
+  it('asks no more for the removal once the primary closes the index while its first removal request is still out', async () => {
+    const { running, settled } = await startLedger({ durable: true })
+    const { candidate, release, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const firstRemoval = running.transport(candidate).holdWhen(ofType('replication.insync_remove'))
+
+    await failOver(running, settled, release)
+    await waitUntil('the first removal request to wait', () => firstRemoval.count() > 0)
+    await running.node(candidate).close(INDEX)
+    const askedBeforeClose = droppedRemovals()
+    firstRemoval.release()
+    await sleep(TERM_END_QUIET_MS)
+
+    expect(droppedRemovals()).toBe(askedBeforeClose + 1)
+  }, 90_000)
+
+  it('asks for no removal once the primary closes the index while the start of its term is still out', async () => {
+    const { running, settled } = await startLedger({ durable: true })
+    const { candidate, ahead, release, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const termStart = running.transport(candidate).holdWhen(ofType('replication.term_start', ahead))
+
+    await failOver(running, settled, release)
+    await waitUntil('the start of the term to wait on the copy ahead', () => termStart.count() > 0)
+    await running.node(candidate).close(INDEX)
+    termStart.release()
+    await sleep(TERM_END_QUIET_MS)
+
+    expect(droppedRemovals()).toBe(0)
+  }, 90_000)
+
+  it('sends no removal request from a try that outlived its deadline, nor from a try whose primary closed the index while it waited', async () => {
+    const { running, settled, leaseLookups } = await startLedger({
+      durable: true,
+      timeouts: { replicationTimeout: SHORT_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, release, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const lookups = leaseLookups.get(candidate)
+    if (lookups === undefined) throw new Error(`${candidate} has no lease lookup gate`)
+
+    await failOver(running, settled, release)
+    await waitUntil('the new primary to ask again for the removal', () => droppedRemovals() >= RETRIED_REMOVALS)
+    const stalled = lookups.hold()
+    await waitUntil(
+      'several tries to outlive their deadline on a stalled lookup',
+      () => stalled.count() >= STALLED_TRIES,
+    )
+    const askedBeforeRelease = droppedRemovals()
+    stalled.release()
+    await sleep(STALL_RELEASE_SETTLE_MS)
+    expect(droppedRemovals() - askedBeforeRelease).toBeLessThanOrEqual(MAX_REQUESTS_AFTER_STALL)
+
+    const stalledAgain = lookups.hold()
+    await waitUntil('a try to wait on its lookup', () => stalledAgain.count() > 0)
+    await running.node(candidate).close(INDEX)
+    const askedBeforeClose = droppedRemovals()
+    stalledAgain.release()
+    await sleep(TERM_END_QUIET_MS)
+    expect(droppedRemovals()).toBe(askedBeforeClose)
+  }, 90_000)
+
+  it('keeps a copy in sync that a write removed and catch-up readmitted while the start of the term on it was still delayed', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: SHORT_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals } = await strandOnCopyAhead(running, settled)
+    restoreRemovals()
+    const termStart = running.transport(candidate).holdWhen(ofType('replication.term_start', ahead))
+    const removalsAtController = running.transport('controller').recordArrivalsWhen(removalOf(ahead))
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the start of the term to wait on the copy ahead', () => termStart.count() > 0)
+    const removingWrite = await outcomeOf(
+      running.node('controller').insert(INDEX, fields('after the term start', 41), 'after-term-start'),
+    )
+    expect(removingWrite).toEqual({ state: 'acknowledged' })
+    ledger.set('after-term-start', fields('after the term start', 41))
+    await waitUntil('the write to remove the copy ahead', () => aheadWatch.leftAt())
+    await waitUntil(
+      'catch-up to readmit the copy ahead while the start of the term is delayed',
+      async () => partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet.includes(ahead),
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(ADMISSION_REPLY_SETTLE_MS)
+    expect(removalsAtController).toHaveLength(1)
+    termStart.release()
+    await sleep(TERM_END_QUIET_MS)
+    expect(removalsAtController).toHaveLength(1)
+
+    const entriesAtAhead = running.transport(ahead).recordArrivalsWhen(isEntry)
+    const written: string[] = []
+    for (let i = 0; i < WRITES_AFTER_READMISSION; i++) {
+      const documentId = `after-delayed-term-start-${i}`
+      await running.node(candidate).insert(INDEX, fields(`after delayed term start ${i}`, 800 + i), documentId)
+      written.push(documentId)
+      ledger.set(documentId, fields(`after delayed term start ${i}`, 800 + i))
+    }
+
+    const delivered = new Set(entriesAtAhead.flatMap(documentIdsOf))
+    expect(written.filter(documentId => !delivered.has(documentId))).toEqual([])
+    expect(partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet).toContain(ahead)
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).toEqual(Object.fromEntries(ledger))
+  }, 120_000)
+
+  it('asks no more for the removal of a copy that catch-up readmits after the controller applied its removal and the reply was lost', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: LATE_REMOVAL_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const heldReply = running.transport('controller').holdReplyWhen(onceFor(removalOf(ahead)))
+    running.transport(candidate).loseReplyWhen(onceFor(removalOf(ahead)))
+    const removalsAtController = running.transport('controller').recordArrivalsWhen(removalOf(ahead))
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the first removal request to fail', () => droppedRemovals() > 0)
+    restoreRemovals()
+    await waitUntil('the controller to apply the retried removal and hold its reply', () => heldReply.count() > 0)
+    await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    await waitUntil(
+      'catch-up to readmit the copy ahead while the removal reply is held',
+      async () => partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet.includes(ahead),
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(ADMISSION_REPLY_SETTLE_MS)
+    heldReply.release()
+    await sleep(TERM_END_QUIET_MS)
+
+    expect(removalsAtController).toHaveLength(1)
+    expect(partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet).toContain(ahead)
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).toEqual(Object.fromEntries(ledger))
+  }, 120_000)
+
+  it('sends every later acknowledged write to a copy readmitted while the reply to its retried out-of-step removal was still on its way', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: LATE_REMOVAL_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const lateRemovalReply = running.transport('controller').holdReplyWhen(onceFor(removalOf(ahead)))
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the first removal request to fail', () => droppedRemovals() > 0)
+    restoreRemovals()
+    await waitUntil(
+      'the controller to apply the retried removal and hold its reply',
+      () => lateRemovalReply.count() > 0,
+    )
+    await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    await waitUntil(
+      'catch-up to readmit the copy ahead while the removal reply is held',
+      async () => partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet.includes(ahead),
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(ADMISSION_REPLY_SETTLE_MS)
+    lateRemovalReply.release()
+    await sleep(LATE_REMOVAL_REPLY_SETTLE_MS)
+    expect(running.transport(candidate).failuresOf(removalOf(ahead))).toEqual([])
+
+    const entriesAtAhead = running.transport(ahead).recordArrivalsWhen(isEntry)
+    const written: string[] = []
+    for (let i = 0; i < WRITES_AFTER_READMISSION; i++) {
+      const documentId = `after-readmission-${i}`
+      await running.node(candidate).insert(INDEX, fields(`after readmission ${i}`, 700 + i), documentId)
+      written.push(documentId)
+      ledger.set(documentId, fields(`after readmission ${i}`, 700 + i))
+    }
+
+    const delivered = new Set(entriesAtAhead.flatMap(documentIdsOf))
+    expect(written.filter(documentId => !delivered.has(documentId))).toEqual([])
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).toEqual(Object.fromEntries(ledger))
+    expect(partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet).toContain(ahead)
+  }, 120_000)
+
+  async function raiseTermInPlace(running: TestCluster): Promise<number> {
+    const table = await running.coordinator.getAllocation(INDEX)
+    const current = partitionAssignment(table)
+    expect(current).toBeDefined()
+    if (table === null || current === undefined) return 0
+    const primaryTerm = current.primaryTerm + 1
+    await running.coordinator.putAllocation(INDEX, {
+      ...table,
+      version: table.version + 1,
+      assignments: new Map([[0, { ...current, primaryTerm }]]),
+    })
+    return primaryTerm
+  }
+
+  it('keeps asking for the removal at the newest term of a primary when its older term start fails later, and removes the copy ahead once the controller answers', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: SHORT_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals } = await strandOnCopyAhead(running, settled)
+    const transport = running.transport(candidate)
+    const olderTerm = settled.primaryTerm + 1
+    const olderTermStart = transport.holdWhen(
+      (target, message) =>
+        target === ahead && message.type === 'replication.term_start' && primaryTermOf(message) === olderTerm,
+    )
+    const removalTerms = () =>
+      transport
+        .dropped()
+        .filter(message => message.type === 'replication.insync_remove')
+        .map(primaryTermOf)
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the older term start to wait', () => olderTermStart.count() > 0)
+    const newestTerm = await raiseTermInPlace(running)
+    await waitUntil(
+      'the newest term to ask again for the removal',
+      () => removalTerms().filter(term => term === newestTerm).length >= RETRIED_REMOVALS,
+    )
+    olderTermStart.release()
+    await sleep(TERM_END_QUIET_MS)
+    expect(aheadWatch.leftAt()).toBeNull()
+    const restoredAt = Date.now()
+    restoreRemovals()
+
+    const leftAt = await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    expect(leftAt - restoredAt).toBeLessThan(WRITE_MARGIN_MS)
+    await expectCopiesAgree(running, ledger, [ahead], new Map())
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).not.toHaveProperty('stranded')
+  }, 120_000)
 
   it('keeps a write whose old-term entry reached no copy through the new primary, and resyncs the old primary that held it', async () => {
     const { running, settled, ledger } = await startLedger()

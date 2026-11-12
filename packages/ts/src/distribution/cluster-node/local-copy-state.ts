@@ -1,6 +1,6 @@
 import type { ReplicationLog } from '../replication/types'
 import { type BootstrapSyncState, clearBootstrapSyncOfIndex } from './bootstrap-sync'
-import { type CatchUpState, forgetCatchUpIndex } from './catch-up/state'
+import { type CatchUpState, forgetCatchUpIndex, forgetOutOfStepRemovalsOfIndex } from './catch-up/state'
 import { deleteIndexReplicationLogs } from './replication-logs'
 import { forgetReshardIndex, type ReshardState } from './reshard/state'
 
@@ -14,6 +14,7 @@ export interface LocalCopyState {
 export function forgetClosedCopy(state: LocalCopyState, indexName: string): void {
   deleteIndexReplicationLogs(state.replicationLogs, indexName)
   forgetReshardIndex(state.reshard, indexName)
+  forgetOutOfStepRemovalsOfIndex(state.catchUp(), indexName)
 }
 
 export function forgetDroppedCopy(state: LocalCopyState, indexName: string): void {
