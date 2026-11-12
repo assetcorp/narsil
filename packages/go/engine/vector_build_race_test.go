@@ -28,7 +28,7 @@ const (
 	placingExactEfSearch       = 10_000
 	placingExactOversample     = 1e6
 	placingScoreTolerance      = 1e-5
-	placingQuiescentPause      = 30 * time.Millisecond
+	placingStepsPerCheck       = 10
 	placingStatusPause         = 2 * time.Millisecond
 	placingRecentTargetShare   = 2
 	placingInsertChoices       = 4
@@ -81,6 +81,7 @@ type placingRace struct {
 	failure      atomic.Pointer[error]
 	buildsSeen   atomic.Int64
 	searchesDone atomic.Int64
+	progress     *writeProgress
 }
 
 func (race *placingRace) fail(err error) {
@@ -384,7 +385,8 @@ func TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites(t *testing
 		t.Fatalf("the engine refused the index: %v", err)
 	}
 	race := &placingRace{ctx: ctx, narsil: narsil,
-		oracle: placingOracle{written: map[string][][]float32{}, live: map[string][]float32{}}}
+		oracle:   placingOracle{written: map[string][][]float32{}, live: map[string][]float32{}},
+		progress: newWriteProgress(placingStepsPerCheck)}
 	var writers, background sync.WaitGroup
 	stop := make(chan struct{})
 	for position := range placingWriters {
@@ -395,6 +397,7 @@ func TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites(t *testing
 				live: map[int]bool{}}
 			for step := 0; step < placingStepsPerWriter && !race.failed(); step++ {
 				race.fail(race.writerStep(writer))
+				race.progress.record()
 			}
 		}(position)
 	}
@@ -414,10 +417,17 @@ func TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites(t *testing
 		}(searcher)
 	}
 	settledRandom := rand.New(rand.NewSource(placingQuiescentSeed))
+	settledChecks := 0
 	background.Add(2)
 	go func() {
 		defer background.Done()
-		untilStopped(stop, placingQuiescentPause, func() error { return race.settledStep(settledRandom) }, race)
+		for round := 0; !race.failed(); round++ {
+			if !race.progress.await(round, stop) {
+				return
+			}
+			race.fail(race.settledStep(settledRandom))
+			settledChecks++
+		}
 	}()
 	go func() {
 		defer background.Done()
@@ -428,6 +438,9 @@ func TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites(t *testing
 	background.Wait()
 	if failure := race.failure.Load(); failure != nil {
 		t.Fatalf("a search disagreed with the oracle or an operation failed: %s: %v", codeOrMessage(*failure), *failure)
+	}
+	if expected := placingWriters * placingStepsPerWriter / placingStepsPerCheck; settledChecks != expected {
+		t.Fatalf("completed %d settled checks, expected %d after %d writer steps", settledChecks, expected, race.progress.completed.Load())
 	}
 	if race.buildsSeen.Load() == 0 || race.searchesDone.Load() == 0 {
 		t.Fatalf("the run saw %d builds and %d searches, so no search overlapped a build", race.buildsSeen.Load(),

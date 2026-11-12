@@ -37,29 +37,7 @@ type mixedRun struct {
 	failure    atomic.Pointer[error]
 	snapshot   []byte
 	snapshotOf []map[string]mixedDocument
-	ownerSteps atomic.Int64
-	chaosDue   chan struct{}
-}
-
-func (run *mixedRun) recordOwnerStep() {
-	if run.ownerSteps.Add(1)%mixedOwnerStepsPerChaosRound != 0 {
-		return
-	}
-	select {
-	case run.chaosDue <- struct{}{}:
-	default:
-	}
-}
-
-func (run *mixedRun) awaitChaosRound(round int, stop <-chan struct{}) bool {
-	for run.ownerSteps.Load() < int64(round+1)*mixedOwnerStepsPerChaosRound {
-		select {
-		case <-stop:
-			return false
-		case <-run.chaosDue:
-		}
-	}
-	return true
+	progress   *writeProgress
 }
 
 func (run *mixedRun) fail(err error) {
@@ -181,7 +159,7 @@ func (run *mixedRun) chaosStep(kind int) error {
 
 func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 	t.Parallel()
-	run := &mixedRun{ctx: context.Background(), directory: t.TempDir(), chaosDue: make(chan struct{}, 1)}
+	run := &mixedRun{ctx: context.Background(), directory: t.TempDir(), progress: newWriteProgress(mixedOwnerStepsPerChaosRound)}
 	for _, token := range mixedOwnerTokens {
 		run.owners = append(run.owners, &mixedOwner{token: token, live: map[string]mixedDocument{}})
 		run.versions = append(run.versions, make([]int, mixedSlotsPerOwner))
@@ -199,7 +177,7 @@ func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 			random := rand.New(rand.NewSource(int64(1_000 + position)))
 			for step := 0; step < mixedStepsPerOwner && !run.failed(); step++ {
 				run.fail(run.ownerStep(position, random))
-				run.recordOwnerStep()
+				run.progress.record()
 			}
 		}(position)
 	}
@@ -218,14 +196,16 @@ func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 			}
 		}(reader)
 	}
+	chaosRounds := 0
 	background.Add(1)
 	go func() {
 		defer background.Done()
 		for round := 0; !run.failed(); round++ {
-			if !run.awaitChaosRound(round, stop) {
+			if !run.progress.await(round, stop) {
 				return
 			}
 			run.fail(run.chaosStep(round % mixedChaosKindCount))
+			chaosRounds++
 		}
 	}()
 	writers.Wait()
@@ -233,6 +213,9 @@ func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 	background.Wait()
 	if failure := run.failure.Load(); failure != nil {
 		t.Fatalf("a search disagreed with the oracle or an operation failed: %s: %v", codeOrMessage(*failure), *failure)
+	}
+	if expected := len(run.owners) * mixedStepsPerOwner / mixedOwnerStepsPerChaosRound; chaosRounds != expected {
+		t.Fatalf("completed %d chaos rounds, expected %d after %d owner steps", chaosRounds, expected, run.progress.completed.Load())
 	}
 	if err := run.chaosStep(mixedChaosRestart); err != nil {
 		t.Fatalf("the final restart disagreed with the oracle: %v", err)
