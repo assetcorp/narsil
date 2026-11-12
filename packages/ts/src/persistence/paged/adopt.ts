@@ -44,6 +44,11 @@ function scansEveryId(segment: FrozenSegment, tombstoned: ReadonlySet<string>): 
   return tombstoned.size * Math.ceil(Math.log2(held + 1)) > held
 }
 
+function tombstoneScannedOrdinal(segment: FrozenSegment, tombstoned: ReadonlySet<string>, ordinal: number): void {
+  const docId = segment.arrays.idTable.idAt(ordinal)
+  if (tombstoned.has(docId)) segment.prepareTombstone(docId, undefined, undefined, ordinal)?.publish()
+}
+
 function applyNewerTombstones(prepared: readonly PreparedSegment[]): void {
   for (let at = 0; at < prepared.length; at++) {
     if (!prepared[at].isNew) continue
@@ -53,10 +58,8 @@ function applyNewerTombstones(prepared: readonly PreparedSegment[]): void {
       for (const docId of tombstoned) segment.tombstoneDocument(docId)
       continue
     }
-    const ids = segment.arrays.idTable
-    for (let ordinal = 0; ordinal < ids.count; ordinal++) {
-      if (tombstoned.has(ids.idAt(ordinal))) segment.tombstoneOrdinal(ordinal)
-    }
+    const held = segment.arrays.idTable.count
+    for (let ordinal = 0; ordinal < held; ordinal++) tombstoneScannedOrdinal(segment, tombstoned, ordinal)
   }
 }
 
@@ -74,9 +77,9 @@ async function applyNewerTombstonesInTurns(prepared: readonly PreparedSegment[])
       }
       continue
     }
-    const ids = segment.arrays.idTable
-    for (let ordinal = 0; ordinal < ids.count; ordinal++) {
-      if (tombstoned.has(ids.idAt(ordinal))) segment.tombstoneOrdinal(ordinal)
+    const held = segment.arrays.idTable.count
+    for (let ordinal = 0; ordinal < held; ordinal++) {
+      tombstoneScannedOrdinal(segment, tombstoned, ordinal)
       steps += 1
       if (steps % TOMBSTONES_BETWEEN_YIELDS === 0) await yieldToEventLoop()
     }

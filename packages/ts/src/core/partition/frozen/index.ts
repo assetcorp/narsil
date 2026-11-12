@@ -10,6 +10,7 @@ import { generateId } from '../../id-generator'
 import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
 import { registerFrozenMergeSource } from '../../segment-merges/frozen-source'
+import type { PartitionStatsView } from '../../statistics'
 import { installStoredFields } from '../../stored-values/columns'
 import { buildPartialWordTableFrom, createFrozenPartialWords } from '../partial-words/registry'
 import type { FrozenPartialWordSlot, PartialWordTableData } from '../partial-words/types'
@@ -27,7 +28,6 @@ import type { PagedSegmentSnapshot } from './paged-snapshot'
 import { createFrozenPostingViews, type FrozenPostingViews } from './posting-views'
 import { createFrozenRemovalPass, type FrozenRemovalPass } from './removal-pass'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
-import { buildStatsView } from './stats-view'
 import {
   createFrozenSurfaceSlot,
   type FrozenSurfaceSlot,
@@ -67,9 +67,9 @@ export interface FrozenSegment extends PartitionReadState {
     docId: string,
     removedSpellings?: RemovedSpellings,
     analysis?: FrozenRemovalAnalysis,
+    ordinalOfDocId?: number,
   ): FrozenTombstone | undefined
   tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
-  tombstoneOrdinal(ordinal: number): boolean
   tombstonedDocIds(): string[]
   removalBytes(): number
   pendingRemovals(): boolean
@@ -121,6 +121,42 @@ export interface PagedSegmentAccess {
   close(): void
   suspend(): void
   resume(rewrite: (path: string) => string): void
+}
+
+function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
+  return {
+    get totalDocuments(): number {
+      return counts.totalDocuments()
+    },
+    get totalFieldLengths(): Readonly<Record<string, number>> {
+      return counts.totalFieldLengths()
+    },
+    get averageFieldLengths(): Record<string, number> {
+      const documents = counts.totalDocuments()
+      const averages: Record<string, number> = {}
+      if (documents > 0) {
+        for (const [fieldName, total] of Object.entries(counts.totalFieldLengths())) {
+          averages[fieldName] = total / documents
+        }
+      }
+      return averages
+    },
+    get docFrequencies(): Readonly<Record<string, number>> {
+      return counts.docFrequencies()
+    },
+    addDocumentFrequencies(into: Record<string, number>): number {
+      const frequencies = counts.docFrequencies()
+      let added = 0
+      for (const term in frequencies) {
+        const held = into[term]
+        if (held === undefined) {
+          into[term] = frequencies[term]
+          added++
+        } else into[term] = held + frequencies[term]
+      }
+      return added
+    },
+  }
 }
 
 function storedFrequenciesOf(source: FrozenSegmentSource): () => Readonly<Record<string, number>> {
@@ -251,16 +287,41 @@ export function assembleFrozenSegment(
       docId: string,
       removedSpellings?: RemovedSpellings,
       analysis?: FrozenRemovalAnalysis,
+      ordinal = docStore.getInternalId(docId),
     ): FrozenTombstone | undefined {
-      return prepareTombstoneAt(docStore.getInternalId(docId), removedSpellings, analysis)
+      if (ordinal === undefined || tombstones.has(ordinal)) return undefined
+      const publishTombstone = tombstones.prepare(ordinal)
+      const strings =
+        analysis === undefined
+          ? null
+          : prepareFrozenStrings(
+              source.fieldNames,
+              source.fieldLengthNames,
+              ordinal,
+              documentSource.readAt(ordinal),
+              analysis,
+              surfaces,
+              partialWords,
+            )
+      const subtractCounts = counts.prepareRemoval(ordinal, strings?.core)
+      const subtractSpellings = strings?.publish ?? removals.prepareRemoval(ordinal, removedSpellings)
+      const subtractPartial = strings === null ? partialWords.prepareRemoval(ordinal) : null
+      return {
+        spellings: strings?.spellings ?? removedSpellings,
+        publish: () => {
+          if (!publishTombstone()) return false
+          subtractCounts()
+          subtractPartial?.()
+          subtractSpellings()
+          docStore.releaseSortedDocIds()
+          segment.sortColumns?.forget(ordinal)
+          return true
+        },
+      }
     },
 
     tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean {
       return segment.prepareTombstone(docId, removedSpellings)?.publish() ?? false
-    },
-
-    tombstoneOrdinal(ordinal: number): boolean {
-      return prepareTombstoneAt(ordinal)?.publish() ?? false
     },
 
     tombstonedDocIds(): string[] {
@@ -275,42 +336,6 @@ export function assembleFrozenSegment(
 
     pendingRemovals: counts.pendingRemovals,
     settleRemovals: counts.settleRemovals,
-  }
-
-  function prepareTombstoneAt(
-    ordinal: number | undefined,
-    removedSpellings?: RemovedSpellings,
-    analysis?: FrozenRemovalAnalysis,
-  ): FrozenTombstone | undefined {
-    if (ordinal === undefined || tombstones.has(ordinal)) return undefined
-    const publishTombstone = tombstones.prepare(ordinal)
-    const strings =
-      analysis === undefined
-        ? null
-        : prepareFrozenStrings(
-            source.fieldNames,
-            source.fieldLengthNames,
-            ordinal,
-            documentSource.readAt(ordinal),
-            analysis,
-            surfaces,
-            partialWords,
-          )
-    const subtractCounts = counts.prepareRemoval(ordinal, strings?.core)
-    const subtractSpellings = strings?.publish ?? removals.prepareRemoval(ordinal, removedSpellings)
-    const subtractPartial = strings === null ? partialWords.prepareRemoval(ordinal) : null
-    return {
-      spellings: strings?.spellings ?? removedSpellings,
-      publish: () => {
-        if (!publishTombstone()) return false
-        subtractCounts()
-        subtractPartial?.()
-        subtractSpellings()
-        docStore.releaseSortedDocIds()
-        segment.sortColumns?.forget(ordinal)
-        return true
-      },
-    }
   }
 
   registerFrozenMergeSource(segment)
