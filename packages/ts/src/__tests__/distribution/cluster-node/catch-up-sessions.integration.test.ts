@@ -31,6 +31,8 @@ const WITHDRAWAL_REPLY_TIMEOUT_MS = 5_000
 const WITHDRAWAL_REPLY_SETTLE_MS = 250
 const REMOVAL_REPLY_REPLICATION_TIMEOUT_MS = 8_000
 const BERTHS_AFTER_READMISSION = 12
+const BERTHS_AFTER_REFRESH = 6
+const ADMISSION_REPLY_SETTLE_MS = 250
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
 const POLL_MS = 25
@@ -53,15 +55,22 @@ interface Script {
   highestAcked: number
   deliveries: { first: number; last: number }[]
   deliveredDocumentIds: Set<string>
+  receivedBatches: string[][]
   heldAcks: (() => Promise<void>)[]
   holdAdmission: boolean
   heldAdmission: (() => Promise<void>) | null
   heldAdmissionAccepted: boolean | null
+  holdAdmissionReply: boolean
+  heldAdmissionReply: (() => Promise<void>) | null
+  heldAdmissionRequestId: string | null
   holdRemovalReply: boolean
   heldRemovalReply: (() => Promise<void>) | null
   heldRemovalRequestId: string | null
-  removalReplies: Map<string, 'answered' | 'lost'>
+  insyncReplies: Map<string, 'answered' | 'lost'>
   controllerEvents: ControllerEvent[]
+  failAllocationReadsOf: string | null
+  failedAllocationReads: number
+  allocationReads: Map<string, number>
 }
 
 interface ClusterTimeouts {
@@ -81,15 +90,22 @@ function freshScript(): Script {
     highestAcked: 0,
     deliveries: [],
     deliveredDocumentIds: new Set(),
+    receivedBatches: [],
     heldAcks: [],
     holdAdmission: false,
     heldAdmission: null,
     heldAdmissionAccepted: null,
+    holdAdmissionReply: false,
+    heldAdmissionReply: null,
+    heldAdmissionRequestId: null,
     holdRemovalReply: false,
     heldRemovalReply: null,
     heldRemovalRequestId: null,
-    removalReplies: new Map(),
+    insyncReplies: new Map(),
     controllerEvents: [],
+    failAllocationReadsOf: null,
+    failedAllocationReads: 0,
+    allocationReads: new Map(),
   }
 }
 
@@ -149,6 +165,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     const entries = wireEntriesOf(message)
     const seqNos = seqNosOf(entries)
     script.deliveries.push(seqNos)
+    script.receivedBatches.push(entries.map(entry => entry.documentId))
     if (script.mode === 'silent') return
     for (const entry of entries) script.deliveredDocumentIds.add(entry.documentId)
     const acknowledge = async () => {
@@ -162,20 +179,38 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await acknowledge()
   }
 
-  async function sendNotingRemovalReplies(
+  async function sendNotingInsyncReplies(
     transport: NodeTransport,
     target: string,
     message: TransportMessage,
   ): Promise<TransportMessage> {
-    if (message.type !== ReplicationMessageTypes.INSYNC_REMOVE) return transport.send(target, message)
+    if (!INSYNC_TYPES.has(message.type)) return transport.send(target, message)
     try {
       const reply = await transport.send(target, message)
-      script.removalReplies.set(message.requestId, 'answered')
+      script.insyncReplies.set(message.requestId, 'answered')
       return reply
     } catch (error) {
-      script.removalReplies.set(message.requestId, 'lost')
+      script.insyncReplies.set(message.requestId, 'lost')
       throw error
     }
+  }
+
+  function dataNodeCoordinator(nodeId: string): ClusterCoordinator {
+    const readAllocation = async (indexName: string): Promise<AllocationTable | null> => {
+      if (script.failAllocationReadsOf === nodeId) {
+        script.failedAllocationReads += 1
+        throw new Error(`the test refuses ${nodeId} a read of the allocation of ${indexName}`)
+      }
+      const table = await coordinator.getAllocation(indexName)
+      script.allocationReads.set(nodeId, (script.allocationReads.get(nodeId) ?? 0) + 1)
+      return table
+    }
+    return new Proxy(coordinator, {
+      get(target, property, receiver) {
+        if (property === 'getAllocation') return readAllocation
+        return Reflect.get(target, property, receiver)
+      },
+    })
   }
 
   function dataNodeTransport(nodeId: string, timeouts: ClusterTimeouts): NodeTransport {
@@ -186,7 +221,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     inner.set(nodeId, transport)
     return {
       ...transport,
-      send: (target, message) => sendNotingRemovalReplies(transport, target, message),
+      send: (target, message) => sendNotingInsyncReplies(transport, target, message),
       stream: (target, message, handler) => {
         if (script.replica === nodeId && message.type === ReplicationMessageTypes.SYNC_REQUEST) {
           return Promise.reject(
@@ -227,6 +262,15 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
             script.heldAdmission = () => Promise.resolve(handler(message, answerHeldAdmission))
             return
           }
+          if (message.type === ReplicationMessageTypes.INSYNC_ADD && script.holdAdmissionReply) {
+            script.holdAdmissionReply = false
+            script.heldAdmissionRequestId = message.requestId
+            const holdReply: RespondFn = async response => {
+              script.heldAdmissionAccepted = wireFieldsOf(response).accepted === true
+              script.heldAdmissionReply = () => respond(response)
+            }
+            return handler(message, holdReply)
+          }
           if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.holdRemovalReply) {
             script.holdRemovalReply = false
             script.heldRemovalRequestId = message.requestId
@@ -256,7 +300,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     root = await mkdtemp(join(tmpdir(), 'narsil-catch-up-sessions-'))
     for (const nodeId of DATA_NODES) {
       const node = await createClusterNode({
-        coordinator,
+        coordinator: dataNodeCoordinator(nodeId),
         transport: dataNodeTransport(nodeId, timeouts),
         address: `${nodeId}:9200`,
         nodeId,
@@ -315,7 +359,9 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
   afterEach(async () => {
     script.mode = 'silent'
     for (const release of script.heldAcks.splice(0)) await release().catch(() => {})
+    script.failAllocationReadsOf = null
     await script.heldAdmission?.().catch(() => {})
+    await script.heldAdmissionReply?.().catch(() => {})
     await script.heldRemovalReply?.().catch(() => {})
     for (const node of running.splice(0).reverse()) await node.shutdown().catch(() => {})
     await coordinator.shutdown()
@@ -500,7 +546,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await releaseWithdrawalReply()
     expect(
       await waitFor(
-        () => script.removalReplies.get(withdrawalRequestId) ?? null,
+        () => script.insyncReplies.get(withdrawalRequestId) ?? null,
         'the primary to receive the withdrawal reply or give up on it',
       ),
     ).toBe('answered')
@@ -554,7 +600,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await releaseRemovalReply()
     expect(
       await waitFor(
-        () => script.removalReplies.get(removalRequestId) ?? null,
+        () => script.insyncReplies.get(removalRequestId) ?? null,
         'the primary to receive the removal reply or give up on it',
       ),
     ).toBe('answered')
@@ -570,5 +616,91 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     expect(acknowledged.filter(documentId => !script.deliveredDocumentIds.has(documentId))).toEqual([])
     expect(await inSyncSet()).toContain(replica)
+  }, 90_000)
+
+  it('stops sending writes to a replica that the controller removed after admitting it, once a table read that began after both replies succeeds, when the read after the admission failed', async () => {
+    const { router, primary, replica, term } = await startCluster()
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmissionReply = true
+    await requestSync(primary, logEnd, term)
+    const releaseAdmissionReply = await waitFor(
+      () => script.heldAdmissionReply,
+      'the controller to apply the admission and hold its reply',
+    )
+    const admissionRequestId = script.heldAdmissionRequestId
+    if (admissionRequestId === null) throw new Error('the controller held an admission reply without its request id')
+    expect(script.heldAdmissionAccepted).toBe(true)
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? true : null), 'the replica to join the set')
+
+    script.failAllocationReadsOf = primary
+    script.mode = 'silent'
+    script.holdRemovalReply = true
+    const missedWrite = router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE }).then(
+      () => 'acknowledged',
+      (error: unknown) => error,
+    )
+    const releaseRemovalReply = await waitFor(
+      () => script.heldRemovalReply,
+      'the controller to apply the removal of the replica that missed the write',
+    )
+    const removalRequestId = script.heldRemovalRequestId
+    if (removalRequestId === null) throw new Error('the controller held a removal reply without its request id')
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+
+    script.heldAdmissionReply = null
+    await releaseAdmissionReply()
+    expect(
+      await waitFor(
+        () => script.insyncReplies.get(admissionRequestId) ?? null,
+        'the primary to receive the admission reply or give up on it',
+      ),
+    ).toBe('answered')
+    await new Promise(resolve => setTimeout(resolve, ADMISSION_REPLY_SETTLE_MS))
+    script.heldRemovalReply = null
+    await releaseRemovalReply()
+    expect(
+      await waitFor(
+        () => script.insyncReplies.get(removalRequestId) ?? null,
+        'the primary to receive the removal reply or give up on it',
+      ),
+    ).toBe('answered')
+    expect(await missedWrite).toBe('acknowledged')
+    expect(script.failedAllocationReads).toBeGreaterThan(0)
+
+    const readsBeforeRefresh = script.allocationReads.get(primary) ?? 0
+    script.failAllocationReadsOf = null
+    await waitFor(
+      () => ((script.allocationReads.get(primary) ?? 0) > readsBeforeRefresh ? true : null),
+      'the primary to read the allocation table after both replies arrived',
+    )
+    await new Promise(resolve => setTimeout(resolve, 2 * CATCH_UP_TICK_MS))
+
+    const eventsAfterRefresh = script.controllerEvents.length
+    const batchesAfterRefresh = script.receivedBatches.length
+    const written: string[] = []
+    const acknowledged: string[] = []
+    for (let berth = 0; berth < BERTHS_AFTER_REFRESH; berth++) {
+      const documentId = `berth-after-refresh-${berth}`
+      written.push(documentId)
+      acknowledged.push(await router.insert(INDEX_NAME, { id: documentId, note: BERTH_NOTE }))
+    }
+
+    const writesSentToRemovedReplica = script.receivedBatches
+      .slice(batchesAfterRefresh)
+      .filter(documentIds => !documentIds.includes('berth-missed'))
+      .flat()
+      .filter(documentId => written.includes(documentId))
+    expect(writesSentToRemovedReplica).toEqual([])
+    expect(acknowledged).toEqual(written)
+    expect(script.controllerEvents.slice(eventsAfterRefresh)).not.toContainEqual(
+      expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_REMOVE }),
+    )
+    expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
 })

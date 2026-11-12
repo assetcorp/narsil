@@ -13,11 +13,11 @@ export function recordAdmittedReplica(
   partitionId: number,
   replicaNodeId: string,
   primaryTerm: number,
-  tableVersion: number | null,
+  generation: number,
 ): void {
   const key = partitionKey(indexName, partitionId)
   const admitted = state.admittedReplicas.get(key) ?? new Map<string, AdmittedReplica>()
-  admitted.set(replicaNodeId, { primaryTerm, tableVersion })
+  admitted.set(replicaNodeId, { primaryTerm, generation })
   state.admittedReplicas.set(key, admitted)
 }
 
@@ -52,14 +52,14 @@ export function admittedBeyondTable(
   indexName: string,
   partitionId: number,
   assignment: PartitionAssignment,
-  tableVersion?: number,
+  generationAtLiveRead?: number,
 ): string[] {
   const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
   if (admitted === undefined) return []
   const beyond: string[] = []
   for (const [replicaNodeId, record] of [...admitted]) {
     const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
-    const superseded = record.tableVersion !== null && tableVersion !== undefined && tableVersion >= record.tableVersion
+    const superseded = generationAtLiveRead !== undefined && record.generation <= generationAtLiveRead
     if (settled || superseded || record.primaryTerm !== assignment.primaryTerm) {
       forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
       continue

@@ -9,7 +9,7 @@ export interface ReplicaCursor {
 
 export interface AdmittedReplica {
   primaryTerm: number
-  tableVersion: number | null
+  generation: number
 }
 
 export interface AdmissionToWithdraw {
