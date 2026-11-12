@@ -42,6 +42,7 @@ jobs:
       contents: read
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
+      react_native: ${{ steps.areas.outputs.react_native }}
 
     steps:
       - name: Checkout
@@ -59,7 +60,7 @@ jobs:
   engine:
     name: Engine
     needs: changes
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true') }}
     permissions:
       contents: read
     uses: ./.github/workflows/engine.yml
@@ -78,11 +79,11 @@ jobs:
   react-native-checks:
     name: Build the React Native apps
     needs: [changes, engine]
-    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
     permissions:
       contents: read
     concurrency:
-      group: react-native-${{ github.workflow }}-${{ github.ref }}
+      group: react-native-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/react-native.yml
 

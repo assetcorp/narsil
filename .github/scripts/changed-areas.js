@@ -137,7 +137,7 @@ const PATHS_BY_LANGUAGE_AREA = {
 
 const LANGUAGE_AREAS = Object.keys(PATHS_BY_LANGUAGE_AREA)
 const AREAS = [...TYPESCRIPT_JOB_AREAS, ...LANGUAGE_AREAS]
-const ENGINE_AREAS_ON_EVERY_EVENT = [
+const CI_AREAS_THAT_LOAD_THE_ENGINE = [
   'typescript',
   'rust',
   'python_engine',
@@ -147,7 +147,6 @@ const ENGINE_AREAS_ON_EVERY_EVENT = [
   'cluster',
   'vector_recall',
 ]
-const ENGINE_AREAS_AFTER_MERGE = ['react_native']
 
 const git = args => execFileSync('git', args, { encoding: 'utf8' })
 
@@ -212,13 +211,8 @@ const main = () => {
     }
   }
 
-  const engineAreas =
-    process.env.GITHUB_EVENT_NAME === 'pull_request'
-      ? ENGINE_AREAS_ON_EVERY_EVENT
-      : [...ENGINE_AREAS_ON_EVERY_EVENT, ...ENGINE_AREAS_AFTER_MERGE]
-
   for (const area of AREAS) writeOutput(area, String(touched.has(area)))
-  writeOutput('engine', String(engineAreas.some(area => touched.has(area))))
+  writeOutput('engine', String(CI_AREAS_THAT_LOAD_THE_ENGINE.some(area => touched.has(area))))
 }
 
 main()
