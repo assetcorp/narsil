@@ -62,12 +62,21 @@ func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working *mod
 // code for a nil document or one that the schema refuses,
 // CodePartitionCapacityExceeded for a full index, and an embedding code when
 // the embedding adapter fails.
+//
+// The engine calls the embedding adapter while it holds no lock on the index,
+// so the adapter can query or restore that index. When a restore replaces the
+// index during the call, the document goes whole to the restored index, and
+// the engine embeds it again first when the restored index has another
+// adapter. The write returns CodeWorkerBusy once restores have changed the
+// adapter after each of three embeddings. Update, InsertBatch, and
+// UpdateBatch embed the same way, and InsertBatch writes each chunk of 1,000
+// documents whole to one index.
 func (n *Narsil) Insert(ctx context.Context, indexName string, document *Document, docID string, options InsertOptions) (string, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return "", err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(indexName)
 	working := codec.SnapshotDocument(document)
 	if err := schema.RequireDocument(working); err != nil {
@@ -79,6 +88,10 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	}
 	insert := &model.InsertContext{IndexName: indexName, DocID: id, Document: working}
 	if err := n.plugins.insert(ctx, hookBeforeInsert, insert); err != nil {
+		return "", err
+	}
+	entry, release, insert.Document, err = n.embedForWrite(ctx, indexName, entry, release, insert.Document)
+	if err != nil {
 		return "", err
 	}
 	write, err := n.prepareOne(ctx, entry, insert.Document)
@@ -128,7 +141,7 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(indexName)
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
@@ -137,7 +150,9 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err := schema.RequireDocument(working); err != nil {
 		return err
 	}
-	update, write, err := n.replaceDocument(ctx, entry, indexName, docID, working)
+	var update *model.UpdateContext
+	var write persist.Write
+	entry, release, update, write, err = n.replaceDocument(ctx, entry, release, indexName, docID, working)
 	if err != nil {
 		return err
 	}
@@ -149,40 +164,45 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	return nil
 }
 
-func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, indexName string, docID string,
-	working *model.Document) (*model.UpdateContext, persist.Write, error) {
+func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release func(), indexName string, docID string,
+	working *model.Document) (*indexEntry, func(), *model.UpdateContext, persist.Write, error) {
 	if err := schema.RequireMatchingDocID(docID, working); err != nil {
-		return nil, persist.Write{}, err
+		return entry, release, nil, persist.Write{}, err
 	}
 	update := &model.UpdateContext{IndexName: indexName, DocID: docID, NewDocument: working}
 	if n.plugins.hasUpdateHooks() {
 		previous, found, err := entry.storedDocument(ctx, docID)
 		if err != nil {
-			return nil, persist.Write{}, err
+			return entry, release, nil, persist.Write{}, err
 		}
 		if !found {
 			previous = model.NewDocument()
 		}
 		update.OldDocument = previous
 		if err := n.plugins.update(ctx, hookBeforeUpdate, update); err != nil {
-			return nil, persist.Write{}, err
+			return entry, release, nil, persist.Write{}, err
 		}
 	}
+	entry, release, embedded, err := n.embedForWrite(ctx, indexName, entry, release, update.NewDocument)
+	if err != nil {
+		return entry, release, nil, persist.Write{}, err
+	}
+	update.NewDocument = embedded
 	write, err := n.prepareOne(ctx, entry, update.NewDocument)
 	if err != nil {
-		return nil, persist.Write{}, err
+		return entry, release, nil, persist.Write{}, err
 	}
 	write.DocumentID = docID
 	if err := n.heap.admit(indexName); err != nil {
-		return nil, persist.Write{}, err
+		return entry, release, nil, persist.Write{}, err
 	}
 	entry.writeMu.Lock()
 	err = n.applyUpdateLocked(ctx, entry, write)
 	entry.writeMu.Unlock()
 	if err != nil {
-		return nil, persist.Write{}, err
+		return entry, release, nil, persist.Write{}, err
 	}
-	return update, write, nil
+	return entry, release, update, write, nil
 }
 
 func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {

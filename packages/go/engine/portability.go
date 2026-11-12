@@ -156,12 +156,16 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer func() { release() }()
 	failures := make([]error, len(batch))
 	position := make(map[string]int, len(batch))
 	inserts := make([]*model.Document, 0, len(batch))
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
 	for at, document := range batch {
 		position[document.ID] = at
 		held, err := entry.index().Has(ctx, document.ID)
@@ -171,8 +175,9 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 		imported := model.DocumentFromMap(document.Document)
 		if held {
 			update := model.DocumentUpdate{DocID: document.ID, Document: imported}
-			if err := n.updateOne(ctx, entry, update, outcome.touched); err != nil {
-				if !isPerDocument(err) {
+			entry, release, err = n.updateOne(ctx, entry, release, update, outcome.touched)
+			if err != nil {
+				if entry == nil || !isPerDocument(err) {
 					return nil, err
 				}
 				failures[at] = err
@@ -183,7 +188,7 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	}
 	for start := 0; start < len(inserts); start += batchChunkSize {
 		end := min(start+batchChunkSize, len(inserts))
-		if err := n.insertChunk(ctx, entry, inserts[start:end], outcome); err != nil {
+		if entry, release, err = n.insertChunk(ctx, entry, release, inserts[start:end], outcome); err != nil {
 			return nil, err
 		}
 	}

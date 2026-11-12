@@ -10,11 +10,23 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
+type boundAdapter struct {
+	adapter model.EmbeddingAdapter
+	entry   *indexEntry
+	binding uint64
+}
+
+func (bound boundAdapter) fits(entry *indexEntry) bool {
+	current, binding := entry.boundEmbedderWithBinding()
+	if entry == bound.entry && binding == bound.binding {
+		return true
+	}
+	return sameEmbedder(bound.adapter, current)
+}
+
 type queryEmbedding struct {
+	boundAdapter
 	params     model.QueryParams
-	adapter    model.EmbeddingAdapter
-	entry      *indexEntry
-	binding    uint64
 	embeddings int
 	superseded bool
 }
@@ -23,11 +35,7 @@ func (embedded *queryEmbedding) fits(entry *indexEntry) bool {
 	if embedded.adapter == nil {
 		return true
 	}
-	current, binding := entry.boundEmbedderWithBinding()
-	if entry == embedded.entry && binding == embedded.binding {
-		return true
-	}
-	return sameEmbedder(embedded.adapter, current)
+	return embedded.boundAdapter.fits(entry)
 }
 
 func sameEmbedder(used, current model.EmbeddingAdapter) (same bool) {
@@ -143,8 +151,8 @@ func (n *Narsil) embedForQuery(ctx context.Context, indexName string, entry *ind
 		if err != nil {
 			return nil, nil, queryEmbedding{}, err
 		}
-		embedded := queryEmbedding{params: resolved, adapter: adapter, entry: entry, binding: binding,
-			embeddings: embeddings + 1}
+		embedded := queryEmbedding{boundAdapter: boundAdapter{adapter: adapter, entry: entry, binding: binding},
+			params: resolved, embeddings: embeddings + 1}
 		if entry, release, err = n.acquire(indexName); err != nil {
 			return nil, nil, queryEmbedding{}, err
 		}
