@@ -59,11 +59,17 @@ func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents [
 			entry.scheduleVectorBuilds(outcome.touched)
 		}
 	}()
-	if entry, release, err = n.insertChunk(ctx, entry, release, documents, outcome); err != nil {
+	if entry, release, err = n.insertChunk(ctx, n.suggestionsHolder(name), entry, release, documents, outcome); err != nil {
 		return outcome.result, err
 	}
-	n.afterWrite(entry)
+	if entry != nil {
+		n.afterWrite(entry)
+	}
 	return outcome.result, nil
+}
+
+func (n *Narsil) suggestionsHolder(name string) indexHolder {
+	return indexHolder{name: name, acquire: n.heldIndex}
 }
 
 func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []model.DocumentUpdate) (
@@ -80,8 +86,9 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 			entry.scheduleVectorBuilds(outcome.touched)
 		}
 	}()
+	holder := n.suggestionsHolder(name)
 	for _, update := range updates {
-		entry, release, err = n.updateOne(ctx, entry, release, update, outcome.touched)
+		entry, release, err = n.updateOne(ctx, holder, entry, release, update, outcome.touched)
 		if err != nil {
 			if entry == nil || !isPerDocument(err) {
 				return outcome.result, err
@@ -91,7 +98,9 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 		}
 		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
 	}
-	n.afterWrite(entry)
+	if entry != nil {
+		n.afterWrite(entry)
+	}
 	return outcome.result, nil
 }
 
@@ -112,10 +121,10 @@ func (n *Narsil) suggestionsRemoveBatch(ctx context.Context, name string, ids []
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(name)
 	outcome := newBatchOutcome()
-	if err := n.removeChunk(ctx, entry, ids, outcome); err != nil {
+	if _, release, err = n.removeChunk(ctx, n.suggestionsHolder(name), entry, release, ids, outcome); err != nil {
 		return outcome.result.Succeeded, err
 	}
 	for _, failure := range outcome.result.Failed {
