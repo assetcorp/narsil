@@ -867,7 +867,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
 
-  it('keeps sending writes to a replica that left the assignment while its admission was unanswered, so the admission that lands once the replica is assigned again admits a copy that holds every acknowledged write', async () => {
+  it('refuses an unanswered admission that lands after its replica left the assignment and came back, because the node can drop its copy while it is unassigned, and keeps sending that replica every write until then', async () => {
     const { router, primary, replica, term } = await startCluster(undefined, {
       requestTimeout: ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS,
     })
@@ -900,10 +900,10 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.heldAdmission = null
     await releaseUnansweredAdmission()
-    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the unanswered admission')).toBe(
-      true,
-    )
-    expect(await inSyncSet()).toContain(replica)
     expect(script.deliveredDocumentIds.has('berth-while-unassigned')).toBe(true)
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the unanswered admission')).toBe(
+      false,
+    )
+    expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
 })
