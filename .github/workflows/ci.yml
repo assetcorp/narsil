@@ -135,7 +135,7 @@ jobs:
     needs: [changes, engine]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     env:
       SUITE_NEEDED: ${{ needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' }}
     strategy:
