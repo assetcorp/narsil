@@ -14,7 +14,7 @@ const (
 	callbackIndex           = "documents"
 	callbackDeadline        = 10 * time.Second
 	callbackShutdownWait    = 5 * time.Second
-	callbackRerankTimeout   = 5 * time.Second
+	callbackRerankTimeout   = 10 * time.Minute
 	callbackSimilarityFloor = 0.9
 	callbackRerunsRefused   = 3
 )
