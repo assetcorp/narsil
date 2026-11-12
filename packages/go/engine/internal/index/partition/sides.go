@@ -167,6 +167,25 @@ type Read struct {
 }
 
 func (s *Sides) Read() (*Read, error) {
+	return s.read(true)
+}
+
+func (s *Sides) readWithoutLease() (*Read, error) {
+	return s.read(false)
+}
+
+func (s *Sides) viewForRead(leased bool) (*vector.Lease, int64, error) {
+	if !leased {
+		return nil, s.slots.Sequence(), nil
+	}
+	lease, err := s.slots.AcquireSearch()
+	if err != nil {
+		return nil, 0, err
+	}
+	return lease, lease.Pin(), nil
+}
+
+func (s *Sides) read(leased bool) (*Read, error) {
 	waited := false
 	defer func() {
 		if waited {
@@ -174,11 +193,11 @@ func (s *Sides) Read() (*Read, error) {
 		}
 	}()
 	for {
-		lease, err := s.slots.AcquireSearch()
+		lease, pin, err := s.viewForRead(leased)
 		if err != nil {
 			return nil, err
 		}
-		if side, entered := s.enter(lease.Pin()); entered {
+		if side, entered := s.enter(pin); entered {
 			return &Read{lease: lease, side: side, hold: &sideHold{sides: s}}, nil
 		}
 		gate := s.gate.Load()
