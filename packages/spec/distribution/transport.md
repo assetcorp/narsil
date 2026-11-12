@@ -373,10 +373,11 @@ The primary sends this to the active controller once a replica's applied positio
   appliedSeqNo:  uint64   (the highest seqNo the replica has acknowledged)
   commitPoint:   uint64   (the primary's commit point when it sent the request)
   inSyncVersion: uint64   (the assignment's inSyncVersion that the primary last read)
+  replicaStartedAt: string   (the startedAt of the replica's registration, which the primary read before it sent the proof)
 }
 ```
 
-The controller checks seven things:
+The controller checks eight things:
 
 - The message's `sourceId` is the assignment's primary, which stops a replica from admitting itself.
 - The node is an assigned replica of this partition.
@@ -384,6 +385,7 @@ The controller checks seven things:
 - The partition is in `ACTIVE`.
 - `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
 - The replica's node is registered with the cluster coordinator, because the controller removes an unregistered node from the in-sync set on its next allocator run.
+- The replica's registered `startedAt` equals `replicaStartedAt`, because a node that restarted after it acknowledged the proof can hold an empty copy.
 - `inSyncVersion` equals the assignment's stored [inSyncVersion](cluster.md#insyncversion), because a request that the primary sent before a removal must never add the replica back.
 
 The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.

@@ -230,7 +230,7 @@ The resources the node reports at registration, which the controller reads when 
 
 ### startedAt
 
-The ISO 8601 timestamp of when the node started. It serves diagnostics, and it breaks a tie during controller election in favour of the node that has been running longest.
+The ISO 8601 timestamp of when the node started. It serves diagnostics, and it breaks a tie during controller election in favour of the node that has been running longest. A node must write a new value on every start, so that the controller can tell a node that restarted from one that kept running, as [replication.insync_add](transport.md#replicationinsync_add) requires.
 
 ### version
 
