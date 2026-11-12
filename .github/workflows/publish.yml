@@ -43,6 +43,7 @@ jobs:
       contents: read
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
+      react_native: ${{ steps.areas.outputs.react_native }}
 
     steps:
       - name: Checkout
@@ -57,11 +58,29 @@ jobs:
           WORKFLOW_FILE: .github/workflows/publish.yml
         run: node .github/scripts/changed-areas.js
 
+  engine:
+    name: Engine
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/engine.yml
+
   native:
     name: Native search core
-    needs: changes
-    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI')) }}
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI')) }}
+    permissions:
+      contents: read
     uses: ./.github/workflows/native-core.yml
+
+  react-native-checks:
+    name: Build the React Native apps
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/react-native.yml
 
   plan:
     name: Decide whether this push earns a prerelease
@@ -80,9 +99,9 @@ jobs:
         id: resolve
         run: node .github/scripts/resolve-prerelease.js
 
-  prerelease:
-    name: Publish prerelease to the next dist-tag
-    needs: [plan, native]
+  prerelease-checks:
+    name: Check the prerelease
+    needs: [plan, native, react-native-checks]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     services:
@@ -142,6 +161,36 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
 
+  prerelease:
+    name: Publish prerelease to the next dist-tag
+    needs: [plan, prerelease-checks]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-prerelease-to-npm
+      cancel-in-progress: false
+      queue: max
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm nx run narsil-ts:build
+
       - name: Set prerelease version
         run: pnpm nx release version "${{ needs.plan.outputs.version }}" --projects=narsil-ts --git-commit=false --git-tag=false --stage-changes=false
 
@@ -151,12 +200,20 @@ jobs:
           pattern: narsil-native-*
           path: packages/native/artifacts
 
+      - name: Check that no newer prerelease holds the next dist-tag
+        id: newest
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: node .github/scripts/prerelease-is-newest.js "$VERSION"
+
       - name: Version and publish the platform packages
+        if: steps.newest.outputs.newest == 'true'
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-native-packages.js "${{ needs.plan.outputs.version }}" next
 
       - name: Publish
+        if: steps.newest.outputs.newest == 'true'
         working-directory: packages/ts
         env:
           NPM_CONFIG_PROVENANCE: true
@@ -169,14 +226,15 @@ jobs:
           fi
 
       - name: Publish the React Native package
+        if: steps.newest.outputs.newest == 'true'
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-react-native-package.js "${{ needs.plan.outputs.version }}" next
 
   publish:
     name: Publish to npm
-    needs: native
-    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI'
+    needs: [native, react-native-checks]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI' && needs.native.result == 'success' && (needs.react-native-checks.result == 'success' || (needs.react-native-checks.result == 'skipped' && inputs.package != '@delali/narsil' && inputs.package != 'all')) }}
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -327,9 +385,13 @@ jobs:
 
   client-checks:
     name: Check the Python and Go clients
+    needs: engine
     if: github.event_name == 'workflow_dispatch' && (inputs.package == 'narsil-client' || inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes')
     permissions:
       contents: read
+    concurrency:
+      group: clients-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/clients.yml
 
   python-client:
@@ -534,9 +596,13 @@ jobs:
 
   go-engine-checks:
     name: Check the Go engine
+    needs: engine
     if: github.event_name == 'workflow_dispatch' && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
     permissions:
       contents: read
+    concurrency:
+      group: go-engine-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/go-engine.yml
 
   go-engine:
@@ -586,9 +652,13 @@ jobs:
 
   rust-checks:
     name: Check the Rust crate
+    needs: engine
     if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil'
     permissions:
       contents: read
+    concurrency:
+      group: rust-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/rust.yml
 
   rust:
@@ -684,9 +754,13 @@ jobs:
 
   python-engine-checks:
     name: Check the Python package on every platform
+    needs: engine
     if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil on PyPI'
     permissions:
       contents: read
+    concurrency:
+      group: python-engine-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/python-engine.yml
 
   python-engine-release:
@@ -763,6 +837,9 @@ jobs:
     if: inputs.package == 'delali-narsil on PyPI'
     permissions:
       contents: read
+    concurrency:
+      group: python-engine-${{ github.workflow }}-${{ github.ref }}-${{ needs.python-engine-release.outputs.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/python-engine.yml
     with:
       ref: ${{ needs.python-engine-release.outputs.ref }}

@@ -105,6 +105,20 @@ func (manager *Manager) RecoverIndex(ctx context.Context, name string) (*Durable
 }
 
 func (manager *Manager) recoverHandle(ctx context.Context, handle *Handle) (*Durable, error) {
+	durable, err := manager.recoverDurable(ctx, handle)
+	if err == nil && manager.logged() {
+		if err = manager.sizes.seedLog(manager.directory, handle.Name); err != nil {
+			_ = durable.close()
+		}
+	}
+	if err != nil {
+		manager.sizes.forget(handle.Name)
+		return nil, err
+	}
+	return durable, nil
+}
+
+func (manager *Manager) recoverDurable(ctx context.Context, handle *Handle) (*Durable, error) {
 	applied, upgrade, err := manager.loadCheckpoint(ctx, manager.store, handle)
 	if err != nil {
 		return nil, err
@@ -141,6 +155,7 @@ func (manager *Manager) loadCheckpoint(ctx context.Context, store checkpoint.Sto
 	if err != nil {
 		return nil, nil, err
 	}
+	manager.sizes.recordSaved(handle.Name, savedSize{})
 	switch read.Kind {
 	case checkpoint.ManifestEarlier:
 		manager.reportUpgrade(handle.Name, earlierManifestLayout, LayoutUpgradeStarted, nil)
@@ -176,6 +191,7 @@ func (manager *Manager) loadCheckpoint(ctx context.Context, store checkpoint.Sto
 	for partitionID := range applied {
 		applied[partitionID] = read.Manifest.LastSeqNo(uint32(partitionID))
 	}
+	manager.sizes.recordSaved(handle.Name, savedSizeOf(read.Manifest))
 	return applied, nil, nil
 }
 
@@ -190,7 +206,7 @@ func LoadManifest(ctx context.Context, store checkpoint.Store, handle *Handle, l
 				map[string]any{"indexName": handle.Name, "partitionId": entry.PartitionID, "partitionCount": count})
 		}
 		for _, ref := range entry.Segments {
-			if err := loadListedSegment(ctx, store, handle, int(entry.PartitionID), ref.File, listed.Schema); err != nil {
+			if err := loadListedSegment(ctx, store, handle, int(entry.PartitionID), ref, listed.Schema); err != nil {
 				return err
 			}
 		}

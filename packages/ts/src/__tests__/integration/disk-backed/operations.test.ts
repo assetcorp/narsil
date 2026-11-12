@@ -380,4 +380,26 @@ describe('worker copies of an index with its text on disk', () => {
       await rm(root, { recursive: true, force: true })
     }
   }, 240_000)
+
+  it('answer like the oracle after merges that leave newer removals and updates to replay', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'narsil-disk-worker-merges-'))
+    const engine = await createNarsil({
+      durability: { directory: root },
+      workers: { enabled: true, count: 2, promotionThreshold: 100 },
+    })
+    try {
+      await engine.createIndex(INDEX, ARTICLE_CONFIG)
+      const random = seededRandom(25)
+      const oracle = new ArticleOracle()
+      for (let round = 0; round < 14; round++) {
+        await writeRound(engine, oracle, random, `round-${round}`, 60)
+        await engine.checkpoint(INDEX)
+        if (round % 5 === 4) await expectEngineMatchesOracle(engine, INDEX, oracle)
+      }
+      await expectEngineMatchesOracle(engine, INDEX, oracle)
+    } finally {
+      await engine.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 240_000)
 })

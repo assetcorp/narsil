@@ -173,11 +173,13 @@ export async function prepareDetachedIndex(
 }
 
 export function restoredRegistryEntry(
+  indexName: string,
   prepared: PreparedIndex,
   manager: PartitionManager,
   deps: RestoreDeps,
 ): IndexRegistryEntry {
   return {
+    storedSizes: deps.durability?.manager.storedSizesOf(indexName),
     config: prepared.config,
     language: prepared.language,
     embeddingAdapter: prepared.embeddingAdapter,

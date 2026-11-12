@@ -12,6 +12,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { PartitionCheckpoint } from '../../persistence/durability/partition-checkpoint'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../persistence/durability/seq-owner'
+import type { StoredBytes } from '../../persistence/durability/stored-bytes'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DetachedIndex } from '../../workers/direct-executor'
@@ -24,6 +25,7 @@ export interface RestoredIndex {
   detached: DetachedIndex
   staging: RestoreStaging | null
   checkpoint: readonly PartitionCheckpoint[]
+  saved: StoredBytes | null
 }
 
 interface CopyRelease {
@@ -125,13 +127,17 @@ async function commitToStorage(
     for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
     await staging.commit()
   } catch (error) {
-    if (previousPartitions > 0) durable.adoptRestoredCheckpoint?.(indexName, previousCheckpoint)
+    if (previousPartitions > 0) {
+      durable.adoptRestoredCheckpoint?.(indexName, previousCheckpoint)
+      await durable.measureRestoredStorage?.(indexName).catch(() => undefined)
+    }
     throw error
   }
   for (const paged of pagedSegmentsOf(previous)) paged.close()
   const restoredSegments = pagedSegmentsOf(restored.detached.manager)
   for (const paged of restoredSegments) paged.suspend()
   await staging.finish()
+  await durable.measureRestoredStorage?.(indexName, restored.saved ?? undefined).catch(() => undefined)
   const relocate = await staging.relocation().catch(() => null)
   for (const paged of restoredSegments) paged.resume(relocate ?? samePath)
   if (relocate === null) return
@@ -141,6 +147,7 @@ async function commitToStorage(
 function activate(indexName: string, restored: RestoredIndex, entry: IndexRegistryEntry, deps: RestoreDeps): void {
   deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
+  entry.storedSizes?.recordSavedBytes(entry.savedBytes)
   restored.detached.attach()
   deps.clearAnalysisStale(indexName)
   const { prepared } = restored
@@ -190,6 +197,7 @@ async function createFresh(indexName: string, restored: RestoredIndex, entry: In
   deps.copies.desyncIndex(indexName)
   deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
+  entry.storedSizes?.recordSavedBytes(entry.savedBytes)
   try {
     await deps.indexState.registerReplacing(indexName, async () => {
       await commitToStorage(indexName, restored, undefined, deps)
@@ -215,7 +223,7 @@ export async function installRestoredIndex(
   deps: RestoreDeps,
   history: RestoredHistorySink | null = null,
 ) {
-  const entry = restoredRegistryEntry(restored.prepared, restored.detached.manager, deps)
+  const entry = restoredRegistryEntry(indexName, restored.prepared, restored.detached.manager, deps)
   const previousSync = deps.indexRegistry.get(indexName)?.sync ?? null
   const previousChanges = deps.indexRegistry.get(indexName)?.changes ?? null
   const renewsEpoch = previousSync !== null || previousChanges !== null
@@ -224,6 +232,7 @@ export async function installRestoredIndex(
     if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch }
     if (previousChanges !== null) entry.changes = { ...previousChanges, epoch }
   }
+  if (restored.saved !== null) entry.savedBytes = restored.saved.bytes
   let replaced: IndexRegistryEntry | undefined
   try {
     if (deps.indexRegistry.has(indexName)) await deps.abandonAnalysisChange(indexName)

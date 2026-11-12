@@ -218,6 +218,7 @@ export interface DurabilityConfig {
     directory?: string;
     flushIntervalMs?: number;
     mode?: 'sync' | 'async';
+    rewriteBytesPerCheckpoint?: number;
     segmentMaxBytes?: number;
     tier?: 'wal' | 'snapshot';
 }
@@ -589,7 +590,11 @@ export interface IndexStats {
     estimatedMemoryBytes: number;
     heldSearchStates?: number;
     language: string;
+    logBytes?: number;
+    logBytesOfEveryCopy?: number;
     partitionCount: number;
+    savedBytes?: number;
+    savedBytesOfEveryCopy?: number;
     schema: SchemaDefinition;
 }
 
@@ -1672,7 +1677,11 @@ export interface PartitionStatistics {
 export interface PartitionStatsResult {
     documentCount: number;
     estimatedMemoryBytes: number;
+    logBytes?: number;
+    logBytesOfEveryCopy?: number;
     partitionId: number;
+    savedBytes?: number;
+    savedBytesOfEveryCopy?: number;
 }
 
 // @public

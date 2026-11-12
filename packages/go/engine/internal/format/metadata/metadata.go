@@ -44,6 +44,7 @@ type Metadata struct {
 	Language            string
 	PartitionCount      uint32
 	DocumentCount       model.Optional[uint64]
+	SavedBytes          model.Optional[uint64]
 	BM25                indexsettings.BM25
 	CreatedAt           uint64
 	EngineVersion       string

@@ -169,7 +169,7 @@ func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("finding the test binary failed: %v", err)
 	}
-	for modeNumber, mode := range []string{crashModeInserts, crashModeCheckpoints, crashModeMerges} {
+	for modeNumber, mode := range []string{crashModeInserts, crashModeCheckpoints, crashModeMerges, crashModeRewrites} {
 		t.Run(mode, func(t *testing.T) {
 			directory := t.TempDir()
 			random := rand.New(rand.NewSource(int64(174 + modeNumber)))

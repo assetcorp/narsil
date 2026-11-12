@@ -9,6 +9,7 @@ import { loadSegmentedCheckpoint, readSegmentManifest, reclaimUnlistedKeys } fro
 import { manifestReferencedKeys } from './segment/manifest'
 import type { DecodedManifest } from './segment/manifest-decode'
 import type { CheckpointStore } from './segment/store'
+import { NOTHING_SAVED, type StoredBytes, savedBytesOfManifest } from './stored-bytes'
 import type { WriteRecordKeeper } from './types'
 
 export interface CheckpointRecoveryDeps {
@@ -29,6 +30,7 @@ export interface CheckpointRecoveryDeps {
 export interface RecoveredCheckpoint {
   checkpoint: PartitionCheckpoint[]
   upgradedDocumentCount: number | null
+  saved: StoredBytes
 }
 
 async function earlierLayoutOf(
@@ -46,11 +48,11 @@ export async function recoverCheckpoint(deps: CheckpointRecoveryDeps): Promise<R
   const earlier = await earlierLayoutOf(deps, decoded)
   if (earlier !== null) {
     const upgraded = await upgradeEarlierLayout(deps, earlier)
-    return { checkpoint: upgraded.checkpoint, upgradedDocumentCount: upgraded.documentCount }
+    return { checkpoint: upgraded.checkpoint, upgradedDocumentCount: upgraded.documentCount, saved: upgraded.saved }
   }
   if (decoded === null || decoded.kind !== 'current') {
     if (!deps.keepsUnlistedFiles) await reclaimUnlistedKeys(deps.store, deps.indexName, deps.keptForSync)
-    return { checkpoint: await deps.replay([]), upgradedDocumentCount: null }
+    return { checkpoint: await deps.replay([]), upgradedDocumentCount: null, saved: NOTHING_SAVED }
   }
   await deps.store.remove(snapshotBundleKey(deps.indexName))
   if (!deps.keepsUnlistedFiles) {
@@ -63,5 +65,9 @@ export async function recoverCheckpoint(deps: CheckpointRecoveryDeps): Promise<R
     vectorIndexes: deps.vectorIndexes,
     writeRecords: deps.writeRecords ?? null,
   })
-  return { checkpoint: await deps.replay(checkpoint), upgradedDocumentCount: null }
+  return {
+    checkpoint: await deps.replay(checkpoint),
+    upgradedDocumentCount: null,
+    saved: savedBytesOfManifest(decoded.manifest),
+  }
 }

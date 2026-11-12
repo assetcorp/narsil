@@ -2,13 +2,12 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
 
 use narsil::{
     DurabilityConfig, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig, PartitionConfig,
     QueryParams, Value,
 };
-use support::{ScratchDirectory, repository_root};
+use support::{ScratchDirectory, rewrite_saved_file as rewrite};
 
 const INDEX: &str = "catalogue";
 const SAVED_PARTITIONS: u64 = 4;
@@ -77,23 +76,6 @@ fn saved_index(root: &Path) -> BTreeMap<String, String> {
     );
     engine.shutdown().expect("the engine shuts down");
     model
-}
-
-fn rewrite(file: &Path, arguments: &[&str]) {
-    assert!(file.is_file(), "{} exists", file.display());
-    let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/reference_partitions.mjs");
-    let output = Command::new("node")
-        .arg(script)
-        .arg(repository_root())
-        .args(arguments)
-        .output()
-        .expect("node runs the rewriter");
-    assert!(
-        output.status.success(),
-        "the rewriter failed; install packages/ts first: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 fn rewrite_stored_max_partitions(root: &Path, count: u64) {

@@ -10,12 +10,15 @@ import {
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
   DEFAULT_COMPACTION_THRESHOLD,
+  DEFAULT_REWRITE_BYTES_PER_CHECKPOINT,
   DEFAULT_SEGMENT_MAX_BYTES,
 } from './constants'
 import { hasDeferredPublication } from './deferred-mutations'
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { createHeldCheckpoints } from './held-checkpoints'
+import { createStoredSizesRecord } from './index-stored-sizes'
+import { createLogBytesLedger } from './log-bytes'
 import { closePartitionWriter, type IndexState } from './manager-state'
 import { createIndexStorageAccess } from './manager-storage'
 import { createMetadataWriteQueue } from './metadata-write-queue'
@@ -57,20 +60,19 @@ export function createDurabilityManager(
   hooks: IndexDurabilityHooks,
   directoryOverride?: DurableDirectory,
 ): DurabilityManager {
-  const directory = directoryOverride ?? createDurableDirectory(config.directory ?? '')
+  const sizes = createStoredSizesRecord(true)
+  const logBytes = createLogBytesLedger(directoryOverride ?? createDurableDirectory(config.directory ?? ''), sizes)
+  const { directory } = logBytes
   const canOffloadCheckpoint = directoryOverride === undefined
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
   const compactionThreshold = config.compactionThreshold ?? DEFAULT_COMPACTION_THRESHOLD
+  const rewriteBytesPerCheckpoint = config.rewriteBytesPerCheckpoint ?? DEFAULT_REWRITE_BYTES_PER_CHECKPOINT
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
-  const registry = createPartitionRegistry(
-    directory,
-    segmentMaxBytes,
-    indexName => hooks.recordsPreviousDocument?.(indexName) === true,
-  )
+  const registry = createPartitionRegistry(directory, segmentMaxBytes, hooks, sizes)
   const indexes = registry.indexes
   const getOrCreateIndexState = registry.indexState
   const getOrCreatePartition = registry.partition
@@ -177,12 +179,14 @@ export function createDurabilityManager(
       indexName,
       indexState,
       compactionThreshold,
+      rewriteBytesPerCheckpoint,
       canOffload: canOffloadCheckpoint,
       fromMemory,
       mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
       keepsCheckpointKey: () => syncStorage.keepsCheckpointKey(indexName),
+      recordSavedBytes: saved => sizes.setSaved(indexName, saved),
       queueMetadataWrite,
       markFatal,
       failPartition: partitionFailureFor(indexName, partitionBatchDeps),
@@ -241,30 +245,22 @@ export function createDurabilityManager(
     return outcomes
   }
 
-  const { archiveAccess, syncStorage, unloading } = createIndexStorageAccess({
+  const { archiveAccess, syncStorage, unloading, storedBytesAccess, recoveryDeps } = createIndexStorageAccess({
     directory,
+    logBytes,
+    sizes,
     hooks,
     indexes,
     metadataWrites,
     heldCheckpointFiles,
+    compactionThreshold,
     checkpoint: (name, pinsVectors) => requestedCheckpoint(name, false, pinsVectors),
-    registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
-      getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
+    registerPartition: (name, partitionId, startSeqNo, primaryTerm) => {
+      getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm)
+    },
     markFatal,
     closeWriterReportingFailure,
   })
-
-  const recoveryDeps = {
-    directory,
-    hooks,
-    compactionThreshold,
-    registerPartition: (name: string, partitionId: number, startSeqNo: number, primaryTerm: number) => {
-      getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm)
-    },
-    holdsCheckpointFiles: (name: string) => heldCheckpointFiles.has(name),
-    queueMetadataWrite,
-    syncStorage,
-  }
 
   function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
     const recovered = recoverWithLayoutCheckpoint(recoveryDeps, indexName, metadataOnly, () =>
@@ -379,6 +375,8 @@ export function createDurabilityManager(
     ...queryHistoryAccess({ kind: 'directory', directory }),
 
     ...archiveAccess,
+
+    ...storedBytesAccess,
 
     async shutdown(): Promise<void> {
       shuttingDown = true
