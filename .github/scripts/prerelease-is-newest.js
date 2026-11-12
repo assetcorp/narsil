@@ -6,6 +6,7 @@ const LIBRARY_PACKAGE = '@delali/narsil'
 const REACT_NATIVE_PACKAGE = '@delali/narsil-react-native'
 const PLATFORM_PACKAGES_DIRECTORY = join('packages', 'native', 'npm')
 const NEXT_DIST_TAG = 'next'
+const UNPUBLISHED_PACKAGE_ERROR_CODE = 'E404'
 const PRERELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-next\.(\d+))?$/
 
 const parse = version => {
@@ -34,6 +35,29 @@ const packagesToPublish = () => [
   }),
 ]
 
+const registryErrorCode = error => {
+  try {
+    return JSON.parse(String(error.stdout ?? '')).error?.code
+  } catch {
+    return undefined
+  }
+}
+
+const nextTagOf = packageName => {
+  let listing
+  try {
+    listing = execFileSync('npm', ['view', packageName, 'dist-tags', '--json', '--prefer-online'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (error) {
+    if (registryErrorCode(error) === UNPUBLISHED_PACKAGE_ERROR_CODE) return undefined
+    throw error
+  }
+  const current = JSON.parse(listing)[NEXT_DIST_TAG]
+  return typeof current === 'string' && current !== '' ? current : undefined
+}
+
 const writeOutput = (key, value) => {
   console.log(`${key}=${value}`)
   const target = process.env.GITHUB_OUTPUT
@@ -49,17 +73,13 @@ const main = () => {
   parse(candidate)
 
   for (const packageName of packagesToPublish()) {
-    const tags = execFileSync('npm', ['dist-tag', 'ls', packageName, '--prefer-online'], {
-      encoding: 'utf8',
-    })
-    const current = tags
-      .split('\n')
-      .find(line => line.startsWith(`${NEXT_DIST_TAG}:`))
-      ?.slice(NEXT_DIST_TAG.length + 1)
-      .trim()
-    if (current === undefined || current === '') continue
+    const current = nextTagOf(packageName)
+    if (current === undefined) {
+      console.log(`${packageName} has no ${NEXT_DIST_TAG} dist-tag yet.`)
+      continue
+    }
     if (isNewer(current, candidate)) {
-      console.log(`${packageName} has ${current} under ${NEXT_DIST_TAG}, newer than ${candidate}, so nothing is published.`)
+      console.log(`${packageName} has ${current} under ${NEXT_DIST_TAG}, newer than ${candidate}, so publishing stops.`)
       writeOutput('newest', 'false')
       return
     }
