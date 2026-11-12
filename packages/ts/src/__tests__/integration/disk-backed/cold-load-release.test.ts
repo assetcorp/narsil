@@ -7,6 +7,7 @@ import { expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { manifestKey } from '../../../persistence/durability/segment/layout'
 import { encodeSegmentManifest } from '../../../persistence/durability/segment/manifest-encode'
+import { archiveBytes } from '../../engine/snapshot/restore-fixtures'
 import { requireManifestOnDisk } from '../../persistence/durability/manifest-on-disk'
 
 const INDEX = 'passages'
@@ -25,7 +26,9 @@ function handlesUnder(root: string): string[] {
   })
 }
 
-it.skipIf(process.platform !== 'linux').each(['clear', 'shutdown', 'clear during rerank', 'drop after rerank'])(
+it
+  .skipIf(process.platform !== 'linux')
+  .each(['clear', 'shutdown', 'clear during rerank', 'drop after rerank', 'restore during rerank'])(
   'closes a cancelled graph read after %s',
   async action => {
     const root = await mkdtemp(join(tmpdir(), 'narsil-cold-release-'))
@@ -37,6 +40,7 @@ it.skipIf(process.platform !== 'linux').each(['clear', 'shutdown', 'clear during
         textStorage: 'disk',
         vectorPromotion: { threshold: 16, storage: 'disk' },
       })
+      const emptyArchive = action === 'restore during rerank' ? await archiveBytes(engine, INDEX) : null
       const inserted = await engine.insertBatch(
         INDEX,
         Array.from({ length: DOCUMENTS }, (_, at) => ({
@@ -70,10 +74,15 @@ it.skipIf(process.platform !== 'linux').each(['clear', 'shutdown', 'clear during
         await engine.clear(INDEX)
         expect(handlesUnder(graphPath)).toEqual([])
         expect(await engine.countDocuments(INDEX)).toBe(0)
-      } else if (action === 'clear during rerank' || action === 'drop after rerank') {
+      } else if (
+        action === 'clear during rerank' ||
+        action === 'drop after rerank' ||
+        action === 'restore during rerank'
+      ) {
         engine.registerRerankAdapter('clearing', {
           async rerank(_query, texts) {
             await engine.clear(INDEX)
+            if (emptyArchive !== null) await engine.restore(INDEX, emptyArchive)
             return texts.map(() => 1)
           },
         })
@@ -84,7 +93,7 @@ it.skipIf(process.platform !== 'linux').each(['clear', 'shutdown', 'clear during
         const expected = Array.from({ length: DOCUMENTS }, (_, at) => `passage-${at}`)
           .sort()
           .slice(0, 10)
-        expect(found.hits.map(hit => hit.id)).toEqual(expected)
+        expect(found.hits.map(hit => hit.id)).toEqual(emptyArchive === null ? expected : [])
         for (const hit of found.hits) {
           expect(hit.score).toBe(1)
           expect(hit.document?.title).toBe(`passage ${Number(hit.id.slice('passage-'.length))}`)
