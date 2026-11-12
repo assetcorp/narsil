@@ -98,15 +98,11 @@ jobs:
         id: resolve
         run: node .github/scripts/resolve-prerelease.js
 
-  prerelease:
-    name: Publish prerelease to the next dist-tag
+  prerelease-checks:
+    name: Check the prerelease
     needs: [plan, native, react-native-checks]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    concurrency:
-      group: publish-prerelease-to-npm
-      cancel-in-progress: false
-      queue: max
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -163,6 +159,36 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
+
+  prerelease:
+    name: Publish prerelease to the next dist-tag
+    needs: [plan, prerelease-checks]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-prerelease-to-npm
+      cancel-in-progress: false
+      queue: max
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm nx run narsil-ts:build
 
       - name: Set prerelease version
         run: pnpm nx release version "${{ needs.plan.outputs.version }}" --projects=narsil-ts --git-commit=false --git-tag=false --stage-changes=false
