@@ -1,58 +1,10 @@
 name: Native search core
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/native/**'
-      - 'packages/ts/src/vector/**'
-      - 'packages/ts/src/languages/**'
-      - 'packages/ts/src/core/tokenizer/**'
-      - 'packages/ts/src/core/keyword-score/**'
-      - 'packages/ts/src/core/partition/**'
-      - 'packages/ts/src/core/inverted-index/**'
-      - 'packages/ts/src/core/synonyms/**'
-      - 'packages/ts/src/core/ordering/**'
-      - 'packages/ts/src/core/scorer.ts'
-      - 'packages/ts/src/math/**'
-      - 'packages/ts/src/geo/**'
-      - 'packages/ts/src/__tests__/core/tokenizer/**'
-      - 'packages/ts/src/__tests__/core/keyword-score/**'
-      - 'packages/ts/src/__tests__/math/**'
-      - 'packages/ts/scripts/native-analysis/**'
-      - 'packages/ts/wasm/**'
-      - '.github/workflows/native-core.yml'
-      - '!**/*.md'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'packages/native/**'
-      - 'packages/ts/src/vector/**'
-      - 'packages/ts/src/languages/**'
-      - 'packages/ts/src/core/tokenizer/**'
-      - 'packages/ts/src/core/keyword-score/**'
-      - 'packages/ts/src/core/partition/**'
-      - 'packages/ts/src/core/inverted-index/**'
-      - 'packages/ts/src/core/synonyms/**'
-      - 'packages/ts/src/core/ordering/**'
-      - 'packages/ts/src/core/scorer.ts'
-      - 'packages/ts/src/math/**'
-      - 'packages/ts/src/geo/**'
-      - 'packages/ts/src/__tests__/core/tokenizer/**'
-      - 'packages/ts/src/__tests__/core/keyword-score/**'
-      - 'packages/ts/src/__tests__/math/**'
-      - 'packages/ts/scripts/native-analysis/**'
-      - 'packages/ts/wasm/**'
-      - '.github/workflows/native-core.yml'
-      - '!**/*.md'
   workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: native-core-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -62,37 +14,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: darwin-arm64
-            runner: macos-15
-            output: packages/native/npm/darwin-arm64
-          - target: darwin-x64
-            runner: macos-15
-            output: packages/native/npm/darwin-x64
-          - target: linux-x64
-            runner: ubuntu-latest
-            output: packages/native/npm/linux-x64
-            zig: true
-          - target: linux-x64-musl
-            runner: ubuntu-latest
-            output: packages/native/npm/linux-x64/musl
-            zig: true
-          - target: linux-arm64
-            runner: ubuntu-latest
-            output: packages/native/npm/linux-arm64
-            zig: true
-          - target: linux-arm64-musl
-            runner: ubuntu-latest
-            output: packages/native/npm/linux-arm64/musl
-            zig: true
-          - target: win32-x64
-            runner: ubuntu-latest
-            output: packages/native/npm/win32-x64
-            zig: true
-          - target: win32-arm64
-            runner: ubuntu-latest
-            output: packages/native/npm/win32-arm64
-            zig: true
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"target": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64", "zig": true}
+          ]' || '[
+          {"target": "darwin-arm64", "runner": "macos-15", "output": "packages/native/npm/darwin-arm64"},
+          {"target": "darwin-x64", "runner": "macos-15", "output": "packages/native/npm/darwin-x64"},
+          {"target": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64", "zig": true},
+          {"target": "linux-x64-musl", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64/musl", "zig": true},
+          {"target": "linux-arm64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-arm64", "zig": true},
+          {"target": "linux-arm64-musl", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-arm64/musl", "zig": true},
+          {"target": "win32-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/win32-x64", "zig": true},
+          {"target": "win32-arm64", "runner": "ubuntu-latest", "output": "packages/native/npm/win32-arm64", "zig": true}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -161,11 +95,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: x86-64
-            runner: ubuntu-latest
-          - label: 64-bit Arm
-            runner: ubuntu-24.04-arm
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"label": "x86-64", "runner": "ubuntu-latest"}
+          ]' || '[
+          {"label": "x86-64", "runner": "ubuntu-latest"},
+          {"label": "64-bit Arm", "runner": "ubuntu-24.04-arm"}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -201,8 +137,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the TypeScript package so the tests can start worker threads
-        run: pnpm nx run narsil-ts:build:code
+      - name: Download the TypeScript engine so the tests can start worker threads
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
 
       - name: Run the TypeScript tests that load the core against the sanitised binding
         run: pnpm --filter @delali/narsil-native-build test:binding
@@ -269,25 +208,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: linux-x64
-            runner: ubuntu-latest
-            output: packages/native/npm/linux-x64
-          - label: linux-arm64
-            runner: ubuntu-24.04-arm
-            output: packages/native/npm/linux-arm64
-          - label: darwin-arm64
-            runner: macos-15
-            output: packages/native/npm/darwin-arm64
-          - label: darwin-x64
-            runner: macos-15-intel
-            output: packages/native/npm/darwin-x64
-          - label: win32-x64
-            runner: windows-latest
-            output: packages/native/npm/win32-x64
-          - label: win32-arm64
-            runner: windows-11-arm
-            output: packages/native/npm/win32-arm64
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"}
+          ]' || '[
+          {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"},
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "output": "packages/native/npm/linux-arm64"},
+          {"label": "darwin-arm64", "runner": "macos-15", "output": "packages/native/npm/darwin-arm64"},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "output": "packages/native/npm/darwin-x64"},
+          {"label": "win32-x64", "runner": "windows-latest", "output": "packages/native/npm/win32-x64"},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "output": "packages/native/npm/win32-arm64"}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -334,6 +265,7 @@ jobs:
   identity-musl:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:

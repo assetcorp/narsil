@@ -26,6 +26,15 @@ jobs:
       check: ${{ steps.areas.outputs.check }}
       conformance: ${{ steps.areas.outputs.conformance }}
       benchmark_harness: ${{ steps.areas.outputs.benchmark_harness }}
+      rust: ${{ steps.areas.outputs.rust }}
+      python_engine: ${{ steps.areas.outputs.python_engine }}
+      go_engine: ${{ steps.areas.outputs.go_engine }}
+      native_core: ${{ steps.areas.outputs.native_core }}
+      clients: ${{ steps.areas.outputs.clients }}
+      react_native: ${{ steps.areas.outputs.react_native }}
+      cluster: ${{ steps.areas.outputs.cluster }}
+      vector_recall: ${{ steps.areas.outputs.vector_recall }}
+      engine: ${{ steps.areas.outputs.engine }}
 
     steps:
       - name: Checkout
@@ -39,6 +48,12 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
           WORKFLOW_FILE: .github/workflows/ci.yml
         run: node .github/scripts/changed-areas.js
+
+  engine:
+    name: Engine
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
+    uses: ./.github/workflows/engine.yml
 
   check:
     name: Check
@@ -118,7 +133,7 @@ jobs:
 
   tests:
     name: Tests ${{ matrix.shard }} of 4
-    needs: changes
+    needs: [changes, engine]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -160,16 +175,19 @@ jobs:
         if: env.SUITE_NEEDED == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
         if: env.SUITE_NEEDED == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Build the code that worker tests load
+      - name: Download the code that worker tests load
         if: env.SUITE_NEEDED == 'true'
-        run: pnpm nx run narsil-ts:build:code
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
 
       - name: Test
         if: env.SUITE_NEEDED == 'true'
@@ -245,8 +263,8 @@ jobs:
 
   openapi-clients:
     name: Generated OpenAPI clients
-    needs: changes
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    needs: [changes, engine]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -260,22 +278,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the code that worker tests load
-        run: pnpm nx run narsil-ts:build:code
+      - name: Download the code that worker tests load
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
 
       - name: Generate Python and Go clients and search a live server with each
         run: pnpm nx run narsil-ts:test:openapi-clients
 
   full-suite:
     name: Full suite
-    needs: changes
-    if: ${{ !cancelled() && github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    needs: [changes, engine]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
@@ -309,8 +330,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the code that worker tests load
-        run: pnpm nx run narsil-ts:build:code
+      - name: Download the code that worker tests load
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
 
       - name: Test
         run: pnpm nx run narsil-ts:test
@@ -328,8 +352,8 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
 
-  benchmarks-harness-tests:
-    name: Benchmark harness tests
+  benchmarks-harness:
+    name: Benchmark harness tests and pinned dataset digests
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.benchmark_harness == 'true') }}
     runs-on: ubuntu-latest
@@ -346,23 +370,136 @@ jobs:
         working-directory: benchmarks/server
         run: python3 -m pytest -q
 
-  benchmarks-dataset-artifacts:
-    name: Dataset artifacts match their pinned digests
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.benchmark_harness == 'true') }}
+      - name: Fetch every pinned manifest from its release and compare the digests
+        if: ${{ !cancelled() }}
+        working-directory: benchmarks/server
+        run: python3 -m ir_bench.verify_artifacts
+
+  cluster:
+    name: Cluster Tests (${{ matrix.suite }})
+    needs: [changes, engine]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.cluster == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [node processes on etcd, recovery under injected faults]
+    services:
+      etcd:
+        image: ${{ matrix.suite == 'node processes on etcd' && 'gcr.io/etcd-development/etcd:v3.6.0' || '' }}
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
+
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install the harness
-        working-directory: benchmarks/server
-        run: python3 -m pip install -e .
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Fetch every pinned manifest from its release and compare the digests
-        working-directory: benchmarks/server
-        run: python3 -m ir_bench.verify_artifacts
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the code that the cluster nodes load
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Test (cluster node processes on etcd)
+        if: matrix.suite == 'node processes on etcd'
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
+        run: pnpm nx run narsil-ts:test:cluster
+
+      - name: Test (cluster recovery under injected faults)
+        if: matrix.suite == 'recovery under injected faults'
+        run: pnpm nx run narsil-ts:test:faults
+
+  vector-recall:
+    name: Vector Recall Tests
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.vector_recall == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the code that the recall tests load
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Run vector recall tests
+        run: pnpm nx run narsil-ts:test:recall
+        timeout-minutes: 10
+
+  rust:
+    name: Rust crate
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    uses: ./.github/workflows/rust.yml
+
+  go-engine:
+    name: Go engine
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.go_engine == 'true') }}
+    uses: ./.github/workflows/go-engine.yml
+
+  python-engine:
+    name: Python package
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.python_engine == 'true') }}
+    uses: ./.github/workflows/python-engine.yml
+
+  native-core:
+    name: Native search core
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native_core == 'true') }}
+    uses: ./.github/workflows/native-core.yml
+
+  clients:
+    name: Clients
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.clients == 'true') }}
+    uses: ./.github/workflows/clients.yml
+
+  react-native:
+    name: React Native
+    needs: [changes, engine]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.react_native == 'true') }}
+    uses: ./.github/workflows/react-native.yml
 
   benchmarks-writeup:
     name: Benchmark writeup up to date
