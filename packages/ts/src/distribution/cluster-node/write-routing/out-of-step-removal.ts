@@ -1,12 +1,12 @@
 import { pause } from '../../cluster/rebalance/pause'
 import type { PartitionAssignment } from '../../coordinator/types'
+import { withoutRemovedReplicas } from '../catch-up/admitted'
 import {
   admissionGenerationIs,
   admissionGenerationOf,
   feedsReplica,
   type OutOfStepRemoval,
   partitionKey,
-  withoutRemovedReplicas,
 } from '../catch-up/state'
 import { OUT_OF_STEP_REMOVAL_RETRY_DELAY_CAP_MS, OUT_OF_STEP_REMOVAL_RETRY_INITIAL_DELAY_MS } from '../constants'
 import { replicationTimeoutOf, withinDeadline } from './deadline'
