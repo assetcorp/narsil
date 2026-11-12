@@ -55,9 +55,11 @@ export interface PartitionAssignment {
   /** These replicas are current enough to be promoted, which is the set a failover picks from. */
   inSyncSet: string[]
   /**
-   * The controller raises this by 1 in every table write that changes `inSyncSet`, and it refuses an admission that
-   * carries any other value, so an admission that a primary asked for before a removal never adds the replica back. A
-   * table that an earlier release wrote leaves it absent, and every reader counts an absent value as 0.
+   * The controller raises this by 1 in every table write that changes `inSyncSet`, that accepts an in-sync removal, or
+   * that removes a node from `replicas`, and by 1 once where a write makes more than one of those changes. It refuses
+   * an admission that carries any other value, so an admission that a primary asked for before a removal, or before
+   * the replica left the assignment and dropped its copy, never adds the replica back. A table that an earlier release
+   * wrote leaves it absent, and every reader counts an absent value as 0.
    */
   inSyncVersion?: number
   /**

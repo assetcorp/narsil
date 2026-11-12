@@ -14,10 +14,16 @@ function holdSameMembers(left: readonly string[], right: readonly string[]): boo
   return true
 }
 
+function dropsAReplica(previous: PartitionAssignment, next: PartitionAssignment): boolean {
+  const nextReplicas = new Set(next.replicas)
+  return previous.replicas.some(nodeId => !nextReplicas.has(nodeId))
+}
+
 function stampedInSyncVersion(previous: PartitionAssignment | undefined, next: PartitionAssignment): number {
   if (previous === undefined) return inSyncVersionOf(next)
   const stored = inSyncVersionOf(previous)
-  const raised = holdSameMembers(previous.inSyncSet, next.inSyncSet) ? stored : stored + 1
+  const unchanged = holdSameMembers(previous.inSyncSet, next.inSyncSet) && !dropsAReplica(previous, next)
+  const raised = unchanged ? stored : stored + 1
   return Math.max(raised, inSyncVersionOf(next))
 }
 
