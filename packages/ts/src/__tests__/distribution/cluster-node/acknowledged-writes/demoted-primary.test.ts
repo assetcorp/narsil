@@ -5,6 +5,7 @@ import {
   entryForDocument,
   INDEX,
   ofType,
+  onLinksTo,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -48,11 +49,12 @@ describe('a primary that loses its role with a write in flight takes the new his
     }
 
     const transport = cluster.transport(oldPrimary)
-    if (strandedAt === 'the replicas') transport.loseReplyWhen(entryForDocument('stranded'))
+    const strandedOnSettledLinks = onLinksTo(settled.inSyncSet, entryForDocument('stranded'))
+    if (strandedAt === 'the replicas') transport.loseReplyWhen(strandedOnSettledLinks)
     const inFlight =
       strandedAt === 'the replicas'
         ? transport.holdWhen(ofType('replication.insync_remove'))
-        : transport.holdWhen(entryForDocument('stranded'))
+        : transport.holdWhen(strandedOnSettledLinks)
     const stranded = outcomeOf(
       cluster.node(oldPrimary).insert(INDEX, { title: 'stranded transfer', amount: 999 }, 'stranded'),
     )

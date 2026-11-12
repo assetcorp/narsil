@@ -2,11 +2,13 @@ import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import { inSyncVersionOf } from '../../cluster/in-sync-version'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncAdmission, requestInsyncRemoval } from '../../replication/insync'
+import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import type { InsyncAddPayload, InsyncRemovePayload } from '../../transport/types'
 import { ADMISSION_RETRIES_AFTER_IN_SYNC_CHANGE, ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { forgetAdmissionToWithdraw, recordAdmissionToWithdraw, recordAdmittedReplica } from './admitted'
+import { replicaListsPartition } from './listed-copy'
 import {
   type AdmissionAnswer,
   advanceAdmissionGeneration,
@@ -115,6 +117,41 @@ async function changedInSyncVersion(claim: AdmissionClaim, payload: InsyncAddPay
   return qualifies ? inSyncVersion : null
 }
 
+async function provePositionAfterRead(claim: AdmissionClaim, request: InsyncAddPayload): Promise<boolean> {
+  const { cursor, deps } = claim
+  if (request.appliedSeqNo === 0) return true
+  if (cursor.provenInSyncVersion === request.inSyncVersion && cursor.appliedSeqNo >= request.appliedSeqNo) return true
+  const log = deps.getReplicationLog(request.indexName, request.partitionId)
+  const entry = log.getEntry(request.appliedSeqNo)
+  const provingEpoch = cursor.syncEpoch
+  if (entry === undefined) {
+    const listed = await replicaListsPartition(
+      deps,
+      request.indexName,
+      request.partitionId,
+      request.replicaNodeId,
+    ).catch(() => false)
+    return listed && cursor.syncEpoch === provingEpoch
+  }
+  try {
+    const table = await deps.coordinator.getAllocation(request.indexName)
+    const result = await replicateBatchToReplicas(
+      [entry],
+      [request.replicaNodeId],
+      deps.transport,
+      deps.nodeId,
+      deps.resolveNodeTargets,
+      table?.indexUuid,
+      previousTermOf(log, entry.seqNo),
+    )
+    if (!result.acknowledged.includes(request.replicaNodeId) || cursor.syncEpoch !== provingEpoch) return false
+  } catch (_) {
+    return false
+  }
+  if (cursor.appliedSeqNo === entry.seqNo) cursor.provenInSyncVersion = request.inSyncVersion
+  return true
+}
+
 async function askController(
   claim: AdmissionClaim,
   payload: InsyncAddPayload,
@@ -123,6 +160,7 @@ async function askController(
   let request = payload
   let retries = 0
   while (claimHolds(claim, request)) {
+    if (!(await provePositionAfterRead(claim, request)) || !claimHolds(claim, request)) return 'refused'
     const answer = await withTimeout(
       sendToController(request, controllerNodeId, claim.deps),
       ADMISSION_TIMEOUT_MS,
@@ -145,12 +183,20 @@ async function askController(
  * position the replica has yet to confirm in its current sync session, because such a replica can lack a write the
  * cluster has already acknowledged. Each request carries the `inSyncVersion` of the assignment that the primary read,
  * and a refused request whose version the allocation table no longer holds is read again and sent again while the
- * replica still qualifies. A replica that reports a lower position while the proposal is in flight has started a fresh
- * sync session, and the primary then asks the controller to remove it again, because the position the proposal
- * carried no longer describes it. A write that the replica fails while the proposal is in flight leaves the replica
- * to the write path, which waits for the answer and removes the replica where the controller admitted it. A proposal
- * whose answer never arrives stays pending, so the write path keeps sending the replica every entry, until a removal
- * of the replica raises the partition's `inSyncVersion` and so fences the request that the controller may still apply.
+ * replica still qualifies. Before each request, retries included, the primary needs the replica to have acknowledged
+ * the entry at the request's position in a send that started after the primary read that version, so it sends the
+ * replica that entry again where no feed batch has done so. A replica can leave the assignment, drop its copy, and
+ * return between two reads of the table, and only such an acknowledgement shows that the copy still holds that
+ * position. Where the log no longer retains the entry, the primary asks the replica which partitions it holds, and it
+ * sends the request only where the answer lists the partition under the index's identity and the replica has opened
+ * no new sync session since, because a node that drops its copy takes the partition off that list and can build a
+ * new copy only through a sync with the primary. A replica that reports a lower position while the proposal is in
+ * flight has started a fresh sync session, and the primary then asks the controller to remove it again, because the
+ * position the proposal carried no longer describes it. A write that the replica fails while the proposal is in
+ * flight leaves the replica to the write path, which waits for the answer and removes the replica where the
+ * controller admitted it. A proposal whose answer never arrives stays pending, so the write path keeps sending the
+ * replica every entry, until a removal of the replica raises the partition's `inSyncVersion` and so fences the
+ * request that the controller may still apply.
  *
  * @param state - The catch-up state that holds the cursors and the pending admissions.
  * @param deps - The write routing dependencies, which give the proposal the coordinator and the transport.

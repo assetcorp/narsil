@@ -159,6 +159,9 @@ async function applyEntriesInLogOrder(
       }
       continue
     }
+    if (entry.seqNo <= tailSeqNo && log.termAt(entry.seqNo) === entry.primaryTerm) {
+      continue
+    }
 
     const heldTermBefore = run.at(-1)?.primaryTerm ?? (tailSeqNo === 0 ? 0 : log.termAt(tailSeqNo))
     if (

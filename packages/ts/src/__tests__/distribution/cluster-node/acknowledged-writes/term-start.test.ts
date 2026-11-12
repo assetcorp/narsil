@@ -17,6 +17,7 @@ import {
   type MessageRule,
   ofType,
   onceFor,
+  onLinksTo,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -209,7 +210,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const { running, settled, ledger } = await startLedger()
     const oldPrimary = settled.primary ?? ''
     const transport = running.transport(oldPrimary)
-    transport.loseReplyWhen(entryForDocument('stranded'))
+    transport.loseReplyWhen(onLinksTo(settled.inSyncSet, entryForDocument('stranded')))
     const removal = transport.holdWhen(ofType('replication.insync_remove'))
     const stranded = outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
     await waitUntil('the stranded write to wait on its removal request', () => removal.count() > 0)
@@ -664,7 +665,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const { running, settled, ledger } = await startLedger()
     const oldPrimary = settled.primary ?? ''
     const transport = running.transport(oldPrimary)
-    const lateEntries = transport.holdWhen(entryForDocument('late'))
+    const lateEntries = transport.holdWhen(onLinksTo(settled.inSyncSet, entryForDocument('late')))
     const late = outcomeOf(running.node(oldPrimary).insert(INDEX, fields('late', 2), 'late'))
     await waitUntil('the late write to wait on both replicas', () => lateEntries.count() >= settled.inSyncSet.length)
     const oldPrimaryWatch = await watchInSync(running, oldPrimary)

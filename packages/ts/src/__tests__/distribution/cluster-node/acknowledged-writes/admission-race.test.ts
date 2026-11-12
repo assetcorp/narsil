@@ -3,6 +3,7 @@ import {
   createTestCluster,
   entryForDocument,
   INDEX,
+  onLinksTo,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -40,7 +41,7 @@ describe('a replica that the controller admits while a write waits in the partit
       expected.set(`settled-${i}`, { title: `settled ${i}`, amount: i })
     }
 
-    const held = cluster.transport(primary).holdWhen(entryForDocument('queued-first'))
+    const held = cluster.transport(primary).holdWhen(onLinksTo([firstReplica], entryForDocument('queued-first')))
     const first = outcomeOf(cluster.node(primary).insert(INDEX, { title: 'queued first', amount: 10 }, 'queued-first'))
     await waitUntil('the first queued write to reach the replica link', async () => (held.count() > 0 ? true : null))
     const second = outcomeOf(
