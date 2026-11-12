@@ -208,12 +208,13 @@ impl Narsil {
     /// returns no completion. Fails with `INDEX_NOT_FOUND` where the engine holds no index called `index`.
     pub fn suggest(&self, index: &str, params: &SuggestParams) -> Result<SuggestResult> {
         let started = Instant::now();
-        let index = self.inner.open_index(index)?;
-        let terms = suggested_terms(&index, params)?;
-        Ok(SuggestResult {
-            terms,
-            elapsed: started.elapsed(),
-            analysis_stale: index.analysis_stale(),
+        self.inner.read_index(index, |current| {
+            let terms = suggested_terms(current, params)?;
+            Ok(SuggestResult {
+                terms,
+                elapsed: started.elapsed(),
+                analysis_stale: current.analysis_stale(),
+            })
         })
     }
 }

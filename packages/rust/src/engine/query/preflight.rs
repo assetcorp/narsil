@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use super::constants::{MAX_PREFIX_LENGTH, MAX_TOLERANCE, PREFLIGHT_VECTOR_DEPTH};
+use super::embedded::resolve_vector_text;
 use super::gather::{QueryRun, RunShape, search_text};
 use super::hybrid::hybrid_hits;
 use super::params::{QueryParams, TermMatch};
@@ -8,9 +9,7 @@ use super::phrases::require_usable_phrases;
 use super::require_integer_up_to;
 use super::scope::QueryScope;
 use super::validate::{require_sortable_fields, require_usable_query_fields};
-use super::vector::{
-    SearchPlan, plan_search, require_vector_searchable, resolve_vector_text, vector_hits,
-};
+use super::vector::{SearchPlan, plan_search, require_vector_searchable, vector_hits};
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
 use crate::error::Result;
@@ -76,25 +75,25 @@ fn text_count(run: &QueryRun<'_>, counting: &QueryParams) -> Result<u64> {
 fn preflight_count(
     index: &IndexState,
     params: &QueryParams,
+    resolved: &QueryParams,
     limits: &SearchLimits,
+    started: Instant,
 ) -> Result<PreflightResult> {
-    let started = Instant::now();
-    let resolved = resolve_vector_text(index, params)?;
-    let counting = counting_params(&resolved);
+    let counting = counting_params(resolved);
     let plan = plan_search(&counting)?;
     require_integer_up_to("tolerance", resolved.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", resolved.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, resolved.sort.as_deref())?;
     let scope = QueryScope::new(index, resolved.filters.as_ref(), limits)?;
-    require_usable_query_fields(index, &resolved)?;
-    require_vector_searchable(index, &resolved, plan)?;
+    require_usable_query_fields(index, resolved)?;
+    require_vector_searchable(index, resolved, plan)?;
     let shape = RunShape {
         requested: params,
         limit: PREFLIGHT_VECTOR_DEPTH,
         offset: 0,
         signature: None,
     };
-    let run = QueryRun::new(index, &resolved, &scope, shape)?;
+    let run = QueryRun::new(index, resolved, &scope, shape)?;
     if plan != SearchPlan::Vector {
         require_usable_phrases(
             &run.snapshots.layout.analyser,
@@ -131,10 +130,20 @@ impl Narsil {
     /// ignores every option that shapes the output alone, such as `limit`, `sort`, and `highlight`, and fails with
     /// the codes that [`Narsil::query`] raises for a query that it cannot run.
     pub fn preflight(&self, index: &str, params: &QueryParams) -> Result<PreflightResult> {
-        preflight_count(
-            &*self.inner.open_index(index)?,
-            params,
-            &self.inner.search_limits,
+        let started = Instant::now();
+        self.inner.read_index_prepared(
+            index,
+            None,
+            |current, earlier| resolve_vector_text(current, params, earlier),
+            |current, embedded| {
+                preflight_count(
+                    current,
+                    params,
+                    &embedded.params,
+                    &self.inner.search_limits,
+                    started,
+                )
+            },
         )
     }
 }

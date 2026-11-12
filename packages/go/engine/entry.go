@@ -38,8 +38,9 @@ type indexEntry struct {
 	phraseReady    func() error
 	retireIndexes  func(indexes ...*index.Index)
 
-	embedMu  sync.RWMutex
-	embedder model.EmbeddingAdapter
+	embedMu      sync.RWMutex
+	embedder     model.EmbeddingAdapter
+	embedBinding uint64
 
 	writeMu          sync.Mutex
 	watermarkLatched int
@@ -75,10 +76,17 @@ func (entry *indexEntry) boundEmbedder() model.EmbeddingAdapter {
 	return entry.embedder
 }
 
+func (entry *indexEntry) boundEmbedderWithBinding() (model.EmbeddingAdapter, uint64) {
+	entry.embedMu.RLock()
+	defer entry.embedMu.RUnlock()
+	return entry.embedder, entry.embedBinding
+}
+
 func (entry *indexEntry) bindEmbedder(adapter model.EmbeddingAdapter) {
 	entry.embedMu.Lock()
 	defer entry.embedMu.Unlock()
 	entry.embedder = adapter
+	entry.embedBinding++
 }
 
 func (entry *indexEntry) retire() {

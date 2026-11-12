@@ -2,6 +2,7 @@ mod earlier;
 mod install;
 mod prepare;
 mod sink;
+mod swap;
 mod validate;
 
 use std::io::{self, Read};
@@ -44,7 +45,7 @@ fn restore_archive(
         read_snapshot_archive(data, &mut sink)?;
         sink.finish()?
     };
-    validate_staged_checkpoint(staging.store(), &manifest)?;
+    validate_staged_checkpoint(&staging.source(), &manifest)?;
     install(engine, prepared, &manifest, staging)?;
     Ok(history)
 }

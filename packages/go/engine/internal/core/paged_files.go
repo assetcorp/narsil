@@ -19,18 +19,18 @@ const PageSlotBytes = C.NARSIL_PAGE_SLOT_BYTES
 
 var ErrPagedFileClosed = errors.New("the paged file was closed before the operation started")
 
-var ErrPagedFileInUse = errors.New("the paged file is in use, so it cannot be released")
-
 var ErrPagedFileChanged = errors.New("the paged file reopened with another length")
 
 type PagedFile struct {
-	mu       sync.Mutex
-	file     *C.narsil_paged_file
-	identity uint64
-	length   uint64
-	users    int
-	closing  bool
-	cleanup  runtime.Cleanup
+	mu         sync.Mutex
+	idle       *sync.Cond
+	file       *C.narsil_paged_file
+	identity   uint64
+	length     uint64
+	users      int
+	closing    bool
+	suspending bool
+	cleanup    runtime.Cleanup
 }
 
 func closeNativePagedFile(file *C.narsil_paged_file) {
@@ -60,6 +60,7 @@ func OpenPagedFile(path string) (*PagedFile, error) {
 		identity: uint64(C.narsil_paged_file_identity(opened)),
 		length:   uint64(C.narsil_paged_file_length(opened)),
 	}
+	file.idle = sync.NewCond(&file.mu)
 	file.cleanup = runtime.AddCleanup(file, closeNativePagedFile, opened)
 	return file, nil
 }
@@ -67,11 +68,16 @@ func OpenPagedFile(path string) (*PagedFile, error) {
 func (p *PagedFile) Suspend() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closing || p.file == nil {
+	if p.closing || p.file == nil || p.suspending {
 		return ErrPagedFileClosed
 	}
-	if p.users > 0 {
-		return ErrPagedFileInUse
+	p.suspending = true
+	for p.users > 0 {
+		p.idle.Wait()
+	}
+	p.suspending = false
+	if p.file == nil {
+		return ErrPagedFileClosed
 	}
 	p.closeNow()
 	return nil
@@ -111,7 +117,7 @@ func (p *PagedFile) Length() uint64 {
 func (p *PagedFile) acquire() (*C.narsil_paged_file, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closing || p.file == nil {
+	if p.closing || p.file == nil || p.suspending {
 		return nil, ErrPagedFileClosed
 	}
 	p.users++
@@ -122,9 +128,13 @@ func (p *PagedFile) done() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.users--
-	if p.users == 0 && p.closing {
+	if p.users > 0 {
+		return
+	}
+	if p.closing {
 		p.closeNow()
 	}
+	p.idle.Broadcast()
 }
 
 func (p *PagedFile) Close() {

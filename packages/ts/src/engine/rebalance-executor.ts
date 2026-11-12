@@ -20,10 +20,11 @@ import type { IndexConfig } from '../types/schema'
 import type { DurableAnalysis, EventHandler } from './core'
 import type { WorkerOrchestrator } from './orchestration'
 import { bufferPreparedMutation } from './queued-mutation'
-import { replayQueued } from './rebalance-replay'
+import { replayQueued, withinRebalanceHook } from './rebalance-replay'
 
 export interface RebalanceContext {
   prepareQueuedMutation?: typeof bufferPreparedMutation
+  indexesInRebalanceHooks?: Set<string>
   router: PartitionRouter
   waqMap: Map<string, WriteAheadQueue>
   rebalancingIndexes: Set<string>
@@ -115,15 +116,20 @@ export async function executeRebalance(
       spill,
     )
 
-    try {
-      await ctx.pluginRegistry.runHook('onPartitionSplit', {
-        indexName,
-        oldPartitionCount: oldCount,
-        newPartitionCount: targetPartitionCount,
-      })
-    } catch (hookErr) {
-      console.warn('onPartitionSplit plugin hook failed:', hookErr instanceof Error ? hookErr.message : String(hookErr))
-    }
+    await withinRebalanceHook(ctx, indexName, async () => {
+      try {
+        await ctx.pluginRegistry.runHook('onPartitionSplit', {
+          indexName,
+          oldPartitionCount: oldCount,
+          newPartitionCount: targetPartitionCount,
+        })
+      } catch (hookErr) {
+        console.warn(
+          'onPartitionSplit plugin hook failed:',
+          hookErr instanceof Error ? hookErr.message : String(hookErr),
+        )
+      }
+    })
 
     if (registry === undefined) await replayQueued(manager, waq, ctx)
     else {

@@ -10,6 +10,7 @@ import {
 import { countWrite } from '#platform/turn-budget'
 import { clearEngineIndex } from '../engine/clear-index'
 import type { EngineCore, EventHandler } from '../engine/core'
+import { holdIndex, type IndexHold } from '../engine/index-hold'
 import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import { loadOptionalWrites } from '../engine/optional-writes-code'
@@ -60,27 +61,27 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     rebalanceCtx,
   } = core
 
-  async function withOpenIndex<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+  async function withOpenIndex<T>(indexName: string, action: (hold: IndexHold) => Promise<T>): Promise<T> {
     guardShutdown()
     requireIndex(indexName)
-    const release = await core.indexState.acquire(indexName)
+    const hold = await holdIndex(core.indexState, indexName)
     try {
-      return await action()
+      return await action(hold)
     } finally {
-      release()
+      hold.release()
     }
   }
 
   const rebalancesStarting = new Map<string, Promise<void>>()
 
-  function withOpenIndexWrite<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+  function withOpenIndexWrite<T>(indexName: string, action: (hold: IndexHold) => Promise<T>): Promise<T> {
     const starting = rebalancesStarting.get(indexName)
     const written =
       starting === undefined ? withOpenIndex(indexName, action) : starting.then(() => withOpenIndex(indexName, action))
     return emitWriteEventAfter(core, indexName, written)
   }
 
-  function withCountedWrite<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+  function withCountedWrite<T>(indexName: string, action: (hold: IndexHold) => Promise<T>): Promise<T> {
     return countWrite(() => withOpenIndexWrite(indexName, action))
   }
 
@@ -158,26 +159,26 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return stats
     },
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
-      return withCountedWrite(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
+      return withCountedWrite(indexName, hold => insertDocument(mutationCtx, indexName, document, docId, options, hold))
     },
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
-      return withCountedWrite(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
+      return withCountedWrite(indexName, hold => insertDocumentBatch(mutationCtx, indexName, documents, options, hold))
     },
     remove(indexName: string, docId: string, options?: WriteOptions): Promise<void> {
-      return withCountedWrite(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
+      return withCountedWrite(indexName, hold => removeDocument(mutationCtx, indexName, docId, options, hold))
     },
     removeBatch(indexName: string, docIds: string[], options?: WriteOptions): Promise<BatchResult> {
-      return withCountedWrite(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
+      return withCountedWrite(indexName, hold => removeDocumentBatch(mutationCtx, indexName, docIds, options, hold))
     },
     update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void> {
-      return withCountedWrite(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
+      return withCountedWrite(indexName, hold => updateDocument(mutationCtx, indexName, docId, document, options, hold))
     },
     updateBatch(
       indexName: string,
       updates: Array<{ docId: string; document: AnyDocument }>,
       options?: WriteOptions,
     ): Promise<BatchResult> {
-      return withCountedWrite(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
+      return withCountedWrite(indexName, hold => updateDocumentBatch(mutationCtx, indexName, updates, options, hold))
     },
     waitForWrites(indexName: string): Promise<void> {
       guardShutdown()
