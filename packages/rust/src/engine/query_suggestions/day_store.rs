@@ -17,6 +17,7 @@ use super::types::{QuerySuggestionsWarningReason, RecordQueryOutcome};
 use crate::durability::checkpoint_store::CheckpointStore;
 use crate::durability::platform::now_ms;
 use crate::engine::EngineInner;
+use crate::engine::event_hold::hold_events;
 use crate::error::Result;
 
 pub(crate) fn day_of(instant_ms: i64) -> String {
@@ -93,6 +94,7 @@ impl DayStore {
                 .entry(index_name.to_string())
                 .or_default(),
         );
+        let _events = hold_events();
         let mut days = locked(&held);
         let Some(state) =
             suggestion_state_of(context.engine, index_name).filter(|state| state.enabled())
@@ -131,6 +133,7 @@ impl DayStore {
 
     pub(crate) fn save(&self, context: &DayContext<'_>, index_name: &str) {
         if let Some(held) = self.held(index_name) {
+            let _events = hold_events();
             save_now(context, index_name, &mut locked(&held));
         }
     }
@@ -139,6 +142,7 @@ impl DayStore {
         let Some(held) = self.held(index_name) else {
             return;
         };
+        let _events = hold_events();
         let mut days = locked(&held);
         save_now(context, index_name, &mut days);
         if let Some(counts) = days

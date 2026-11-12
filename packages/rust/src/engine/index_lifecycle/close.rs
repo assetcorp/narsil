@@ -48,6 +48,11 @@ fn close_held(
     }
     residency.wait_for_writes();
     let writer = index.write_lock();
+    if let Err(error) = engine.guard_shutdown() {
+        drop(writer);
+        residency.abandon_close();
+        return Err(error);
+    }
     let mut closed = closed_facts(index);
     if let Err(error) = durable.checkpoint_for_close(index) {
         drop(writer);
@@ -94,7 +99,7 @@ pub(crate) fn close_index(engine: &EngineInner, name: &str, automatic: bool) -> 
                 Some(turn) => turn,
                 None => return Ok(false),
             },
-            false => engine.names.take(name),
+            false => engine.names.take(name)?,
         };
         let current = engine.open_index_named(name);
         if !current.is_some_and(|current| Arc::ptr_eq(&current, &index)) {

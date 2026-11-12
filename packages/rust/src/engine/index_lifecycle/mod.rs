@@ -271,7 +271,7 @@ impl EngineInner {
     pub(crate) fn open_index_in_turn(&self, name: &str) -> Result<(NameTurn<'_>, Arc<IndexState>)> {
         loop {
             let index = self.open_index(name)?;
-            let turn = self.names.take(name);
+            let turn = self.names.take(name)?;
             if self
                 .open_index_named(name)
                 .is_some_and(|current| Arc::ptr_eq(&current, &index))
