@@ -35,6 +35,7 @@ interface EmbeddingSettings {
 interface EmbeddingPass {
   embedding: WriteEmbedding | null
   called: boolean
+  documentFailures: Map<WritePreparation, unknown>
 }
 
 function settingsOf(entry: WriteEntry): EmbeddingSettings {
@@ -134,26 +135,34 @@ async function embedWith(
   if (earlier !== null) clearWriteEmbedding(earlier)
   const { embedding: embeddingConfig, adapter } = settings
   const embeddable = writable(preparations)
+  const documentFailures = new Map<WritePreparation, unknown>()
   if (embeddingConfig === undefined || adapter === null || embeddable.length === 0) {
-    return { embedding: null, called: false }
+    return { embedding: null, called: false, documentFailures }
   }
   const fields: WriteEmbedding['fields'] = new Map()
   const embedding: WriteEmbedding = { adapter, mapping: embeddingConfig.fields, fields }
   const documents = embeddable.map(preparation => preparation.document as Record<string, unknown>)
-  if (!lacksMappedVectors(documents, embeddingConfig)) return { embedding, called: false }
+  if (!lacksMappedVectors(documents, embeddingConfig)) return { embedding, called: false, documentFailures }
   for (let chunkStart = 0; chunkStart < embeddable.length; chunkStart += BATCH_CHUNK_SIZE) {
     const chunk = embeddable.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
-    const { embedding: embedded, failed } = await embedDocumentsForWrite(
+    const embedded = await embedDocumentsForWrite(
       chunk.map(preparation => preparation.document as Record<string, unknown>),
       embeddingConfig,
       adapter,
       signal,
       together,
     )
-    for (const [document, embeddedFields] of embedded.fields) fields.set(document, embeddedFields)
-    for (const [position, error] of failed) chunk[position].failure = error
+    for (const [document, embeddedFields] of embedded.embedding.fields) fields.set(document, embeddedFields)
+    for (const [position, error] of embedded.failed) chunk[position].failure = error
+    for (const [position, error] of embedded.documentFailures) documentFailures.set(chunk[position], error)
   }
-  return { embedding, called: true }
+  return { embedding, called: true, documentFailures }
+}
+
+function settleDocumentFailures(entry: WriteEntry, pass: EmbeddingPass): WritePreparation[] {
+  if (!embeddingFits(entry, pass.embedding)) return [...pass.documentFailures.keys()]
+  for (const [preparation, failure] of pass.documentFailures) preparation.failure = failure
+  return []
 }
 
 async function runBeforeWrites(preparations: WritePreparation[]): Promise<void> {
@@ -174,7 +183,7 @@ async function embedThenRunHooks(
   earlier: WriteEmbedding | null,
 ): Promise<EmbeddingPass> {
   const pass = await embedWith(settings, signal, preparations, earlier, true)
-  await runBeforeWrites(preparations)
+  await runBeforeWrites(preparations.filter(preparation => !pass.documentFailures.has(preparation)))
   return pass
 }
 
@@ -188,17 +197,19 @@ async function runHooksThenEmbedEach(
   let embedding: WriteEmbedding | null = null
   let called = false
   let uncleared = earlier
+  const documentFailures = new Map<WritePreparation, unknown>()
   for (const preparation of preparations) {
     await runBeforeWrites([preparation])
     settings ??= settingsOf(ctx.requireIndex(indexName))
     const pass = await embedWith(settings, ctx.abortController.signal, [preparation], uncleared, false)
     uncleared = null
     called ||= pass.called
+    for (const [failed, failure] of pass.documentFailures) documentFailures.set(failed, failure)
     if (pass.embedding === null) continue
     if (embedding === null) embedding = pass.embedding
     else for (const [document, fields] of pass.embedding.fields) embedding.fields.set(document, fields)
   }
-  return { embedding, called }
+  return { embedding, called, documentFailures }
 }
 
 function adapterChangesRefusal(indexName: string, embeddings: number): NarsilError {
@@ -222,6 +233,7 @@ export async function prepareDocumentWrites(
   if (writable(preparations).length === 0) return { entry, embedding }
   const signal = ctx.abortController.signal
   let embeddings = 0
+  let unhooked: WritePreparation[] = []
   const hooked = preparations.some(preparation => preparation.beforeWrite !== null)
   if (hooked || (embedsThroughAdapter(entry) && !embeddingFits(entry, embedding))) {
     if (together && !embedsThroughAdapter(entry)) {
@@ -238,6 +250,7 @@ export async function prepareDocumentWrites(
     embedding = pass.embedding
     if (pass.called) embeddings += 1
     entry = ctx.requireIndex(indexName)
+    unhooked = settleDocumentFailures(entry, pass)
   }
   while (writable(preparations).length > 0 && !embeddingFits(entry, embedding)) {
     if (embeddings >= MAX_CALLS_ACROSS_INDEX_CHANGES) {
@@ -246,10 +259,16 @@ export async function prepareDocumentWrites(
     }
     const uncleared = embedding
     const settings = settingsOf(entry)
-    const pass = await runOutside(hold, () => embedWith(settings, signal, preparations, uncleared, together))
+    const hooking = unhooked
+    unhooked = []
+    const pass = await runOutside(hold, async () => {
+      await runBeforeWrites(hooking)
+      return embedWith(settings, signal, preparations, uncleared, together)
+    })
     embedding = pass.embedding
     if (pass.called) embeddings += 1
     entry = ctx.requireIndex(indexName)
+    settleDocumentFailures(entry, pass)
   }
   requireFieldsOf(entry.config.required, preparations)
   await requireMappedVectors(entry, preparations)
