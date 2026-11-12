@@ -19,6 +19,7 @@ pub(crate) mod platform;
 pub(crate) mod recovery;
 pub(crate) mod restore;
 pub(crate) mod restore_journal;
+pub(crate) mod restore_swap;
 pub(crate) mod snapshot_only;
 pub(crate) mod staged_file;
 pub(crate) mod store;

@@ -91,7 +91,7 @@ impl PagedSections {
     fn starts_of(&self, block: usize, first: u32, bytes: &[u8]) -> Result<Vec<u32>> {
         let key = &self.key;
         let count = self.block_end(block).saturating_sub(first) as usize;
-        let mut starts = Vec::with_capacity(count + 1);
+        let mut starts = Vec::with_capacity(count.min(bytes.len()) + 1);
         let mut cursor = 0usize;
         for at in 0..count {
             starts.push(cursor as u32);

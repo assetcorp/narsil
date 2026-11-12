@@ -174,6 +174,37 @@ impl LayoutChanges {
         Ok(Some(ChangeTicket { changes: self }))
     }
 
+    /// Holds the slot for a restore that replaces the index, once the rebuild or the rebalance that runs has
+    /// stopped at the next point where it checks, so that neither reads the index's files while the restore moves
+    /// them. Returns `None` at once where a close holds the slot, because the close waits for the name that the
+    /// restore holds, or where the change that runs belongs to the calling thread.
+    pub(crate) fn hold_for_restore(&self) -> Option<ChangeTicket<'_>> {
+        let mut slot = self.slot();
+        let caller = std::thread::current().id();
+        loop {
+            match slot.running.as_mut() {
+                None => break,
+                Some(running) if running.kind == ChangeKind::Close || running.owner == caller => {
+                    return None;
+                }
+                Some(running) => running.stopped = true,
+            }
+            slot = self
+                .released
+                .wait(slot)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        slot.running = Some(RunningChange {
+            kind: ChangeKind::Close,
+            owner: caller,
+            tracking: false,
+            written: HashSet::new(),
+            queued: 0,
+            stopped: false,
+        });
+        Some(ChangeTicket { changes: self })
+    }
+
     /// Reports whether a change of `kind` runs on the index.
     pub(crate) fn runs(&self, kind: ChangeKind) -> bool {
         self.slot()

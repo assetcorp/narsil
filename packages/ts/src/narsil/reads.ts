@@ -1,16 +1,18 @@
 import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { holdsStringArrayField } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
+import { holdIndex } from '../engine/index-hold'
 import { importOptionalReads } from '../engine/optional-reads-code'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { executePreflight, executeQuery, loadQueryCode } from '../engine/query'
 import { loadRerankRuntime } from '../engine/query/fixed-depth-code'
 import { answerFromOneState } from '../engine/query/state'
-import type { IndexRegistryEntry } from '../engine/registry-entry'
+import type { EmbeddedQuery } from '../engine/resolve-vector-text'
 import { loadResolveVectorText } from '../engine/resolve-vector-text-code'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
+import type { HeldIndexRerankRunner } from '../rerank/runner'
 import { lazyQueryBinding } from '../search/cursor-binding'
 import { loadMessagePackForStoredValues } from '../search/object-values'
 import { loadPhraseCodeFor, requireLoadedPhraseCode } from '../search/phrase-code'
@@ -34,14 +36,18 @@ async function enterRead(core: EngineCore, indexName: string): Promise<void> {
   if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
 }
 
-async function resolveVectorText(
+type RerankRuntime = Awaited<ReturnType<typeof loadRerankRuntime>>
+
+async function embeddedFor(
+  core: EngineCore,
+  indexName: string,
   params: QueryParams,
-  entry: IndexRegistryEntry,
   signal: AbortSignal,
-): Promise<QueryParams> {
-  if (params.vector?.text === undefined) return params
-  const { resolveVectorText: embedQueryText } = await loadResolveVectorText()
-  return embedQueryText(params, entry.embeddingAdapter, signal, entry.embeddingAdapterName)
+  earlier: EmbeddedQuery | null,
+): Promise<EmbeddedQuery | null> {
+  if (params.vector?.text === undefined) return null
+  const { embedQueryWithAdapterOf } = await loadResolveVectorText()
+  return embedQueryWithAdapterOf(indexName, params, core.requireIndex(indexName), signal, earlier)
 }
 
 function phraseReadinessOf(core: EngineCore, indexName: string, config: IndexConfig): () => void {
@@ -70,40 +76,30 @@ function broadcastStatsFor(core: EngineCore, options: ScopedReadOptions | undefi
   return (name: string, tokens: ReadonlySet<string>) => invalidation.broadcastStats(name, tokens)
 }
 
-export async function runEngineQuery<T = AnyDocument>(
+const EMBEDDING_ADAPTER_CHANGED = 0
+const INDEX_REPLACED_DURING_RERANK = 1
+
+type QueryRerun = typeof EMBEDDING_ADAPTER_CHANGED | typeof INDEX_REPLACED_DURING_RERANK
+
+async function queryUnderHold<T>(
   core: EngineCore,
   indexName: string,
   params: QueryParams,
-  options?: ScopedReadOptions,
-): Promise<QueryResult<T>> {
-  const signal =
-    options?.signal === undefined
-      ? core.abortController.signal
-      : AbortSignal.any([core.abortController.signal, options.signal])
-  options?.signal?.throwIfAborted()
-  await enterRead(core, indexName)
-  const release = await core.indexState.acquire(indexName)
+  resolvedParams: QueryParams,
+  embedded: EmbeddedQuery | null,
+  rerank: RerankRuntime | undefined,
+  options: ScopedReadOptions | undefined,
+): Promise<QueryResult<T> | QueryRerun> {
+  const hold = await holdIndex(core.indexState, indexName)
+  let runner: HeldIndexRerankRunner | undefined
   try {
     const entry = core.requireIndex(indexName)
+    if (embedded !== null && entry.embeddingAdapter !== embedded.adapter) return EMBEDDING_ADAPTER_CHANGED
     const manager = core.requireManager(indexName)
-
-    const scoped = scopedParams(params, options)
-    if (core.pluginRegistry.hasHooks('beforeSearch')) {
-      await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
-    }
-
-    const rerank = scoped.rerank === undefined ? undefined : await loadRerankRuntime()
-    const preparedParams = rerank === undefined ? scoped : rerank.withRerankQueryText(scoped)
-    const resolvedParams =
-      preparedParams.vector?.text === undefined
-        ? preparedParams
-        : await resolveVectorText(preparedParams, entry, signal)
-    const loading = loadQueryCode(resolvedParams)
-    if (loading !== null) await loading
-
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
+    runner = rerank?.rerankRunnerFor(core, options?.signal, hold, indexName, manager)
 
     let analysisStale = false
     const result = await answerFromOneState(
@@ -125,16 +121,60 @@ export async function runEngineQuery<T = AnyDocument>(
           indexBm25: options?.indexBm25,
           cursorBinding: lazyQueryBinding(params),
           patternWorkCap: core.patternWorkCap,
-          rerank: rerank?.rerankRunnerFor(core, options?.signal),
+          rerank: runner,
           requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
         })
       },
       options?.signal,
     )
+    if (runner?.replaced) return INDEX_REPLACED_DURING_RERANK
     if (analysisStale) {
       result.analysisStale = true
     }
     options?.onRanked?.(manager, result)
+    return result
+  } catch (error) {
+    if (runner?.replaced) return INDEX_REPLACED_DURING_RERANK
+    throw error
+  } finally {
+    hold.release()
+  }
+}
+
+export async function runEngineQuery<T = AnyDocument>(
+  core: EngineCore,
+  indexName: string,
+  params: QueryParams,
+  options?: ScopedReadOptions,
+): Promise<QueryResult<T>> {
+  const signal =
+    options?.signal === undefined
+      ? core.abortController.signal
+      : AbortSignal.any([core.abortController.signal, options.signal])
+  options?.signal?.throwIfAborted()
+  await enterRead(core, indexName)
+  core.requireIndex(indexName)
+
+  const scoped = scopedParams(params, options)
+  if (core.pluginRegistry.hasHooks('beforeSearch')) {
+    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+  }
+
+  const rerank = scoped.rerank === undefined ? undefined : await loadRerankRuntime()
+  const preparedParams = rerank === undefined ? scoped : rerank.withRerankQueryText(scoped)
+  let embedded: EmbeddedQuery | null = null
+  let replacedReranks = 0
+  while (true) {
+    embedded = await embeddedFor(core, indexName, preparedParams, signal, embedded)
+    const resolvedParams = embedded?.params ?? preparedParams
+    const loading = loadQueryCode(resolvedParams)
+    if (loading !== null) await loading
+    const result = await queryUnderHold<T>(core, indexName, params, resolvedParams, embedded, rerank, options)
+    if (result === EMBEDDING_ADAPTER_CHANGED) continue
+    if (result === INDEX_REPLACED_DURING_RERANK) {
+      rerank?.refuseAfterIndexChanges(indexName, ++replacedReranks)
+      continue
+    }
 
     if (core.pluginRegistry.hasHooks('afterSearch')) {
       const observed = { ...result, hits: [...result.hits] } as unknown as QueryResult
@@ -144,41 +184,26 @@ export async function runEngineQuery<T = AnyDocument>(
         console.warn('afterSearch plugin hook error:', err)
       }
     }
-
     return result
-  } finally {
-    release()
   }
 }
 
-export async function runEnginePreflight(
+async function preflightUnderHold(
   core: EngineCore,
   indexName: string,
   params: QueryParams,
-  options?: ScopedReadOptions,
-): Promise<PreflightResult> {
-  const signal =
-    options?.signal === undefined
-      ? core.abortController.signal
-      : AbortSignal.any([core.abortController.signal, options.signal])
-  options?.signal?.throwIfAborted()
-  await enterRead(core, indexName)
+  resolvedParams: QueryParams,
+  embedded: EmbeddedQuery | null,
+  options: ScopedReadOptions | undefined,
+): Promise<PreflightResult | null> {
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
+    if (embedded !== null && entry.embeddingAdapter !== embedded.adapter) return null
     const manager = core.requireManager(indexName)
-    const scoped = scopedParams(params, options)
-    if (core.pluginRegistry.hasHooks('beforeSearch')) {
-      await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
-    }
-
-    const resolvedParams = scoped.vector?.text === undefined ? scoped : await resolveVectorText(scoped, entry, signal)
-
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
-    const loading = loadQueryCode(resolvedParams)
-    if (loading !== null) await loading
     let analysisStale = false
     const result = await answerFromOneState(
       manager,
@@ -209,6 +234,35 @@ export async function runEnginePreflight(
     return result
   } finally {
     release()
+  }
+}
+
+export async function runEnginePreflight(
+  core: EngineCore,
+  indexName: string,
+  params: QueryParams,
+  options?: ScopedReadOptions,
+): Promise<PreflightResult> {
+  const signal =
+    options?.signal === undefined
+      ? core.abortController.signal
+      : AbortSignal.any([core.abortController.signal, options.signal])
+  options?.signal?.throwIfAborted()
+  await enterRead(core, indexName)
+  core.requireIndex(indexName)
+  const scoped = scopedParams(params, options)
+  if (core.pluginRegistry.hasHooks('beforeSearch')) {
+    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+  }
+
+  let embedded: EmbeddedQuery | null = null
+  while (true) {
+    embedded = await embeddedFor(core, indexName, scoped, signal, embedded)
+    const resolvedParams = embedded?.params ?? scoped
+    const loading = loadQueryCode(resolvedParams)
+    if (loading !== null) await loading
+    const result = await preflightUnderHold(core, indexName, params, resolvedParams, embedded, options)
+    if (result !== null) return result
   }
 }
 

@@ -13,9 +13,10 @@ use super::constants::SINGLE_NODE_PRIMARY_TERM;
 use super::index_state::IndexState;
 use super::log_segment::LogStart;
 use super::restore_journal::{
-    RESTORE_STAGING_PREFIX, RestoreStorage, finish_journal, journal_key, require_index_name,
+    RESTORE_STAGING_PREFIX, RestoreStorage, finish_swap, journal_key, require_index_name,
     unique_name,
 };
+use super::restore_swap::SwapFailure;
 use super::snapshot_only::SnapshotStore;
 use super::store::DurabilityStore;
 
@@ -63,6 +64,12 @@ impl<'d> RestoreStaging<'d> {
         &self.index_name
     }
 
+    /// Returns the path of the file that the restore staged for `key`, where the storage keeps a directory of
+    /// files, until the commit moves the staging directory into the index's place.
+    pub(crate) fn staged_path(&self, key: &str) -> Result<Option<PathBuf>> {
+        self.storage.file_path(&self.staged(key)?)
+    }
+
     fn committed(&self) -> bool {
         self.committed
     }
@@ -81,9 +88,24 @@ impl<'d> RestoreStaging<'d> {
         Ok(())
     }
 
+    /// Moves the staged files into the index's place. Where a move fails and leaves the index's files whole in
+    /// their place, it removes the journal as well, so that the restore counts as never committed and no restart
+    /// finishes it.
     pub(crate) fn finish(&mut self) -> Result<()> {
-        self.retired = finish_journal(self.storage, &self.index_name, &self.staging)?;
-        Ok(())
+        match finish_swap(self.storage, &self.index_name, &self.staging) {
+            Ok(retired) => {
+                self.retired = retired;
+                Ok(())
+            }
+            Err(SwapFailure::Lost(error)) => Err(error),
+            Err(SwapFailure::Untouched(error)) => {
+                let journal = journal_key(&self.index_name);
+                if self.storage.store().remove(&journal).is_ok() {
+                    self.committed = false;
+                }
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn remove_retired(&mut self) -> Result<()> {
@@ -186,22 +208,23 @@ fn restart_count(state: &IndexState) {
 }
 
 /// Commits a staged restore while the index's checkpoint turn is held: writes the journal that makes the swap
-/// survive a crash, then moves the staged files into the index's place. A failure before the journal leaves the
-/// old index's files whole; a failure after it goes to `lost`, because only a restart can finish the swap.
+/// survive a crash, then moves the staged files into the index's place. A failure that leaves the old index's
+/// files whole in their place returns as it is; any other goes to `lost`, because only a restart can finish the
+/// swap.
 fn commit_staged(
     staging: &mut RestoreStaging<'_>,
     before_swap: impl FnOnce() -> Result<()>,
     lost: &dyn Fn(NarsilError) -> NarsilError,
 ) -> Result<()> {
+    let settle = |staging: &RestoreStaging<'_>, error: NarsilError| match staging.committed() {
+        true => lost(error),
+        false => error,
+    };
     if let Err(error) = staging.commit() {
-        return Err(if staging.committed() {
-            lost(error)
-        } else {
-            error
-        });
+        return Err(settle(staging, error));
     }
     before_swap().map_err(lost)?;
-    staging.finish().map_err(lost)
+    staging.finish().map_err(|error| settle(staging, error))
 }
 
 impl DurabilityStore {
@@ -213,11 +236,13 @@ impl DurabilityStore {
     }
 
     /// Moves a staged restore into the index's place and starts each partition's log after the restored
-    /// checkpoint, closing the old index's logs first.
+    /// checkpoint. Once the journal commits, `release_files` closes every file that the old index and the restored
+    /// one hold open, and the store closes the old index's logs, so that no open file blocks the move.
     pub(crate) fn adopt_restore(
         &self,
         staging: &mut RestoreStaging<'_>,
         checkpoint: &[PartitionCheckpoint],
+        release_files: &mut dyn FnMut(),
     ) -> Result<()> {
         let inner = &self.inner;
         let index_name = staging.index_name().to_string();
@@ -226,8 +251,11 @@ impl DurabilityStore {
             in_turn(&state, || {
                 let lost = |error| inner.mark_fatal(error);
                 state.mark_replaced();
-                let committed =
-                    commit_staged(staging, || inner.close_index_logs(&index_name), &lost);
+                let before_swap = || {
+                    release_files();
+                    inner.close_index_logs(&index_name)
+                };
+                let committed = commit_staged(staging, before_swap, &lost);
                 let _ = inner.directory.measure_log_bytes(&index_name);
                 committed?;
                 for partition in checkpoint {

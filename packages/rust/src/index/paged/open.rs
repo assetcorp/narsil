@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::PagedSections;
 use super::file::PagedFile;
-use super::resident::read_resident;
+use super::resident::{read_resident, resident_bytes};
 use crate::error::{ErrorCode, NarsilError, Result, load_failed};
 use crate::format::envelope::{HEADER_BYTES, read_header};
 use crate::format::keyword_segment::KeywordSegment;
@@ -91,6 +91,14 @@ fn read_head(file: &PagedFile, listing: &PagedListing) -> Result<PagedHead> {
     decode_paged_head(&head, payload_length, &format!("the segment \"{key}\""))
 }
 
+/// Returns the bytes that an index holds in memory once it opens the paged segment, which are the bytes of the
+/// sections that it reads whole, reading only the segment's header and head.
+pub(crate) fn resident_section_bytes(listing: &PagedListing) -> Result<u64> {
+    let file = opened_file(listing)?;
+    let head = read_head(&file, listing)?;
+    Ok(resident_bytes(&head))
+}
+
 pub(super) fn required(head: &PagedHead, name: &str, key: &str) -> Result<PagedSection> {
     head.section(name).cloned().map_or_else(
         || load_failed(format!("The segment \"{key}\" holds no section \"{name}\"")),
@@ -130,6 +138,9 @@ pub(crate) fn open_paged_segment(
         id_order: required(&head, "idOrder", key)?,
         removal_offsets: required(&head, "removalOffsets", key)?,
         removals: required(&head, "removals", key)?,
+        block_lists: required(&head, "blockLists", key)?,
+        block_list_offsets: required(&head, "blockListOffsets", key)?,
+        block_summaries: required(&head, "blockSummaries", key)?,
         seq_nos: optional("seqNos"),
         primary_terms: optional("primaryTerms"),
         document_blocks: resident.document_blocks,

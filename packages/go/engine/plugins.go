@@ -126,12 +126,30 @@ func (runner *pluginRunner) index(ctx context.Context, name hookName, index *mod
 	})
 }
 
-func (runner *pluginRunner) hasBeforeSearchHooks() bool {
-	return runner.has(func(plugin model.Plugin) bool { return plugin.BeforeSearch != nil })
+func pluginDefines(plugin model.Plugin, name hookName) bool {
+	switch name {
+	case hookBeforeInsert:
+		return plugin.BeforeInsert != nil
+	case hookAfterInsert:
+		return plugin.AfterInsert != nil
+	case hookBeforeRemove:
+		return plugin.BeforeRemove != nil
+	case hookAfterRemove:
+		return plugin.AfterRemove != nil
+	case hookBeforeUpdate:
+		return plugin.BeforeUpdate != nil
+	case hookAfterUpdate:
+		return plugin.AfterUpdate != nil
+	case hookBeforeSearch:
+		return plugin.BeforeSearch != nil
+	case hookAfterSearch:
+		return plugin.AfterSearch != nil
+	}
+	return false
 }
 
-func (runner *pluginRunner) hasAfterSearchHooks() bool {
-	return runner.has(func(plugin model.Plugin) bool { return plugin.AfterSearch != nil })
+func (runner *pluginRunner) hasHook(name hookName) bool {
+	return runner.has(func(plugin model.Plugin) bool { return pluginDefines(plugin, name) })
 }
 
 func (runner *pluginRunner) hasUpdateHooks() bool {

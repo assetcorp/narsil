@@ -1,4 +1,5 @@
 mod cache;
+mod check;
 mod documents;
 mod file;
 mod ids;
@@ -11,7 +12,7 @@ mod resident;
 pub(crate) use cache::merge_cache_scope;
 pub(crate) use file::{PagedFile, paged_read};
 pub(crate) use lists::{PostingList, PostingPositions};
-pub(crate) use open::{PagedListing, open_paged_segment};
+pub(crate) use open::{PagedListing, open_paged_segment, resident_section_bytes};
 
 use documents::BlockEntry;
 
@@ -34,6 +35,9 @@ pub(crate) struct PagedSections {
     id_order: PagedSection,
     removal_offsets: PagedSection,
     removals: PagedSection,
+    block_lists: PagedSection,
+    block_list_offsets: PagedSection,
+    block_summaries: PagedSection,
     seq_nos: Option<PagedSection>,
     primary_terms: Option<PagedSection>,
     document_blocks: Vec<BlockEntry>,

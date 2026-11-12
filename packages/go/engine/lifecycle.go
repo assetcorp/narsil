@@ -19,23 +19,31 @@ func (n *Narsil) DropIndex(ctx context.Context, name string) error {
 		return err
 	}
 	defer leave()
+	dropped, err := n.dropUnannounced(ctx, name)
+	if err != nil {
+		return err
+	}
+	return n.plugins.index(ctx, hookOnIndexDrop, &model.IndexContext{IndexName: name, Config: dropped})
+}
+
+func (n *Narsil) dropUnannounced(ctx context.Context, name string) (model.IndexConfig, error) {
 	unlock := n.names.lock(name)
 	defer unlock()
 	slot, entry := n.slotOf(name)
 	if entry == nil {
 		if slot == nil {
-			return indexNotFound(name)
+			return model.IndexConfig{}, indexNotFound(name)
 		}
 		return n.dropClosed(ctx, name, slot)
 	}
 	if err := n.dropSuggestionIndexesOf(ctx, name); err != nil {
-		return err
+		return model.IndexConfig{}, err
 	}
 	entry.useMu.Lock()
 	if entry.durable != nil {
 		if err := entry.durable.Drop(ctx); err != nil {
 			entry.useMu.Unlock()
-			return err
+			return model.IndexConfig{}, err
 		}
 	}
 	entry.retired = true
@@ -45,23 +53,23 @@ func (n *Narsil) DropIndex(ctx context.Context, name string) error {
 	entry.dispose()
 	n.workers.forget(name)
 	n.afterSuggestionsDrop(ctx, name)
-	return n.plugins.index(ctx, hookOnIndexDrop, &model.IndexContext{IndexName: name, Config: entry.currentConfig()})
+	return entry.currentConfig(), nil
 }
 
-func (n *Narsil) dropClosed(ctx context.Context, name string, slot *indexSlot) error {
+func (n *Narsil) dropClosed(ctx context.Context, name string, slot *indexSlot) (model.IndexConfig, error) {
 	summary, _ := slot.closedView()
 	if err := n.dropSuggestionIndexesOf(ctx, name); err != nil {
-		return err
+		return model.IndexConfig{}, err
 	}
 	if n.manager != nil {
 		if err := n.manager.RemoveClosedIndex(ctx, name); err != nil {
-			return err
+			return model.IndexConfig{}, err
 		}
 	}
 	n.forgetSlot(name, slot)
 	n.workers.forget(name)
 	n.afterSuggestionsDrop(ctx, name)
-	return n.plugins.index(ctx, hookOnIndexDrop, &model.IndexContext{IndexName: name, Config: summary.config})
+	return summary.config, nil
 }
 
 func (n *Narsil) sortedSlots() []*indexSlot {
