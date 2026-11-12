@@ -310,4 +310,46 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     )
     expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
+
+  it('withdraws the admission and proposes no other for a replica recorded at the log end once it reports a diverged history at or past that end, until it reports a position the log matches', async () => {
+    const { router, primary, replica, term } = await startCluster()
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await requestSync(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    expect(script.controllerEvents).toContainEqual({ type: ReplicationMessageTypes.INSYNC_ADD, appliedSeqNo: logEnd })
+
+    await requestSync(primary, logEnd, term - 1)
+    await requestSync(primary, logEnd + 3, term)
+    const eventsBefore = script.controllerEvents.length
+    script.heldAdmission = null
+    await releaseAdmission()
+    await waitFor(
+      () =>
+        script.controllerEvents.slice(eventsBefore).some(event => event.type === ReplicationMessageTypes.INSYNC_REMOVE)
+          ? true
+          : null,
+      'the primary to withdraw the admission it proposed before the diverged report',
+    )
+
+    await requestSync(primary, logEnd + 3, term)
+    await new Promise(resolve => setTimeout(resolve, REPLICATION_TIMEOUT_MS + 3 * CATCH_UP_TICK_MS))
+    expect(script.controllerEvents.slice(eventsBefore)).not.toContainEqual(
+      expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_ADD }),
+    )
+    expect(await inSyncSet()).not.toContain(replica)
+
+    await requestSync(primary, logEnd, term)
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? true : null), 'the replica to join the set')
+    expect(script.controllerEvents.slice(eventsBefore)).toContainEqual({
+      type: ReplicationMessageTypes.INSYNC_ADD,
+      appliedSeqNo: logEnd,
+    })
+  }, 90_000)
 })

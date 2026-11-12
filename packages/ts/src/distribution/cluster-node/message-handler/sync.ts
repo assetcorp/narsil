@@ -108,13 +108,7 @@ export async function handleSyncRequestMessage(
       return
     }
     if (fromReplica) {
-      recordSnapshotSyncRequest(
-        deps.writeDeps.catchUp,
-        request.indexName,
-        request.partitionId,
-        message.sourceId,
-        request.lastSeqNo,
-      )
+      recordSnapshotSyncRequest(deps.writeDeps.catchUp, request.indexName, request.partitionId, message.sourceId)
     }
 
     const snapshotSeqNo = log.localLogEnd
