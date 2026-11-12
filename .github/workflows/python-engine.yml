@@ -1,44 +1,6 @@
 name: Python package
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/python-engine/**'
-      - 'packages/rust/**'
-      - 'packages/native/src/**'
-      - 'packages/native/include/**'
-      - 'packages/conformance/**'
-      - 'packages/ts/src/**'
-      - '.github/workflows/python-engine.yml'
-      - '!**/*.md'
-      - '!packages/rust/tests/**'
-      - '!packages/ts/src/__tests__/**'
-      - '!packages/ts/src/client/**'
-      - '!packages/ts/src/react/**'
-      - '!packages/ts/src/http-retry/**'
-      - '!packages/ts/src/rerankers/**'
-      - '!packages/ts/src/embeddings/**'
-      - '!packages/ts/src/invalidation/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'packages/python-engine/**'
-      - 'packages/rust/**'
-      - 'packages/native/src/**'
-      - 'packages/native/include/**'
-      - 'packages/conformance/**'
-      - 'packages/ts/src/**'
-      - '.github/workflows/python-engine.yml'
-      - '!**/*.md'
-      - '!packages/rust/tests/**'
-      - '!packages/ts/src/__tests__/**'
-      - '!packages/ts/src/client/**'
-      - '!packages/ts/src/react/**'
-      - '!packages/ts/src/http-retry/**'
-      - '!packages/ts/src/rerankers/**'
-      - '!packages/ts/src/embeddings/**'
-      - '!packages/ts/src/invalidation/**'
   workflow_call:
     inputs:
       ref:
@@ -60,14 +22,10 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: python-engine-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref }}
-  cancel-in-progress: true
-
 jobs:
-  lint:
-    name: Lint and type-check
-    if: ${{ format('{0}', inputs.run-tests) != 'false' }}
+  reference:
+    name: Lint, type-check, and save the reference index with the TypeScript engine
+    if: ${{ inputs.run-tests }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -104,18 +62,6 @@ jobs:
         working-directory: packages/python-engine
         run: python3 scripts/tools.py mypy
 
-  reference:
-    name: Save the reference index with the TypeScript engine
-    if: ${{ format('{0}', inputs.run-tests) != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -123,26 +69,21 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install the TypeScript engine's runtime dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --prod --filter @delali/narsil
 
-      - name: Restore the pinned conformance dataset
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Download the TypeScript engine
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Download the conformance dataset
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conformance-dataset
           path: packages/conformance/.dataset
-          key: conformance-dataset-${{ hashFiles('packages/conformance/dataset-pin.json') }}
-
-      - name: Build the conformance tools
-        run: pnpm nx run narsil-conformance:build
-
-      - name: Fetch the pinned dataset and check every digest
-        working-directory: packages/conformance
-        run: node dist/cli.mjs fetch
-
-      - name: Build the TypeScript engine
-        run: pnpm nx run narsil-ts:build:code
 
       - name: Save the dataset into a durable directory and record the TypeScript answers
         run: |
@@ -153,16 +94,8 @@ jobs:
       - name: Upload the reference index
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-typescript-reference
+          name: ${{ inputs.artifact-prefix }}-typescript-reference
           path: ${{ runner.temp }}/reference
-          include-hidden-files: true
-          if-no-files-found: error
-
-      - name: Upload the conformance dataset
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-conformance-dataset
-          path: packages/conformance/.dataset
           include-hidden-files: true
           if-no-files-found: error
 
@@ -173,35 +106,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: linux-x64-gnu
-            runner: ubuntu-latest
-            target: x86_64
-            manylinux: '2014'
-          - label: linux-arm64-gnu
-            runner: ubuntu-24.04-arm
-            target: aarch64
-            manylinux: '2014'
-          - label: linux-x64-musl
-            runner: ubuntu-latest
-            target: x86_64
-            manylinux: musllinux_1_2
-          - label: linux-arm64-musl
-            runner: ubuntu-24.04-arm
-            target: aarch64
-            manylinux: musllinux_1_2
-          - label: darwin-arm64
-            runner: macos-15
-            target: aarch64
-          - label: darwin-x64
-            runner: macos-15-intel
-            target: x86_64
-          - label: win32-x64
-            runner: windows-latest
-            target: x64
-          - label: win32-arm64
-            runner: windows-11-arm
-            target: aarch64
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"}
+          ]' || '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"},
+          {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "target": "aarch64", "manylinux": "2014"},
+          {"label": "linux-x64-musl", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "musllinux_1_2"},
+          {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "target": "aarch64", "manylinux": "musllinux_1_2"},
+          {"label": "darwin-arm64", "runner": "macos-15", "target": "aarch64"},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "target": "x86_64"},
+          {"label": "win32-x64", "runner": "windows-latest", "target": "x64"},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "target": "aarch64"}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -233,29 +150,33 @@ jobs:
       - name: Upload the wheel
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-wheel-${{ matrix.label }}
+          name: ${{ inputs.artifact-prefix }}-wheel-${{ matrix.label }}
           path: packages/python-engine/dist/*.whl
           if-no-files-found: error
 
   test:
     name: Test the ${{ matrix.platform.label }} wheel on Python ${{ matrix.python }}
     needs: [reference, wheels]
-    if: ${{ format('{0}', inputs.run-tests) != 'false' }}
+    if: ${{ inputs.run-tests }}
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.11', '3.14']
-        platform:
-          - { label: linux-x64-gnu, runner: ubuntu-latest, musl: false }
-          - { label: linux-arm64-gnu, runner: ubuntu-24.04-arm, musl: false }
-          - { label: linux-x64-musl, runner: ubuntu-latest, musl: true }
-          - { label: linux-arm64-musl, runner: ubuntu-24.04-arm, musl: true }
-          - { label: darwin-arm64, runner: macos-15, musl: false }
-          - { label: darwin-x64, runner: macos-15-intel, musl: false }
-          - { label: win32-x64, runner: windows-latest, musl: false }
-          - { label: win32-arm64, runner: windows-11-arm, musl: false }
+        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.14"]' || '["3.11", "3.14"]') }}
+        platform: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}
+          ]' || '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
+          {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},
+          {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true},
+          {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true},
+          {"label": "darwin-arm64", "runner": "macos-15", "musl": false},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false},
+          {"label": "win32-x64", "runner": "windows-latest", "musl": false},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -266,19 +187,19 @@ jobs:
       - name: Download the wheel
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-wheel-${{ matrix.platform.label }}
+          name: ${{ inputs.artifact-prefix }}-wheel-${{ matrix.platform.label }}
           path: wheelhouse
 
       - name: Download the conformance dataset
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-conformance-dataset
+          name: conformance-dataset
           path: packages/conformance/.dataset
 
       - name: Download the reference index
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ${{ inputs.artifact-prefix || 'python-engine' }}-typescript-reference
+          name: ${{ inputs.artifact-prefix }}-typescript-reference
           path: reference
 
       - name: Setup Python

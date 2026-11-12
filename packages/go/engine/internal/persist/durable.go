@@ -81,8 +81,13 @@ func (manager *Manager) Create(ctx context.Context, handle *Handle) (*Durable, e
 	if err := manager.register(durable); err != nil {
 		return nil, err
 	}
-	if err := durable.writeMetadata(ctx, uint64(handle.Index.Count())); err != nil {
+	err := manager.measureStored(handle.Name, savedSize{})
+	if err == nil {
+		err = durable.writeMetadata(ctx, uint64(handle.Index.Count()))
+	}
+	if err != nil {
 		manager.unregister(handle.Name)
+		manager.sizes.forget(handle.Name)
 		return nil, err
 	}
 	return durable, nil
@@ -103,6 +108,7 @@ func (durable *Durable) writeMetadata(ctx context.Context, documentCount uint64)
 }
 
 func (durable *Durable) storeMetadata(ctx context.Context, meta metadata.Metadata) error {
+	durable.stampSavedBytes(&meta)
 	encoded, err := metadata.Write(meta, false, true)
 	if err != nil {
 		return err
@@ -292,6 +298,7 @@ func (durable *Durable) close() error {
 func (durable *Durable) Close(ctx context.Context) error {
 	err := durable.close()
 	durable.manager.unregister(durable.handle.Name)
+	durable.manager.sizes.forget(durable.handle.Name)
 	if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
 		err = ctxErr
 	}
@@ -306,7 +313,9 @@ func (durable *Durable) Drop(ctx context.Context) error {
 		}
 	}
 	durable.manager.unregister(durable.handle.Name)
-	if removeErr := durable.manager.removeIndexKeys(ctx, durable.handle.Name); removeErr != nil {
+	removeErr := durable.manager.removeIndexKeys(ctx, durable.handle.Name)
+	durable.manager.sizes.forget(durable.handle.Name)
+	if removeErr != nil {
 		return removeErr
 	}
 	return err

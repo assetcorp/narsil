@@ -10,6 +10,7 @@ import { loadSegmentedCheckpoint } from '../../persistence/durability/segment/lo
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
+import { savedBytesOfManifest } from '../../persistence/durability/stored-bytes'
 import { bytesThatSegmentsHoldInMemory } from '../../persistence/paged/segment-scan'
 import { decodeIndexConfiguration } from './index-configuration-decode'
 import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
@@ -144,7 +145,7 @@ export async function loadStagedIndex(
     deps.executor.discardDetachedIndex(detached)
     throw error
   }
-  return { prepared, detached, staging, checkpoint: manifest.checkpoint }
+  return { prepared, detached, staging, checkpoint: manifest.checkpoint, saved: savedBytesOfManifest(manifest) }
 }
 
 export async function restoreArchive(indexName: string, reader: ByteReader, deps: RestoreDeps): Promise<void> {

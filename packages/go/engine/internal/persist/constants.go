@@ -34,3 +34,8 @@ const (
 	ColdLoadWaitWithoutSearch            = 400 * time.Millisecond
 	ChangesSegmentReadBytes              = 1_048_576
 )
+
+const (
+	RewriteAboveRemovedDocumentShare = 0.2
+	DefaultRewriteBytesPerCheckpoint = 268_435_456
+)

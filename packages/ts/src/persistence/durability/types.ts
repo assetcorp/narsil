@@ -1,11 +1,13 @@
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
+import type { IndexStoredSizes } from '../../engine/stored-sizes'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../serialization/keyword-segment/types'
 import type { PersistenceAdapter } from '../../types/adapters'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { HeldCheckpointReport } from '../../types/memory'
+import type { PartitionStatsResult } from '../../types/results'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DiskAdoptionAction } from '../../workers/protocol'
 import type { ArchiveCheckpoint } from './archive-checkpoint'
@@ -14,6 +16,7 @@ import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
 import type { RestoreStaging } from './restore-staging'
+import type { StoredBytes } from './stored-bytes'
 import type { SyncStorage } from './sync/storage'
 
 export type { DurabilityConfig, TermStart }
@@ -47,19 +50,20 @@ export interface IndexDurabilityHooks {
   getManager(indexName: string): PartitionManager | undefined
   getVectorFieldPaths(indexName: string): Set<string>
   getVectorIndexes(indexName: string): Map<string, VectorIndex>
-  buildMetadata(indexName: string, documentCount?: number): IndexMetadata | undefined
+  buildMetadata(indexName: string, documentCount?: number, savedBytes?: number): IndexMetadata | undefined
   buildTermsMetadata(indexName: string): IndexMetadata | undefined
   mustRewriteTerms(indexName: string): boolean
   onManifestCommitted(indexName: string, analysisGeneration: number): void
   queueDiskAdoption?(action: DiskAdoptionAction): void
   awaitCopiesOfIndex?(indexName: string): Promise<void>
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
-  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
+  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number, savedBytes: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
   keepsHistory?(indexName: string): boolean
   onHistoryMoved?(indexName: string): void
+  linkStoredSizes(indexName: string, sizes: IndexStoredSizes): void
   recordsPreviousDocument?(indexName: string): boolean
   writeRecords?: WriteRecordKeeper
 }
@@ -117,6 +121,10 @@ export interface DurabilityManager {
   openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
+  measureRestoredStorage?(indexName: string, restored?: StoredBytes): Promise<void>
+  storedSizesOf(indexName: string): IndexStoredSizes
+  addStoredSizes(indexName: string, stats: PartitionStatsResult[]): void
+  vectorSavedBytes?(indexName: string): number | undefined
   syncStorage?(): SyncStorage
   historyStorage?(): HistoryStorage
   removeQueryHistory?(indexName: string): Promise<void>

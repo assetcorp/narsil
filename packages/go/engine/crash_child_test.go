@@ -27,10 +27,23 @@ const (
 	crashModeInserts       = "inserts"
 	crashModeCheckpoints   = "checkpoints"
 	crashModeMerges        = "merges"
+	crashModeRewrites      = "rewrites"
 	crashMergeThreshold    = 1
 	crashDistantThreshold  = 1_000_000_000
 	crashDocsPerPartition  = 1_500
 )
+
+const (
+	crashRewriteSlotCount        = 300
+	crashRewriteDocsPerPartition = 120
+)
+
+func crashSlotsOf(mode string) int {
+	if mode == crashModeRewrites {
+		return crashRewriteSlotCount
+	}
+	return crashSlotCount
+}
 
 var crashWords = []string{"amber", "basil", "cedar", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "juniper",
 	"kelp", "lumen", "maple", "nectar", "onyx", "pepper", "quartz", "russet", "saffron", "tundra"}
@@ -93,10 +106,15 @@ func crashDurability(directory string, mode string) *engine.DurabilityConfig {
 	return durability
 }
 
-func crashIndexConfig() engine.IndexConfig {
-	return engine.IndexConfig{Schema: engine.Schema{"title": engine.FieldString, "body": engine.FieldString,
+func crashIndexConfig(mode string) engine.IndexConfig {
+	config := engine.IndexConfig{Schema: engine.Schema{"title": engine.FieldString, "body": engine.FieldString,
 		"rank": engine.FieldNumber, "embedding": engine.VectorFieldType(4)},
 		Partitions: engine.PartitionConfig{MaxDocsPerPartition: engine.Some(crashDocsPerPartition), MaxPartitions: engine.Some(3)}}
+	if mode == crashModeRewrites {
+		config.TextStorage = engine.TextStorageDisk
+		config.Partitions.MaxDocsPerPartition = engine.Some(crashRewriteDocsPerPartition)
+	}
+	return config
 }
 
 type crashJournal struct {
@@ -124,7 +142,7 @@ func runCrashChild(directory string, logPath string, mode string, seed int64) er
 		return err
 	}
 	if len(narsil.ListIndexes()) == 0 {
-		if err := narsil.CreateIndex(ctx, crashIndexName, crashIndexConfig()); err != nil {
+		if err := narsil.CreateIndex(ctx, crashIndexName, crashIndexConfig(mode)); err != nil {
 			return err
 		}
 	}
@@ -146,7 +164,7 @@ func runCrashChild(directory string, logPath string, mode string, seed int64) er
 	}
 	random := rand.New(rand.NewSource(seed))
 	for {
-		step := nextCrashStep(random, held)
+		step := nextCrashStep(random, held, crashSlotsOf(mode))
 		encoded, err := json.Marshal(step)
 		if err != nil {
 			return err
@@ -169,8 +187,8 @@ func runCrashChild(directory string, logPath string, mode string, seed int64) er
 	}
 }
 
-func nextCrashStep(random *rand.Rand, held map[string]any) crashStep {
-	slot := random.Intn(crashSlotCount)
+func nextCrashStep(random *rand.Rand, held map[string]any, slots int) crashStep {
+	slot := random.Intn(slots)
 	id := crashSlotID(slot)
 	if _, present := held[id]; present {
 		if random.Intn(3) == 0 {
@@ -179,8 +197,8 @@ func nextCrashStep(random *rand.Rand, held map[string]any) crashStep {
 		return crashStep{Op: "update", ID: id, Documents: map[string]map[string]any{id: crashDocument(random, slot)}}
 	}
 	step := crashStep{Op: "insert", Documents: map[string]map[string]any{}}
-	for offset := 0; offset < crashSlotCount && len(step.Documents) < crashInsertBatch; offset++ {
-		candidate := (slot + offset) % crashSlotCount
+	for offset := 0; offset < slots && len(step.Documents) < crashInsertBatch; offset++ {
+		candidate := (slot + offset) % slots
 		if _, present := held[crashSlotID(candidate)]; !present {
 			step.Documents[crashSlotID(candidate)] = crashDocument(random, candidate)
 		}

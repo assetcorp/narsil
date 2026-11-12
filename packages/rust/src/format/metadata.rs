@@ -1,9 +1,7 @@
-use crate::error::{ErrorCode, Result, fail, load_failed};
-use crate::format::envelope::{
-    Compression, HEADER_BYTES, Header, MAX_FILE_BYTES, gunzip_within, gzip, read_header,
-    write_header,
-};
+use crate::error::{Result, load_failed};
+use crate::format::envelope::{Compression, Header};
 use crate::format::fields::{non_negative_safe_integer, string_list};
+pub(crate) use crate::format::lenient_envelope::{open_lenient_envelope, pack_lenient_envelope};
 use crate::format::metadata_parts::{
     Bm25Params, ChangesSetting, EmbeddingMetadata, NamedAnalysis, PartitionLimits, PendingAnalysis,
     SyncSetting, VectorFieldMetadata, VectorPromotion, bm25_from_wire, bm25_to_wire,
@@ -12,7 +10,6 @@ use crate::format::metadata_parts::{
     positive_integer, promotion_from_wire, promotion_to_wire, vector_fields_from_wire,
     vector_fields_to_wire,
 };
-use crate::util::hash::crc32;
 use crate::value::{Map, Value, decode_value, encode_value};
 
 pub(crate) const METADATA_ENVELOPE_VERSION: u8 = 1;
@@ -25,6 +22,7 @@ const SCORING_MODES: [&str; 3] = ["local", "dfs", "broadcast"];
 pub(crate) struct IndexMetadata {
     pub(crate) index_name: String,
     pub(crate) document_count: Option<u64>,
+    pub(crate) saved_bytes: Option<u64>,
     index_uuid: Option<String>,
     held_partitions: Option<Vec<u64>>,
     pub(crate) schema: Map,
@@ -64,6 +62,7 @@ impl IndexMetadata {
         IndexMetadata {
             index_name: index_name.to_string(),
             document_count: None,
+            saved_bytes: None,
             index_uuid: None,
             held_partitions: None,
             schema,
@@ -130,6 +129,7 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
         meta.vector_fields = Some(vector_fields_from_wire(fields)?);
     }
     meta.document_count = non_negative_safe_integer(raw.get("document_count"));
+    meta.saved_bytes = non_negative_safe_integer(raw.get("saved_bytes"));
     meta.embedding = embedding_from_wire(raw.get("embedding"));
     meta.surface_forms = flag(raw, "surface_forms_enabled");
     meta.analysis_revision = text(raw, "analysis_revision");
@@ -195,6 +195,9 @@ pub(crate) fn metadata_to_wire(meta: &IndexMetadata) -> Map {
     }
     if let Some(count) = meta.document_count {
         wire.insert("document_count", Value::Number(count as f64));
+    }
+    if let Some(bytes) = meta.saved_bytes {
+        wire.insert("saved_bytes", Value::Number(bytes as f64));
     }
     if let Some(embedding) = &meta.embedding {
         wire.insert("embedding", embedding_to_wire(embedding));
@@ -281,79 +284,6 @@ pub(crate) fn metadata_to_wire(meta: &IndexMetadata) -> Map {
         wire.insert("query_suggestions_source", source.clone());
     }
     wire
-}
-
-/// Opens an envelope of version 1 at most, with an optional checksum, as the reference reads metadata files.
-pub(crate) fn open_lenient_envelope(data: &[u8], max_version: u8) -> Result<(Header, Vec<u8>)> {
-    let header = read_header(data)?;
-    if header.envelope_format_version > max_version {
-        return fail(
-            ErrorCode::ENVELOPE_VERSION_MISMATCH,
-            format!(
-                "This data holds Narsil envelope format v{}, while this build reads up to v{max_version}",
-                header.envelope_format_version
-            ),
-        );
-    }
-    if header.encrypted {
-        return fail(
-            ErrorCode::ENVELOPE_VERSION_MISMATCH,
-            "Encrypted envelopes are not supported in this version of Narsil",
-        );
-    }
-    if header.compressed
-        && header.algorithm != Compression::Gzip
-        && header.algorithm != Compression::None
-    {
-        return fail(
-            ErrorCode::ENVELOPE_VERSION_MISMATCH,
-            format!(
-                "Compression algorithm \"{}\" is not supported in this version of Narsil",
-                header.algorithm.name()
-            ),
-        );
-    }
-    let available = data.len() - HEADER_BYTES;
-    if available < header.payload_length as usize {
-        return load_failed(format!(
-            "Envelope data is truncated: header declares {} bytes of payload but only {available} bytes are available",
-            header.payload_length
-        ));
-    }
-    let payload = &data[HEADER_BYTES..HEADER_BYTES + header.payload_length as usize];
-    if header.checksum_present && crc32(payload) != header.checksum {
-        return fail(
-            ErrorCode::PERSISTENCE_CRC_MISMATCH,
-            "CRC32 checksum mismatch: data may be corrupted",
-        );
-    }
-    if header.compressed && header.algorithm == Compression::Gzip {
-        return Ok((header, gunzip_within(payload, MAX_FILE_BYTES, "envelope")?));
-    }
-    Ok((header, payload.to_vec()))
-}
-
-pub(crate) fn pack_lenient_envelope(
-    payload: &[u8],
-    version: u8,
-    compression: Compression,
-    checksum: bool,
-) -> Result<Vec<u8>> {
-    let body = if compression == Compression::Gzip {
-        gzip(payload)?
-    } else {
-        payload.to_vec()
-    };
-    let header = write_header(
-        version,
-        body.len() as u64,
-        compression,
-        checksum.then(|| crc32(&body)),
-    )?;
-    let mut out = Vec::with_capacity(HEADER_BYTES + body.len());
-    out.extend_from_slice(&header);
-    out.extend_from_slice(&body);
-    Ok(out)
 }
 
 pub(crate) fn read_metadata_file(data: &[u8]) -> Result<(Header, IndexMetadata)> {

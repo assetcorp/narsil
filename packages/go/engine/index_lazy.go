@@ -87,14 +87,18 @@ func (n *Narsil) closedSummaryOf(meta metadata.Metadata) (closedSummary, error) 
 	if partitions <= 0 {
 		partitions = partitionCountOf(config)
 	}
-	return closedSummary{
+	summary := closedSummary{
 		documentCount:  int(meta.DocumentCount.Or(0)),
 		partitionCount: partitions,
 		language:       core.LanguageName(found),
 		schema:         parsed.Schema(),
 		config:         config,
 		suggestions:    meta.QuerySuggestions,
-	}, nil
+	}
+	if saved, recorded := meta.SavedBytes.Get(); recorded {
+		summary.savedBytes = model.Some(int64(saved))
+	}
+	return summary, nil
 }
 
 func (n *Narsil) registerClosedIndexes(ctx context.Context) error {

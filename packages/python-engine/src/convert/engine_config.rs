@@ -30,7 +30,7 @@ const ENGINE_KEYS_REFUSING_NONE: [&str; 9] = [
     "stopWords",
     "events",
 ];
-const DURABILITY_KEYS_REFUSING_NONE: [&str; 7] = [
+const DURABILITY_KEYS_REFUSING_NONE: [&str; 8] = [
     "tier",
     "mode",
     "flushIntervalMs",
@@ -38,6 +38,7 @@ const DURABILITY_KEYS_REFUSING_NONE: [&str; 7] = [
     "checkpointIntervalMs",
     "checkpointMutationThreshold",
     "compactionThreshold",
+    "rewriteBytesPerCheckpoint",
 ];
 const WORKER_KEYS_REFUSING_NONE: [&str; 4] = [
     "count",
@@ -96,6 +97,7 @@ fn durability(mut fields: Fields<'_>) -> Result<DurabilityConfig, NarsilError> {
         checkpoint_interval_ms: fields.whole("checkpointIntervalMs")?,
         checkpoint_mutation_threshold: fields.whole("checkpointMutationThreshold")?,
         compaction_threshold: fields.whole_u32("compactionThreshold")?,
+        rewrite_bytes_per_checkpoint: fields.whole("rewriteBytesPerCheckpoint")?,
     };
     fields.finish()?;
     Ok(config)

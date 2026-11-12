@@ -37,6 +37,11 @@ function renumberPartition(manifest, from, to) {
 if (mode === 'renumber-partition') {
   const [from, to] = rest.map(Number)
   rewrite(file, manifest => renumberPartition(manifest, from, to))
+} else if (mode === 'segment-counts') {
+  const [docCount] = rest.map(Number)
+  rewrite(file, manifest => {
+    for (const partition of manifest.partitions) for (const segment of partition.segments) segment.docCount = docCount
+  })
 } else if (mode === 'max-partitions') {
   const [count] = rest.map(Number)
   rewrite(file, metadata => {

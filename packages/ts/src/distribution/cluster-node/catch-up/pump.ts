@@ -8,14 +8,16 @@ import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
+import { admittedBeyondTable } from './admitted'
 import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
 import {
-  admittedBeyondTable,
   type CatchUpState,
   clearPendingAdmission,
   forgetReplica,
+  getPendingAdmissions,
   type ReplicaCursor,
 } from './state'
+import { withdrawAppliedAdmissions } from './withdrawals'
 
 function batchBytes(entries: ReplicationLogEntry[]): number {
   let total = 0
@@ -194,7 +196,7 @@ async function sendBatch(
   if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
     return false
   }
-  cursor.appliedSeqNo = batch[batch.length - 1].seqNo
+  cursor.appliedSeqNo = Math.max(cursor.appliedSeqNo, batch[batch.length - 1].seqNo)
   return true
 }
 
@@ -225,24 +227,40 @@ async function pumpPartition(
   const indexName = key.slice(0, separator)
   const partitionId = Number(key.slice(separator + 1))
 
+  const generationAtLiveRead = state.lastAdmissionGeneration
   const table = await (deps.readLiveAllocation?.(indexName) ?? deps.coordinator.getAllocation(indexName))
   const assignment = table?.assignments.get(partitionId)
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
     cancelFeeds(replicas)
     state.cursors.delete(key)
     state.pendingAdmissions.delete(key)
+    state.admissionsToWithdraw.delete(key)
     return
+  }
+  for (const withdrawal of withdrawAppliedAdmissions(state, deps, indexName, partitionId, assignment)) {
+    const work = withdrawal.finally(() => state.replicaWork.delete(work))
+    state.replicaWork.add(work)
+    started.push(work)
   }
 
   for (const [replicaNodeId, cursor] of [...replicas]) {
     if (state.stopped) {
       return
     }
-    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, table?.version).includes(
+    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, generationAtLiveRead).includes(
       replicaNodeId,
     )
-    if (!assignment.replicas.includes(replicaNodeId) || assignment.inSyncSet.includes(replicaNodeId) || admitted) {
+    if (!assignment.replicas.includes(replicaNodeId)) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
+      continue
+    }
+    if (admitted) {
+      continue
+    }
+    if (assignment.inSyncSet.includes(replicaNodeId)) {
+      if (!getPendingAdmissions(state, indexName, partitionId).includes(replicaNodeId)) {
+        forgetReplica(state, indexName, partitionId, replicaNodeId)
+      }
       continue
     }
     if (cursor.busy) {
@@ -284,26 +302,31 @@ async function pumpPartition(
  * left the cluster or restarted, or once the partition's primary term or in-sync set has changed since the feed began,
  * so the tick after that feeds or proposes the replica afresh. Each tick reads the allocation table from the cluster
  * coordinator rather than from the watched copy, because a watched copy that lags behind a sync request would let
- * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. A tick
- * that is already reading the allocation returns that same tick in place of starting a second one.
+ * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. The pump
+ * keeps the cursor of a replica that the controller has admitted until a live read that began after the admission
+ * reply arrived, because only such a read can show whether the controller removed that replica after it admitted it,
+ * and the write path stops sending to the replica once that read leaves it out of the in-sync set. A tick that is
+ * already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
  * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.
  * @returns A promise that settles once every feed that this tick started has finished.
  */
 export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Promise<void> {
-  if (state.stopped || state.activeTick !== null || state.cursors.size === 0) {
+  const idle = state.cursors.size === 0 && state.admissionsToWithdraw.size === 0
+  if (state.stopped || state.activeTick !== null || idle) {
     return state.activeTick ?? Promise.resolve()
   }
 
   const started: Promise<void>[] = []
   const tick = (async () => {
     const registered = await registeredNodes(deps)
-    for (const [key, replicas] of [...state.cursors]) {
+    for (const key of new Set([...state.cursors.keys(), ...state.admissionsToWithdraw.keys()])) {
       if (state.stopped) {
         return
       }
       try {
+        const replicas = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
         await pumpPartition(state, deps, key, replicas, started, registered)
       } catch (_) {}
     }

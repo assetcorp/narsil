@@ -21,6 +21,7 @@ interface RawMetadataPayload extends RawSyncMetadata {
   query_suggestions_source?: unknown
   index_name: string
   document_count?: unknown
+  saved_bytes?: unknown
   schema: Record<string, string>
   language: string
   partition_count: number
@@ -77,6 +78,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (isNonNegativeInteger(meta.documentCount) && Number.isSafeInteger(meta.documentCount)) {
     wire.document_count = meta.documentCount
+  }
+  if (isNonNegativeInteger(meta.savedBytes) && Number.isSafeInteger(meta.savedBytes)) {
+    wire.saved_bytes = meta.savedBytes
   }
   if (meta.embedding) {
     wire.embedding =
@@ -204,6 +208,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (isNonNegativeInteger(raw.document_count) && Number.isSafeInteger(raw.document_count)) {
     meta.documentCount = raw.document_count
+  }
+  if (isNonNegativeInteger(raw.saved_bytes) && Number.isSafeInteger(raw.saved_bytes)) {
+    meta.savedBytes = raw.saved_bytes
   }
   if (raw.embedding && typeof raw.embedding === 'object' && typeof raw.embedding.fields === 'object') {
     meta.embedding =

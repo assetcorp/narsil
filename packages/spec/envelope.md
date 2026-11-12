@@ -475,6 +475,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   language:              string
   partition_count:       uint32
   document_count:        uint64               (optional; documents in the last completed checkpoint)
+  saved_bytes:           uint64               (optional; the saved size of the last completed checkpoint)
   bm25_params:           { k1: float64, b: float64, fields: Map<string, BM25FieldParams> (optional) }
   created_at:            uint64               (milliseconds since the Unix epoch)
   engine_version:        string               (for example "0.1.0")
@@ -585,6 +586,8 @@ PendingAnalysis {
 ```
 
 `document_count` must equal the total number of documents in the last completed checkpoint. A reader must treat an absent `document_count` as unknown.
+
+`saved_bytes` must equal the [saved size](durability.md#saved-size) of the last completed checkpoint. A reader must treat an absent `saved_bytes` as unknown.
 
 `vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys. A reader must reject a `quantization` or `storage` value outside its set with `CONFIG_INVALID`, in this payload and in the [index configuration payload](#index-configuration-payload).
 

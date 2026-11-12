@@ -181,14 +181,27 @@ impl PartitionLog {
         active.raise_empty_version(directory, version)
     }
 
-    fn write_pending(state: &mut LogState, pending: &mut Vec<u8>, last_seq_no: u64) -> Result<()> {
+    fn write_pending(
+        state: &mut LogState,
+        directory: &DurableDirectory,
+        pending: &mut Vec<u8>,
+        last_seq_no: u64,
+    ) -> Result<()> {
         if pending.is_empty() {
             return Ok(());
         }
         let Some(active) = state.active.as_mut() else {
             return Err(poisoned());
         };
-        active.write_frames(pending)?;
+        let written = active.write_frames(pending);
+        let measured = match &written {
+            Ok(()) => Some(active.bytes),
+            Err(_) => directory.byte_length(&active.key).ok().flatten(),
+        };
+        if let Some(bytes) = measured {
+            directory.log_bytes().set(&active.key, bytes);
+        }
+        written?;
         pending.clear();
         state.highest_appended = last_seq_no;
         Ok(())
@@ -236,12 +249,12 @@ impl PartitionLog {
             let held = active_bytes + pending.len() as u64;
             let holds_records = held > SEGMENT_HEADER_BYTES as u64;
             if holds_records && held + frame.len() as u64 > self.segment_max_bytes {
-                Self::write_pending(state, &mut pending, seq_no - 1)?;
+                Self::write_pending(state, directory, &mut pending, seq_no - 1)?;
                 self.start_segment(state, directory, seq_no, version)?;
             }
             pending.extend_from_slice(&frame);
         }
-        Self::write_pending(state, &mut pending, seq_no)?;
+        Self::write_pending(state, directory, &mut pending, seq_no)?;
         Ok((first, seq_no))
     }
 

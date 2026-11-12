@@ -11,6 +11,7 @@ pub(crate) mod index_configuration;
 pub(crate) mod keyword_columns;
 pub(crate) mod keyword_segment;
 pub(crate) mod layout;
+pub(crate) mod lenient_envelope;
 pub(crate) mod manifest;
 pub(crate) mod manifest_refs;
 pub(crate) mod metadata;

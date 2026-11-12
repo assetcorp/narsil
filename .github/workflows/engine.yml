@@ -1,0 +1,70 @@
+name: TypeScript engine
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the TypeScript engine and fetch the conformance dataset
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the code that worker tests and the other engines load
+        run: pnpm nx run narsil-ts:build:code
+
+      - name: Upload the TypeScript engine
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the embedding adapters that the TypeScript suite imports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: narsil-embeddings-transformers-dist
+          path: packages/embeddings-transformers/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Restore the pinned conformance dataset
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/conformance/.dataset
+          key: conformance-dataset-${{ hashFiles('packages/conformance/dataset-pin.json') }}
+
+      - name: Build the conformance tools
+        run: pnpm nx run narsil-conformance:build --exclude-task-dependencies
+
+      - name: Fetch the pinned dataset and check every digest
+        working-directory: packages/conformance
+        run: node dist/cli.mjs fetch
+
+      - name: Upload the conformance dataset
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conformance-dataset
+          path: packages/conformance/.dataset
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
