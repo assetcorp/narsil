@@ -18,7 +18,14 @@ import { createCapacityChecks } from './capacity'
 import { rebuildDocLocations, rebuildPartitionDocLocations } from './doc-locations'
 import { createDocumentWrites } from './document-writes'
 import { copyVectorsInto } from './nested-values'
-import { leftBehind, ownReadsOf, replaceVectorIndexes, retirePartitions, watchVectorWritesFor } from './pinned-reads'
+import {
+  createSearchRetirement,
+  leftBehind,
+  ownReadsOf,
+  replaceVectorIndexes,
+  retirePartitions,
+  watchVectorWritesFor,
+} from './pinned-reads'
 import { createPublicationGate } from './publication-gate'
 import { createRemovalSettlement } from './removal-settlement'
 import { createSegmentOperations } from './segment-operations'
@@ -51,6 +58,7 @@ export function createPartitionManager(
   const docPartitionMap = createDocIdMap<number>()
   const writeLogs = createWriteLogRecorder()
   const pins = createStatePins(() => [...vecIndexes.keys()])
+  const afterSearchesRelease = createSearchRetirement(pins)
   const vectorWrites = watchVectorWritesFor(vecIndexes, pins)
   const ownReads = ownReadsOf({ locate: locateDocument, partitionOf }, vecIndexes)
 
@@ -312,9 +320,7 @@ export function createPartitionManager(
       return pins.open(reads ?? ownReads.current())
     },
 
-    afterSearchesRelease(free: () => void): void {
-      pins.afterRelease(free)
-    },
+    afterSearchesRelease,
 
     fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
       const pid = locateDocument(docId)
@@ -383,8 +389,8 @@ export function createPartitionManager(
       return vecIndexes
     },
 
-    resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void {
-      replaceVectorIndexes(vecIndexes, newIndexes, pins)
+    resetVectorIndexes(newIndexes: Map<string, VectorIndex>): Promise<void> {
+      return replaceVectorIndexes(vecIndexes, newIndexes, afterSearchesRelease)
     },
   }
 

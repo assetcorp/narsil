@@ -51,7 +51,7 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
       } catch (error) {
         await orchestrator.closeIndex(indexName).catch(() => undefined)
         await durability.manager.unloadIndex(indexName).catch(() => undefined)
-        if (executor.getManager(indexName) !== undefined) executor.dropIndex(indexName)
+        if (executor.getManager(indexName) !== undefined) await executor.dropIndex(indexName)
         throw error
       }
     },
@@ -69,7 +69,7 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
       try {
         await wiring.onClose?.(indexName)
       } finally {
-        if (executor.getManager(indexName) !== undefined) executor.dropIndex(indexName)
+        if (executor.getManager(indexName) !== undefined) await executor.dropIndex(indexName)
         const entry = indexRegistry.get(indexName)
         if (entry !== undefined) {
           entry.documentCount = documentCount

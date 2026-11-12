@@ -144,8 +144,13 @@ async function commitToStorage(
   for (const vectorIndex of vectorIndexes) vectorIndex.relocateVectorFiles(relocate)
 }
 
-function activate(indexName: string, restored: RestoredIndex, entry: IndexRegistryEntry, deps: RestoreDeps): void {
-  deps.executor.installDetachedIndex(restored.detached)
+async function activate(
+  indexName: string,
+  restored: RestoredIndex,
+  entry: IndexRegistryEntry,
+  deps: RestoreDeps,
+): Promise<void> {
+  const disposed = deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
   entry.storedSizes?.recordSavedBytes(entry.savedBytes)
   restored.detached.attach()
@@ -164,6 +169,7 @@ function activate(indexName: string, restored: RestoredIndex, entry: IndexRegist
   }
   if (restored.staging !== null) deps.durability?.manager.adoptRestoredCheckpoint?.(indexName, restored.checkpoint)
   deps.forgetWatermark(indexName)
+  await disposed
 }
 
 async function replaceExisting(
@@ -183,7 +189,7 @@ async function replaceExisting(
       await withinLimit(indexName, release, holdVectorCopies(vectorIndexes, release), deps)
       for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
       await commitToStorage(indexName, restored, previous, deps)
-      if (previous === undefined) activate(indexName, restored, entry, deps)
+      if (previous === undefined) await activate(indexName, restored, entry, deps)
       else await previous.publication.write(() => activate(indexName, restored, entry, deps))
       await deps.querySuggestions?.afterActivate(entry)
     })
@@ -195,13 +201,14 @@ async function replaceExisting(
 
 async function createFresh(indexName: string, restored: RestoredIndex, entry: IndexRegistryEntry, deps: RestoreDeps) {
   deps.copies.desyncIndex(indexName)
-  deps.executor.installDetachedIndex(restored.detached)
+  const disposed = deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
   entry.storedSizes?.recordSavedBytes(entry.savedBytes)
+  await disposed
   try {
     await deps.indexState.registerReplacing(indexName, async () => {
       await commitToStorage(indexName, restored, undefined, deps)
-      activate(indexName, restored, entry, deps)
+      await activate(indexName, restored, entry, deps)
       await deps.querySuggestions?.afterActivate(entry)
     })
   } catch (error) {
@@ -242,8 +249,8 @@ export async function installRestoredIndex(
     if (replaced !== undefined) await replaceExisting(indexName, restored, entry, deps)
     else await createFresh(indexName, restored, entry, deps)
   } catch (error) {
-    if (deps.executor.getManager(indexName) === restored.detached.manager) deps.executor.dropIndex(indexName)
-    else deps.executor.discardDetachedIndex(restored.detached)
+    if (deps.executor.getManager(indexName) === restored.detached.manager) await deps.executor.dropIndex(indexName)
+    else await deps.executor.discardDetachedIndex(restored.detached)
     throw error
   }
   await restored.staging?.removeRetired().catch(() => undefined)
