@@ -52,7 +52,7 @@ export function withdrawAppliedAdmissions(
   const started: Promise<void>[] = []
   for (const [replicaNodeId, owed] of [...owedByReplica]) {
     const pending = pendingAdmissionOf(state, indexName, partitionId, replicaNodeId)
-    if (owed.primaryTerm !== assignment.primaryTerm || !assignment.replicas.includes(replicaNodeId)) {
+    if (owed.primaryTerm !== assignment.primaryTerm) {
       settleFencedAdmission(state, indexName, partitionId, replicaNodeId, { pending, owed })
       continue
     }

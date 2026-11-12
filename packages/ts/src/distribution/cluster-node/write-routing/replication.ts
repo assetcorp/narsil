@@ -16,6 +16,7 @@ import {
   recordRemovalUnlessReadmitted,
   settleFencedAdmission,
   withoutRemovedReplicas,
+  withUnansweredAdmissions,
 } from '../catch-up/admitted'
 import {
   type AdmissionAnswer,
@@ -201,7 +202,13 @@ function replicaTargetsOf(
     entry.indexName,
     entry.partitionId,
     entry.primaryTerm,
-    getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted]),
+    withUnansweredAdmissions(
+      deps.catchUp,
+      entry.indexName,
+      entry.partitionId,
+      deps.nodeId,
+      getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted]),
+    ),
   )
   return { admitted, targets }
 }

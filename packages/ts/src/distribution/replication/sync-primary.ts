@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '../../serialization/msgpack'
 import type { SyncRequestPayload } from '../transport/types'
 import type { ReplicationLog } from './types'
 
@@ -30,6 +31,16 @@ function optionalNonEmptyString(value: unknown, field: string): string | undefin
     throw invalidSyncRequest(`"${field}" must be a non-empty string or absent`)
   }
   return value
+}
+
+export function decodeSyncRequest(payload: Uint8Array): SyncRequestPayload {
+  let decoded: unknown
+  try {
+    decoded = decode(payload)
+  } catch (error) {
+    throw invalidSyncRequest(`the payload is not valid MessagePack (${error instanceof Error ? error.message : error})`)
+  }
+  return validateSyncRequest(decoded)
 }
 
 export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
