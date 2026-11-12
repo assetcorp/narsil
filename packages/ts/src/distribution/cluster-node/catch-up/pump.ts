@@ -236,6 +236,7 @@ async function pumpPartition(
   const indexName = key.slice(0, separator)
   const partitionId = Number(key.slice(separator + 1))
 
+  const generationAtLiveRead = deps.readLiveAllocation === undefined ? undefined : state.lastAdmissionGeneration
   const table = await (deps.readLiveAllocation?.(indexName) ?? deps.coordinator.getAllocation(indexName))
   const assignment = table?.assignments.get(partitionId)
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
@@ -255,14 +256,17 @@ async function pumpPartition(
     if (state.stopped) {
       return
     }
-    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, table?.version).includes(
+    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, generationAtLiveRead).includes(
       replicaNodeId,
     )
     if (!assignment.replicas.includes(replicaNodeId)) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }
-    if (assignment.inSyncSet.includes(replicaNodeId) || admitted) {
+    if (admitted) {
+      continue
+    }
+    if (assignment.inSyncSet.includes(replicaNodeId)) {
       if (!getPendingAdmissions(state, indexName, partitionId).includes(replicaNodeId)) {
         forgetReplica(state, indexName, partitionId, replicaNodeId)
       }
@@ -307,8 +311,11 @@ async function pumpPartition(
  * left the cluster or restarted, or once the partition's primary term or in-sync set has changed since the feed began,
  * so the tick after that feeds or proposes the replica afresh. Each tick reads the allocation table from the cluster
  * coordinator rather than from the watched copy, because a watched copy that lags behind a sync request would let
- * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. A tick
- * that is already reading the allocation returns that same tick in place of starting a second one.
+ * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. The pump
+ * keeps the cursor of a replica that the controller has admitted until a live read that began after the admission
+ * reply arrived, because only such a read can show whether the controller removed that replica after it admitted it,
+ * and the write path stops sending to the replica once that read leaves it out of the in-sync set. A tick that is
+ * already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
  * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.

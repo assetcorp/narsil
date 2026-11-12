@@ -38,15 +38,6 @@ async function sendToController(
   return 'unanswered'
 }
 
-async function versionAfterAdmission(deps: WriteRoutingDeps, indexName: string): Promise<number | null> {
-  if (deps.readLiveAllocation === undefined) return null
-  try {
-    return (await deps.readLiveAllocation(indexName))?.version ?? null
-  } catch (_) {
-    return null
-  }
-}
-
 export function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise<T>(resolve => {
     const timer = setTimeout(() => resolve(fallback), timeoutMs)
@@ -174,14 +165,13 @@ export async function requestClaimedAdmission(
     } else if (answer === 'accepted' && !outlived) {
       forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
       forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
-      advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)
       recordAdmittedReplica(
         state,
         indexName,
         partitionId,
         replicaNodeId,
         assignment.primaryTerm,
-        await versionAfterAdmission(deps, indexName),
+        advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId),
       )
     }
   } finally {
