@@ -38,7 +38,8 @@ jobs:
         include: >-
           ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
-          {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 2, "shard": 1},
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 2, "shard": 2},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 2},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 3},
@@ -109,20 +110,25 @@ jobs:
           PARTS: ${{ matrix.parts }}
         run: |
           case "$PARTS/$PART" in
-            5/1) read -ra targets <<< "$PART_1_TESTS" ;;
-            5/2) read -ra targets <<< "$PART_2_TESTS" ;;
-            5/3) read -ra targets <<< "$PART_3_TESTS" ;;
-            5/4) read -ra targets <<< "$PART_4_TESTS" ;;
-            5/5)
-              listed=" $PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS "
-              declared="$(cargo metadata --locked --no-deps --format-version 1 | node -e 'const chunks = []; process.stdin.on("data", chunk => chunks.push(chunk)).on("end", () => { for (const target of JSON.parse(Buffer.concat(chunks).toString("utf8")).packages.flatMap(entry => entry.targets)) if (target.kind.includes("test")) console.log(target.name) })' | tr -d '\r')"
-              targets=()
-              while read -r target; do
-                [ -z "$target" ] || [[ "$listed" == *" $target "* ]] || targets+=("$target")
-              done <<< "$declared"
-              ;;
+            5/1) selection=listed names="$PART_1_TESTS" ;;
+            5/2) selection=listed names="$PART_2_TESTS" ;;
+            5/3) selection=listed names="$PART_3_TESTS" ;;
+            5/4) selection=listed names="$PART_4_TESTS" ;;
+            5/5) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS" ;;
+            2/1) selection=listed names="$PART_3_TESTS $PART_4_TESTS" ;;
+            2/2) selection=unlisted names="$PART_3_TESTS $PART_4_TESTS" ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
+          if [ "$selection" = listed ]; then
+            read -ra targets <<< "$names"
+          else
+            listed=" $names "
+            declared="$(cargo metadata --locked --no-deps --format-version 1 | node -e 'const chunks = []; process.stdin.on("data", chunk => chunks.push(chunk)).on("end", () => { for (const target of JSON.parse(Buffer.concat(chunks).toString("utf8")).packages.flatMap(entry => entry.targets)) if (target.kind.includes("test")) console.log(target.name) })' | tr -d '\r')"
+            targets=()
+            while read -r target; do
+              [ -z "$target" ] || [[ "$listed" == *" $target "* ]] || targets+=("$target")
+            done <<< "$declared"
+          fi
           if [ "${#targets[@]}" -eq 0 ]; then
             echo "Part $PART of $PARTS selects no test target" >&2
             exit 1
