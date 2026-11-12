@@ -132,7 +132,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.ping` | any to any | Health check |
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
-| `cluster.partition_stores` | controller or dropping node to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.partition_stores` | controller, dropping node, or primary to data node | Asks which partitions of an index the node holds on disk |
 | `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
 | `cluster.rebuild_analysis` | any node to data node | Rebuilds the terms of every copy of an index that the node holds |
 | `cluster.rebalance` | any node to controller | Changes the partition count of an index |
@@ -464,7 +464,7 @@ The response is:
 
 ### cluster.partition_stores
 
-The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again. The node that received a drop request sends it to confirm that no data node still holds a copy, as [Index Deletion Flow](cluster.md#index-deletion-flow) describes.
+The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again. The node that received a drop request sends it to confirm that no data node still holds a copy, as [Index Deletion Flow](cluster.md#index-deletion-flow) describes. A primary sends it to a replica before an admission request where its log retains no entry at the replica's position, as [Catch-Up Feed](replication.md#catch-up-feed) describes.
 
 ```text
 {
