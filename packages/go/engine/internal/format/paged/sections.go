@@ -1,6 +1,7 @@
 package paged
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strconv"
@@ -34,9 +35,13 @@ func requirePage(section Section, page int64, data []byte, key string) error {
 		map[string]any{"key": key, "section": section.Name, "page": page})
 }
 
-func CheckSectionPages(source io.ReaderAt, section Section, key string) error {
+func CheckSectionPages(ctx context.Context, source io.ReaderAt, section Section, key string) error {
 	buffer := make([]byte, min(section.PageBytes, max(section.Length, 1)))
 	for page := int64(0); page*section.PageBytes < section.Length; page++ {
+		if err := ctx.Err(); err != nil {
+			return narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed, `The work on "`+key+`" was cancelled`, err,
+				map[string]any{"key": key})
+		}
 		from := page * section.PageBytes
 		data := buffer[:min(section.PageBytes, section.Length-from)]
 		if err := readPageOf(source, section, page, data, key); err != nil {
