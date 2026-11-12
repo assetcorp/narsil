@@ -12,6 +12,7 @@ import { loadResolveVectorText } from '../engine/resolve-vector-text-code'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
+import type { HeldIndexRerankRunner } from '../rerank/runner'
 import { lazyQueryBinding } from '../search/cursor-binding'
 import { loadMessagePackForStoredValues } from '../search/object-values'
 import { loadPhraseCodeFor, requireLoadedPhraseCode } from '../search/phrase-code'
@@ -75,6 +76,11 @@ function broadcastStatsFor(core: EngineCore, options: ScopedReadOptions | undefi
   return (name: string, tokens: ReadonlySet<string>) => invalidation.broadcastStats(name, tokens)
 }
 
+const EMBEDDING_ADAPTER_CHANGED = 0
+const INDEX_REPLACED_DURING_RERANK = 1
+
+type QueryRerun = typeof EMBEDDING_ADAPTER_CHANGED | typeof INDEX_REPLACED_DURING_RERANK
+
 async function queryUnderHold<T>(
   core: EngineCore,
   indexName: string,
@@ -83,23 +89,17 @@ async function queryUnderHold<T>(
   embedded: EmbeddedQuery | null,
   rerank: RerankRuntime | undefined,
   options: ScopedReadOptions | undefined,
-): Promise<QueryResult<T> | null> {
+): Promise<QueryResult<T> | QueryRerun> {
   const hold = await holdIndex(core.indexState, indexName)
-  let replaced = false
+  let runner: HeldIndexRerankRunner | undefined
   try {
     const entry = core.requireIndex(indexName)
-    if (embedded !== null && entry.embeddingAdapter !== embedded.adapter) return null
+    if (embedded !== null && entry.embeddingAdapter !== embedded.adapter) return EMBEDDING_ADAPTER_CHANGED
     const manager = core.requireManager(indexName)
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
-    const outsideHold = async <R>(work: () => Promise<R>): Promise<R> => {
-      try {
-        return await hold.outside(work)
-      } finally {
-        replaced ||= core.executor.getManager(indexName) !== manager
-      }
-    }
+    runner = rerank?.rerankRunnerFor(core, options?.signal, hold, indexName, manager)
 
     let analysisStale = false
     const result = await answerFromOneState(
@@ -121,20 +121,20 @@ async function queryUnderHold<T>(
           indexBm25: options?.indexBm25,
           cursorBinding: lazyQueryBinding(params),
           patternWorkCap: core.patternWorkCap,
-          rerank: rerank?.rerankRunnerFor(core, options?.signal, outsideHold),
+          rerank: runner,
           requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
         })
       },
       options?.signal,
     )
-    if (replaced) return null
+    if (runner?.replaced) return INDEX_REPLACED_DURING_RERANK
     if (analysisStale) {
       result.analysisStale = true
     }
     options?.onRanked?.(manager, result)
     return result
   } catch (error) {
-    if (replaced) return null
+    if (runner?.replaced) return INDEX_REPLACED_DURING_RERANK
     throw error
   } finally {
     hold.release()
@@ -163,14 +163,16 @@ export async function runEngineQuery<T = AnyDocument>(
   const rerank = scoped.rerank === undefined ? undefined : await loadRerankRuntime()
   const preparedParams = rerank === undefined ? scoped : rerank.withRerankQueryText(scoped)
   let embedded: EmbeddedQuery | null = null
-  for (let attempts = 1; ; attempts++) {
+  let replacedReranks = 0
+  while (true) {
     embedded = await embeddedFor(core, indexName, preparedParams, signal, embedded)
     const resolvedParams = embedded?.params ?? preparedParams
     const loading = loadQueryCode(resolvedParams)
     if (loading !== null) await loading
     const result = await queryUnderHold<T>(core, indexName, params, resolvedParams, embedded, rerank, options)
-    if (result === null) {
-      rerank?.refuseAfterIndexChanges(indexName, attempts)
+    if (result === EMBEDDING_ADAPTER_CHANGED) continue
+    if (result === INDEX_REPLACED_DURING_RERANK) {
+      rerank?.refuseAfterIndexChanges(indexName, ++replacedReranks)
       continue
     }
 
