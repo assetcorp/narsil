@@ -146,7 +146,7 @@ fn shaped_query(
 
 /// Returns `params` with the vector that the index's embedding adapter makes from the text of its vector clause,
 /// or `params` as they stand where the clause gives a vector or no clause appears. Where `earlier` holds a query
-/// that the same adapter embedded, it comes back as it stands.
+/// that the same adapter embedded and that no read found superseded, it comes back as it stands.
 pub(crate) fn embed_query_text<'a>(
     index: &IndexState,
     params: &'a QueryParams,
