@@ -12,6 +12,7 @@ import {
   createTestCluster,
   entryForDocument,
   INDEX,
+  type MessageRule,
   ofType,
   onceFor,
   outcomeOf,
@@ -34,6 +35,11 @@ const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
 const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
 const TERM_END_QUIET_MS = 3_000
 const SHORT_REPLICATION_TIMEOUT_MS = 500
+const LATE_REMOVAL_REPLICATION_TIMEOUT_MS = 40_000
+const ADMISSION_REPLY_SETTLE_MS = 250
+const LATE_REMOVAL_REPLY_SETTLE_MS = 250
+const WRITES_AFTER_READMISSION = 3
+const ENTRY_TYPES = new Set(['replication.entry', 'replication.entry_batch'])
 
 type Ledger = Map<string, Record<string, unknown>>
 
@@ -48,6 +54,25 @@ function fields(label: string, amount: number): Record<string, unknown> {
 
 function primaryTermOf(message: TransportMessage): unknown {
   return (decode(message.payload) as { primaryTerm?: unknown }).primaryTerm
+}
+
+function removalOf(replicaNodeId: string): MessageRule {
+  return (_to, message) =>
+    message.type === 'replication.insync_remove' &&
+    (decode(message.payload) as { replicaNodeId?: unknown }).replicaNodeId === replicaNodeId
+}
+
+function isEntry(_to: string, message: TransportMessage): boolean {
+  return ENTRY_TYPES.has(message.type)
+}
+
+function documentIdsOf(message: TransportMessage): unknown[] {
+  const payload = decode(message.payload) as {
+    entry?: { documentId?: unknown }
+    entries?: Array<{ documentId?: unknown }>
+  }
+  if (message.type === 'replication.entry') return [payload.entry?.documentId]
+  return (payload.entries ?? []).map(entry => entry.documentId)
 }
 
 describe('a new primary that starts its term on every in-sync copy', () => {
@@ -409,6 +434,47 @@ describe('a new primary that starts its term on every in-sync copy', () => {
 
     expect(droppedRemovals()).toBe(askedBeforeClose + 1)
   }, 90_000)
+
+  it('sends every later acknowledged write to a copy readmitted while the reply to its retried out-of-step removal was still on its way', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: LATE_REMOVAL_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const lateRemovalReply = running.transport('controller').holdReplyWhen(onceFor(removalOf(ahead)))
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the first removal request to fail', () => droppedRemovals() > 0)
+    restoreRemovals()
+    await waitUntil(
+      'the controller to apply the retried removal and hold its reply',
+      () => lateRemovalReply.count() > 0,
+    )
+    await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    await waitUntil(
+      'catch-up to readmit the copy ahead while the removal reply is held',
+      async () => partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet.includes(ahead),
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(ADMISSION_REPLY_SETTLE_MS)
+    lateRemovalReply.release()
+    await sleep(LATE_REMOVAL_REPLY_SETTLE_MS)
+    expect(running.transport(candidate).failuresOf(removalOf(ahead))).toEqual([])
+
+    const entriesAtAhead = running.transport(ahead).recordArrivalsWhen(isEntry)
+    const written: string[] = []
+    for (let i = 0; i < WRITES_AFTER_READMISSION; i++) {
+      const documentId = `after-readmission-${i}`
+      await running.node(candidate).insert(INDEX, fields(`after readmission ${i}`, 700 + i), documentId)
+      written.push(documentId)
+      ledger.set(documentId, fields(`after readmission ${i}`, 700 + i))
+    }
+
+    const delivered = new Set(entriesAtAhead.flatMap(documentIdsOf))
+    expect(written.filter(documentId => !delivered.has(documentId))).toEqual([])
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).toEqual(Object.fromEntries(ledger))
+    expect(partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet).toContain(ahead)
+  }, 120_000)
 
   async function raiseTermInPlace(running: TestCluster): Promise<number> {
     const table = await running.coordinator.getAllocation(INDEX)
