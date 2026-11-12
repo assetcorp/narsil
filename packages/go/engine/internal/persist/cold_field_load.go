@@ -131,7 +131,7 @@ func loadColdFiles(store checkpoint.Store, ref manifest.VectorFieldRef, paths []
 			if !stillWanted() {
 				return nil
 			}
-			if err := addColdFile(restore, ref.FieldPath, file, paths[at], dimension); err != nil {
+			if err := addColdFile(ctx, restore, ref.FieldPath, file, paths[at], dimension); err != nil {
 				return err
 			}
 		}
@@ -175,9 +175,12 @@ func coldMagnitudes(source coldSource, section paged.Section, key string) ([]flo
 	return magnitudes, nil
 }
 
-func addColdFile(restore *vector.CheckpointRestore, fieldPath string, ref manifest.VectorFileRef, path string,
-	dimension int) error {
+func addColdFile(ctx context.Context, restore *vector.CheckpointRestore, fieldPath string, ref manifest.VectorFileRef,
+	path string, dimension int) error {
 	key := ref.File.Key
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	file, err := storage.OpenForReading(path)
 	if err != nil {
 		return narsilerr.Wrap(narsilerr.CodePersistenceLoadFailed, `The file "`+key+`" cannot be opened`, err,
@@ -200,18 +203,27 @@ func addColdFile(restore *vector.CheckpointRestore, fieldPath string, ref manife
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ids, err := coldDocIDs(source, idSection, int(ref.Count), key)
 	if err != nil {
 		return err
 	}
 	var records []byte
 	if section, listed := sections["records"]; listed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if records, err = paged.ReadSectionChecked(source.reader, section, key); err != nil {
 			return err
 		}
 	}
 	magnitudeSection, err := requiredColdSection(sections, "magnitudes", key)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	magnitudes, err := coldMagnitudes(source, magnitudeSection, key)
@@ -222,11 +234,14 @@ func addColdFile(restore *vector.CheckpointRestore, fieldPath string, ref manife
 	if err != nil {
 		return err
 	}
-	if err := paged.CheckSectionPages(source.reader, vectors, key); err != nil {
+	if err := paged.CheckSectionPages(ctx, source.reader, vectors, key); err != nil {
 		return err
 	}
 	codes, err := coldCodesOf(source, sections, key)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	held := payload.VectorFile{FieldName: fieldPath, Dimension: dimension, DocIDs: ids, Vectors: []byte{}}

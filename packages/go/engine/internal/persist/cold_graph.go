@@ -83,7 +83,7 @@ func requireColdGraphPart(ctx context.Context, store checkpoint.Store, ref manif
 	if err != nil || !cold {
 		return layout, cold, err
 	}
-	if err := paged.CheckSectionPages(source.reader, layout.neighbours, ref.Key); err != nil {
+	if err := paged.CheckSectionPages(ctx, source.reader, layout.neighbours, ref.Key); err != nil {
 		return coldGraphLayout{}, false, err
 	}
 	return layout, true, nil
