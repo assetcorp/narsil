@@ -14,16 +14,16 @@ import (
 )
 
 const (
-	mixedStepsPerOwner  = 800
-	mixedReaders        = 4
-	mixedChaosPause     = 25 * time.Millisecond
-	mixedReaderPause    = time.Millisecond
-	mixedInsertBatch    = 12
-	mixedRemoveEvery    = 4
-	mixedChaosRestart   = 0
-	mixedChaosSnapshot  = 1
-	mixedChaosRestore   = 2
-	mixedChaosKindCount = 3
+	mixedStepsPerOwner           = 800
+	mixedReaders                 = 4
+	mixedOwnerStepsPerChaosRound = 16
+	mixedReaderPause             = time.Millisecond
+	mixedInsertBatch             = 12
+	mixedRemoveEvery             = 4
+	mixedChaosRestart            = 0
+	mixedChaosSnapshot           = 1
+	mixedChaosRestore            = 2
+	mixedChaosKindCount          = 3
 )
 
 type mixedRun struct {
@@ -37,6 +37,29 @@ type mixedRun struct {
 	failure    atomic.Pointer[error]
 	snapshot   []byte
 	snapshotOf []map[string]mixedDocument
+	ownerSteps atomic.Int64
+	chaosDue   chan struct{}
+}
+
+func (run *mixedRun) recordOwnerStep() {
+	if run.ownerSteps.Add(1)%mixedOwnerStepsPerChaosRound != 0 {
+		return
+	}
+	select {
+	case run.chaosDue <- struct{}{}:
+	default:
+	}
+}
+
+func (run *mixedRun) awaitChaosRound(round int, stop <-chan struct{}) bool {
+	for run.ownerSteps.Load() < int64(round+1)*mixedOwnerStepsPerChaosRound {
+		select {
+		case <-stop:
+			return false
+		case <-run.chaosDue:
+		}
+	}
+	return true
 }
 
 func (run *mixedRun) fail(err error) {
@@ -158,7 +181,7 @@ func (run *mixedRun) chaosStep(kind int) error {
 
 func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 	t.Parallel()
-	run := &mixedRun{ctx: context.Background(), directory: t.TempDir()}
+	run := &mixedRun{ctx: context.Background(), directory: t.TempDir(), chaosDue: make(chan struct{}, 1)}
 	for _, token := range mixedOwnerTokens {
 		run.owners = append(run.owners, &mixedOwner{token: token, live: map[string]mixedDocument{}})
 		run.versions = append(run.versions, make([]int, mixedSlotsPerOwner))
@@ -176,6 +199,7 @@ func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 			random := rand.New(rand.NewSource(int64(1_000 + position)))
 			for step := 0; step < mixedStepsPerOwner && !run.failed(); step++ {
 				run.fail(run.ownerStep(position, random))
+				run.recordOwnerStep()
 			}
 		}(position)
 	}
@@ -198,10 +222,8 @@ func TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact(t *testing.T) {
 	go func() {
 		defer background.Done()
 		for round := 0; !run.failed(); round++ {
-			select {
-			case <-stop:
+			if !run.awaitChaosRound(round, stop) {
 				return
-			case <-time.After(mixedChaosPause):
 			}
 			run.fail(run.chaosStep(round % mixedChaosKindCount))
 		}
