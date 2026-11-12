@@ -1,7 +1,10 @@
 const { execFileSync } = require('node:child_process')
-const { appendFileSync } = require('node:fs')
+const { appendFileSync, readFileSync, readdirSync } = require('node:fs')
+const { join } = require('node:path')
 
 const LIBRARY_PACKAGE = '@delali/narsil'
+const REACT_NATIVE_PACKAGE = '@delali/narsil-react-native'
+const PLATFORM_PACKAGES_DIRECTORY = join('packages', 'native', 'npm')
 const NEXT_DIST_TAG = 'next'
 const PRERELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-next\.(\d+))?$/
 
@@ -22,6 +25,15 @@ const isNewer = (candidate, current) => {
   return false
 }
 
+const packagesToPublish = () => [
+  LIBRARY_PACKAGE,
+  REACT_NATIVE_PACKAGE,
+  ...readdirSync(PLATFORM_PACKAGES_DIRECTORY).map(platform => {
+    const manifest = JSON.parse(readFileSync(join(PLATFORM_PACKAGES_DIRECTORY, platform, 'package.json'), 'utf8'))
+    return manifest.name
+  }),
+]
+
 const writeOutput = (key, value) => {
   console.log(`${key}=${value}`)
   const target = process.env.GITHUB_OUTPUT
@@ -36,22 +48,24 @@ const main = () => {
   }
   parse(candidate)
 
-  const current = execFileSync('npm', ['view', LIBRARY_PACKAGE, `dist-tags.${NEXT_DIST_TAG}`, '--prefer-online'], {
-    encoding: 'utf8',
-  }).trim()
-
-  if (current === '') {
-    console.log(`${LIBRARY_PACKAGE} has no ${NEXT_DIST_TAG} dist-tag yet, so ${candidate} takes it.`)
-    writeOutput('newest', 'true')
-    return
+  for (const packageName of packagesToPublish()) {
+    const tags = execFileSync('npm', ['dist-tag', 'ls', packageName, '--prefer-online'], {
+      encoding: 'utf8',
+    })
+    const current = tags
+      .split('\n')
+      .find(line => line.startsWith(`${NEXT_DIST_TAG}:`))
+      ?.slice(NEXT_DIST_TAG.length + 1)
+      .trim()
+    if (current === undefined || current === '') continue
+    if (isNewer(current, candidate)) {
+      console.log(`${packageName} has ${current} under ${NEXT_DIST_TAG}, newer than ${candidate}, so nothing is published.`)
+      writeOutput('newest', 'false')
+      return
+    }
   }
-  if (!isNewer(current, candidate)) {
-    console.log(`${candidate} is at least as new as ${current} under ${NEXT_DIST_TAG}, so publishing can continue.`)
-    writeOutput('newest', 'true')
-    return
-  }
-  console.log(`${NEXT_DIST_TAG} already holds ${current}, newer than ${candidate}, so nothing is published.`)
-  writeOutput('newest', 'false')
+  console.log(`${candidate} is at least as new as every ${NEXT_DIST_TAG} dist-tag, so publishing can continue.`)
+  writeOutput('newest', 'true')
 }
 
 main()
