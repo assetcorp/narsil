@@ -39,6 +39,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload the embedding adapters that the TypeScript suite imports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: narsil-embeddings-transformers-dist
+          path: packages/embeddings-transformers/dist
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Restore the pinned conformance dataset
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
