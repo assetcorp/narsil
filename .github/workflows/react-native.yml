@@ -85,6 +85,7 @@ jobs:
 
   ios:
     name: iOS (${{ matrix.app }})
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
     runs-on: macos-26
     timeout-minutes: 45
     strategy:

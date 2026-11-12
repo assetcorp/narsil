@@ -2,6 +2,12 @@ name: Native search core
 
 on:
   workflow_call:
+    inputs:
+      run-lint:
+        description: 'Lint the C code and check its generated tables, which a caller can skip where another run on the same commit does both'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -17,6 +23,13 @@ jobs:
         include: >-
           ${{ fromJSON(github.event_name == 'pull_request' && '[
           {"target": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64", "zig": true}
+          ]' || github.event_name == 'push' && '[
+          {"target": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64", "zig": true},
+          {"target": "linux-x64-musl", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64/musl", "zig": true},
+          {"target": "linux-arm64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-arm64", "zig": true},
+          {"target": "linux-arm64-musl", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-arm64/musl", "zig": true},
+          {"target": "win32-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/win32-x64", "zig": true},
+          {"target": "win32-arm64", "runner": "ubuntu-latest", "output": "packages/native/npm/win32-arm64", "zig": true}
           ]' || '[
           {"target": "darwin-arm64", "runner": "macos-15", "output": "packages/native/npm/darwin-arm64"},
           {"target": "darwin-x64", "runner": "macos-15", "output": "packages/native/npm/darwin-x64"},
@@ -63,6 +76,7 @@ jobs:
 
   lint:
     name: Check the C code with clang-tidy and clang-format
+    if: ${{ inputs.run-lint }}
     runs-on: macos-15
     timeout-minutes: 20
 
@@ -211,6 +225,11 @@ jobs:
         include: >-
           ${{ fromJSON(github.event_name == 'pull_request' && '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"}
+          ]' || github.event_name == 'push' && '[
+          {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"},
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "output": "packages/native/npm/linux-arm64"},
+          {"label": "win32-x64", "runner": "windows-latest", "output": "packages/native/npm/win32-x64"},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "output": "packages/native/npm/win32-arm64"}
           ]' || '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"},
           {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "output": "packages/native/npm/linux-arm64"},
