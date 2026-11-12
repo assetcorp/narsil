@@ -128,13 +128,9 @@ jobs:
           if-no-files-found: error
 
   lint:
-    name: Check the C code with clang-tidy and clang-format, part ${{ matrix.shard }} of 3
+    name: Check the C code with clang-tidy and clang-format
     runs-on: macos-15
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
 
     steps:
       - name: Checkout
@@ -152,11 +148,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Check part ${{ matrix.shard }} of every kernel path with clang-tidy, and the layout with clang-format in part 1
-        run: pnpm --filter @delali/narsil-native-build lint --shard=${{ matrix.shard }}/3
+      - name: Check every kernel path with clang-tidy and the layout with clang-format
+        run: pnpm --filter @delali/narsil-native-build lint
 
       - name: Check the C language data and Unicode tables match a fresh generation
-        if: matrix.shard == 1
         run: pnpm --filter @delali/narsil run native-analysis
 
   sanitised:
