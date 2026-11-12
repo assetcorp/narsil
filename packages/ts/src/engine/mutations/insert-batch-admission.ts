@@ -39,13 +39,19 @@ interface PendingInsert {
   refusedByHook: boolean
 }
 
-function pendingInsertOf(ctx: MutationContext, indexName: string, docId: string, document: AnyDocument): PendingInsert {
+function pendingInsertOf(
+  ctx: MutationContext,
+  indexName: string,
+  docId: string,
+  document: AnyDocument,
+  hooked: boolean,
+): PendingInsert {
   const pending: PendingInsert = {
     docId,
     preparation: { document, beforeWrite: null, failure: undefined },
     refusedByHook: false,
   }
-  if (ctx.pluginRegistry.hasHooks('beforeInsert')) {
+  if (hooked && ctx.pluginRegistry.hasHooks('beforeInsert')) {
     pending.preparation.beforeWrite = async () => {
       try {
         await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId, document })
@@ -65,6 +71,7 @@ export async function prepareInsertDocuments(
   start: number,
   end: number,
   hold: IndexHold | undefined,
+  hooked: boolean,
   failed: BatchResult['failed'],
 ): Promise<{ entry: ReturnType<MutationContext['requireIndex']>; candidates: InsertCandidate[] }> {
   const pending: PendingInsert[] = []
@@ -77,7 +84,7 @@ export async function prepareInsertDocuments(
       const sizing = requireDocumentObject(document)
       if (sizing !== null) await sizing
       validateDocId(docId)
-      pending.push(pendingInsertOf(ctx, indexName, docId, document))
+      pending.push(pendingInsertOf(ctx, indexName, docId, document, hooked))
     } catch (err) {
       failed.push({ docId, error: asBatchInsertError(err) })
     }
@@ -116,6 +123,7 @@ export async function admitBatchDocuments(
     0,
     documents.length,
     hold,
+    true,
     failed,
   )
   const manager = ctx.requireManager(indexName)

@@ -2,12 +2,23 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ErrorCodes } from '../../../errors'
+import { registerTokenizer } from '../../../analysis/registry'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import { createMemoryPersistence } from '../../../persistence/memory'
 import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../serialization/envelope'
 import type { PersistenceAdapter } from '../../../types/adapters'
 import type { Narsil } from '../../../types/engine'
+
+const DROPPING_TOKENIZER = 'index-lifecycle-dropping-tokenizer'
+
+function wordsOf(text: string): Array<{ token: string; position: number }> {
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(word => word.length > 0)
+    .map((token, position) => ({ token, position }))
+}
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let settle = (): void => undefined
@@ -287,7 +298,40 @@ describe('index lifecycle', () => {
     expect(engine.listIndexes()[0]).toEqual(expect.objectContaining({ state: 'open', reopenCount: 1 }))
   })
 
-  it('drains active work before deleting an index', async () => {
+  it('drains a durable write that holds the index before deleting it', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-index-lifecycle-'))
+    const current = await createNarsil({ durability: { directory }, lifecycle: {}, workers: { enabled: false } })
+    engine = current
+    const settled: string[] = []
+    let drop: Promise<void> | null = null
+    let armed = false
+    registerTokenizer(DROPPING_TOKENIZER, {
+      tokenize(text) {
+        if (armed && text.includes('chair')) {
+          armed = false
+          settled.push('drop started')
+          drop = current.dropIndex('products').then(() => {
+            settled.push('drop')
+          })
+        }
+        return wordsOf(text)
+      },
+    })
+    await current.createIndex('products', { schema: { title: 'string' }, tokenizer: DROPPING_TOKENIZER })
+    await current.insert('products', { title: 'Desk lamp' }, 'lamp')
+    armed = true
+
+    const docId = await current.insert('products', { title: 'Desk chair' }, 'chair')
+    settled.push('insert')
+    expect(drop).not.toBeNull()
+    await drop
+
+    expect(docId).toBe('chair')
+    expect(settled).toEqual(['drop started', 'insert', 'drop'])
+    expect(current.listIndexes()).toEqual([])
+  })
+
+  it('fails a query with INDEX_NOT_FOUND when the drop lands during its beforeSearch hook', async () => {
     directory = await mkdtemp(join(tmpdir(), 'narsil-index-lifecycle-'))
     const search = deferred()
     const gate = deferred()
@@ -308,18 +352,19 @@ describe('index lifecycle', () => {
     await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
 
     const query = engine.query('products', { term: 'lamp' })
+    const outcome = query.then(
+      result => ({ result, error: null }),
+      (error: unknown) => ({ result: null, error }),
+    )
     await search.promise
-    let dropSettled = false
-    const drop = engine.dropIndex('products').then(() => {
-      dropSettled = true
-    })
-    await Promise.resolve()
-
-    expect(dropSettled).toBe(false)
-    gate.resolve()
-    await expect(query).resolves.toEqual(expect.objectContaining({ count: 1 }))
-    await drop
+    await engine.dropIndex('products')
     expect(engine.listIndexes()).toEqual([])
+    gate.resolve()
+
+    const { result, error } = await outcome
+    expect(result).toBeNull()
+    expect(error).toBeInstanceOf(NarsilError)
+    expect(error).toMatchObject({ code: ErrorCodes.INDEX_NOT_FOUND, details: { indexName: 'products' } })
   })
 
   it('waits for an in-flight checkpoint before deleting durable files', async () => {
