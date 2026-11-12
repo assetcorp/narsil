@@ -31,7 +31,6 @@ jobs:
       go_engine: ${{ steps.areas.outputs.go_engine }}
       native_core: ${{ steps.areas.outputs.native_core }}
       clients: ${{ steps.areas.outputs.clients }}
-      react_native: ${{ steps.areas.outputs.react_native }}
       cluster: ${{ steps.areas.outputs.cluster }}
       vector_recall: ${{ steps.areas.outputs.vector_recall }}
       engine: ${{ steps.areas.outputs.engine }}
@@ -494,12 +493,6 @@ jobs:
     needs: [changes, engine]
     if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.clients == 'true') }}
     uses: ./.github/workflows/clients.yml
-
-  react-native:
-    name: React Native
-    needs: [changes, engine]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.react_native == 'true') }}
-    uses: ./.github/workflows/react-native.yml
 
   benchmarks-writeup:
     name: Benchmark writeup up to date
