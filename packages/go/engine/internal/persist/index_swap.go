@@ -50,13 +50,7 @@ func (durable *Durable) unlockLayout(partitions []*partitionLog) {
 }
 
 func (durable *Durable) newPartitionLog(partitionID int) *partitionLog {
-	log := &partitionLog{}
-	if durable.manager.logged() {
-		log.writer = writeahead.NewWriter(writeahead.Config{Directory: durable.manager.directory,
-			IndexName: durable.handle.Name, PartitionID: uint32(partitionID),
-			SegmentMaxBytes: durable.manager.settings.SegmentMaxBytes})
-	}
-	return log
+	return &partitionLog{writer: durable.manager.newLogWriter(durable.handle.Name, partitionID)}
 }
 
 func (durable *Durable) installLayout(swap IndexSwap) swappedLayout {

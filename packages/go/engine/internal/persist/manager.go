@@ -212,7 +212,8 @@ func (manager *Manager) checkpointAll(onlyDue bool) {
 		if len(durable.failedPartitionIDs()) > 0 || durable.closed.Load() {
 			continue
 		}
-		if err := durable.Checkpoint(context.Background()); err != nil && !durable.closed.Load() {
+		err := durable.Checkpoint(context.Background())
+		if err != nil && !durable.closed.Load() && narsilerr.CodeOf(err) != narsilerr.CodeInstanceShutDown {
 			manager.markFatal(err)
 		}
 	}
