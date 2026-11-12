@@ -13,23 +13,35 @@ function termOf(scope: PrimaryWriteScope) {
 
 export async function removeOutOfStepCopies(scope: PrimaryWriteScope, copies: string[]): Promise<void> {
   if (copies.length === 0) return
+  const removal = claimOutOfStepRemoval(scope)
+  if (removal === undefined) return
   try {
     await removeFailedReplicasFromInsync(termOf(scope), copies, scope.deps)
   } catch (error) {
-    if (!lostTerm(error)) retryOutOfStepRemoval(scope, copies)
+    if (!lostTerm(error) && !abandoned(scope, removal)) {
+      void keepRemoving(scope, copies, removal)
+        .catch(() => undefined)
+        .finally(() => releaseOutOfStepRemoval(scope, removal))
+      return
+    }
   }
+  releaseOutOfStepRemoval(scope, removal)
 }
 
-function retryOutOfStepRemoval(scope: PrimaryWriteScope, copies: string[]): void {
+function claimOutOfStepRemoval(scope: PrimaryWriteScope): OutOfStepRemoval | undefined {
   const { catchUp } = scope.deps
   const key = partitionKey(scope.indexName, scope.partitionId)
+  const current = catchUp.outOfStepRemovals.get(key)
+  if (current !== undefined && current.primaryTerm > scope.assignment.primaryTerm) return undefined
   const removal: OutOfStepRemoval = { primaryTerm: scope.assignment.primaryTerm }
   catchUp.outOfStepRemovals.set(key, removal)
-  void keepRemoving(scope, copies, removal)
-    .catch(() => undefined)
-    .finally(() => {
-      if (catchUp.outOfStepRemovals.get(key) === removal) catchUp.outOfStepRemovals.delete(key)
-    })
+  return removal
+}
+
+function releaseOutOfStepRemoval(scope: PrimaryWriteScope, removal: OutOfStepRemoval): void {
+  const { catchUp } = scope.deps
+  const key = partitionKey(scope.indexName, scope.partitionId)
+  if (catchUp.outOfStepRemovals.get(key) === removal) catchUp.outOfStepRemovals.delete(key)
 }
 
 function abandoned(scope: PrimaryWriteScope, removal: OutOfStepRemoval): boolean {
