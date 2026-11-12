@@ -241,6 +241,10 @@ export function entryForDocument(documentId: string): MessageRule {
   }
 }
 
+export function onLinksTo(nodeIds: readonly string[], rule: MessageRule): MessageRule {
+  return (to, message) => nodeIds.includes(to) && rule(to, message)
+}
+
 export type NodeOptions = Partial<ClusterNodeConfig> & { durable?: boolean; timeouts?: Partial<TransportConfig> }
 
 export interface TestCluster {

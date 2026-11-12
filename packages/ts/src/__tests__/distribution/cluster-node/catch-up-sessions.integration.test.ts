@@ -14,6 +14,7 @@ import {
   type InMemoryNetwork,
 } from '../../../distribution/transport/in-memory'
 import {
+  ClusterMessageTypes,
   type NodeTransport,
   ReplicationMessageTypes,
   type RespondFn,
@@ -44,7 +45,7 @@ const BERTH_NOTE = 'deep water berth with two cranes, a fuel dock, and a pilot s
 const ENTRY_TYPES = new Set<string>([ReplicationMessageTypes.ENTRY, ReplicationMessageTypes.ENTRY_BATCH])
 const INSYNC_TYPES = new Set<string>([ReplicationMessageTypes.INSYNC_ADD, ReplicationMessageTypes.INSYNC_REMOVE])
 
-type ReplicaMode = 'silent' | 'ack' | 'hold'
+type ReplicaMode = 'silent' | 'ack' | 'hold' | 'apply'
 
 interface ControllerEvent {
   type: string
@@ -158,7 +159,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
   let script = freshScript()
   const running: ClusterNode[] = []
   const inner = new Map<string, NodeTransport>()
-  let syncRequests = 0
+  let scriptedRequests = 0
 
   function replicaOf(): string {
     if (script.replica === null) throw new Error('no replica is scripted')
@@ -238,7 +239,9 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       },
       listen: handler =>
         transport.listen((message: TransportMessage, respond: RespondFn) => {
-          if (script.replica !== nodeId || !ENTRY_TYPES.has(message.type)) return handler(message, respond)
+          if (script.replica !== nodeId || !ENTRY_TYPES.has(message.type) || script.mode === 'apply') {
+            return handler(message, respond)
+          }
           return answerEntries(nodeId, message, respond)
         }),
     }
@@ -335,6 +338,21 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     return { router, primary: assignment.primary, replica: assignment.replica, term: assignment.primaryTerm }
   }
 
+  async function heldPartitionIds(asker: string, holder: string): Promise<unknown[]> {
+    const transport = inner.get(asker)
+    if (transport === undefined) throw new Error(`${asker} has no transport`)
+    scriptedRequests += 1
+    const reply = await transport.send(holder, {
+      type: ClusterMessageTypes.PARTITION_STORES,
+      sourceId: asker,
+      requestId: `partition-stores-${scriptedRequests}`,
+      payload: encode({ indexName: INDEX_NAME }),
+    })
+    const { partitionIds } = wireFieldsOf(reply)
+    if (!Array.isArray(partitionIds)) throw new Error(`${holder} answered without a list of partitions`)
+    return partitionIds
+  }
+
   async function dropFromInSyncSet(router: ClusterNode, replica: string): Promise<void> {
     script.replica = replica
     script.mode = 'silent'
@@ -348,14 +366,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     const replica = replicaOf()
     const transport = inner.get(replica)
     if (transport === undefined) throw new Error(`${replica} has no transport`)
-    syncRequests += 1
+    scriptedRequests += 1
     let syncSession: string | undefined
     await transport.stream(
       primary,
       {
         type: ReplicationMessageTypes.SYNC_REQUEST,
         sourceId: replica,
-        requestId: `scripted-sync-${syncRequests}`,
+        requestId: `scripted-sync-${scriptedRequests}`,
         payload: encode({ indexName: INDEX_NAME, partitionId: PARTITION_ID, lastSeqNo, lastPrimaryTerm }),
       },
       chunk => {
@@ -375,14 +393,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     const replica = replicaOf()
     const transport = inner.get(replica)
     if (transport === undefined) throw new Error(`${replica} has no transport`)
-    syncRequests += 1
+    scriptedRequests += 1
     let refusal: string | null = null
     await transport.stream(
       primary,
       {
         type: ReplicationMessageTypes.SYNC_REQUEST,
         sourceId: replica,
-        requestId: `scripted-sync-${syncRequests}`,
+        requestId: `scripted-sync-${scriptedRequests}`,
         payload: encode({
           indexName: INDEX_NAME,
           partitionId: PARTITION_ID,
@@ -848,9 +866,11 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     }
     const logEnd = BERTHS_BEFORE_RACE + 1
 
+    script.mode = 'ack'
     script.holdAdmission = true
     await syncAndReport(primary, logEnd, term)
     const releaseTimedOutAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    script.mode = 'silent'
 
     const missedWrite = await router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE }).then(
       () => 'acknowledged',
@@ -877,10 +897,12 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     }
     const logEnd = BERTHS_BEFORE_RACE + 1
 
+    script.mode = 'ack'
     script.holdAdmission = true
     script.dropRemovals = true
     await syncAndReport(primary, logEnd, term)
     const releaseUnansweredAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    script.mode = 'silent'
     await new Promise(resolve => setTimeout(resolve, ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS + CATCH_UP_TICK_MS))
 
     await router.cluster.setReplicationFactor(INDEX_NAME, 0)
@@ -905,5 +927,43 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       false,
     )
     expect(await inSyncSet()).not.toContain(replica)
+  }, 90_000)
+
+  it('asks again for a refused admission only once the replica acknowledges its position after the new version, so a replica that dropped its copy while unassigned stays out of the in-sync set', async () => {
+    const { router, primary, replica, term } = await startCluster()
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+
+    await router.cluster.setReplicationFactor(INDEX_NAME, 0)
+    await waitFor(
+      async () => ((await allocation()).assignments.get(PARTITION_ID)?.replicas.length === 0 ? true : null),
+      'the controller to unassign the replica',
+    )
+    await waitFor(
+      async () => ((await heldPartitionIds(primary, replica)).length === 0 ? true : null),
+      'the unassigned replica to drop its copy',
+    )
+
+    script.mode = 'apply'
+    await router.cluster.setReplicationFactor(INDEX_NAME, 1)
+    await waitFor(
+      async () => ((await allocation()).assignments.get(PARTITION_ID)?.replicas.includes(replica) ? true : null),
+      'the controller to assign the replica again',
+    )
+
+    script.heldAdmission = null
+    await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))
+    expect(await inSyncSet()).not.toContain(replica)
+    expect(await heldPartitionIds(primary, replica)).toEqual([])
   }, 90_000)
 })
