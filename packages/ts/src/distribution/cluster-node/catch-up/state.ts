@@ -317,8 +317,21 @@ export function markPendingAdmission(
   }
   pending.add(replicaNodeId)
   state.pendingAdmissions.set(key, pending)
-  state.removedReplicas.get(key)?.delete(replicaNodeId)
+  forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
   return true
+}
+
+export function forgetRemovedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const removed = state.removedReplicas.get(key)
+  if (removed === undefined) return
+  removed.delete(replicaNodeId)
+  if (removed.size === 0) state.removedReplicas.delete(key)
 }
 
 export function recordRemovedReplica(

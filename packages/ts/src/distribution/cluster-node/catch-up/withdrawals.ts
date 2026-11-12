@@ -35,7 +35,9 @@ async function withdrawAppliedAdmission(
     }
     forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
     forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
-    recordRemovedReplica(state, indexName, partitionId, replicaNodeId, owed.primaryTerm)
+    if (!getPendingAdmissions(state, indexName, partitionId).includes(replicaNodeId)) {
+      recordRemovedReplica(state, indexName, partitionId, replicaNodeId, owed.primaryTerm)
+    }
   } finally {
     owed.withdrawing = false
   }

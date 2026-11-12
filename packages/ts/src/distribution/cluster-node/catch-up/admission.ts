@@ -9,6 +9,7 @@ import {
   type CatchUpState,
   clearPendingAdmission,
   forgetAdmissionToWithdraw,
+  forgetRemovedReplica,
   markPendingAdmission,
   type ReplicaCursor,
   recordAdmissionToWithdraw,
@@ -171,6 +172,7 @@ export async function requestClaimedAdmission(
       recordAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId, assignment.primaryTerm)
     } else if (answer === 'accepted' && !outlived) {
       forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
+      forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
       recordAdmittedReplica(
         state,
         indexName,
