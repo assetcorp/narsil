@@ -236,7 +236,7 @@ async function pumpPartition(
   const indexName = key.slice(0, separator)
   const partitionId = Number(key.slice(separator + 1))
 
-  const generationAtLiveRead = deps.readLiveAllocation === undefined ? undefined : state.lastAdmissionGeneration
+  const generationAtLiveRead = state.lastAdmissionGeneration
   const table = await (deps.readLiveAllocation?.(indexName) ?? deps.coordinator.getAllocation(indexName))
   const assignment = table?.assignments.get(partitionId)
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
