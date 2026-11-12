@@ -13,10 +13,16 @@ export interface AdmittedReplica {
   tableVersion: number | null
 }
 
+export interface AdmissionToWithdraw {
+  primaryTerm: number
+  withdrawing: boolean
+}
+
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
   admittedReplicas: Map<string, Map<string, AdmittedReplica>>
+  admissionsToWithdraw: Map<string, Map<string, AdmissionToWithdraw>>
   acknowledgedSeqNos: Map<string, Map<string, number>>
   removedReplicas: Map<string, Map<string, number>>
   startedTerms: Map<string, number>
@@ -51,6 +57,7 @@ export function createCatchUpState(): CatchUpState {
     cursors: new Map(),
     pendingAdmissions: new Map(),
     admittedReplicas: new Map(),
+    admissionsToWithdraw: new Map(),
     acknowledgedSeqNos: new Map(),
     removedReplicas: new Map(),
     startedTerms: new Map(),
@@ -176,6 +183,7 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
   }
   forgetKeysOfIndex(state.pendingAdmissions, indexName)
   forgetKeysOfIndex(state.admittedReplicas, indexName)
+  forgetKeysOfIndex(state.admissionsToWithdraw, indexName)
   forgetKeysOfIndex(state.acknowledgedSeqNos, indexName)
   forgetKeysOfIndex(state.removedReplicas, indexName)
   forgetKeysOfIndex(state.startedTerms, indexName)
@@ -222,6 +230,32 @@ export function forgetAdmittedReplica(
   if (admitted === undefined) return
   admitted.delete(replicaNodeId)
   if (admitted.size === 0) state.admittedReplicas.delete(key)
+}
+
+export function recordAdmissionToWithdraw(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const owed = state.admissionsToWithdraw.get(key) ?? new Map<string, AdmissionToWithdraw>()
+  owed.set(replicaNodeId, { primaryTerm, withdrawing: false })
+  state.admissionsToWithdraw.set(key, owed)
+}
+
+export function forgetAdmissionToWithdraw(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const owed = state.admissionsToWithdraw.get(key)
+  if (owed === undefined) return
+  owed.delete(replicaNodeId)
+  if (owed.size === 0) state.admissionsToWithdraw.delete(key)
 }
 
 export function admittedBeyondTable(

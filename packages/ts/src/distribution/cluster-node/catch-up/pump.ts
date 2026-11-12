@@ -17,6 +17,7 @@ import {
   getPendingAdmissions,
   type ReplicaCursor,
 } from './state'
+import { withdrawAppliedAdmissions } from './withdrawals'
 
 function entryBytes(entry: ReplicationLogEntry): number {
   return (
@@ -241,7 +242,13 @@ async function pumpPartition(
     cancelFeeds(replicas)
     state.cursors.delete(key)
     state.pendingAdmissions.delete(key)
+    state.admissionsToWithdraw.delete(key)
     return
+  }
+  for (const withdrawal of withdrawAppliedAdmissions(state, deps, indexName, partitionId, assignment)) {
+    const work = withdrawal.finally(() => state.replicaWork.delete(work))
+    state.replicaWork.add(work)
+    started.push(work)
   }
 
   for (const [replicaNodeId, cursor] of [...replicas]) {
@@ -308,18 +315,20 @@ async function pumpPartition(
  * @returns A promise that settles once every feed that this tick started has finished.
  */
 export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Promise<void> {
-  if (state.stopped || state.activeTick !== null || state.cursors.size === 0) {
+  const idle = state.cursors.size === 0 && state.admissionsToWithdraw.size === 0
+  if (state.stopped || state.activeTick !== null || idle) {
     return state.activeTick ?? Promise.resolve()
   }
 
   const started: Promise<void>[] = []
   const tick = (async () => {
     const registered = await registeredNodes(deps)
-    for (const [key, replicas] of [...state.cursors]) {
+    for (const key of new Set([...state.cursors.keys(), ...state.admissionsToWithdraw.keys()])) {
       if (state.stopped) {
         return
       }
       try {
+        const replicas = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
         await pumpPartition(state, deps, key, replicas, started, registered)
       } catch (_) {}
     }

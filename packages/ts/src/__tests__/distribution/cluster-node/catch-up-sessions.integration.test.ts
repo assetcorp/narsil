@@ -11,6 +11,7 @@ import {
   createAckMessage,
   validateEntryBatchPayload,
   validateEntryPayload,
+  validateInsyncConfirmPayload,
 } from '../../../distribution/replication/codec'
 import {
   createInMemoryNetwork,
@@ -31,6 +32,7 @@ const INDEX_NAME = 'harbour-berths'
 const PARTITION_ID = 0
 const DATA_NODES = ['quay-north', 'quay-south']
 const REPLICATION_TIMEOUT_MS = 2_000
+const ADMISSION_REPLY_TIMEOUT_MS = 2_000
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
 const POLL_MS = 25
@@ -55,6 +57,7 @@ interface Script {
   heldAcks: (() => Promise<void>)[]
   holdAdmission: boolean
   heldAdmission: (() => Promise<void>) | null
+  heldAdmissionAccepted: boolean | null
   controllerEvents: ControllerEvent[]
 }
 
@@ -67,6 +70,7 @@ function freshScript(): Script {
     heldAcks: [],
     holdAdmission: false,
     heldAdmission: null,
+    heldAdmissionAccepted: null,
     controllerEvents: [],
   }
 }
@@ -123,8 +127,11 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await acknowledge()
   }
 
-  function dataNodeTransport(nodeId: string): NodeTransport {
-    const transport = createInMemoryTransport(nodeId, network, { replicationTimeout: REPLICATION_TIMEOUT_MS })
+  function dataNodeTransport(nodeId: string, requestTimeout?: number): NodeTransport {
+    const transport = createInMemoryTransport(nodeId, network, {
+      replicationTimeout: REPLICATION_TIMEOUT_MS,
+      ...(requestTimeout === undefined ? {} : { requestTimeout }),
+    })
     inner.set(nodeId, transport)
     return {
       ...transport,
@@ -159,7 +166,11 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
           script.controllerEvents.push({ type: message.type, appliedSeqNo })
           if (message.type === ReplicationMessageTypes.INSYNC_ADD && script.holdAdmission) {
             script.holdAdmission = false
-            script.heldAdmission = () => Promise.resolve(handler(message, respond))
+            const answerHeldAdmission: RespondFn = async response => {
+              script.heldAdmissionAccepted = validateInsyncConfirmPayload(decode(response.payload)).accepted
+              await respond(response)
+            }
+            script.heldAdmission = () => Promise.resolve(handler(message, answerHeldAdmission))
             return
           }
           return handler(message, respond)
@@ -177,14 +188,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     return (await allocation()).assignments.get(PARTITION_ID)?.inSyncSet ?? []
   }
 
-  async function startCluster(logRetentionBytes?: number) {
+  async function startCluster(logRetentionBytes?: number, requestTimeout?: number) {
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     root = await mkdtemp(join(tmpdir(), 'narsil-catch-up-sessions-'))
     for (const nodeId of DATA_NODES) {
       const node = await createClusterNode({
         coordinator,
-        transport: dataNodeTransport(nodeId),
+        transport: dataNodeTransport(nodeId, requestTimeout),
         address: `${nodeId}:9200`,
         nodeId,
         roles: ['data'],
@@ -351,5 +362,36 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       type: ReplicationMessageTypes.INSYNC_ADD,
       appliedSeqNo: logEnd,
     })
+  }, 90_000)
+
+  it('withdraws an admission whose answer never came once the controller applies it after the replica has asked for a snapshot', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, ADMISSION_REPLY_TIMEOUT_MS)
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await requestSync(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    await requestSync(primary, logEnd, term - 1)
+    await new Promise(resolve => setTimeout(resolve, ADMISSION_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
+
+    const eventsBefore = script.controllerEvents.length
+    script.heldAdmission = null
+    await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the released admission')).toBe(
+      true,
+    )
+    await waitFor(
+      () =>
+        script.controllerEvents.slice(eventsBefore).some(event => event.type === ReplicationMessageTypes.INSYNC_REMOVE)
+          ? true
+          : null,
+      'the primary to withdraw the admission that the controller applied after its answer timed out',
+    )
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
   }, 90_000)
 })
