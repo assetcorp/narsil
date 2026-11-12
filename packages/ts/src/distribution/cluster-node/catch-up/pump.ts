@@ -8,9 +8,9 @@ import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
+import { admittedBeyondTable } from './admitted'
 import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
 import {
-  admittedBeyondTable,
   type CatchUpState,
   clearPendingAdmission,
   forgetReplica,
