@@ -1,12 +1,14 @@
 pub(crate) mod adapter_registry;
 mod analysis_change;
 mod background_thread;
+mod callback_scope;
 pub(crate) mod changes;
 mod clear;
 mod constants;
 mod documents;
 pub(crate) mod durable;
 mod engine_config;
+pub(crate) mod event_hold;
 pub(crate) mod events;
 mod export;
 mod hooked;
@@ -29,6 +31,7 @@ mod rerank_settings;
 mod restore;
 mod segments;
 mod settings;
+mod shutdown_gate;
 mod stale_review;
 mod stats;
 mod suggest;
@@ -84,6 +87,7 @@ pub use query_suggestions::{
     RecordQueryOutcome, RecordQueryResult, RecordedQuery,
 };
 pub use reads::IndexInfo;
+use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
@@ -95,6 +99,7 @@ pub use writes::{BatchFailure, BatchResult};
 
 pub(crate) struct EngineInner {
     indexes: RwLock<BTreeMap<String, Arc<IndexState>>>,
+    shutdown_gate: ShutdownGate,
     pub(crate) names: NameTurns,
     pub(crate) analysis: AnalysisRegistry,
     pub(crate) adapters: Arc<AdapterRegistry>,
@@ -117,6 +122,15 @@ impl EngineInner {
             return Err(instance_shut_down());
         }
         Ok(())
+    }
+
+    pub(crate) fn admit_publication(&self) -> Result<Admission<'_>> {
+        let admitted = self
+            .shutdown_gate
+            .admit()
+            .ok_or_else(shut_down_before_publication)?;
+        self.guard_shutdown()?;
+        Ok(admitted)
     }
 
     pub(crate) fn durable(&self) -> bool {
@@ -213,6 +227,7 @@ impl Narsil {
         Narsil {
             inner: Arc::new_cyclic(|self_ref| EngineInner {
                 indexes: RwLock::new(BTreeMap::new()),
+                shutdown_gate: ShutdownGate::default(),
                 names: NameTurns::default(),
                 analysis: AnalysisRegistry::default(),
                 adapters: Arc::new(AdapterRegistry::with_rerank(settings.rerank)),
@@ -254,9 +269,9 @@ impl Narsil {
     /// Returns an engine that keeps its indexes as `config` says, after it recovers every index that the
     /// durability directory or the persistence adapter holds.
     ///
-    /// Fails with `CONFIG_INVALID` where the durability settings break a rule, with `PERSISTENCE_LOCK_HELD`
-    /// where another engine holds the directory, and with `PERSISTENCE_LOAD_FAILED` where a stored file is
-    /// damaged. Recovery fails with `CONFIG_INVALID` for an index whose stored settings give a tokenizer or a
+    /// Fails with `CONFIG_INVALID` where the durability settings break a rule or where another engine holds the
+    /// directory, with `PERSISTENCE_SAVE_FAILED` where the engine cannot create or lock the directory, and with
+    /// `PERSISTENCE_LOAD_FAILED` where a stored file is damaged. Recovery fails with `CONFIG_INVALID` for an index whose stored settings give a tokenizer or a
     /// stop word set by name, so open such a directory with [`Narsil::open_with`], which registers them first.
     pub fn open(config: NarsilConfig) -> Result<Narsil> {
         Narsil::open_with(config, |_| Ok(()))
@@ -314,23 +329,47 @@ impl Narsil {
         reads::list_indexes(&self.inner)
     }
 
-    /// Stops the engine, after which every call fails with `INSTANCE_SHUT_DOWN`.
+    /// Stops the engine, after which a call on an index fails with `INSTANCE_SHUT_DOWN`, `list_indexes` returns an
+    /// empty list, and a later `shutdown` returns `Ok`.
     ///
     /// A search that is still checking pattern tests, phrases, or a paged vector graph when shutdown begins stops
-    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. A durable engine first
-    /// flushes every log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where
-    /// that flush fails; the engine stops either way.
+    /// within the next 65,536 units of its work and fails with `INSTANCE_SHUT_DOWN` too. An index create, restore,
+    /// or reopen that is about to put its index in the engine finishes first, so that index closes with the others,
+    /// and one that reaches that step later fails with `INSTANCE_SHUT_DOWN`. A durable engine first flushes every
+    /// log to the disk and releases its directory, and fails with `PERSISTENCE_SAVE_FAILED` where that flush fails;
+    /// the engine stops either way. A call from another thread while a shutdown is under way returns once that
+    /// shutdown finishes. A call from an event listener or a plugin hook of this engine returns at once while
+    /// another shutdown is under way, because that shutdown can be waiting for the thread that runs the callback.
+    /// A call from inside a method of the engine's persistence adapter, or from a callback that an index create,
+    /// restore, or reopen runs while it puts its index in the engine, fails with `CONFIG_INVALID` and changes nothing
+    /// that a shutdown changes, because it would wait for the engine call that runs it to finish. A shutdown that
+    /// another thread began goes on, and finishes once that engine call does.
     pub fn shutdown(&self) -> Result<()> {
-        if self.inner.shut_down.load(Ordering::Acquire) {
-            return Ok(());
+        let inside_adapter_call = self
+            .inner
+            .durable
+            .as_ref()
+            .is_some_and(Durable::calling_adapter_on_current_thread);
+        if inside_adapter_call || self.inner.shutdown_gate.admitted_on_current_thread() {
+            return Err(NarsilError::new(
+                ErrorCode::CONFIG_INVALID,
+                "A callback asked the engine to shut down while the engine call that runs it waits to finish, so the engine refuses the call instead of waiting for itself",
+            ));
         }
+        let inside_callback = callback_scope::dispatching_on_current_thread(&self.inner.events)
+            || callback_scope::dispatching_on_current_thread(&self.inner.plugins);
+        let turn = self
+            .inner
+            .shutdown_gate
+            .turn(&self.inner.shut_down, inside_callback);
+        let Some(_turn) = turn else {
+            return Ok(());
+        };
         self.inner.search_limits.stop.stop_every_search();
         self.inner.suggestions.stop(&self.inner);
-        if self.inner.shut_down.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
+        self.inner.shut_down.store(true, Ordering::Release);
+        self.inner.shutdown_gate.await_admitted();
         self.inner.lifecycle.sweeper.stop();
-        self.inner.lifecycle.clear();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());
         for index in indexes.values() {
             let writer = index.write_lock();
@@ -338,6 +377,7 @@ impl Narsil {
             drop(writer);
             index.residency.finish_close();
         }
+        self.inner.lifecycle.clear();
         let closed = match &self.inner.durable {
             Some(durable) => durable.close(),
             None => Ok(()),
