@@ -1,5 +1,6 @@
 import type { ResolvedLimits } from '../deps'
 import { backupRoutes } from './backups'
+import { changesRoutes } from './changes'
 import { documentRoutes, searchRoutes } from './documents'
 import { indexRoutes } from './indexes'
 import { infoRoutes } from './info'
@@ -19,6 +20,7 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     ...maintenanceRoutes(shared),
     ...backupRoutes(shared),
     ...syncRoutes(shared),
+    ...changesRoutes(shared),
     ...querySuggestionRoutes(shared),
   ]
 }

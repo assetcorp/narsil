@@ -182,6 +182,40 @@ if exports {
 }
 ```
 
+## Following changes
+
+`UpdateChanges` and `GetChanges` turn [change capture](change-capture.md) on for an index and report its epoch. The module `github.com/assetcorp/narsil/packages/go/changes` follows the server's change feed, so the client module stays free of dependencies, while the subscriber module depends on the client and on `github.com/coder/websocket`.
+
+```bash
+go get github.com/assetcorp/narsil/packages/go/changes
+```
+
+```go
+subscription, err := changes.Follow(ctx, client, "orders", changes.Options{
+	Epoch: saved.Epoch, Positions: saved.Positions, Credential: token,
+})
+if err != nil {
+	return err
+}
+defer subscription.Close()
+for event, err := range subscription.All() {
+	if err != nil {
+		return err
+	}
+	if batch, ok := event.(*changes.Batch); ok {
+		apply(batch.Changes)
+		save(batch.PartitionID, batch.ScannedSeqNo)
+		if err := subscription.Ack([]changes.Position{{PartitionID: batch.PartitionID, SeqNo: batch.ScannedSeqNo}}); err != nil {
+			return err
+		}
+	}
+}
+```
+
+Leave `Epoch` and `Positions` empty to start at the index's current heads. Save each `ScannedSeqNo` once you have applied its changes, and acknowledge only saved positions, because the server pauses the feed while the changes that you have not acknowledged pass its window. After a `*changes.Resync`, take a document export of the index, replace your copy with its documents, and follow from the epoch and the positions in its header. `changes.CloseCode` returns the close code of the error that ends a subscription.
+
+A vector in a change arrives as `[]float32` where the engine stored it as packed floats, and as a `[]any` of numbers where it arrived as a JSON array, so read both forms. The subscription reads a binary value as a vector only at a path in `Subscribed.VectorFields`, and it returns every other binary value as `[]byte`.
+
 ## Every method
 
 A generator writes a method for every operation in [`packages/ts/openapi.json`](../packages/ts/openapi.json). Continuous integration regenerates the client and fails when the committed code differs, so the pull request that adds a route to the server also adds its method to the client. The [HTTP server guide](http-server.md) covers what each route does, and the [cluster guide](cluster.md) covers the routes that a cluster serves.

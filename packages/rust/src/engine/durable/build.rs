@@ -8,7 +8,7 @@ use crate::config::{
 use crate::engine::EngineInner;
 use crate::engine::changes::analysis::terms_are_stale;
 use crate::engine::index::IndexState;
-use crate::engine::lifecycle::{DEFAULT_LANGUAGE, initial_partition_count, resolved_analysis};
+use crate::engine::lifecycle::{DEFAULT_LANGUAGE, resolved_analysis};
 use crate::engine::query_suggestions::stored_state::SuggestionState;
 use crate::engine::synonyms::{SynonymSet, prepare_synonyms};
 use crate::engine::vectors::IndexVectors;
@@ -79,7 +79,7 @@ pub(crate) fn recovered_index(
         .map_err(|error| recovery_failure(name, error))?;
     let suggestions =
         SuggestionState::from_metadata(metadata).map_err(|error| recovery_failure(name, error))?;
-    let partition_count = initial_partition_count(&config);
+    let partition_count = usize::try_from(metadata.partition_count.max(1)).unwrap_or(usize::MAX);
     let index = IndexState::new(
         name.to_string(),
         config,

@@ -52,7 +52,9 @@ export function metadataPublishingAnalysis(
     ...(pending.tokenizer !== undefined ? { tokenizer: pending.tokenizer } : {}),
     ...(pending.stopWords !== undefined ? { stopWords: pending.stopWords } : {}),
     ...(pending.stopWordList !== undefined ? { stopWordList: pending.stopWordList } : {}),
-    ...(isRecord(rest.sync) && rest.sync.enabled === true ? { syncActive: false, syncEpoch: newSyncEpoch() } : {}),
+    ...((isRecord(rest.sync) && rest.sync.enabled === true) || (isRecord(rest.changes) && rest.changes.enabled === true)
+      ? { syncActive: false, syncEpoch: newSyncEpoch() }
+      : {}),
   })
 }
 

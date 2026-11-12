@@ -503,6 +503,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   sync:                  SyncMeta             (optional; the device sync setting)
   sync_active:           boolean              (optional; true once a device asks for the published snapshot)
   sync_epoch:            string               (optional; the index epoch, 32 lowercase hexadecimal digits)
+  changes:               ChangesMeta          (optional; the change capture setting)
   query_suggestions:     QuerySuggestionsMeta (optional; the popular query suggestions setting)
   banned_queries:        List<string>         (optional; the normalised phrases that the index bans from its suggestions)
   query_suggestions_source: QuerySuggestionsSourceMeta (optional; the marker of a suggestions index)
@@ -535,6 +536,13 @@ VectorPromotionMeta {
 
 SyncMeta {
   enabled:            boolean
+  history_max_age_ms: uint64   (optional)
+  history_max_bytes:  uint64   (optional)
+}
+
+ChangesMeta {
+  enabled:            boolean
+  previous_document:  boolean  (optional)
   history_max_age_ms: uint64   (optional)
   history_max_bytes:  uint64   (optional)
 }
@@ -607,6 +615,8 @@ The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), 
 
 The `sync`, `sync_active`, and `sync_epoch` fields record the index's [device sync](sync.md) state: the setting that [The Sync Setting](sync.md#the-sync-setting) defines, whether a device has asked for the [published snapshot](sync.md#published-snapshot), and the [epoch](sync.md#index-epoch). A reader must treat an absent `sync` as sync off and an absent `sync_active` as false.
 
+The `changes` field records the setting that [The Changes Setting](changes.md#the-changes-setting) defines, and a reader must treat an absent `changes` as change capture off. Device sync and change capture share one epoch, so `sync_epoch` holds the epoch of an index with either one on.
+
 The `query_suggestions` and `banned_queries` fields record the index's [popular query suggestions](query-suggestions.md) setting and ban list, and `query_suggestions_source` marks a [suggestions index](query-suggestions.md#the-suggestions-index) with the index and the group that it serves. A reader must treat an absent `query_suggestions` as the feature off, an absent `banned_queries` as an empty list, and an absent `query_suggestions_source` as an ordinary index, and it must reject any of them with `CONFIG_INVALID` where it breaks [query-suggestions.md](query-suggestions.md).
 
 ---
@@ -641,7 +651,7 @@ The payload is a MessagePack map:
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
   synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
-  syncEpoch:         string                       (optional; the index epoch where sync is on)
+  syncEpoch:         string                       (optional; the index epoch where sync or change capture is on)
   querySuggestions:  QuerySuggestionsSetting      (optional; see The Setting in query-suggestions.md)
   bannedQueries:     List<string>                 (optional; the normalised phrases that the index bans from its suggestions)
   querySuggestionsSource: { index: string, group: string }  (optional; the marker of a suggestions index)
@@ -669,7 +679,7 @@ EmbeddingSnapshotConfig {
 
 A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `textStorage`. A restore of a configuration that sets `disk` on an engine without filesystem durability raises `CONFIG_INVALID` too.
 
-The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting, so that an index that a caller restores from it serves no feed until the caller turns sync on, as [The Sync Setting](sync.md#the-sync-setting) defines.
+The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting and no `changes` setting, so that an index that a caller restores from it serves no feed until the caller turns sync or change capture on, as [The Sync Setting](sync.md#the-sync-setting) and [The Changes Setting](changes.md#the-changes-setting) define.
 
 The `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` fields hold the setting, the ban list, and the marker that [query-suggestions.md](query-suggestions.md) defines, and a writer leaves each one absent where the index has none.
 

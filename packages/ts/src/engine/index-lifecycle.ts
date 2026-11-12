@@ -174,6 +174,7 @@ export async function createEngineIndex(
     pendingAnalysis: null,
     durableAnalysis: null,
     sync: null,
+    changes: null,
     querySuggestions: creation.querySuggestions ?? null,
   })
   await core.indexState.registerOpen(name)
@@ -208,7 +209,8 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
     core.indexRegistry.delete(name)
     core.watermarkNotifier.forget(name)
     core.analysisRebuild.clearStale(name)
-    if (entry.sync !== null) emitSyncChange(core.indexRegistry, { kind: 'dropped', indexName: name })
+    if (entry.sync !== null || entry.changes !== null)
+      emitSyncChange(core.indexRegistry, { kind: 'dropped', indexName: name })
   })
   await core.querySuggestionHooks?.afterDrop(name)
   await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config: entry.config })

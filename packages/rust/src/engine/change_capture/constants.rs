@@ -1,0 +1,3 @@
+pub(crate) const MIN_DEFAULT_CHANGES_HISTORY_BYTES: u64 = 1_073_741_824;
+pub(crate) const CHANGE_READ_CHUNK_BYTES: usize = 1_048_576;
+pub(crate) const CHANGE_FOLLOW_INTERVAL_MS: u64 = 100;

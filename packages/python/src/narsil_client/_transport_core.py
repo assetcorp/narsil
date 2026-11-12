@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Final
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -16,7 +18,7 @@ from narsil_client._errors import (
     error_from_body,
     invalid_response,
 )
-from narsil_client._exchange import Exchange
+from narsil_client._exchange import Exchange, path_segment
 from narsil_client._failover import (
     UrlEntry,
     UrlPool,
@@ -66,6 +68,20 @@ def build_settings(
     )
 
 
+@dataclass(frozen=True)
+class SocketTarget:
+    url: str
+    headers: dict[str, str]
+    timeout_ms: int
+    open_timeout: float | None
+
+
+def socket_url_of(base: str, path: str) -> str:
+    parts = urlsplit(base)
+    scheme = "wss" if parts.scheme == "https" else "ws"
+    return urlunsplit((scheme, parts.netloc, parts.path.rstrip("/") + path, "", ""))
+
+
 @dataclass
 class Answered:
     status: int
@@ -105,6 +121,27 @@ class TransportCore:
         if exchange.max_response_bytes is not None:
             return read_whole(exchange.max_response_bytes, 0, "max_response_bytes", "bytes")
         return self.settings.max_response_bytes
+
+    def socket_target(self, index_name: str) -> SocketTarget:
+        order = self.pool.order(time.monotonic())
+        if not order:
+            raise NarsilError(CONFIG_INVALID, "The client holds no server address")
+        entry = order[0]
+        self.pool.took(entry)
+        timeout_ms = DEFAULT_TIMEOUT_MS if self.settings.timeout_ms is None else self.settings.timeout_ms
+        return SocketTarget(
+            url=socket_url_of(entry.base, f"/indexes/{path_segment(index_name)}/changes/feed"),
+            headers=dict(self.settings.headers),
+            timeout_ms=timeout_ms,
+            open_timeout=None if timeout_ms == NO_TIMEOUT else timeout_ms / 1000,
+        )
+
+    @staticmethod
+    def message_ceiling(value: int | None, fallback: int) -> int:
+        ceiling = read_whole(value, fallback, "max_message_bytes", "bytes")
+        if ceiling == 0:
+            raise NarsilError(CONFIG_INVALID, '"max_message_bytes" must be at least 1', {"max_message_bytes": 0})
+        return ceiling
 
     def headers_for(self, exchange: Exchange) -> httpx.Headers:
         headers = httpx.Headers(self.settings.headers)

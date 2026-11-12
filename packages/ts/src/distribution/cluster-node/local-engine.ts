@@ -14,11 +14,12 @@ import { emitEngineEvent } from '../../engine/events'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
+import { createDocumentTableGrowth } from '../../engine/memory/document-tables'
 import { vectorGrowthBytesOf, writeAnalysisOf } from '../../engine/memory/write-analysis'
 import { importOptionalReads } from '../../engine/optional-reads-code'
-import type { IndexSyncState } from '../../engine/registry-entry'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
-import { adoptIndexSyncState } from '../../engine/sync/adopt'
+import { adoptIndexEpochStates } from '../../engine/sync/adopt'
+import type { EpochStates } from '../../engine/sync/operations'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
@@ -70,8 +71,7 @@ export interface ClusterLocalEngine extends Narsil {
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   applyStoredBm25(indexName: string, load: () => { bm25: BM25Params | undefined } | null): Promise<boolean>
-  syncStateOf(indexName: string): IndexSyncState | null | undefined
-  adoptSyncState(indexName: string, state: IndexSyncState | null): Promise<boolean>
+  adoptEpochStates(indexName: string, states: EpochStates): Promise<boolean>
   syncStorage(): SyncStorage | null
   historyStorage(): HistoryStorage | null
   emitEvent<E extends keyof NarsilEventMap>(name: E, payload: NarsilEventMap[E]): number
@@ -90,6 +90,7 @@ export interface ClusterLocalEngine extends Narsil {
   admitWritesWith(admission: WriteAdmission): void
   writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
   vectorGrowthBytesOf(indexName: string, documents: number): number
+  documentTableGrowthBytesOf(indexName: string, documents: number, pendingDocuments: number): number
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   isolateCopyFailures(onFailed: PartitionFailureHandler): void
   emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
@@ -211,8 +212,7 @@ export async function createClusterLocalEngine(
       synonymModule().applyLoaded(core, indexName, load),
     applyStoredBm25: (indexName: string, load: () => { bm25: BM25Params | undefined } | null) =>
       applyStoredIndexBm25(core, indexName, load),
-    syncStateOf: (indexName: string) => core.indexRegistry.get(indexName)?.sync,
-    adoptSyncState: (indexName: string, state: IndexSyncState | null) => adoptIndexSyncState(core, indexName, state),
+    adoptEpochStates: (indexName: string, states: EpochStates) => adoptIndexEpochStates(core, indexName, states),
     syncStorage: () => core.durability?.manager.syncStorage?.() ?? null,
     historyStorage: () => core.durability?.manager.historyStorage?.() ?? null,
     emitEvent: <E extends keyof NarsilEventMap>(name: E, payload: NarsilEventMap[E]) =>
@@ -243,6 +243,9 @@ export async function createClusterLocalEngine(
     },
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     vectorGrowthBytesOf: (indexName: string, documents: number) => vectorGrowthBytesOf(core, indexName, documents),
+    documentTableGrowthBytesOf: createDocumentTableGrowth(core, (indexName, visit) =>
+      writeRecords.visitTableSizes(indexName, visit),
+    ),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
     isolateCopyFailures: (onFailed: PartitionFailureHandler) =>

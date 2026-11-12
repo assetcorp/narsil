@@ -78,6 +78,15 @@ export interface CapabilitiesResponse {
 }
 
 // @public
+export interface Change {
+    document?: AnyDocument;
+    documentId: string;
+    previousDocument?: AnyDocument;
+    seqNo: number;
+    type: ChangeType;
+}
+
+// @public
 export const CHANGE_ANALYSIS_CAPABILITY = "indexes.changeAnalysis";
 
 // @public
@@ -86,6 +95,82 @@ export interface ChangeAnalysisBody {
     stopWords?: string | string[] | null;
     tokenizer?: string | null;
 }
+
+// @public
+export interface ChangeFeedOptions extends FollowChangesOptions {
+    credential?: string;
+}
+
+// @public
+export interface ChangePosition {
+    partitionId: number;
+    seqNo: number;
+}
+
+// @public
+export interface ChangesBatch {
+    changes: Change[];
+    partitionId: number;
+    scannedSeqNo: number;
+    type: 'changes';
+}
+
+// @public
+export interface ChangesClientOperations {
+    followChanges(indexName: string, options?: ChangeFeedOptions): ChangeSubscription;
+    getChanges(indexName: string, options?: RequestOptions): Promise<ChangesStatus>;
+    updateChanges(indexName: string, setting: ChangesSetting, options?: RequestOptions): Promise<void>;
+}
+
+// @public
+export type ChangesEvent = ChangesSubscribed | ChangesBatch | ChangesResync;
+
+// @public
+export interface ChangesOperations {
+    followChanges(indexName: string, options?: FollowChangesOptions): AsyncIterable<ChangesEvent>;
+    getChanges(indexName: string): Promise<ChangesStatus>;
+    updateChanges(indexName: string, setting: ChangesSetting): Promise<void>;
+}
+
+// @public
+export interface ChangesResync {
+    reason: 'epoch' | 'history' | 'ahead';
+    type: 'resync';
+}
+
+// @public
+export interface ChangesSetting {
+    enabled: boolean;
+    historyMaxAgeMs?: number;
+    historyMaxBytes?: number;
+    previousDocument?: boolean;
+}
+
+// @public
+export interface ChangesStatus extends ChangesSetting {
+    epoch: string | null;
+    previousDocument: boolean;
+}
+
+// @public
+export interface ChangesSubscribed {
+    bytesBehind: number;
+    epoch: string;
+    heads: ChangePosition[];
+    partitionCount: number;
+    positions: ChangePosition[];
+    previousDocument: boolean;
+    type: 'subscribed';
+}
+
+// @public
+export interface ChangeSubscription extends AsyncIterable<ChangesEvent> {
+    ack(positions: ChangePosition[]): void;
+    close(): void;
+}
+
+// @public
+export type ChangeType = 'put' | 'insert' | 'update' | 'remove';
 
 // @public
 export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientErrorCodes];
@@ -177,6 +262,13 @@ export const ErrorCodes: {
     readonly SYNC_NOT_READY: "SYNC_NOT_READY";
     readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
     readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly CHANGES_DURABILITY_REQUIRED: "CHANGES_DURABILITY_REQUIRED";
+    readonly CHANGES_BACKUP_STORE_REQUIRED: "CHANGES_BACKUP_STORE_REQUIRED";
+    readonly CHANGES_NOT_READY: "CHANGES_NOT_READY";
+    readonly CHANGES_NOT_ENABLED: "CHANGES_NOT_ENABLED";
+    readonly CHANGES_PREVIOUS_DOCUMENT_REQUIRED: "CHANGES_PREVIOUS_DOCUMENT_REQUIRED";
+    readonly CHANGES_EXPORT_PREPARING: "CHANGES_EXPORT_PREPARING";
+    readonly CHANGES_INVALID_POSITIONS: "CHANGES_INVALID_POSITIONS";
     readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
@@ -285,6 +377,14 @@ export interface ErrorEnvelope {
 export type FetchFunction = (input: string, init: RequestInit) => Promise<Response>;
 
 // @public
+export interface FollowChangesOptions {
+    epoch?: string;
+    filter?: FilterExpression;
+    positions?: ChangePosition[];
+    signal?: AbortSignal;
+}
+
+// @public
 export interface HttpIndexConfig {
     bm25?: BM25Params;
     defaultScoring?: 'local' | 'dfs' | 'broadcast';
@@ -359,7 +459,7 @@ export interface MemoryStatsResponse extends MemoryStats {
 }
 
 // @public
-export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations, SyncSettingOperations, QuerySuggestionOperations {
+export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations, SyncSettingOperations, ChangesClientOperations, QuerySuggestionOperations {
 }
 
 // @public

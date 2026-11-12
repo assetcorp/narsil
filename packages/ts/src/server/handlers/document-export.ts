@@ -1,9 +1,10 @@
 import { createReadStream } from 'node:fs'
+import { ErrorCodes } from '../../errors'
 import type { DocumentImportResult } from '../../types/results'
 import { DOCUMENT_EXPORT_CONTENT_TYPE } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes } from '../errors'
-import { respondError, respondJson } from '../handler-utils'
+import { respondError, respondJson, respondPreparingError } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendError, sendStream } from '../response'
 import type { ImportResult } from '../types'
@@ -30,7 +31,7 @@ export function createDocumentExportHandlers(deps: HandlerDeps) {
       }
       await sendStream(ctx.res, ctx.abort, lines, [['Content-Type', DOCUMENT_EXPORT_CONTENT_TYPE]])
     } catch (err) {
-      respondError(ctx, err)
+      respondPreparingError(ctx, err, ErrorCodes.CHANGES_EXPORT_PREPARING)
     }
   }
 

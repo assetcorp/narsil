@@ -244,6 +244,9 @@ func readChecked(record map[string]any, meta *Metadata) error {
 	if err := readSync(record, meta); err != nil {
 		return err
 	}
+	if err := readChanges(record, meta); err != nil {
+		return err
+	}
 	state, err := is.ReadQuerySuggestionsState(record, is.Snake)
 	if err != nil {
 		return err

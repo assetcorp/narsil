@@ -213,12 +213,41 @@ fn require_json_values(value: &Value, path: &str, doc_id: &str, tagged: bool) ->
     }
 }
 
-/// Writes the header line of an export, ended by a line feed.
-pub(crate) fn header_line(configuration: &Map) -> Result<String> {
-    let mut header = Map::with_capacity(3);
+/// The change capture epoch of an index and the checkpoint's last sequence number in each partition, in partition
+/// order, which the header of an export of an index with capture on holds.
+pub(crate) struct ExportPositions {
+    pub(crate) epoch: String,
+    pub(crate) positions: Vec<(u32, u64)>,
+}
+
+fn positions_value(positions: &[(u32, u64)]) -> Value {
+    Value::Array(
+        positions
+            .iter()
+            .map(|(partition_id, seq_no)| {
+                let mut position = Map::with_capacity(2);
+                position.insert("partitionId", Value::Number(f64::from(*partition_id)));
+                position.insert("seqNo", Value::Number(*seq_no as f64));
+                Value::Object(position)
+            })
+            .collect(),
+    )
+}
+
+/// Writes the header line of an export, ended by a line feed, with the epoch and the positions after the index
+/// configuration where the index has change capture on.
+pub(crate) fn header_line(
+    configuration: &Map,
+    capture: Option<&ExportPositions>,
+) -> Result<String> {
+    let mut header = Map::with_capacity(5);
     header.insert("format", Value::String(DOCUMENT_EXPORT_FORMAT.to_string()));
     header.insert("version", Value::Number(DOCUMENT_EXPORT_VERSION));
     header.insert("index", Value::Object(configuration.clone()));
+    if let Some(capture) = capture {
+        header.insert("epoch", Value::String(capture.epoch.clone()));
+        header.insert("positions", positions_value(&capture.positions));
+    }
     let header = Value::Object(header);
     require_json_values(&header, "", "", false)?;
     let mut line = String::new();

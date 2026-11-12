@@ -32,6 +32,7 @@ type Durable struct {
 	heldFiles            atomic.Int32
 	closed               atomic.Bool
 	stall                writeStall
+	heads                Signal
 }
 
 func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {
@@ -39,29 +40,33 @@ func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {
 	count := handle.Index.PartitionCount()
 	durable.partitions = make([]*partitionLog, count)
 	for partitionID := range durable.partitions {
-		log := &partitionLog{}
+		log := durable.newPartitionLog(partitionID)
 		if partitionID < len(applied) {
 			log.applied = applied[partitionID]
 		}
-		log.writer = manager.newLogWriter(handle.Name, partitionID)
 		durable.partitions[partitionID] = log
 	}
 	return durable
 }
 
-func (manager *Manager) newLogWriter(name string, partitionID int) *writeahead.Writer {
-	if !manager.logged() {
+func (durable *Durable) newLogWriter(partitionID int) *writeahead.Writer {
+	if !durable.manager.logged() {
 		return nil
 	}
-	return writeahead.NewWriter(writeahead.Config{Directory: manager.directory, IndexName: name,
-		PartitionID: uint32(partitionID), SegmentMaxBytes: manager.settings.SegmentMaxBytes})
+	return writeahead.NewWriter(writeahead.Config{Directory: durable.manager.directory,
+		IndexName: durable.handle.Name, PartitionID: uint32(partitionID),
+		SegmentMaxBytes: durable.manager.settings.SegmentMaxBytes,
+		SegmentVersion: func() uint8 {
+			return wal.VersionFor(durable.handle.recordsPreviousDocuments())
+		},
+		Durable: durable.heads.Notify})
 }
 
 func (durable *Durable) reopen() {
 	durable.lockLayout()
 	defer durable.unlockLayout(durable.partitions)
 	for partitionID, log := range durable.partitions {
-		log.writer = durable.manager.newLogWriter(durable.handle.Name, partitionID)
+		log.writer = durable.newLogWriter(partitionID)
 	}
 	durable.closed.Store(false)
 }
@@ -183,6 +188,13 @@ func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, part
 	if log.failed != nil {
 		return nil, 0, log.failed
 	}
+	var held heldDocuments
+	if log.writer != nil && durable.handle.recordsPreviousDocuments() {
+		var err error
+		if held, err = durable.handle.documentsBefore(ctx, group); err != nil {
+			return nil, 0, err
+		}
+	}
 	outcomes, err := durable.handle.apply(ctx, group)
 	if err != nil {
 		return nil, 0, err
@@ -197,11 +209,11 @@ func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, part
 		if log.writer == nil {
 			continue
 		}
-		entry, err := entryFor(write, durable.handle.Name, uint32(partitionID), log.applied)
+		entry, err := entryFor(write, durable.handle.Name, uint32(partitionID), log.applied, held)
 		if err != nil {
 			return nil, 0, durable.failPartition(log, err)
 		}
-		documentBytes += int64(len(entry.Document))
+		documentBytes += int64(len(entry.Document) + len(entry.PreviousDocument))
 		entries = append(entries, entry)
 	}
 	if log.writer != nil && len(entries) > 0 {

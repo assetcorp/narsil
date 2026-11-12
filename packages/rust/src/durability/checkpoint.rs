@@ -16,7 +16,7 @@ use super::log_writer::PartitionLog;
 use super::platform::now_ms;
 use super::store::DurabilityStore;
 use super::store_inner::StoreInner;
-use super::sync_files::{history_key, keeps_sync_history};
+use super::sync_files::history_key;
 
 pub(crate) struct CheckpointWriter<'a> {
     inner: &'a StoreInner,
@@ -176,7 +176,7 @@ impl CheckpointWriter<'_> {
             self.inner
                 .guard(self.files.write_metadata(&packed.metadata))?;
         }
-        let moved_at_ms = keeps_sync_history(metadata).then(now_ms);
+        let moved_at_ms = metadata.keeps_history().then(now_ms);
         let outcome =
             truncate_covered_segments(self.inner, &index_name, &manifest.checkpoint, moved_at_ms)
                 .and_then(|moved| {

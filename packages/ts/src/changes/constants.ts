@@ -1,0 +1,2 @@
+export const CHANGES_IDLE_RECHECK_MS = 1_000
+export const MAX_FOLLOWER_CATCH_UPS = 4

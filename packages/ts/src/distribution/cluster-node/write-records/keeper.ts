@@ -1,4 +1,5 @@
 import type { FrozenSegment } from '../../../core/partition/frozen'
+import { noteDocumentChurn } from '../../../engine/memory/document-churn'
 import type { PartitionCheckpoint } from '../../../persistence/durability/partition-checkpoint'
 import type { TermStart, WriteRecordKeeper } from '../../../persistence/durability/types'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
@@ -17,6 +18,7 @@ export interface ClusterWriteRecords extends WriteRecordKeeper {
   applied(entry: ReplicationLogEntry): void
   recordOf(indexName: string, partitionId: number, documentId: string): WriteRecord | null
   partition(indexName: string, partitionId: number): PartitionWriteRecords
+  visitTableSizes(indexName: string, visit: (partitionId: number, entries: number) => void): void
   adoptPartition(indexName: string, partitionId: number, records: PartitionWriteRecords): void
   heldEntry(indexName: string, partitionId: number, seqNo: number, primaryTerm: number): HeldEntry
 }
@@ -45,8 +47,10 @@ export function createClusterWriteRecords(): ClusterWriteRecords {
 
   function applied(entry: ReplicationLogEntry): void {
     const held = partition(entry.indexName, entry.partitionId)
+    const heldBefore = held.table.count
     if (entry.operation === 'INDEX') held.table.set(entry.documentId, entry.seqNo, entry.primaryTerm)
     else held.table.remove(entry.documentId)
+    if (entry.operation !== 'INDEX' || held.table.count === heldBefore) noteDocumentChurn(entry.indexName, 1)
     held.history.noteEntry(entry.seqNo, entry.primaryTerm)
   }
 
@@ -85,6 +89,11 @@ export function createClusterWriteRecords(): ClusterWriteRecords {
     applied,
     replayed: applied,
     partition,
+    visitTableSizes(indexName, visit) {
+      const partitions = indexes.get(indexName)
+      if (partitions === undefined) return
+      for (const [partitionId, held] of partitions) visit(partitionId, held.table.count)
+    },
     adoptPartition(indexName, partitionId, records) {
       Object.assign(partition(indexName, partitionId), records)
     },

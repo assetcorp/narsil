@@ -367,5 +367,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     growthBytesFor(vectors: number): number {
       return state.open === null ? 0 : growthBytesFor(state.open, vectors)
     },
+
+    visitDocumentTables(visit) {
+      visit('documents', docToOrd.size, true)
+    },
   }
 }

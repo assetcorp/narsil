@@ -72,9 +72,7 @@ export function createDurabilityManager(
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
-  const registry = createPartitionRegistry(directory, segmentMaxBytes, indexName =>
-    hooks.linkStoredSizes(indexName, sizes.hold(indexName)),
-  )
+  const registry = createPartitionRegistry(directory, segmentMaxBytes, hooks, sizes)
   const indexes = registry.indexes
   const getOrCreateIndexState = registry.indexState
   const getOrCreatePartition = registry.partition

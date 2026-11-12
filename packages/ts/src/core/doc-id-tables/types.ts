@@ -1,3 +1,11 @@
+export type DocumentTableVisit = (table: string, entries: number, followsRemoves: boolean) => void
+
+export interface ShardEntryRange {
+  shards: number
+  smallest: number
+  largest: number
+}
+
 export interface DocIdMap<V> extends Iterable<[string, V]> {
   readonly size: number
   get(docId: string): V | undefined

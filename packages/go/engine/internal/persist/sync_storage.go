@@ -13,16 +13,17 @@ type SnapshotConfiguration func(listed manifest.Manifest) ([]byte, error)
 
 func (handle *Handle) syncHistoryActive() bool {
 	meta, err := handle.metadata(0)
-	if err != nil {
-		return false
-	}
-	active, _ := meta.SyncActive.Get()
-	return meta.Sync != nil && meta.Sync.Enabled && active
+	return err == nil && meta.SyncHistoryActive()
+}
+
+func (handle *Handle) keepsHistory() bool {
+	meta, err := handle.metadata(0)
+	return err == nil && meta.KeepsHistory()
 }
 
 func (durable *Durable) truncateCovered(seqNos []uint64) error {
 	directory, name := durable.manager.directory, durable.handle.Name
-	keepsHistory := durable.handle.syncHistoryActive()
+	keepsHistory := durable.handle.keepsHistory()
 	movedAtMs := uint64(time.Now().UnixMilli())
 	for partitionID, seqNo := range seqNos {
 		retire := func(segment writeahead.SegmentRef) error { return directory.Remove(segment.Key) }
@@ -93,6 +94,9 @@ func (manager *Manager) settleSyncAtRecovery(handle *Handle) (map[string]struct{
 		if err := directory.Remove(publishedKey); err != nil {
 			return nil, err
 		}
+		if handle.keepsHistory() {
+			return nil, nil
+		}
 		return nil, removeHistory(directory, name)
 	}
 	published, err := readPublishedSnapshot(directory, name)
@@ -134,7 +138,7 @@ func (durable *Durable) removeUnlisted(ctx context.Context, previous map[string]
 	return nil
 }
 
-func (durable *Durable) ReleaseSync(ctx context.Context) error {
+func (durable *Durable) ReleaseSync(ctx context.Context, keepHistory bool) error {
 	directory := durable.manager.directory
 	if directory == nil {
 		return ctx.Err()
@@ -150,6 +154,9 @@ func (durable *Durable) ReleaseSync(ctx context.Context) error {
 		if err := durable.removeUnlisted(ctx, previous.Keys, nil); err != nil {
 			return err
 		}
+	}
+	if keepHistory {
+		return nil
 	}
 	return removeHistory(directory, name)
 }

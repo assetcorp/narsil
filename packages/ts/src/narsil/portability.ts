@@ -1,5 +1,6 @@
 import type { EngineCore } from '../engine/core'
 import { announceIndexCreated, announceIndexDropped } from '../engine/index-lifecycle'
+import { withOpenIndex } from '../engine/serial-index-update'
 import type { SnapshotDeps } from '../engine/snapshot'
 import { validateIndexName } from '../engine/validation'
 import { getVectorFieldPaths } from '../engine/vector-fields'
@@ -20,17 +21,6 @@ export function portabilityOperations(
   config: NarsilConfig | undefined,
   engine: () => Narsil,
 ): PortabilityOperations {
-  async function withOpenIndex<T>(indexName: string, action: () => Promise<T>): Promise<T> {
-    core.guardShutdown()
-    core.requireIndex(indexName)
-    const release = await core.indexState.acquire(indexName)
-    try {
-      return await action()
-    } finally {
-      release()
-    }
-  }
-
   function queueRestore(indexName: string, data: ByteSource): Promise<void> {
     const { restoresInFlight } = core
     const previous = restoresInFlight.get(indexName) ?? Promise.resolve()
@@ -68,7 +58,7 @@ export function portabilityOperations(
 
   return {
     snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>> {
-      return withOpenIndex(indexName, async () => {
+      return withOpenIndex(core, indexName, async () => {
         const { createSnapshot } = await loadStorageCode()
         return createSnapshot(snapshotDepsOf(indexName), options?.queryHistory === true ? core : null)
       })
@@ -82,10 +72,9 @@ export function portabilityOperations(
     },
 
     exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>> {
-      return withOpenIndex(indexName, async () => {
-        const { checkpointForArchive, documentExportStream, indexConfigurationOf } = await loadStorageCode()
-        const header = indexConfigurationOf(core.requireIndex(indexName))
-        return documentExportStream(header, await checkpointForArchive(snapshotDepsOf(indexName)))
+      return withOpenIndex(core, indexName, async () => {
+        const { openDocumentExport } = await loadStorageCode()
+        return openDocumentExport(core, snapshotDepsOf(indexName))
       })
     },
 

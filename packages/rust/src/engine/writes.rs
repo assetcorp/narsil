@@ -162,7 +162,10 @@ fn apply_insert(
         partition.write(|snapshot| snapshot.append(id.to_string(), stored, indexed, &freeze))
     });
     match appended {
-        Ok(()) => log.record_index(routed as u32, id, encoded),
+        Ok(()) => {
+            let previous = log.inserted_previous();
+            log.record_index(routed as u32, id, encoded, previous);
+        }
         Err(_) => {
             let _ = index.vectors.remove_vectors(id);
         }
@@ -222,6 +225,7 @@ fn apply_update(
     };
     validated(index, &document)?;
     let encoded = log.encode(&document)?;
+    let previous = log.previous_of(index, id)?;
     let vectors = index.vectors.take_vectors(&mut document, true);
     let indexed = index.index_document(&document)?;
     index.changes.track_write(id)?;
@@ -239,7 +243,12 @@ fn apply_update(
         )
     });
     match replaced {
-        Ok(()) => log.record_index(index.route(id, partitions.len()) as u32, id, encoded),
+        Ok(()) => log.record_index(
+            index.route(id, partitions.len()) as u32,
+            id,
+            encoded,
+            previous,
+        ),
         Err(_) => index.vectors.undo(id, undo),
     }
     replaced
@@ -302,6 +311,7 @@ pub(crate) fn apply_remove(
         return Err(index.not_found(id));
     };
     let analyse = |document: &Map| index.index_document(document);
+    let previous = log.previous_of(index, id)?;
     index.changes.track_write(id)?;
     let undo = index.vectors.remove_document_vectors(id)?;
     let removed =
@@ -312,7 +322,7 @@ pub(crate) fn apply_remove(
             },
         );
     match removed {
-        Ok(()) => log.record_delete(index.route(id, partitions.len()) as u32, id),
+        Ok(()) => log.record_delete(index.route(id, partitions.len()) as u32, id, previous),
         Err(_) => index.vectors.undo(id, undo),
     }
     removed

@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	SegmentHeaderBytes = 8
-	FormatVersion      = 1
+	SegmentHeaderBytes                 = 8
+	FormatVersion                      = 1
+	FormatVersionWithPreviousDocuments = 2
+	HighestFormatVersion               = FormatVersionWithPreviousDocuments
 
 	magicText           = "NRSW"
 	formatVersionOffset = 4
@@ -19,8 +21,19 @@ const (
 )
 
 func AppendSegmentHeader(destination []byte) []byte {
+	return AppendSegmentHeaderOfVersion(destination, FormatVersion)
+}
+
+func AppendSegmentHeaderOfVersion(destination []byte, version uint8) []byte {
 	destination = append(destination, magicText...)
-	return append(destination, FormatVersion, 0, 0, 0)
+	return append(destination, version, 0, 0, 0)
+}
+
+func VersionFor(holdsPreviousDocuments bool) uint8 {
+	if holdsPreviousDocuments {
+		return FormatVersionWithPreviousDocuments
+	}
+	return FormatVersion
 }
 
 func CheckSegmentHeader(data []byte) (uint8, error) {
@@ -33,13 +46,43 @@ func CheckSegmentHeader(data []byte) (uint8, error) {
 			"The log segment does not start with the NRSW magic bytes", nil)
 	}
 	version := data[formatVersionOffset]
-	if version > FormatVersion {
+	if version > HighestFormatVersion {
 		return 0, narsilerr.New(narsilerr.CodeEnvelopeVersionMismatch,
 			"The log segment holds format version "+strconv.Itoa(int(version))+
-				", while this build reads up to version "+strconv.Itoa(FormatVersion)+
-				", so a newer release wrote it", map[string]any{"version": version, "maximum": FormatVersion})
+				", while this build reads up to version "+strconv.Itoa(HighestFormatVersion)+
+				", so a newer release wrote it", map[string]any{"version": version, "maximum": HighestFormatVersion})
 	}
 	return version, nil
+}
+
+type FrameRead struct {
+	Entry  Entry
+	End    int
+	Needed int
+}
+
+func ReadFrameAt(data []byte, offset int) (FrameRead, error) {
+	if offset+recordLengthBytes > len(data) {
+		return FrameRead{Needed: recordLengthBytes}, nil
+	}
+	length := int64(binary.BigEndian.Uint32(data[offset:]))
+	if length == 0 || length > MaxRecordBytes {
+		return FrameRead{}, corrupt(durableProblemMessages[frameLengthInvalid], map[string]any{"offset": offset})
+	}
+	whole := recordLengthBytes + int(length) + frameCRCBytes
+	if offset+whole > len(data) {
+		return FrameRead{Needed: whole}, nil
+	}
+	record, problem := frameAt(data, offset, len(data))
+	if problem != frameComplete {
+		return FrameRead{}, corrupt(durableProblemMessages[problem], map[string]any{"offset": offset})
+	}
+	entry, err := DecodeEntry(record.payload, narsilerr.CodePersistenceWalCorrupt)
+	if err != nil {
+		return FrameRead{}, narsilerr.Wrap(narsilerr.CodePersistenceWalCorrupt,
+			"A log record payload fails to decode", err, map[string]any{"offset": offset})
+	}
+	return FrameRead{Entry: entry, End: record.end}, nil
 }
 
 type frame struct {

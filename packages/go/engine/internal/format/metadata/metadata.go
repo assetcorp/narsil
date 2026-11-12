@@ -30,6 +30,13 @@ type SyncSetting struct {
 	HistoryMaxBytes model.Optional[uint64]
 }
 
+type ChangesSetting struct {
+	Enabled          bool
+	PreviousDocument model.Optional[bool]
+	HistoryMaxAgeMS  model.Optional[uint64]
+	HistoryMaxBytes  model.Optional[uint64]
+}
+
 type Metadata struct {
 	IndexName           string
 	Schema              map[string]string
@@ -65,7 +72,21 @@ type Metadata struct {
 	Sync                *SyncSetting
 	SyncActive          model.Optional[bool]
 	SyncEpoch           model.Optional[string]
+	Changes             *ChangesSetting
 	QuerySuggestions    indexsettings.QuerySuggestionsState
+}
+
+func (meta Metadata) SyncHistoryActive() bool {
+	active, _ := meta.SyncActive.Get()
+	return meta.Sync != nil && meta.Sync.Enabled && active
+}
+
+func (meta Metadata) ChangesEnabled() bool {
+	return meta.Changes != nil && meta.Changes.Enabled
+}
+
+func (meta Metadata) KeepsHistory() bool {
+	return meta.SyncHistoryActive() || meta.ChangesEnabled()
 }
 
 const syncEpochLength = 32

@@ -1,0 +1,115 @@
+{
+  "header": {
+    "envelopeFormatVersion": 4,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "v": 1,
+    "schema": {
+      "title": "string",
+      "body": "string",
+      "pinned": "boolean",
+      "embedding": "vector[8]"
+    },
+    "tombstones": [],
+    "documentCount": 6,
+    "ids": ["note-000", "note-001", "note-002", "note-003", "note-004", "note-005"],
+    "idOrder": [0, 1, 2, 3, 4, 5],
+    "documents": [
+      {
+        "id": "note-000",
+        "title": "Note 0 about the hammer",
+        "body": "Remember that the sturdy kettle goes back on shelf 0.",
+        "pinned": true
+      },
+      {
+        "id": "note-001",
+        "title": "Note 1 about the kettle",
+        "body": "Remember that the folding trowel goes back on shelf 1.",
+        "pinned": false
+      },
+      {
+        "id": "note-002",
+        "title": "Note 2 about the trowel",
+        "body": "Remember that the enamelled ladder goes back on shelf 2.",
+        "pinned": false
+      },
+      {
+        "id": "note-003",
+        "title": "Note 3 about the ladder",
+        "body": "Remember that the cordless saucepan goes back on shelf 3.",
+        "pinned": false
+      },
+      {
+        "id": "note-004",
+        "title": "Note 4 about the saucepan",
+        "body": "Remember that the running shears goes back on shelf 4.",
+        "pinned": true
+      },
+      {
+        "id": "note-005",
+        "title": "Note 5 about the shears",
+        "body": "Remember that the polished lantern goes back on shelf 5.",
+        "pinned": false
+      }
+    ],
+    "fieldNames": ["title", "body"],
+    "tokens": ["0", "1", "2", "3", "4", "5", "back", "cordless", "enamel", "fold", "goe", "hammer", "kettl", "ladder", "lantern", "note", "polish", "rememb", "run", "saucepan", "shear", "shelf", "sturdi", "trowel"],
+    "documentFrequencies": [1, 1, 1, 1, 1, 1, 6, 1, 1, 1, 6, 1, 2, 2, 1, 6, 1, 6, 1, 2, 2, 6, 1, 2],
+    "postingOffsets": [0, 2, 4, 6, 8, 10, 12, 18, 19, 20, 21, 27, 28, 30, 32, 33, 39, 40, 46, 47, 49, 51, 57, 58, 60],
+    "postingDocuments": [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 0, 1, 2, 3, 4, 5, 3, 2, 1, 0, 1, 2, 3, 4, 5, 0, 0, 1, 2, 3, 5, 0, 1, 2, 3, 4, 5, 5, 0, 1, 2, 3, 4, 5, 4, 3, 4, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2],
+    "postingFrequencies": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    "postingFields": [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    "positionOffsets": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
+    "positions": [1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 6, 6, 6, 6, 6, 6, 3, 3, 3, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 3, 4, 4, 4, 4, 8, 8, 8, 8, 8, 8, 3, 4, 4],
+    "fieldLengths": [
+      {
+        "field": "title",
+        "lengths": [3, 3, 3, 3, 3, 3]
+      },
+      {
+        "field": "body",
+        "lengths": [7, 7, 7, 7, 7, 7]
+      }
+    ],
+    "numeric": [],
+    "sizes": [
+      {
+        "field": "title",
+        "documents": [0, 1, 2, 3, 4, 5],
+        "values": [1, 1, 1, 1, 1, 1]
+      },
+      {
+        "field": "body",
+        "documents": [0, 1, 2, 3, 4, 5],
+        "values": [1, 1, 1, 1, 1, 1]
+      }
+    ],
+    "boolean": [
+      {
+        "field": "pinned",
+        "trueDocuments": [0, 4],
+        "falseDocuments": [1, 2, 3, 5]
+      }
+    ],
+    "enum": [],
+    "geopoint": [],
+    "pattern": [],
+    "surfaceForms": {
+      "text": [
+        ["enamelled", "enamel"],
+        ["folding", "fold"],
+        ["goes", "goe"],
+        ["kettle", "kettl"],
+        ["polished", "polish"],
+        ["remember", "rememb"],
+        ["running", "run"],
+        ["shears", "shear"],
+        ["sturdy", "sturdi"]
+      ],
+      "counts": [1, 1, 6, 2, 1, 6, 1, 2, 1]
+    },
+    "partialWords": null
+  }
+}

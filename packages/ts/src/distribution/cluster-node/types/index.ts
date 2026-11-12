@@ -1,4 +1,5 @@
 export { DEFAULT_CAPACITY, DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../constants'
+export type { ClusterNodeChanges } from './changes-settings'
 export type {
   ClusterControllerConfig,
   ClusterMemoryConfig,

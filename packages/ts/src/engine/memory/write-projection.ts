@@ -50,6 +50,7 @@ export interface WriteProjectionOptions {
   refusedAfterCollection: (figures: MemoryFigures) => void
   analysisOf: (indexName: string) => IndexWriteAnalysis | null
   vectorGrowthBytesOf: (indexName: string, documents: number) => number
+  documentTableGrowthBytesOf: (indexName: string, documents: number, pendingDocuments: number) => number
 }
 
 interface CachedBound {
@@ -70,7 +71,14 @@ function processRoomIn(figures: MemoryFigures, fractions: MemoryFractions): numb
 
 export function createWriteProjection(options: WriteProjectionOptions): WriteProjection {
   const bounds = new Map<string, CachedBound>()
+  const pendingDocuments = new Map<string, number>()
   const { refusal } = options
+
+  function settlePending(indexName: string, count: number): void {
+    const remaining = (pendingDocuments.get(indexName) ?? 0) - count
+    if (remaining > 0) pendingDocuments.set(indexName, remaining)
+    else pendingDocuments.delete(indexName)
+  }
 
   function fittingCount(
     indexName: string,
@@ -85,10 +93,15 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
     const reserved = reservedHeapBytes()
     const heapRoom = heapRoomIn(figures, options.fractions) - reserved
     const processRoom = processRoomIn(figures, options.fractions) - reserved
-    const mostGrowth = options.vectorGrowthBytesOf(indexName, end - start)
-    const fits = (next: number, count: number): boolean =>
-      next <= heapRoom &&
-      (next + mostGrowth <= processRoom || next + options.vectorGrowthBytesOf(indexName, count + 1) <= processRoom)
+    const pending = pendingDocuments.get(indexName) ?? 0
+    const mostTableGrowth = options.documentTableGrowthBytesOf(indexName, end - start, pending)
+    const mostVectorGrowth = options.vectorGrowthBytesOf(indexName, end - start)
+    const fits = (next: number, count: number): boolean => {
+      const most = next + mostTableGrowth
+      if (most <= heapRoom && most + mostVectorGrowth <= processRoom) return true
+      const withTables = next + options.documentTableGrowthBytesOf(indexName, count + 1, pending)
+      return withTables <= heapRoom && withTables + options.vectorGrowthBytesOf(indexName, count + 1) <= processRoom
+    }
     let taken = 0
     let count = 0
     while (start + count < end) {
@@ -104,10 +117,23 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
   }
 
   function reserve(indexName: string, groupBounds: readonly number[], start: number, count: number): ProjectedGroup {
-    let bytes = count === 0 ? 0 : options.vectorGrowthBytesOf(indexName, count)
+    if (count === 0) return UNPROJECTED
+    const pending = pendingDocuments.get(indexName) ?? 0
+    let bytes =
+      options.vectorGrowthBytesOf(indexName, count) + options.documentTableGrowthBytesOf(indexName, count, pending)
     for (let index = start; index < start + count; index++) bytes += groupBounds[index]
     const reservation = reserveHeapBytes(bytes)
-    return { count, release: () => reservation.release() }
+    pendingDocuments.set(indexName, pending + count)
+    let released = false
+    return {
+      count,
+      release: () => {
+        if (released) return
+        released = true
+        reservation.release()
+        settlePending(indexName, count)
+      },
+    }
   }
 
   function blockBytesOf(figures: MemoryFigures): number {

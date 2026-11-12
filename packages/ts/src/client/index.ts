@@ -33,6 +33,19 @@ export type {
   TaskStepProgress,
   TaskType,
 } from '../server/types'
+export type {
+  Change,
+  ChangePosition,
+  ChangesBatch,
+  ChangesEvent,
+  ChangesOperations,
+  ChangesResync,
+  ChangesSetting,
+  ChangesStatus,
+  ChangesSubscribed,
+  ChangeType,
+  FollowChangesOptions,
+} from '../types/changes'
 export type { SnapshotOptions } from '../types/engine'
 export type {
   ManualQuerySuggestion,
@@ -49,6 +62,8 @@ export type { SyncSetting, SyncStatus } from '../types/sync'
 export type { AdminOperations } from './admin'
 export type { BackupOperations } from './backups'
 export type { BulkOperations, ImportSource } from './bulk'
+export type { ChangeFeedOptions, ChangeSubscription } from './change-feed'
+export type { ChangesClientOperations } from './changes'
 export type { NarsilClient } from './client'
 export { createNarsilClient } from './client'
 export type { DocumentOperations, PutResult } from './documents'
