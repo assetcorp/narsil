@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/indexconfig"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
@@ -269,12 +271,7 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 		}
 	}
 	previous, replaces := manager.Get(handle.Name)
-	var previousApplied []uint64
 	if replaces {
-		previousApplied = make([]uint64, len(previous.partitions))
-		for partitionID := range previousApplied {
-			previousApplied[partitionID] = previous.AppliedSeqNo(partitionID)
-		}
 		for _, field := range previous.handle.vectorFields() {
 			_ = field.ReleaseVectorFiles(ctx)
 		}
@@ -285,12 +282,12 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 			return nil, closeErr
 		}
 	}
-	suspended := suspendBothPagedFiles(ctx, staging, handle, previous, replaces)
-	if suspended != nil {
+	if err := commitWithFilesClosed(ctx, staging, handle); err != nil {
 		if replaces {
-			_ = manager.register(manager.newDurable(previous.handle, previousApplied))
+			previous.reopen()
+			_ = manager.register(previous)
 		}
-		return nil, suspended
+		return nil, err
 	}
 	if err := staging.finish(ctx); err != nil {
 		manager.markFatal(err)
@@ -314,22 +311,28 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 	return durable, nil
 }
 
-func suspendBothPagedFiles(ctx context.Context, staging *restoreStaging, handle *Handle, previous *Durable,
-	replaces bool) error {
-	if replaces {
-		if err := previous.handle.Index.SuspendPagedFiles(); err != nil {
-			return err
-		}
+func (staging *restoreStaging) suspendIndexFolder() (*paged.Suspension, error) {
+	directory := staging.restore.directory
+	if directory == nil {
+		return &paged.Suspension{}, nil
 	}
-	err := handle.Index.SuspendPagedFiles()
-	if err == nil {
-		err = staging.commit(ctx)
-		if err != nil {
-			_ = handle.Index.ResumePagedFiles(nil)
-		}
+	folder, err := directory.PathOf(staging.name)
+	if err != nil {
+		return nil, err
 	}
-	if err != nil && replaces {
-		_ = previous.handle.Index.ResumePagedFiles(nil)
+	return paged.SuspendUnder(folder, storage.OpenForReading)
+}
+
+func commitWithFilesClosed(ctx context.Context, staging *restoreStaging, handle *Handle) error {
+	held, err := staging.suspendIndexFolder()
+	if err != nil {
+		return err
 	}
-	return err
+	if err := handle.Index.SuspendPagedFiles(); err != nil {
+		return errors.Join(err, held.Resume())
+	}
+	if err := staging.commit(ctx); err != nil {
+		return errors.Join(err, handle.Index.ResumePagedFiles(nil), held.Resume())
+	}
+	return nil
 }

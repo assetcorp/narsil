@@ -43,14 +43,27 @@ func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {
 		if partitionID < len(applied) {
 			log.applied = applied[partitionID]
 		}
-		if manager.logged() {
-			log.writer = writeahead.NewWriter(writeahead.Config{Directory: manager.directory,
-				IndexName: handle.Name, PartitionID: uint32(partitionID),
-				SegmentMaxBytes: manager.settings.SegmentMaxBytes})
-		}
+		log.writer = manager.newLogWriter(handle.Name, partitionID)
 		durable.partitions[partitionID] = log
 	}
 	return durable
+}
+
+func (manager *Manager) newLogWriter(name string, partitionID int) *writeahead.Writer {
+	if !manager.logged() {
+		return nil
+	}
+	return writeahead.NewWriter(writeahead.Config{Directory: manager.directory, IndexName: name,
+		PartitionID: uint32(partitionID), SegmentMaxBytes: manager.settings.SegmentMaxBytes})
+}
+
+func (durable *Durable) reopen() {
+	durable.lockLayout()
+	defer durable.unlockLayout(durable.partitions)
+	for partitionID, log := range durable.partitions {
+		log.writer = durable.manager.newLogWriter(durable.handle.Name, partitionID)
+	}
+	durable.closed.Store(false)
 }
 
 func (durable *Durable) Handle() *Handle {
@@ -233,6 +246,9 @@ func (durable *Durable) commit(touched []*partitionLog) error {
 func (durable *Durable) flush() error {
 	durable.layoutMutex.RLock()
 	defer durable.layoutMutex.RUnlock()
+	if durable.closed.Load() {
+		return nil
+	}
 	for _, log := range durable.partitions {
 		if log.writer == nil {
 			continue
@@ -259,6 +275,8 @@ func (durable *Durable) close() error {
 	}
 	durable.checkpointMutex.Lock()
 	defer durable.checkpointMutex.Unlock()
+	durable.layoutMutex.Lock()
+	defer durable.layoutMutex.Unlock()
 	var first error
 	for _, log := range durable.partitions {
 		log.mutex.Lock()
