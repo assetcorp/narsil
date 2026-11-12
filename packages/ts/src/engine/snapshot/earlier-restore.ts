@@ -134,7 +134,7 @@ async function stageBuiltIndex(
   staging: RestoreStaging,
   deps: RestoreDeps,
 ): Promise<SegmentManifest> {
-  const entry = restoredRegistryEntry(prepared, built.manager, deps)
+  const entry = restoredRegistryEntry(indexName, prepared, built.manager, deps)
   const archive = await buildArchiveFromMemory({
     indexName,
     metadata: indexMetadataOf(indexName, entry, built.manager.partitionCount),

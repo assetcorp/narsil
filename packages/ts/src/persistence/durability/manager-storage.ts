@@ -1,7 +1,9 @@
+import type { IndexStoredSizes } from '../../engine/stored-sizes'
 import type { PartitionStatsResult } from '../../types/results'
 import { type ArchiveCheckpointAccess, createArchiveCheckpointAccess } from './archive-checkpoint'
 import { checkpointInTurn } from './checkpoint-turn'
 import type { DurableDirectory } from './durable-filesystem'
+import type { StoredSizesRecord } from './index-stored-sizes'
 import type { LogBytesLedger } from './log-bytes'
 import type { IndexState } from './manager-state'
 import { createIndexUnloading, type IndexUnloading } from './manager-unload'
@@ -9,14 +11,7 @@ import type { MetadataWriteQueue } from './metadata-write-queue'
 import type { RecoverPersistedIndexDeps } from './recover-index'
 import { readSegmentManifest } from './segment/load'
 import { directoryCheckpointStore } from './segment/store'
-import {
-  createSavedBytesRecord,
-  NOTHING_SAVED,
-  partitionSavedBytes,
-  type SavedBytesRecord,
-  type StoredBytes,
-  savedBytesOfManifest,
-} from './stored-bytes'
+import { NOTHING_SAVED, type StoredBytes, savedBytesOfManifest } from './stored-bytes'
 import { createSyncStorage, type SyncStorage } from './sync/storage'
 import type { IndexDurabilityHooks } from './types'
 import { releaseStalledWrites } from './write-stall'
@@ -24,6 +19,7 @@ import { releaseStalledWrites } from './write-stall'
 export interface IndexStorageAccessDeps {
   directory: DurableDirectory
   logBytes: LogBytesLedger
+  sizes: StoredSizesRecord
   hooks: IndexDurabilityHooks
   indexes: Map<string, IndexState>
   metadataWrites: MetadataWriteQueue
@@ -36,8 +32,7 @@ export interface IndexStorageAccessDeps {
 }
 
 export interface StoredBytesAccess {
-  savedBytes(indexName: string, recordedSavedBytes?: number): number | undefined
-  logBytes(indexName: string): number | undefined
+  storedSizesOf(indexName: string): IndexStoredSizes
   addStoredSizes(indexName: string, stats: PartitionStatsResult[]): void
   vectorSavedBytes(indexName: string): number | undefined
   measureRestoredStorage(indexName: string, restored?: StoredBytes): Promise<void>
@@ -47,14 +42,12 @@ export interface IndexStorageAccess {
   archiveAccess: ArchiveCheckpointAccess
   syncStorage: SyncStorage
   unloading: IndexUnloading
-  savedBytes: SavedBytesRecord
   storedBytesAccess: StoredBytesAccess
   recoveryDeps: RecoverPersistedIndexDeps
 }
 
 export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexStorageAccess {
-  const { directory, indexes, logBytes } = deps
-  const savedBytes = createSavedBytesRecord()
+  const { directory, logBytes, sizes } = deps
   const archiveAccess = createArchiveCheckpointAccess({
     directory,
     held: deps.heldCheckpointFiles,
@@ -66,7 +59,7 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
     directory,
     openArchiveCheckpoint: archiveAccess.openArchiveCheckpoint,
     inCheckpointTurn: (indexName, work) => {
-      const indexState = indexes.get(indexName)
+      const indexState = deps.indexes.get(indexName)
       if (indexState === undefined) return work()
       return checkpointInTurn(indexState, {
         joinsInFlight: false,
@@ -79,17 +72,21 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
   const unloading = createIndexUnloading({
     directory,
     hooks: deps.hooks,
-    indexes,
+    indexes: deps.indexes,
     metadataWrites: deps.metadataWrites,
     closeWriterReportingFailure: deps.closeWriterReportingFailure,
     forgetSyncState: syncStorage.forget,
     forgetStoredBytes: indexName => {
-      savedBytes.forget(indexName)
+      sizes.forget(indexName)
+      logBytes.forget(indexName)
+    },
+    dropStoredBytes: indexName => {
+      sizes.drop(indexName)
       logBytes.forget(indexName)
     },
   })
   async function measureStoredBytes(indexName: string, saved: StoredBytes): Promise<void> {
-    savedBytes.record(indexName, saved)
+    sizes.setSaved(indexName, saved)
     await logBytes.seed(indexName)
   }
   const recoveryDeps: RecoverPersistedIndexDeps = {
@@ -102,27 +99,13 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
     syncStorage,
     measureStoredBytes,
   }
-  const sizeIsKnown = (indexName: string): boolean => savedBytes.of(indexName) !== undefined || indexes.has(indexName)
   const storedBytesAccess: StoredBytesAccess = {
-    savedBytes(indexName, recordedSavedBytes) {
-      const saved = savedBytes.of(indexName)
-      if (saved !== undefined) return saved.bytes
-      return indexes.has(indexName) ? 0 : recordedSavedBytes
-    },
-    logBytes(indexName) {
-      if (!sizeIsKnown(indexName)) return undefined
-      return logBytes.bytesOf(indexName) ?? 0
-    },
+    storedSizesOf: sizes.of,
     addStoredSizes(indexName, stats) {
-      if (!sizeIsKnown(indexName)) return
-      const saved = partitionSavedBytes(savedBytes.of(indexName) ?? NOTHING_SAVED)
-      for (const partition of stats) {
-        partition.savedBytes = saved.get(partition.partitionId) ?? 0
-        partition.logBytes = logBytes.partitionBytesOf(indexName, partition.partitionId)
-      }
+      sizes.of(indexName).addTo(stats)
     },
     vectorSavedBytes(indexName) {
-      return sizeIsKnown(indexName) ? (savedBytes.of(indexName)?.vectorBytes ?? 0) : undefined
+      return sizes.of(indexName).vectorSavedBytes
     },
     async measureRestoredStorage(indexName, restored) {
       if (restored !== undefined) {
@@ -136,5 +119,5 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
       )
     },
   }
-  return { archiveAccess, syncStorage, unloading, savedBytes, storedBytesAccess, recoveryDeps }
+  return { archiveAccess, syncStorage, unloading, storedBytesAccess, recoveryDeps }
 }

@@ -45,7 +45,7 @@ export function createSnapshotOnlyManager(
   const loads = createIndexLoads(hooks.getVectorIndexes)
   const restoreStorage = adapterRestoreStorage(adapter)
   const restores = createPendingRestores(hooks.onFatalError)
-  const savedSize = createSnapshotSavedSize(adapter, indexName => indexes.has(indexName), settleRestore)
+  const savedSize = createSnapshotSavedSize(adapter, settleRestore)
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
@@ -58,6 +58,7 @@ export function createSnapshotOnlyManager(
     if (state === undefined) {
       state = createSnapshotIndexState()
       indexes.set(indexName, state)
+      hooks.linkStoredSizes(indexName, savedSize.hold(indexName))
     }
     return state
   }
@@ -361,6 +362,7 @@ export function createSnapshotOnlyManager(
         await adapter.delete(key)
       }
       await removeQueryHistoryOf({ kind: 'adapter', adapter }, indexName)
+      savedSize.drop(indexName)
     },
 
     async unloadIndex(indexName: string): Promise<void> {

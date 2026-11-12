@@ -142,8 +142,8 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         documentCount: manager?.countDocuments() ?? entry.documentCount,
         partitionCount: manager?.partitionCount ?? entry.partitionCount,
         estimatedMemoryBytes: manager?.estimateMemoryBytes() ?? 0,
-        savedBytes: durability?.manager.savedBytes(indexName, entry.savedBytes),
-        logBytes: durability?.manager.logBytes(indexName),
+        savedBytes: entry.storedSizes?.savedBytes,
+        logBytes: entry.storedSizes?.logBytes,
         language: entry.language.name,
         schema: entry.config.schema,
         heldSearchStates: manager?.heldSearchStates ?? 0,
@@ -152,9 +152,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     getPartitionStats(indexName: string): PartitionStatsResult[] {
       guardShutdown()
-      requireIndex(indexName)
+      const entry = requireIndex(indexName)
       const stats = executor.getManager(indexName)?.getPartitionStats() ?? []
-      durability?.manager.addStoredSizes(indexName, stats)
+      entry.storedSizes?.addTo(stats)
       return stats
     },
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {

@@ -160,6 +160,7 @@ export async function createIndexFromMetadata(
     throw recoveryFailure(metadata, err)
   }
   deps.indexRegistry.set(metadata.indexName, {
+    storedSizes: deps.indexRegistry.get(metadata.indexName)?.storedSizes,
     config: indexConfig,
     language,
     embeddingAdapter: embedding.adapter,

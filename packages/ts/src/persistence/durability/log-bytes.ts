@@ -1,4 +1,10 @@
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
+import {
+  type LoggedBytes,
+  refreshStoredSizes,
+  type StoredSizesRecord,
+  type TrackedStoredSizes,
+} from './index-stored-sizes'
 
 const LOG_SEGMENT_KEY = /^(.+)\/wal\/(\d+)\/\d{16}$/
 const HISTORY_SEGMENT_KEY = /^(.+)\/history\/(\d+)\/\d{16}-\d{16}$/
@@ -13,16 +19,13 @@ interface TrackedFile {
   bytes: number
 }
 
-interface IndexLogFiles {
+interface IndexLogFiles extends LoggedBytes {
   files: Map<string, TrackedFile>
-  bytes: number
-  bytesByPartition: Map<number, number>
+  sizes: TrackedStoredSizes | null
 }
 
 export interface LogBytesLedger {
   readonly directory: DurableDirectory
-  bytesOf(indexName: string): number | undefined
-  partitionBytesOf(indexName: string, partitionId: number): number
   seed(indexName: string): Promise<void>
   forget(indexName: string): void
 }
@@ -35,12 +38,20 @@ function loggedFileOf(key: string): LoggedFile | null {
 }
 
 function emptyLog(): IndexLogFiles {
-  return { files: new Map(), bytes: 0, bytesByPartition: new Map() }
+  return { files: new Map(), bytes: 0, bytesByPartition: [], sizes: null }
 }
 
 function addBytes(log: IndexLogFiles, partitionId: number, delta: number): void {
   log.bytes += delta
-  log.bytesByPartition.set(partitionId, (log.bytesByPartition.get(partitionId) ?? 0) + delta)
+  log.bytesByPartition[partitionId] = (log.bytesByPartition[partitionId] ?? 0) + delta
+  if (log.sizes !== null) refreshStoredSizes(log.sizes)
+}
+
+function makeCurrent(previous: IndexLogFiles | undefined, log: IndexLogFiles, sizes: TrackedStoredSizes): void {
+  if (previous !== undefined && previous !== log) previous.sizes = null
+  log.sizes = sizes
+  sizes.logged = log
+  refreshStoredSizes(sizes)
 }
 
 function setFileBytes(log: IndexLogFiles, key: string, partitionId: number, bytes: number): void {
@@ -58,7 +69,7 @@ function removeFile(log: IndexLogFiles, key: string): TrackedFile | undefined {
   return previous
 }
 
-export function createLogBytesLedger(base: DurableDirectory): LogBytesLedger {
+export function createLogBytesLedger(base: DurableDirectory, sizes: StoredSizesRecord): LogBytesLedger {
   const logs = new Map<string, IndexLogFiles>()
 
   function logOf(indexName: string): IndexLogFiles {
@@ -66,6 +77,7 @@ export function createLogBytesLedger(base: DurableDirectory): LogBytesLedger {
     if (log === undefined) {
       log = emptyLog()
       logs.set(indexName, log)
+      makeCurrent(undefined, log, sizes.of(indexName))
     }
     return log
   }
@@ -157,8 +169,6 @@ export function createLogBytesLedger(base: DurableDirectory): LogBytesLedger {
 
   return {
     directory,
-    bytesOf: indexName => logs.get(indexName)?.bytes,
-    partitionBytesOf: (indexName, partitionId) => logs.get(indexName)?.bytesByPartition.get(partitionId) ?? 0,
     async seed(indexName) {
       const log = emptyLog()
       for (const prefix of [`${indexName}/wal/`, `${indexName}/history/`]) {
@@ -168,10 +178,19 @@ export function createLogBytesLedger(base: DurableDirectory): LogBytesLedger {
           setFileBytes(log, key, file.partitionId, await currentLength(key))
         }
       }
+      const previous = logs.get(indexName)
       logs.set(indexName, log)
+      makeCurrent(previous, log, sizes.of(indexName))
     },
     forget(indexName) {
+      const log = logs.get(indexName)
+      if (log === undefined) return
       logs.delete(indexName)
+      if (log.sizes !== null) {
+        log.sizes.logged = null
+        refreshStoredSizes(log.sizes)
+        log.sizes = null
+      }
     },
   }
 }

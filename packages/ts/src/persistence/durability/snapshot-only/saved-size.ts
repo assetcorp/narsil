@@ -1,48 +1,43 @@
+import type { IndexStoredSizes } from '../../../engine/stored-sizes'
 import type { PersistenceAdapter } from '../../../types/adapters'
+import { createStoredSizesRecord } from '../index-stored-sizes'
 import { readSegmentManifest } from '../segment/load'
 import { adapterCheckpointStore } from '../segment/store'
-import { NOTHING_SAVED, partitionSavedBytes, type StoredBytes, savedBytesOfManifest } from '../stored-bytes'
+import { NOTHING_SAVED, type StoredBytes, savedBytesOfManifest } from '../stored-bytes'
 import type { DurabilityManager } from '../types'
 
 export type SnapshotSizeAccess = Required<
-  Pick<DurabilityManager, 'savedBytes' | 'logBytes' | 'addStoredSizes' | 'vectorSavedBytes' | 'measureRestoredStorage'>
+  Pick<DurabilityManager, 'storedSizesOf' | 'addStoredSizes' | 'vectorSavedBytes' | 'measureRestoredStorage'>
 >
 
 export interface SnapshotSavedSize {
   record(indexName: string, saved: StoredBytes): void
+  hold(indexName: string): IndexStoredSizes
   forget(indexName: string): void
+  drop(indexName: string): void
   access: SnapshotSizeAccess
-}
-
-interface SavedSizeEntry {
-  generation: number
-  saved: StoredBytes | null
 }
 
 export function createSnapshotSavedSize(
   adapter: PersistenceAdapter,
-  holdsIndex: (indexName: string) => boolean,
   settleRestore: (indexName: string) => Promise<void>,
 ): SnapshotSavedSize {
-  const entries = new Map<string, SavedSizeEntry>()
+  const sizes = createStoredSizesRecord(false)
+  const generations = new Map<string, number>()
   const store = adapterCheckpointStore(adapter)
 
   function replace(indexName: string, saved: StoredBytes | null): number {
-    const generation = (entries.get(indexName)?.generation ?? 0) + 1
-    entries.set(indexName, { generation, saved })
+    const generation = (generations.get(indexName) ?? 0) + 1
+    generations.set(indexName, generation)
+    sizes.setSaved(indexName, saved)
+    sizes.setMeasuring(indexName, saved === null)
     return generation
-  }
-
-  function knownSize(indexName: string): StoredBytes | null {
-    const entry = entries.get(indexName)
-    if (entry !== undefined) return entry.saved
-    return holdsIndex(indexName) ? NOTHING_SAVED : null
   }
 
   async function measureAfterRestore(indexName: string, generation: number): Promise<void> {
     await settleRestore(indexName)
     const decoded = await readSegmentManifest(store, indexName)
-    if (entries.get(indexName)?.generation !== generation) return
+    if (generations.get(indexName) !== generation) return
     replace(indexName, decoded?.kind === 'current' ? savedBytesOfManifest(decoded.manifest) : NOTHING_SAVED)
   }
 
@@ -50,26 +45,22 @@ export function createSnapshotSavedSize(
     record(indexName, saved) {
       replace(indexName, saved)
     },
+    hold: sizes.hold,
     forget(indexName) {
-      entries.delete(indexName)
+      generations.delete(indexName)
+      sizes.forget(indexName)
+    },
+    drop(indexName) {
+      generations.delete(indexName)
+      sizes.drop(indexName)
     },
     access: {
-      savedBytes(indexName, recordedSavedBytes) {
-        const saved = knownSize(indexName)
-        if (saved !== null) return saved.bytes
-        return entries.has(indexName) ? undefined : recordedSavedBytes
-      },
-      logBytes() {
-        return undefined
-      },
+      storedSizesOf: sizes.of,
       addStoredSizes(indexName, stats) {
-        const saved = knownSize(indexName)
-        if (saved === null) return
-        const byPartition = partitionSavedBytes(saved)
-        for (const partition of stats) partition.savedBytes = byPartition.get(partition.partitionId) ?? 0
+        sizes.of(indexName).addTo(stats)
       },
       vectorSavedBytes(indexName) {
-        return knownSize(indexName)?.vectorBytes
+        return sizes.of(indexName).vectorSavedBytes
       },
       async measureRestoredStorage(indexName, restored) {
         if (restored !== undefined) {

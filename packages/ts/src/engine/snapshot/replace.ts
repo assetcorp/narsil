@@ -147,6 +147,7 @@ async function commitToStorage(
 function activate(indexName: string, restored: RestoredIndex, entry: IndexRegistryEntry, deps: RestoreDeps): void {
   deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
+  entry.storedSizes?.recordSavedBytes(entry.savedBytes)
   restored.detached.attach()
   deps.clearAnalysisStale(indexName)
   const { prepared } = restored
@@ -196,6 +197,7 @@ async function createFresh(indexName: string, restored: RestoredIndex, entry: In
   deps.copies.desyncIndex(indexName)
   deps.executor.installDetachedIndex(restored.detached)
   deps.indexRegistry.set(indexName, entry)
+  entry.storedSizes?.recordSavedBytes(entry.savedBytes)
   try {
     await deps.indexState.registerReplacing(indexName, async () => {
       await commitToStorage(indexName, restored, undefined, deps)
@@ -221,7 +223,7 @@ export async function installRestoredIndex(
   deps: RestoreDeps,
   history: RestoredHistorySink | null = null,
 ) {
-  const entry = restoredRegistryEntry(restored.prepared, restored.detached.manager, deps)
+  const entry = restoredRegistryEntry(indexName, restored.prepared, restored.detached.manager, deps)
   const previousSync = deps.indexRegistry.get(indexName)?.sync ?? null
   if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch: newSyncEpoch() }
   if (restored.saved !== null) entry.savedBytes = restored.saved.bytes
