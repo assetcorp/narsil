@@ -229,6 +229,108 @@ describe.each([
 describe.each([
   { storage: 'in memory', durable: false },
   { storage: 'with filesystem durability', durable: true },
+])('a batch adapter call that refuses one document and restores an index with another adapter, $storage', ({
+  durable,
+}) => {
+  const BODIES = [1, 0]
+  const TITLES = [0, 1]
+  const described = { id: 'described', title: 'trail river', body: 'trail pine' }
+  const bodiless = { id: 'bodiless', title: 'trail ridge' }
+
+  function configFor(adapter: string, source: 'title' | 'body'): IndexConfig {
+    return {
+      schema: { title: 'string', body: 'string', embedding: 'vector[2]' },
+      embedding: { adapter, fields: { embedding: source } },
+    }
+  }
+
+  function batchEmbedding(vector: number[], texts: string[], onDocuments: () => Promise<void>) {
+    return {
+      dimensions: vector.length,
+      async embed(input: string, purpose: 'document' | 'query') {
+        if (purpose === 'document') texts.push(input)
+        return Float32Array.from(vector)
+      },
+      async embedBatch(inputs: string[], purpose: 'document' | 'query') {
+        if (purpose === 'document') {
+          texts.push(...inputs)
+          await onDocuments()
+        }
+        return inputs.map(() => Float32Array.from(vector))
+      },
+    }
+  }
+
+  async function writeThroughRestore(restoredSource: 'title' | 'body') {
+    const archive = await archiveOf(configFor('titles', restoredSource), new Map([['titles', TITLES]]), new Map())
+    const settings = await durableSettings(durable, WORKERS_OFF)
+    const bodyTexts: string[] = []
+    const titleTexts: string[] = []
+    let armed = true
+    const engine = await engineWith(settings)
+    engine.registerEmbeddingAdapter(
+      'bodies',
+      batchEmbedding(BODIES, bodyTexts, async () => {
+        if (!armed) return
+        armed = false
+        await engine.restore(INDEX, archive)
+      }),
+    )
+    engine.registerEmbeddingAdapter(
+      'titles',
+      batchEmbedding(TITLES, titleTexts, async () => undefined),
+    )
+    await engine.createIndex(INDEX, configFor('bodies', 'body'))
+    const result = await engine.insertBatch(INDEX, [{ ...described }, { ...bodiless }])
+    expect(armed).toBe(false)
+    expect(bodyTexts).toEqual([described.body])
+    return { engine, settings, result, titleTexts }
+  }
+
+  it(
+    'embeds the refused document again through the restored adapter and stores its vector',
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const { engine, settings, result, titleTexts } = await writeThroughRestore('title')
+
+      expect(result.failed.map(failure => failure.docId)).toEqual([])
+      expect([...result.succeeded].sort()).toEqual([bodiless.id, described.id])
+      expect([...titleTexts].sort()).toEqual([bodiless.title, described.title])
+      expect(await storedVector(engine, described.id)).toEqual(TITLES)
+      expect(await storedVector(engine, bodiless.id)).toEqual(TITLES)
+      if (durable) {
+        const next = await reopened(engine, settings, new Map([['titles', TITLES]]))
+        expect(await storedVector(next, described.id)).toEqual(TITLES)
+        expect(await storedVector(next, bodiless.id)).toEqual(TITLES)
+      }
+    },
+  )
+
+  it(
+    'refuses the document with the error of the restored adapter when that adapter cannot embed it',
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const { engine, settings, result, titleTexts } = await writeThroughRestore('body')
+
+      expect(
+        result.failed.map(failure => [failure.docId, failure.error instanceof NarsilError ? failure.error.code : null]),
+      ).toEqual([[bodiless.id, 'EMBEDDING_NO_SOURCE']])
+      expect(result.succeeded).toEqual([described.id])
+      expect(titleTexts).toEqual([described.body])
+      expect(await storedVector(engine, described.id)).toEqual(TITLES)
+      expect(await engine.get(INDEX, bodiless.id)).toBeUndefined()
+      if (durable) {
+        const next = await reopened(engine, settings, new Map([['titles', TITLES]]))
+        expect(await storedVector(next, described.id)).toEqual(TITLES)
+        expect(await next.get(INDEX, bodiless.id)).toBeUndefined()
+      }
+    },
+  )
+})
+
+describe.each([
+  { storage: 'in memory', durable: false },
+  { storage: 'with filesystem durability', durable: true },
 ])('a batch insert whose hook and adapters restore the index in a chain, $storage', ({ durable }) => {
   const ALPHA = [1, 0, 0]
   const BETA = [0, 1, 0]

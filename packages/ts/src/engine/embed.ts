@@ -310,14 +310,15 @@ export async function embedDocumentsForWrite(
   adapter: EmbeddingAdapter,
   signal: AbortSignal,
   together: boolean,
-): Promise<{ embedding: WriteEmbedding; failed: Map<number, unknown> }> {
+): Promise<{ embedding: WriteEmbedding; failed: Map<number, unknown>; documentFailures: Map<number, unknown> }> {
   const fields = new Map<Record<string, unknown>, Set<string>>()
   const failed = new Map<number, unknown>()
+  const documentFailures = new Map<number, unknown>()
   if (together && documents.length > 1) {
     try {
       const result = await embedBatchDocumentFields(documents, embeddingConfig, adapter, signal)
       for (const [position, embedded] of result.embedded) fields.set(documents[position], embedded)
-      for (const [position, error] of result.failed) failed.set(position, error)
+      for (const [position, error] of result.failed) documentFailures.set(position, error)
     } catch (err) {
       const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
       for (let position = 0; position < documents.length; position++) failed.set(position, error)
@@ -334,5 +335,5 @@ export async function embedDocumentsForWrite(
       }
     }
   }
-  return { embedding: { adapter, mapping: embeddingConfig.fields, fields }, failed }
+  return { embedding: { adapter, mapping: embeddingConfig.fields, fields }, failed, documentFailures }
 }
