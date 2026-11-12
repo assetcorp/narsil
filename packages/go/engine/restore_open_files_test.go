@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/assetcorp/narsil/packages/go/engine"
 )
@@ -21,6 +22,7 @@ const (
 	retiringRerankCalls        = 2
 	retiringSearchedWord       = "copper"
 	retiringHitLimit           = 5
+	retiringRerankTimeout      = 10 * time.Minute
 	retiredFolderPrefix        = ".retired-"
 	restoreJournalFilePrefix   = ".swap-"
 	rebuildRaceDocuments       = 10_000
@@ -35,7 +37,7 @@ const (
 func openFilesEngine(t *testing.T, directory string) *engine.Narsil {
 	t.Helper()
 	narsil, err := engine.New(context.Background(), engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)},
-		RerankTimeout: engine.Some(callbackRerankTimeout),
+		RerankTimeout: engine.Some(retiringRerankTimeout),
 		Durability: &engine.DurabilityConfig{Directory: directory, Mode: engine.DurabilitySync,
 			CompactionThreshold: engine.Some(diskTextCompactionThreshold)}})
 	if err != nil {
