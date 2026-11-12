@@ -189,7 +189,7 @@ pub(crate) fn run_build(
     let mut created: Vec<String> = Vec::new();
     let (mut published, mut removed) = (0, 0);
     let written = due_by_group.iter().try_for_each(|(group, due)| {
-        let _turn = runtime.write_turns.take(index_name);
+        let _turn = runtime.write_turns.take(index_name)?;
         let name = ensure_suggestions_index(narsil, index_name, group, &mut created)?;
         let changes = write_group(
             narsil,
@@ -204,8 +204,7 @@ pub(crate) fn run_build(
         Ok::<(), NarsilError>(())
     });
     if let Err(error) = written {
-        {
-            let _turn = runtime.write_turns.take(index_name);
+        if let Ok(_turn) = runtime.write_turns.take(index_name) {
             let _ = undo_writes(narsil, &undo, &banned_now(narsil, index_name));
         }
         for name in created {

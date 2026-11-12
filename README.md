@@ -12,7 +12,7 @@
 
 The search engine that scales with your data.
 
-Narsil is an open source search engine with full-text, vector, hybrid, and geosearch on one typed index. You can embed the engine in a TypeScript, Rust, or Go program, where it searches without a network hop, or you can deploy the TypeScript package as a search server or a multi-node cluster, which Python, Go, and TypeScript programs call through typed clients. Every implementation reads and writes indexes in one binary format (`.nrsl`), so you can save an index from one implementation and open it in another.
+Narsil is an open source search engine with full-text, vector, hybrid, and geosearch on one typed index. You can embed the engine in a TypeScript, Rust, Python, or Go program, where it searches without a network hop, or you can deploy the TypeScript package as a search server or a multi-node cluster, which Python, Go, and TypeScript programs call through typed clients. Every implementation reads and writes indexes in one binary format (`.nrsl`), so you can save an index from one implementation and open it in another.
 
 Outside a browser, every implementation analyses text and scores its keyword and vector searches through one native core in C, so a query returns the same documents with the same scores in each language.
 
@@ -34,10 +34,11 @@ Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.c
 | Rust | [`delali-narsil`](packages/rust) | The crate embeds the engine in a Rust program. |
 | Go, searching in the process | [`github.com/assetcorp/narsil/packages/go/engine`](packages/go/engine) | The module embeds the engine in a Go program through cgo. |
 | Go, calling a server | [`github.com/assetcorp/narsil/packages/go`](packages/go) | The client calls a Narsil server, or every node of a cluster, with the standard library alone. |
+| Python, searching in the process | [`delali-narsil`](packages/python-engine) | The package embeds the engine in a Python program through the Rust crate, with a blocking API and an asyncio API. |
 | Python, calling a server | [`narsil-client`](packages/python) | The client calls a Narsil server, or every node of a cluster, in a blocking form and an async form. |
 | An iOS or Android app | [`@delali/narsil-react-native`](packages/react-native) | The driver embeds the engine in a React Native app, which can search while the phone is offline. |
 
-A Python package that embeds the engine through the Rust crate is planned in [#173](https://github.com/assetcorp/narsil/issues/173). The [roadmap](ROADMAP.md) lists what's available now and what's planned.
+The [roadmap](ROADMAP.md) lists what's available now and what's planned.
 
 The packages below hold the parts that the packages above share or call:
 
@@ -57,6 +58,7 @@ The packages below hold the parts that the packages above share or call:
 | Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
 | Multi-node cluster (`@delali/narsil/distribution`) | Stable | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC, and it can keep its shared state in etcd over TLS. |
 | Rust crate and Go engine | First release, 0.1 | Each one covers the single-node operations of the TypeScript package, and continuous integration tests each one on Linux, macOS, and Windows, on arm64 and x64. |
+| Python package (`delali-narsil` on PyPI) | First release, 0.1 | The package wraps the Rust crate, and continuous integration tests its wheels on Linux with glibc and with musl, on macOS, and on Windows, each on arm64 and x64. |
 | Python and Go clients | First release, 0.1 | A generator writes each client's typed methods from the server's `openapi.json`, so each client holds one method for every route of the HTTP server. |
 
 ## Add Narsil with a coding agent
@@ -118,16 +120,17 @@ const results = await narsil.query('products', {
 })
 ```
 
-### Embedded in Rust or Go
+### Embedded in Rust, Python, or Go
 
-Add the crate or the module to your program:
+Add the crate, the package, or the module to your program:
 
 ```bash
 cargo add delali-narsil
+pip install delali-narsil
 go get github.com/assetcorp/narsil/packages/go/engine
 ```
 
-Both take the same index settings and the same query parameters as the TypeScript package, under each language's naming conventions. The [Rust README](packages/rust/README.md) and the [Go engine README](packages/go/engine/README.md) each hold a program that creates an index, fills it, and searches it by keyword and by vector, and each README lists the C compiler that a build needs on each platform.
+All three take the same index settings and the same query parameters as the TypeScript package, under each language's naming conventions. The [Rust README](packages/rust/README.md), the [Python package README](packages/python-engine/README.md), and the [Go engine README](packages/go/engine/README.md) each hold a program that creates an index, fills it, and searches it by keyword and by vector. The Rust and Go READMEs list the C compiler that a build needs on each platform, while pip installs the Python package from a prebuilt wheel.
 
 ### As a server
 
@@ -228,7 +231,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |
 
-The guides show the TypeScript API. The [Rust crate](packages/rust/README.md) and the [Go engine](packages/go/engine/README.md) take the same settings and parameters, and each README lists where that implementation differs.
+The guides show the TypeScript API. The [Rust crate](packages/rust/README.md), the [Python package](packages/python-engine/README.md), and the [Go engine](packages/go/engine/README.md) take the same settings and parameters, and each README lists where that implementation differs.
 
 ## Distribution status
 
@@ -243,6 +246,7 @@ The multi-node cluster mode under `@delali/narsil/distribution` connects its nod
 | Deno | Web Workers | Filesystem | BroadcastChannel |
 | Browser | Web Workers | IndexedDB | BroadcastChannel |
 | Rust 1.88 or later | Threads that share one copy of each index | Filesystem | None |
+| Python 3.11 or later | Threads that share one copy of each index, with the interpreter lock released during each call | Filesystem | None |
 | Go 1.26 or later | Goroutines that share one copy of each index | Filesystem | None |
 
 ## License

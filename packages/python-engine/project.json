@@ -1,0 +1,66 @@
+{
+  "name": "narsil-python-engine",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/toml-version-actions.js",
+      "versionActionsOptions": {
+        "manifest": "Cargo.toml",
+        "table": "package",
+        "lockfile": "Cargo.lock"
+      }
+    }
+  },
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "cargo fmt --all --check",
+          "cargo clippy --all-targets --locked -- -D warnings",
+          "python3 scripts/tools.py ruff check .",
+          "python3 scripts/tools.py ruff format --check ."
+        ],
+        "parallel": false,
+        "cwd": "packages/python-engine"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "cargo check --all-targets --locked",
+          "python3 scripts/tools.py mypy"
+        ],
+        "parallel": false,
+        "cwd": "packages/python-engine"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "python3 scripts/tools.py develop",
+        "cwd": "packages/python-engine"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code", "build"],
+      "options": {
+        "command": "python3 scripts/tools.py pytest",
+        "cwd": "packages/python-engine"
+      }
+    },
+    "package": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "python3 scripts/tools.py maturin build --release --locked --out dist",
+        "cwd": "packages/python-engine"
+      }
+    }
+  }
+}

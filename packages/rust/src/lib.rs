@@ -26,7 +26,7 @@ mod value;
 mod vector;
 
 pub use adapters::{AdapterError, EmbeddingAdapter, EmbeddingPurpose, RerankAdapter};
-pub use analysis::{Language, StopWordFunction, StopWords, Token, Tokenizer};
+pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, Tokenizer};
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,

@@ -1,0 +1,23 @@
+[package]
+name = "narsil-python"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The Python extension module of the delali-narsil package, which hosts Narsil's Rust engine inside a Python process."
+license = "Apache-2.0"
+repository = "https://github.com/assetcorp/narsil"
+homepage = "https://narsil.sondelali.com"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+delali-narsil = { path = "../rust" }
+pyo3 = { version = "=0.30.1", features = ["abi3-py311", "extension-module", "multiple-pymethods"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
