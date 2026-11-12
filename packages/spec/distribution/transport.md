@@ -132,7 +132,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.ping` | any to any | Health check |
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
-| `cluster.partition_stores` | controller or dropping node to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.partition_stores` | controller, dropping node, or primary to data node | Asks which partitions of an index the node holds on disk |
 | `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
 | `cluster.rebuild_analysis` | any node to data node | Rebuilds the terms of every copy of an index that the node holds |
 | `cluster.rebalance` | any node to controller | Changes the partition count of an index |
@@ -308,15 +308,19 @@ A new primary sends this to every other copy in the in-sync set, as [Starting a 
   lastSeqNo:       uint64
   lastPrimaryTerm: uint64
   indexUuid:       string or absent   (the identity of the index that the sender's allocation table names)
+  syncSession:     string or absent   (the session of the sync that the replica applied, absent where the request opens a sync)
 }
 ```
+
+A replica opens a sync with a request that carries no `syncSession`. Once it has applied that sync, it reports its new position in a second request that carries the `syncSession` of the sync that it applied, as [Catch-Up Feed](replication.md#catch-up-feed) defines.
 
 ### replication.sync_entries
 
 ```text
 {
-  entries: List<ReplicationLogEntry>
-  isLast:  boolean   (true on the final batch)
+  entries:     List<ReplicationLogEntry>
+  isLast:      boolean   (true on the final batch)
+  syncSession: string    (the session that the primary opened for this sync)
 }
 ```
 
@@ -324,8 +328,9 @@ A new primary sends this to every other copy in the in-sync set, as [Starting a 
 
 ```text
 {
-  header:     ReplicationSnapshotHeader   (see replication.md)
-  totalBytes: uint64                      (the expected total, for progress reporting)
+  header:      ReplicationSnapshotHeader   (see replication.md)
+  totalBytes:  uint64                      (the expected total, for progress reporting)
+  syncSession: string                      (the session that the primary opened for this sync)
 }
 ```
 
@@ -367,10 +372,12 @@ The primary sends this to the active controller once a replica's applied positio
   primaryTerm:   uint64   (the current term, which fences a stale primary)
   appliedSeqNo:  uint64   (the highest seqNo the replica has acknowledged)
   commitPoint:   uint64   (the primary's commit point when it sent the request)
+  inSyncVersion: uint64   (the assignment's inSyncVersion that the primary last read)
+  replicaStartedAt: string   (the startedAt of the replica's registration, which the primary read before it sent the proof)
 }
 ```
 
-The controller checks six things:
+The controller checks eight things:
 
 - The message's `sourceId` is the assignment's primary, which stops a replica from admitting itself.
 - The node is an assigned replica of this partition.
@@ -378,6 +385,8 @@ The controller checks six things:
 - The partition is in `ACTIVE`.
 - `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
 - The replica's node is registered with the cluster coordinator, because the controller removes an unregistered node from the in-sync set on its next allocator run.
+- The replica's registered `startedAt` equals `replicaStartedAt`, which the controller checks in the same atomic operation as the write that adds the replica, through the `replicaRegistration` of [putAllocation](cluster.md#getallocationindexname-and-putallocationindexname-table-expectedversion-writernodeid-replicaregistration), because a node that restarted after it acknowledged the proof can hold an empty copy.
+- `inSyncVersion` equals the assignment's stored [inSyncVersion](cluster.md#insyncversion), because a request that the primary sent before a removal must never add the replica back.
 
 The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.
 
@@ -394,7 +403,7 @@ The primary sends this to the active controller, found through `getLeaseHolder('
 }
 ```
 
-A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender.
+A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender. It accepts the request for a replica already outside the in-sync set, and it still raises the partition's [inSyncVersion](cluster.md#insyncversion) with a table write, so that an admission request still in flight for that replica can never add it back.
 
 ### replication.insync_confirm
 
@@ -457,7 +466,7 @@ The response is:
 
 ### cluster.partition_stores
 
-The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again. The node that received a drop request sends it to confirm that no data node still holds a copy, as [Index Deletion Flow](cluster.md#index-deletion-flow) describes.
+The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again. The node that received a drop request sends it to confirm that no data node still holds a copy, as [Index Deletion Flow](cluster.md#index-deletion-flow) describes. A primary sends it to a replica before an admission request where its log retains no entry at the replica's position, as [Catch-Up Feed](replication.md#catch-up-feed) describes.
 
 ```text
 {

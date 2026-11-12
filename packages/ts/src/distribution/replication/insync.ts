@@ -1,6 +1,7 @@
 import { decode } from '../../serialization/msgpack'
+import { inSyncVersionOf, putAllocationOver } from '../cluster/in-sync-version'
 import { rewriteForCurrentIndex } from '../cluster/table-identity'
-import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
+import type { ClusterCoordinator, ExpectedReplicaRegistration, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
 import { createInsyncAddMessage, createInsyncRemoveMessage, validateInsyncConfirmPayload } from './codec'
 import { INSYNC_CAS_ATTEMPTS } from './constants'
@@ -18,6 +19,7 @@ async function updateInsyncSet(
   coordinator: ClusterCoordinator,
   controllerNodeId: string,
   decide: (assignment: PartitionAssignment) => AssignmentDecision,
+  replicaRegistration?: ExpectedReplicaRegistration,
 ): Promise<InsyncConfirmPayload> {
   const refused: InsyncConfirmPayload = {
     indexName: request.indexName,
@@ -59,7 +61,14 @@ async function updateInsyncSet(
     if (rewritten === null) {
       return refused
     }
-    const written = await coordinator.putAllocation(request.indexName, rewritten, table.version, controllerNodeId)
+    const written = await putAllocationOver(
+      coordinator,
+      request.indexName,
+      table,
+      rewritten,
+      controllerNodeId,
+      replicaRegistration,
+    )
     if (written) {
       return { ...refused, accepted: true }
     }
@@ -113,9 +122,10 @@ export async function requestInsyncRemoval(
  * The controller refuses the request when it finds no allocation table, no assignment for the partition, or a
  * `primaryTerm` other than the assignment's own, because a stale primary must not shrink the set. It refuses the
  * request for a partition in `UNASSIGNED` as well, because no node leads such a partition and so no node may speak
- * for it. It accepts without a write when the
- * replica is already outside the set, and it otherwise writes the smaller set with a compare-and-set, retrying a
- * lost write a bounded number of times.
+ * for it. It writes the smaller set with a compare-and-set, retrying a lost write a bounded number of times, and it
+ * writes the table for a replica already outside the set as well, because every accepted removal raises the
+ * partition's `inSyncVersion`. That raise makes the controller refuse any admission of the replica that the primary
+ * sent before the removal and that has yet to arrive.
  *
  * @param payload - The removal request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -133,7 +143,7 @@ export function handleInsyncRemoval(
       return REFUSE
     }
     if (!assignment.inSyncSet.includes(payload.replicaNodeId)) {
-      return ACCEPT
+      return { outcome: 'write', assignment: { ...assignment, inSyncVersion: inSyncVersionOf(assignment) + 1 } }
     }
     return {
       outcome: 'write',
@@ -177,11 +187,16 @@ export async function requestInsyncAdmission(
  * controller sends back.
  *
  * The controller refuses the request unless the assignment's term matches, the partition is `ACTIVE`, the node is an
- * assigned replica whose registration the cluster coordinator holds, and the replica's applied position has reached
- * both the stored commit point and the primary's own. A node whose registration has lapsed stays out, because the
- * allocator would remove it again on its next run. The controller raises the stored commit point to the request's
- * value whenever it accepts, and that value never moves backwards, so a repeated request from a replica that is
- * already in the set still moves the floor forward.
+ * assigned replica whose registration the cluster coordinator holds, the request carries the assignment's current
+ * `inSyncVersion`, and the replica's applied position has reached both the stored commit point and the primary's own.
+ * The version check refuses a request that the primary sent before a change to the in-sync set or before the replica
+ * left the assignment, so a request delayed past a removal never adds the replica back. A node whose registration has
+ * lapsed stays out, because the allocator would remove it again on its next run, and so does a node whose registration
+ * carries a `startedAt` other than the request's `replicaStartedAt`, because a node that restarted after it
+ * acknowledged the primary's proof can hold an empty copy. The allocation write itself checks that `startedAt`, so a
+ * restart between the controller's read of the registration and its write still keeps the replica out. The controller
+ * raises the stored commit point to the request's value whenever it accepts, and that value never moves backwards, so
+ * a repeated request from a replica that is already in the set still moves the floor forward.
  *
  * @param payload - The admission request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -195,15 +210,21 @@ export async function handleInsyncAdmission(
   controllerNodeId: string,
 ): Promise<InsyncConfirmPayload> {
   const registered = await coordinator.listNodes()
-  if (!registered.some(node => node.nodeId === payload.replicaNodeId)) {
+  const registration = registered.find(node => node.nodeId === payload.replicaNodeId)
+  if (registration === undefined || registration.startedAt !== payload.replicaStartedAt) {
     return { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
   }
-  return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {
+  const replicaRegistration = { nodeId: payload.replicaNodeId, startedAt: payload.replicaStartedAt }
+  const decide = (assignment: PartitionAssignment): AssignmentDecision => {
     if (assignment.state !== 'ACTIVE') {
       return REFUSE
     }
 
     if (!assignment.replicas.includes(payload.replicaNodeId)) {
+      return REFUSE
+    }
+
+    if (payload.inSyncVersion !== inSyncVersionOf(assignment)) {
       return REFUSE
     }
 
@@ -225,5 +246,6 @@ export async function handleInsyncAdmission(
         commitPoint,
       },
     }
-  })
+  }
+  return updateInsyncSet(payload, coordinator, controllerNodeId, decide, replicaRegistration)
 }

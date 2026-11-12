@@ -1,10 +1,11 @@
-import type { Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
+import type { ComparatorBuilder, Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { CONTROLLER_LEASE_KEY } from '../constants'
 import type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  ExpectedReplicaRegistration,
   NodeEvent,
   NodeRegistration,
   PartitionState,
@@ -30,7 +31,7 @@ import { deserializeAllocationTable, deserializeNodeRegistration, serializeAlloc
 import { probeEtcd } from './start-probe'
 import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
-import { validateNodeId, validatePartitionState } from './validation'
+import { isValidNodeId, validateNodeId, validatePartitionState } from './validation'
 import { createReplaceableWatchClient } from './watch-client'
 import { createWatchStreams } from './watch-stream'
 
@@ -129,6 +130,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
           leaseManager,
           guard,
           key: keys.node(registration.nodeId),
+          startedAtKey: keys.nodeStartedAt(registration.nodeId),
           ttlSeconds: resolvedConfig.nodeHeartbeatTtlSeconds,
           isShutdown: () => isShutdown,
         },
@@ -145,7 +147,10 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       if (entry !== undefined) {
         await entry.lease.revoke().catch(() => {})
       }
-      await client.delete().key(key).exec()
+      await client
+        .if(key, 'Create', '>', -1)
+        .then(client.delete().key(keys.nodeStartedAt(nodeId)), client.delete().key(key))
+        .commit()
     },
 
     registrationLease(nodeId: string): RegistrationLease | null {
@@ -208,6 +213,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       table: AllocationTable,
       expectedVersion?: number | null,
       writerNodeId?: string,
+      replicaRegistration?: ExpectedReplicaRegistration,
     ): Promise<boolean> {
       assertNotShutdown()
       const key = keys.allocation(indexName)
@@ -222,17 +228,21 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       if (writerNodeId === undefined || writerNodeId.length === 0) {
         return false
       }
+      if (replicaRegistration !== undefined && !isValidNodeId(replicaRegistration.nodeId)) {
+        return false
+      }
       const controllerLeaseKey = keys.lease(CONTROLLER_LEASE_KEY)
+      const commitGuarded = async (txn: ComparatorBuilder): Promise<boolean> => {
+        txn.and(controllerLeaseKey, 'Value', '==', writerNodeId)
+        if (replicaRegistration !== undefined) {
+          txn.and(keys.node(replicaRegistration.nodeId), 'Create', '>', 0)
+          txn.and(keys.nodeStartedAt(replicaRegistration.nodeId), 'Value', '==', replicaRegistration.startedAt)
+        }
+        return (await txn.then(client.put(key).value(data)).commit()).succeeded
+      }
 
       if (expectedVersion === null) {
-        return guard.send(write, async () => {
-          const txn = await client
-            .if(key, 'Create', '==', 0)
-            .and(controllerLeaseKey, 'Value', '==', writerNodeId)
-            .then(client.put(key).value(data))
-            .commit()
-          return txn.succeeded
-        })
+        return guard.send(write, () => commitGuarded(client.if(key, 'Create', '==', 0)))
       }
 
       const response = await client.get(key).exec()
@@ -245,14 +255,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         return false
       }
 
-      return guard.send(write, async () => {
-        const txn = await client
-          .if(key, 'Mod', '==', kv.mod_revision)
-          .and(controllerLeaseKey, 'Value', '==', writerNodeId)
-          .then(client.put(key).value(data))
-          .commit()
-        return txn.succeeded
-      })
+      return guard.send(write, () => commitGuarded(client.if(key, 'Mod', '==', kv.mod_revision)))
     },
 
     async deleteAllocation(indexName: string): Promise<void> {

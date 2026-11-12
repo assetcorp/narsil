@@ -39,6 +39,15 @@ export function validateNodeId(nodeId: string): void {
   }
 }
 
+export function isValidNodeId(nodeId: string): boolean {
+  try {
+    validateNodeId(nodeId)
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
 export function validatePartitionState(value: string): PartitionState {
   if (!VALID_PARTITION_STATES.has(value)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Unknown partition state '${value}'`, {

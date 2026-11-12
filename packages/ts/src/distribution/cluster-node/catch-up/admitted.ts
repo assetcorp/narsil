@@ -1,11 +1,106 @@
 import type { PartitionAssignment } from '../../coordinator/types'
 import {
+  type AdmissionToWithdraw,
   type AdmittedReplica,
   admissionGenerationIs,
   type CatchUpState,
+  clearPendingAdmission,
+  type PendingAdmission,
   partitionKey,
-  recordRemovedReplica,
 } from './state'
+
+export function admissionToWithdrawOf(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): AdmissionToWithdraw | undefined {
+  return state.admissionsToWithdraw.get(partitionKey(indexName, partitionId))?.get(replicaNodeId)
+}
+
+export function withUnansweredAdmissions(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  localNodeId: string,
+  targets: string[],
+): string[] {
+  const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
+  if (pending === undefined) return targets
+  const unanswered = [...pending]
+    .filter(([replicaNodeId, admission]) => admission.unanswered && replicaNodeId !== localNodeId)
+    .map(([replicaNodeId]) => replicaNodeId)
+  return [...new Set([...targets, ...unanswered])]
+}
+
+export function settleFencedAdmission(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  fenced: { pending: PendingAdmission | undefined; owed: AdmissionToWithdraw | undefined },
+): void {
+  if (fenced.pending?.unanswered === true) {
+    clearPendingAdmission(state, indexName, partitionId, replicaNodeId, fenced.pending)
+  }
+  if (
+    fenced.owed !== undefined &&
+    admissionToWithdrawOf(state, indexName, partitionId, replicaNodeId) === fenced.owed
+  ) {
+    forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
+  }
+}
+
+export function recordAdmissionToWithdraw(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const owed = state.admissionsToWithdraw.get(key) ?? new Map<string, AdmissionToWithdraw>()
+  owed.set(replicaNodeId, { primaryTerm, withdrawing: false })
+  state.admissionsToWithdraw.set(key, owed)
+}
+
+export function forgetAdmissionToWithdraw(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const owed = state.admissionsToWithdraw.get(key)
+  if (owed === undefined) return
+  owed.delete(replicaNodeId)
+  if (owed.size === 0) state.admissionsToWithdraw.delete(key)
+}
+
+export function recordRemovedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const removed = state.removedReplicas.get(key) ?? new Map<string, number>()
+  removed.set(replicaNodeId, primaryTerm)
+  state.removedReplicas.set(key, removed)
+}
+
+export function withoutRemovedReplicas(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  primaryTerm: number,
+  targets: string[],
+): string[] {
+  const removed = state.removedReplicas.get(partitionKey(indexName, partitionId))
+  if (removed === undefined) return targets
+  return targets.filter(replicaNodeId => removed.get(replicaNodeId) !== primaryTerm)
+}
 
 export function recordAdmittedReplica(
   state: CatchUpState,

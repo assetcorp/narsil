@@ -31,31 +31,39 @@ func (s *storeMemory) addVectorFile(path string) (int32, error) {
 	return int32(len(next.files) - 1), nil
 }
 
-func (s *storeMemory) fileHoldsSameBytes(ordinal int32, location diskLocation) bool {
+func (s *storeMemory) mappedVectorBytes(fileIndex int32, offset uint32) []byte {
 	files := s.tables.files
-	if location.fileIndex < 0 || int(location.fileIndex) >= len(files) || files[location.fileIndex] == nil ||
-		files[location.fileIndex].mapped == nil {
-		return false
+	if fileIndex < 0 || int(fileIndex) >= len(files) || files[fileIndex] == nil || files[fileIndex].mapped == nil {
+		return nil
+	}
+	content := files[fileIndex].mapped.Bytes()
+	start := int(offset)
+	end := start + s.dimension*4
+	if end > len(content) {
+		return nil
+	}
+	return content[start:end]
+}
+
+func (s *storeMemory) heldVectorBytes(ordinal int32) []byte {
+	if s.isCold(ordinal) {
+		return s.mappedVectorBytes(s.vectorFileOf(ordinal), uint32Word(s.vectorOffset.pointer(), int(ordinal)).Load())
 	}
 	held := s.vectorSlot(s.tables, ordinal)
 	if held == nil {
-		return false
+		return nil
 	}
-	content := files[location.fileIndex].mapped.Bytes()
-	length := s.dimension * 4
-	offset := int(location.offset)
-	if offset+length > len(content) {
-		return false
-	}
-	heldBytes := unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(held))), length)
-	return bytes.Equal(content[offset:offset+length], heldBytes)
+	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(held))), s.dimension*4)
+}
+
+func (s *storeMemory) fileHoldsSameBytes(ordinal int32, location diskLocation) bool {
+	target := s.mappedVectorBytes(location.fileIndex, location.offset)
+	held := s.heldVectorBytes(ordinal)
+	return target != nil && held != nil && bytes.Equal(target, held)
 }
 
 func (s *storeMemory) releaseToFile(ordinal int32, location diskLocation) bool {
-	if !s.holdsDocument(ordinal) {
-		return false
-	}
-	if s.vectorFileOf(ordinal) == vectorInMemory && !s.fileHoldsSameBytes(ordinal, location) {
+	if !s.holdsDocument(ordinal) || !s.fileHoldsSameBytes(ordinal, location) {
 		return false
 	}
 	s.word(storeWordReleasedVectorsToDisk).Store(1)

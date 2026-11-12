@@ -1,15 +1,13 @@
-import { chunkByBudget } from '../../chunking'
-import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
-import { entryByteEstimate } from '../../replication/entry-checksum'
-import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
-import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
-import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
+import type { ReplicationLog } from '../../replication/types'
+import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS } from '../constants'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
 import { admittedBeyondTable } from './admitted'
+import { nextWireBatch, sendBatch } from './batches'
 import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
+import { forgetSyncSessions } from './sessions'
 import {
   type CatchUpState,
   clearPendingAdmission,
@@ -19,35 +17,12 @@ import {
 } from './state'
 import { withdrawAppliedAdmissions } from './withdrawals'
 
-function batchBytes(entries: ReplicationLogEntry[]): number {
-  let total = 0
-  for (const entry of entries) {
-    total += entryByteEstimate(entry)
-  }
-  return total
-}
-
 function replicaHasFallenOutOfRetention(log: ReplicationLog, cursor: ReplicaCursor): boolean {
   const oldest = log.oldestSeqNo
   if (oldest === undefined) {
     return cursor.appliedSeqNo < log.localLogEnd
   }
   return cursor.appliedSeqNo + 1 < oldest
-}
-
-function nextWireBatch(state: CatchUpState, pending: ReplicationLogEntry[]): ReplicationLogEntry[] {
-  const chunks = chunkByBudget(pending, {
-    ...WIRE_BATCH_BUDGET,
-    payloadBytesOf: entry => entry.document?.byteLength ?? 0,
-    breaksRun: (entry, previous) => entry.seqNo !== previous.seqNo + 1,
-  })
-  const batch = chunks[0] ?? []
-  if (batch.length === 0) {
-    return []
-  }
-
-  const available = MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes
-  return batchBytes(batch) > available ? [] : batch
 }
 
 async function pumpReplica(
@@ -97,6 +72,7 @@ async function feedReplica(
     }
 
     if (cursor.appliedSeqNo >= log.localLogEnd) {
+      if (!cursor.confirmed) return
       const proposal = proposeAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
       await untilCancelled(feed, proposal, undefined)
       return
@@ -159,47 +135,6 @@ async function closeGapInPartitionQueue(
   }
 }
 
-async function sendBatch(
-  state: CatchUpState,
-  deps: WriteRoutingDeps,
-  batch: ReplicationLogEntry[],
-  replicaNodeId: string,
-  cursor: ReplicaCursor,
-  feed: CatchUpFeed,
-): Promise<boolean> {
-  const reservedBytes = batchBytes(batch)
-  const sendingEpoch = cursor.syncEpoch
-  state.inFlightBytes += reservedBytes
-  const delivery = (async () => {
-    const first = batch[0]
-    const indexName = first?.indexName
-    const table = indexName === undefined ? null : await deps.coordinator.getAllocation(indexName)
-    if (feed.cancelled) {
-      return false
-    }
-    const result = await replicateBatchToReplicas(
-      batch,
-      [replicaNodeId],
-      deps.transport,
-      deps.nodeId,
-      deps.resolveNodeTargets,
-      table?.indexUuid,
-      first === undefined
-        ? undefined
-        : previousTermOf(deps.getReplicationLog(first.indexName, first.partitionId), first.seqNo),
-    )
-    return result.acknowledged.includes(replicaNodeId)
-  })().finally(() => {
-    state.inFlightBytes -= reservedBytes
-  })
-  const acknowledged = await untilCancelled(feed, delivery, false)
-  if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
-    return false
-  }
-  cursor.appliedSeqNo = Math.max(cursor.appliedSeqNo, batch[batch.length - 1].seqNo)
-  return true
-}
-
 function cancelFeeds(replicas: Map<string, ReplicaCursor>): void {
   for (const cursor of replicas.values()) {
     cursor.feed?.cancel()
@@ -233,6 +168,7 @@ async function pumpPartition(
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
     cancelFeeds(replicas)
     state.cursors.delete(key)
+    forgetSyncSessions(state, indexName, partitionId)
     state.pendingAdmissions.delete(key)
     state.admissionsToWithdraw.delete(key)
     return

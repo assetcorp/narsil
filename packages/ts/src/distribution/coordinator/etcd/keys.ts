@@ -9,9 +9,11 @@ import {
 
 const ETCD_KEY_LEASE = 'lease'
 const ETCD_KEY_GENERIC = 'kv'
+const ETCD_KEY_NODE_STARTED_AT = 'node-started-at'
 
 export interface CoordinatorKeys {
   node(nodeId: string): string
+  nodeStartedAt(nodeId: string): string
   nodePrefix(): string
   allocation(indexName: string): string
   allocationPrefix(): string
@@ -26,6 +28,7 @@ export function coordinatorKeys(config: EtcdCoordinatorConfig): CoordinatorKeys 
   const prefix = config.keyPrefix
   return {
     node: (nodeId: string) => buildKey(prefix, ETCD_KEY_NODES, nodeId),
+    nodeStartedAt: (nodeId: string) => buildKey(prefix, ETCD_KEY_NODE_STARTED_AT, nodeId),
     nodePrefix: () => buildKey(prefix, ETCD_KEY_NODES),
     allocation: (indexName: string) => buildKey(prefix, ETCD_KEY_ALLOCATION, indexName),
     allocationPrefix: () => buildKey(prefix, ETCD_KEY_ALLOCATION),
