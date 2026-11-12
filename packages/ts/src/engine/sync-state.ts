@@ -1,14 +1,42 @@
 import { isSyncEpoch, newSyncEpoch } from '#platform/optional-writes-host'
 import type { IndexMetadata } from '../types/internal'
-import type { IndexSyncState } from './registry-entry'
+import type { IndexChangesState, IndexSyncState } from './registry-entry'
 
-export function syncStateOfMetadata(metadata: IndexMetadata): IndexSyncState | null {
-  if (metadata.sync?.enabled !== true) return null
-  const epoch = isSyncEpoch(metadata.syncEpoch) ? metadata.syncEpoch : null
+export interface IndexEpochStates {
+  sync: IndexSyncState | null
+  changes: IndexChangesState | null
+}
+
+export function epochStatesOfMetadata(metadata: IndexMetadata): IndexEpochStates {
+  const syncOn = metadata.sync?.enabled === true
+  const changesOn = metadata.changes?.enabled === true
+  if (!syncOn && !changesOn) return { sync: null, changes: null }
+  const stored = isSyncEpoch(metadata.syncEpoch) ? metadata.syncEpoch : null
+  const epoch = stored ?? newSyncEpoch()
+  const sync = metadata.sync
+  const changes = metadata.changes
   return {
-    ...(metadata.sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: metadata.sync.historyMaxAgeMs } : {}),
-    ...(metadata.sync.historyMaxBytes !== undefined ? { historyMaxBytes: metadata.sync.historyMaxBytes } : {}),
-    active: epoch !== null && metadata.syncActive === true,
-    epoch: epoch ?? newSyncEpoch(),
+    sync:
+      syncOn && sync !== undefined
+        ? {
+            ...(sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: sync.historyMaxAgeMs } : {}),
+            ...(sync.historyMaxBytes !== undefined ? { historyMaxBytes: sync.historyMaxBytes } : {}),
+            active: stored !== null && metadata.syncActive === true,
+            epoch,
+          }
+        : null,
+    changes:
+      changesOn && changes !== undefined
+        ? {
+            previousDocument: changes.previousDocument === true,
+            ...(changes.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: changes.historyMaxAgeMs } : {}),
+            ...(changes.historyMaxBytes !== undefined ? { historyMaxBytes: changes.historyMaxBytes } : {}),
+            epoch,
+          }
+        : null,
   }
+}
+
+export function indexEpochOf(states: IndexEpochStates): string | null {
+  return states.sync?.epoch ?? states.changes?.epoch ?? null
 }

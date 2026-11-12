@@ -100,6 +100,7 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 	}
 	if replaces {
 		previous.dispose()
+		previous.sync.changed.Notify()
 	}
 	if slot == nil {
 		n.enforceOpenLimits(ctx, indexName)

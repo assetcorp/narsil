@@ -24,7 +24,7 @@ function regexFieldIn(expression: unknown, depth: number): string | null {
   return regexFieldIn(expression.not, depth + 1)
 }
 
-function refusedRegex(filters: unknown, allowRegex: boolean): NarsilError | null {
+export function refusedRegex(filters: unknown, allowRegex: boolean): NarsilError | null {
   if (allowRegex) return null
   const fieldPath = regexFieldIn(filters, 0)
   if (fieldPath === null) return null

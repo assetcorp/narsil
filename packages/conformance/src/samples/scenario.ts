@@ -7,9 +7,13 @@ import { NOTE_SCHEMA, noteDocuments, PRODUCT_SCHEMA, productDocuments } from './
 
 export const PRODUCTS_INDEX = 'products'
 export const NOTES_INDEX = 'notes'
+export const JOURNAL_INDEX = 'journal'
 export const READING_QUANTIZATIONS = ['osq8', 'osq2', 'osq1'] as const
 export type ReadingQuantization = (typeof READING_QUANTIZATIONS)[number]
 const READING_COUNT = 20
+const JOURNAL_COUNT = 6
+const JOURNAL_HISTORY_MAX_AGE_MS = 604_800_000
+const JOURNAL_HISTORY_MAX_BYTES = 67_108_864
 const PRODUCT_COUNT = 48
 const NOTE_COUNT = 140
 const PROMOTION_THRESHOLD = 16
@@ -106,6 +110,33 @@ async function fillReadings(narsil: Narsil, quantization: ReadingQuantization): 
   await narsil.checkpoint(indexName)
 }
 
+async function fillJournal(narsil: Narsil): Promise<void> {
+  await narsil.createIndex(JOURNAL_INDEX, {
+    schema: NOTE_SCHEMA,
+    language: 'english',
+    vectorPromotion: { threshold: PROMOTION_THRESHOLD, quantization: 'none', storage: 'memory' },
+  })
+  await narsil.updateChanges(JOURNAL_INDEX, {
+    enabled: true,
+    previousDocument: true,
+    historyMaxAgeMs: JOURNAL_HISTORY_MAX_AGE_MS,
+    historyMaxBytes: JOURNAL_HISTORY_MAX_BYTES,
+  })
+  const documents = noteDocuments(JOURNAL_COUNT + 1)
+  const result = await narsil.insertBatch(JOURNAL_INDEX, documents.slice(0, JOURNAL_COUNT))
+  if (result.failed.length > 0) throw new Error(`the reference refused ${result.failed.length} journal entries`)
+  await narsil.checkpoint(JOURNAL_INDEX)
+  const lastDocument = documents[JOURNAL_COUNT]
+  const updated = documents[1]
+  const removed = documents[2]
+  if (lastDocument === undefined || updated === undefined || removed === undefined) {
+    throw new Error('the journal scenario holds too few documents')
+  }
+  await narsil.insert(JOURNAL_INDEX, lastDocument)
+  await narsil.update(JOURNAL_INDEX, String(updated.id), { ...updated, pinned: !updated.pinned })
+  await narsil.remove(JOURNAL_INDEX, String(removed.id))
+}
+
 export async function writeScenario(workDirectory: string): Promise<ScenarioOutput> {
   const live = join(workDirectory, 'live')
   const checkpoint = join(workDirectory, 'checkpoint')
@@ -123,6 +154,7 @@ export async function writeScenario(workDirectory: string): Promise<ScenarioOutp
     await fillProducts(narsil)
     await fillNotes(narsil)
     for (const quantization of READING_QUANTIZATIONS) await fillReadings(narsil, quantization)
+    await fillJournal(narsil)
     await cp(live, checkpoint, { recursive: true })
     const archive = await bytesOfStream(await narsil.snapshot(PRODUCTS_INDEX))
     const exported = await bytesOfStream(await narsil.exportDocuments(PRODUCTS_INDEX))

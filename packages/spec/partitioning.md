@@ -174,8 +174,9 @@ With durability configured, the engine appends a buffered write to the write-ahe
    write index metadata with the new count. Remove the log
    segments of every partition past the new count only
    after the manifest and metadata are durable. For an
-   index with sync on, write a new epoch, as Index Epoch in
-   sync.md defines, with the metadata.
+   index with sync or change capture on, write a new
+   epoch, as Index Epoch in sync.md defines, with the
+   metadata.
 
 7. RESYNCHRONISE every worker copy of the index, then
    drain and replay any writes buffered while steps 5 to 7

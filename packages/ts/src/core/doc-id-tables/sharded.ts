@@ -1,6 +1,10 @@
 import { FNV_OFFSET_BASIS, FNV_PRIME } from '../hash'
-import { DOC_ID_TABLE_SHARD_BITS } from './constants'
-import type { DocIdMap } from './types'
+import {
+  DOC_ID_TABLE_SHARD_BITS,
+  DOC_ID_TABLE_SHARD_SKEW_DEVIATIONS,
+  DOC_ID_TABLE_SHARD_SKEW_ENTRIES,
+} from './constants'
+import type { DocIdMap, ShardEntryRange } from './types'
 
 const SHARD_COUNT = 1 << DOC_ID_TABLE_SHARD_BITS
 const SHARD_MASK = SHARD_COUNT - 1
@@ -62,4 +66,14 @@ class ShardedDocIdMap<V> implements DocIdMap<V> {
 
 export function createDocIdMap<V>(): DocIdMap<V> {
   return new ShardedDocIdMap<V>()
+}
+
+export function shardEntryRangeOf(entries: number): ShardEntryRange {
+  const mean = entries / SHARD_COUNT
+  const skew = DOC_ID_TABLE_SHARD_SKEW_DEVIATIONS * Math.sqrt(mean) + DOC_ID_TABLE_SHARD_SKEW_ENTRIES
+  return {
+    shards: SHARD_COUNT,
+    smallest: Math.max(0, Math.floor(mean - skew)),
+    largest: Math.min(entries, Math.ceil(mean + skew)),
+  }
 }

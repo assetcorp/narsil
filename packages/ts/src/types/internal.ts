@@ -188,6 +188,7 @@ export interface IndexMetadata {
   sync?: StoredSyncSetting
   syncActive?: boolean
   syncEpoch?: string
+  changes?: StoredChangesSetting
   querySuggestions?: StoredQuerySuggestions
 }
 
@@ -199,6 +200,13 @@ export interface StoredQuerySuggestions {
 
 export interface StoredSyncSetting {
   enabled: boolean
+  historyMaxAgeMs?: number
+  historyMaxBytes?: number
+}
+
+export interface StoredChangesSetting {
+  enabled: boolean
+  previousDocument?: boolean
   historyMaxAgeMs?: number
   historyMaxBytes?: number
 }

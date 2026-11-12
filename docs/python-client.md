@@ -131,6 +131,33 @@ client.wait_for_task(task.id)
 
 `restore` and `import_document_export` take bytes, a file opened in binary mode, or an iterable of byte chunks, and the async client also takes an async iterable. The client reads a file in chunks of 64 KiB as it sends them.
 
+## Following changes
+
+`update_changes` and `get_changes` turn [change capture](change-capture.md) on for an index and report its epoch. `follow_changes` follows the server's change feed, and it needs the `changes` extra, which adds the WebSocket and MessagePack libraries. The client imports them only when you call `follow_changes`, so a program that never follows a feed can leave the extra out, and a call without it raises `CONFIG_INVALID` with the install command.
+
+```bash
+pip install "narsil-client[changes]"
+```
+
+```python
+from narsil_client import ChangesBatch, ChangesResync
+
+with client.follow_changes("orders", epoch=saved.epoch, positions=saved.positions, credential=token) as subscription:
+    for event in subscription:
+        if isinstance(event, ChangesBatch):
+            apply(event.changes)
+            save(event.position)
+            subscription.ack([event.position])
+        elif isinstance(event, ChangesResync):
+            rebuild_from_export()
+```
+
+Leave `epoch` and `positions` out to start at the index's current heads, or pass the epoch and the positions from the header of a document export. Save each batch's position once you have applied its changes, and acknowledge only saved positions, because the server pauses the feed while the changes that you have not acknowledged pass its window. The client keeps the highest acknowledged position of every partition and sends all of them with each acknowledgement. After a `ChangesResync`, take a document export of the index, replace your copy with its documents, and follow from the epoch and the positions in its header.
+
+The async client returns a subscription that connects when you enter it with `async with`, and you iterate it with `async for` and await `ack`. It works under asyncio and trio. The credential travels as a second WebSocket subprotocol, and the client writes it into no error. The feed refuses redirects, as the HTTP requests do, because a redirect to another host would carry the credential there. A subscription that ends raises `NarsilError`: `CHANGES_NOT_ENABLED` when capture turns off, the code in the close reason when the index's setting refuses the subscription, `CONFIG_INVALID` when the server refuses a message, and `CLIENT_CONNECTION_FAILED` with the `close_code` in its details for anything else, such as an expired credential.
+
+A vector in a change arrives as a list of floats, whichever form the engine stored it in. The client reads a binary value as a vector only at a path in the `vector_fields` of `ChangesSubscribed`, and it returns every other binary value as `bytes`.
+
 ## Asking what a server serves
 
 `is_alive` and `is_ready` return `True` for an answer of 200 and `False` for any other answer, so `is_ready` returns `False` while a server starts up and once it starts draining, because the server answers 503 then. Both raise when no server answers at all. `supports` reports whether the server serves an optional route, and the client reads the list once and keeps it.

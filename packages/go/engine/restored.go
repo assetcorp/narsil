@@ -16,7 +16,7 @@ type storedIndex struct {
 	analysis    analysisSettings
 	partitions  int
 	createdAt   uint64
-	sync        *syncState
+	sync        *feedState
 	suggestions is.QuerySuggestionsState
 }
 
@@ -188,6 +188,6 @@ func storedFromMetadata(meta metadata.Metadata) storedIndex {
 	stored := storedFromConfiguration(configurationOfMetadata(meta))
 	stored.partitions = int(meta.PartitionCount)
 	stored.createdAt = meta.CreatedAt
-	stored.sync = syncStateOfMetadata(meta)
+	stored.sync = feedStateOfMetadata(meta)
 	return stored
 }

@@ -12,5 +12,6 @@ export function buildMutationEntry(record: MutationRecord, seqNo: number): Repli
     indexName: record.indexName,
     documentId: record.documentId,
     document: record.document,
+    previousDocument: record.previousDocument,
   })
 }

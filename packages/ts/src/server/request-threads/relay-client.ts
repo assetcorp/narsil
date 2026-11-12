@@ -5,7 +5,7 @@ import { ServerErrorCodes } from '../errors'
 import type { Authorization, RouteContext } from '../request'
 import { responseStopOf } from '../request-signal'
 import { type ResponseSink, sendError, sendRelayed, statusLine } from '../response'
-import type { FeedAdmittedReply } from '../sync/feed-messages'
+import type { FeedAdmittedReply, FeedKind } from '../sync/feed-messages'
 import type { RequestContext } from '../types'
 import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from './messages'
 
@@ -15,7 +15,7 @@ export interface RelayClient {
   embed(indexName: string, vector: VectorQueryConfig, signal?: AbortSignal): Promise<number[]>
   rerank(adapter: string, query: string, documents: string[], signal?: AbortSignal): Promise<number[]>
   awaitWrites(indexName: string, signal?: AbortSignal): Promise<void>
-  admitFeed(indexName: string, expiresAt: number | null): Promise<FeedAdmittedReply>
+  admitFeed(feed: FeedKind, indexName: string, expiresAt: number | null): Promise<FeedAdmittedReply>
   touch(indexName: string): void
   announceDeparture(): void
   close(): void
@@ -319,8 +319,8 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     async awaitWrites(indexName, signal) {
       await send(requestId => ({ type: 'await-writes', requestId, indexName }), [], signal)
     },
-    async admitFeed(indexName, expiresAt) {
-      const reply = await send(requestId => ({ type: 'feed-admit', requestId, indexName, expiresAt }))
+    async admitFeed(feed, indexName, expiresAt) {
+      const reply = await send(requestId => ({ type: 'feed-admit', requestId, feed, indexName, expiresAt }))
       if (reply.type === 'feed-admitted') return reply
       throw portClosedError()
     },

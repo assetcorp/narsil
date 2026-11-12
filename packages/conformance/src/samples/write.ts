@@ -28,6 +28,7 @@ const SEGMENT_FILE = /^segments\/(\d+)\/s(\d{16})$/
 const GRAPH_PART_FILE = /^segments\/vec-.+-graph-g\d+-p(\d{16})$/
 const VECTOR_FILE = /^segments\/vec-.+-f(\d{16})$/
 const LOG_SEGMENT_FILE = /^wal\/(\d+)\/(\d{16})$/
+const HISTORY_SEGMENT_FILE = /^history\/(\d+)\/(\d{16})-\d{16}$/
 const COMMIT_MARKER_FILE = /^wal\/(\d+)\/commit$/
 
 interface Catalogued {
@@ -101,6 +102,10 @@ function entryOfCheckpointFile({ indexName, key, file, bytes, storage }: Checkpo
   const logSegment = LOG_SEGMENT_FILE.exec(key)
   if (logSegment !== null) {
     return entryOf('log-segment', `${indexName}-p${logSegment[1]}-${Number(logSegment[2])}`, file)
+  }
+  const historySegment = HISTORY_SEGMENT_FILE.exec(key)
+  if (historySegment !== null) {
+    return entryOf('log-segment', `${indexName}-p${historySegment[1]}-history-${Number(historySegment[2])}`, file)
   }
   const marker = COMMIT_MARKER_FILE.exec(key)
   return marker === null ? null : entryOf('commit-marker', `${indexName}-p${marker[1]}`, file)

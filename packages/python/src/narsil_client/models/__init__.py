@@ -266,6 +266,54 @@ class ChangeAnalysisBody(ApiModel):
     """
 
 
+class ChangesSetting(ApiModel):
+    """The change capture setting of one index, which ChangesOperations.updateChanges takes. A
+    subscriber receives the documents of the whole index, so decide which callers may follow an
+    index before you turn capture on. A filter only chooses which changes a subscriber receives,
+    and it grants no access.
+    """
+
+    enabled: bool
+    """This turns change capture on or off. Turning it on gives the index a new epoch unless device
+    sync is on.
+    """
+    previous_document: bool | None = Field(default=None, alias="previousDocument")
+    """Set this to write into each log entry the document that the entry replaces or removes. A
+    change then holds the document before the write, and a subscription can hold a filter. It
+    defaults to false, because the engine then reads the stored document and writes it to the
+    log again on every update and removal.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the engine deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the engine deletes the oldest log segment from history.
+    It defaults to the larger of the checkpoint's length and 1 GiB.
+    """
+
+
+class ChangesStatus(ApiModel):
+    """The change capture state of one index, which ChangesOperations.getChanges returns."""
+
+    previous_document: bool = Field(alias="previousDocument")
+    """This is true when the engine writes the document before the write into each log entry."""
+    epoch: str | None
+    """This is the index epoch, 32 lowercase hexadecimal digits, or `null` while capture is off."""
+    enabled: bool
+    """This turns change capture on or off. Turning it on gives the index a new epoch unless device
+    sync is on.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the engine deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the engine deletes the oldest log segment from history.
+    It defaults to the larger of the checkpoint's length and 1 GiB.
+    """
+
+
 class PartitionAllocationReport(ApiModel):
     """One partition of an index, as `GET /indexes/{name}/cluster` reports it."""
 
@@ -2495,6 +2543,8 @@ __all__ = [
     "BatchResponse",
     "CapabilitiesResponse",
     "ChangeAnalysisBody",
+    "ChangesSetting",
+    "ChangesStatus",
     "ClusterAllocationResponse",
     "ClusterHealth",
     "ClusterHealthStatus",

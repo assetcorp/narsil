@@ -25,6 +25,8 @@ export type FeedChange =
   | { kind: 'off'; indexName: string }
   | { kind: 'settings'; indexName: string }
   | { kind: 'dropped'; indexName: string }
+  | { kind: 'changes-off'; indexName: string }
+  | { kind: 'previous-document-off'; indexName: string }
   | { kind: 'advanced'; indexName: string }
 
 export interface FeedSource {

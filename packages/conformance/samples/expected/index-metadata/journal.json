@@ -1,0 +1,47 @@
+{
+  "header": {
+    "envelopeFormatVersion": 1,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "index_name": "journal",
+    "schema": {
+      "title": "string",
+      "body": "string",
+      "pinned": "boolean",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "partition_count": 1,
+    "bm25_params": {
+      "k1": 1.2,
+      "b": 0.75
+    },
+    "created_at": 1794424211943,
+    "engine_version": "0.1.0",
+    "vector_fields": {
+      "embedding": {
+        "dimension": 8,
+        "metric": "cosine",
+        "quantization": "none"
+      }
+    },
+    "document_count": 6,
+    "surface_forms_enabled": true,
+    "analysis_revision": "4026533016c7f4b1",
+    "array_position_gap": 100,
+    "vector_promotion": {
+      "threshold": 16,
+      "quantization": "none",
+      "storage": "memory"
+    },
+    "sync_epoch": "d174f42daef8ec88fa8ca8e8abbe95cd",
+    "changes": {
+      "enabled": true,
+      "previous_document": true,
+      "history_max_age_ms": 604800000,
+      "history_max_bytes": 67108864
+    }
+  }
+}

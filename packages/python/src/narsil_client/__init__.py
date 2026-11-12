@@ -1,4 +1,14 @@
+from narsil_client._async_change_feed import AsyncChangeSubscription
 from narsil_client._async_client import AsyncNarsilClient
+from narsil_client._change_feed import ChangeSubscription
+from narsil_client._change_types import (
+    Change,
+    ChangePosition,
+    ChangesBatch,
+    ChangesEvent,
+    ChangesResync,
+    ChangesSubscribed,
+)
 from narsil_client._client import NarsilClient
 from narsil_client._errors import ClientErrorCodes, NarsilError
 from narsil_client._exchange import AsyncUpload, Upload
@@ -25,9 +35,17 @@ __all__ = [
     "SYNONYMS_CAPABILITY",
     "TASK_CANCEL_CAPABILITY",
     "TASK_FILTER_CAPABILITY",
+    "AsyncChangeSubscription",
     "AsyncNarsilClient",
     "AsyncResponseStream",
     "AsyncUpload",
+    "Change",
+    "ChangePosition",
+    "ChangeSubscription",
+    "ChangesBatch",
+    "ChangesEvent",
+    "ChangesResync",
+    "ChangesSubscribed",
     "ClientErrorCodes",
     "NarsilClient",
     "NarsilError",

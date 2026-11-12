@@ -16,6 +16,7 @@ import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
+import type { PreviousDocumentReader } from './changes/previous-document'
 import { type MetadataConfig, metadataFromConfig } from './durability-metadata'
 import type { ApplyMutation } from './mutations/context'
 
@@ -66,9 +67,11 @@ export interface DurabilityIntegrationHooks {
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
   onCheckpointHeld?: IndexDurabilityHooks['onCheckpointHeld']
   onFatalError: IndexDurabilityHooks['onFatalError']
-  keepsSyncHistory?: IndexDurabilityHooks['keepsSyncHistory']
+  keepsHistory?: IndexDurabilityHooks['keepsHistory']
   onHistoryMoved?: IndexDurabilityHooks['onHistoryMoved']
   linkStoredSizes: IndexDurabilityHooks['linkStoredSizes']
+  recordsPreviousDocument?: IndexDurabilityHooks['recordsPreviousDocument']
+  previousDocumentReader?: (indexName: string) => PreviousDocumentReader | null
   checkpointPublisher?: CheckpointPublisher
 }
 
@@ -116,9 +119,14 @@ export function createDurabilityIntegration(
     onLayoutUpgrade: hooks.onLayoutUpgrade,
     onCheckpointHeld: hooks.onCheckpointHeld,
     onFatalError: hooks.onFatalError,
-    ...(hooks.keepsSyncHistory === undefined ? {} : { keepsSyncHistory: hooks.keepsSyncHistory }),
+    ...(hooks.keepsHistory === undefined ? {} : { keepsHistory: hooks.keepsHistory }),
     ...(hooks.onHistoryMoved === undefined ? {} : { onHistoryMoved: hooks.onHistoryMoved }),
     linkStoredSizes: hooks.linkStoredSizes,
+    ...(hooks.recordsPreviousDocument === undefined ? {} : { recordsPreviousDocument: hooks.recordsPreviousDocument }),
+  }
+
+  function readerOf(indexName: string): PreviousDocumentReader | null {
+    return hooks.previousDocumentReader === undefined ? null : hooks.previousDocumentReader(indexName)
   }
 
   const manager =
@@ -144,6 +152,8 @@ export function createDurabilityIntegration(
           documentId: docId,
           document,
           async apply() {
+            const readPrevious = readerOf(indexName)
+            if (readPrevious !== null) record.previousDocument = readPrevious(docId)
             queued = (await apply()) ?? undefined
             if (queued !== undefined) deferMutationPublication(record)
           },
@@ -187,6 +197,8 @@ export function createDurabilityIntegration(
             documentId: mutation.docId,
             document: mutation.document === null ? null : encodeDocument(mutation.document),
             async apply() {
+              const readPrevious = readerOf(indexName)
+              if (readPrevious !== null) record.previousDocument = readPrevious(mutation.docId)
               queued[i] = (await mutation.apply()) ?? undefined
               if (queued[i] !== undefined) deferMutationPublication(record)
             },

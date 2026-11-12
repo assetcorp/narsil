@@ -7,8 +7,8 @@ import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
 import { detectRuntime } from '../runtime/detect'
-import { createFeedHub } from '../sync/feed/hub'
 import { createBodyBudgetBuffer, createSharedBodyBudget } from './body-budget'
+import { createChangesSettingHandlers } from './changes/setting-handlers'
 import {
   createSharedGateBuffer,
   createSharedRequestGate,
@@ -32,6 +32,7 @@ import {
 } from './constants'
 import { corsHeaderReader, resolveCors } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
+import { startFeeds } from './feeds'
 import { createAdminHandlers } from './handlers/admin'
 import { createBackupHandlers } from './handlers/backups'
 import { createCapabilitiesHandler } from './handlers/capabilities'
@@ -55,11 +56,10 @@ import { type Authorizer, authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
 import { loadUWebSockets, type UWebSockets } from './runtime'
-import { engineSyncServing } from './sync/engine-serving'
-import { createFeedHost, type FeedHost } from './sync/feed-host'
-import { registerFeedRoute } from './sync/feed-route'
-import { assertSyncHasAuthentication, type ResolvedSyncOptions, resolveSyncOptions } from './sync/options'
-import { type SyncServing, syncServingSourceOf } from './sync/serving'
+import type { FeedHost } from './sync/feed-host'
+import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from './sync/feed-route'
+import { assertFeedHasAuthentication, type ResolvedFeedOptions, resolveFeedOptions } from './sync/options'
+import type { SyncServing } from './sync/serving'
 import { createSyncSettingHandlers } from './sync/setting-handlers'
 import { createSyncSnapshotHandler } from './sync/snapshot-handler'
 import { InMemoryTaskStore } from './task-store'
@@ -126,6 +126,7 @@ function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | 
   const version = createVersionHandler(deps)
   const capabilities = createCapabilitiesHandler()
   const syncSetting = createSyncSettingHandlers(deps.engine)
+  const changesSetting = createChangesSettingHandlers(deps.engine)
   const suggestions = createQuerySuggestionHandlers(deps, deps.querySuggestions)
 
   return {
@@ -187,6 +188,8 @@ function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | 
     getSync: syncSetting.getSync,
     updateSync: syncSetting.updateSync,
     syncSnapshot: createSyncSnapshotHandler(syncServing),
+    getChanges: changesSetting.getChanges,
+    updateChanges: changesSetting.updateChanges,
     updateQuerySuggestions: suggestions.update,
     querySuggestionsStatus: suggestions.status,
     recordQuery: suggestions.record,
@@ -209,7 +212,8 @@ class NarsilHttpServer implements NarsilServer {
   private listenSocket: us_listen_socket | null = null
   private ready = false
   private threads: RequestThreadHost | null = null
-  private readonly sync: ResolvedSyncOptions | null
+  private readonly sync: ResolvedFeedOptions | null
+  private readonly changes: ResolvedFeedOptions | null
   private syncServing: SyncServing | null = null
   private feeds: FeedHost | null = null
   private stopIdleHeapCleanup: () => void = () => undefined
@@ -220,7 +224,8 @@ class NarsilHttpServer implements NarsilServer {
     assertServerLimits(options.limits, engineRerankWindow)
     assertAllowRegex(options.allowRegex)
     assertQuerySuggestionsOptions(options.querySuggestions)
-    this.sync = resolveSyncOptions(options.sync)
+    this.sync = resolveFeedOptions('sync', options.sync)
+    this.changes = resolveFeedOptions('changes', options.changes)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
@@ -249,7 +254,8 @@ class NarsilHttpServer implements NarsilServer {
   }
 
   async listen(): Promise<void> {
-    assertSyncHasAuthentication(this.sync, this.options)
+    assertFeedHasAuthentication('sync', this.sync, this.options)
+    assertFeedHasAuthentication('changes', this.changes, this.options)
     assertSecureBinding(this.host, this.options)
     const uws = await loadUWebSockets()
     this.uws = uws
@@ -302,20 +308,19 @@ class NarsilHttpServer implements NarsilServer {
     return this.threads?.threadCount ?? 0
   }
 
-  private startSync(app: TemplatedApp, authorize: Authorizer | undefined, core: EngineCore | undefined): void {
-    if (this.sync === null) return
-    const servingOfNode = syncServingSourceOf(this.engine)
-    let serving: SyncServing
-    if (servingOfNode !== undefined) serving = servingOfNode()
-    else if (core !== undefined) serving = engineSyncServing(this.engine, core)
-    else return
-    const hub = createFeedHub(serving.feed, {
-      ...this.sync,
-      onError: error => console.warn('A device sync feed failed to read its index:', error),
+  private startFeeds(app: TemplatedApp, authorize: Authorizer | undefined, core: EngineCore | undefined): void {
+    const started = startFeeds(this.engine, core, {
+      sync: this.sync,
+      changes: this.changes,
+      allowRegex: this.deps.allowRegex,
+      authorize,
     })
-    this.syncServing = serving
-    this.feeds = createFeedHost(hub, serving, authorize)
-    registerFeedRoute(app, this.feeds.gateway)
+    if (started === null) return
+    this.syncServing = started.syncServing
+    this.feeds = started.host
+    const { sync, changes } = started.host.gateways
+    if (sync !== undefined) registerFeedRoute(app, sync, SYNC_FEED_ROUTE)
+    if (changes !== undefined) registerFeedRoute(app, changes, CHANGES_FEED_ROUTE)
   }
 
   private async registerRoutes(app: TemplatedApp): Promise<void> {
@@ -327,7 +332,7 @@ class NarsilHttpServer implements NarsilServer {
     const bodyBudget = createBodyBudgetBuffer(gateSlotOfWorker(threadCount))
     const { limits, build, allowRegex } = this.deps
     const handlers = mainThreadHandlers(this.deps, () => this.syncServing)
-    this.startSync(app, authorize, core)
+    this.startFeeds(app, authorize, core)
     const run = createRouteRunner({
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),

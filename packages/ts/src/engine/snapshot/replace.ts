@@ -225,7 +225,13 @@ export async function installRestoredIndex(
 ) {
   const entry = restoredRegistryEntry(indexName, restored.prepared, restored.detached.manager, deps)
   const previousSync = deps.indexRegistry.get(indexName)?.sync ?? null
-  if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch: newSyncEpoch() }
+  const previousChanges = deps.indexRegistry.get(indexName)?.changes ?? null
+  const renewsEpoch = previousSync !== null || previousChanges !== null
+  if (renewsEpoch) {
+    const epoch = newSyncEpoch()
+    if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch }
+    if (previousChanges !== null) entry.changes = { ...previousChanges, epoch }
+  }
   if (restored.saved !== null) entry.savedBytes = restored.saved.bytes
   let replaced: IndexRegistryEntry | undefined
   try {
@@ -246,7 +252,7 @@ export async function installRestoredIndex(
     await durable.persistMetadata(indexName)
     await durable.checkpoint(indexName)
   }
-  if (previousSync !== null) {
+  if (renewsEpoch) {
     const storage = durable?.syncStorage?.()
     if (storage !== undefined)
       await oneSyncChangeAtATime(deps.indexRegistry, indexName, () => storage.release(indexName))

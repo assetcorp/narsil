@@ -151,7 +151,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 
 | Type | Direction | Description |
 |------|-----------|-------------|
-| `sync.read` | any node to primary | Reads the entries of one partition for a [device feed](../sync.md#the-feed) |
+| `sync.read` | any node to primary | Reads the entries of one partition for a [device feed](../sync.md#the-feed) or a [change feed](../changes.md#the-feed) |
 
 ### Suggestion Messages
 
@@ -640,7 +640,7 @@ A node sends this to the active controller to [take a backup](backups.md#taking-
 {
   backupName: string
   indexName:  string
-  takenBy:    string or absent   ("sync" for a backup that device sync starts)
+  takenBy:    string or absent   ("sync" for a backup that device sync starts, and "changes" for one that change capture starts)
   queryHistory: boolean or absent (true where the caller asks for query history)
 }
 ```
@@ -751,7 +751,7 @@ The receiving node must read the index metadata and the synonym set from the coo
 
 ### sync.read
 
-A node sends this to the primary of one partition to read the entries that it sends through a [device feed](../sync.md#the-feed).
+A node sends this to the primary of one partition to read the entries that it sends through a [device feed](../sync.md#the-feed) or a [change feed](../changes.md#the-feed).
 
 ```text
 {

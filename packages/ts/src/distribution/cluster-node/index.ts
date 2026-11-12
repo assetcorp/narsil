@@ -276,8 +276,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       isOrphaned: (indexName: string) => orphanedIndexes.has(indexName),
       suggestionHooks: suggestions.hooks,
     }),
-    updateSync: (indexName, setting) => trackOp(indexName, () => deviceSync.updateSync(indexName, setting)),
-    getSync: indexName => trackOp(indexName, () => deviceSync.getSync(indexName)),
+    ...deviceSync.operations(trackOp),
 
     cluster,
 
@@ -380,6 +379,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     engine,
     memoryView: memoryReporting.view,
     syncServing: deviceSync.serving,
+    changesServing: deviceSync.changesServing,
   })
   suggestions.bind(node, { engine: clusterNodeEngine(node), dropIndex: name => node.dropIndex(name) })
   return node

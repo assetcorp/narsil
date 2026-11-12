@@ -54,6 +54,16 @@ impl DurabilityStore {
         })
     }
 
+    /// Records whether the index writes a previous document into each log entry, so that each partition log opens
+    /// every new segment with the framing version that such entries need.
+    pub(crate) fn note_previous_documents(&self, index_name: &str, records: bool) {
+        if let Ok(state) = self.inner.index_state(index_name) {
+            state
+                .records_previous_documents
+                .store(records, Ordering::Release);
+        }
+    }
+
     pub(crate) fn wait_durable(
         &self,
         index_name: &str,

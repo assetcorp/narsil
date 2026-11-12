@@ -2,7 +2,7 @@
 
 `github.com/assetcorp/narsil/packages/go` calls a Narsil search server, or every node of a Narsil cluster, from Go 1.26 or later. It holds a typed method for every route that the server documents in its OpenAPI file, and it depends on the standard library alone, so it builds without cgo or a C compiler.
 
-To search an index inside a Go process with no server, use [the Go engine](https://github.com/assetcorp/narsil/tree/main/packages/go/engine) at `github.com/assetcorp/narsil/packages/go/engine`. The two modules carry separate version tags: this client's releases carry tags of the form `packages/go/vX.Y.Z`, while the engine's carry `packages/go/engine/vX.Y.Z`.
+To search an index inside a Go process with no server, use [the Go engine](https://github.com/assetcorp/narsil/tree/main/packages/go/engine) at `github.com/assetcorp/narsil/packages/go/engine`. The two modules carry separate version tags: this client's releases carry tags of the form `packages/go/vX.Y.Z`, while the engine's carry `packages/go/engine/vX.Y.Z`. The change feed subscriber at `github.com/assetcorp/narsil/packages/go/changes` carries `packages/go/changes/vX.Y.Z`, and each of its releases requires the newest client release, so the release workflow refuses it while the client on `main` holds changes that no client release includes.
 
 ```bash
 go get github.com/assetcorp/narsil/packages/go

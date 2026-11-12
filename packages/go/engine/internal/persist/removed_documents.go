@@ -23,7 +23,7 @@ func exceedsRemovedShare(removed int64, held int64) bool {
 	return held > 0 && float64(removed) > float64(held)*RewriteAboveRemovedDocumentShare
 }
 
-func heldDocuments(listed []manifest.SegmentRef) int64 {
+func listedDocumentCount(listed []manifest.SegmentRef) int64 {
 	var held int64
 	for _, ref := range listed {
 		held += int64(ref.DocCount)
@@ -84,7 +84,7 @@ func freedBytesOf(ref manifest.SegmentRef, replacedCount int) float64 {
 }
 
 func (rewrite *removedRewrite) choose(listed []manifest.SegmentRef, replaced [][]string) map[int]bool {
-	held := heldDocuments(listed)
+	held := listedDocumentCount(listed)
 	var removed int64
 	candidates := make([]int, 0, len(listed))
 	for at := range listed {
@@ -119,7 +119,7 @@ func (rewrite *removedRewrite) partition(ctx context.Context, entry *manifest.Pa
 	if live < 0 || rewrite.handle.NewDetachedIndex == nil {
 		return false, nil
 	}
-	held := heldDocuments(entry.Segments)
+	held := listedDocumentCount(entry.Segments)
 	if !exceedsRemovedShare(held-int64(live), held) {
 		return false, nil
 	}

@@ -38,6 +38,14 @@ func syncValue(setting SyncSetting) codec.OrderedMap {
 	return entries
 }
 
+func changesValue(setting ChangesSetting) codec.OrderedMap {
+	entries := codec.OrderedMap{{Key: "enabled", Value: setting.Enabled}}
+	is.PutOptional(&entries, "previous_document", setting.PreviousDocument, is.Flag)
+	is.PutOptional(&entries, "history_max_age_ms", setting.HistoryMaxAgeMS, is.Number[uint64])
+	is.PutOptional(&entries, "history_max_bytes", setting.HistoryMaxBytes, is.Number[uint64])
+	return entries
+}
+
 func heldValue(held []uint32) any {
 	values := make([]any, len(held))
 	for index, partition := range held {
@@ -100,6 +108,9 @@ func (meta Metadata) Value() codec.OrderedMap {
 	}
 	is.PutOptional(&entries, "sync_active", meta.SyncActive, is.Flag)
 	is.PutOptional(&entries, "sync_epoch", meta.SyncEpoch, is.Text)
+	if meta.Changes != nil {
+		is.Put(&entries, "changes", changesValue(*meta.Changes))
+	}
 	meta.QuerySuggestions.Put(&entries, is.Snake)
 	return entries
 }

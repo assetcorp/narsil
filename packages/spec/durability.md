@@ -35,7 +35,7 @@ An implementation selects the tier from the backend: a filesystem-backed adapter
 
 ## Relationship to Other Documents
 
-- **Log entry format.** [replication.md](distribution/replication.md) defines `ReplicationLogEntry` with its `seqNo`, `primaryTerm`, `operation`, `partitionId`, `indexName`, `documentId`, `document`, and `checksum` fields. The write-ahead log stores exactly that entry.
+- **Log entry format.** [replication.md](distribution/replication.md) defines `ReplicationLogEntry` with its `seqNo`, `primaryTerm`, `operation`, `partitionId`, `indexName`, `documentId`, `document`, `previousDocument`, and `checksum` fields. The write-ahead log stores exactly that entry.
 - **Snapshot container.** [envelope.md](envelope.md) defines the `.nrsl` 32-byte header, the CRC32 payload checksum, and the MessagePack payload.
 - **Checksum.** CRC32 under the IEEE polynomial, defined in [CRC32](algorithms.md#crc32). The same algorithm covers the envelope checksum, the log frame checksum, the commit marker checksum, and the log entry checksum.
 
@@ -107,11 +107,13 @@ Every segment file begins with exactly 8 bytes:
 Offset  Size  Type      Field               Description
 ------  ----  ----      -----               -----------
 0       4     bytes     magic               "NRSW" (0x4E 52 53 57)
-4       1     uint8     wal_format_version  Log framing version (1)
+4       1     uint8     wal_format_version  Log framing version (1 or 2)
 5       3     bytes     reserved            All 0x00 on write
 ```
 
 A reader must reject with `PERSISTENCE_WAL_CORRUPT` a segment that does not begin with the `NRSW` magic, and with `ENVELOPE_VERSION_MISMATCH` a segment whose `wal_format_version` is higher than the version that it supports, because a newer release wrote that segment.
+
+A node must open a segment with version 2 while the index has `previousDocument` on, as [Previous Document](changes.md#previous-document) defines, and with version 1 otherwise. It must append an entry that holds the `previousDocument` key to a segment of version 2 alone, so where the active segment has version 1, it must first open a new segment. A segment of version 2 can hold entries with the key and entries without it.
 
 ### Record Frame
 
@@ -373,7 +375,7 @@ An interval, a mutation count since the last checkpoint, or both together trigge
 1. Capture each partition's current head sequence number, `N_p`.
 2. Write the [segmented checkpoint](#segmented-checkpoint), with the manifest's `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
 3. Persist the checkpoint's total document count in `document_count` and its saved size in `saved_bytes`.
-4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it. While `sync_active` is set for the index, the node moves those segments into history, as [History](sync.md#history) defines.
+4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it. While `sync_active` is set for the index, or the index has [change capture](changes.md#history) on, the node moves those segments into history, as [History](sync.md#history) defines.
 
 The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash before step 4 leaves extra log segments, which recovery skips by sequence number with no harm done.
 
@@ -442,7 +444,7 @@ For each mutation while the log is active:
 
 1. Validate the document against the schema.
 2. Apply the mutation to the in-memory partition, including any vector index work. When that fails, no log record is written and the caller receives the error.
-3. Build the log entry. An `INDEX` entry carries the full transformed document as MessagePack bytes, computed embeddings included. A `DELETE` entry carries the `documentId` with `document` absent. Assign the partition's next `seqNo`. On a single node `primaryTerm` stays constant.
+3. Build the log entry. An `INDEX` entry carries the full transformed document as MessagePack bytes, computed embeddings included. A `DELETE` entry carries the `documentId` with `document` absent. For an index with `previousDocument` on, the entry also holds the document that the partition held under that ID before step 2, or nil where it held none, as [Previous Document](changes.md#previous-document) defines. Assign the partition's next `seqNo`. On a single node `primaryTerm` stays constant.
 4. Append the framed record to the partition's active log segment, make it durable according to the [durability mode](#durability-modes), and update the [commit marker](#commit-marker).
 5. Acknowledge the write.
 
@@ -513,7 +515,7 @@ Every line must hold one JSON object in UTF-8, ended by a line feed. The first l
 { "format": "narsil-export", "version": 1, "index": IndexConfiguration }
 ```
 
-`index` holds the keys of the [index configuration payload](envelope.md#index-configuration-payload) as JSON. A document line holds the document as the engine stores it, with its ID under `id`, the value of each vector field as an array of numbers, and a tag in place of each value that JSON has no type for. A writer must write each number so that parsing it returns the same float64 value, negative zero included. A writer must take every document from one moment of the index, and a node with write-ahead log durability must take them from one checkpoint, whose files it must keep until the export ends, as a [snapshot archive](#snapshot-archive) does.
+`index` holds the keys of the [index configuration payload](envelope.md#index-configuration-payload) as JSON. The header of an index with change capture on also holds `epoch` and `positions`, as [Positions in a Document Export](changes.md#positions-in-a-document-export) defines, and a reader must ignore both keys. A document line holds the document as the engine stores it, with its ID under `id`, the value of each vector field as an array of numbers, and a tag in place of each value that JSON has no type for. A writer must write each number so that parsing it returns the same float64 value, negative zero included. A writer must take every document from one moment of the index, and a node with write-ahead log durability must take them from one checkpoint, whose files it must keep until the export ends, as a [snapshot archive](#snapshot-archive) does.
 
 JSON has no type for a timestamp, for binary data, or for a NaN or infinite float, so a writer must write each such value as a tag. A tag is an object whose only key is one of the four names in this table:
 
@@ -528,7 +530,7 @@ A writer must wrap a stored map whose only key begins with `$` in an `$object` t
 
 In a document line, a reader must treat every object whose only key begins with `$` as a tag. It must keep the keys of the map inside `$object` as they are, although it must convert the tags in that map's values. It must refuse with `DOC_VALIDATION_FAILED` a line that holds an object whose only key begins with `$` and names none of the four tags, a `$date` whose value is anything other than two integers with seconds in the range above and nanoseconds from 0 to 999,999,999, a `$bytes` text that differs from the padded base64 of the bytes that it decodes to, a `$number` text other than the three in the table, or an `$object` whose value is anything other than an object. A reader may refuse a `$date` that lies outside the range of its language's date type.
 
-A reader must reject with `CONFIG_INVALID` an export whose first line is not a header of version 1. It must accept a line of up to 117,443,592 bytes, which is seven times the 16,777,216 bytes of the longest document that [Documents](envelope.md#documents) allows, plus 3,080 bytes for the document's ID. The factor of seven comes from an empty `$bytes` tag in a list, which spells two MessagePack bytes in 14 characters. The 3,080 bytes cover an ID of 512 UTF-16 code units that each take six characters as a JSON escape such as `\u0001`, together with the eight characters of `"id":"",`. A header fits inside the same length, because [Index Configuration Payload](envelope.md#index-configuration-payload) caps the configuration at 16,777,216 bytes, while the rest of the header takes 47 characters. The import operation must create the index from the header, or use an existing index whose schema matches the header where the caller names one. It must insert the documents in batches, so that it holds one batch in memory at a time. It must replace a document whose ID the index already holds, so that running an interrupted import again leaves the index equal to the export. After it refuses a line, it must go on with the next line. It must count every line that it refuses, and it must report the number and error code of the 1,000 refused lines with the lowest numbers, so that the report stays the same size however many lines a file holds.
+A reader must reject with `CONFIG_INVALID` an export whose first line is not a header of version 1. It must accept a line of up to 117,443,592 bytes, which is seven times the 16,777,216 bytes of the longest document that [Documents](envelope.md#documents) allows, plus 3,080 bytes for the document's ID. The factor of seven comes from an empty `$bytes` tag in a list, which spells two MessagePack bytes in 14 characters. The 3,080 bytes cover an ID of 512 UTF-16 code units that each take six characters as a JSON escape such as `\u0001`, together with the eight characters of `"id":"",`. A header fits inside the same length. [Index Configuration Payload](envelope.md#index-configuration-payload) caps the configuration at 16,777,216 bytes, and a configuration holds no binary value, so its JSON takes at most six characters for each of those bytes, which is 100,663,296 characters. The rest of the header takes 47 characters, and the `epoch` and `positions` of an index with change capture on take at most 3,342,394 more, which is 58 characters for the two keys and 51 for each of 65,536 partitions. The import operation must create the index from the header, or use an existing index whose schema matches the header where the caller names one. It must insert the documents in batches, so that it holds one batch in memory at a time. It must replace a document whose ID the index already holds, so that running an interrupted import again leaves the index equal to the export. After it refuses a line, it must go on with the next line. It must count every line that it refuses, and it must report the number and error code of the 1,000 refused lines with the lowest numbers, so that the report stays the same size however many lines a file holds.
 
 ---
 

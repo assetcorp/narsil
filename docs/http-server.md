@@ -8,7 +8,7 @@ The server subpath turns an engine into a REST service, and this guide covers ev
 pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.70.0
 ```
 
-The [device sync](device-sync.md) feed needs v20.69.0 or v20.70.0. An earlier release can drop a feed connection as soon as it opens, so that the device sees close code 1006 in place of the code that the server sent, while v20.71.0 fails to load as an ES module.
+The [device sync](device-sync.md) feed and the [change capture](change-capture.md) feed need v20.69.0 or v20.70.0. An earlier release can drop a feed connection as soon as it opens, so that the device or the subscriber sees close code 1006 in place of the code that the server sent, while v20.71.0 fails to load as an ES module.
 
 ```ts
 import { createNarsil } from '@delali/narsil'
@@ -169,6 +169,10 @@ Each running task holds its own working set, and an async import holds the whole
 ## Device sync
 
 The `sync` option turns on `GET /indexes/{name}/sync/snapshot` and the feed, a WebSocket at `GET /indexes/{name}/sync/feed`, which stay off by default. The server refuses to start with them on and no `onRequest` hook, because a device receives the whole index. [Device sync](device-sync.md#serve-sync-from-the-server) covers the routes, the credential on the feed, and the history limits.
+
+## Change capture
+
+`GET /indexes/{name}/changes` and `PUT /indexes/{name}/changes` read and replace an index's change capture setting. The `changes` option turns on the change feed, a WebSocket at `GET /indexes/{name}/changes/feed`, which stays off by default. The server refuses to start with the feed on and no `onRequest` hook, because a subscriber receives every document of the index. [Change capture](change-capture.md#serve-the-feed-from-the-server) covers the feed, its credential, and its limits.
 
 ## Snapshots and exports
 
