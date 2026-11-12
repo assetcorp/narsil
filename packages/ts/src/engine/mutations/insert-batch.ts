@@ -1,6 +1,5 @@
 import {
   admitInsert,
-  asBatchInsertError,
   awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   MIN_DOCUMENTS_FOR_SEGMENTS,
@@ -14,6 +13,7 @@ import {
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
+import { asBatchInsertError } from './batch-admissions'
 import type { MutationContext } from './context'
 import { type AdmittedInsert, prepareInsertDocuments } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'

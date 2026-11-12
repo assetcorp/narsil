@@ -137,7 +137,9 @@ export async function removeDocument(
   ctx.requireIndex(indexName)
   validateRemoval(ctx, docId)
   if (ctx.pluginRegistry.hasHooks('beforeRemove')) {
-    await runOutside(hold, () => ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId }))
+    await runOutside(hold, async () => {
+      await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
+    })
   }
   const prepared = prepareRemoval(ctx, indexName, docId)
   const apply = applyOfRemoval(ctx, indexName, prepared)

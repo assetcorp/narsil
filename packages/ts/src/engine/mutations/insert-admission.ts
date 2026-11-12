@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { requireDocumentWithinSizeLimit } from '../../schema/validator'
 import type { AnyDocument } from '../../types/schema'
+import type { PendingAdmissions } from './batch-admissions'
 import type { MutationContext } from './context'
 
 /** Resolves a document's own `id` field as its identifier when present, so a
@@ -38,33 +39,8 @@ export function requireMatchingDocId(docId: string, document: AnyDocument): void
   )
 }
 
-export function asBatchInsertError(err: unknown): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
-}
-
-export interface PendingAdmissions {
-  total: number
-  byPartition: Map<number, number>
-}
-
-export function createPendingAdmissions(): PendingAdmissions {
-  return { total: 0, byPartition: new Map() }
-}
-
-function capsEachPartition(ctx: MutationContext, manager: PartitionManager): boolean {
+export function capsEachPartition(ctx: MutationContext, manager: PartitionManager): boolean {
   return ctx.capacityScope === 'partition' && manager.config.partitions?.maxDocsPerPartition !== undefined
-}
-
-export function recordPendingAdmission(
-  ctx: MutationContext,
-  pending: PendingAdmissions,
-  manager: PartitionManager,
-  docId: string,
-): void {
-  pending.total += 1
-  if (!capsEachPartition(ctx, manager)) return
-  const partitionId = manager.routePartition(docId)
-  pending.byPartition.set(partitionId, (pending.byPartition.get(partitionId) ?? 0) + 1)
 }
 
 export function admitInsert(

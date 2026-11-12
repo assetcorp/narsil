@@ -3,7 +3,6 @@ import {
   BATCH_CHUNK_SIZE,
   ErrorCodes,
   NarsilError,
-  prepareDocumentWrites,
   turnIsSpent,
   turnsAreBudgeted,
   validateBatchList,
@@ -24,7 +23,7 @@ import {
   settleUpdate,
   updatePreparationOf,
 } from './update'
-import type { WritePreparation } from './write-preparation'
+import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
 function reportedDocIdOf(update: unknown): string {
   const docId = update !== null && typeof update === 'object' ? (update as { docId?: unknown }).docId : undefined

@@ -1,14 +1,10 @@
 import {
   admitInsert,
-  asBatchInsertError,
   BATCH_CHUNK_SIZE,
-  createPendingAdmissions,
   ErrorCodes,
   NarsilError,
   prepareDocumentVectors,
-  prepareDocumentWrites,
   providedDocId,
-  recordPendingAdmission,
   requireDocumentObject,
   turnIsSpent,
   turnsAreBudgeted,
@@ -21,8 +17,9 @@ import {
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
+import { asBatchInsertError, createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
 import type { MutationContext } from './context'
-import type { WritePreparation } from './write-preparation'
+import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
 export interface AdmittedInsert {
   docId: string

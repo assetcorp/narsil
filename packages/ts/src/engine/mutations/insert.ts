@@ -1,6 +1,6 @@
 import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
-import { requireDocumentWithinSizeLimit } from '../../schema/validator'
+import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import { loadOptionalWrites } from '../optional-writes-code'
@@ -8,7 +8,6 @@ import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { ApplyMutation, MutationContext } from './context'
 import { admitInsert, providedDocId, requireMatchingDocId } from './insert-admission'
-import { prepareDocumentWrite } from './write-preparation'
 import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocument(
@@ -20,21 +19,21 @@ export async function insertDocument(
   hold?: IndexHold,
 ): Promise<string> {
   ctx.guardShutdown()
-  ctx.requireIndex(indexName)
+  let entry = ctx.requireIndex(indexName)
 
   if (docId !== undefined) requireMatchingDocId(docId, document)
   const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
-  const entry = await prepareDocumentWrite(
-    ctx,
-    indexName,
-    document,
-    hold,
-    ctx.pluginRegistry.hasHooks('beforeInsert')
-      ? () => ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
-      : null,
-  )
+  const beforeInsert = ctx.pluginRegistry.hasHooks('beforeInsert')
+    ? () => ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
+    : null
+  if (beforeInsert !== null || entry.config.embedding !== undefined) {
+    const { prepareDocumentWrite } = await loadOptionalWrites()
+    entry = await prepareDocumentWrite(ctx, indexName, document, hold, beforeInsert)
+  } else if (entry.config.required !== undefined) {
+    validateRequiredFields(document as Record<string, unknown>, entry.config.required)
+  }
 
   const sizing = requireDocumentWithinSizeLimit(document as Record<string, unknown>)
   if (sizing !== null) await sizing
