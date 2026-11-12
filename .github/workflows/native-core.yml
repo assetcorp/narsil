@@ -75,10 +75,20 @@ jobs:
           if-no-files-found: error
 
   lint:
-    name: Check the C code with clang-tidy and clang-format
+    name: Check the C code with clang-tidy and clang-format, part ${{ matrix.part }} of ${{ matrix.parts }}
     if: ${{ inputs.run-lint }}
-    runs-on: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'ubuntu-latest' || 'macos-15' }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
+          {"runner": "ubuntu-latest", "part": 1, "parts": 2},
+          {"runner": "ubuntu-latest", "part": 2, "parts": 2}
+          ]' || '[
+          {"runner": "macos-15", "part": 1, "parts": 1}
+          ]') }}
 
     steps:
       - name: Checkout
@@ -97,9 +107,13 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Check every kernel path with clang-tidy and the layout with clang-format
-        run: pnpm --filter @delali/narsil-native-build lint
+        env:
+          PART: ${{ matrix.part }}
+          PARTS: ${{ matrix.parts }}
+        run: pnpm --filter @delali/narsil-native-build lint "$PART/$PARTS"
 
       - name: Check the C language data and Unicode tables match a fresh generation
+        if: matrix.part == 1
         run: pnpm --filter @delali/narsil run native-analysis
 
   sanitised:
