@@ -62,8 +62,9 @@ async function settleCopies(scope: PrimaryWriteScope, copies: string[]): Promise
   if (scope.indexUuid !== undefined) request.indexUuid = scope.indexUuid
   return Promise.all(
     copies.map(async copy => {
+      const beforeRequest = outOfStepCopyOf(scope, copy)
       const inStep = await settleCopy(scope, log, request, copy).catch(() => false)
-      return inStep ? null : outOfStepCopyOf(scope, copy)
+      return inStep ? null : beforeRequest
     }),
   )
 }
