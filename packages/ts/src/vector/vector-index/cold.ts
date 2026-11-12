@@ -101,10 +101,11 @@ export function cancelColdHold(state: VectorIndexState): void {
   const hold = state.cold
   if (hold === null) return
   state.cold = null
+  hold.loadWanted()
   hold.field.close()
 }
 
-export function openColdField(state: VectorIndexState, field: ColdVectorField, load: ColdFieldLoad): void {
+export function openColdField(state: VectorIndexState, field: ColdVectorField, load: ColdFieldLoad): Promise<void> {
   cancelColdHold(state)
   let finished: () => void = () => undefined
   let failed: (error: unknown) => void = () => undefined
@@ -117,7 +118,7 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     loadWanted = resolve
   })
   const hold = beginColdHold(state, field, loaded, loadWanted)
-  void load(
+  const settled = load(
     shape => beginCheckpointRestore(state, shape),
     () => state.cold === hold,
     loadingWanted,
@@ -127,6 +128,7 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     })
     .then(finished, failed)
   loaded.catch(() => undefined)
+  return settled
 }
 
 export function coldHas(hold: ColdVectorHold, docId: string): boolean {
