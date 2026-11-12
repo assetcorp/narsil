@@ -68,7 +68,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     try {
       return await action(hold)
     } finally {
-      await hold.settle()
+      hold.release()
     }
   }
 
@@ -272,16 +272,10 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         if (rebalancesStarting.get(indexName) === started) rebalancesStarting.delete(indexName)
       }
       rebalancesStarting.set(indexName, started)
-      const rebalanced = withOpenIndex(indexName, hold =>
+      const rebalanced = withOpenIndex(indexName, () =>
         withRenewedSyncEpoch(core, indexName, async () => {
           const [{ executeRebalance }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
-          const running = executeRebalance(
-            requireManager(indexName),
-            indexName,
-            targetPartitionCount,
-            rebalanceCtx,
-            work => hold.afterRelease(work),
-          )
+          const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
           releaseWrites()
           await running
         }),

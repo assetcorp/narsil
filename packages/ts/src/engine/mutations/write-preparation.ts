@@ -6,10 +6,12 @@ import {
   NarsilError,
   validateRequiredFields,
 } from '#platform/optional-writes-host'
-import type { AnyDocument } from '../../types/schema'
+import type { EmbeddingAdapter } from '../../types/adapters'
+import type { AnyDocument, EmbeddingFieldConfig } from '../../types/schema'
 import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
 import type { MutationContext } from './context'
+import { runOutside } from './outside-hold'
 
 type WriteEntry = ReturnType<MutationContext['requireIndex']>
 
@@ -17,6 +19,16 @@ export interface WritePreparation {
   document: AnyDocument
   beforeWrite: (() => void | Promise<void>) | null
   failure: unknown
+}
+
+interface EmbeddingSettings {
+  required: string[] | undefined
+  embedding: EmbeddingFieldConfig | undefined
+  adapter: EmbeddingAdapter | null
+}
+
+function settingsOf(entry: WriteEntry): EmbeddingSettings {
+  return { required: entry.config.required, embedding: entry.config.embedding, adapter: entry.embeddingAdapter }
 }
 
 function embedsThroughAdapter(entry: WriteEntry): boolean {
@@ -35,8 +47,7 @@ function failAll(preparations: WritePreparation[], failure: unknown): void {
   for (const preparation of writable(preparations)) preparation.failure = failure
 }
 
-function requireFieldsOf(entry: WriteEntry, preparations: WritePreparation[]): void {
-  const required = entry.config.required
+function requireFieldsOf(required: string[] | undefined, preparations: WritePreparation[]): void {
   if (required === undefined || required.length === 0) return
   for (const preparation of writable(preparations)) {
     try {
@@ -47,19 +58,34 @@ function requireFieldsOf(entry: WriteEntry, preparations: WritePreparation[]): v
   }
 }
 
-async function embedForWrite(
-  ctx: MutationContext,
-  indexName: string,
+async function requireMappedVectors(entry: WriteEntry, preparations: WritePreparation[]): Promise<void> {
+  const embeddingConfig = entry.config.embedding
+  if (embeddingConfig === undefined || entry.embeddingAdapter !== null) return
+  const { assertDocumentCarriesMappedVectors } = await loadEmbedCode()
+  for (const preparation of writable(preparations)) {
+    try {
+      assertDocumentCarriesMappedVectors(
+        preparation.document as Record<string, unknown>,
+        embeddingConfig,
+        entry.embeddingAdapterName,
+      )
+    } catch (err) {
+      preparation.failure = err
+    }
+  }
+}
+
+async function embedWith(
+  settings: EmbeddingSettings,
+  signal: AbortSignal,
   preparations: WritePreparation[],
   earlier: WriteEmbedding | null,
   together: boolean,
 ): Promise<WriteEmbedding | null> {
-  const entry = ctx.requireIndex(indexName)
-  requireFieldsOf(entry, preparations)
+  requireFieldsOf(settings.required, preparations)
   const { clearWriteEmbedding, embedDocumentsForWrite } = await loadEmbedCode()
   if (earlier !== null) clearWriteEmbedding(earlier)
-  const embeddingConfig = entry.config.embedding
-  const adapter = entry.embeddingAdapter
+  const { embedding: embeddingConfig, adapter } = settings
   const embeddable = writable(preparations)
   if (embeddingConfig === undefined || adapter === null || embeddable.length === 0) return null
   const fields: WriteEmbedding['fields'] = new Map()
@@ -69,17 +95,13 @@ async function embedForWrite(
       chunk.map(preparation => preparation.document as Record<string, unknown>),
       embeddingConfig,
       adapter,
-      ctx.abortController.signal,
+      signal,
       together,
     )
     for (const [document, embedded] of embedding.fields) fields.set(document, embedded)
     for (const [position, error] of failed) chunk[position].failure = error
   }
   return { adapter, fields }
-}
-
-function runOutside<T>(hold: IndexHold | undefined, work: () => Promise<T>): Promise<T> {
-  return hold === undefined ? work() : hold.outside(work)
 }
 
 async function runBeforeWrites(preparations: WritePreparation[]): Promise<void> {
@@ -91,6 +113,34 @@ async function runBeforeWrites(preparations: WritePreparation[]): Promise<void> 
       preparation.failure = err
     }
   }
+}
+
+async function embedThenRunHooks(
+  settings: EmbeddingSettings,
+  signal: AbortSignal,
+  preparations: WritePreparation[],
+): Promise<WriteEmbedding | null> {
+  const embedding = await embedWith(settings, signal, preparations, null, true)
+  await runBeforeWrites(preparations)
+  return embedding
+}
+
+async function runHooksThenEmbedEach(
+  ctx: MutationContext,
+  indexName: string,
+  preparations: WritePreparation[],
+): Promise<WriteEmbedding | null> {
+  let settings: EmbeddingSettings | null = null
+  let embedding: WriteEmbedding | null = null
+  for (const preparation of preparations) {
+    await runBeforeWrites([preparation])
+    settings ??= settingsOf(ctx.requireIndex(indexName))
+    const embedded = await embedWith(settings, ctx.abortController.signal, [preparation], null, false)
+    if (embedded === null) continue
+    if (embedding === null) embedding = embedded
+    else for (const [document, fields] of embedded.fields) embedding.fields.set(document, fields)
+  }
+  return embedding
 }
 
 function adapterChangesRefusal(indexName: string, embeddings: number): NarsilError {
@@ -110,14 +160,21 @@ export async function prepareDocumentWrites(
 ): Promise<WriteEntry> {
   let entry = ctx.requireIndex(indexName)
   if (writable(preparations).length === 0) return entry
+  const signal = ctx.abortController.signal
   let embedding: WriteEmbedding | null = null
   let embeddings = 0
   const hooked = preparations.some(preparation => preparation.beforeWrite !== null)
   if (hooked || embedsThroughAdapter(entry)) {
-    embedding = await runOutside(hold, async () => {
-      await runBeforeWrites(preparations)
-      return embedForWrite(ctx, indexName, preparations, null, together)
-    })
+    if (together && !embedsThroughAdapter(entry)) {
+      requireFieldsOf(entry.config.required, preparations)
+      await requireMappedVectors(entry, preparations)
+    }
+    const settings = settingsOf(entry)
+    embedding = await runOutside(hold, () =>
+      together
+        ? embedThenRunHooks(settings, signal, preparations)
+        : runHooksThenEmbedEach(ctx, indexName, preparations),
+    )
     embeddings += 1
     entry = ctx.requireIndex(indexName)
   }
@@ -127,26 +184,13 @@ export async function prepareDocumentWrites(
       break
     }
     const earlier = embedding
-    embedding = await runOutside(hold, () => embedForWrite(ctx, indexName, preparations, earlier, together))
+    const settings = settingsOf(entry)
+    embedding = await runOutside(hold, () => embedWith(settings, signal, preparations, earlier, together))
     embeddings += 1
     entry = ctx.requireIndex(indexName)
   }
-  requireFieldsOf(entry, preparations)
-  const embeddingConfig = entry.config.embedding
-  if (embeddingConfig !== undefined && entry.embeddingAdapter === null) {
-    const { assertDocumentCarriesMappedVectors } = await loadEmbedCode()
-    for (const preparation of writable(preparations)) {
-      try {
-        assertDocumentCarriesMappedVectors(
-          preparation.document as Record<string, unknown>,
-          embeddingConfig,
-          entry.embeddingAdapterName,
-        )
-      } catch (err) {
-        preparation.failure = err
-      }
-    }
-  }
+  requireFieldsOf(entry.config.required, preparations)
+  await requireMappedVectors(entry, preparations)
   return entry
 }
 

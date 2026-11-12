@@ -48,17 +48,24 @@ function applyEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceCo
   }
 }
 
-export type DeferHooks = (work: () => Promise<void>) => void
-
-async function afterEntry(
-  manager: PartitionManager,
-  entry: WAQEntry,
+export async function withinRebalanceHook(
   ctx: RebalanceContext,
-  deferHooks: DeferHooks | undefined,
+  indexName: string,
+  hook: () => Promise<void>,
 ): Promise<void> {
+  ctx.indexesInRebalanceHooks ??= new Set()
+  const running = ctx.indexesInRebalanceHooks
+  running.add(indexName)
+  try {
+    await hook()
+  } finally {
+    running.delete(indexName)
+  }
+}
+
+async function afterEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
   for (const field of entry.vectors.keys()) manager.getVectorIndexes().get(field)?.scheduleBuild()
-  if (deferHooks === undefined) await runEntryHooks(entry, ctx)
-  else deferHooks(() => runEntryHooks(entry, ctx))
+  await withinRebalanceHook(ctx, entry.indexName, () => runEntryHooks(entry, ctx))
 }
 
 async function runEntryHooks(entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
@@ -91,7 +98,6 @@ export async function replayQueued(
   queue: WriteAheadQueue,
   ctx: RebalanceContext,
   deferredHooks?: Array<() => Promise<void>>,
-  deferHooks?: DeferHooks,
 ): Promise<void> {
   for (;;) {
     const entry = queue.first()
@@ -119,7 +125,7 @@ export async function replayQueued(
       queue.fail(error)
       throw error
     }
-    if (deferredHooks === undefined) await afterEntry(manager, entry, ctx, deferHooks)
-    else deferredHooks.push(() => afterEntry(manager, entry, ctx, deferHooks))
+    if (deferredHooks === undefined) await afterEntry(manager, entry, ctx)
+    else deferredHooks.push(() => afterEntry(manager, entry, ctx))
   }
 }

@@ -1,5 +1,4 @@
 import {
-  awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   createFrozenSegment,
   createSharedFrozenSegment,
@@ -14,6 +13,7 @@ import { asBatchInsertError } from './batch-admissions'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
+import { finishInsertBatch, insertInChunks } from './insert-batch-chunks'
 import { applyAdmittedDocuments, runAfterInsertHooks } from './insert-batch-documents'
 import { recordChunk } from './record-batch'
 import { applySegment, type SegmentAttachment } from './segment-publication'
@@ -21,24 +21,13 @@ import { buildSegmentRequests } from './segment-replication'
 
 interface IngestOutcome {
   succeeded: string[]
-  inserted: AdmittedInsert[]
   touchedVectorFields: Set<string>
+  unrecorded: AdmittedInsert[]
 }
 
 function mainStoreDocument(doc: AdmittedInsert, options: InsertOptions | undefined): AnyDocument {
   if (doc.extractedVectors.size > 0 || options?.skipClone === true) return doc.partitionDoc
   return structuredClone(doc.partitionDoc)
-}
-
-async function applyIndividually(
-  ctx: MutationContext,
-  indexName: string,
-  admitted: AdmittedInsert[],
-  options: InsertOptions | undefined,
-  failed: BatchResult['failed'],
-): Promise<IngestOutcome> {
-  const applied = await applyAdmittedDocuments(ctx, indexName, admitted, options, failed)
-  return { succeeded: applied.succeeded, inserted: applied.inserted, touchedVectorFields: applied.touchedVectorFields }
 }
 
 interface SegmentChunk {
@@ -118,13 +107,14 @@ async function recordMergedDocuments(
   memberIndexes: number[][],
   admitted: AdmittedInsert[],
   options: InsertOptions | undefined,
+  hold: IndexHold | undefined,
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
   const succeededIds = new Set<string>()
-  const insertedIds = new Set<string>()
   const errorOf = new Map<string, unknown>()
   const touchedVectorFields = new Set<string>()
   const chunks = chunksOfWholeSegments(indexName, partitionCount, built, frozen, memberIndexes, admitted)
+  const unrecorded: AdmittedInsert[] = []
 
   for (let index = 0; index < chunks.length; index++) {
     const { docs, attachmentOf } = chunks[index]
@@ -135,6 +125,7 @@ async function recordMergedDocuments(
     })
     const failures = await recordChunk(ctx, indexName, docs, applies)
     await ctx.orchestrator.settlePublications(indexName, 'segments')
+    const inserted: AdmittedInsert[] = []
 
     for (let i = 0; i < docs.length; i++) {
       const doc = docs[i]
@@ -168,10 +159,14 @@ async function recordMergedDocuments(
       for (const fieldPath of doc.extractedVectors.keys()) {
         touchedVectorFields.add(fieldPath)
       }
-      insertedIds.add(doc.docId)
+      inserted.push(doc)
       succeededIds.add(doc.docId)
     }
 
+    if (await runAfterInsertHooks(ctx, indexName, inserted, hold)) {
+      for (const later of chunks.slice(index + 1)) unrecorded.push(...later.docs)
+      break
+    }
     if (index + 1 < chunks.length) {
       ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
@@ -179,17 +174,15 @@ async function recordMergedDocuments(
   }
 
   const succeeded: string[] = []
-  const inserted: AdmittedInsert[] = []
   for (const doc of admitted) {
     if (succeededIds.has(doc.docId)) {
       succeeded.push(doc.docId)
-      if (insertedIds.has(doc.docId)) inserted.push(doc)
       continue
     }
     if (!errorOf.has(doc.docId)) continue
     failed.push({ docId: doc.docId, error: asBatchInsertError(errorOf.get(doc.docId)) })
   }
-  return { succeeded, inserted, touchedVectorFields }
+  return { succeeded, touchedVectorFields, unrecorded }
 }
 
 function frozenSegmentOf(
@@ -211,16 +204,19 @@ async function ingestAdmitted(
   indexName: string,
   admitted: AdmittedInsert[],
   options: InsertOptions | undefined,
+  hold: IndexHold | undefined,
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
   if (admitted.length === 0) {
-    return { succeeded: [], inserted: [], touchedVectorFields: new Set() }
+    return { succeeded: [], touchedVectorFields: new Set(), unrecorded: [] }
   }
 
+  const applyIndividually = (): Promise<IngestOutcome> =>
+    applyAdmittedDocuments(ctx, indexName, admitted, options, hold, failed)
   const manager = ctx.requireManager(indexName)
   const workers = ctx.orchestrator.segmentBuildConcurrency(indexName)
   if (admitted.length < MIN_DOCUMENTS_FOR_SEGMENTS || workers <= 0) {
-    return applyIndividually(ctx, indexName, admitted, options, failed)
+    return applyIndividually()
   }
 
   const docIds = admitted.map(doc => doc.docId)
@@ -235,7 +231,7 @@ async function ingestAdmitted(
     built = null
   }
   if (built === null) {
-    return applyIndividually(ctx, indexName, admitted, options, failed)
+    return applyIndividually()
   }
   const positions = new Map(admitted.map((document, index) => [document.docId, index]))
   const used = new Set<number>()
@@ -244,17 +240,16 @@ async function ingestAdmitted(
     const members: number[] = []
     for (const docId of segment.docIds) {
       const position = positions.get(docId)
-      if (position === undefined || used.has(position))
-        return applyIndividually(ctx, indexName, admitted, options, failed)
+      if (position === undefined || used.has(position)) return applyIndividually()
       used.add(position)
       members.push(position)
     }
     memberIndexes.push(members)
   }
-  if (used.size !== admitted.length) return applyIndividually(ctx, indexName, admitted, options, failed)
+  if (used.size !== admitted.length) return applyIndividually()
 
   if (ctx.isRebalancing(indexName)) {
-    return applyIndividually(ctx, indexName, admitted, options, failed)
+    return applyIndividually()
   }
   const frozen: FrozenSegment[] = []
   for (let i = 0; i < built.length; i++) {
@@ -263,13 +258,24 @@ async function ingestAdmitted(
       memberIndexes[i].map(m => admitted[m]),
       options,
     )
-    if (segment === null) return applyIndividually(ctx, indexName, admitted, options, failed)
+    if (segment === null) return applyIndividually()
     frozen.push(segment)
   }
   for (const doc of admitted) {
-    if (manager.has(doc.docId)) return applyIndividually(ctx, indexName, admitted, options, failed)
+    if (manager.has(doc.docId)) return applyIndividually()
   }
-  return recordMergedDocuments(ctx, indexName, partitionCount, built, frozen, memberIndexes, admitted, options, failed)
+  return recordMergedDocuments(
+    ctx,
+    indexName,
+    partitionCount,
+    built,
+    frozen,
+    memberIndexes,
+    admitted,
+    options,
+    hold,
+    failed,
+  )
 }
 
 export async function insertBatchViaSegments(
@@ -281,18 +287,14 @@ export async function insertBatchViaSegments(
 ): Promise<BatchResult> {
   const failed: BatchResult['failed'] = []
   const admitted = await admitBatchDocuments(ctx, indexName, documents, failed, hold)
-  const outcome = await ingestAdmitted(ctx, indexName, admitted, options, failed)
-
-  const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
-  for (const fieldPath of outcome.touchedVectorFields) {
-    vecIndexes.get(fieldPath)?.scheduleBuild()
+  const outcome = await ingestAdmitted(ctx, indexName, admitted, options, hold, failed)
+  if (outcome.unrecorded.length > 0) {
+    const unrecorded = outcome.unrecorded.map(doc => doc.document)
+    const rest = await insertInChunks(ctx, indexName, unrecorded, options, hold, false, failed)
+    outcome.succeeded.push(...rest.succeeded)
+    for (const fieldPath of rest.touchedVectorFields) outcome.touchedVectorFields.add(fieldPath)
   }
-
-  ctx.checkWatermark(indexName, outcome.succeeded)
-  ctx.checkHeapPressure(indexName)
-  await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-  await runAfterInsertHooks(ctx, indexName, outcome.inserted, hold)
+  await finishInsertBatch(ctx, indexName, outcome, options)
 
   return { succeeded: outcome.succeeded, failed }
 }
