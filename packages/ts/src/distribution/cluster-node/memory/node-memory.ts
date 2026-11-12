@@ -83,6 +83,8 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     refusedAfterCollection: figures => monitor.refusedAfterCollection(figures),
     analysisOf: indexName => options.engine.writeAnalysisOf(indexName),
     vectorGrowthBytesOf: (indexName, documents) => options.engine.vectorGrowthBytesOf(indexName, documents),
+    documentTableGrowthBytesOf: (indexName, documents, pending) =>
+      options.engine.documentTableGrowthBytesOf(indexName, documents, pending),
   })
 
   const heapLimitBytes = readMemoryFigures()?.heapLimitBytes ?? Number.POSITIVE_INFINITY

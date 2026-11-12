@@ -39,6 +39,12 @@ impl IndexLog {
         recorded: IndexMetadata,
         limits: CheckpointLimits,
     ) -> IndexLog {
+        if let Backing::Log(store) = &backing {
+            store.note_previous_documents(
+                &recorded.index_name,
+                recorded.records_previous_documents(),
+            );
+        }
         IndexLog {
             backing,
             index_name: recorded.index_name.clone(),
@@ -48,6 +54,16 @@ impl IndexLog {
             unsaved_writes: AtomicU64::new(0),
             saved: Mutex::new(SavedSize::default()),
         }
+    }
+
+    /// Reports whether each log entry of the index holds the document that it replaces or removes.
+    pub(crate) fn records_previous_documents(&self) -> bool {
+        matches!(self.backing, Backing::Log(_))
+            && self
+                .recorded
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .records_previous_documents()
     }
 
     pub(crate) fn backing(&self) -> &Backing {
@@ -107,10 +123,27 @@ impl IndexLog {
 
     /// Records the metadata that a checkpoint committed, whose facts the next metadata write keeps.
     pub(crate) fn remember(&self, metadata: IndexMetadata) {
+        if let Backing::Log(store) = &self.backing {
+            store.note_previous_documents(&self.index_name, metadata.records_previous_documents());
+        }
         *self
             .recorded
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata;
+    }
+
+    /// Returns the change capture state that the index recorded last: the epoch while capture is on, or `None` while
+    /// it is off, and whether each log entry holds the previous document.
+    pub(crate) fn recorded_capture(&self) -> (Option<String>, bool) {
+        let recorded = self
+            .recorded
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let epoch = recorded
+            .captures_changes()
+            .then(|| recorded.sync_epoch.clone())
+            .flatten();
+        (epoch, recorded.records_previous_documents())
     }
 
     /// Returns the metadata that `index` holds now, keeping every recorded fact that its settings do not carry.
@@ -179,8 +212,13 @@ impl IndexLog {
 /// The log records of the writes that one call applies, gathered by partition while the call holds the write lock.
 pub(crate) struct PendingLog<'a> {
     log: Option<&'a IndexLog>,
+    records_previous_documents: bool,
     partitions: BTreeMap<u32, (Vec<LogWrite>, Vec<String>)>,
 }
+
+/// The previous document that a log entry holds: `None` leaves the key out, `Some(None)` writes nil, and
+/// `Some(Some(bytes))` writes the encoded document.
+pub(crate) type PreviousDocument = Option<Option<Vec<u8>>>;
 
 impl<'a> PendingLog<'a> {
     /// Starts the records of one call, refusing it before it applies anything where the log has failed.
@@ -192,8 +230,27 @@ impl<'a> PendingLog<'a> {
         }
         Ok(PendingLog {
             log,
+            records_previous_documents: log.is_some_and(IndexLog::records_previous_documents),
             partitions: BTreeMap::new(),
         })
+    }
+
+    /// Returns the previous document of an insert, which is nil where the index records previous documents.
+    pub(crate) fn inserted_previous(&self) -> PreviousDocument {
+        self.records_previous_documents.then_some(None)
+    }
+
+    /// Returns the document that `index` holds under `id` now, with every field and vector, as the previous
+    /// document of the next write to it, where the index records previous documents. The caller holds the write
+    /// lock, so the result reflects every earlier write of the same call.
+    pub(crate) fn previous_of(&self, index: &IndexState, id: &str) -> Result<PreviousDocument> {
+        if !self.records_previous_documents {
+            return Ok(None);
+        }
+        match index.full_document(id)? {
+            Some(document) => Ok(Some(Some(encode_document(&document)?))),
+            None => Ok(Some(None)),
+        }
     }
 
     /// Encodes the document that an `INDEX` record carries, before the write takes its vectors out of it.
@@ -212,7 +269,13 @@ impl<'a> PendingLog<'a> {
         doc_ids.push(doc_id.to_string());
     }
 
-    pub(crate) fn record_index(&mut self, partition: u32, doc_id: &str, document: Option<Vec<u8>>) {
+    pub(crate) fn record_index(
+        &mut self,
+        partition: u32,
+        doc_id: &str,
+        document: Option<Vec<u8>>,
+        previous_document: PreviousDocument,
+    ) {
         if self.log.is_none() {
             return;
         }
@@ -220,11 +283,17 @@ impl<'a> PendingLog<'a> {
             operation: Operation::Index,
             document_id: doc_id.to_string(),
             document,
+            previous_document,
         };
         self.push(partition, doc_id, write);
     }
 
-    pub(crate) fn record_delete(&mut self, partition: u32, doc_id: &str) {
+    pub(crate) fn record_delete(
+        &mut self,
+        partition: u32,
+        doc_id: &str,
+        previous_document: PreviousDocument,
+    ) {
         if self.log.is_none() {
             return;
         }
@@ -232,6 +301,7 @@ impl<'a> PendingLog<'a> {
             operation: Operation::Delete,
             document_id: doc_id.to_string(),
             document: None,
+            previous_document,
         };
         self.push(partition, doc_id, write);
     }

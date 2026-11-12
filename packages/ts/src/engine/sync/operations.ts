@@ -10,7 +10,7 @@ import type { SyncStorage } from '../../persistence/durability/sync/storage'
 import type { StoredQuerySuggestions } from '../../types/internal'
 import type { SyncSetting } from '../../types/sync'
 import type { EngineCore } from '../core'
-import type { IndexSyncState } from '../registry-entry'
+import type { IndexChangesState, IndexSyncState } from '../registry-entry'
 
 type SyncCore = Pick<EngineCore, 'durability' | 'indexRegistry' | 'requireIndex'>
 type RenewingCore = SyncCore & Pick<EngineCore, 'mutationCtx'>
@@ -61,14 +61,21 @@ export function syncStorageOf(core: Pick<EngineCore, 'durability'>, indexName: s
   return storage
 }
 
-async function persistSyncState(core: SyncCore, indexName: string, next: IndexSyncState | null): Promise<void> {
+export interface EpochStates {
+  sync: IndexSyncState | null
+  changes: IndexChangesState | null
+}
+
+export async function persistEpochStates(core: SyncCore, indexName: string, next: EpochStates): Promise<void> {
   const entry = core.requireIndex(indexName)
-  const previous = entry.sync
-  entry.sync = next
+  const previous: EpochStates = { sync: entry.sync, changes: entry.changes }
+  entry.sync = next.sync
+  entry.changes = next.changes
   try {
     await core.durability?.manager.persistMetadata(indexName)
   } catch (error) {
-    entry.sync = previous
+    entry.sync = previous.sync
+    entry.changes = previous.changes
     throw error
   }
 }
@@ -80,11 +87,11 @@ export function updateIndexSync(core: EngineCore, indexName: string, value: Sync
   return withOpenIndex(core, indexName, () =>
     oneSyncChangeAtATime(core.indexRegistry, indexName, async () => {
       if (setting.enabled) requireNoQuerySuggestions(core.requireIndex(indexName).querySuggestions, indexName)
-      const previous = core.requireIndex(indexName).sync
+      const { sync: previous, changes } = core.requireIndex(indexName)
       if (!setting.enabled) {
         if (previous === null) return
-        await persistSyncState(core, indexName, null)
-        await storage.release(indexName)
+        await persistEpochStates(core, indexName, { sync: null, changes })
+        await storage.release(indexName, changes !== null)
         emitSyncChange(core.indexRegistry, { kind: 'off', indexName })
         return
       }
@@ -93,19 +100,35 @@ export function updateIndexSync(core: EngineCore, indexName: string, value: Sync
         ...(setting.historyMaxBytes !== undefined ? { historyMaxBytes: setting.historyMaxBytes } : {}),
       }
       if (previous !== null) {
-        await persistSyncState(core, indexName, { ...limits, active: previous.active, epoch: previous.epoch })
+        await persistEpochStates(core, indexName, {
+          sync: { ...limits, active: previous.active, epoch: previous.epoch },
+          changes,
+        })
+        return
+      }
+      if (changes !== null) {
+        await persistEpochStates(core, indexName, { sync: { ...limits, active: false, epoch: changes.epoch }, changes })
         return
       }
       await storage.release(indexName)
-      await persistSyncState(core, indexName, { ...limits, active: false, epoch: newSyncEpoch() })
+      await persistEpochStates(core, indexName, {
+        sync: { ...limits, active: false, epoch: newSyncEpoch() },
+        changes: null,
+      })
     }),
   )
 }
 
 async function renewWhileHeld(core: SyncCore, indexName: string): Promise<void> {
-  const sync = core.indexRegistry.get(indexName)?.sync ?? null
-  if (sync === null) return
-  await persistSyncState(core, indexName, { ...sync, active: false, epoch: newSyncEpoch() })
+  const entry = core.indexRegistry.get(indexName)
+  if (entry === undefined) return
+  const { sync, changes } = entry
+  if (sync === null && changes === null) return
+  const epoch = newSyncEpoch()
+  await persistEpochStates(core, indexName, {
+    sync: sync === null ? null : { ...sync, active: false, epoch },
+    changes: changes === null ? null : { ...changes, epoch },
+  })
   await core.durability?.manager.syncStorage?.().release(indexName)
   emitSyncChange(core.indexRegistry, { kind: 'epoch', indexName })
 }

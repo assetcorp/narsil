@@ -10,6 +10,7 @@ import {
   type UrlEntry,
 } from './failover'
 import type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
+import { socketUrlOf } from './paths'
 
 /** This describes one exchange, which a client method fills in and the
  * transport turns into a request. */
@@ -48,6 +49,7 @@ export interface Transport {
   stream(spec: RequestSpec): Promise<ReadableStream<Uint8Array>>
   download(spec: RequestSpec): Promise<StreamedAnswer>
   probe(spec: RequestSpec): Promise<number>
+  socketUrl(path: string): string
 }
 
 export interface StreamedAnswer {
@@ -378,6 +380,12 @@ export function createTransport(options: NarsilClientOptions): Transport {
     async probe(spec: RequestSpec): Promise<number> {
       const { status } = await exchange(spec)
       return status
+    },
+    socketUrl(path: string): string {
+      const [entry] = pool.order(Date.now())
+      if (entry === undefined) throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client holds no server address')
+      pool.took(entry)
+      return socketUrlOf(entry.base, path)
     },
   }
 }

@@ -22,6 +22,8 @@ with NarsilClient("http://localhost:9876") as client:
 
 When you pass a list of addresses, the client moves a read to the next node after a refused or broken connection, a timeout, or an answer of 502, 503, or 504. It moves a write only when the request never left the client or when the node answers `NODE_NOT_READY`, so the client never sends a second copy of a write that a node may have applied. Every failure raises `NarsilError`, under the code that the server sent or under a `CLIENT_` code for a failure on this side.
 
+To follow every change to an index over the server's change feed, install the `changes` extra with `pip install "narsil-client[changes]"`, which adds the WebSocket and MessagePack libraries that `follow_changes` needs. A program that never follows a feed can leave the extra out, because the client imports those libraries only when you call `follow_changes`.
+
 [The Python client guide](https://github.com/assetcorp/narsil/blob/main/docs/python-client.md) covers the settings, the helpers, streaming a snapshot or an export, and the failover rules in full.
 
 ## License

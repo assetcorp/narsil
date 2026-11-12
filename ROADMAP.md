@@ -6,7 +6,7 @@ The maintainers update this roadmap of planned work as the work proceeds. The ro
 
 ## Available now
 
-Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, cluster backups, the React Native driver in `@delali/narsil-react-native`, device sync, and popular query suggestions are in the `next` tag on npm, and the next stable release will include them. The Rust implementation is on crates.io as `delali-narsil`, the Python client is on PyPI as `narsil-client`, and the Go implementation and the Go client are Go modules under [`packages/go`](packages/go).
+Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, cluster backups, the React Native driver in `@delali/narsil-react-native`, device sync, change capture, and popular query suggestions are in the `next` tag on npm, and the next stable release will include them. The Rust implementation is on crates.io as `delali-narsil`, the Python client is on PyPI as `narsil-client`, and the Go implementation and the Go client are Go modules under [`packages/go`](packages/go).
 
 - **Embedded engine.** The engine answers full-text, vector, hybrid, and geographic searches inside your application process, in Node.js, Bun, Deno, or the browser.
 - **Single-node server.** The HTTP server offers the same engine through a REST API, with a write-ahead log, bulk NDJSON import, and snapshots that you can restore.
@@ -24,6 +24,7 @@ Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phras
 - **Cluster backups.** A cluster can back up an index to S3, Google Cloud Storage, or a directory, and it can restore that backup as a new index on a cluster of any size, so that you can recover an index that somebody dropped or that a bad write damaged on every replica.
 - **React Native driver.** The engine answers keyword and vector searches inside an iOS or Android app, in an Expo development build or in an app without Expo, and it searches vectors through the native search core, which the app's build compiles. The driver stores the index in files on the phone, with a write-ahead log.
 - **Device sync.** A phone, a laptop, or a browser tab keeps a copy of one user's index, so that the app can search it and write to it while the device is offline. The device downloads a snapshot first, then reads each later change from the server over a WebSocket, and it uploads the writes that it made offline once it can reach the server. By default the last write to arrive wins, although your backend can decide each conflict instead. The [device sync guide](docs/device-sync.md) covers the routes, the credentials, and the conflicts.
+- **Change capture.** A backend service can follow an index and receive every insert, update, and removal after a position that it saved, so that it can keep a cache or a second index up to date across restarts. With `previousDocument` on, each change also holds the document as it stood before the write, and a subscription can then hold a filter. The [change capture guide](docs/change-capture.md) covers the setting, the feed, and what a subscriber does after a resync.
 - **Popular query suggestions.** A search box can suggest whole searches, such as 'trail shoes', that enough different people ran and then followed with a click. The feature stays off until you turn it on for an index, and the engine publishes the suggestions to an ordinary Narsil index. The [query suggestions guide](docs/query-suggestions.md) covers the counting and the privacy trade-offs.
 - **Python and Go clients.** A Python 3.11 or Go 1.26 program can call every route of a Narsil server, or every node of a cluster, through a typed client in [`packages/python`](packages/python) or [`packages/go`](packages/go).
 - **Rust implementation.** A Rust program can create, change, and search an index inside its process, with no Node.js server, through the crate in [`packages/rust`](packages/rust). The crate saves the same `.nrsl` files as the TypeScript package and passes the conformance suite.
@@ -34,7 +35,7 @@ Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phras
 
 ## Planned
 
-- **Change data capture for backend services.** A backend service will subscribe to an index and receive every insert, update, and removal after a position that the service saved, so that it can keep a cache or a second index up to date across restarts. With an option, each change will also contain the document as it stood before the write, and a subscriber can then filter the changes that it receives. The plan is in [#206](https://github.com/assetcorp/narsil/issues/206).
+Every item that this roadmap planned is now in the list above. Open an issue to propose the next one.
 
 ## How to get involved
 

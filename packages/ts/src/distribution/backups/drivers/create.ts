@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getIndexMetadata, type IndexMetadataRecord, readIndexMetadataSnapshot } from '../../cluster/index-metadata'
 import { suggestionStateOfSettings } from '../../cluster/query-suggestion-settings'
+import { epochFeaturesOn } from '../../cluster/sync-settings'
 import { servingNameOf } from '../../cluster-node/generation-routing'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type { BackupPartitionResult } from '../../transport/backup-payloads'
@@ -103,7 +104,7 @@ export async function runBackupCreation(context: BackupDriverContext, request: B
   const indexName = jobIndexNameOf(context)
   const generation = await servingNameOf(coordinator, indexName)
   const named = (await readIndexMetadataSnapshot(coordinator, indexName))?.settings
-  const syncEpoch = named?.sync?.enabled === true ? named.syncEpoch : undefined
+  const syncEpoch = epochFeaturesOn(named) ? named?.syncEpoch : undefined
   const metadata = await requireIndexMetadata(context, indexName, generation)
   const clusterUuid = await clusterUuidOf(coordinator)
   await reportJobProgress(context, 0, metadata.partitionCount)

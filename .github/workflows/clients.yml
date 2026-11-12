@@ -138,3 +138,12 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-go:test --exclude-task-dependencies
+
+      - name: Lint the change feed subscriber
+        run: pnpm nx run narsil-go-changes:lint
+
+      - name: Typecheck the change feed subscriber
+        run: pnpm nx run narsil-go-changes:typecheck
+
+      - name: Test the change feed subscriber on a live server
+        run: pnpm nx run narsil-go-changes:test --exclude-task-dependencies

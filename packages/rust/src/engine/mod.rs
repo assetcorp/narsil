@@ -2,6 +2,7 @@ pub(crate) mod adapter_registry;
 mod analysis_change;
 mod background_thread;
 mod callback_scope;
+pub(crate) mod change_capture;
 pub(crate) mod changes;
 mod clear;
 mod constants;
@@ -52,6 +53,10 @@ use crate::error::{ErrorCode, NarsilError, Result, instance_shut_down};
 use crate::pattern::SearchLimits;
 use crate::pattern::constants::DEFAULT_PATTERN_WORK_CAP;
 use adapter_registry::AdapterRegistry;
+pub use change_capture::{
+    Change, ChangeFeed, ChangeFeedStop, ChangeGroup, ChangePosition, ChangeType, ChangesEvent,
+    ChangesRequest, ChangesSetting, ChangesStatus, ChangesSubscribed, ResyncReason,
+};
 pub use changes::analysis::{AnalysisChange, AnalysisSetting};
 use durable::Durable;
 pub use durable::config::{DurabilityConfig, DurabilityMode, DurabilityTier, NarsilConfig};

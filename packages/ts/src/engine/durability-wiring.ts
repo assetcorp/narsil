@@ -3,6 +3,7 @@ import type { LayoutUpgradeEvent } from '../persistence/durability/earlier-layou
 import type { IndexDurabilityHooks } from '../persistence/durability/types'
 import type { IndexMetadata } from '../types/internal'
 import type { HeldCheckpointReport } from '../types/memory'
+import { previousDocumentReader } from './changes/previous-document'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
@@ -22,6 +23,10 @@ interface DurabilityWiring {
   engineCore: () => EngineCore
   queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
   awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']
+}
+
+function keepsHistory(entry: IndexRegistryEntry | undefined): boolean {
+  return entry !== undefined && (entry.sync?.active === true || entry.changes !== null)
 }
 
 export function createDurabilityFromTier(tier: DurabilityTier, wiring: DurabilityWiring): DurabilityIntegration {
@@ -68,9 +73,11 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     onLayoutUpgrade: wiring.emitLayoutUpgrade,
     onCheckpointHeld: wiring.emitCheckpointHeld,
     onFatalError: wiring.emitFatalError,
-    keepsSyncHistory: indexName => wiring.indexRegistry.get(indexName)?.sync?.active === true,
+    keepsHistory: indexName => keepsHistory(wiring.indexRegistry.get(indexName)),
+    recordsPreviousDocument: indexName => wiring.indexRegistry.get(indexName)?.changes?.previousDocument === true,
+    previousDocumentReader: indexName => previousDocumentReader(wiring.engineCore(), indexName),
     onHistoryMoved(indexName) {
-      if (wiring.indexRegistry.get(indexName)?.sync?.active !== true) return
+      if (!keepsHistory(wiring.indexRegistry.get(indexName))) return
       try {
         scheduleSyncRetention(wiring.engineCore(), indexName)
       } catch (error) {

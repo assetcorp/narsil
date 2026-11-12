@@ -48,12 +48,24 @@ function storedSetting(setting: SyncSetting): StoredSyncSetting {
 
 function nextSyncSettings(current: ClusterSyncSettings, setting: SyncSetting): ClusterSyncSettings | null {
   const wasOn = current.sync?.enabled === true && current.syncEpoch !== undefined
-  if (!setting.enabled) return wasOn || current.sync !== undefined ? {} : null
-  if (!wasOn) return { sync: storedSetting(setting), syncActive: false, syncEpoch: newSyncEpoch() }
+  const capture =
+    current.changes?.enabled === true && current.syncEpoch !== undefined
+      ? { changes: current.changes, syncEpoch: current.syncEpoch }
+      : null
+  if (!setting.enabled) {
+    if (!wasOn && current.sync === undefined) return null
+    return capture ?? {}
+  }
+  if (!wasOn) {
+    return capture === null
+      ? { sync: storedSetting(setting), syncActive: false, syncEpoch: newSyncEpoch() }
+      : { ...capture, sync: storedSetting(setting), syncActive: false }
+  }
   return {
     sync: storedSetting(setting),
     ...(current.syncActive !== undefined ? { syncActive: current.syncActive } : {}),
     ...(current.syncEpoch !== undefined ? { syncEpoch: current.syncEpoch } : {}),
+    ...(current.changes !== undefined ? { changes: current.changes } : {}),
   }
 }
 
@@ -121,7 +133,12 @@ export async function markClusterSyncActive(deps: ClusterSyncSettingDeps, indexN
       throw new NarsilError(ErrorCodes.SYNC_NOT_ENABLED, `Index '${indexName}' has device sync off`, { indexName })
     }
     if (settings.syncActive === true) return
-    const next = metadataWithSync(current, { sync: settings.sync, syncActive: true, syncEpoch: settings.syncEpoch })
+    const next = metadataWithSync(current, {
+      sync: settings.sync,
+      syncActive: true,
+      syncEpoch: settings.syncEpoch,
+      ...(settings.changes !== undefined ? { changes: settings.changes } : {}),
+    })
     if (await deps.coordinator.compareAndSet(indexConfigKey(indexName), current.bytes, next)) {
       await deps.view.refresh(indexName)
       return

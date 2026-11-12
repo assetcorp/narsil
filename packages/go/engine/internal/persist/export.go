@@ -10,6 +10,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/export"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
@@ -126,8 +127,23 @@ func exportScan(writer *export.Writer, scans []segmentScan, at int, vectors []*e
 	return nil
 }
 
-func (opened *Archive) Export(ctx context.Context, destination io.Writer, header codec.OrderedMap) error {
-	writer, err := export.NewWriterInStoredOrder(destination, header)
+func (opened *Archive) Export(ctx context.Context, destination io.Writer, header codec.OrderedMap,
+	epoch model.Optional[string]) error {
+	var positions *export.ChangePositions
+	if held, set := epoch.Get(); set {
+		count := 0
+		for _, entry := range opened.Manifest.Partitions {
+			count = max(count, int(entry.PartitionID)+1)
+		}
+		for _, entry := range opened.Manifest.Checkpoint {
+			count = max(count, int(entry.PartitionID)+1)
+		}
+		positions = &export.ChangePositions{Epoch: held, LastSeqNos: make([]uint64, count)}
+		for partitionID := range positions.LastSeqNos {
+			positions.LastSeqNos[partitionID] = opened.Manifest.LastSeqNo(uint32(partitionID))
+		}
+	}
+	writer, err := export.NewWriterInStoredOrder(destination, header, positions)
 	if err != nil {
 		return err
 	}

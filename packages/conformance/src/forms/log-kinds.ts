@@ -7,6 +7,8 @@ const SEGMENT_HEADER_BYTES = 8
 const RECORD_LENGTH_BYTES = 4
 const FRAME_CRC_BYTES = 4
 const ENTRY_PLACEMENT_KEYS = new Set(['checksum'])
+const PREVIOUS_DOCUMENT_KEY = 'previousDocument'
+const DOCUMENT_KEYS = new Set(['document', PREVIOUS_DOCUMENT_KEY])
 const MARKER_SLOT_BYTES = 36
 const MARKER_SLOTS = 2
 const MARKER_CRC_OFFSET = 32
@@ -17,13 +19,16 @@ function recordJson(payload: Uint8Array, context: FormContext, what: string): Js
   const object: JsonObject = {}
   for (const [key, value] of entry) {
     if (ENTRY_PLACEMENT_KEYS.has(key)) continue
-    if (key !== 'document') {
+    if (!DOCUMENT_KEYS.has(key)) {
       object[key] = tagged(value)
       continue
     }
-    if (value === null) continue
-    if (!(value instanceof Uint8Array)) throw new FormError(`${what}.document is not a binary value`)
-    object[key] = tagged(context.unpack(value, `${what}.document`))
+    if (value === null) {
+      if (key === PREVIOUS_DOCUMENT_KEY) object[key] = null
+      continue
+    }
+    if (!(value instanceof Uint8Array)) throw new FormError(`${what}.${key} is not a binary value`)
+    object[key] = tagged(context.unpack(value, `${what}.${key}`))
   }
   return object
 }

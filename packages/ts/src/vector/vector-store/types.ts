@@ -1,3 +1,4 @@
+import type { DocumentTableVisit } from '../../core/doc-id-tables/types'
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
@@ -134,6 +135,11 @@ export interface VectorStore extends VectorBuildReader {
   memoryBytes(): number
   /** Reports the bytes that storing this many more vectors would add to the shared structures, counting each doubling. */
   growthBytesFor(vectors: number): number
+  /**
+   * Hands `visit` the name and entry count of the table that maps each document ID to its ordinal.
+   * The third argument is true because only a removal or a replacement deletes an entry from it.
+   */
+  visitDocumentTables(visit: DocumentTableVisit): void
   getOrdinal(docId: string): number | undefined
   docIdForOrdinal(ordinal: number): string | undefined
   exportSnapshot(): VectorStoreSnapshot

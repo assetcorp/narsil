@@ -18,7 +18,7 @@ use super::log_reader::{LogVisit, replay_partition_log};
 use super::log_segment::LogStart;
 use super::restore_journal::{is_valid_index_name, require_index_name, top_level_names};
 use super::store::DurabilityStore;
-use super::sync_files::{keeps_sync_history, settle_sync_files};
+use super::sync_files::settle_sync_files;
 
 const EARLIER_FILE_MAX_ENVELOPE_VERSION: u8 = 2;
 const LEFTOVER_REWRITE_PLACES: [&str; 2] = ["rebuilt", "received"];
@@ -102,7 +102,7 @@ pub(crate) fn open_stored_index(
         return Ok(None);
     };
     let (_, mut metadata) = read_metadata_file(&bytes)?;
-    settle_sync_files(store, index_name, keeps_sync_history(&metadata))?;
+    settle_sync_files(store, index_name, &metadata)?;
     let (checkpoint, stored_generation) = match read_manifest(store, index_name)? {
         Some(DecodedManifest::Earlier(raw)) => (
             StoredCheckpoint::Earlier(decode_earlier_manifest(&raw)?),

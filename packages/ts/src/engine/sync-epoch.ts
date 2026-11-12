@@ -4,7 +4,8 @@ import type { EngineCore } from './core'
 type EpochCore = Pick<EngineCore, 'durability' | 'indexRegistry' | 'requireIndex' | 'mutationCtx'>
 
 export async function holdSyncEpochChange(core: EpochCore, indexName: string): Promise<() => void> {
-  if ((core.indexRegistry.get(indexName)?.sync ?? null) === null) return () => undefined
+  const entry = core.indexRegistry.get(indexName)
+  if (entry === undefined || (entry.sync === null && entry.changes === null)) return () => undefined
   return (await loadStorageCode()).holdRenewedSyncEpoch(core, indexName)
 }
 

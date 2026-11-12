@@ -16,6 +16,13 @@ export interface IndexSyncState {
   epoch: string
 }
 
+export interface IndexChangesState {
+  previousDocument: boolean
+  historyMaxAgeMs?: number
+  historyMaxBytes?: number
+  epoch: string
+}
+
 export type IndexRegistryEntry = {
   config: IndexConfig
   language: LanguageModule
@@ -35,5 +42,6 @@ export type IndexRegistryEntry = {
   pendingAnalysis: PendingAnalysisMetadata | null
   durableAnalysis: DurableAnalysis | null
   sync: IndexSyncState | null
+  changes: IndexChangesState | null
   querySuggestions: StoredQuerySuggestions | null
 }

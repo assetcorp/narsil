@@ -144,7 +144,7 @@ export interface ClusterNamespace {
 }
 
 // @public
-export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings {
+export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings, ClusterNodeChanges {
     changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
@@ -186,6 +186,14 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
         docId: string;
         document: AnyDocument;
     }>): Promise<BatchResult>;
+}
+
+// @public
+export interface ClusterNodeChanges {
+    exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>>;
+    followChanges(indexName: string, options?: FollowChangesOptions): AsyncIterable<ChangesEvent>;
+    getChanges(indexName: string): Promise<ChangesStatus>;
+    updateChanges(indexName: string, setting: ChangesSetting): Promise<void>;
 }
 
 // @public

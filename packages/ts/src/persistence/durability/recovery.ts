@@ -1,6 +1,7 @@
 import { turnIsSpent, yieldTurn } from '#platform/storage-host'
 import { applyDeleteEntry, applyIndexEntry } from '../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
+import { noteDocumentChurn } from '../../engine/memory/document-churn'
 import type { PartitionManager } from '../../partitioning/manager'
 import { readMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexMetadata } from '../../types/internal'
@@ -14,8 +15,8 @@ import {
   type ActiveTail,
   type CommitMarker,
   durableRecordMissing,
-  nextSegmentKey,
   readWalSegments,
+  removeUnusedSegmentFiles,
   type SegmentRef,
   type WalReadResult,
 } from './wal-segments'
@@ -69,7 +70,7 @@ export async function replayWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
-  await directory.remove(nextSegmentKey(indexName, partitionId))
+  await removeUnusedSegmentFiles(directory, indexName, partitionId)
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
@@ -159,7 +160,7 @@ export async function replaySyncedWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
-  await directory.remove(nextSegmentKey(indexName, partitionId))
+  await removeUnusedSegmentFiles(directory, indexName, partitionId)
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
@@ -235,6 +236,7 @@ async function truncateSegmentTail(directory: DurableDirectory, key: string, dur
 
 function applyEntry(entry: ReplicationLogEntry, deps: ReplayDeps): void {
   deps.writeRecords?.replayed(entry)
+  if (entry.operation === 'DELETE' || deps.manager.has(entry.documentId)) noteDocumentChurn(entry.indexName, 1)
   if (entry.operation === 'DELETE') {
     applyDeleteEntry(entry, deps.manager, deps.vectorIndexes)
     return

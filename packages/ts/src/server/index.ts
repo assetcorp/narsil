@@ -83,6 +83,7 @@ export type {
   RequestDenial,
   RequestGrant,
   RestoreBackupBody,
+  ServerChangesOptions,
   ServerLimits,
   ServerOptions,
   ServerQuerySuggestionsOptions,

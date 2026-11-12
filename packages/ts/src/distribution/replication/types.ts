@@ -10,6 +10,7 @@ export interface ReplicationLogEntry {
   indexName: string
   documentId: string
   document: Uint8Array | null
+  previousDocument?: Uint8Array | null
   checksum: number
 }
 

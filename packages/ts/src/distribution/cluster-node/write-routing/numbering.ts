@@ -53,6 +53,7 @@ export function createPrimaryNumbering(onNumbered?: (entry: ReplicationLogEntry)
         indexName: record.indexName,
         documentId: record.documentId,
         document: record.document,
+        previousDocument: record.previousDocument,
       })
       scope.entries.push(entry)
       onNumbered?.(entry)

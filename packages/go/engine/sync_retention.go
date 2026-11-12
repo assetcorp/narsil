@@ -74,7 +74,7 @@ func (retainer *syncRetainer) sweepEvery(n *Narsil, stop chan struct{}) {
 			return
 		case <-ticker.C:
 			for _, entry := range n.sortedEntries() {
-				if state := entry.sync.current(); state != nil && state.active {
+				if state := entry.sync.current(); state.keepsHistory() {
 					retainer.schedule(n, entry.name)
 				}
 			}
@@ -98,34 +98,77 @@ func (n *Narsil) emitDurabilityError(err error) {
 }
 
 func (n *Narsil) enforceSyncHistory(indexName string) error {
-	entry, release, err := n.acquire(indexName)
+	entry, _, release, err := n.acquireWithoutReopen(indexName)
 	if err != nil {
 		return nil
 	}
 	defer release()
+	if entry == nil {
+		return nil
+	}
 	state := entry.sync.current()
-	if state == nil || !state.active || entry.durable == nil {
+	if !state.keepsHistory() || entry.durable == nil {
 		return nil
 	}
 	ctx := context.Background()
-	limits := persist.HistoryLimits{MaxAgeMs: uint64(state.historyMaxAgeMs.Or(defaultSyncHistoryMaxAgeMs)),
+	var limits persist.HistoryLimits
+	var publish func(context.Context) error
+	if state.sync != nil && state.sync.active {
+		syncLimits, err := syncHistoryLimits(ctx, entry, state.sync)
+		if err != nil {
+			return err
+		}
+		limits = syncLimits
+		publish = func(ctx context.Context) error { return n.republishSyncSnapshot(ctx, entry) }
+	}
+	if state.changes != nil {
+		changesLimits, err := changesHistoryLimits(ctx, entry, state.changes)
+		if err != nil {
+			return err
+		}
+		limits.MaxAgeMs = max(limits.MaxAgeMs, changesLimits.MaxAgeMs)
+		limits.MaxBytes = max(limits.MaxBytes, changesLimits.MaxBytes)
+	}
+	_, err = entry.durable.EnforceSyncHistory(ctx, limits, publish, uint64(time.Now().UnixMilli()))
+	return err
+}
+
+func (state *feedState) keepsHistory() bool {
+	return state != nil && (state.changes != nil || (state.sync != nil && state.sync.active))
+}
+
+func syncHistoryLimits(ctx context.Context, entry *indexEntry, feature *syncFeature) (persist.HistoryLimits, error) {
+	limits := persist.HistoryLimits{MaxAgeMs: uint64(feature.maxAgeMs.Or(defaultSyncHistoryMaxAgeMs)),
 		MaxBytes: math.MaxUint64}
-	if size, set := state.historyMaxBytes.Get(); set {
+	if size, set := feature.maxBytes.Get(); set {
 		limits.MaxBytes = uint64(size)
 	} else if published, known, err := entry.durable.PublishedArchiveBytes(ctx); err != nil {
-		return err
+		return persist.HistoryLimits{}, err
 	} else if known {
 		limits.MaxBytes = published
 	}
-	publish := func(ctx context.Context) error { return n.republishSyncSnapshot(ctx, entry) }
-	_, err = entry.durable.EnforceSyncHistory(ctx, limits, publish, uint64(time.Now().UnixMilli()))
-	return err
+	return limits, nil
+}
+
+func changesHistoryLimits(ctx context.Context, entry *indexEntry, feature *changesFeature) (persist.HistoryLimits,
+	error) {
+	limits := persist.HistoryLimits{MaxAgeMs: uint64(feature.maxAgeMs.Or(defaultChangesHistoryMaxAgeMs))}
+	if size, set := feature.maxBytes.Get(); set {
+		limits.MaxBytes = uint64(size)
+		return limits, nil
+	}
+	checkpointBytes, err := entry.durable.CheckpointBytes(ctx)
+	if err != nil {
+		return persist.HistoryLimits{}, err
+	}
+	limits.MaxBytes = max(checkpointBytes, minDefaultChangesHistoryBytes)
+	return limits, nil
 }
 
 func (n *Narsil) republishSyncSnapshot(ctx context.Context, entry *indexEntry) error {
 	entry.sync.changeMu.Lock()
 	defer entry.sync.changeMu.Unlock()
-	if state := entry.sync.current(); state == nil {
+	if feature := entry.sync.syncOn(); feature == nil || !feature.active {
 		return narsilerr.New(narsilerr.CodeSyncNotEnabled, `Index "`+entry.name+`" has device sync off`,
 			map[string]any{"indexName": entry.name})
 	}

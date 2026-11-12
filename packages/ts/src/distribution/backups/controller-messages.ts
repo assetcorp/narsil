@@ -16,11 +16,11 @@ import { runBackupDeletion } from './drivers/delete'
 import { type RestoreRequest, runBackupRestore } from './drivers/restore'
 import { type BackupJob, type BackupJobKind, finishBackupJob, startBackupJob } from './jobs'
 import { validateBackupName } from './keys'
-import { SYNC_BACKUP_TAKER } from './manifest'
+import { type BackupTaker, CHANGES_BACKUP_TAKER, isBackupTaker, SYNC_BACKUP_TAKER } from './manifest'
 import type { ClusterQueryHistory } from './query-history'
 import { type RestorePlacement, readRestorePlacement } from './restore-options'
 import type { BackupStore } from './store'
-import { surplusSyncBackups } from './sync-retention'
+import { surplusTakenBackups } from './sync-retention'
 
 export interface BackupControllerDeps {
   config: ClusterNodeConfig
@@ -126,10 +126,12 @@ async function startJob(
   return { jobId, ended }
 }
 
-function takenByOf(request: Record<string, unknown>): string | undefined {
+function takenByOf(request: Record<string, unknown>): BackupTaker | undefined {
   if (request.takenBy === undefined) return undefined
-  if (request.takenBy !== SYNC_BACKUP_TAKER) throw malformed('backup', `"takenBy" must be "${SYNC_BACKUP_TAKER}"`)
-  return SYNC_BACKUP_TAKER
+  if (!isBackupTaker(request.takenBy)) {
+    throw malformed('backup', `"takenBy" must be "${SYNC_BACKUP_TAKER}" or "${CHANGES_BACKUP_TAKER}"`)
+  }
+  return request.takenBy
 }
 
 function queryHistoryOf(request: Record<string, unknown>): boolean {
@@ -145,8 +147,13 @@ function quietRefusal(error: unknown): boolean {
   )
 }
 
-async function deleteSurplusSyncBackups(deps: BackupControllerDeps, store: BackupStore, indexName: string) {
-  for (const backupName of await surplusSyncBackups(store, indexName)) {
+async function deleteSurplusTakenBackups(
+  deps: BackupControllerDeps,
+  store: BackupStore,
+  indexName: string,
+  takenBy: BackupTaker,
+) {
+  for (const backupName of await surplusTakenBackups(store, indexName, takenBy)) {
     if (!deps.isActive()) return
     try {
       await admitDeletion(deps.config.coordinator, store, backupName)
@@ -188,7 +195,8 @@ async function acceptRequest(
     const takenBy = takenByOf(request)
     const queryHistory = queryHistoryOf(request)
     await admitBackup(coordinator, store, backupName, indexName)
-    const afterJob = takenBy === undefined ? undefined : () => deleteSurplusSyncBackups(deps, store, indexName)
+    const afterJob =
+      takenBy === undefined ? undefined : () => deleteSurplusTakenBackups(deps, store, indexName, takenBy)
     return jobIdOf(
       startJob(
         deps,

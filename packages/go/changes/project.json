@@ -1,0 +1,34 @@
+{
+  "name": "narsil-go-changes",
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }",
+          "go vet ./..."
+        ],
+        "parallel": false,
+        "cwd": "packages/go/changes"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": ["go build ./...", "go vet ./..."],
+        "parallel": false,
+        "cwd": "packages/go/changes"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code"],
+      "options": {
+        "command": "go test -race -count=1 -timeout 10m ./...",
+        "cwd": "packages/go/changes"
+      }
+    }
+  }
+}

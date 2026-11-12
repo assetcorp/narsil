@@ -47,7 +47,7 @@ export interface SyncCluster {
     coordinator?: ClusterCoordinator,
   ): Promise<ClusterNode>
   stop(nodeId: string): Promise<void>
-  serve(nodeId: string, owners: OwnerHook): Promise<string>
+  serve(nodeId: string, owners: OwnerHook, feed?: 'sync' | 'changes'): Promise<string>
   dispose(): Promise<void>
 }
 
@@ -82,7 +82,7 @@ export function activeTable(coordinator: ClusterCoordinator, indexName: string):
   })
 }
 
-export async function startSyncCluster(options: { backups: boolean }): Promise<SyncCluster> {
+export async function startSyncCluster(options: { backups: boolean; nodeLeftDelayMs?: number }): Promise<SyncCluster> {
   const scratch = await mkdtemp(join(tmpdir(), 'narsil-cluster-sync-'))
   const storeDirectory = join(scratch, 'backup-store')
   const coordinator = createInMemoryCoordinator()
@@ -119,6 +119,7 @@ export async function startSyncCluster(options: { backups: boolean }): Promise<S
               },
             }
           : {}),
+        ...(options.nodeLeftDelayMs === undefined ? {} : { controller: { nodeLeftDelayMs: options.nodeLeftDelayMs } }),
         engine: { workers: { enabled: false }, durability: { directory: join(scratch, nodeId), mode: 'sync' } },
       })
       await node.start()
@@ -131,7 +132,7 @@ export async function startSyncCluster(options: { backups: boolean }): Promise<S
       await found?.node.shutdown()
       await found?.transport.shutdown()
     },
-    async serve(nodeId, owners) {
+    async serve(nodeId, owners, feed = 'sync') {
       const node = cluster.node(nodeId)
       const engine: Narsil = clusterNodeEngine(node, {
         createIndex: { partitionCount: SYNC_PARTITION_COUNT, replicationFactor: 1 },
@@ -140,7 +141,7 @@ export async function startSyncCluster(options: { backups: boolean }): Promise<S
         host: '127.0.0.1',
         port: 0,
         cluster: node.cluster,
-        sync: true,
+        [feed]: true,
         onRequest: ctx => owners.hook(ctx),
       })
       await server.listen()

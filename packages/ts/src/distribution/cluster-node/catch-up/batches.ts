@@ -1,6 +1,6 @@
 import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
-import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
+import { entryByteEstimate } from '../../replication/entry-checksum'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
@@ -8,19 +8,10 @@ import type { WriteRoutingDeps } from '../write-routing/types'
 import { type CatchUpFeed, untilCancelled } from './feed'
 import type { CatchUpState, ReplicaCursor } from './state'
 
-function entryBytes(entry: ReplicationLogEntry): number {
-  return (
-    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
-    entry.indexName.length +
-    entry.documentId.length +
-    (entry.document?.byteLength ?? 0)
-  )
-}
-
 function batchBytes(entries: ReplicationLogEntry[]): number {
   let total = 0
   for (const entry of entries) {
-    total += entryBytes(entry)
+    total += entryByteEstimate(entry)
   }
   return total
 }
@@ -90,7 +81,7 @@ export async function sendHeldEntryAgain(
   entry: ReplicationLogEntry,
   replicaNodeId: string,
 ): Promise<HeldEntryAnswer> {
-  const reservedBytes = entryBytes(entry)
+  const reservedBytes = entryByteEstimate(entry)
   if (reservedBytes > MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes) return 'unconfirmed'
   state.inFlightBytes += reservedBytes
   try {

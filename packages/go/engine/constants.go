@@ -58,6 +58,14 @@ const (
 )
 
 const (
+	defaultChangesHistoryMaxAgeMs = 2_592_000_000
+	minDefaultChangesHistoryBytes = 1_073_741_824
+	maxChangeGroupBytes           = 1_048_576
+	maxChangeGroupEntries         = 1000
+	changesIdleRecheckInterval    = time.Second
+)
+
+const (
 	maxRebalanceQueueEntries      = 10_000
 	rebuildChunkDocuments         = 1000
 	rebuildSwitchBacklogDocuments = 1000

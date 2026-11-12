@@ -71,6 +71,73 @@ export interface BM25Params {
 export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
 
 // @public
+export interface Change {
+    document?: AnyDocument;
+    documentId: string;
+    previousDocument?: AnyDocument;
+    seqNo: number;
+    type: ChangeType;
+}
+
+// @public
+export interface ChangePosition {
+    partitionId: number;
+    seqNo: number;
+}
+
+// @public
+export interface ChangesBatch {
+    changes: Change[];
+    partitionId: number;
+    scannedSeqNo: number;
+    type: 'changes';
+}
+
+// @public
+export type ChangesEvent = ChangesSubscribed | ChangesBatch | ChangesResync;
+
+// @public
+export interface ChangesOperations {
+    followChanges(indexName: string, options?: FollowChangesOptions): AsyncIterable<ChangesEvent>;
+    getChanges(indexName: string): Promise<ChangesStatus>;
+    updateChanges(indexName: string, setting: ChangesSetting): Promise<void>;
+}
+
+// @public
+export interface ChangesResync {
+    reason: 'epoch' | 'history' | 'ahead';
+    type: 'resync';
+}
+
+// @public
+export interface ChangesSetting {
+    enabled: boolean;
+    historyMaxAgeMs?: number;
+    historyMaxBytes?: number;
+    previousDocument?: boolean;
+}
+
+// @public
+export interface ChangesStatus extends ChangesSetting {
+    epoch: string | null;
+    previousDocument: boolean;
+}
+
+// @public
+export interface ChangesSubscribed {
+    bytesBehind: number;
+    epoch: string;
+    heads: ChangePosition[];
+    partitionCount: number;
+    positions: ChangePosition[];
+    previousDocument: boolean;
+    type: 'subscribed';
+}
+
+// @public
+export type ChangeType = 'put' | 'insert' | 'update' | 'remove';
+
+// @public
 export function clearNormalizationCache(): void;
 
 // @public
@@ -213,6 +280,13 @@ export const ErrorCodes: {
     readonly SYNC_NOT_READY: "SYNC_NOT_READY";
     readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
     readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly CHANGES_DURABILITY_REQUIRED: "CHANGES_DURABILITY_REQUIRED";
+    readonly CHANGES_BACKUP_STORE_REQUIRED: "CHANGES_BACKUP_STORE_REQUIRED";
+    readonly CHANGES_NOT_READY: "CHANGES_NOT_READY";
+    readonly CHANGES_NOT_ENABLED: "CHANGES_NOT_ENABLED";
+    readonly CHANGES_PREVIOUS_DOCUMENT_REQUIRED: "CHANGES_PREVIOUS_DOCUMENT_REQUIRED";
+    readonly CHANGES_EXPORT_PREPARING: "CHANGES_EXPORT_PREPARING";
+    readonly CHANGES_INVALID_POSITIONS: "CHANGES_INVALID_POSITIONS";
     readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
@@ -342,6 +416,14 @@ export type FilterExpression = {
     or?: FilterExpression[];
     not?: FilterExpression;
 };
+
+// @public
+export interface FollowChangesOptions {
+    epoch?: string;
+    filter?: FilterExpression;
+    positions?: ChangePosition[];
+    signal?: AbortSignal;
+}
 
 // @public
 export type GeoFilter = GeoRadiusFilter | GeoPolygonFilter;
@@ -616,7 +698,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AnalysisOperations, BM25Operations, SyncOperations, VectorMaintenanceOperations, AdapterRegistrationOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AnalysisOperations, BM25Operations, SyncOperations, ChangesOperations, VectorMaintenanceOperations, AdapterRegistrationOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     countDocuments(indexName: string): Promise<number>;

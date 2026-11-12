@@ -36,12 +36,47 @@ interface SegmentRead {
   activeTail: ActiveTail | null
 }
 
+export const SEGMENT_TAIL_PATTERN = /^\d{16}$/
+
 function walPrefix(indexName: string, partitionId: number): string {
   return `${indexName}/wal/${partitionId}/`
 }
 
+export function segmentKey(indexName: string, partitionId: number, startSeqNo: number): string {
+  return `${walPrefix(indexName, partitionId)}${startSeqNo.toString().padStart(16, '0')}`
+}
+
+export function parseSegmentStartSeqNo(key: string): number {
+  const tail = key.slice(key.lastIndexOf('/') + 1)
+  if (!SEGMENT_TAIL_PATTERN.test(tail)) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Malformed WAL segment key: "${key}"`, { key })
+  }
+  const value = Number.parseInt(tail, 10)
+  if (!Number.isSafeInteger(value)) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `WAL segment start sequence number is out of range: "${key}"`,
+      { key },
+    )
+  }
+  return value
+}
+
 export function nextSegmentKey(indexName: string, partitionId: number): string {
   return `${walPrefix(indexName, partitionId)}next`
+}
+
+export function rewrittenHeaderKey(indexName: string, partitionId: number): string {
+  return `${walPrefix(indexName, partitionId)}header`
+}
+
+export async function removeUnusedSegmentFiles(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+): Promise<void> {
+  await directory.remove(nextSegmentKey(indexName, partitionId))
+  await directory.remove(rewrittenHeaderKey(indexName, partitionId))
 }
 
 function segmentStartSeqNo(key: string, prefix: string): number | null {

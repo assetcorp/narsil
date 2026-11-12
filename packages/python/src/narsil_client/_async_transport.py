@@ -76,6 +76,10 @@ class AsyncTransport:
         self._owns_client = http_client is None
         self._client = http_client if http_client is not None else httpx.AsyncClient(follow_redirects=False)
 
+    @property
+    def core(self) -> TransportCore:
+        return self._core
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()

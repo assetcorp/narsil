@@ -12,6 +12,7 @@ import type {
   IndexEmbeddingMetadata,
   IndexMetadata,
   PendingAnalysisMetadata,
+  StoredChangesSetting,
   StoredQuerySuggestions,
   StoredSyncSetting,
 } from '../types/internal'
@@ -51,6 +52,7 @@ export interface MetadataConfig {
   sync?: StoredSyncSetting
   syncActive?: boolean
   syncEpoch?: string
+  changes?: StoredChangesSetting
   querySuggestions?: StoredQuerySuggestions
 }
 
@@ -164,6 +166,7 @@ export function metadataFromConfig(
   if (config.sync !== undefined) metadata.sync = config.sync
   if (config.syncActive !== undefined) metadata.syncActive = config.syncActive
   if (config.syncEpoch !== undefined) metadata.syncEpoch = config.syncEpoch
+  if (config.changes !== undefined) metadata.changes = config.changes
   if (config.querySuggestions !== undefined) metadata.querySuggestions = config.querySuggestions
   return metadata
 }
@@ -211,17 +214,33 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
   }
 }
 
-function syncMetadataOf(entry: IndexRegistryEntry): Pick<MetadataConfig, 'sync' | 'syncActive' | 'syncEpoch'> {
-  const sync = entry.sync
-  if (sync === null) return {}
+function syncMetadataOf(
+  entry: IndexRegistryEntry,
+): Pick<MetadataConfig, 'sync' | 'syncActive' | 'syncEpoch' | 'changes'> {
+  const { sync, changes } = entry
+  if (sync === null && changes === null) return {}
   return {
-    sync: {
-      enabled: true,
-      ...(sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: sync.historyMaxAgeMs } : {}),
-      ...(sync.historyMaxBytes !== undefined ? { historyMaxBytes: sync.historyMaxBytes } : {}),
-    },
-    syncActive: sync.active,
-    syncEpoch: sync.epoch,
+    ...(sync === null
+      ? {}
+      : {
+          sync: {
+            enabled: true,
+            ...(sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: sync.historyMaxAgeMs } : {}),
+            ...(sync.historyMaxBytes !== undefined ? { historyMaxBytes: sync.historyMaxBytes } : {}),
+          },
+          syncActive: sync.active,
+        }),
+    syncEpoch: sync?.epoch ?? changes?.epoch,
+    ...(changes === null
+      ? {}
+      : {
+          changes: {
+            enabled: true,
+            ...(changes.previousDocument ? { previousDocument: true } : {}),
+            ...(changes.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: changes.historyMaxAgeMs } : {}),
+            ...(changes.historyMaxBytes !== undefined ? { historyMaxBytes: changes.historyMaxBytes } : {}),
+          },
+        }),
   }
 }
 

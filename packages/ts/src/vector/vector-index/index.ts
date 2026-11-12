@@ -19,6 +19,7 @@ import {
   recordCheckpoint as recordCheckpointOp,
   VECTOR_WORKER_COPIES_ALLOWED,
 } from '#platform/vector-host'
+import type { DocumentTableVisit } from '../../core/doc-id-tables/types'
 import type { VectorIndexConfig, VectorStorageMode } from '../../types/schema'
 import type { HNSWConfig } from '../hnsw'
 import { createVectorStore } from '../vector-store'
@@ -44,7 +45,7 @@ import {
 } from './cold'
 import { sameVector } from './cold-writes'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
-import { createRemovedDocuments, createUnplacedVectors } from './flagged-documents'
+import { createRemovedDocuments, createUnplacedVectors, visitFlaggedTables } from './flagged-documents'
 import { onceGraphFree, untilGraphReleased, withGraphFree } from './graph-pass'
 import type { VectorIndex } from './index-types'
 import {
@@ -335,6 +336,11 @@ export function createVectorIndex(
     maintenanceStatus: () => ({ ...maintenanceStatusOp(state), loadingFromFiles: state.cold !== null }),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state) + (state.cold?.field.residentBytes ?? 0),
     growthBytesFor: (vectors: number) => state.store.growthBytesFor(vectors),
+    visitDocumentTables: (visit: DocumentTableVisit) => {
+      state.store.visitDocumentTables(visit)
+      visitFlaggedTables('removed', state.tombstones, visit)
+      visitFlaggedTables('unplaced', state.buffer, visit)
+    },
     deserialize: withGraphFree(state, (parts: VectorIndexPayload[]) => {
       cancelColdHold(state)
       invalidateWorkerCopies(state)

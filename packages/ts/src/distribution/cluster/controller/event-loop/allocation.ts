@@ -7,6 +7,7 @@ import { getIndexMetadata } from '../../index-metadata'
 import { belongsToAnotherIndex, stampedWith } from '../../table-identity'
 import { sharesMajorVersion } from '../../version'
 import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
+import { nodesForEachIndex } from './previous-document-placement'
 import type { EventLoopState } from './state'
 import { tearDownAllocation } from './teardown'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
@@ -127,6 +128,7 @@ async function runAllocatorForAllIndexes(
     return
   }
 
+  const nodesFor = await nodesForEachIndex(coordinator, nodes, state.knownIndexes)
   const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
   const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
   let anyIndexFailed = false
@@ -135,8 +137,10 @@ async function runAllocatorForAllIndexes(
       return
     }
     try {
-      await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor)
-      await recoverIndexPartitions(state, coordinator, indexName, nodes, isActive, retainedFor)
+      const placeable = nodesFor(indexName)
+      if (!holdsDataNode(placeable)) continue
+      await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+      await recoverIndexPartitions(state, coordinator, indexName, placeable, isActive, retainedFor)
     } catch (error) {
       anyIndexFailed = true
       if (onError !== undefined) {
@@ -209,7 +213,10 @@ export async function allocateIndexNow(
     if (holdsDataNode(nodes) && isActive()) {
       const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
       const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
-      await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor)
+      const placeable = (await nodesForEachIndex(coordinator, nodes, state.knownIndexes))(indexName)
+      if (holdsDataNode(placeable)) {
+        await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+      }
     }
   } finally {
     if (isActive()) {
@@ -253,8 +260,13 @@ async function handleSchemaCreated(
   }
   const currentTable = ownTable === null || ownTable.assignments.size === 0 ? null : ownTable
 
+  const placeable = (await nodesForEachIndex(coordinator, nodes, knownIndexes))(indexName)
+  if (!holdsDataNode(placeable) || !isActive()) {
+    return
+  }
+
   const result = allocate(
-    nodes,
+    placeable,
     currentTable,
     indexName,
     metadata.partitionCount,
@@ -278,7 +290,7 @@ async function handleSchemaCreated(
     return
   }
 
-  await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive)
+  await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive)
 }
 
 /**
