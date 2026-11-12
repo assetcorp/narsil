@@ -3,11 +3,11 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { ADMISSION_TIMEOUT_MS } from '../constants'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { withdrawAdmission, withTimeout } from './admission'
+import { forgetAdmittedReplica } from './admitted'
 import {
   type AdmissionToWithdraw,
   type CatchUpState,
   forgetAdmissionToWithdraw,
-  forgetAdmittedReplica,
   getPendingAdmissions,
   partitionKey,
   recordRemovedReplica,

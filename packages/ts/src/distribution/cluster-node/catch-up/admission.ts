@@ -5,7 +5,9 @@ import type { InsyncAddPayload, InsyncRemovePayload } from '../../transport/type
 import { ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
+import { recordAdmittedReplica } from './admitted'
 import {
+  advanceAdmissionGeneration,
   type CatchUpState,
   clearPendingAdmission,
   forgetAdmissionToWithdraw,
@@ -13,7 +15,6 @@ import {
   markPendingAdmission,
   type ReplicaCursor,
   recordAdmissionToWithdraw,
-  recordAdmittedReplica,
 } from './state'
 
 type AdmissionAnswer = 'accepted' | 'refused' | 'unanswered'
@@ -173,6 +174,7 @@ export async function requestClaimedAdmission(
     } else if (answer === 'accepted' && !outlived) {
       forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
       forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
+      advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)
       recordAdmittedReplica(
         state,
         indexName,

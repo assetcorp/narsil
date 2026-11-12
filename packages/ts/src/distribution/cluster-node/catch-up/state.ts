@@ -1,4 +1,3 @@
-import type { PartitionAssignment } from '../../coordinator/types'
 import type { CatchUpFeed } from './feed'
 
 export interface ReplicaCursor {
@@ -25,6 +24,8 @@ export interface CatchUpState {
   admissionsToWithdraw: Map<string, Map<string, AdmissionToWithdraw>>
   acknowledgedSeqNos: Map<string, Map<string, number>>
   removedReplicas: Map<string, Map<string, number>>
+  admissionGenerations: Map<string, Map<string, number>>
+  lastAdmissionGeneration: number
   startedTerms: Map<string, number>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
@@ -60,6 +61,8 @@ export function createCatchUpState(): CatchUpState {
     admissionsToWithdraw: new Map(),
     acknowledgedSeqNos: new Map(),
     removedReplicas: new Map(),
+    admissionGenerations: new Map(),
+    lastAdmissionGeneration: 0,
     startedTerms: new Map(),
     inFlightBytes: 0,
     timer: null,
@@ -186,6 +189,7 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
   forgetKeysOfIndex(state.admissionsToWithdraw, indexName)
   forgetKeysOfIndex(state.acknowledgedSeqNos, indexName)
   forgetKeysOfIndex(state.removedReplicas, indexName)
+  forgetKeysOfIndex(state.admissionGenerations, indexName)
   forgetKeysOfIndex(state.startedTerms, indexName)
 }
 
@@ -203,33 +207,6 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
 export function getPendingAdmissions(state: CatchUpState, indexName: string, partitionId: number): string[] {
   const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
   return pending === undefined ? [] : [...pending]
-}
-
-export function recordAdmittedReplica(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  replicaNodeId: string,
-  primaryTerm: number,
-  tableVersion: number | null,
-): void {
-  const key = partitionKey(indexName, partitionId)
-  const admitted = state.admittedReplicas.get(key) ?? new Map<string, AdmittedReplica>()
-  admitted.set(replicaNodeId, { primaryTerm, tableVersion })
-  state.admittedReplicas.set(key, admitted)
-}
-
-export function forgetAdmittedReplica(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  replicaNodeId: string,
-): void {
-  const key = partitionKey(indexName, partitionId)
-  const admitted = state.admittedReplicas.get(key)
-  if (admitted === undefined) return
-  admitted.delete(replicaNodeId)
-  if (admitted.size === 0) state.admittedReplicas.delete(key)
 }
 
 export function recordAdmissionToWithdraw(
@@ -258,40 +235,6 @@ export function forgetAdmissionToWithdraw(
   if (owed.size === 0) state.admissionsToWithdraw.delete(key)
 }
 
-export function admittedBeyondTable(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  assignment: PartitionAssignment,
-  tableVersion?: number,
-): string[] {
-  const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
-  if (admitted === undefined) return []
-  const beyond: string[] = []
-  for (const [replicaNodeId, record] of [...admitted]) {
-    const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
-    const superseded = record.tableVersion !== null && tableVersion !== undefined && tableVersion >= record.tableVersion
-    if (settled || superseded || record.primaryTerm !== assignment.primaryTerm) {
-      forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
-      continue
-    }
-    beyond.push(replicaNodeId)
-  }
-  return beyond
-}
-
-export function inSyncTargetsOf(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  assignment: PartitionAssignment,
-): string[] {
-  return [
-    ...getPendingAdmissions(state, indexName, partitionId),
-    ...admittedBeyondTable(state, indexName, partitionId, assignment),
-  ]
-}
-
 /**
  * Marks one replica's admission as in flight, and reports whether the caller is the one that marked it.
  *
@@ -318,7 +261,42 @@ export function markPendingAdmission(
   pending.add(replicaNodeId)
   state.pendingAdmissions.set(key, pending)
   forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
+  advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)
   return true
+}
+
+export function advanceAdmissionGeneration(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): number {
+  const key = partitionKey(indexName, partitionId)
+  const generations = state.admissionGenerations.get(key) ?? new Map<string, number>()
+  state.lastAdmissionGeneration += 1
+  generations.set(replicaNodeId, state.lastAdmissionGeneration)
+  state.admissionGenerations.set(key, generations)
+  return state.lastAdmissionGeneration
+}
+
+export function admissionGenerationOf(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): number {
+  const current = state.admissionGenerations.get(partitionKey(indexName, partitionId))?.get(replicaNodeId)
+  return current ?? advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)
+}
+
+export function admissionGenerationIs(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  generation: number,
+): boolean {
+  return state.admissionGenerations.get(partitionKey(indexName, partitionId))?.get(replicaNodeId) === generation
 }
 
 export function forgetRemovedReplica(

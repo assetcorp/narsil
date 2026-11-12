@@ -1,18 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { encode } from '@msgpack/msgpack'
+import { decode as decodeWire, encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { AllocationTable, ClusterCoordinator } from '../../../distribution/coordinator/types'
-import {
-  createAckMessage,
-  validateEntryBatchPayload,
-  validateEntryPayload,
-  validateInsyncConfirmPayload,
-} from '../../../distribution/replication/codec'
+import { createAckMessage } from '../../../distribution/replication/codec'
 import {
   createInMemoryNetwork,
   createInMemoryTransport,
@@ -26,7 +21,6 @@ import {
   TransportErrorCodes,
   type TransportMessage,
 } from '../../../distribution/transport/types'
-import { decode } from '../../../serialization/msgpack'
 
 const INDEX_NAME = 'harbour-berths'
 const PARTITION_ID = 0
@@ -35,6 +29,7 @@ const REPLICATION_TIMEOUT_MS = 2_000
 const ADMISSION_REPLY_TIMEOUT_MS = 2_000
 const WITHDRAWAL_REPLY_TIMEOUT_MS = 5_000
 const WITHDRAWAL_REPLY_SETTLE_MS = 250
+const REMOVAL_REPLY_REPLICATION_TIMEOUT_MS = 8_000
 const BERTHS_AFTER_READMISSION = 12
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
@@ -62,9 +57,21 @@ interface Script {
   holdAdmission: boolean
   heldAdmission: (() => Promise<void>) | null
   heldAdmissionAccepted: boolean | null
-  holdWithdrawalReply: boolean
-  heldWithdrawalReply: (() => Promise<void>) | null
+  holdRemovalReply: boolean
+  heldRemovalReply: (() => Promise<void>) | null
+  heldRemovalRequestId: string | null
+  removalReplies: Map<string, 'answered' | 'lost'>
   controllerEvents: ControllerEvent[]
+}
+
+interface ClusterTimeouts {
+  requestTimeout?: number
+  replicationTimeout?: number
+}
+
+interface WireEntry {
+  seqNo: number
+  documentId: string
 }
 
 function freshScript(): Script {
@@ -78,25 +85,36 @@ function freshScript(): Script {
     holdAdmission: false,
     heldAdmission: null,
     heldAdmissionAccepted: null,
-    holdWithdrawalReply: false,
-    heldWithdrawalReply: null,
+    holdRemovalReply: false,
+    heldRemovalReply: null,
+    heldRemovalRequestId: null,
+    removalReplies: new Map(),
     controllerEvents: [],
   }
 }
 
-function documentIdsOf(message: TransportMessage): string[] {
-  const payload = decode(message.payload)
-  if (message.type === ReplicationMessageTypes.ENTRY) return [validateEntryPayload(payload).entry.documentId]
-  return validateEntryBatchPayload(payload).entries.map(entry => entry.documentId)
+function wireFieldsOf(message: TransportMessage): Record<string, unknown> {
+  const payload = decodeWire(message.payload)
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error(`a ${message.type} payload arrived as ${payload === null ? 'nil' : typeof payload}`)
+  }
+  return payload as Record<string, unknown>
 }
 
-function seqNosOf(message: TransportMessage): { first: number; last: number } {
-  const payload = decode(message.payload)
-  if (message.type === ReplicationMessageTypes.ENTRY) {
-    const { entry } = validateEntryPayload(payload)
-    return { first: entry.seqNo, last: entry.seqNo }
-  }
-  const { entries } = validateEntryBatchPayload(payload)
+function wireEntriesOf(message: TransportMessage): WireEntry[] {
+  const payload = wireFieldsOf(message)
+  const entries = message.type === ReplicationMessageTypes.ENTRY ? [payload.entry] : payload.entries
+  if (!Array.isArray(entries) || entries.length === 0) throw new Error(`a ${message.type} arrived without entries`)
+  return entries.map(entry => {
+    const { seqNo, documentId } = (entry ?? {}) as { seqNo?: unknown; documentId?: unknown }
+    if (typeof seqNo !== 'number' || typeof documentId !== 'string') {
+      throw new Error(`a ${message.type} entry arrived without a numeric seqNo and a string documentId`)
+    }
+    return { seqNo, documentId }
+  })
+}
+
+function seqNosOf(entries: WireEntry[]): { first: number; last: number } {
   const first = entries[0]
   const last = entries[entries.length - 1]
   if (first === undefined || last === undefined) throw new Error('an entry batch arrived empty')
@@ -128,10 +146,11 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
   }
 
   async function answerEntries(nodeId: string, message: TransportMessage, respond: RespondFn): Promise<void> {
-    const seqNos = seqNosOf(message)
+    const entries = wireEntriesOf(message)
+    const seqNos = seqNosOf(entries)
     script.deliveries.push(seqNos)
     if (script.mode === 'silent') return
-    for (const documentId of documentIdsOf(message)) script.deliveredDocumentIds.add(documentId)
+    for (const entry of entries) script.deliveredDocumentIds.add(entry.documentId)
     const acknowledge = async () => {
       script.highestAcked = Math.max(script.highestAcked, seqNos.last)
       await respond(createAckMessage(seqNos.last, PARTITION_ID, INDEX_NAME, nodeId, message.requestId))
@@ -143,14 +162,31 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await acknowledge()
   }
 
-  function dataNodeTransport(nodeId: string, requestTimeout?: number): NodeTransport {
+  async function sendNotingRemovalReplies(
+    transport: NodeTransport,
+    target: string,
+    message: TransportMessage,
+  ): Promise<TransportMessage> {
+    if (message.type !== ReplicationMessageTypes.INSYNC_REMOVE) return transport.send(target, message)
+    try {
+      const reply = await transport.send(target, message)
+      script.removalReplies.set(message.requestId, 'answered')
+      return reply
+    } catch (error) {
+      script.removalReplies.set(message.requestId, 'lost')
+      throw error
+    }
+  }
+
+  function dataNodeTransport(nodeId: string, timeouts: ClusterTimeouts): NodeTransport {
     const transport = createInMemoryTransport(nodeId, network, {
-      replicationTimeout: REPLICATION_TIMEOUT_MS,
-      ...(requestTimeout === undefined ? {} : { requestTimeout }),
+      replicationTimeout: timeouts.replicationTimeout ?? REPLICATION_TIMEOUT_MS,
+      ...(timeouts.requestTimeout === undefined ? {} : { requestTimeout: timeouts.requestTimeout }),
     })
     inner.set(nodeId, transport)
     return {
       ...transport,
+      send: (target, message) => sendNotingRemovalReplies(transport, target, message),
       stream: (target, message, handler) => {
         if (script.replica === nodeId && message.type === ReplicationMessageTypes.SYNC_REQUEST) {
           return Promise.reject(
@@ -169,30 +205,33 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     }
   }
 
-  function controllerTransport(): NodeTransport {
-    const transport = createInMemoryTransport('harbour-master', network, { replicationTimeout: REPLICATION_TIMEOUT_MS })
+  function controllerTransport(timeouts: ClusterTimeouts): NodeTransport {
+    const transport = createInMemoryTransport('harbour-master', network, {
+      replicationTimeout: timeouts.replicationTimeout ?? REPLICATION_TIMEOUT_MS,
+    })
     return {
       ...transport,
       listen: handler =>
         transport.listen((message: TransportMessage, respond: RespondFn) => {
           if (!INSYNC_TYPES.has(message.type)) return handler(message, respond)
-          const payload = decode(message.payload) as { replicaNodeId?: unknown; appliedSeqNo?: unknown }
+          const payload = wireFieldsOf(message)
           if (payload.replicaNodeId !== script.replica) return handler(message, respond)
           const appliedSeqNo = typeof payload.appliedSeqNo === 'number' ? payload.appliedSeqNo : undefined
           script.controllerEvents.push({ type: message.type, appliedSeqNo })
           if (message.type === ReplicationMessageTypes.INSYNC_ADD && script.holdAdmission) {
             script.holdAdmission = false
             const answerHeldAdmission: RespondFn = async response => {
-              script.heldAdmissionAccepted = validateInsyncConfirmPayload(decode(response.payload)).accepted
+              script.heldAdmissionAccepted = wireFieldsOf(response).accepted === true
               await respond(response)
             }
             script.heldAdmission = () => Promise.resolve(handler(message, answerHeldAdmission))
             return
           }
-          if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.holdWithdrawalReply) {
-            script.holdWithdrawalReply = false
+          if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.holdRemovalReply) {
+            script.holdRemovalReply = false
+            script.heldRemovalRequestId = message.requestId
             const holdReply: RespondFn = async response => {
-              script.heldWithdrawalReply = () => respond(response)
+              script.heldRemovalReply = () => respond(response)
             }
             return handler(message, holdReply)
           }
@@ -211,14 +250,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     return (await allocation()).assignments.get(PARTITION_ID)?.inSyncSet ?? []
   }
 
-  async function startCluster(logRetentionBytes?: number, requestTimeout?: number) {
+  async function startCluster(logRetentionBytes?: number, timeouts: ClusterTimeouts = {}) {
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     root = await mkdtemp(join(tmpdir(), 'narsil-catch-up-sessions-'))
     for (const nodeId of DATA_NODES) {
       const node = await createClusterNode({
         coordinator,
-        transport: dataNodeTransport(nodeId, requestTimeout),
+        transport: dataNodeTransport(nodeId, timeouts),
         address: `${nodeId}:9200`,
         nodeId,
         roles: ['data'],
@@ -230,7 +269,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     }
     const router = await createClusterNode({
       coordinator,
-      transport: controllerTransport(),
+      transport: controllerTransport(timeouts),
       address: 'harbour-master:9200',
       nodeId: 'harbour-master',
       roles: ['coordinator', 'controller'],
@@ -277,7 +316,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.mode = 'silent'
     for (const release of script.heldAcks.splice(0)) await release().catch(() => {})
     await script.heldAdmission?.().catch(() => {})
-    await script.heldWithdrawalReply?.().catch(() => {})
+    await script.heldRemovalReply?.().catch(() => {})
     for (const node of running.splice(0).reverse()) await node.shutdown().catch(() => {})
     await coordinator.shutdown()
     await rm(root, { recursive: true, force: true })
@@ -389,7 +428,9 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
   }, 90_000)
 
   it('withdraws an admission whose answer never came once the controller applies it after the replica has asked for a snapshot', async () => {
-    const { router, primary, replica, term } = await startCluster(undefined, ADMISSION_REPLY_TIMEOUT_MS)
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      requestTimeout: ADMISSION_REPLY_TIMEOUT_MS,
+    })
     await dropFromInSyncSet(router, replica)
     for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
       await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
@@ -420,7 +461,9 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
   }, 90_000)
 
   it('sends every acknowledged write to a replica readmitted while the reply to the withdrawal of its earlier admission was still on its way', async () => {
-    const { router, primary, replica, term } = await startCluster(undefined, WITHDRAWAL_REPLY_TIMEOUT_MS)
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      requestTimeout: WITHDRAWAL_REPLY_TIMEOUT_MS,
+    })
     await dropFromInSyncSet(router, replica)
     for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
       await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
@@ -434,14 +477,16 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await requestSync(primary, logEnd, term - 1)
     await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
 
-    script.holdWithdrawalReply = true
+    script.holdRemovalReply = true
     script.heldAdmission = null
     await releaseStaleAdmission()
     expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the stale admission')).toBe(true)
     const releaseWithdrawalReply = await waitFor(
-      () => script.heldWithdrawalReply,
+      () => script.heldRemovalReply,
       'the controller to apply the withdrawal of the stale admission',
     )
+    const withdrawalRequestId = script.heldRemovalRequestId
+    if (withdrawalRequestId === null) throw new Error('the controller held a withdrawal reply without its request id')
     await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
 
     script.holdAdmission = true
@@ -451,8 +496,14 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       () => script.heldAdmission,
       'the primary to propose the replica again while the withdrawal reply is held',
     )
-    script.heldWithdrawalReply = null
+    script.heldRemovalReply = null
     await releaseWithdrawalReply()
+    expect(
+      await waitFor(
+        () => script.removalReplies.get(withdrawalRequestId) ?? null,
+        'the primary to receive the withdrawal reply or give up on it',
+      ),
+    ).toBe('answered')
     await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_SETTLE_MS))
     script.heldAdmission = null
     await releaseReadmission()
@@ -463,6 +514,56 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     const acknowledged: string[] = []
     for (let berth = 0; berth < BERTHS_AFTER_READMISSION; berth++) {
       const documentId = `berth-readmitted-${berth}`
+      await router.insert(INDEX_NAME, { id: documentId, note: BERTH_NOTE })
+      acknowledged.push(documentId)
+    }
+
+    expect(acknowledged.filter(documentId => !script.deliveredDocumentIds.has(documentId))).toEqual([])
+    expect(await inSyncSet()).toContain(replica)
+  }, 90_000)
+
+  it('sends every later acknowledged write to a replica readmitted while the reply to its removal after a missed write was still on its way', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      replicationTimeout: REMOVAL_REPLY_REPLICATION_TIMEOUT_MS,
+    })
+    script.replica = replica
+    script.mode = 'silent'
+    script.holdRemovalReply = true
+    const missedWrite = router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE }).then(
+      () => 'acknowledged',
+      (error: unknown) => error,
+    )
+    const releaseRemovalReply = await waitFor(
+      () => script.heldRemovalReply,
+      'the controller to apply the removal of the replica that missed the write',
+    )
+    const removalRequestId = script.heldRemovalRequestId
+    if (removalRequestId === null) throw new Error('the controller held a removal reply without its request id')
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+    const missed = script.deliveries.at(-1)
+    if (missed === undefined) throw new Error('the primary never sent the replica the write that it missed')
+
+    script.mode = 'ack'
+    await requestSync(primary, missed.last, term)
+    await waitFor(
+      async () => ((await inSyncSet()).includes(replica) ? true : null),
+      'the replica to rejoin the set while the reply to its removal is held',
+    )
+
+    script.heldRemovalReply = null
+    await releaseRemovalReply()
+    expect(
+      await waitFor(
+        () => script.removalReplies.get(removalRequestId) ?? null,
+        'the primary to receive the removal reply or give up on it',
+      ),
+    ).toBe('answered')
+    expect(await missedWrite).toBe('acknowledged')
+
+    script.deliveredDocumentIds.clear()
+    const acknowledged: string[] = []
+    for (let berth = 0; berth < BERTHS_AFTER_READMISSION; berth++) {
+      const documentId = `berth-after-removal-reply-${berth}`
       await router.insert(INDEX_NAME, { id: documentId, note: BERTH_NOTE })
       acknowledged.push(documentId)
     }
