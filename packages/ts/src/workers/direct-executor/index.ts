@@ -4,8 +4,7 @@ import { synonymModule } from '../../core/synonyms/registry'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
-import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
-import { createPartitionRouter } from '../../partitioning/router'
+import type { PartitionManager } from '../../partitioning/manager'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, VectorStorageMode } from '../../types/schema'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index'
@@ -24,7 +23,7 @@ import {
   loadHeldVectorCopy,
   pinHeldVectorField,
 } from '../vector-copies'
-import { disposeEntry, indexEntryOf, queryContextOfEntry, vectorIndexesFor } from './entry'
+import { createEntryBuilder, disposeEntry, queryContextOfEntry, vectorIndexesFor } from './entry'
 import type {
   DetachedIndex,
   DirectExecutorExtensions,
@@ -52,6 +51,8 @@ export function createDirectExecutor(
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
   const threadSlot = options?.threadSlot ?? 0
   const vectorStorage: VectorStorageMode = options?.vectorStorage ?? 'memory'
+  const pendingDisposals = new Map<Promise<void>, string>()
+  const buildEntry = createEntryBuilder(vectorStorage, options?.onVectorGraphRepaired, pendingDisposals)
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -109,32 +110,16 @@ export function createDirectExecutor(
     return entry.manager
   }
 
-  function buildEntry(
-    indexName: string,
-    config: IndexConfig,
-    language: LanguageModule,
-    analysisStale: boolean,
-    awaitedCopyLoad: string | null,
-    copies: VectorWorkerCopyPolicy,
-    savedPartitionCount: number | undefined,
-  ): IndexEntry {
-    const router = createPartitionRouter()
-    const partitionCount = savedPartitionCount ?? config.partitions?.maxPartitions ?? 1
-    const vectorIndexes = vectorIndexesFor(indexName, config, copies, vectorStorage, options?.onVectorGraphRepaired)
-    const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
-
-    return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
-  }
-
-  function dropIndex(indexName: string): void {
-    disposeEntry(requireIndex(indexName))
+  async function dropIndex(indexName: string): Promise<void> {
+    const entry = requireIndex(indexName)
     indexes.delete(indexName)
+    await disposeEntry(entry)
   }
 
-  function installDetachedIndex(detached: DetachedIndex): void {
+  async function installDetachedIndex(detached: DetachedIndex): Promise<void> {
     const previous = indexes.get(detached.indexName)
     indexes.set(detached.indexName, detached.entry)
-    if (previous !== undefined && previous !== detached.entry) disposeEntry(previous)
+    if (previous !== undefined && previous !== detached.entry) await disposeEntry(previous)
   }
 
   function listIndexes(): string[] {
@@ -203,7 +188,7 @@ export function createDirectExecutor(
             options?.initializeCopyPublication?.(entry, action.publication, threadSlot)
           }
         } catch (err) {
-          dropIndex(action.indexName)
+          await dropIndex(action.indexName)
           throw err
         }
         return undefined as T
@@ -216,7 +201,7 @@ export function createDirectExecutor(
       }
 
       case 'dropIndex': {
-        dropIndex(action.indexName)
+        await dropIndex(action.indexName)
         return undefined as T
       }
 
@@ -318,7 +303,7 @@ export function createDirectExecutor(
       case 'clear': {
         const entry = requireIndex(action.indexName)
         entry.manager.clearPartitions()
-        entry.manager.resetVectorIndexes(
+        await entry.manager.resetVectorIndexes(
           vectorIndexesFor(
             action.indexName,
             entry.config,
@@ -361,6 +346,7 @@ export function createDirectExecutor(
           await entry.manager.publication.write(() => disposeEntry(entry))
         }
         indexes.clear()
+        await Promise.all(pendingDisposals.keys())
         return undefined as T
       }
     }

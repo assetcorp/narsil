@@ -219,6 +219,14 @@ export function createVectorIndex(
 
   const whenLoaded = (): Promise<void> => untilColdLoaded(state)
 
+  const coldLoadsInFlight = new Set<Promise<void>>()
+
+  function openColdFieldTracked(field: ColdVectorField, load: ColdFieldLoad): void {
+    const settled = openColdField(state, field, load)
+    coldLoadsInFlight.add(settled)
+    void settled.then(() => coldLoadsInFlight.delete(settled))
+  }
+
   async function searchParallel(
     query: Float32Array,
     k: number,
@@ -311,7 +319,7 @@ export function createVectorIndex(
     },
     dispose: () => {
       cancelColdHold(state)
-      return disposeIndex(state).then(closeIdleTurnHop)
+      return Promise.all([disposeIndex(state), ...coldLoadsInFlight]).then(closeIdleTurnHop)
     },
     search: withGraphFree(state, (query: Float32Array, k: number, options: VectorSearchOptions) =>
       state.cold === null ? searchOp(state, query, k, options) : coldSearch(state, state.cold, query, k, options),
@@ -360,7 +368,7 @@ export function createVectorIndex(
       invalidateWorkerCopies(state)
       return beginCheckpointRestore(state, shape)
     }),
-    openColdField: (field: ColdVectorField, load: ColdFieldLoad) => openColdField(state, field, load),
+    openColdField: openColdFieldTracked,
     startShuffledRebuildWhenDue: () => {
       if (state.cold === null) startShuffledRebuild(state)
     },

@@ -180,10 +180,12 @@ func (f *Field) OpenColdField(field ColdVectorField, load ColdFieldLoad) {
 	}
 	f.setCold(hold)
 	f.coldViewNow.Store(hold.view)
+	f.coldLoads.Add(1)
 	go f.loadCold(ctx, hold, load)
 }
 
 func (f *Field) loadCold(ctx context.Context, hold *coldHold, load ColdFieldLoad) {
+	defer f.coldLoads.Done()
 	stillWanted := func() bool {
 		return f.coldHoldNow() == hold
 	}

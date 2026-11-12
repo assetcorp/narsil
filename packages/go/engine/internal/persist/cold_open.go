@@ -211,7 +211,7 @@ func requireColdFile(ctx context.Context, store checkpoint.Store, file manifest.
 		}
 	}
 	for _, section := range list {
-		if err := paged.CheckSectionPages(source.reader, section, key); err != nil {
+		if err := paged.CheckSectionPages(ctx, source.reader, section, key); err != nil {
 			return false, err
 		}
 	}

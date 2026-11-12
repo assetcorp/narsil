@@ -1,5 +1,7 @@
-import type { PartitionManager } from '../../partitioning/manager'
+import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
+import { createPartitionRouter } from '../../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
+import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, VectorStorageMode } from '../../types/schema'
 import type { VectorIndex, VectorWorkerCopyPolicy } from '../../vector/vector-index'
 import { requireLoadedVectorCode } from '../vector-code'
@@ -39,13 +41,44 @@ export function vectorIndexesFor(
   return vectorIndexes
 }
 
-export function disposeEntry(entry: IndexEntry): void {
+export function disposeEntry(entry: IndexEntry): Promise<void> {
   closeCopyPublicationOrder(entry.copyPublications)
-  entry.manager.afterSearchesRelease(() => {
-    for (const vectorIndex of entry.vectorIndexes.values()) vectorIndex.dispose()
+  return entry.manager.afterSearchesRelease(() => {
+    const disposals = [...entry.vectorIndexes.values()].map(vectorIndex => vectorIndex.dispose())
     closeHeldVectorCopies(entry.vectorCopies)
     for (const partition of entry.manager.getAllPartitions()) partition.clear()
+    return Promise.all(disposals).then(() => undefined)
   })
+}
+
+export function createEntryBuilder(
+  vectorStorage: VectorStorageMode,
+  onVectorGraphRepaired: ((indexName: string) => void) | undefined,
+  pendingDisposals: Map<Promise<void>, string>,
+) {
+  return (
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale: boolean,
+    awaitedCopyLoad: string | null,
+    copies: VectorWorkerCopyPolicy,
+    savedPartitionCount: number | undefined,
+  ): IndexEntry => {
+    const router = createPartitionRouter()
+    const partitionCount = savedPartitionCount ?? config.partitions?.maxPartitions ?? 1
+    const vectorIndexes = vectorIndexesFor(indexName, config, copies, vectorStorage, onVectorGraphRepaired)
+    const manager = createPartitionManager(
+      indexName,
+      config,
+      language,
+      router,
+      partitionCount,
+      vectorIndexes,
+      pendingDisposals,
+    )
+    return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
+  }
 }
 
 export function indexEntryOf(

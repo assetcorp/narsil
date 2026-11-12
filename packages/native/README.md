@@ -22,7 +22,7 @@ In a browser, and wherever `@delali/narsil` cannot load the core, the TypeScript
 - `node fuzz/run.mjs --replay` replays every input under `fuzz/corpus/` without libFuzzer. Each input there once made a target fail, so add every new failing input to its target's directory alongside the fix.
 - `pnpm --filter @delali/narsil-native-build test:binding` builds the binding under AddressSanitizer and UndefinedBehaviorSanitizer on Linux, runs the TypeScript tests that load the core against it, and fails on any memory error or any leak that the core or the binding allocated. Build the TypeScript package first, so that the tests that copy an index onto worker threads run as well.
 - `pnpm nx run narsil-ts:test` includes the tests under `src/__tests__/vector/native`, which compare the results, the graph, and the codes of the core with those of the WebAssembly search.
-- `pnpm --filter @delali/narsil-native-build lint` checks the C code with clang-tidy and clang-format. `lint.mjs` installs the pinned tools into `.lint-tools` on its first use, so you need `python3` on your path.
+- `pnpm --filter @delali/narsil-native-build lint` checks the C code with clang-tidy and clang-format. `lint.mjs` installs the pinned tools into `.lint-tools` on its first use, so you need `python3` on your path. Pass a part such as `1/2` to run only that share of the checks, as continuous integration does on Linux.
 - `pnpm --filter @delali/narsil-native-build format` formats the C code with clang-format.
 
 Set `NARSIL_NATIVE_CORE_PATH` to the absolute path of a binary to make `@delali/narsil` load that binary.

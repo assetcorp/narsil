@@ -142,7 +142,7 @@ export async function loadStagedIndex(
       true,
     )
   } catch (error) {
-    deps.executor.discardDetachedIndex(detached)
+    await deps.executor.discardDetachedIndex(detached)
     throw error
   }
   return { prepared, detached, staging, checkpoint: manifest.checkpoint, saved: savedBytesOfManifest(manifest) }

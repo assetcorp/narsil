@@ -168,10 +168,10 @@ async function buildRestoredIndex(
     if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [], saved: null }
     manifest = await stageBuiltIndex(indexName, prepared, built, staging, deps)
   } catch (err) {
-    deps.executor.discardDetachedIndex(built)
+    await deps.executor.discardDetachedIndex(built)
     throw err
   }
-  deps.executor.discardDetachedIndex(built)
+  await deps.executor.discardDetachedIndex(built)
   return loadStagedIndex(indexName, { prepared, manifest }, staging, staging.store, deps)
 }
 

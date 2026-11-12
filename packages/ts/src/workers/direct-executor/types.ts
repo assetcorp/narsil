@@ -41,7 +41,7 @@ export interface DirectExecutorExtensions {
     synonyms?: SynonymLookup | null,
     partitionCount?: number,
   ): void
-  dropIndex(indexName: string): void
+  dropIndex(indexName: string): Promise<void>
   listIndexes(): string[]
 }
 
@@ -73,8 +73,8 @@ export interface IndexReplacement {
     copies: VectorWorkerCopyPolicy,
     partitionCount?: number,
   ): IndexEntry
-  installDetachedIndex(detached: DetachedIndex): void
-  discardDetachedIndex(detached: DetachedIndex): void
+  installDetachedIndex(detached: DetachedIndex): Promise<void>
+  discardDetachedIndex(detached: DetachedIndex): Promise<void>
 }
 
 export interface DirectExecutorOptions {

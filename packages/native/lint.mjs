@@ -89,6 +89,19 @@ async function runAll(jobs) {
   return results
 }
 
+function requestedPart(given) {
+  if (given.length === 0) return { part: 1, parts: 1 }
+  const match = given.length === 1 ? /^([1-9]\d*)\/([1-9]\d*)$/.exec(given[0]) : null
+  if (!match || Number(match[1]) > Number(match[2])) {
+    console.error(
+      `lint.mjs takes at most one argument, a part such as 1/2 whose number is at most the number of parts, and it received ${JSON.stringify(given)}.`,
+    )
+    process.exit(2)
+  }
+  return { part: Number(match[1]), parts: Number(match[2]) }
+}
+
+const { part, parts } = requestedPart(process.argv.slice(2))
 const { clangTidy, clangFormat, windowsHeaderDirectory, darwinHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
@@ -121,14 +134,16 @@ jobs.push({
   args: ['--dry-run', '--Werror', '--style=file', ...formattedFiles()],
 })
 
-const results = await runAll(jobs)
+const selectedJobs = jobs.filter((_, index) => index % parts === part - 1)
+const formatting = selectedJobs.some(job => job.command === clangFormat)
+const results = await runAll(selectedJobs)
 const failures = results.filter(result => result.code !== 0)
 for (const failure of failures) {
   console.error(`\n${failure.label}\n${failure.output.trim()}`)
 }
 console.log(
-  `\n${results.length - failures.length} of ${results.length} lint checks passed (${lintedConfigurations
+  `\n${results.length - failures.length} of ${results.length} lint checks passed in part ${part} of ${parts} (${lintedConfigurations
     .map(configuration => configuration.name)
-    .join(', ')}; clang-format over ${formattedFiles().length} files)`,
+    .join(', ')}${formatting ? `; clang-format over ${formattedFiles().length} files` : ''})`,
 )
 if (failures.length > 0) process.exit(1)

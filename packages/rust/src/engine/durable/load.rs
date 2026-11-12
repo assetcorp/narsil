@@ -233,9 +233,13 @@ pub(super) fn vectors_location(
 pub(super) fn read_graph_parts(
     store: &dyn CheckpointSource,
     listed: &VectorFieldRef,
+    still_wanted: &dyn Fn() -> bool,
 ) -> Result<Option<GraphParts>> {
     let mut parts = Vec::with_capacity(listed.graph_parts.len());
     for part in &listed.graph_parts {
+        if !still_wanted() {
+            return Ok(None);
+        }
         let payload = store.read_listed(part, "graph part", GRAPH_PART_ENVELOPE_VERSION, true)?;
         let decoded = decode_graph_part(&payload)?;
         if decoded.field_name != listed.field_path {
@@ -263,7 +267,7 @@ fn load_vector_field(
     if open_from_files(store, field, listed)? {
         return Ok(());
     }
-    let graph = read_graph_parts(store, listed)?;
+    let graph = read_graph_parts(store, listed, &|| true)?;
     let live_vectors = listed
         .files
         .iter()
