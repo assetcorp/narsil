@@ -65,6 +65,7 @@ type Field struct {
 	savedFiles         []savedVectorFile
 	savedSignature     *fieldSignature
 	cold               *coldHold
+	coldLoads          sync.WaitGroup
 	coldNow            atomic.Pointer[coldHold]
 	coldViewNow        atomic.Pointer[coldView]
 	filesClosed        atomic.Bool
