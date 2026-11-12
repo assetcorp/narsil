@@ -1,8 +1,13 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import { decode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPACITY } from '../../../../distribution'
 import type { AllocationTable, PartitionAssignment } from '../../../../distribution/coordinator/types'
-import { DEFAULT_TRANSPORT_CONFIG } from '../../../../distribution/transport/types'
+import {
+  DEFAULT_TRANSPORT_CONFIG,
+  type TransportConfig,
+  type TransportMessage,
+} from '../../../../distribution/transport/types'
 import {
   createTestCluster,
   entryForDocument,
@@ -28,6 +33,7 @@ const RETRIED_REMOVALS = 3
 const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
 const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
 const TERM_END_QUIET_MS = 3_000
+const SHORT_REPLICATION_TIMEOUT_MS = 500
 
 type Ledger = Map<string, Record<string, unknown>>
 
@@ -40,6 +46,10 @@ function fields(label: string, amount: number): Record<string, unknown> {
   return { title: `transfer ${label}`, amount }
 }
 
+function primaryTermOf(message: TransportMessage): unknown {
+  return (decode(message.payload) as { primaryTerm?: unknown }).primaryTerm
+}
+
 describe('a new primary that starts its term on every in-sync copy', () => {
   let cluster: TestCluster | undefined
   const watches: InSyncWatch[] = []
@@ -50,11 +60,14 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     cluster = undefined
   })
 
-  async function startLedger(): Promise<{ running: TestCluster; settled: PartitionAssignment; ledger: Ledger }> {
+  async function startLedger(
+    copies: { durable?: boolean; timeouts?: Partial<TransportConfig> } = {},
+  ): Promise<{ running: TestCluster; settled: PartitionAssignment; ledger: Ledger }> {
     const running = await createTestCluster()
     cluster = running
     await running.start('controller', { roles: ['controller', 'coordinator'], durable: false })
-    for (const nodeId of ['node-a', 'node-b', 'node-c']) await running.start(nodeId, { durable: false })
+    const { durable = false, timeouts } = copies
+    for (const nodeId of ['node-a', 'node-b', 'node-c']) await running.start(nodeId, { durable, timeouts })
     await running.node('controller').createIndex(INDEX, { schema: SCHEMA }, { partitionCount: 1, replicationFactor: 2 })
     const settled = await waitUntil('every data node to hold the partition in sync', async () => {
       const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
@@ -380,6 +393,72 @@ describe('a new primary that starts its term on every in-sync copy', () => {
 
     allowRegistration()
     await expectCopiesAgree(running, ledger, [candidate], ['stranded'])
+  }, 120_000)
+
+  it('asks no more for the removal once the primary closes the index while its first removal request is still out', async () => {
+    const { running, settled } = await startLedger({ durable: true })
+    const { candidate, release, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const firstRemoval = running.transport(candidate).holdWhen(ofType('replication.insync_remove'))
+
+    await failOver(running, settled, release)
+    await waitUntil('the first removal request to wait', () => firstRemoval.count() > 0)
+    await running.node(candidate).close(INDEX)
+    const askedBeforeClose = droppedRemovals()
+    firstRemoval.release()
+    await sleep(TERM_END_QUIET_MS)
+
+    expect(droppedRemovals()).toBe(askedBeforeClose + 1)
+  }, 90_000)
+
+  async function raiseTermInPlace(running: TestCluster): Promise<number> {
+    const table = await running.coordinator.getAllocation(INDEX)
+    const current = partitionAssignment(table)
+    expect(current).toBeDefined()
+    if (table === null || current === undefined) return 0
+    const primaryTerm = current.primaryTerm + 1
+    await running.coordinator.putAllocation(INDEX, {
+      ...table,
+      version: table.version + 1,
+      assignments: new Map([[0, { ...current, primaryTerm }]]),
+    })
+    return primaryTerm
+  }
+
+  it('keeps asking for the removal at the newest term of a primary when its older term start fails later, and removes the copy ahead once the controller answers', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: SHORT_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals } = await strandOnCopyAhead(running, settled)
+    const transport = running.transport(candidate)
+    const olderTerm = settled.primaryTerm + 1
+    const olderTermStart = transport.holdWhen(
+      (target, message) =>
+        target === ahead && message.type === 'replication.term_start' && primaryTermOf(message) === olderTerm,
+    )
+    const removalTerms = () =>
+      transport
+        .dropped()
+        .filter(message => message.type === 'replication.insync_remove')
+        .map(primaryTermOf)
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the older term start to wait', () => olderTermStart.count() > 0)
+    const newestTerm = await raiseTermInPlace(running)
+    await waitUntil(
+      'the newest term to ask again for the removal',
+      () => removalTerms().filter(term => term === newestTerm).length >= RETRIED_REMOVALS,
+    )
+    olderTermStart.release()
+    await sleep(TERM_END_QUIET_MS)
+    expect(aheadWatch.leftAt()).toBeNull()
+    const restoredAt = Date.now()
+    restoreRemovals()
+
+    const leftAt = await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    expect(leftAt - restoredAt).toBeLessThan(WRITE_MARGIN_MS)
+    await expectCopiesAgree(running, ledger, [ahead], [])
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).not.toHaveProperty('stranded')
   }, 120_000)
 
   it('keeps a write whose old-term entry reached no copy through the new primary, and resyncs the old primary that held it', async () => {
