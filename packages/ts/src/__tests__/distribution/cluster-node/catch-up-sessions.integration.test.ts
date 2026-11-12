@@ -33,6 +33,9 @@ const PARTITION_ID = 0
 const DATA_NODES = ['quay-north', 'quay-south']
 const REPLICATION_TIMEOUT_MS = 2_000
 const ADMISSION_REPLY_TIMEOUT_MS = 2_000
+const WITHDRAWAL_REPLY_TIMEOUT_MS = 5_000
+const WITHDRAWAL_REPLY_SETTLE_MS = 250
+const BERTHS_AFTER_READMISSION = 12
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
 const POLL_MS = 25
@@ -54,10 +57,13 @@ interface Script {
   mode: ReplicaMode
   highestAcked: number
   deliveries: { first: number; last: number }[]
+  deliveredDocumentIds: Set<string>
   heldAcks: (() => Promise<void>)[]
   holdAdmission: boolean
   heldAdmission: (() => Promise<void>) | null
   heldAdmissionAccepted: boolean | null
+  holdWithdrawalReply: boolean
+  heldWithdrawalReply: (() => Promise<void>) | null
   controllerEvents: ControllerEvent[]
 }
 
@@ -67,12 +73,21 @@ function freshScript(): Script {
     mode: 'ack',
     highestAcked: 0,
     deliveries: [],
+    deliveredDocumentIds: new Set(),
     heldAcks: [],
     holdAdmission: false,
     heldAdmission: null,
     heldAdmissionAccepted: null,
+    holdWithdrawalReply: false,
+    heldWithdrawalReply: null,
     controllerEvents: [],
   }
+}
+
+function documentIdsOf(message: TransportMessage): string[] {
+  const payload = decode(message.payload)
+  if (message.type === ReplicationMessageTypes.ENTRY) return [validateEntryPayload(payload).entry.documentId]
+  return validateEntryBatchPayload(payload).entries.map(entry => entry.documentId)
 }
 
 function seqNosOf(message: TransportMessage): { first: number; last: number } {
@@ -116,6 +131,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     const seqNos = seqNosOf(message)
     script.deliveries.push(seqNos)
     if (script.mode === 'silent') return
+    for (const documentId of documentIdsOf(message)) script.deliveredDocumentIds.add(documentId)
     const acknowledge = async () => {
       script.highestAcked = Math.max(script.highestAcked, seqNos.last)
       await respond(createAckMessage(seqNos.last, PARTITION_ID, INDEX_NAME, nodeId, message.requestId))
@@ -172,6 +188,13 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
             }
             script.heldAdmission = () => Promise.resolve(handler(message, answerHeldAdmission))
             return
+          }
+          if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.holdWithdrawalReply) {
+            script.holdWithdrawalReply = false
+            const holdReply: RespondFn = async response => {
+              script.heldWithdrawalReply = () => respond(response)
+            }
+            return handler(message, holdReply)
           }
           return handler(message, respond)
         }),
@@ -254,6 +277,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.mode = 'silent'
     for (const release of script.heldAcks.splice(0)) await release().catch(() => {})
     await script.heldAdmission?.().catch(() => {})
+    await script.heldWithdrawalReply?.().catch(() => {})
     for (const node of running.splice(0).reverse()) await node.shutdown().catch(() => {})
     await coordinator.shutdown()
     await rm(root, { recursive: true, force: true })
@@ -393,5 +417,57 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       'the primary to withdraw the admission that the controller applied after its answer timed out',
     )
     await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+  }, 90_000)
+
+  it('sends every acknowledged write to a replica readmitted while the reply to the withdrawal of its earlier admission was still on its way', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, WITHDRAWAL_REPLY_TIMEOUT_MS)
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await requestSync(primary, logEnd, term)
+    const releaseStaleAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    await requestSync(primary, logEnd, term - 1)
+    await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
+
+    script.holdWithdrawalReply = true
+    script.heldAdmission = null
+    await releaseStaleAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the stale admission')).toBe(true)
+    const releaseWithdrawalReply = await waitFor(
+      () => script.heldWithdrawalReply,
+      'the controller to apply the withdrawal of the stale admission',
+    )
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+
+    script.holdAdmission = true
+    script.heldAdmissionAccepted = null
+    await requestSync(primary, logEnd, term)
+    const releaseReadmission = await waitFor(
+      () => script.heldAdmission,
+      'the primary to propose the replica again while the withdrawal reply is held',
+    )
+    script.heldWithdrawalReply = null
+    await releaseWithdrawalReply()
+    await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_SETTLE_MS))
+    script.heldAdmission = null
+    await releaseReadmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the readmission')).toBe(true)
+    await waitFor(async () => ((await inSyncSet()).includes(replica) ? true : null), 'the replica to rejoin the set')
+
+    script.deliveredDocumentIds.clear()
+    const acknowledged: string[] = []
+    for (let berth = 0; berth < BERTHS_AFTER_READMISSION; berth++) {
+      const documentId = `berth-readmitted-${berth}`
+      await router.insert(INDEX_NAME, { id: documentId, note: BERTH_NOTE })
+      acknowledged.push(documentId)
+    }
+
+    expect(acknowledged.filter(documentId => !script.deliveredDocumentIds.has(documentId))).toEqual([])
+    expect(await inSyncSet()).toContain(replica)
   }, 90_000)
 })
