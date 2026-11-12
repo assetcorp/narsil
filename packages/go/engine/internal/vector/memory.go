@@ -109,6 +109,7 @@ func (f *Field) Dispose() {
 	idle := f.builds.idle
 	f.writeMu.Unlock()
 	<-idle
+	f.coldLoads.Wait()
 	f.writeMu.Lock()
 	defer f.writeMu.Unlock()
 	f.releaseHeldMemory()
