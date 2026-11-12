@@ -467,3 +467,47 @@ fn a_truncated_vector_file_refuses_the_open() {
     });
     assert_eq!(refusal_of(opened), Some("PERSISTENCE_LOAD_FAILED"));
 }
+
+#[cfg(target_os = "linux")]
+const SHUTDOWNS_DURING_A_LOAD: usize = 12;
+
+#[cfg(target_os = "linux")]
+fn handles_under(root: &Path) -> Vec<String> {
+    let root = root.to_string_lossy().into_owned();
+    let mut held: Vec<String> = std::fs::read_dir("/proc/self/fd")
+        .expect("the process lists its descriptors")
+        .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
+        .map(|target| target.to_string_lossy().into_owned())
+        .filter(|target| target.starts_with(&root))
+        .collect();
+    let mappings =
+        std::fs::read_to_string("/proc/self/maps").expect("the process lists its mappings");
+    held.extend(
+        mappings
+            .lines()
+            .filter_map(|line| line.find(&root).map(|at| line[at..].to_string())),
+    );
+    held
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_shutdown_during_the_load_of_a_disk_field_closes_every_file_of_the_index() {
+    let scratch = ScratchDirectory::new("cold-vectors-shutdown");
+    written_checkpoint(scratch.path());
+    for cycle in 0..SHUTDOWNS_DURING_A_LOAD {
+        let engine = Narsil::open(durable(scratch.path())).expect("the engine reopens");
+        engine
+            .query(
+                INDEX,
+                &exhaustive_query(&vector_of(QUERY_SEED_OFFSET), &SHAPES[0]),
+            )
+            .expect("the search answers from the files and starts the load");
+        engine.shutdown().expect("the engine shuts down");
+        let held = handles_under(scratch.path());
+        assert!(
+            held.is_empty(),
+            "shutdown {cycle} returned while the process held these files of the index: {held:?}"
+        );
+    }
+}

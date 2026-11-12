@@ -50,6 +50,6 @@ pub(super) fn open_from_files(
     let listed = listed.clone();
     field.open_cold(
         cold,
-        Box::new(move || read_graph_parts(later.as_ref(), &listed)),
+        Box::new(move |still_wanted| read_graph_parts(later.as_ref(), &listed, still_wanted)),
     )
 }
