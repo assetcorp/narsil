@@ -4,13 +4,14 @@ import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constant
 import { followLeaseRenewals, recordLeaseRenewal } from './lease-validity'
 import type { LeaseManager } from './leases'
 import type { EtcdWriteGuard } from './request-size'
-import { serializeNodeRegistration } from './serialization'
+import { deserializeNodeRegistration, serializeNodeRegistration } from './serialization'
 
 export interface RegistrationWriteContext {
   client: Etcd3
   leaseManager: LeaseManager
   guard: EtcdWriteGuard
   key: string
+  startedAtKey: string
   ttlSeconds: number
   isShutdown(): boolean
 }
@@ -52,7 +53,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
       if (context.leaseManager.holdsPayload(context.key, payload)) {
         return
       }
-      await tracked.lease.put(context.key).value(data).exec()
+      await putUnderLease(context, tracked.lease, registration.startedAt, data)
       context.leaseManager.track(context.key, tracked.lease, registration.nodeId, payload)
       return
     } catch (_) {
@@ -62,7 +63,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
 
   const lease = await grantFollowedLease(context)
   try {
-    await context.guard.send(write, () => lease.put(context.key).value(data).exec())
+    await context.guard.send(write, () => putUnderLease(context, lease, registration.startedAt, data))
   } catch (error) {
     await lease.revoke().catch(() => {})
     throw error
@@ -74,6 +75,16 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   if (existing !== undefined && existing.lease !== lease) {
     await existing.lease.revoke().catch(() => {})
   }
+}
+
+async function putUnderLease(
+  context: RegistrationWriteContext,
+  lease: Lease,
+  startedAt: string,
+  data: Buffer,
+): Promise<void> {
+  await lease.put(context.startedAtKey).value(startedAt).exec()
+  await lease.put(context.key).value(data).exec()
 }
 
 async function grantFollowedLease(context: RegistrationWriteContext): Promise<Lease> {
@@ -104,8 +115,9 @@ async function restoreLostRegistration(
     }
     let lease: Lease | null = null
     try {
+      const { startedAt } = deserializeNodeRegistration(Buffer.from(tracked.payload))
       lease = await grantFollowedLease(context)
-      await lease.put(context.key).value(Buffer.from(tracked.payload)).exec()
+      await putUnderLease(context, lease, startedAt, Buffer.from(tracked.payload))
     } catch (_) {
       await lease?.revoke().catch(() => {})
       return false

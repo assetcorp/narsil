@@ -1,4 +1,9 @@
-import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
+import type {
+  AllocationTable,
+  ClusterCoordinator,
+  ExpectedReplicaRegistration,
+  PartitionAssignment,
+} from '../coordinator/types'
 
 export function inSyncVersionOf(assignment: PartitionAssignment): number {
   return assignment.inSyncVersion ?? 0
@@ -44,11 +49,13 @@ export function putAllocationOver(
   previous: AllocationTable | null,
   next: AllocationTable,
   writerNodeId: string,
+  replicaRegistration?: ExpectedReplicaRegistration,
 ): Promise<boolean> {
   return coordinator.putAllocation(
     indexName,
     withInSyncVersions(previous, next),
     previous === null ? null : previous.version,
     writerNodeId,
+    replicaRegistration,
   )
 }

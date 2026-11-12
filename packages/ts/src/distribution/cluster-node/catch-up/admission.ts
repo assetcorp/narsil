@@ -7,7 +7,7 @@ import { ADMISSION_RETRIES_AFTER_IN_SYNC_CHANGE, ADMISSION_TIMEOUT_MS } from '..
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { forgetAdmissionToWithdraw, recordAdmissionToWithdraw, recordAdmittedReplica } from './admitted'
-import { sendHeldEntryAgain } from './batches'
+import { type HeldEntryAnswer, sendHeldEntryAgain } from './batches'
 import { replicaListsPartition } from './listed-copy'
 import {
   type AdmissionAnswer,
@@ -15,6 +15,7 @@ import {
   type CatchUpState,
   clearPendingAdmission,
   forgetRemovedReplica,
+  forgetReplica,
   markPendingAdmission,
   type PendingAdmission,
   pendingAdmissionOf,
@@ -133,11 +134,22 @@ async function provePositionAfterRead(claim: AdmissionClaim, request: AdmissionR
   if (request.appliedSeqNo === 0) return true
   const entry = deps.getReplicationLog(request.indexName, request.partitionId).getEntry(request.appliedSeqNo)
   const provingEpoch = cursor.syncEpoch
-  const proven = await (entry === undefined
-    ? replicaListsPartition(deps, request.indexName, request.partitionId, request.replicaNodeId)
-    : sendHeldEntryAgain(state, deps, entry, request.replicaNodeId)
-  ).catch(() => false)
-  return proven && cursor.syncEpoch === provingEpoch
+  if (entry === undefined) {
+    const listed = await replicaListsPartition(
+      deps,
+      request.indexName,
+      request.partitionId,
+      request.replicaNodeId,
+    ).catch(() => false)
+    return listed && cursor.syncEpoch === provingEpoch
+  }
+  const answer = await sendHeldEntryAgain(state, deps, entry, request.replicaNodeId).catch(
+    (): HeldEntryAnswer => 'unconfirmed',
+  )
+  if (answer === 'refused-as-invalid' && cursor.syncEpoch === provingEpoch) {
+    forgetReplica(state, request.indexName, request.partitionId, request.replicaNodeId)
+  }
+  return answer === 'acknowledged' && cursor.syncEpoch === provingEpoch
 }
 
 async function askController(

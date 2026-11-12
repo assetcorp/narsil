@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
-import type { AllocationTable, ClusterCoordinator } from '../../../distribution/coordinator/types'
+import type { AllocationTable, ClusterCoordinator, NodeRegistration } from '../../../distribution/coordinator/types'
 import { createAckMessage } from '../../../distribution/replication/codec'
 import {
   createInMemoryNetwork,
@@ -75,6 +75,8 @@ interface Script {
   failAllocationReadsOf: string | null
   failedAllocationReads: number
   allocationReads: Map<string, number>
+  pauseNextControllerNodeRead: boolean
+  resumeControllerNodeRead: (() => void) | null
 }
 
 interface ClusterTimeouts {
@@ -111,6 +113,8 @@ function freshScript(): Script {
     failAllocationReadsOf: null,
     failedAllocationReads: 0,
     allocationReads: new Map(),
+    pauseNextControllerNodeRead: false,
+    resumeControllerNodeRead: null,
   }
 }
 
@@ -213,6 +217,24 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     return new Proxy(coordinator, {
       get(target, property, receiver) {
         if (property === 'getAllocation') return readAllocation
+        return Reflect.get(target, property, receiver)
+      },
+    })
+  }
+
+  function controllerCoordinator(): ClusterCoordinator {
+    const listNodes = async (): Promise<NodeRegistration[]> => {
+      const registrations = await coordinator.listNodes()
+      if (!script.pauseNextControllerNodeRead) return registrations
+      script.pauseNextControllerNodeRead = false
+      await new Promise<void>(resolve => {
+        script.resumeControllerNodeRead = resolve
+      })
+      return registrations
+    }
+    return new Proxy(coordinator, {
+      get(target, property, receiver) {
+        if (property === 'listNodes') return listNodes
         return Reflect.get(target, property, receiver)
       },
     })
@@ -335,7 +357,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       dataNodes.set(nodeId, await startDataNode(nodeId, join(root, nodeId), timeouts, logRetentionBytes))
     }
     const router = await createClusterNode({
-      coordinator,
+      coordinator: controllerCoordinator(),
       transport: controllerTransport(timeouts),
       address: controllerAddress,
       nodeId: 'harbour-master',
@@ -450,6 +472,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.mode = 'silent'
     for (const release of script.heldAcks.splice(0)) await release().catch(() => {})
     script.failAllocationReadsOf = null
+    script.resumeControllerNodeRead?.()
     await script.heldAdmission?.().catch(() => {})
     await script.heldAdmissionReply?.().catch(() => {})
     await script.heldRemovalReply?.().catch(() => {})
@@ -1034,6 +1057,39 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     await startDataNode(replica, join(root, `${replica}-restarted`))
     script.heldAdmission = null
     await releaseAdmission()
+
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))
+    expect(await inSyncSet()).not.toContain(replica)
+    expect(await heldPartitionIds(primary, replica)).toEqual([])
+  }, 90_000)
+
+  it('refuses an admission whose replica restarts with an empty copy after the controller read its registration, because the allocation write checks the start time', async () => {
+    const { router, primary, replica, replicaNode, term } = await startCluster(undefined, {}, 'harbour-master')
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.mode = 'ack'
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    script.heldAdmission = null
+    script.pauseNextControllerNodeRead = true
+    const admissionAnswered = releaseAdmission()
+    const resumeNodeRead = await waitFor(
+      () => script.resumeControllerNodeRead,
+      'the controller to read the registrations',
+    )
+
+    await replicaNode.shutdown()
+    script.mode = 'apply'
+    await startDataNode(replica, join(root, `${replica}-restarted`))
+    script.resumeControllerNodeRead = null
+    resumeNodeRead()
+    await admissionAnswered
 
     expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the held admission')).toBe(false)
     await new Promise(resolve => setTimeout(resolve, 3 * CATCH_UP_TICK_MS))

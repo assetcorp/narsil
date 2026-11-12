@@ -52,6 +52,7 @@ export interface ReplicationLog {
 export interface ReplicateResult {
   acknowledged: string[]
   failed: string[]
+  refusedAsInvalid: string[]
 }
 
 export interface EntryValidation {

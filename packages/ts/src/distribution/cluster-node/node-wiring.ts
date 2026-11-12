@@ -11,6 +11,7 @@ import {
   resolveRegisteredTargets,
   resolveNodeTargets as resolveTargetsForNode,
 } from './node-messaging'
+import { createReplicaFeedClock } from './replica-feed-clock'
 import {
   getReplicationLog as readReplicationLog,
   replicationLogKey,
@@ -122,6 +123,7 @@ export function createNodeWiring(input: {
     writePressure: memoryReporting.writePressure,
     writeProjection: memoryReporting.writeProjection,
     reshard: input.reshard,
+    replicaFeedClock: createReplicaFeedClock(),
   }
 
   return {

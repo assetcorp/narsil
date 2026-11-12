@@ -130,6 +130,7 @@ async function applyEntriesFromPrimary(
     const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
     noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
     await applyEntriesInLogOrder(first, entries, deps, previousPrimaryTerm)
+    deps.writeDeps.replicaFeedClock?.noteFed(first.indexName, first.partitionId)
   })
 }
 
@@ -167,6 +168,10 @@ async function applyEntriesInLogOrder(
         partitionId: entry.partitionId,
         seqNo: entry.seqNo,
       })
+    }
+    if (entry.seqNo <= tailSeqNo && entry.seqNo < (log.oldestSeqNo ?? entry.seqNo + 1)) {
+      await acknowledgeEvictedEntry(entry, run, log, deps)
+      continue
     }
 
     const heldTermBefore = run.at(-1)?.primaryTerm ?? (tailSeqNo === 0 ? 0 : log.termAt(tailSeqNo))
@@ -226,6 +231,28 @@ async function applyEntriesInLogOrder(
     tailPrimaryTerm = entry.primaryTerm
   }
   await applyRun(run, log, deps)
+}
+
+async function acknowledgeEvictedEntry(
+  entry: ReplicationLogEntry,
+  run: readonly ReplicationLogEntry[],
+  log: ReplicationLog,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const held = deps.engine.writeRecords.heldEntry(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
+  const details = { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo }
+  if (held === 'held' && log.verifyChecksum(entry)) return
+  await applyRun(run, log, deps)
+  if (held === 'held') {
+    throw new NarsilError(ErrorCodes.REPLICATION_ENTRY_CORRUPT, `Invalid replication entry ${entry.seqNo}`, details)
+  }
+  throw new NarsilError(
+    ErrorCodes.REPLICATION_ENTRY_INVALID,
+    held === 'absent'
+      ? `This copy holds sequence number ${entry.seqNo} under another term than replication entry ${entry.seqNo}`
+      : `Replication entry ${entry.seqNo} lies below the oldest entry that this copy retains, and its term history no longer covers that sequence number`,
+    details,
+  )
 }
 
 async function applyRun(

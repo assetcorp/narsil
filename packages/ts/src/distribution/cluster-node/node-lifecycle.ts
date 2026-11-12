@@ -42,9 +42,17 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
     bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
     allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
     nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
-    onBootstrapPartition: async (indexName, partitionId, primaryNodeId) =>
-      (await deps.copyFailures.awaitReset(indexName, partitionId)) &&
-      deps.bootstrapPartition(indexName, partitionId, primaryNodeId),
+    onBootstrapPartition: async (indexName, partitionId, primaryNodeId) => {
+      const feedClock = deps.writeDeps.replicaFeedClock
+      feedClock?.noteFed(indexName, partitionId)
+      const synced =
+        (await deps.copyFailures.awaitReset(indexName, partitionId)) &&
+        (await deps.bootstrapPartition(indexName, partitionId, primaryNodeId))
+      if (synced) feedClock?.noteFed(indexName, partitionId)
+      return synced
+    },
+    replicaUnfedForMs: (indexName, partitionId) =>
+      deps.writeDeps.replicaFeedClock?.unfedForMs(indexName, partitionId) ?? 0,
     onLeadingTerm: (indexName, partitionId, assignment) =>
       startLeadingTerm(deps.writeDeps, indexName, partitionId, assignment),
     onHoldPartition: (indexName: string, partitionId: number) => {
@@ -54,6 +62,7 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
     onRemovePartition: (indexName: string, partitionId: number) => {
       const removedIndexUuid = engine.indexUuidOf(indexName)
       forgetReshardPartition(deps.reshard, indexName, partitionId)
+      deps.writeDeps.replicaFeedClock?.forget(indexName, partitionId)
       clearBootstrapSyncIndex(deps.bootstrapSyncState, indexName, partitionId)
       deps.replicationLogs.delete(replicationLogKey(indexName, partitionId))
       deps.trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))

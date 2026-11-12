@@ -1,4 +1,6 @@
+import { ErrorCodes } from '../../errors'
 import { decode } from '../../serialization/msgpack'
+import { isRecord } from '../payload-guards'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../transport/types'
 import { createEntryBatchMessage, createEntryMessage, validateAckPayload } from './codec'
@@ -31,7 +33,7 @@ export async function replicateBatchToReplicas(
   previousPrimaryTerm?: number,
 ): Promise<ReplicateResult> {
   if (entries.length === 0) {
-    return { acknowledged: [], failed: [] }
+    return { acknowledged: [], failed: [], refusedAsInvalid: [] }
   }
   if (entries.length === 1) {
     return replicateToReplicas(
@@ -60,7 +62,7 @@ async function sendAndCollectAcks(
   const uniqueReplicas = [...new Set(inSyncReplicas)]
 
   if (uniqueReplicas.length === 0) {
-    return { acknowledged: [], failed: [] }
+    return { acknowledged: [], failed: [], refusedAsInvalid: [] }
   }
 
   const sendResults = await Promise.allSettled(
@@ -69,6 +71,7 @@ async function sendAndCollectAcks(
 
   const acknowledged: string[] = []
   const failed: string[] = []
+  const refusedAsInvalid: string[] = []
 
   for (let i = 0; i < sendResults.length; i++) {
     const result = sendResults[i]
@@ -87,10 +90,11 @@ async function sendAndCollectAcks(
       acknowledged.push(replicaNodeId)
     } else {
       failed.push(replicaNodeId)
+      if (refusesAsInvalid(response)) refusedAsInvalid.push(replicaNodeId)
     }
   }
 
-  return { acknowledged, failed }
+  return { acknowledged, failed, refusedAsInvalid }
 }
 
 async function sendToReplica(
@@ -115,6 +119,16 @@ async function sendToReplica(
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+function refusesAsInvalid(response: TransportMessage): boolean {
+  if (!response.type.endsWith('.error')) return false
+  try {
+    const payload = decode(response.payload)
+    return isRecord(payload) && payload.code === ErrorCodes.REPLICATION_ENTRY_INVALID
+  } catch (_) {
+    return false
+  }
 }
 
 function isMatchingAck(response: TransportMessage, entry: ReplicationLogEntry): boolean {

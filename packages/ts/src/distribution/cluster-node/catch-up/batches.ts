@@ -82,14 +82,16 @@ export async function sendBatch(
   return true
 }
 
+export type HeldEntryAnswer = 'acknowledged' | 'refused-as-invalid' | 'unconfirmed'
+
 export async function sendHeldEntryAgain(
   state: CatchUpState,
   deps: WriteRoutingDeps,
   entry: ReplicationLogEntry,
   replicaNodeId: string,
-): Promise<boolean> {
+): Promise<HeldEntryAnswer> {
   const reservedBytes = entryBytes(entry)
-  if (reservedBytes > MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes) return false
+  if (reservedBytes > MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes) return 'unconfirmed'
   state.inFlightBytes += reservedBytes
   try {
     const table = await deps.coordinator.getAllocation(entry.indexName)
@@ -102,7 +104,8 @@ export async function sendHeldEntryAgain(
       table?.indexUuid,
       previousTermOf(deps.getReplicationLog(entry.indexName, entry.partitionId), entry.seqNo),
     )
-    return result.acknowledged.includes(replicaNodeId)
+    if (result.acknowledged.includes(replicaNodeId)) return 'acknowledged'
+    return result.refusedAsInvalid.includes(replicaNodeId) ? 'refused-as-invalid' : 'unconfirmed'
   } finally {
     state.inFlightBytes -= reservedBytes
   }

@@ -10,6 +10,8 @@ export interface AllocationWatcherState {
   pendingPartitions: Set<string>
   pendingTables: Map<string, AllocationTable>
   restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
+  unfedReplicaTimer: ReturnType<typeof setInterval> | null
+  unfedResyncs: Set<string>
   retainedPartitions: Set<string>
   indexesSeededFromRecord: Set<string>
   indexUuids: Map<string, string>
@@ -22,6 +24,7 @@ export interface TrackedPartition {
   isPrimary: boolean
   primaryNodeId: string | null
   primaryTerm: number
+  inSync: boolean
 }
 
 export function partitionKey(indexName: string, partitionId: number): string {
@@ -43,6 +46,8 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     pendingPartitions: new Set(),
     pendingTables: new Map(),
     restartWaiters: new Map(),
+    unfedReplicaTimer: null,
+    unfedResyncs: new Set(),
     retainedPartitions: new Set(),
     indexesSeededFromRecord: new Set(),
     indexUuids: new Map(),
@@ -70,6 +75,12 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
     clearTimeout(state.debounceTimer)
     state.debounceTimer = null
   }
+
+  if (state.unfedReplicaTimer !== null) {
+    clearInterval(state.unfedReplicaTimer)
+    state.unfedReplicaTimer = null
+  }
+  state.unfedResyncs.clear()
 
   for (const [timer, resolve] of state.restartWaiters) {
     clearTimeout(timer)

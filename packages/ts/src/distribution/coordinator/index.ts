@@ -6,6 +6,7 @@ export type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  ExpectedReplicaRegistration,
   IndexMetadataEvent,
   IndexMetadataWatch,
   IndexPartitionBytes,
