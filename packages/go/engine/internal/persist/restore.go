@@ -285,13 +285,7 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 			return nil, closeErr
 		}
 	}
-	suspended := handle.Index.SuspendPagedFiles()
-	if suspended == nil {
-		suspended = staging.commit(ctx)
-		if suspended != nil {
-			_ = handle.Index.ResumePagedFiles(nil)
-		}
-	}
+	suspended := suspendBothPagedFiles(ctx, staging, handle, previous, replaces)
 	if suspended != nil {
 		if replaces {
 			_ = manager.register(manager.newDurable(previous.handle, previousApplied))
@@ -318,4 +312,24 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 	}
 	staging.removeRetired(ctx)
 	return durable, nil
+}
+
+func suspendBothPagedFiles(ctx context.Context, staging *restoreStaging, handle *Handle, previous *Durable,
+	replaces bool) error {
+	if replaces {
+		if err := previous.handle.Index.SuspendPagedFiles(); err != nil {
+			return err
+		}
+	}
+	err := handle.Index.SuspendPagedFiles()
+	if err == nil {
+		err = staging.commit(ctx)
+		if err != nil {
+			_ = handle.Index.ResumePagedFiles(nil)
+		}
+	}
+	if err != nil && replaces {
+		_ = previous.handle.Index.ResumePagedFiles(nil)
+	}
+	return err
 }
