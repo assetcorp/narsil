@@ -69,8 +69,9 @@ jobs:
 
     env:
       PART_1_TESTS: TestConcurrentWritesRestartsAndRestoresKeepEverySearchExact
-      PART_2_TESTS: TestEveryAcknowledgedVectorFindsItselfWhileGrowthPassesPlaceNewOnes|TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew|TestCrossImplementationSavesOpenWithTheSameAnswers
+      PART_2_TESTS: TestEveryAcknowledgedVectorFindsItselfWhileGrowthPassesPlaceNewOnes|TestCrossImplementationSavesOpenWithTheSameAnswers
       PART_3_TESTS: TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally|TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory|TestCrashKeepsEveryAcknowledgedWrite
+      PART_5_TESTS: TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew
       PROMOTION_TEST: TestEmbeddingsUpdatedWhileTheVectorFieldPromotesReachSnapshotsAndRestarts
 
     defaults:
@@ -140,13 +141,13 @@ jobs:
           case "$PARTS/$PART" in
             1/1) selection=() timeout=30m ;;
             4/1|5/1) selection=(-run "^(${PART_1_TESTS})\$") timeout=8m ;;
-            4/2) selection=(-run "^(${PART_2_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
+            4/2) selection=(-run "^(${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
             4/3|5/3) selection=(-run "^(${PART_3_TESTS})\$") timeout=8m ;;
-            4/4|5/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
+            4/4|5/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
             5/2) selection=(-run "^(${PART_2_TESTS})\$") timeout=8m ;;
-            5/5) selection=(-run "^(${PROMOTION_TEST})\$") timeout=8m ;;
-            2/1) selection=(-run "^(${PART_2_TESTS}|${PART_3_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
-            2/2) selection=(-skip "^(${PART_2_TESTS}|${PART_3_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            5/5) selection=(-run "^(${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
+            2/1) selection=(-run "^(${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            2/2) selection=(-skip "^(${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
           go test -count=1 $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./...
