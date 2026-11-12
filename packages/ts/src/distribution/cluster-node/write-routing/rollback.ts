@@ -39,11 +39,11 @@ export function abandonedWithTerm(error: unknown): boolean {
   return isOutcomeUnknown(error) && error instanceof NarsilError && error.details.reason === 'term_ended'
 }
 
-function lostTerm(error: unknown): boolean {
+export function lostTerm(error: unknown): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY
 }
 
-async function leadingAssignment(scope: PrimaryWriteScope): Promise<PartitionAssignment> {
+export async function leadingAssignment(scope: PrimaryWriteScope): Promise<PartitionAssignment> {
   const { deps, indexName, partitionId } = scope
   const table =
     deps.refreshAllocation !== undefined

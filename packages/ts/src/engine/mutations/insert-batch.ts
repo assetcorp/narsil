@@ -1,26 +1,9 @@
-import {
-  admitInsert,
-  asBatchInsertError,
-  awaitWriteVisibility,
-  BATCH_CHUNK_SIZE,
-  collectRequiredFieldFailures,
-  embedChunkDocuments,
-  MIN_DOCUMENTS_FOR_SEGMENTS,
-  prepareDocumentVectors,
-  providedDocId,
-  requireDocumentObject,
-  turnIsSpent,
-  turnsAreBudgeted,
-  validateBatchList,
-  validateDocId,
-  validateVectorDimensions,
-  yieldTurn,
-} from '#platform/optional-writes-host'
+import { MIN_DOCUMENTS_FOR_SEGMENTS, validateBatchList } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { IndexHold } from '../index-hold'
 import type { MutationContext } from './context'
-import type { AdmittedInsert } from './insert-batch-admission'
-import { applyInsertChunk } from './insert-batch-apply'
+import { finishInsertBatch, insertInChunks } from './insert-batch-chunks'
 import { insertBatchViaSegments } from './insert-batch-segments'
 
 export async function insertDocumentBatch(
@@ -28,9 +11,10 @@ export async function insertDocumentBatch(
   indexName: string,
   documents: AnyDocument[],
   options?: InsertOptions,
+  hold?: IndexHold,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
-  const entry = ctx.requireIndex(indexName)
+  ctx.requireIndex(indexName)
   validateBatchList(documents, 'documents')
 
   await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
@@ -38,126 +22,12 @@ export async function insertDocumentBatch(
   const copiesBuildSegments = ctx.orchestrator.segmentBuildConcurrency(indexName) > 0
 
   if (documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS && !ctx.isRebalancing(indexName) && copiesBuildSegments) {
-    return insertBatchViaSegments(ctx, indexName, documents, options)
+    return insertBatchViaSegments(ctx, indexName, documents, options, hold)
   }
 
-  const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
-  const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
-  const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
-  const required = entry.config.required
+  const inserts = await insertInChunks(ctx, indexName, documents, options, hold, true, failed)
+  await finishInsertBatch(ctx, indexName, inserts, options)
 
-  const batchManager = ctx.requireManager(indexName)
-  const batchVecIndexes = batchManager.getVectorIndexes()
-  const batchVectorFieldPaths = batchVecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
-  const touchedVectorFields = new Set<string>()
-
-  for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (ctx.abortController.signal.aborted) break
-
-    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
-    const chunkFailedIndexes = new Set<number>()
-
-    if (required && required.length > 0) {
-      collectRequiredFieldFailures(documents, chunkStart, chunkEnd, required, chunkFailedIndexes, failed)
-    }
-    await embedChunkDocuments(
-      entry,
-      documents,
-      chunkStart,
-      chunkEnd,
-      ctx.abortController.signal,
-      chunkFailedIndexes,
-      failed,
-    )
-
-    async function applyPrepared(prepared: AdmittedInsert[]): Promise<void> {
-      const applications = await applyInsertChunk(ctx, indexName, prepared, options)
-      for (let i = 0; i < prepared.length; i++) {
-        const doc = prepared[i]
-        const application = applications[i]
-        if (application.status === 'skipped') continue
-        if (application.status === 'failed') {
-          failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
-          continue
-        }
-        if (application.status === 'buffered') {
-          succeeded.push(doc.docId)
-          continue
-        }
-
-        for (const fieldPath of doc.extractedVectors.keys()) {
-          touchedVectorFields.add(fieldPath)
-        }
-
-        if (hasAfterHook) {
-          try {
-            await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
-          } catch (err) {
-            console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-          }
-        }
-
-        succeeded.push(doc.docId)
-      }
-    }
-
-    const prepared: AdmittedInsert[] = []
-    for (let i = chunkStart; i < chunkEnd; i++) {
-      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-      if (ctx.abortController.signal.aborted) break
-      if (chunkFailedIndexes.has(i)) continue
-
-      const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
-      try {
-        const sizing = requireDocumentObject(documents[i])
-        if (sizing !== null) await sizing
-        validateDocId(batchDocId)
-
-        if (hasBeforeHook) {
-          await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: batchDocId, document: documents[i] })
-        }
-
-        const { partitionDoc, extractedVectors } = prepareDocumentVectors(
-          documents[i] as Record<string, unknown>,
-          batchVectorFieldPaths,
-        )
-
-        if (extractedVectors.size > 0) {
-          validateVectorDimensions(extractedVectors, batchVecIndexes)
-        }
-
-        admitInsert(ctx, indexName, batchManager, batchDocId)
-        prepared.push({
-          docId: batchDocId,
-          document: documents[i],
-          partitionDoc: partitionDoc as AnyDocument,
-          extractedVectors,
-        })
-      } catch (err) {
-        failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
-      }
-    }
-
-    if (prepared.length > 0) await applyPrepared(prepared)
-
-    if (chunkEnd < documents.length) {
-      ctx.checkHeapPressure(indexName)
-      await new Promise<void>(r => setTimeout(r, 0))
-    }
-  }
-
-  for (const fieldPath of touchedVectorFields) {
-    const vecIndex = batchVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
-  }
-
-  ctx.checkWatermark(indexName, succeeded)
-  ctx.checkHeapPressure(indexName)
-  await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-
-  return { succeeded, failed }
+  return { succeeded: inserts.succeeded, failed }
 }

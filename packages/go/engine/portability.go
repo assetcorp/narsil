@@ -175,14 +175,24 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer func() { release() }()
 	failures := make([]error, len(batch))
 	position := make(map[string]int, len(batch))
 	inserts := make([]*model.Document, 0, len(batch))
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
+	holder := n.holderOf(indexName)
 	for at, document := range batch {
 		position[document.ID] = at
+		if entry == nil {
+			if entry, release, err = holder.reacquire(); err != nil {
+				return nil, err
+			}
+		}
 		held, err := entry.index().Has(ctx, document.ID)
 		if err != nil {
 			return nil, err
@@ -190,8 +200,9 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 		imported := model.DocumentFromMap(document.Document)
 		if held {
 			update := model.DocumentUpdate{DocID: document.ID, Document: imported}
-			if err := n.updateOne(ctx, entry, update, outcome.touched); err != nil {
-				if !isPerDocument(err) {
+			entry, release, err = n.updateOne(ctx, holder, entry, release, update, outcome.touched)
+			if err != nil {
+				if entry == nil || !isPerDocument(err) {
 					return nil, err
 				}
 				failures[at] = err
@@ -202,7 +213,7 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	}
 	for start := 0; start < len(inserts); start += batchChunkSize {
 		end := min(start+batchChunkSize, len(inserts))
-		if err := n.insertChunk(ctx, entry, inserts[start:end], outcome); err != nil {
+		if entry, release, err = n.insertChunk(ctx, holder, entry, release, inserts[start:end], outcome); err != nil {
 			return nil, err
 		}
 	}
@@ -211,6 +222,6 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 			failures[at] = failure.Err
 		}
 	}
-	n.afterWrite(entry)
+	n.afterWriteOn(entry, indexName)
 	return failures, nil
 }

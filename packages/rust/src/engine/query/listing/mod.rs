@@ -139,10 +139,8 @@ impl Narsil {
     /// index called `index`, and with `INSTANCE_SHUT_DOWN` once the engine shuts down, even part-way through the
     /// filter's pattern tests.
     pub fn list_documents(&self, index: &str, params: &ListParams) -> Result<ListResult> {
-        listed_page(
-            &*self.inner.open_index(index)?,
-            params,
-            &self.inner.search_limits,
-        )
+        self.inner.read_index(index, |current| {
+            listed_page(current, params, &self.inner.search_limits)
+        })
     }
 }

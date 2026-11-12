@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use crate::error::Result;
 
-use super::field::{Shared, VectorField, Writer};
+use super::build::wait_for_builds;
+use super::field::{Generation, Shared, VectorField, Writer};
 use super::files::MappedFile;
 
 pub(crate) struct VectorFileLayout<'a> {
@@ -99,6 +101,26 @@ impl VectorField {
                 .insert(ordinal, (layout.path.to_path_buf(), offset));
         }
         release_pending_locations(&self.shared, &mut writer)
+    }
+
+    /// Stops the field's background work and drops every vector, so that the field holds none of its files open,
+    /// mapped or paged. Only a restore that takes the field's index out of the engine does this, while it holds the
+    /// index's write lock and no read runs on the index.
+    pub(crate) fn release_files(&self) {
+        let shared = &self.shared;
+        shared.disposed.store(true, Ordering::Release);
+        shared.cancel_cold_hold(true);
+        wait_for_builds(shared);
+        let mut writer = shared.lock_writer();
+        writer.job = None;
+        writer.placing = None;
+        writer.pending_locations.clear();
+        writer.generation = Arc::new(Generation::empty(
+            &shared.settings,
+            shared.hasher.clone(),
+            &shared.sequence,
+        ));
+        shared.publish_held(&writer);
     }
 
     pub(crate) fn vector_files_in_use(&self) -> Vec<PathBuf> {
