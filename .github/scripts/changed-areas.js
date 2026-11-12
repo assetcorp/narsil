@@ -139,6 +139,7 @@ const LANGUAGE_AREAS = Object.keys(PATHS_BY_LANGUAGE_AREA)
 const AREAS = [...TYPESCRIPT_JOB_AREAS, ...LANGUAGE_AREAS]
 const CI_AREAS_THAT_LOAD_THE_ENGINE = [
   'typescript',
+  'conformance',
   'rust',
   'python_engine',
   'go_engine',
@@ -151,8 +152,8 @@ const CI_AREAS_THAT_LOAD_THE_ENGINE = [
 const git = args => execFileSync('git', args, { encoding: 'utf8' })
 
 const namesBetween = (from, to) =>
-  git(['diff', '--name-only', from, to])
-    .split('\n')
+  git(['diff', '--name-only', '--no-renames', '-z', from, to])
+    .split('\0')
     .filter(line => line.length > 0)
 
 const changedFiles = () => {
@@ -172,11 +173,12 @@ const typescriptAreasOf = path => {
   return rule === undefined ? TYPESCRIPT_AREAS : rule[1]
 }
 
-const startsWithAny = (path, prefixes) => prefixes.some(prefix => path.startsWith(prefix))
+const matchesAnyPath = (path, entries) =>
+  entries.some(entry => (entry.endsWith('/') ? path.startsWith(entry) : path === entry))
 
 const touchesLanguageArea = (path, { paths, except = [], compiledMarkdown = [] }) => {
   if (path.endsWith('.md')) return compiledMarkdown.includes(path)
-  return startsWithAny(path, paths) && !startsWithAny(path, except)
+  return matchesAnyPath(path, paths) && !matchesAnyPath(path, except)
 }
 
 const areasOf = path => [

@@ -72,7 +72,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: native-core-${{ github.workflow }}-${{ github.ref }}
+      group: native-core-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/native-core.yml
 
