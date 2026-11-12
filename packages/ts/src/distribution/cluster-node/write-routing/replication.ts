@@ -111,46 +111,63 @@ async function removeEachFailedReplica(
   failedReplicas: string[],
   deps: WriteRoutingDeps,
 ): Promise<void> {
+  const controllerNodeId = await controllerForRemoval(entry, failedReplicas, deps)
+  for (const replicaNodeId of failedReplicas) {
+    const generationAtRemoval = admissionGenerationOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
+    await removeReplicaFromInsync(entry, replicaNodeId, controllerNodeId, generationAtRemoval, deps)
+  }
+}
+
+export async function controllerForRemoval(
+  entry: TermScope,
+  failedReplicas: string[],
+  deps: WriteRoutingDeps,
+): Promise<string> {
   const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
-  if (controllerNodeId === null) {
+  if (controllerNodeId !== null) return controllerNodeId
+  await deps.refreshAllocation?.(entry.indexName)
+  await assertPrimaryWriteAuthority(entry, deps)
+  throw new NarsilError(
+    ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
+    `Failed to remove replicas from in-sync set for index '${entry.indexName}': no active controller lease holder`,
+    { indexName: entry.indexName, partitionId: entry.partitionId, failedReplicas },
+  )
+}
+
+export async function removeReplicaFromInsync(
+  entry: TermScope,
+  replicaNodeId: string,
+  controllerNodeId: string,
+  generationAtRemoval: number,
+  deps: WriteRoutingDeps,
+  stillWanted?: () => boolean,
+): Promise<void> {
+  const accepted = await requestInsyncRemovalWithTargets(
+    entry.indexName,
+    entry.partitionId,
+    replicaNodeId,
+    entry.primaryTerm,
+    controllerNodeId,
+    deps,
+    stillWanted,
+  )
+  if (!accepted) {
     await deps.refreshAllocation?.(entry.indexName)
     await assertPrimaryWriteAuthority(entry, deps)
     throw new NarsilError(
       ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-      `Failed to remove replicas from in-sync set for index '${entry.indexName}': no active controller lease holder`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, failedReplicas },
+      `Controller rejected in-sync removal for replica '${replicaNodeId}' of index '${entry.indexName}' partition ${entry.partitionId}`,
+      { indexName: entry.indexName, partitionId: entry.partitionId, replicaNodeId },
     )
   }
-
-  for (const replicaNodeId of failedReplicas) {
-    const generationAtRemoval = admissionGenerationOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
-    const accepted = await requestInsyncRemovalWithTargets(
-      entry.indexName,
-      entry.partitionId,
-      replicaNodeId,
-      entry.primaryTerm,
-      controllerNodeId,
-      deps,
-    )
-
-    if (!accepted) {
-      await deps.refreshAllocation?.(entry.indexName)
-      await assertPrimaryWriteAuthority(entry, deps)
-      throw new NarsilError(
-        ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-        `Controller rejected in-sync removal for replica '${replicaNodeId}' of index '${entry.indexName}' partition ${entry.partitionId}`,
-        { indexName: entry.indexName, partitionId: entry.partitionId, replicaNodeId },
-      )
-    }
-    recordRemovalUnlessReadmitted(
-      deps.catchUp,
-      entry.indexName,
-      entry.partitionId,
-      replicaNodeId,
-      entry.primaryTerm,
-      generationAtRemoval,
-    )
-  }
+  recordRemovalUnlessReadmitted(
+    deps.catchUp,
+    entry.indexName,
+    entry.partitionId,
+    replicaNodeId,
+    entry.primaryTerm,
+    generationAtRemoval,
+  )
 }
 
 function replicaTargetsOf(
@@ -180,12 +197,29 @@ export async function requestInsyncRemovalWithTargets(
   primaryTerm: number,
   controllerNodeId: string,
   deps: WriteRoutingDeps,
+  stillWanted?: () => boolean,
 ): Promise<boolean> {
   const targets = await resolveNodeTargets(controllerNodeId, deps)
   const result = await sendThroughTargets(
     targets,
-    target =>
-      requestInsyncRemoval(indexName, partitionId, replicaNodeId, primaryTerm, target, deps.transport, deps.nodeId),
+    async target => {
+      if (stillWanted?.() === false) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
+          `The primary no longer wants replica '${replicaNodeId}' of index '${indexName}' partition ${partitionId} removed from the in-sync set, so it sent no removal request`,
+          { indexName, partitionId, replicaNodeId, controllerNodeId },
+        )
+      }
+      return requestInsyncRemoval(
+        indexName,
+        partitionId,
+        replicaNodeId,
+        primaryTerm,
+        target,
+        deps.transport,
+        deps.nodeId,
+      )
+    },
     {
       message: `Controller '${controllerNodeId}' did not answer an in-sync removal request for index '${indexName}' partition ${partitionId}`,
       details: { indexName, partitionId, replicaNodeId, controllerNodeId },
