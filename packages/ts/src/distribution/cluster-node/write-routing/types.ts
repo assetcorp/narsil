@@ -7,6 +7,7 @@ import type { NodeTransport } from '../../transport/types'
 import type { CatchUpState } from '../catch-up/state'
 import type { NodeMemoryView } from '../memory/write-block'
 import type { WritePressure } from '../memory/write-pressure'
+import type { ReplicaFeedClock } from '../replica-feed-clock'
 import type { ReshardState } from '../reshard/state'
 import type { ClusterWriteRecords } from '../write-records/keeper'
 import type { PrimaryNumbering } from './numbering'
@@ -36,6 +37,7 @@ export interface WriteRoutingDeps {
   copyFailed?: (indexName: string, partitionId: number) => boolean
   copyUnlisted?: (indexName: string, partitionId: number) => boolean
   stopped?: () => boolean
+  replicaFeedClock?: ReplicaFeedClock
 }
 
 export interface PrimaryAssignmentResolution {

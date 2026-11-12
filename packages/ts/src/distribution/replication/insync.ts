@@ -1,7 +1,7 @@
 import { decode } from '../../serialization/msgpack'
 import { inSyncVersionOf, putAllocationOver } from '../cluster/in-sync-version'
 import { rewriteForCurrentIndex } from '../cluster/table-identity'
-import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
+import type { ClusterCoordinator, ExpectedReplicaRegistration, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
 import { createInsyncAddMessage, createInsyncRemoveMessage, validateInsyncConfirmPayload } from './codec'
 import { INSYNC_CAS_ATTEMPTS } from './constants'
@@ -19,6 +19,7 @@ async function updateInsyncSet(
   coordinator: ClusterCoordinator,
   controllerNodeId: string,
   decide: (assignment: PartitionAssignment) => AssignmentDecision,
+  replicaRegistration?: ExpectedReplicaRegistration,
 ): Promise<InsyncConfirmPayload> {
   const refused: InsyncConfirmPayload = {
     indexName: request.indexName,
@@ -60,7 +61,14 @@ async function updateInsyncSet(
     if (rewritten === null) {
       return refused
     }
-    const written = await putAllocationOver(coordinator, request.indexName, table, rewritten, controllerNodeId)
+    const written = await putAllocationOver(
+      coordinator,
+      request.indexName,
+      table,
+      rewritten,
+      controllerNodeId,
+      replicaRegistration,
+    )
     if (written) {
       return { ...refused, accepted: true }
     }
@@ -185,9 +193,10 @@ export async function requestInsyncAdmission(
  * left the assignment, so a request delayed past a removal never adds the replica back. A node whose registration has
  * lapsed stays out, because the allocator would remove it again on its next run, and so does a node whose registration
  * carries a `startedAt` other than the request's `replicaStartedAt`, because a node that restarted after it
- * acknowledged the primary's proof can hold an empty copy. The controller raises the stored
- * commit point to the request's value whenever it accepts, and that value never moves backwards, so a repeated request
- * from a replica that is already in the set still moves the floor forward.
+ * acknowledged the primary's proof can hold an empty copy. The allocation write itself checks that `startedAt`, so a
+ * restart between the controller's read of the registration and its write still keeps the replica out. The controller
+ * raises the stored commit point to the request's value whenever it accepts, and that value never moves backwards, so
+ * a repeated request from a replica that is already in the set still moves the floor forward.
  *
  * @param payload - The admission request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -205,7 +214,8 @@ export async function handleInsyncAdmission(
   if (registration === undefined || registration.startedAt !== payload.replicaStartedAt) {
     return { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
   }
-  return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {
+  const replicaRegistration = { nodeId: payload.replicaNodeId, startedAt: payload.replicaStartedAt }
+  const decide = (assignment: PartitionAssignment): AssignmentDecision => {
     if (assignment.state !== 'ACTIVE') {
       return REFUSE
     }
@@ -236,5 +246,6 @@ export async function handleInsyncAdmission(
         commitPoint,
       },
     }
-  })
+  }
+  return updateInsyncSet(payload, coordinator, controllerNodeId, decide, replicaRegistration)
 }

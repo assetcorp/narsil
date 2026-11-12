@@ -3,6 +3,7 @@ import { belongsToAnotherIndex } from '../../table-identity'
 import type { NodeLifecycleConfig } from '../types'
 import type { AllocationWatcherState } from './state'
 import { processAllocationChange } from './table'
+import { startUnfedReplicaChecks } from './unfed-replicas'
 
 export type { AllocationWatcherState } from './state'
 export { createAllocationWatcherState, stopAllocationWatcher } from './state'
@@ -32,6 +33,7 @@ export async function startAllocationWatcher(
     scheduleProcessAllocation(state, config, event.table)
   })
   state.unwatchAllocation = unwatchAllocation
+  startUnfedReplicaChecks(state, config)
 }
 
 function scheduleProcessAllocation(

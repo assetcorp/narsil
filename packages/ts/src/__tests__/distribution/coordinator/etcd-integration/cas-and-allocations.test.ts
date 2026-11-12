@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { Etcd3 } from 'etcd3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { AllocationEvent, ClusterCoordinator, SchemaEvent } from '../../../../distribution/coordinator'
+import type { AllocationEvent, ClusterCoordinator, NodeEvent, SchemaEvent } from '../../../../distribution/coordinator'
 import { createEtcdCoordinator } from '../../../../distribution/coordinator'
 import {
   type EtcdContainerHandle,
   eventually,
   MANAGED_ETCD_ENDPOINT,
   makeAllocationTable,
+  makeNodeRegistration,
   runDocker,
   startEtcdContainer,
   stopEtcdContainer,
@@ -209,6 +210,58 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
       raw.close()
       await first.shutdown()
       await successor.shutdown()
+    }
+  }, 20_000)
+
+  it('writes a table that admits a replica only while the replica is registered with the start time that the write expects, and lists that replica once', async () => {
+    if (container === null) {
+      throw new Error('Etcd integration container is not available')
+    }
+    const keyPrefix = `_narsil_etcd_replica_start_${randomUUID()}`
+    const controller = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const replicaBeforeRestart = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const replicaAfterRestart = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const raw = new Etcd3({ hosts: [container.endpoint] })
+    const nodeEvents: NodeEvent[] = []
+    const stopWatchingNodes = await controller.watchNodes(event => nodeEvents.push(event))
+    const firstStart = makeNodeRegistration({ nodeId: 'pear-store', startedAt: '2026-11-12T09:00:00.000Z' })
+    const secondStart = { ...firstStart, startedAt: '2026-11-12T09:05:00.000Z' }
+    const asFirstStart = { nodeId: firstStart.nodeId, startedAt: firstStart.startedAt }
+    const asSecondStart = { nodeId: secondStart.nodeId, startedAt: secondStart.startedAt }
+    const table = makeAllocationTable('orchards')
+
+    try {
+      expect(await controller.acquireLease(CONTROLLER_LEASE, 'controller-a', 30_000)).toBe(true)
+      expect(await controller.putAllocation('orchards', table, null, 'controller-a', asFirstStart)).toBe(false)
+
+      await replicaBeforeRestart.registerNode(firstStart)
+      await replicaBeforeRestart.registerNode({ ...firstStart, metadata: { zone: 'north-orchard' } })
+      expect(await controller.putAllocation('orchards', table, null, 'controller-a', asFirstStart)).toBe(true)
+
+      await replicaAfterRestart.registerNode(secondStart)
+      const second = { ...table, version: 2 }
+      expect(await controller.putAllocation('orchards', second, 1, 'controller-a', asFirstStart)).toBe(false)
+      expect(await controller.putAllocation('orchards', second, 1, 'controller-a', asSecondStart)).toBe(true)
+      expect(await controller.listNodes()).toEqual([secondStart])
+      expect(await raw.getAll().prefix(`${keyPrefix}/nodes`).keys()).toEqual([`${keyPrefix}/nodes/pear-store`])
+
+      await replicaAfterRestart.deregisterNode(secondStart.nodeId)
+      const third = { ...table, version: 3 }
+      expect(await controller.putAllocation('orchards', third, 2, 'controller-a', asSecondStart)).toBe(false)
+      expect(await controller.listNodes()).toEqual([])
+      await eventually(
+        async () => expect(nodeEvents.at(-1)?.type).toBe('node_left'),
+        5_000,
+        'Timed out waiting for the node_left watch event',
+      )
+      expect(nodeEvents.map(event => event.nodeId)).toEqual(nodeEvents.map(() => firstStart.nodeId))
+      expect((await controller.getAllocation('orchards'))?.version).toBe(2)
+    } finally {
+      stopWatchingNodes()
+      await controller.shutdown()
+      await replicaBeforeRestart.shutdown()
+      await replicaAfterRestart.shutdown()
+      raw.close()
     }
   }, 20_000)
 })
