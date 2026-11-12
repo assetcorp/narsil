@@ -12,7 +12,12 @@ import {
   createInMemoryTransport,
   type InMemoryNetwork,
 } from '../../../../distribution/transport'
-import type { ListenHandler, NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
+import type {
+  ListenHandler,
+  NodeTransport,
+  RespondFn,
+  TransportMessage,
+} from '../../../../distribution/transport/types'
 import { type TransportConfig, TransportError } from '../../../../distribution/transport/types'
 import { type FaultyCoordinator, faultyCoordinator } from './faulty-coordinator'
 
@@ -36,17 +41,40 @@ export interface FaultyTransport extends NodeTransport {
   loseReplyWhen(rule: MessageRule): () => void
   failSlowlyWhen(rule: MessageRule, delayMs: number): () => void
   holdWhen(rule: MessageRule): HeldMessages
+  holdReplyWhen(rule: MessageRule): HeldMessages
+  recordArrivalsWhen(rule: MessageRule): TransportMessage[]
   dropped(): TransportMessage[]
   failuresOf(rule: MessageRule): string[]
   ignoreWhen(rule: MessageRule): () => void
   syncTiers(): Array<'incremental' | 'snapshot'>
 }
 
+interface Hold {
+  rule: MessageRule
+  gate: Promise<void>
+  held: number
+}
+
+function openHold(registry: Set<Hold>, rule: MessageRule): HeldMessages {
+  let open: () => void = () => undefined
+  const hold: Hold = { rule, gate: new Promise<void>(resolve => (open = resolve)), held: 0 }
+  registry.add(hold)
+  return {
+    count: () => hold.held,
+    release() {
+      registry.delete(hold)
+      open()
+    },
+  }
+}
+
 export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTransport {
   const rules = new Set<MessageRule>()
   const lostReplies = new Set<MessageRule>()
   const slowFailures = new Map<MessageRule, number>()
-  const holds = new Set<{ rule: MessageRule; gate: Promise<void>; held: number }>()
+  const holds = new Set<Hold>()
+  const replyHolds = new Set<Hold>()
+  const arrivals: Array<{ rule: MessageRule; messages: TransportMessage[] }> = []
   const droppedMessages: TransportMessage[] = []
   const failures: Array<{ target: string; message: TransportMessage; code: string }> = []
   const ignored = new Set<MessageRule>()
@@ -59,6 +87,18 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
         await hold.gate
       }
     }
+  }
+
+  function replyThroughHolds(message: TransportMessage, respond: RespondFn): RespondFn {
+    for (const hold of replyHolds) {
+      if (hold.rule(nodeId, message)) {
+        return async response => {
+          hold.held += 1
+          void hold.gate.then(() => respond(response)).catch(() => undefined)
+        }
+      }
+    }
+    return respond
   }
 
   function refuse(target: string, message: TransportMessage): void {
@@ -110,7 +150,8 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     listen(handler: ListenHandler) {
       return inner.listen((message, respond) => {
         for (const rule of ignored) if (rule(nodeId, message)) return
-        return handler(message, respond)
+        for (const arrival of arrivals) if (arrival.rule(nodeId, message)) arrival.messages.push(message)
+        return handler(message, replyThroughHolds(message, respond))
       })
     },
     shutdown() {
@@ -129,16 +170,15 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
       return () => slowFailures.delete(rule)
     },
     holdWhen(rule) {
-      let open: () => void = () => undefined
-      const hold = { rule, gate: new Promise<void>(resolve => (open = resolve)), held: 0 }
-      holds.add(hold)
-      return {
-        count: () => hold.held,
-        release() {
-          holds.delete(hold)
-          open()
-        },
-      }
+      return openHold(holds, rule)
+    },
+    holdReplyWhen(rule) {
+      return openHold(replyHolds, rule)
+    },
+    recordArrivalsWhen(rule) {
+      const messages: TransportMessage[] = []
+      arrivals.push({ rule, messages })
+      return messages
     },
     dropped() {
       return droppedMessages
