@@ -20,7 +20,7 @@ import type { IndexConfig } from '../types/schema'
 import type { DurableAnalysis, EventHandler } from './core'
 import type { WorkerOrchestrator } from './orchestration'
 import { bufferPreparedMutation } from './queued-mutation'
-import { replayQueued } from './rebalance-replay'
+import { type DeferHooks, replayQueued } from './rebalance-replay'
 
 export interface RebalanceContext {
   prepareQueuedMutation?: typeof bufferPreparedMutation
@@ -46,6 +46,7 @@ export async function executeRebalance(
   indexName: string,
   targetPartitionCount: number,
   ctx: RebalanceContext,
+  deferHooks?: DeferHooks,
 ): Promise<void> {
   if (targetPartitionCount <= 0 || !Number.isInteger(targetPartitionCount)) {
     throw new NarsilError(
@@ -115,32 +116,39 @@ export async function executeRebalance(
       spill,
     )
 
-    try {
-      await ctx.pluginRegistry.runHook('onPartitionSplit', {
-        indexName,
-        oldPartitionCount: oldCount,
-        newPartitionCount: targetPartitionCount,
-      })
-    } catch (hookErr) {
-      console.warn('onPartitionSplit plugin hook failed:', hookErr instanceof Error ? hookErr.message : String(hookErr))
+    const announceSplit = async (): Promise<void> => {
+      try {
+        await ctx.pluginRegistry.runHook('onPartitionSplit', {
+          indexName,
+          oldPartitionCount: oldCount,
+          newPartitionCount: targetPartitionCount,
+        })
+      } catch (hookErr) {
+        console.warn(
+          'onPartitionSplit plugin hook failed:',
+          hookErr instanceof Error ? hookErr.message : String(hookErr),
+        )
+      }
     }
+    if (deferHooks === undefined) await announceSplit()
+    else deferHooks(announceSplit)
 
-    if (registry === undefined) await replayQueued(manager, waq, ctx)
+    if (registry === undefined) await replayQueued(manager, waq, ctx, undefined, deferHooks)
     else {
       const hooks: Array<() => Promise<void>> = []
-      await transitionWalLayout(registry, indexName, manager, () => replayQueued(manager, waq, ctx, hooks))
+      await transitionWalLayout(registry, indexName, manager, () => replayQueued(manager, waq, ctx, hooks, deferHooks))
       for (const hook of hooks) await hook()
     }
 
     if (ctx.durabilityManager) {
       await (ctx.durabilityManager.checkpointFromMemory?.(indexName) ?? ctx.durabilityManager.checkpoint(indexName))
       await spill?.removeUnread(manager)
-      await replayQueued(manager, waq, ctx)
+      await replayQueued(manager, waq, ctx, undefined, deferHooks)
     }
 
     await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
     do {
-      await replayQueued(manager, waq, ctx)
+      await replayQueued(manager, waq, ctx, undefined, deferHooks)
     } while (waq.size > 0)
   } catch (err) {
     waq.fail(err)

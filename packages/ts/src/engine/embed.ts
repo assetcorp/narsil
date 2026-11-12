@@ -277,3 +277,47 @@ export async function embedBatchDocumentFields(
 
   return { embedded, failed }
 }
+
+export interface WriteEmbedding {
+  adapter: EmbeddingAdapter
+  fields: Map<Record<string, unknown>, Set<string>>
+}
+
+export function clearWriteEmbedding(earlier: WriteEmbedding): void {
+  for (const [document, fields] of earlier.fields) {
+    for (const field of fields) deleteFieldValue(document, field)
+  }
+}
+
+export async function embedDocumentsForWrite(
+  documents: Record<string, unknown>[],
+  embeddingConfig: EmbeddingFieldConfig,
+  adapter: EmbeddingAdapter,
+  signal: AbortSignal,
+  together: boolean,
+): Promise<{ embedding: WriteEmbedding; failed: Map<number, unknown> }> {
+  const fields = new Map<Record<string, unknown>, Set<string>>()
+  const failed = new Map<number, unknown>()
+  if (together && documents.length > 1) {
+    try {
+      const result = await embedBatchDocumentFields(documents, embeddingConfig, adapter, signal)
+      for (const [position, embedded] of result.embedded) fields.set(documents[position], embedded)
+      for (const [position, error] of result.failed) failed.set(position, error)
+    } catch (err) {
+      const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
+      for (let position = 0; position < documents.length; position++) failed.set(position, error)
+    }
+  } else {
+    for (let position = 0; position < documents.length; position++) {
+      try {
+        fields.set(
+          documents[position],
+          await embedDocumentFields(documents[position], embeddingConfig, adapter, signal),
+        )
+      } catch (err) {
+        failed.set(position, err)
+      }
+    }
+  }
+  return { embedding: { adapter, fields }, failed }
+}
