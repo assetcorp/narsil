@@ -1,9 +1,8 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
-import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
+import { decideSyncTier, decodeSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { isCurrentSyncSession, openSyncSession } from '../catch-up/sessions'
@@ -19,7 +18,7 @@ export async function handleSyncRequestMessage(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const request = validateSyncRequest(decode(message.payload))
+  const request = decodeSyncRequest(message.payload)
 
   const authResult = await authorizeSnapshotRequest(deps.coordinator, request.indexName, message.sourceId)
   if (authResult.outcome === 'denied') {

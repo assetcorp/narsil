@@ -66,6 +66,7 @@ interface Script {
   heldAdmissionReply: (() => Promise<void>) | null
   heldAdmissionRequestId: string | null
   holdRemovalReply: boolean
+  dropRemovals: boolean
   heldRemovalReply: (() => Promise<void>) | null
   heldRemovalRequestId: string | null
   insyncReplies: Map<string, 'answered' | 'lost'>
@@ -101,6 +102,7 @@ function freshScript(): Script {
     heldAdmissionReply: null,
     heldAdmissionRequestId: null,
     holdRemovalReply: false,
+    dropRemovals: false,
     heldRemovalReply: null,
     heldRemovalRequestId: null,
     insyncReplies: new Map(),
@@ -273,6 +275,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
             }
             return handler(message, holdReply)
           }
+          if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.dropRemovals) return
           if (message.type === ReplicationMessageTypes.INSYNC_REMOVE && script.holdRemovalReply) {
             script.holdRemovalReply = false
             script.heldRemovalRequestId = message.requestId
@@ -862,5 +865,45 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the admission that timed out'),
     ).toBe(false)
     expect(await inSyncSet()).not.toContain(replica)
+  }, 90_000)
+
+  it('keeps sending writes to a replica that left the assignment while its admission was unanswered, so the admission that lands once the replica is assigned again admits a copy that holds every acknowledged write', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      requestTimeout: ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS,
+    })
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.holdAdmission = true
+    script.dropRemovals = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseUnansweredAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+    await new Promise(resolve => setTimeout(resolve, ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS + CATCH_UP_TICK_MS))
+
+    await router.cluster.setReplicationFactor(INDEX_NAME, 0)
+    await waitFor(
+      async () => ((await allocation()).assignments.get(PARTITION_ID)?.replicas.length === 0 ? true : null),
+      'the controller to unassign the replica',
+    )
+    await new Promise(resolve => setTimeout(resolve, 2 * CATCH_UP_TICK_MS))
+
+    script.mode = 'ack'
+    await router.insert(INDEX_NAME, { id: 'berth-while-unassigned', note: BERTH_NOTE })
+    await router.cluster.setReplicationFactor(INDEX_NAME, 1)
+    await waitFor(
+      async () => ((await allocation()).assignments.get(PARTITION_ID)?.replicas.includes(replica) ? true : null),
+      'the controller to assign the replica again',
+    )
+
+    script.heldAdmission = null
+    await releaseUnansweredAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the unanswered admission')).toBe(
+      true,
+    )
+    expect(await inSyncSet()).toContain(replica)
+    expect(script.deliveredDocumentIds.has('berth-while-unassigned')).toBe(true)
   }, 90_000)
 })

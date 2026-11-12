@@ -18,6 +18,21 @@ export function admissionToWithdrawOf(
   return state.admissionsToWithdraw.get(partitionKey(indexName, partitionId))?.get(replicaNodeId)
 }
 
+export function withUnansweredAdmissions(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  localNodeId: string,
+  targets: string[],
+): string[] {
+  const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
+  if (pending === undefined) return targets
+  const unanswered = [...pending]
+    .filter(([replicaNodeId, admission]) => admission.unanswered && replicaNodeId !== localNodeId)
+    .map(([replicaNodeId]) => replicaNodeId)
+  return [...new Set([...targets, ...unanswered])]
+}
+
 export function settleFencedAdmission(
   state: CatchUpState,
   indexName: string,
