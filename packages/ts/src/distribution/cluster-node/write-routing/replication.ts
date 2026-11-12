@@ -9,12 +9,14 @@ import { requestInsyncRemoval } from '../../replication/insync'
 import { previousTermOf, replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { recordAcknowledgements } from '../catch-up/acknowledgements'
-import { admittedBeyondTable, recordRemovalUnlessReadmitted } from '../catch-up/admitted'
+import { withTimeout } from '../catch-up/admission'
+import { admittedBeyondTable, recordRemovalUnlessReadmitted, withoutRemovedReplicas } from '../catch-up/admitted'
 import {
+  type AdmissionAnswer,
   admissionGenerationOf,
   clearPendingAdmission,
   getPendingAdmissions,
-  withoutRemovedReplicas,
+  pendingAdmissionOf,
 } from '../catch-up/state'
 import { untilSuperseded } from '../led-term'
 import { sendThroughTargets } from '../transport-failure'
@@ -216,28 +218,69 @@ export async function replicateEntry(
     ),
   )
   recordAcknowledgements(deps.catchUp, entry.indexName, entry.partitionId, result.acknowledged, entry.seqNo)
-  const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, admitted, deps)
-  await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
+  await removeInSyncFailures(entry, result.failed, assignment, admitted, deps)
   await assertPrimaryWriteAuthority(entry, deps)
   deps.getReplicationLog(entry.indexName, entry.partitionId).advanceCommitPoint(entry.seqNo)
 }
 
-function cancelAdmissionsForFailures(
+async function inSyncFailuresOf(
   entry: ReplicationLogEntry,
   failedReplicas: string[],
   assignment: PartitionAssignment,
   admitted: string[],
   deps: WriteRoutingDeps,
-): string[] {
+): Promise<{ inSyncFailures: string[]; unanswered: string[] }> {
   const inSyncFailures: string[] = []
+  const answers: { replicaNodeId: string; answer: Promise<AdmissionAnswer> }[] = []
+  const admittedNow = admittedBeyondTable(deps.catchUp, entry.indexName, entry.partitionId, assignment)
   for (const replicaNodeId of failedReplicas) {
-    if (assignment.inSyncSet.includes(replicaNodeId) || admitted.includes(replicaNodeId)) {
+    if (
+      assignment.inSyncSet.includes(replicaNodeId) ||
+      admitted.includes(replicaNodeId) ||
+      admittedNow.includes(replicaNodeId)
+    ) {
       inSyncFailures.push(replicaNodeId)
       continue
     }
-    clearPendingAdmission(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
+    const pending = pendingAdmissionOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
+    if (pending === undefined) continue
+    pending.failedWrite = true
+    clearPendingAdmission(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId, pending)
+    if (pending.answer !== null) answers.push({ replicaNodeId, answer: pending.answer })
   }
-  return inSyncFailures
+  const timeoutMs = replicationTimeoutOf(deps)
+  const settled = await Promise.all(
+    answers.map(async ({ replicaNodeId, answer }) => ({
+      replicaNodeId,
+      answer: await withTimeout<AdmissionAnswer>(answer, timeoutMs, 'unanswered'),
+    })),
+  )
+  const unanswered: string[] = []
+  for (const { replicaNodeId, answer } of settled) {
+    if (answer === 'accepted') inSyncFailures.push(replicaNodeId)
+    if (answer === 'unanswered') unanswered.push(replicaNodeId)
+  }
+  return { inSyncFailures, unanswered }
+}
+
+async function removeInSyncFailures(
+  entry: ReplicationLogEntry,
+  failedReplicas: string[],
+  assignment: PartitionAssignment,
+  admitted: string[],
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  const { inSyncFailures, unanswered } = await inSyncFailuresOf(entry, failedReplicas, assignment, admitted, deps)
+  await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
+  if (unanswered.length === 0) return
+  await deps.refreshAllocation?.(entry.indexName)
+  await assertPrimaryWriteAuthority(entry, deps)
+  const timeoutMs = replicationTimeoutOf(deps)
+  throw new NarsilError(
+    ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
+    `The controller did not answer the admission of ${unanswered.map(nodeId => `'${nodeId}'`).join(', ')} to index '${entry.indexName}' partition ${entry.partitionId} within ${timeoutMs}ms after a failed write, so the primary cannot tell whether to remove it`,
+    { indexName: entry.indexName, partitionId: entry.partitionId, unansweredReplicas: unanswered, timeoutMs },
+  )
 }
 
 export async function replicateEntryBatch(
@@ -266,8 +309,7 @@ export async function replicateEntryBatch(
     ),
   )
   recordAcknowledgements(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, result.acknowledged, lastEntry.seqNo)
-  const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, admitted, deps)
-  await removeFailedReplicasFromInsync(lastEntry, inSyncFailures, deps)
+  await removeInSyncFailures(lastEntry, result.failed, assignment, admitted, deps)
   await assertPrimaryWriteAuthority(lastEntry, deps)
   deps.getReplicationLog(lastEntry.indexName, lastEntry.partitionId).advanceCommitPoint(lastEntry.seqNo)
 }

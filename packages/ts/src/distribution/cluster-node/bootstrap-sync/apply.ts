@@ -3,20 +3,26 @@ import type { Narsil } from '../../../narsil'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
 import { withPartitionCount } from '../../cluster/index-settings'
 import { finalizeSnapshotStream, type SnapshotStreamSuccess } from '../../replication/snapshot-stream-assembler'
-import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
 import { validateRestoredSchema } from '../bootstrap-restore'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { applySyncEntries } from './entries'
 import { streamFailureToError } from './frames'
 import { entryKey } from './state'
-import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState, LiveSyncFrameState, LiveSyncResult } from './types'
+import type {
+  BootstrapEntry,
+  BootstrapSyncDeps,
+  BootstrapSyncState,
+  LiveSyncFrameState,
+  LiveSyncResult,
+  ReceivedSyncEntries,
+} from './types'
 
 export async function applyLiveIncrementalSync(
   indexName: string,
   partitionId: number,
   target: string,
-  entriesPayloads: SyncEntriesPayload[],
+  entriesPayloads: ReceivedSyncEntries[],
   expectedFirstSeqNo: number,
   localPrimaryTerm: number,
   coordinatorConfig: IndexConfig,

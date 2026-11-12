@@ -95,7 +95,9 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     async stream(target, message, handler) {
       await waitForRelease(target, message)
       refuse(target, message)
-      let first = message.type === 'replication.sync_request'
+      let first =
+        message.type === 'replication.sync_request' &&
+        (decode(message.payload) as { syncSession?: unknown }).syncSession === undefined
       return inner.stream(target, message, chunk => {
         if (first) {
           first = false

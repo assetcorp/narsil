@@ -1,10 +1,12 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { decode } from '../../../serialization/msgpack'
+import type { PartitionAssignment } from '../../coordinator/types'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
-import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
+import type { RespondFn, SyncEntriesPayload, SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { isCurrentSyncSession, openSyncSession } from '../catch-up/sessions'
 import { recordReplicaPosition, recordSnapshotSyncRequest } from '../catch-up/state'
 import { holdsAnotherIndex } from '../request-identity'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
@@ -93,6 +95,7 @@ export async function handleSyncRequestMessage(
   try {
     const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
     const tier = decideSyncTier(log, request.lastSeqNo, request.lastPrimaryTerm)
+    const syncSession = currentSyncSessionOf(request, message.sourceId, assignment, deps)
     if (tier === 'incremental') {
       if (fromReplica) {
         recordReplicaPosition(
@@ -102,9 +105,10 @@ export async function handleSyncRequestMessage(
           message.sourceId,
           request.lastSeqNo,
           log.localLogEnd,
+          request.syncSession !== undefined,
         )
       }
-      await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
+      await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1), syncSession)
       return
     }
     if (fromReplica) {
@@ -130,6 +134,7 @@ export async function handleSyncRequestMessage(
           lastSeqNo: snapshotSeqNo,
           primaryTerm: snapshotPrimaryTerm,
         },
+        syncSession,
         buildSnapshot: async () => {
           const archive = await deps.engine.archiveReplicationPartition(request.indexName, request.partitionId, () => {
             snapshotPrimaryTerm = log.termAt(log.localLogEnd) ?? 0
@@ -144,7 +149,7 @@ export async function handleSyncRequestMessage(
         },
         afterSnapshot: async (trailingSink, build) => {
           const snapshotEnd = build.lastSeqNo ?? snapshotSeqNo
-          await sendSyncEntriesResponse(message, trailingSink, deps, log.getEntriesFrom(snapshotEnd + 1))
+          await sendSyncEntriesResponse(message, trailingSink, deps, log.getEntriesFrom(snapshotEnd + 1), syncSession)
         },
       },
     )
@@ -153,15 +158,38 @@ export async function handleSyncRequestMessage(
   }
 }
 
+function currentSyncSessionOf(
+  request: SyncRequestPayload,
+  sourceNodeId: string,
+  assignment: PartitionAssignment,
+  deps: DataNodeHandlerDeps,
+): string {
+  const { indexName, partitionId, syncSession } = request
+  const catchUp = deps.writeDeps.catchUp
+  if (syncSession === undefined) {
+    return openSyncSession(catchUp, indexName, partitionId, sourceNodeId, assignment.primaryTerm, assignment.replicas)
+  }
+  if (isCurrentSyncSession(catchUp, indexName, partitionId, sourceNodeId, syncSession, assignment.primaryTerm)) {
+    return syncSession
+  }
+  throw new NarsilError(
+    ErrorCodes.REPLICATION_SYNC_FAILED,
+    `Node '${sourceNodeId}' reported a sync of partition ${partitionId} of index '${indexName}' that is no longer its current sync, so it must open a new one`,
+    { indexName, partitionId, sourceNodeId },
+  )
+}
+
 export async function sendSyncEntriesResponse(
   message: TransportMessage,
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
   entries: SyncEntriesPayload['entries'],
+  syncSession: string,
 ): Promise<void> {
   const payload: SyncEntriesPayload = {
     entries,
     isLast: true,
+    syncSession,
   }
   await respond({
     type: ReplicationMessageTypes.SYNC_ENTRIES,

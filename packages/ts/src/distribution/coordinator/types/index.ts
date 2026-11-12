@@ -55,6 +55,12 @@ export interface PartitionAssignment {
   /** These replicas are current enough to be promoted, which is the set a failover picks from. */
   inSyncSet: string[]
   /**
+   * The controller raises this by 1 in every table write that changes `inSyncSet`, and it refuses an admission that
+   * carries any other value, so an admission that a primary asked for before a removal never adds the replica back. A
+   * table that an earlier release wrote leaves it absent, and every reader counts an absent value as 0.
+   */
+  inSyncVersion?: number
+  /**
    * The controller is moving the copies on these nodes elsewhere, and each one stays in `replicas` and in `inSyncSet`
    * until the copies outside this list reach the replication factor in sync. The field is absent while no move is
    * under way.

@@ -42,6 +42,7 @@ function insyncAdd(): TransportMessage {
       primaryTerm: 1,
       appliedSeqNo: 0,
       commitPoint: 0,
+      inSyncVersion: 0,
     }),
   }
 }

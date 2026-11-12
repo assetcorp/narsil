@@ -280,11 +280,13 @@ export interface SyncRequestPayload {
   lastSeqNo: number
   lastPrimaryTerm: number
   indexUuid?: string
+  syncSession?: string
 }
 
 export interface SyncEntriesPayload {
   entries: ReplicationLogEntry[]
   isLast: boolean
+  syncSession: string
 }
 
 export interface ReplicationSnapshotHeader {
@@ -298,6 +300,7 @@ export interface ReplicationSnapshotHeader {
 export interface SnapshotStartPayload {
   header: ReplicationSnapshotHeader
   totalBytes: number
+  syncSession: string
 }
 
 export interface SnapshotChunkPayload {
@@ -328,6 +331,7 @@ export interface InsyncAddPayload {
   primaryTerm: number
   appliedSeqNo: number
   commitPoint: number
+  inSyncVersion: number
 }
 
 export interface InsyncConfirmPayload {

@@ -42,6 +42,7 @@ export function createSnapshotStreamState(expectation: SnapshotStreamExpectation
     endPayload: null,
     failure: null,
     firstFrameSeen: false,
+    syncSession: null,
   }
 }
 

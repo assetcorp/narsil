@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { AllocationTable, ClusterCoordinator, NodeRegistration, SchemaEvent } from '../../../coordinator/types'
 import { allocate } from '../../allocator/index'
 import { ALLOCATION_CAS_ATTEMPTS, ALLOCATION_RETRY_DELAY_MS } from '../../constants'
+import { putAllocationOver } from '../../in-sync-version'
 import { getIndexMetadata } from '../../index-metadata'
 import { belongsToAnotherIndex, stampedWith } from '../../table-identity'
 import { sharesMajorVersion } from '../../version'
@@ -69,7 +70,7 @@ async function runAllocatorForIndex(
   }
 
   const table = stampedWith(result.table, metadata.indexUuid)
-  if (await coordinator.putAllocation(indexName, table, storedTable?.version ?? null, writerNodeId)) {
+  if (await putAllocationOver(coordinator, indexName, storedTable, table, writerNodeId)) {
     return
   }
 
@@ -265,12 +266,12 @@ async function handleSchemaCreated(
     return
   }
 
-  const expectedVersion = storedTable !== null ? storedTable.version : null
   if (
-    await coordinator.putAllocation(
+    await putAllocationOver(
+      coordinator,
       indexName,
+      storedTable,
       stampedWith(result.table, metadata.indexUuid),
-      expectedVersion,
       writerNodeId,
     )
   ) {

@@ -10,6 +10,7 @@ import type {
 } from '../../../coordinator/types'
 import type { NodeTransport, TransportMessage } from '../../../transport/types'
 import { PARTITION_STORES_TIMEOUT_MS, RECOVERY_CAS_ATTEMPTS } from '../../constants'
+import { putAllocationOver } from '../../in-sync-version'
 import { getIndexMetadata } from '../../index-metadata'
 import { lastHoldersOf } from '../../last-holders'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../../partition-stores'
@@ -230,7 +231,7 @@ async function writeRecoveryOutcome(
     if (next === null) {
       return false
     }
-    const written = await deps.coordinator.putAllocation(indexName, next, table.version, deps.controllerNodeId)
+    const written = await putAllocationOver(deps.coordinator, indexName, table, next, deps.controllerNodeId)
     if (written) {
       return anyPromoted
     }

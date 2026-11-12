@@ -49,8 +49,8 @@ export function validateInsyncRemovePayload(decoded: unknown): InsyncRemovePaylo
 /**
  * Reads an in-sync admission request out of a decoded payload, and reports a malformed one as `null`.
  *
- * An admission request holds every field a removal request holds, and it adds the replica's applied position
- * alongside the primary's commit point. Both of those must be non-negative integers.
+ * An admission request holds every field a removal request holds, and it adds the replica's applied position, the
+ * primary's commit point, and the `inSyncVersion` that the primary last read. All three must be non-negative integers.
  *
  * @param decoded - The decoded message payload.
  * @returns The validated payload, or `null` when a field is missing or holds the wrong type.
@@ -66,7 +66,15 @@ export function validateInsyncAddPayload(decoded: unknown): InsyncAddPayload | n
   if (!isValidInteger(decoded.commitPoint) || decoded.commitPoint < 0) {
     return null
   }
-  return { ...base, appliedSeqNo: decoded.appliedSeqNo, commitPoint: decoded.commitPoint }
+  if (!isValidInteger(decoded.inSyncVersion) || decoded.inSyncVersion < 0) {
+    return null
+  }
+  return {
+    ...base,
+    appliedSeqNo: decoded.appliedSeqNo,
+    commitPoint: decoded.commitPoint,
+    inSyncVersion: decoded.inSyncVersion,
+  }
 }
 
 export function decodeMessage(message: TransportMessage): unknown | null {

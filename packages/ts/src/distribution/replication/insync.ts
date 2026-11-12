@@ -1,4 +1,5 @@
 import { decode } from '../../serialization/msgpack'
+import { inSyncVersionOf, putAllocationOver } from '../cluster/in-sync-version'
 import { rewriteForCurrentIndex } from '../cluster/table-identity'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
@@ -59,7 +60,7 @@ async function updateInsyncSet(
     if (rewritten === null) {
       return refused
     }
-    const written = await coordinator.putAllocation(request.indexName, rewritten, table.version, controllerNodeId)
+    const written = await putAllocationOver(coordinator, request.indexName, table, rewritten, controllerNodeId)
     if (written) {
       return { ...refused, accepted: true }
     }
@@ -177,8 +178,10 @@ export async function requestInsyncAdmission(
  * controller sends back.
  *
  * The controller refuses the request unless the assignment's term matches, the partition is `ACTIVE`, the node is an
- * assigned replica whose registration the cluster coordinator holds, and the replica's applied position has reached
- * both the stored commit point and the primary's own. A node whose registration has lapsed stays out, because the
+ * assigned replica whose registration the cluster coordinator holds, the request carries the assignment's current
+ * `inSyncVersion`, and the replica's applied position has reached both the stored commit point and the primary's own.
+ * The version check refuses a request that the primary sent before a change to the in-sync set, so a request delayed
+ * past a removal never adds the replica back. A node whose registration has lapsed stays out, because the
  * allocator would remove it again on its next run. The controller raises the stored commit point to the request's
  * value whenever it accepts, and that value never moves backwards, so a repeated request from a replica that is
  * already in the set still moves the floor forward.
@@ -204,6 +207,10 @@ export async function handleInsyncAdmission(
     }
 
     if (!assignment.replicas.includes(payload.replicaNodeId)) {
+      return REFUSE
+    }
+
+    if (payload.inSyncVersion !== inSyncVersionOf(assignment)) {
       return REFUSE
     }
 
