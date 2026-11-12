@@ -19,6 +19,7 @@ on:
           - 'github.com/assetcorp/narsil/packages/go/engine'
           - 'github.com/assetcorp/narsil/packages/go/changes'
           - 'delali-narsil'
+          - 'delali-narsil on PyPI'
       version:
         description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
         required: true
@@ -59,7 +60,7 @@ jobs:
   native:
     name: Native search core
     needs: changes
-    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil')) }}
+    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI')) }}
     uses: ./.github/workflows/native-core.yml
 
   plan:
@@ -175,7 +176,7 @@ jobs:
   publish:
     name: Publish to npm
     needs: native
-    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil'
+    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -680,3 +681,121 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked --allow-dirty
+
+  python-engine-checks:
+    name: Check the Python package on every platform
+    if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil on PyPI'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python-engine.yml
+
+  python-engine-release:
+    name: Version the Python package
+    needs: python-engine-checks
+    if: inputs.package == 'delali-narsil on PyPI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    concurrency:
+      group: release-python-engine
+      cancel-in-progress: false
+    outputs:
+      ref: ${{ steps.released.outputs.ref }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main
+        run: |
+          git fetch origin main
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          MAIN_TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$CHECKED_OUT_SHA" != "$MAIN_TIP_SHA" ]; then
+            echo "::error::This run holds $CHECKED_OUT_SHA and main is at $MAIN_TIP_SHA, so the release commit would be rejected as non-fast-forward. Dispatch a fresh run, because re-running replays the commit the original dispatch pinned."
+            exit 1
+          fi
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects=narsil-python-engine --skip-publish
+
+      - name: Record the commit that the wheels build from
+        id: released
+        run: echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  python-engine-wheels:
+    name: Build the Python wheels from the release commit
+    needs: python-engine-release
+    if: inputs.package == 'delali-narsil on PyPI'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python-engine.yml
+    with:
+      ref: ${{ needs.python-engine-release.outputs.ref }}
+      run-tests: false
+      artifact-prefix: python-engine-release
+
+  python-engine-publish:
+    name: Publish delali-narsil to PyPI
+    needs: python-engine-wheels
+    if: inputs.package == 'delali-narsil on PyPI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: publish-to-pypi
+      cancel-in-progress: false
+
+    steps:
+      - name: Download every wheel
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: python-engine-release-wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: List the wheels
+        run: ls -l dist
+
+      - name: Publish to PyPI through trusted publishing
+        if: ${{ !inputs.dry-run }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist

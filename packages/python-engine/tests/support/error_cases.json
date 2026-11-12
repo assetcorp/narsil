@@ -1,0 +1,509 @@
+[
+  ["query", ["docs", { "term": "river", "limit": 100000 }]],
+  ["query", ["docs", { "term": "river", "offset": 100000 }]],
+  ["query", ["docs", { "term": "river", "fields": "title" }]],
+  ["query", ["docs", { "term": "river", "fields": ["nope"] }]],
+  ["query", ["docs", { "fields": [5], "term": "river" }]],
+  ["query", ["docs", { "term": "river", "tolerance": -1 }]],
+  ["query", ["docs", { "term": "river", "tolerance": "x" }]],
+  ["query", ["docs", { "term": "river", "boost": { "title": "x" } }]],
+  ["query", ["docs", { "term": "river", "boost": { "nope": 2 } }]],
+  ["query", ["docs", { "term": "river", "sort": { "year": "up" } }]],
+  ["query", ["docs", { "term": "river", "sort": { "title": "asc" } }]],
+  ["query", ["docs", { "term": "river", "sort": [{ "field": "year" }] }]],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "sort": [{ "field": "year", "direction": "asc", "mode": "sum" }]
+      }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "sort": "year" }]],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "filters": { "fields": { "year": { "gte": "x" } } } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "filters": { "fields": { "nope": { "eq": 1 } } } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "filters": { "fields": { "year": { "between": [1] } } }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "filters": { "fields": { "year": { "weird": 1 } } } }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "filters": "year > 1" }]],
+  ["query", ["docs", { "term": "river", "filters": { "and": "x" } }]],
+  ["query", ["docs", { "term": "river", "searchAfter": "garbage" }]],
+  ["query", ["docs", { "term": "river", "mode": "magic" }]],
+  ["query", ["docs", { "term": "river", "mode": 5 }]],
+  ["query", ["docs", { "mode": "vector" }]],
+  ["query", ["docs", { "mode": "hybrid", "term": "river" }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": [1, 2] } }]],
+  [
+    "query",
+    ["docs", { "vector": { "field": "embedding", "value": ["a", 2, 3] } }]
+  ],
+  [
+    "query",
+    ["docs", { "vector": { "field": "embedding", "value": [1, 2, null] } }]
+  ],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": "abc" } }]],
+  [
+    "query",
+    ["docs", { "vector": { "field": "embedding", "value": [1e40, 0, 0] } }]
+  ],
+  [
+    "query",
+    ["docs", { "vector": { "field": "embedding", "value": [true, 0, 0] } }]
+  ],
+  ["query", ["docs", { "vector": { "field": "title", "value": [1, 2, 3] } }]],
+  ["query", ["docs", { "vector": { "field": "nope", "value": [1, 2, 3] } }]],
+  ["query", ["docs", { "vector": { "field": 5, "value": [1, 0, 0] } }]],
+  ["query", ["docs", { "vector": { "value": [1, 2, 3] } }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "text": "river" } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "vector": { "field": "embedding", "value": [1, 2, 3], "efSearch": 0 } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": {
+          "field": "embedding",
+          "value": [1, 0, 0],
+          "efSearch": 20000
+        }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": { "field": "embedding", "value": [1, 0, 0], "efSearch": 1.5 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": "none", "fields": ["title"] } }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "rerank": "rank" }]],
+  ["query", ["docs", { "term": "river", "rerank": { "fields": ["title"] } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": 1, "fields": ["title"] } }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "rerank": { "adapter": "rank" } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": "rank", "fields": "title" } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "term": "river", "rerank": { "adapter": "rank", "fields": [1] } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "query": 1 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": -1 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 1.5 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": true }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 1e30 }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": 2 }
+      }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "bm25": { "k1": -1 } }]],
+  ["query", ["docs", { "term": "river", "bm25": { "b": 2 } }]],
+  ["query", ["missing", { "term": "river" }]],
+  ["listDocuments", ["docs", { "cursor": "bad" }]],
+  [
+    "listDocuments",
+    ["docs", { "filters": { "fields": { "nope": { "eq": 1 } } } }]
+  ],
+  ["listDocuments", ["docs", { "limit": 20000 }]],
+  ["insert", ["docs", { "title": 5 }]],
+  ["insert", ["docs", { "year": "x" }]],
+  ["insert", ["docs", { "title": "a", "embedding": [1, 2] }]],
+  ["insert", ["docs", { "title": "a", "embedding": ["a", 2, 3] }]],
+  ["insert", ["docs", { "title": "a", "embedding": [1e40, 0, 0] }]],
+  ["insert", ["docs", { "title": "a", "embedding": [true, 0, 0] }]],
+  ["insert", ["docs", { "title": "a", "tags": "x" }]],
+  ["insert", ["docs", { "title": "a", "tags": [1] }]],
+  ["insert", ["docs", { "title": "a", "id": 5 }]],
+  ["insert", ["docs", { "title": "a", "id": "" }]],
+  ["insert", ["docs", { "title": "a" }, ""]],
+  ["insert", ["docs", { "title": "a", "id": "seed-1" }]],
+  ["insert", ["docs", { "title": "a" }, "seed-1"]],
+  ["insert", ["docs", { "title": "a", "id": "x" }, "y"]],
+  ["insert", ["docs", null]],
+  ["insert", ["docs", "text"]],
+  ["insert", ["docs", [1, 2]]],
+  ["insert", ["missing", { "title": "a" }]],
+  ["insertBatch", ["docs", "x"]],
+  ["insertBatch", ["docs", [null]]],
+  ["insertBatch", ["docs", [{ "title": 5 }, { "title": "ok" }]]],
+  ["insertBatch", ["docs", [null, { "title": "ok" }]]],
+  ["insertBatch", ["docs", ["text"]]],
+  ["insertBatch", ["docs", [{ "id": "seed-1", "title": "dup" }]]],
+  ["update", ["docs", "nope", { "title": "a" }]],
+  ["update", ["docs", "seed-1", { "title": 5 }]],
+  ["update", ["docs", "seed-1", { "title": "a", "id": "other" }]],
+  ["updateBatch", ["docs", "x"]],
+  ["updateBatch", ["docs", [{ "document": { "title": "x" } }]]],
+  [
+    "updateBatch",
+    ["docs", [{ "docId": "nope", "document": { "title": "x" } }]]
+  ],
+  ["updateBatch", ["docs", [{ "docId": "seed-1" }]]],
+  ["updateBatch", ["docs", [{ "docId": 5, "document": { "title": "x" } }]]],
+  ["updateBatch", ["docs", [null]]],
+  ["remove", ["docs", "nope"]],
+  ["remove", ["missing", "nope"]],
+  ["removeBatch", ["docs", "seed-1"]],
+  ["removeBatch", ["docs", 5]],
+  ["removeBatch", ["docs", ["nope"]]],
+  ["removeBatch", ["docs", [5]]],
+  ["createIndex", ["docs", { "schema": { "title": "string" } }]],
+  ["createIndex", ["fresh", "schema"]],
+  ["createIndex", ["fresh", {}]],
+  ["createIndex", ["fresh", { "schema": "title" }]],
+  ["createIndex", ["fresh", { "schema": null }]],
+  ["createIndex", ["fresh", { "schema": {} }]],
+  ["createIndex", ["fresh", { "schema": { "title": "text" } }]],
+  ["createIndex", ["fresh", { "schema": { "v": "vector[0]" } }]],
+  ["createIndex", ["fresh", { "schema": { "v": "vector[-1]" } }]],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": {
+          "a": {
+            "b": {
+              "c": {
+                "d": {
+                  "e": {
+                    "f": { "g": { "h": { "i": { "j": { "k": "string" } } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "language": "klingon" }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "language": 5 }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "tokenizer": "unregistered" }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "stopWords": "unregistered" }]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "partitions": { "maxDocsPerPartition": 0 }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      { "schema": { "title": "string" }, "partitions": { "maxPartitions": -1 } }
+    ]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "required": ["nope"] }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "bm25": { "k1": -1 } }]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "embedding": { "adapter": "none", "fields": { "title": "title" } }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      { "schema": { "title": "string" }, "synonyms": [{ "words": "x" }] }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "vectorPromotion": { "hnswConfig": { "m": 1 } }
+      }
+    ]
+  ],
+  ["createIndex", ["", { "schema": { "title": "string" } }]],
+  ["createIndex", ["bad name!", { "schema": { "title": "string" } }]],
+  ["dropIndex", ["missing"]],
+  ["rebalance", ["docs", -1]],
+  ["rebalance", ["docs", 0]],
+  ["rebalance", ["docs", 1.5]],
+  ["rebalance", ["docs", true]],
+  ["rebalance", ["docs", "3"]],
+  ["rebalance", ["docs", 100000]],
+  ["rebalance", ["missing", 2]],
+  ["updatePartitionConfig", ["docs", { "maxDocsPerPartition": -1 }]],
+  ["updatePartitionConfig", ["docs", { "watermark": 2 }]],
+  ["updateSynonyms", ["docs", "x"]],
+  ["updateSynonyms", ["docs", [{ "word": "a" }]]],
+  ["updateSynonyms", ["docs", [{ "words": ["only"] }]]],
+  ["changeAnalysis", ["docs", { "language": "klingon" }]],
+  ["changeAnalysis", ["docs", { "tokenizer": "unregistered" }]],
+  ["updateSync", ["docs", { "enabled": "yes" }]],
+  ["updateSync", ["docs", { "enabled": true }]],
+  ["compactVectors", ["docs", "nope"]],
+  ["optimizeVectors", ["docs", "title"]],
+  ["restore", ["docs", "not a snapshot"]],
+  ["importDocuments", ["docs", "{not json\n"]],
+  ["query", ["docs", { "term": "river", "bm25": null }]],
+  ["query", ["docs", { "term": "river", "tolerance": null }]],
+  ["query", ["docs", { "term": "river", "prefixLength": null }]],
+  ["query", ["docs", { "term": "river", "partialWords": null }]],
+  ["query", ["docs", { "term": "river", "mode": null }]],
+  ["query", ["docs", { "term": "river", "rerank": null }]],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "query": null }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "term": "river",
+        "rerank": { "adapter": "rank", "fields": ["title"], "window": null }
+      }
+    ]
+  ],
+  ["query", ["docs", { "vector": { "field": null, "value": [1, 0, 0] } }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": null } }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "value": {} } }]],
+  [
+    "query",
+    [
+      "docs",
+      { "vector": { "field": "embedding", "value": [1, 0, 0], "text": null } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      { "vector": { "field": "embedding", "value": [1, 0, 0], "text": 5 } }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": { "field": "embedding", "value": [1, 0, 0], "efSearch": null }
+      }
+    ]
+  ],
+  [
+    "query",
+    [
+      "docs",
+      {
+        "vector": {
+          "field": "embedding",
+          "value": [1, 0, 0],
+          "oversample": null
+        }
+      }
+    ]
+  ],
+  ["query", ["docs", { "term": "river", "bm25": { "k1": null } }]],
+  ["query", ["docs", { "term": "river", "document": { "include": null } }]],
+  ["listDocuments", ["docs", { "filters": null }]],
+  ["changeAnalysis", ["docs", { "language": null }]],
+  ["updatePartitionConfig", ["docs", { "watermark": null }]],
+  ["updateSync", ["docs", { "enabled": true, "historyMaxBytes": null }]],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "synonyms": null }]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "textStorage": null }]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "partitions": { "maxPartitions": null }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string" },
+        "vectorPromotion": { "hnswConfig": { "m": null } }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string", "v": "vector[3]" },
+        "embedding": { "fields": { "v": 5 } }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    [
+      "fresh",
+      {
+        "schema": { "title": "string", "v": "vector[3]" },
+        "embedding": { "fields": { "v": "title" }, "adapter": 5 }
+      }
+    ]
+  ],
+  [
+    "createIndex",
+    ["fresh", { "schema": { "title": "string" }, "required": [5] }]
+  ],
+  ["createNarsil", [{ "patternWorkCap": null }]],
+  ["createNarsil", [{ "persistence": null }]],
+  ["createNarsil", [{ "lifecycle": { "maxOpenIndexes": null } }]],
+  ["createNarsil", [{ "memory": { "blockWritesAbove": null } }]],
+  ["createNarsil", [{ "workers": { "enabled": false, "count": null } }]],
+  ["createNarsil", [{ "rerankTimeout": null }]],
+  ["query", ["docs", { "vector": { "field": "embedding", "text": null } }]],
+  ["preflight", ["docs", { "vector": { "field": "embedding", "text": 5 } }]]
+]

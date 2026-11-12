@@ -6,6 +6,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Expectation, MAX_FILE_BYTES, open_checksummed};
 use crate::format::manifest_refs::FileRef;
 
+use super::calling_threads::CallingThreads;
 use super::files::{DurableDirectory, range_outside};
 use super::persistence::PersistenceAdapter;
 use super::staged_file::StagedFile;
@@ -116,11 +117,19 @@ impl CheckpointStore for DurableDirectory {
 
 pub(crate) struct AdapterStore {
     adapter: Arc<dyn PersistenceAdapter>,
+    calls: CallingThreads,
 }
 
 impl AdapterStore {
     pub(crate) fn new(adapter: Arc<dyn PersistenceAdapter>) -> AdapterStore {
-        AdapterStore { adapter }
+        AdapterStore {
+            adapter,
+            calls: CallingThreads::default(),
+        }
+    }
+
+    pub(crate) fn calling_adapter_on_current_thread(&self) -> bool {
+        self.calls.on_current_thread()
     }
 }
 
@@ -136,9 +145,11 @@ fn adapter_failure(code: ErrorCode, verb: &str, key: &str, error: AdapterError) 
 
 impl CheckpointStore for AdapterStore {
     fn read_within(&self, key: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+        let call = self.calls.enter();
         let bytes = self.adapter.load(key).map_err(|error| {
             adapter_failure(ErrorCode::PERSISTENCE_LOAD_FAILED, "load", key, error)
         })?;
+        drop(call);
         match bytes {
             Some(bytes) if bytes.len() as u64 > limit => Err(NarsilError::new(
                 ErrorCode::PERSISTENCE_LOAD_FAILED,
@@ -192,21 +203,25 @@ impl CheckpointStore for AdapterStore {
     }
 
     fn write_commit(&self, key: &str, bytes: &[u8]) -> Result<()> {
+        let _call = self.calls.enter();
         self.adapter.save(key, bytes).map_err(|error| {
             adapter_failure(ErrorCode::PERSISTENCE_SAVE_FAILED, "save", key, error)
         })
     }
 
     fn remove(&self, key: &str) -> Result<()> {
+        let _call = self.calls.enter();
         self.adapter.delete(key).map_err(|error| {
             adapter_failure(ErrorCode::PERSISTENCE_DELETE_FAILED, "delete", key, error)
         })
     }
 
     fn list(&self, prefix: &str) -> Result<Vec<String>> {
+        let call = self.calls.enter();
         let mut keys = self.adapter.list(prefix).map_err(|error| {
             adapter_failure(ErrorCode::PERSISTENCE_LOAD_FAILED, "list", prefix, error)
         })?;
+        drop(call);
         keys.retain(|key| key.starts_with(prefix));
         keys.sort();
         keys.dedup();

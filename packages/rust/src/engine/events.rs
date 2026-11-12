@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use super::Narsil;
+use super::callback_scope::address_of;
+use super::event_hold::{deliver, queue_while_held};
 use super::index::IndexState;
 use super::query_suggestions::types::{
     QuerySuggestionsBuildPhase, QuerySuggestionsBuildTrigger, QuerySuggestionsWarningReason,
@@ -200,8 +201,12 @@ impl EventBus {
             .filter(|(_, listened, _)| *listened == kind)
             .map(|(_, _, listener)| Arc::clone(listener))
             .collect();
-        for listener in listeners {
-            let _ = catch_unwind(AssertUnwindSafe(|| listener(&event)));
+        if listeners.is_empty() {
+            return;
+        }
+        let dispatcher = address_of(self);
+        if let Some((listeners, event)) = queue_while_held(dispatcher, listeners, event) {
+            deliver(dispatcher, &listeners, &event);
         }
     }
 
@@ -282,8 +287,11 @@ impl Narsil {
     /// [`Narsil::off`] takes.
     ///
     /// Most events report work that the engine does away from the call that started it, such as a background
-    /// checkpoint that fails. The engine calls each listener on the thread that raised the event, holds no lock of
-    /// its own while the listener runs, and ignores a panic inside a listener. A listener that
+    /// checkpoint that fails. The engine calls each listener on the thread that raised the event and ignores a panic
+    /// inside a listener. Where the call that raised the event holds an index, a listener's create, drop, restore,
+    /// close, or reopen of that index, or its change to that index's query suggestions, fails at once with
+    /// `CONFIG_INVALID`, and a [`Narsil::shutdown`] from a listener returns at once while another shutdown is under
+    /// way. A listener that
     /// [`Narsil::open_with`] registers inside its `register` step also hears the events that recovery raises.
     pub fn on(
         &self,

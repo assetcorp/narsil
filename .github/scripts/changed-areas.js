@@ -13,6 +13,7 @@ const AREAS_BY_PREFIX = [
   ['benchmarks/server/', ['benchmark_harness']],
   ['benchmarks/', []],
   ['packages/rust/', []],
+  ['packages/python-engine/', []],
   ['packages/go/engine/', []],
   ['packages/go/changes/', []],
   ['packages/react-native/', []],
