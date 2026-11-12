@@ -145,6 +145,7 @@ func (n *Narsil) answerQuery(ctx context.Context, indexName string, entry *index
 		if err != nil {
 			return model.QueryResult{}, params, nil, err
 		}
+		options.PhraseReady = held.phraseReady
 		if embedded.params.Rerank == nil {
 			result, stale, err := readUnderOneAnalysis(ctx, n, held, func(target *index.Index) (model.QueryResult, error) {
 				return n.queryPinned(ctx, held, target, embedded.params, options)

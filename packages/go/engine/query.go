@@ -46,29 +46,36 @@ func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *ind
 	return result, nil
 }
 
-func (n *Narsil) prepareSearch(ctx context.Context, entry *indexEntry, params model.QueryParams) (model.QueryParams, index.QueryOptions, error) {
+func (n *Narsil) prepareSearch(ctx context.Context, indexName string, entry *indexEntry, release func(),
+	params model.QueryParams) (*indexEntry, func(), model.QueryParams, index.QueryOptions, error) {
 	if err := index.RequireUsableVectorSettings(&params); err != nil {
-		return params, index.QueryOptions{}, err
+		release()
+		return nil, releasedNothing, params, index.QueryOptions{}, err
 	}
-	params, err := n.beforeSearch(ctx, entry.name, params)
-	if err != nil {
-		return params, index.QueryOptions{}, err
+	if n.plugins.hasHook(hookBeforeSearch) {
+		var err error
+		entry, release, err = n.holderOf(indexName).outside(release, func() error {
+			var hookErr error
+			params, hookErr = n.beforeSearch(ctx, indexName, params)
+			return hookErr
+		})
+		if err != nil {
+			release()
+			return nil, releasedNothing, params, index.QueryOptions{}, err
+		}
 	}
 	options := index.QueryOptions{CursorParams: model.Some(params), PhraseReady: entry.phraseReady}
-	return index.WithRerankQueryText(params), options, nil
+	return entry, release, index.WithRerankQueryText(params), options, nil
 }
 
 func (n *Narsil) beforeSearch(ctx context.Context, indexName string, params model.QueryParams) (model.QueryParams, error) {
-	if !n.plugins.hasBeforeSearchHooks() {
-		return params, nil
-	}
 	hooked := params
 	err := n.plugins.search(ctx, hookBeforeSearch, &model.SearchContext{IndexName: indexName, Params: &hooked})
 	return hooked, err
 }
 
 func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model.QueryParams, result model.QueryResult) {
-	if !n.plugins.hasAfterSearchHooks() {
+	if !n.plugins.hasHook(hookAfterSearch) {
 		return
 	}
 	observed := result
@@ -100,16 +107,15 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	hooked, options, err := n.prepareSearch(ctx, entry, params)
+	entry, release, hooked, options, err := n.prepareSearch(ctx, indexName, entry, release, params)
 	if err != nil {
-		release()
 		return model.QueryResult{}, err
 	}
 	result, resolved, release, err := n.answerQuery(ctx, indexName, entry, release, hooked, options)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	defer release()
+	release()
 	n.afterSearch(ctx, indexName, resolved, result)
 	return result, nil
 }
@@ -124,9 +130,8 @@ func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryPa
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
-	hooked, options, err := n.prepareSearch(ctx, entry, params)
+	entry, release, hooked, _, err := n.prepareSearch(ctx, indexName, entry, release, params)
 	if err != nil {
-		release()
 		return model.PreflightResult{}, err
 	}
 	entry, release, embedded, err := n.embedForQuery(ctx, indexName, entry, release, hooked, nil)
@@ -135,7 +140,7 @@ func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryPa
 	}
 	defer release()
 	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.PreflightResult, error) {
-		return target.PreflightWith(ctx, embedded.params, index.QueryOptions{PhraseReady: options.PhraseReady})
+		return target.PreflightWith(ctx, embedded.params, index.QueryOptions{PhraseReady: entry.phraseReady})
 	})
 	if err != nil {
 		return model.PreflightResult{}, err
