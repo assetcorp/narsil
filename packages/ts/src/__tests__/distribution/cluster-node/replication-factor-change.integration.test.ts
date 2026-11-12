@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator/in-memory'
-import type { AllocationTable, ClusterCoordinator } from '../../../distribution/coordinator/types'
+import type {
+  AllocationTable,
+  ClusterCoordinator,
+  ExpectedReplicaRegistration,
+} from '../../../distribution/coordinator/types'
 import {
   createInMemoryNetwork,
   createInMemoryTransport,
@@ -32,10 +36,11 @@ function refusingCoordinator(inner: ClusterCoordinator): RefusingCoordinator {
       table: AllocationTable,
       expectedVersion?: number | null,
       writerNodeId?: string,
+      replicaRegistration?: ExpectedReplicaRegistration,
     ): Promise<boolean> {
       if (refusing && writerNodeId !== undefined) return false
       if (expectedVersion === undefined || writerNodeId === undefined) return inner.putAllocation(indexName, table)
-      return inner.putAllocation(indexName, table, expectedVersion, writerNodeId)
+      return inner.putAllocation(indexName, table, expectedVersion, writerNodeId, replicaRegistration)
     },
   }
   return {

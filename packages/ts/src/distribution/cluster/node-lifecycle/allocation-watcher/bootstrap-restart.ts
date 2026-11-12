@@ -63,7 +63,7 @@ function waitBeforeBootstrapRestart(state: AllocationWatcherState, config: NodeL
   })
 }
 
-async function restartBootstrapWhileOutOfSync(
+export async function restartBootstrapWhileOutOfSync(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
   indexName: string,

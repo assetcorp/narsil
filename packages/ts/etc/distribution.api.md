@@ -83,7 +83,7 @@ export interface ClusterCoordinator extends IndexMetadataWatch {
     listNodes(): Promise<NodeRegistration[]>;
     listSchemas(): Promise<string[]>;
     putAllocation(indexName: string, table: AllocationTable): Promise<boolean>;
-    putAllocation(indexName: string, table: AllocationTable, expectedVersion: number | null, writerNodeId: string): Promise<boolean>;
+    putAllocation(indexName: string, table: AllocationTable, expectedVersion: number | null, writerNodeId: string, replicaRegistration?: ExpectedReplicaRegistration): Promise<boolean>;
     putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void>;
     putSchema(indexName: string, schema: SchemaDefinition): Promise<void>;
     registerNode(registration: NodeRegistration): Promise<void>;
@@ -292,6 +292,12 @@ export const DEFAULT_PARTITION_COUNT = 5;
 export const DEFAULT_REPLICATION_FACTOR = 1;
 
 // @public
+export interface ExpectedReplicaRegistration {
+    nodeId: string;
+    startedAt: string;
+}
+
+// @public
 export interface IndexHealth {
     indexName: string;
     partitionCount: number;
@@ -377,6 +383,7 @@ export interface NodeTransport {
 export interface PartitionAssignment {
     commitPoint: number;
     inSyncSet: string[];
+    inSyncVersion?: number;
     lastHolders?: string[];
     primary: string | null;
     primaryTerm: number;

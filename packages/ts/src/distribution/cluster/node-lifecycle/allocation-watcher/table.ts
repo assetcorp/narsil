@@ -41,6 +41,7 @@ export function processAllocationChange(
       isPrimary,
       primaryNodeId: assignment.primary,
       primaryTerm: assignment.primaryTerm,
+      inSync: assignment.inSyncSet.includes(nodeId),
     })
 
     if (servesPartition(assignment, nodeId)) {

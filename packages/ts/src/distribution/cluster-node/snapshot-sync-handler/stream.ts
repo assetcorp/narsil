@@ -76,7 +76,7 @@ async function streamBuiltSnapshot(
       lastSeqNo: build.lastSeqNo ?? options.metadata.lastSeqNo,
       primaryTerm: build.primaryTerm ?? options.metadata.primaryTerm,
     }
-    await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata)
+    await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, options.syncSession)
     await options.afterSnapshot(sink, build)
     sink.closed = true
   } finally {

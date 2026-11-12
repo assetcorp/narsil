@@ -29,6 +29,7 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
       primary: assignment.primary,
       replicas: [...assignment.replicas],
       inSyncSet: [...assignment.inSyncSet],
+      ...(assignment.inSyncVersion !== undefined ? { inSyncVersion: assignment.inSyncVersion } : {}),
       commitPoint: assignment.commitPoint,
       state: assignment.state,
       primaryTerm: assignment.primaryTerm,

@@ -7,6 +7,7 @@ import {
   entryForDocument,
   INDEX,
   ofType,
+  onLinksTo,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -159,7 +160,9 @@ describe('a write in flight while its partition changes primary', () => {
     const started = await startHandoverCluster()
     cluster = started.cluster
     const router = cluster.node(ROUTER)
-    const held = cluster.transport(started.settled.primary ?? '').holdWhen(entryForDocument('transfer-2'))
+    const held = cluster
+      .transport(started.settled.primary ?? '')
+      .holdWhen(onLinksTo(started.settled.inSyncSet, entryForDocument('transfer-2')))
     const write = outcomeOf(router.insert(INDEX, entry('first client', 1), 'transfer-2'))
     await waitUntil('the entry to stall on its way to both replicas', () => held.count() === 2)
 
@@ -178,7 +181,9 @@ describe('a write in flight while its partition changes primary', () => {
       const router = cluster.node(ROUTER)
       await router.insert(INDEX, entry('opening', 1), 'transfer-3')
       await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('opening', 1)]]))
-      const held = cluster.transport(started.settled.primary ?? '').holdWhen(entryForDocument('transfer-3'))
+      const held = cluster
+        .transport(started.settled.primary ?? '')
+        .holdWhen(onLinksTo(started.settled.inSyncSet, entryForDocument('transfer-3')))
       const write = failureOf(
         operation === 'update'
           ? router.update(INDEX, 'transfer-3', entry('first client', 2))

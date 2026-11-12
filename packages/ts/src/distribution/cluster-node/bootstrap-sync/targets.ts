@@ -37,6 +37,7 @@ async function reportSyncedPosition(
   indexName: string,
   partitionId: number,
   target: string,
+  syncSession: string | null,
   deadline: number,
   deps: BootstrapSyncDeps,
 ): Promise<NarsilError | null> {
@@ -56,6 +57,7 @@ async function reportSyncedPosition(
     partitionId,
     lastSeqNo: logState.lastSeqNo,
     lastPrimaryTerm: logState.lastPrimaryTerm,
+    ...(syncSession === null ? {} : { syncSession }),
   }
   const request: TransportMessage = {
     type: ReplicationMessageTypes.SYNC_REQUEST,
@@ -88,6 +90,9 @@ async function reportSyncedPosition(
   } finally {
     abandonSnapshotStream(frameState.snapshotState)
   }
+  if (frameState.error !== null) {
+    return frameState.error
+  }
   if (frameState.sawSnapshotFrame) {
     return new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
@@ -95,7 +100,7 @@ async function reportSyncedPosition(
       details,
     )
   }
-  return frameState.error
+  return null
 }
 
 export async function syncFromAnyTarget(
@@ -145,7 +150,7 @@ export async function syncFromAnyTarget(
       }
     }
 
-    const attempt = await syncFromTarget(
+    const { attempt, syncSession } = await syncFromTarget(
       state,
       entry,
       indexName,
@@ -157,12 +162,9 @@ export async function syncFromAnyTarget(
       deps,
       abortCheck,
     )
-    const movedThePosition = attempt.ok && (attempt.tier === 'snapshot' || attempt.entriesApplied > 0)
-    const failure = !attempt.ok
-      ? attempt.error
-      : movedThePosition
-        ? await reportSyncedPosition(indexName, partitionId, target, deadline, deps)
-        : null
+    const failure = attempt.ok
+      ? await reportSyncedPosition(indexName, partitionId, target, syncSession, deadline, deps)
+      : attempt.error
     if (failure === null) {
       return attempt
     }
@@ -190,11 +192,11 @@ async function syncFromTarget(
   deadline: number,
   deps: BootstrapSyncDeps,
   abortCheck: AbortCheck,
-): Promise<LiveSyncResult> {
+): Promise<{ attempt: LiveSyncResult; syncSession: string | null }> {
   const spoolDirectory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
   const frameState = createLiveSyncFrameState(indexName, partitionId, spoolDirectory)
   try {
-    return await syncFrameStateFromTarget(
+    const attempt = await syncFrameStateFromTarget(
       state,
       entry,
       indexName,
@@ -207,6 +209,7 @@ async function syncFromTarget(
       abortCheck,
       frameState,
     )
+    return { attempt, syncSession: frameState.syncSession }
   } finally {
     abandonSnapshotStream(frameState.snapshotState)
   }

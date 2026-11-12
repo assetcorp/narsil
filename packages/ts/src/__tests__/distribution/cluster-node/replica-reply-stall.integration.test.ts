@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
@@ -24,6 +25,7 @@ const ALLOCATION_WAIT_MS = 30_000
 const STALLED_WRITES = 6
 const REPLY_TYPES = new Set(['replication.entry', 'replication.entry_batch'])
 const ADMISSION_TYPE = 'replication.insync_add'
+const CONFIRM_TYPE = 'replication.insync_confirm'
 
 type Gauge = { id: string; station: string }
 
@@ -92,8 +94,14 @@ describe('a replica that stops answering replication entries', () => {
       ...inner,
       listen: handler =>
         inner.listen((message: TransportMessage, respond: RespondFn) => {
-          if (stall.admissionsRefused && message.type === ADMISSION_TYPE) return
-          return handler(message, respond)
+          if (!stall.admissionsRefused || message.type !== ADMISSION_TYPE) return handler(message, respond)
+          const { indexName, partitionId } = decode(message.payload) as { indexName: string; partitionId: number }
+          return respond({
+            type: CONFIRM_TYPE,
+            sourceId: 'router',
+            requestId: message.requestId,
+            payload: encode({ indexName, partitionId, accepted: false }),
+          })
         }),
     }
   }

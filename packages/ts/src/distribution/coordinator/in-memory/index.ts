@@ -1,18 +1,20 @@
-import { compareCodePoints } from '../../core/ordering'
-import type { SchemaDefinition } from '../../types/schema'
-import { CONTROLLER_LEASE_KEY, NODE_HEARTBEAT_TTL_MS } from './constants'
-import { createIndexMetadataWatchers } from './index-metadata-watchers'
+import { compareCodePoints } from '../../../core/ordering'
+import type { SchemaDefinition } from '../../../types/schema'
+import { CONTROLLER_LEASE_KEY, NODE_HEARTBEAT_TTL_MS } from '../constants'
+import { createIndexMetadataWatchers } from '../index-metadata-watchers'
 import type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  ExpectedReplicaRegistration,
   IndexMetadataEvent,
   NodeEvent,
   NodeRegistration,
   PartitionState,
   RegistrationLease,
   SchemaEvent,
-} from './types'
+} from '../types'
+import { bytesEqual, registrationsMatch } from './comparisons'
 
 interface LeaseEntry {
   nodeId: string
@@ -21,18 +23,6 @@ interface LeaseEntry {
 }
 
 const NODE_HEARTBEAT_PREFIX = '_narsil/node/'
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength !== b.byteLength) {
-    return false
-  }
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) {
-      return false
-    }
-  }
-  return true
-}
 
 /**
  * Builds a coordinator that holds the cluster's shared state in one process's
@@ -47,6 +37,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  */
 export function createInMemoryCoordinator(): ClusterCoordinator {
   const nodes = new Map<string, NodeRegistration>()
+  const registeredStartedAt = new Map<string, string>()
   const allocations = new Map<string, AllocationTable>()
   const partitionStates = new Map<string, Map<number, PartitionState>>()
   const leases = new Map<string, LeaseEntry>()
@@ -105,6 +96,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       if (key.startsWith(NODE_HEARTBEAT_PREFIX)) {
         const expiredNodeId = key.slice(NODE_HEARTBEAT_PREFIX.length)
         nodes.delete(expiredNodeId)
+        registeredStartedAt.delete(expiredNodeId)
         registrationsHeldUntil.delete(expiredNodeId)
         emitNodeEvent({ type: 'node_left', nodeId: expiredNodeId, registration: null })
       }
@@ -125,6 +117,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       const renewedAt = performance.now()
       const previous = nodes.get(registration.nodeId)
       nodes.set(registration.nodeId, registration)
+      registeredStartedAt.set(registration.nodeId, registration.startedAt)
       registrationsHeldUntil.set(registration.nodeId, renewedAt + NODE_HEARTBEAT_TTL_MS)
 
       const heartbeatKey = `${NODE_HEARTBEAT_PREFIX}${registration.nodeId}`
@@ -146,6 +139,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     async deregisterNode(nodeId: string): Promise<void> {
       assertNotShutdown()
       const existed = nodes.delete(nodeId)
+      registeredStartedAt.delete(nodeId)
       registrationsHeldUntil.delete(nodeId)
       const heartbeatKey = `${NODE_HEARTBEAT_PREFIX}${nodeId}`
       clearLeaseEntry(heartbeatKey)
@@ -184,11 +178,19 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       table: AllocationTable,
       expectedVersion?: number | null,
       writerNodeId?: string,
+      replicaRegistration?: ExpectedReplicaRegistration,
     ): Promise<boolean> {
       assertNotShutdown()
 
       if (expectedVersion !== undefined) {
         if (!isLeaseValid(CONTROLLER_LEASE_KEY) || leases.get(CONTROLLER_LEASE_KEY)?.nodeId !== writerNodeId) {
+          return false
+        }
+        if (
+          replicaRegistration !== undefined &&
+          (registeredStartedAt.get(replicaRegistration.nodeId) !== replicaRegistration.startedAt ||
+            (registrationsHeldUntil.get(replicaRegistration.nodeId) ?? 0) <= performance.now())
+        ) {
           return false
         }
         const current = allocations.get(indexName)
@@ -379,6 +381,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       leases.clear()
       registrationsHeldUntil.clear()
       nodes.clear()
+      registeredStartedAt.clear()
       allocations.clear()
       partitionStates.clear()
       schemas.clear()
@@ -390,8 +393,4 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   }
 
   return coordinator
-}
-
-function registrationsMatch(left: NodeRegistration, right: NodeRegistration): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
 }

@@ -2,9 +2,23 @@ import type { CatchUpFeed } from './feed'
 
 export interface ReplicaCursor {
   appliedSeqNo: number
+  confirmed: boolean
   busy: boolean
   syncEpoch: number
   feed: CatchUpFeed | null
+}
+
+export interface SyncSession {
+  id: string
+  primaryTerm: number
+}
+
+export type AdmissionAnswer = 'accepted' | 'refused' | 'unanswered'
+
+export interface PendingAdmission {
+  failedWrite: boolean
+  unanswered: boolean
+  answer: Promise<AdmissionAnswer> | null
 }
 
 export interface AdmittedReplica {
@@ -23,7 +37,8 @@ export interface OutOfStepRemoval {
 
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
-  pendingAdmissions: Map<string, Set<string>>
+  syncSessions: Map<string, Map<string, SyncSession>>
+  pendingAdmissions: Map<string, Map<string, PendingAdmission>>
   admittedReplicas: Map<string, Map<string, AdmittedReplica>>
   admissionsToWithdraw: Map<string, Map<string, AdmissionToWithdraw>>
   acknowledgedSeqNos: Map<string, Map<string, number>>
@@ -61,6 +76,7 @@ export function partitionKey(indexName: string, partitionId: number): string {
 export function createCatchUpState(): CatchUpState {
   return {
     cursors: new Map(),
+    syncSessions: new Map(),
     pendingAdmissions: new Map(),
     admittedReplicas: new Map(),
     admissionsToWithdraw: new Map(),
@@ -94,12 +110,14 @@ function noteAcknowledgedPosition(state: CatchUpState, key: string, replicaNodeI
  * Records the position a replica reports for a partition in a sync request that the primary's log matches, so that
  * the pump sends it the right entries next.
  *
- * The recorded position never passes `logEnd`, the primary's own log end. A replica that reports a position at or
- * ahead of the recorded one keeps its sync session, and the cursor rises to the reported position, so a feed or an
- * admission already in flight stays valid. A replica that reports a position behind the recorded one has lost data
- * and started a new sync session, so the cursor drops to the reported position, the sync epoch rises, and the feed in
- * flight is cancelled. Raising the epoch makes the pump discard an acknowledgement still in flight from the session
- * before, and makes the primary withdraw an admission it proposed in that session.
+ * The recorded position never passes `logEnd`, the primary's own log end. A request that opens a sync starts a new
+ * session, so the cursor takes the reported position whichever way it moves, the sync epoch rises, and the feed in
+ * flight is cancelled. Such a request can arrive after a later one, so its position only starts the feed, and the
+ * pump proposes the replica only once the replica confirms a position in that session. A request that reports the
+ * position after a sync confirms it: a position at or ahead of the recorded one raises the cursor, so a feed or an
+ * admission already in flight stays valid, and a position behind the recorded one lowers the cursor and raises the
+ * sync epoch as well. Raising the epoch makes the pump discard an acknowledgement still in flight from before the
+ * request, and makes the primary withdraw an admission it proposed before it.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
@@ -107,6 +125,8 @@ function noteAcknowledgedPosition(state: CatchUpState, key: string, replicaNodeI
  * @param replicaNodeId - The replica that reported the position.
  * @param appliedSeqNo - The highest sequence number the replica reports having applied.
  * @param logEnd - The primary's own log end for the partition.
+ * @param confirmsPosition - True for a request that reports the position after a sync in the replica's current
+ *   session, and false for a request that opens a sync.
  */
 export function recordReplicaPosition(
   state: CatchUpState,
@@ -115,17 +135,27 @@ export function recordReplicaPosition(
   replicaNodeId: string,
   appliedSeqNo: number,
   logEnd: number,
+  confirmsPosition: boolean,
 ): void {
   const key = partitionKey(indexName, partitionId)
   const reported = Math.min(appliedSeqNo, logEnd)
   const partition = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
   const existing = partition.get(replicaNodeId)
   if (existing === undefined) {
-    partition.set(replicaNodeId, { appliedSeqNo: reported, busy: false, syncEpoch: 0, feed: null })
-  } else if (reported < existing.appliedSeqNo) {
-    openFreshSyncSession(existing, reported)
+    partition.set(replicaNodeId, {
+      appliedSeqNo: reported,
+      confirmed: confirmsPosition,
+      busy: false,
+      syncEpoch: 0,
+      feed: null,
+    })
   } else {
-    existing.appliedSeqNo = reported
+    if (!confirmsPosition || reported < existing.appliedSeqNo) {
+      openFreshSyncSession(existing, reported)
+    } else {
+      existing.appliedSeqNo = reported
+    }
+    existing.confirmed = confirmsPosition
   }
   state.cursors.set(key, partition)
   noteAcknowledgedPosition(state, key, replicaNodeId, reported)
@@ -148,12 +178,13 @@ export function recordSnapshotSyncRequest(
 }
 
 /**
- * Drops everything the primary tracks for one replica of a partition, which is its cursor and any admission it has
- * in flight.
+ * Drops the cursor that the primary keeps for one replica of a partition, and any admission of that replica that the
+ * primary has claimed but not yet sent.
  *
  * The pump calls this once a replica joins the in-sync set, leaves the assignment, or falls behind the retained
  * log, because none of those replicas need feeding from the cursor any longer, and it cancels any feed still in
- * flight to that replica.
+ * flight to that replica. An admission that the primary has sent stays pending, because the controller can still
+ * apply it: the controller's answer settles it, and where no answer arrives, a removal of the replica settles it.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
@@ -175,7 +206,10 @@ export function forgetReplica(
       state.cursors.delete(key)
     }
   }
-  clearPendingAdmission(state, indexName, partitionId, replicaNodeId)
+  const pending = pendingAdmissionOf(state, indexName, partitionId, replicaNodeId)
+  if (pending !== undefined && pending.answer === null) {
+    clearPendingAdmission(state, indexName, partitionId, replicaNodeId, pending)
+  }
 }
 
 function forgetKeysOfIndex<T>(entries: Map<string, T>, indexName: string): void {
@@ -190,6 +224,7 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
     for (const cursor of replicas.values()) cursor.feed?.cancel()
     state.cursors.delete(key)
   }
+  forgetKeysOfIndex(state.syncSessions, indexName)
   forgetKeysOfIndex(state.pendingAdmissions, indexName)
   forgetKeysOfIndex(state.admittedReplicas, indexName)
   forgetKeysOfIndex(state.admissionsToWithdraw, indexName)
@@ -233,33 +268,16 @@ export function feedsReplica(
  */
 export function getPendingAdmissions(state: CatchUpState, indexName: string, partitionId: number): string[] {
   const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
-  return pending === undefined ? [] : [...pending]
+  return pending === undefined ? [] : [...pending.keys()]
 }
 
-export function recordAdmissionToWithdraw(
+export function pendingAdmissionOf(
   state: CatchUpState,
   indexName: string,
   partitionId: number,
   replicaNodeId: string,
-  primaryTerm: number,
-): void {
-  const key = partitionKey(indexName, partitionId)
-  const owed = state.admissionsToWithdraw.get(key) ?? new Map<string, AdmissionToWithdraw>()
-  owed.set(replicaNodeId, { primaryTerm, withdrawing: false })
-  state.admissionsToWithdraw.set(key, owed)
-}
-
-export function forgetAdmissionToWithdraw(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  replicaNodeId: string,
-): void {
-  const key = partitionKey(indexName, partitionId)
-  const owed = state.admissionsToWithdraw.get(key)
-  if (owed === undefined) return
-  owed.delete(replicaNodeId)
-  if (owed.size === 0) state.admissionsToWithdraw.delete(key)
+): PendingAdmission | undefined {
+  return state.pendingAdmissions.get(partitionKey(indexName, partitionId))?.get(replicaNodeId)
 }
 
 /**
@@ -281,11 +299,11 @@ export function markPendingAdmission(
   replicaNodeId: string,
 ): boolean {
   const key = partitionKey(indexName, partitionId)
-  const pending = state.pendingAdmissions.get(key) ?? new Set<string>()
+  const pending = state.pendingAdmissions.get(key) ?? new Map<string, PendingAdmission>()
   if (pending.has(replicaNodeId)) {
     return false
   }
-  pending.add(replicaNodeId)
+  pending.set(replicaNodeId, { failedWrite: false, unanswered: false, answer: null })
   state.pendingAdmissions.set(key, pending)
   forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
   advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)
@@ -339,31 +357,6 @@ export function forgetRemovedReplica(
   if (removed.size === 0) state.removedReplicas.delete(key)
 }
 
-export function recordRemovedReplica(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  replicaNodeId: string,
-  primaryTerm: number,
-): void {
-  const key = partitionKey(indexName, partitionId)
-  const removed = state.removedReplicas.get(key) ?? new Map<string, number>()
-  removed.set(replicaNodeId, primaryTerm)
-  state.removedReplicas.set(key, removed)
-}
-
-export function withoutRemovedReplicas(
-  state: CatchUpState,
-  indexName: string,
-  partitionId: number,
-  primaryTerm: number,
-  targets: string[],
-): string[] {
-  const removed = state.removedReplicas.get(partitionKey(indexName, partitionId))
-  if (removed === undefined) return targets
-  return targets.filter(replicaNodeId => removed.get(replicaNodeId) !== primaryTerm)
-}
-
 /**
  * Clears the mark that says one replica's admission is in flight, whatever answer the controller gave.
  *
@@ -374,16 +367,18 @@ export function withoutRemovedReplicas(
  * @param indexName - The index the partition is part of.
  * @param partitionId - The partition's id within that index.
  * @param replicaNodeId - The replica whose admission has settled.
+ * @param claim - The mark that the caller set, when the caller must leave a later mark for the same replica alone.
  */
 export function clearPendingAdmission(
   state: CatchUpState,
   indexName: string,
   partitionId: number,
   replicaNodeId: string,
+  claim?: PendingAdmission,
 ): void {
   const key = partitionKey(indexName, partitionId)
   const pending = state.pendingAdmissions.get(key)
-  if (pending === undefined) {
+  if (pending === undefined || (claim !== undefined && pending.get(replicaNodeId) !== claim)) {
     return
   }
   pending.delete(replicaNodeId)

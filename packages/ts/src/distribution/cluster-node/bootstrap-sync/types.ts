@@ -67,9 +67,12 @@ export interface LocalLogState {
   lastPrimaryTerm: number
 }
 
+export type ReceivedSyncEntries = Pick<SyncEntriesPayload, 'entries' | 'isLast'>
+
 export interface LiveSyncFrameState {
   snapshotState: ReturnType<typeof createSnapshotStreamState>
-  syncEntries: SyncEntriesPayload[]
+  syncEntries: ReceivedSyncEntries[]
+  syncSession: string | null
   sawSnapshotFrame: boolean
   error: NarsilError | null
 }

@@ -41,7 +41,7 @@ const nodeEntry: Record<string, string> = {
   synonyms: 'src/synonyms/index.ts',
   ...languageEntries(),
   distribution: 'src/distribution/index.ts',
-  'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',
+  'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory/index.ts',
   'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',
   'distribution/transport/tcp': 'src/distribution/transport/tcp/index.ts',
   'distribution/transport/in-memory': 'src/distribution/transport/in-memory.ts',

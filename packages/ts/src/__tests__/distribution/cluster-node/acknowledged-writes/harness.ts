@@ -157,7 +157,9 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     async stream(target, message, handler) {
       await waitForRelease(target, message)
       refuse(target, message)
-      let first = message.type === 'replication.sync_request'
+      let first =
+        message.type === 'replication.sync_request' &&
+        (decode(message.payload) as { syncSession?: unknown }).syncSession === undefined
       return inner.stream(target, message, chunk => {
         if (first) {
           first = false
@@ -237,6 +239,10 @@ export function entryForDocument(documentId: string): MessageRule {
     const payload = decode(message.payload) as { entry?: { documentId?: unknown } }
     return payload.entry?.documentId === documentId
   }
+}
+
+export function onLinksTo(nodeIds: readonly string[], rule: MessageRule): MessageRule {
+  return (to, message) => nodeIds.includes(to) && rule(to, message)
 }
 
 export type NodeOptions = Partial<ClusterNodeConfig> & { durable?: boolean; timeouts?: Partial<TransportConfig> }

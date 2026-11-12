@@ -18,7 +18,7 @@ ClusterCoordinator {
   async watchNodes(handler: (event: NodeEvent) -> nothing) -> (() -> nothing)
 
   async getAllocation(indexName: string) -> AllocationTable or absent
-  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent, writerNodeId: string) -> boolean
+  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent, writerNodeId: string, replicaRegistration: { nodeId: string, startedAt: string } or absent) -> boolean
   async deleteAllocation(indexName: string) -> nothing
   async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
@@ -50,6 +50,7 @@ ClusterCoordinator {
 - Adds the node to the cluster's node registry.
 - The registration must carry a lease-based heartbeat. A node that fails to renew its lease within the TTL loses its registration, and the coordinator emits a `node_left` event.
 - Registering an existing `nodeId` again updates that registration, which is what a node does after a restart.
+- The coordinator also keeps the registration's `startedAt` on the same lease, in a record that only `registerNode` writes, so that `putAllocation` can compare it while a memory report rewrites the registration. A coordinator backed by etcd keeps it under `_narsil/node-started-at/{nodeId}`, outside the `_narsil/nodes/` prefix, so that a node of an earlier release, which reads every key under that prefix as a registration, never reads it.
 
 ### deregisterNode(nodeId)
 
@@ -64,13 +65,14 @@ ClusterCoordinator {
 
 - Registers a callback that fires as nodes join and leave. A `node_joined` event follows a new registration, and a `node_left` event follows an expired lease or an explicit deregistration.
 
-### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion, writerNodeId)
+### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion, writerNodeId, replicaRegistration)
 
 - These read and write the allocation table of one index.
 - `putAllocation` must be atomic: the whole table is written or nothing is.
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
 - `putAllocation` must also check, in the same atomic operation, that the node named by `writerNodeId` holds the `_narsil/controller` lease, and it must return false where it does not, so that a controller whose lease expired before its next renewal cannot write a table.
+- `putAllocation` takes an optional `replicaRegistration` of `{ nodeId, startedAt }`, and with one supplied it must also check, in the same atomic operation, that the node is registered with that `startedAt`, and return false where it is not, so that a replica that restarted after the controller read its registration cannot enter the in-sync set.
 
 ### deleteAllocation(indexName)
 
@@ -230,7 +232,7 @@ The resources the node reports at registration, which the controller reads when 
 
 ### startedAt
 
-The ISO 8601 timestamp of when the node started. It serves diagnostics, and it breaks a tie during controller election in favour of the node that has been running longest.
+The ISO 8601 timestamp of when the node started. It serves diagnostics, and it breaks a tie during controller election in favour of the node that has been running longest. A node must write a new value on every start, so that the controller can tell a node that restarted from one that kept running, as [replication.insync_add](transport.md#replicationinsync_add) requires.
 
 ### version
 
@@ -322,6 +324,7 @@ PartitionAssignment {
   primary:          string or absent   (nodeId of the primary)
   replicas:         List<string>       (nodeIds of the replica nodes)
   inSyncSet:        List<string>       (nodeIds of the replicas fully caught up)
+  inSyncVersion:    uint64 or absent   (raised on every change to inSyncSet, on every accepted insync_remove, and on every removal of a node from replicas)
   removingReplicas: List<string>       (nodeIds that a move takes the partition off, or absent)
   lastHolders:      List<string>       (nodeIds that still hold a copy of an unserved partition, or absent)
   state:            PartitionState
@@ -352,6 +355,10 @@ The name of the index that serves this index name, which the controller writes w
 ### assignments
 
 A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
+
+### inSyncVersion
+
+A counter for one partition that the controller raises by 1 in every table write that changes the partition's `inSyncSet`, whatever the reason for the change, and in every table write that accepts a [replication.insync_remove](transport.md#replicationinsync_remove), including one for a replica already outside the set, and in every table write that removes a node from the partition's `replicas`, because a node that leaves `replicas` can drop its copy, so a request sent before it left must never admit it after it returns. A table write that makes more than one of these changes to a partition raises its counter by 1 once. A primary sends the value that it last read in each [replication.insync_add](transport.md#replicationinsync_add), and the controller refuses a request whose value differs from the stored one, so that a request delayed past a removal can never add the replica back. The counter covers one partition alone, because a version for the whole table would refuse a request after a change to any other partition. A table written by a release that predates the field carries none, and every reader treats an absent value as 0.
 
 ### removingReplicas
 
