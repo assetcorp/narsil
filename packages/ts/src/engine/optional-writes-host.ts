@@ -38,14 +38,13 @@ export {
   admitBufferedUpsert,
   admitInsert,
   asBatchInsertError,
-  collectRequiredFieldFailures,
   createPendingAdmissions,
-  embedChunkDocuments,
   providedDocId,
   recordPendingAdmission,
   requireDocumentObject,
   requireMatchingDocId,
 } from './mutations/insert-admission'
+export { prepareDocumentWrite, prepareDocumentWrites } from './mutations/write-preparation'
 export { awaitWriteVisibility } from './mutations/write-visibility'
 export { reconstructSchemaFromMetadata } from './recovery-schema'
 export { oneAtATime, withOpenIndex } from './serial-index-update'

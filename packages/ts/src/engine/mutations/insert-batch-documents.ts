@@ -1,6 +1,7 @@
 import { asBatchInsertError, BATCH_CHUNK_SIZE } from '#platform/optional-writes-host'
 import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
+import type { IndexHold } from '../index-hold'
 import type { MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
@@ -8,7 +9,28 @@ import { applyInsertChunk } from './insert-batch-apply'
 export interface AppliedAdmission {
   succeeded: string[]
   buffered: Set<string>
+  inserted: AdmittedInsert[]
   touchedVectorFields: Set<string>
+}
+
+export async function runAfterInsertHooks(
+  ctx: MutationContext,
+  indexName: string,
+  inserted: AdmittedInsert[],
+  hold: IndexHold | undefined,
+): Promise<void> {
+  if (inserted.length === 0 || !ctx.pluginRegistry.hasHooks('afterInsert')) return
+  const runHooks = async (): Promise<void> => {
+    for (const doc of inserted) {
+      try {
+        await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
+      } catch (err) {
+        console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+      }
+    }
+  }
+  if (hold === undefined) await runHooks()
+  else hold.afterRelease(runHooks)
 }
 
 export async function applyAdmittedDocuments(
@@ -18,9 +40,9 @@ export async function applyAdmittedDocuments(
   options: InsertOptions | undefined,
   failed: BatchResult['failed'],
 ): Promise<AppliedAdmission> {
-  const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const succeeded: string[] = []
   const buffered = new Set<string>()
+  const inserted: AdmittedInsert[] = []
   const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
@@ -46,15 +68,7 @@ export async function applyAdmittedDocuments(
       for (const fieldPath of doc.extractedVectors.keys()) {
         touchedVectorFields.add(fieldPath)
       }
-
-      if (hasAfterHook) {
-        try {
-          await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
-        } catch (err) {
-          console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-        }
-      }
-
+      inserted.push(doc)
       succeeded.push(doc.docId)
     }
 
@@ -65,5 +79,5 @@ export async function applyAdmittedDocuments(
     }
   }
 
-  return { succeeded, buffered, touchedVectorFields }
+  return { succeeded, buffered, inserted, touchedVectorFields }
 }

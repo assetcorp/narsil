@@ -9,17 +9,19 @@ import {
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { IndexHold } from '../index-hold'
 import type { BuiltSegment } from '../orchestration/segments'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
-import { applyAdmittedDocuments } from './insert-batch-documents'
+import { applyAdmittedDocuments, runAfterInsertHooks } from './insert-batch-documents'
 import { recordChunk } from './record-batch'
 import { applySegment, type SegmentAttachment } from './segment-publication'
 import { buildSegmentRequests } from './segment-replication'
 
 interface IngestOutcome {
   succeeded: string[]
+  inserted: AdmittedInsert[]
   touchedVectorFields: Set<string>
 }
 
@@ -36,7 +38,7 @@ async function applyIndividually(
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
   const applied = await applyAdmittedDocuments(ctx, indexName, admitted, options, failed)
-  return { succeeded: applied.succeeded, touchedVectorFields: applied.touchedVectorFields }
+  return { succeeded: applied.succeeded, inserted: applied.inserted, touchedVectorFields: applied.touchedVectorFields }
 }
 
 interface SegmentChunk {
@@ -118,8 +120,8 @@ async function recordMergedDocuments(
   options: InsertOptions | undefined,
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
-  const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const succeededIds = new Set<string>()
+  const insertedIds = new Set<string>()
   const errorOf = new Map<string, unknown>()
   const touchedVectorFields = new Set<string>()
   const chunks = chunksOfWholeSegments(indexName, partitionCount, built, frozen, memberIndexes, admitted)
@@ -166,15 +168,7 @@ async function recordMergedDocuments(
       for (const fieldPath of doc.extractedVectors.keys()) {
         touchedVectorFields.add(fieldPath)
       }
-
-      if (hasAfterHook) {
-        try {
-          await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
-        } catch (err) {
-          console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-        }
-      }
-
+      insertedIds.add(doc.docId)
       succeededIds.add(doc.docId)
     }
 
@@ -185,15 +179,17 @@ async function recordMergedDocuments(
   }
 
   const succeeded: string[] = []
+  const inserted: AdmittedInsert[] = []
   for (const doc of admitted) {
     if (succeededIds.has(doc.docId)) {
       succeeded.push(doc.docId)
+      if (insertedIds.has(doc.docId)) inserted.push(doc)
       continue
     }
     if (!errorOf.has(doc.docId)) continue
     failed.push({ docId: doc.docId, error: asBatchInsertError(errorOf.get(doc.docId)) })
   }
-  return { succeeded, touchedVectorFields }
+  return { succeeded, inserted, touchedVectorFields }
 }
 
 function frozenSegmentOf(
@@ -218,7 +214,7 @@ async function ingestAdmitted(
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
   if (admitted.length === 0) {
-    return { succeeded: [], touchedVectorFields: new Set() }
+    return { succeeded: [], inserted: [], touchedVectorFields: new Set() }
   }
 
   const manager = ctx.requireManager(indexName)
@@ -281,9 +277,10 @@ export async function insertBatchViaSegments(
   indexName: string,
   documents: AnyDocument[],
   options: InsertOptions | undefined,
+  hold: IndexHold | undefined,
 ): Promise<BatchResult> {
   const failed: BatchResult['failed'] = []
-  const admitted = await admitBatchDocuments(ctx, indexName, documents, failed)
+  const admitted = await admitBatchDocuments(ctx, indexName, documents, failed, hold)
   const outcome = await ingestAdmitted(ctx, indexName, admitted, options, failed)
 
   const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
@@ -295,6 +292,7 @@ export async function insertBatchViaSegments(
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
+  await runAfterInsertHooks(ctx, indexName, outcome.inserted, hold)
 
   return { succeeded: outcome.succeeded, failed }
 }
