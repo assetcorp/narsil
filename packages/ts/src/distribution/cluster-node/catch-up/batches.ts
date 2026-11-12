@@ -1,5 +1,4 @@
 import { chunkByBudget } from '../../chunking'
-import { inSyncVersionOf } from '../../cluster/in-sync-version'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
@@ -52,7 +51,6 @@ export async function sendBatch(
   const reservedBytes = batchBytes(batch)
   const sendingEpoch = cursor.syncEpoch
   state.inFlightBytes += reservedBytes
-  let readInSyncVersion: number | null = null
   const delivery = (async () => {
     const first = batch[0]
     const indexName = first?.indexName
@@ -60,8 +58,6 @@ export async function sendBatch(
     if (feed.cancelled) {
       return false
     }
-    const assignment = first === undefined ? undefined : table?.assignments.get(first.partitionId)
-    readInSyncVersion = assignment === undefined ? null : inSyncVersionOf(assignment)
     const result = await replicateBatchToReplicas(
       batch,
       [replicaNodeId],
@@ -81,9 +77,33 @@ export async function sendBatch(
   if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
     return false
   }
-  const acknowledgedSeqNo = batch[batch.length - 1].seqNo
-  cursor.provenInSyncVersion = cursor.appliedSeqNo > acknowledgedSeqNo ? null : readInSyncVersion
-  cursor.appliedSeqNo = Math.max(cursor.appliedSeqNo, acknowledgedSeqNo)
+  cursor.appliedSeqNo = Math.max(cursor.appliedSeqNo, batch[batch.length - 1].seqNo)
   cursor.confirmed = true
   return true
+}
+
+export async function sendHeldEntryAgain(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  entry: ReplicationLogEntry,
+  replicaNodeId: string,
+): Promise<boolean> {
+  const reservedBytes = entryBytes(entry)
+  if (reservedBytes > MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes) return false
+  state.inFlightBytes += reservedBytes
+  try {
+    const table = await deps.coordinator.getAllocation(entry.indexName)
+    const result = await replicateBatchToReplicas(
+      [entry],
+      [replicaNodeId],
+      deps.transport,
+      deps.nodeId,
+      deps.resolveNodeTargets,
+      table?.indexUuid,
+      previousTermOf(deps.getReplicationLog(entry.indexName, entry.partitionId), entry.seqNo),
+    )
+    return result.acknowledged.includes(replicaNodeId)
+  } finally {
+    state.inFlightBytes -= reservedBytes
+  }
 }

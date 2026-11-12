@@ -183,7 +183,9 @@ export async function requestInsyncAdmission(
  * `inSyncVersion`, and the replica's applied position has reached both the stored commit point and the primary's own.
  * The version check refuses a request that the primary sent before a change to the in-sync set or before the replica
  * left the assignment, so a request delayed past a removal never adds the replica back. A node whose registration has
- * lapsed stays out, because the allocator would remove it again on its next run. The controller raises the stored
+ * lapsed stays out, because the allocator would remove it again on its next run, and so does a node whose registration
+ * carries a `startedAt` other than the request's `replicaStartedAt`, because a node that restarted after it
+ * acknowledged the primary's proof can hold an empty copy. The controller raises the stored
  * commit point to the request's value whenever it accepts, and that value never moves backwards, so a repeated request
  * from a replica that is already in the set still moves the floor forward.
  *
@@ -199,7 +201,8 @@ export async function handleInsyncAdmission(
   controllerNodeId: string,
 ): Promise<InsyncConfirmPayload> {
   const registered = await coordinator.listNodes()
-  if (!registered.some(node => node.nodeId === payload.replicaNodeId)) {
+  const registration = registered.find(node => node.nodeId === payload.replicaNodeId)
+  if (registration === undefined || registration.startedAt !== payload.replicaStartedAt) {
     return { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
   }
   return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {

@@ -43,6 +43,7 @@ function insyncAdd(): TransportMessage {
       appliedSeqNo: 0,
       commitPoint: 0,
       inSyncVersion: 0,
+      replicaStartedAt: '2026-11-12T09:00:00.000Z',
     }),
   }
 }
