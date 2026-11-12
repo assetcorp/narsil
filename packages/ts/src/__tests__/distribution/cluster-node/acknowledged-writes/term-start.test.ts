@@ -8,6 +8,7 @@ import {
   entryForDocument,
   INDEX,
   ofType,
+  onceFor,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -23,6 +24,10 @@ const WRITES_AFTER_SWAP_MS = 1_000
 const REPLICATION_TIMEOUT_MS = DEFAULT_TRANSPORT_CONFIG.replicationTimeout
 const WRITE_MARGIN_MS = 2_000
 const WRITE_PACE_MS = 20
+const RETRIED_REMOVALS = 3
+const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
+const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
+const TERM_END_QUIET_MS = 3_000
 
 type Ledger = Map<string, Record<string, unknown>>
 
@@ -249,6 +254,133 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     await expectEveryCopyHolds(running, ledger, [ahead])
     expect(running.transport(ahead).syncTiers()).toContain('snapshot')
   }, 90_000)
+
+  it('removes a copy that holds an entry beyond the new primary once the controller answers, though the first removal request is lost and nothing is written', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const oldPrimary = settled.primary ?? ''
+    const candidate = candidateOf(settled)
+    const ahead = otherCopyOf(settled)
+    const withheld = running
+      .transport(oldPrimary)
+      .holdWhen((target, message) => target === candidate && entryForDocument('stranded')(target, message))
+    void outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
+    await waitUntil('the copy ahead to hold the stranded write', async () =>
+      (await readCopy(running.probe, ahead)).has('stranded'),
+    )
+    const aheadWatch = await watchInSync(running, ahead)
+    running.transport(candidate).dropWhen(onceFor(ofType('replication.insync_remove')))
+
+    const handover = await failOver(running, settled, () => withheld.release())
+    const leftAt = await waitUntil(
+      'the copy ahead to leave the in-sync set',
+      () => aheadWatch.leftAt(),
+      REPLICATION_TIMEOUT_MS + REJOIN_TIMEOUT_MS,
+    )
+    expect(leftAt - handover.at).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+
+    await expectEveryCopyHolds(running, ledger, [ahead])
+    expect(running.transport(ahead).syncTiers()).toContain('snapshot')
+  }, 120_000)
+
+  async function strandOnCopyAhead(running: TestCluster, settled: PartitionAssignment) {
+    const oldPrimary = settled.primary ?? ''
+    const candidate = candidateOf(settled)
+    const ahead = otherCopyOf(settled)
+    const withheld = running
+      .transport(oldPrimary)
+      .holdWhen((target, message) => target === candidate && entryForDocument('stranded')(target, message))
+    void outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
+    await waitUntil('the copy ahead to hold the stranded write', async () =>
+      (await readCopy(running.probe, ahead)).has('stranded'),
+    )
+    const removals = running.transport(candidate)
+    const restoreRemovals = removals.dropWhen(ofType('replication.insync_remove'))
+    const droppedRemovals = () =>
+      removals.dropped().filter(message => message.type === 'replication.insync_remove').length
+    return { candidate, ahead, release: () => withheld.release(), restoreRemovals, droppedRemovals }
+  }
+
+  async function expectCopiesAgree(
+    running: TestCluster,
+    ledger: Ledger,
+    rejoining: string[],
+    unsettled: string[],
+  ): Promise<void> {
+    const healed = await waitUntil(
+      `${rejoining.join(', ')} to be in sync and every copy to agree`,
+      async () => {
+        const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
+        if (current?.state !== 'ACTIVE' || current.primary === null) return null
+        if (!rejoining.every(nodeId => current.inSyncSet.includes(nodeId))) return null
+        const holders = [current.primary, ...current.inSyncSet]
+        const copies = await Promise.all(holders.map(holder => readCopy(running.probe, holder)))
+        const primaryCopy = copies[0]
+        if (primaryCopy === undefined || [...ledger.keys()].some(docId => !primaryCopy.has(docId))) return null
+        if (!copies.every(copy => copy.size === primaryCopy.size)) return null
+        return { holders, copies, primaryCopy }
+      },
+      REJOIN_TIMEOUT_MS,
+    )
+    const primaryDocuments = Object.fromEntries(healed.primaryCopy)
+    healed.copies.forEach((copy, at) => {
+      expect(Object.fromEntries(copy), healed.holders[at]).toEqual(primaryDocuments)
+    })
+    for (const [docId, document] of ledger) expect(primaryDocuments[docId], docId).toEqual(document)
+    const unexpected = [...healed.primaryCopy.keys()].filter(docId => !ledger.has(docId) && !unsettled.includes(docId))
+    expect(unexpected).toEqual([])
+  }
+
+  it('keeps asking for the removal of a copy ahead through a removal outage longer than the replication timeout, refuses a write in that outage within the timeout, and settles once the controller answers', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const { ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
+    const aheadWatch = await watchInSync(running, ahead)
+
+    const handover = await failOver(running, settled, release)
+    await waitUntil('the new primary to ask again for the removal', () => droppedRemovals() >= RETRIED_REMOVALS)
+    const startedAt = Date.now()
+    const outageWrite = await outcomeOf(
+      running.node('controller').insert(INDEX, fields('during the outage', 31), 'during-outage'),
+    )
+    const writeMs = Date.now() - startedAt
+    expect(outageWrite.state).toBe('refused')
+    expect(writeMs).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+
+    await sleep(Math.max(0, handover.at + REPLICATION_TIMEOUT_MS + REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS - Date.now()))
+    expect(aheadWatch.leftAt()).toBeNull()
+    expect(droppedRemovals()).toBeLessThan(MAX_REMOVAL_REQUESTS_IN_OUTAGE)
+    const restoredAt = Date.now()
+    restoreRemovals()
+
+    const leftAt = await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
+    expect(leftAt - restoredAt).toBeLessThan(WRITE_MARGIN_MS)
+    await expectCopiesAgree(running, ledger, [ahead], ['during-outage'])
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).not.toHaveProperty('stranded')
+  }, 120_000)
+
+  it('stops asking for the removal once its term ends, and every copy follows the next primary', async () => {
+    const { running, settled, ledger } = await startLedger()
+    const { candidate, ahead, release, droppedRemovals } = await strandOnCopyAhead(running, settled)
+
+    const handover = await failOver(running, settled, release)
+    await waitUntil('the new primary to ask again for the removal', () => droppedRemovals() >= RETRIED_REMOVALS)
+    const allowRegistration = running.coordinator.refuseRegistrationOf(candidate)
+    await running.coordinator.deregisterNode(candidate)
+    await waitUntil(
+      'the controller to promote the copy ahead',
+      async () => {
+        const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
+        return current?.primary === ahead && current.primaryTerm > handover.assignment.primaryTerm ? current : null
+      },
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(TERM_END_QUIET_MS)
+    const askedByTermEnd = droppedRemovals()
+    await sleep(TERM_END_QUIET_MS)
+    expect(droppedRemovals()).toBe(askedByTermEnd)
+
+    allowRegistration()
+    await expectCopiesAgree(running, ledger, [candidate], ['stranded'])
+  }, 120_000)
 
   it('keeps a write whose old-term entry reached no copy through the new primary, and resyncs the old primary that held it', async () => {
     const { running, settled, ledger } = await startLedger()

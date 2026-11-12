@@ -13,6 +13,10 @@ export interface AdmittedReplica {
   tableVersion: number | null
 }
 
+export interface OutOfStepRemoval {
+  primaryTerm: number
+}
+
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
@@ -20,6 +24,7 @@ export interface CatchUpState {
   acknowledgedSeqNos: Map<string, Map<string, number>>
   removedReplicas: Map<string, Map<string, number>>
   startedTerms: Map<string, number>
+  outOfStepRemovals: Map<string, OutOfStepRemoval>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -54,6 +59,7 @@ export function createCatchUpState(): CatchUpState {
     acknowledgedSeqNos: new Map(),
     removedReplicas: new Map(),
     startedTerms: new Map(),
+    outOfStepRemovals: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
@@ -155,6 +161,27 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
   forgetKeysOfIndex(state.acknowledgedSeqNos, indexName)
   forgetKeysOfIndex(state.removedReplicas, indexName)
   forgetKeysOfIndex(state.startedTerms, indexName)
+  forgetKeysOfIndex(state.outOfStepRemovals, indexName)
+}
+
+export function forgetOutOfStepRemovalsOfIndex(state: CatchUpState, indexName: string): void {
+  for (const key of [...state.outOfStepRemovals.keys()]) {
+    if (key.slice(0, key.lastIndexOf(':')) !== indexName) continue
+    state.outOfStepRemovals.delete(key)
+    state.startedTerms.delete(key)
+  }
+}
+
+export function feedsReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): boolean {
+  const key = partitionKey(indexName, partitionId)
+  return (
+    state.cursors.get(key)?.has(replicaNodeId) === true || state.pendingAdmissions.get(key)?.has(replicaNodeId) === true
+  )
 }
 
 /**
