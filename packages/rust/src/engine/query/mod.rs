@@ -40,13 +40,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::engine::EngineInner;
+use crate::engine::constants::MAX_CALLS_ACROSS_INDEX_CHANGES;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
-use constants::{
-    DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_QUERY_RERANKS, MAX_TOLERANCE, RESULT_WINDOW,
-};
+use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
 use cursor::sort_signature_of;
 use embedded::{EmbeddedQuery, resolve_vector_text};
 use gather::{QueryRun, RunShape};
@@ -181,7 +180,8 @@ fn index_replaced_during_reranks(name: &str, reranks: u32) -> NarsilError {
 /// down. A reranked query asks its rerank adapter for scores while the engine holds no index, then builds its page
 /// under a new read. Where a restore or a reopen has put another index under the name by then, the query runs
 /// again from its first stage on that index, and it fails with `WORKER_BUSY` once that has happened during each of
-/// [`constants::MAX_QUERY_RERANKS`] calls to the adapter.
+/// [`MAX_CALLS_ACROSS_INDEX_CHANGES`] calls to the adapter. A rebalance or an analysis change keeps the index under
+/// the name, so the query builds its page on that index and counts no such call.
 pub(crate) fn answer_query(
     engine: &EngineInner,
     name: &str,
@@ -221,7 +221,7 @@ pub(crate) fn answer_query(
             Err(replaced) => replaced,
         };
         replaced_reranks += 1;
-        if replaced_reranks >= MAX_QUERY_RERANKS {
+        if replaced_reranks >= MAX_CALLS_ACROSS_INDEX_CHANGES {
             return Err(index_replaced_during_reranks(name, replaced_reranks));
         }
         earlier = Some(replaced.into_embedded());

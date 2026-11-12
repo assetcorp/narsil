@@ -5,9 +5,10 @@ use std::time::Instant;
 use super::constants::MAX_REPLACED_WRITE_ATTEMPTS;
 use super::hooked;
 use super::index::IndexState;
-use super::writes::BatchFailure;
+use super::vectors::HeldWrite;
+use super::writes::{BatchFailure, InsertChunk, UpdateChunk};
 use super::{BatchResult, Narsil, QueryParams, QueryResult, query, reads, writes};
-use crate::error::Result;
+use crate::error::{NarsilError, Result};
 use crate::value::Map;
 
 impl Narsil {
@@ -58,8 +59,76 @@ impl Narsil {
         outcome
     }
 
+    /// Writes each chunk of a batch against the index, and writes a chunk again against the index that took the
+    /// name where a restore or a close retired the index while the chunk waited, so that each chunk lands whole in
+    /// one index. Where the write lock refuses a chunk otherwise, or the name holds no index once an earlier chunk
+    /// is written, `refuse` refuses that chunk and every later one.
+    fn write_chunks<C>(
+        &self,
+        index: &str,
+        chunks: Vec<C>,
+        mut write: impl FnMut(&IndexState, &mut C, &mut BatchResult) -> Result<writes::ChunkWrite>,
+        refuse: impl Fn(C, &NarsilError, &mut BatchResult),
+    ) -> Result<BatchResult> {
+        let mut result = BatchResult::default();
+        let mut pending = chunks.into_iter();
+        let Some(mut chunk) = pending.next() else {
+            return self.write_batch(index, |_| Ok(BatchResult::default()));
+        };
+        let mut attempt = 1;
+        let mut written: Option<Arc<IndexState>> = None;
+        loop {
+            let attempted =
+                self.attempt_write(index, |state| write(state, &mut chunk, &mut result));
+            let (state, outcome) = match (attempted, &written) {
+                (Ok(attempted), _) => attempted,
+                (Err(error), Some(state)) => {
+                    refuse(chunk, &error, &mut result);
+                    for later in pending {
+                        refuse(later, &error, &mut result);
+                    }
+                    self.wrote(state);
+                    return Ok(result);
+                }
+                (Err(error), None) => return Err(error),
+            };
+            let (error, failed) = match outcome {
+                Ok(writes::ChunkWrite::Written) => {
+                    let Some(next) = pending.next() else {
+                        self.wrote(&state);
+                        return Ok(result);
+                    };
+                    written = Some(state);
+                    chunk = next;
+                    attempt = 1;
+                    continue;
+                }
+                Ok(writes::ChunkWrite::Refused { error, failed }) => (error, failed),
+                Err(error) => {
+                    self.wrote(&state);
+                    return Err(error);
+                }
+            };
+            if state.is_retired() && attempt < MAX_REPLACED_WRITE_ATTEMPTS {
+                attempt += 1;
+                continue;
+            }
+            result.failed.extend(failed);
+            for later in pending {
+                refuse(later, &error, &mut result);
+            }
+            self.wrote(&state);
+            return Ok(result);
+        }
+    }
+
     /// Inserts `document` and returns its ID: `doc_id` where given, else the document's string `id` field, else the
     /// ID that the engine's ID generator gives, which is a new UUID version 7 by default.
+    ///
+    /// The engine calls the index's embedding adapter while it holds no write lock. Where a restore puts another
+    /// index under the name during that call, the document goes whole into that index, which embeds it again where
+    /// it has another adapter, and the insert fails with `WORKER_BUSY` once the adapter has changed after each of
+    /// three embeddings.
     ///
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn insert(&self, index: &str, document: Map, doc_id: Option<&str>) -> Result<String> {
@@ -67,7 +136,7 @@ impl Narsil {
         let next_id = || self.inner.next_document_id();
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
-            let mut held = Some(document);
+            let mut held = HeldWrite::new(document);
             return self.write_one(index, |state| {
                 writes::insert(state, &mut held, doc_id, &next_id)
             });
@@ -76,7 +145,7 @@ impl Narsil {
         let mut document = document;
         let id = hooked::before_insert(plugins, &name, &mut document, doc_id, &next_id)?;
         let kept = document.clone();
-        let mut held = Some(document);
+        let mut held = HeldWrite::new(document);
         let id = self.write_one(index, |state| {
             writes::insert(state, &mut held, Some(&id), &next_id)
         })?;
@@ -86,21 +155,25 @@ impl Narsil {
 
     /// Inserts many documents, refusing each bad document alone, so one failure leaves the rest written.
     ///
+    /// The engine writes the documents in chunks of 1,000, and each chunk goes whole into one index, embedded as
+    /// [`Narsil::insert`] embeds one document.
+    ///
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn insert_batch(&self, index: &str, documents: Vec<Map>) -> Result<BatchResult> {
         self.inner.refuse_while_memory_full(index)?;
         let next_id = || self.inner.next_document_id();
         let plugins = &self.inner.plugins;
+        let write = |state: &IndexState, chunk: &mut InsertChunk, result: &mut BatchResult| {
+            writes::insert_chunk(state, chunk, result, &next_id)
+        };
         if plugins.is_empty() {
-            return self.write_batch(index, |state| {
-                writes::insert_batch(state, documents, Vec::new(), &next_id)
-            });
+            let chunks = writes::insert_chunks(documents, Vec::new());
+            return self.write_chunks(index, chunks, write, InsertChunk::refuse);
         }
         let state = self.inner.open_index(index)?;
         let hooked = hooked::before_insert_batch(plugins, &state.name, documents, &next_id);
-        let mut result = self.write_batch(index, |state| {
-            writes::insert_batch(state, hooked.documents, hooked.ids, &next_id)
-        })?;
+        let chunks = writes::insert_chunks(hooked.documents, hooked.ids);
+        let mut result = self.write_chunks(index, chunks, write, InsertChunk::refuse)?;
         hooked::after_insert_batch(
             plugins,
             &state.name,
@@ -113,19 +186,21 @@ impl Narsil {
 
     /// Replaces the document stored under `doc_id`, failing with `DOC_NOT_FOUND` where the index holds none.
     ///
+    /// The engine embeds the new document as [`Narsil::insert`] embeds one.
+    ///
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn update(&self, index: &str, doc_id: &str, document: Map) -> Result<()> {
         self.inner.refuse_while_memory_full(index)?;
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
-            let mut held = Some(document);
+            let mut held = HeldWrite::new(document);
             return self.write_one(index, |state| writes::update(state, doc_id, &mut held));
         }
         let state = self.inner.open_index(index)?;
         let mut document = document;
         let old = hooked::before_update(plugins, &state, doc_id, &mut document)?;
         let kept = document.clone();
-        let mut held = Some(document);
+        let mut held = HeldWrite::new(document);
         self.write_one(index, |state| writes::update(state, doc_id, &mut held))?;
         plugins.after(|plugin| plugin.after_update(&state.name, doc_id, &old, &kept));
         Ok(())
@@ -133,12 +208,15 @@ impl Narsil {
 
     /// Replaces many documents, each given with its ID, refusing each bad update alone.
     ///
+    /// The engine writes the updates in chunks as [`Narsil::insert_batch`] writes documents.
+    ///
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn update_batch(&self, index: &str, updates: Vec<(String, Map)>) -> Result<BatchResult> {
         self.inner.refuse_while_memory_full(index)?;
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
-            return self.write_batch(index, |state| writes::update_batch(state, updates));
+            let chunks = writes::update_chunks(updates);
+            return self.write_chunks(index, chunks, writes::update_chunk, UpdateChunk::refuse);
         }
         let state = self.inner.open_index(index)?;
         let mut admitted = Vec::with_capacity(updates.len());
@@ -153,7 +231,9 @@ impl Narsil {
                 Err(error) => failed.push(BatchFailure { doc_id, error }),
             }
         }
-        let mut result = self.write_batch(index, |state| writes::update_batch(state, admitted))?;
+        let chunks = writes::update_chunks(admitted);
+        let mut result =
+            self.write_chunks(index, chunks, writes::update_chunk, UpdateChunk::refuse)?;
         let mut written = result.succeeded.iter().peekable();
         for (doc_id, old, new) in kept {
             if written.next_if(|id| **id == doc_id).is_some() {

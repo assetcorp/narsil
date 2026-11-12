@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use super::constants::MAX_QUERY_EMBEDDINGS;
 use super::params::{QueryParams, VectorQuery};
 use crate::adapters::{EmbeddingAdapter, EmbeddingPurpose};
+use crate::engine::constants::MAX_CALLS_ACROSS_INDEX_CHANGES;
 use crate::engine::index::IndexState;
 use crate::engine::index_lifecycle::PreparedRead;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
@@ -57,7 +57,7 @@ impl PreparedRead for EmbeddedQuery<'_> {
 /// Turns a vector clause's `text` into its `value` through the index's embedding adapter, and returns the query
 /// unchanged where it gives no text. Where `earlier` holds a query that the same adapter embedded and that a read
 /// never found superseded, it comes back as it stands, and where the adapter has changed before each of
-/// [`MAX_QUERY_EMBEDDINGS`] embeddings, the query fails with `WORKER_BUSY`.
+/// [`MAX_CALLS_ACROSS_INDEX_CHANGES`] embeddings, the query fails with `WORKER_BUSY`.
 pub(crate) fn resolve_vector_text<'a>(
     index: &IndexState,
     params: &'a QueryParams,
@@ -68,7 +68,7 @@ pub(crate) fn resolve_vector_text<'a>(
         Some(earlier) => earlier.embeddings,
         None => 0,
     };
-    if embeddings >= MAX_QUERY_EMBEDDINGS {
+    if embeddings >= MAX_CALLS_ACROSS_INDEX_CHANGES {
         return Err(NarsilError::new(
             ErrorCode::WORKER_BUSY,
             format!(
