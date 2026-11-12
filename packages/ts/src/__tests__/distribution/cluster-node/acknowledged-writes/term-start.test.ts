@@ -495,6 +495,50 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     expect(droppedRemovals()).toBe(askedBeforeClose)
   }, 90_000)
 
+  it('keeps a copy in sync that a write removed and catch-up readmitted while the start of the term on it was still delayed', async () => {
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: SHORT_REPLICATION_TIMEOUT_MS },
+    })
+    const { candidate, ahead, release, restoreRemovals } = await strandOnCopyAhead(running, settled)
+    restoreRemovals()
+    const termStart = running.transport(candidate).holdWhen(ofType('replication.term_start', ahead))
+    const removalsAtController = running.transport('controller').recordArrivalsWhen(removalOf(ahead))
+    const aheadWatch = await watchInSync(running, ahead)
+
+    await failOver(running, settled, release)
+    await waitUntil('the start of the term to wait on the copy ahead', () => termStart.count() > 0)
+    const removingWrite = await outcomeOf(
+      running.node('controller').insert(INDEX, fields('after the term start', 41), 'after-term-start'),
+    )
+    expect(removingWrite).toEqual({ state: 'acknowledged' })
+    ledger.set('after-term-start', fields('after the term start', 41))
+    await waitUntil('the write to remove the copy ahead', () => aheadWatch.leftAt())
+    await waitUntil(
+      'catch-up to readmit the copy ahead while the start of the term is delayed',
+      async () => partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet.includes(ahead),
+      REJOIN_TIMEOUT_MS,
+    )
+    await sleep(ADMISSION_REPLY_SETTLE_MS)
+    expect(removalsAtController).toHaveLength(1)
+    termStart.release()
+    await sleep(TERM_END_QUIET_MS)
+    expect(removalsAtController).toHaveLength(1)
+
+    const entriesAtAhead = running.transport(ahead).recordArrivalsWhen(isEntry)
+    const written: string[] = []
+    for (let i = 0; i < WRITES_AFTER_READMISSION; i++) {
+      const documentId = `after-delayed-term-start-${i}`
+      await running.node(candidate).insert(INDEX, fields(`after delayed term start ${i}`, 800 + i), documentId)
+      written.push(documentId)
+      ledger.set(documentId, fields(`after delayed term start ${i}`, 800 + i))
+    }
+
+    const delivered = new Set(entriesAtAhead.flatMap(documentIdsOf))
+    expect(written.filter(documentId => !delivered.has(documentId))).toEqual([])
+    expect(partitionAssignment(await running.coordinator.getAllocation(INDEX))?.inSyncSet).toContain(ahead)
+    expect(Object.fromEntries(await readCopy(running.probe, ahead))).toEqual(Object.fromEntries(ledger))
+  }, 120_000)
+
   it('asks no more for the removal of a copy that catch-up readmits after the controller applied its removal and the reply was lost', async () => {
     const { running, settled, ledger } = await startLedger({
       timeouts: { replicationTimeout: LATE_REMOVAL_REPLICATION_TIMEOUT_MS },
