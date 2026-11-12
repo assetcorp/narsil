@@ -29,29 +29,58 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0))
 }
 
+function newerTombstonesOf(prepared: readonly PreparedSegment[], at: number): Set<string> {
+  const docIds = new Set<string>()
+  for (let newer = at + 1; newer < prepared.length; newer++) {
+    const access = prepared[newer].segment.paged
+    if (access === null) continue
+    for (const docId of access.snapshot.tombstones) docIds.add(docId)
+  }
+  return docIds
+}
+
+function scansEveryId(segment: FrozenSegment, tombstoned: ReadonlySet<string>): boolean {
+  const held = segment.arrays.idTable.count
+  return tombstoned.size * Math.ceil(Math.log2(held + 1)) > held
+}
+
 function applyNewerTombstones(prepared: readonly PreparedSegment[]): void {
   for (let at = 0; at < prepared.length; at++) {
     if (!prepared[at].isNew) continue
-    for (let newer = at + 1; newer < prepared.length; newer++) {
-      const access = prepared[newer].segment.paged
-      if (access === null) continue
-      for (const docId of access.snapshot.tombstones) prepared[at].segment.tombstoneDocument(docId)
+    const { segment } = prepared[at]
+    const tombstoned = newerTombstonesOf(prepared, at)
+    if (!scansEveryId(segment, tombstoned)) {
+      for (const docId of tombstoned) segment.tombstoneDocument(docId)
+      continue
+    }
+    const ids = segment.arrays.idTable
+    for (let ordinal = 0; ordinal < ids.count; ordinal++) {
+      const docId = ids.idAt(ordinal)
+      if (tombstoned.has(docId)) segment.tombstoneDocument(docId)
     }
   }
 }
 
 async function applyNewerTombstonesInTurns(prepared: readonly PreparedSegment[]): Promise<void> {
-  let applied = 0
+  let steps = 0
   for (let at = 0; at < prepared.length; at++) {
     if (!prepared[at].isNew) continue
-    for (let newer = at + 1; newer < prepared.length; newer++) {
-      const access = prepared[newer].segment.paged
-      if (access === null) continue
-      for (const docId of access.snapshot.tombstones) {
-        prepared[at].segment.tombstoneDocument(docId)
-        applied += 1
-        if (applied % TOMBSTONES_BETWEEN_YIELDS === 0) await yieldToEventLoop()
+    const { segment } = prepared[at]
+    const tombstoned = newerTombstonesOf(prepared, at)
+    if (!scansEveryId(segment, tombstoned)) {
+      for (const docId of tombstoned) {
+        segment.tombstoneDocument(docId)
+        steps += 1
+        if (steps % TOMBSTONES_BETWEEN_YIELDS === 0) await yieldToEventLoop()
       }
+      continue
+    }
+    const ids = segment.arrays.idTable
+    for (let ordinal = 0; ordinal < ids.count; ordinal++) {
+      const docId = ids.idAt(ordinal)
+      if (tombstoned.has(docId)) segment.tombstoneDocument(docId)
+      steps += 1
+      if (steps % TOMBSTONES_BETWEEN_YIELDS === 0) await yieldToEventLoop()
     }
   }
 }
