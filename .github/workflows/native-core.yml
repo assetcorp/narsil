@@ -77,7 +77,7 @@ jobs:
   lint:
     name: Check the C code with clang-tidy and clang-format
     if: ${{ inputs.run-lint }}
-    runs-on: macos-15
+    runs-on: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'ubuntu-latest' || 'macos-15' }}
     timeout-minutes: 20
 
     steps:
