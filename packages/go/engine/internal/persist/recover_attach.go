@@ -64,23 +64,30 @@ type pagedAttachment struct {
 	path        string
 	schema      map[string]string
 	replaced    func(tombstones []string)
+	listed      *manifest.SegmentRef
 }
 
-func attachPagedListed(ctx context.Context, handle *Handle, partitionID int, key string, path string,
+func attachPagedListed(ctx context.Context, handle *Handle, partitionID int, listed manifest.SegmentRef, path string,
 	schema map[string]string) error {
 	pages, err := handle.removalPages.get()
 	if err != nil {
 		return err
 	}
-	return attachPagedFile(ctx, pagedAttachment{target: handle.Index, pages: pages, partitionID: partitionID, key: key,
-		path: path, schema: schema})
+	return attachPagedFile(ctx, pagedAttachment{target: handle.Index, pages: pages, partitionID: partitionID,
+		key: listed.File.Key, path: path, schema: schema, listed: &listed})
 }
 
 func attachPagedFile(ctx context.Context, attachment pagedAttachment) error {
 	target, partitionID, key := attachment.target, attachment.partitionID, attachment.key
 	err := target.AttachPagedSegmentFile(partitionID, index.PagedSegmentFile{Path: attachment.path,
 		RemovalPages: attachment.pages,
-		Replaces: func(fieldSchema map[string]string, tombstones []string) error {
+		Replaces: func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error {
+			if attachment.listed != nil {
+				err := checkpoint.RequireListedCounts(*attachment.listed, int(documentCount), len(tombstones))
+				if err != nil {
+					return err
+				}
+			}
 			if err := checkpoint.RequireAgreedSchema(attachment.schema, fieldSchema, key); err != nil {
 				return err
 			}
@@ -101,7 +108,8 @@ func attachPagedFile(ctx context.Context, attachment pagedAttachment) error {
 }
 
 func loadListedSegment(ctx context.Context, store checkpoint.Store, handle *Handle, partitionID int,
-	ref manifest.FileRef, schema map[string]string) error {
+	listed manifest.SegmentRef, schema map[string]string) error {
+	ref := listed.File
 	pagedText := textStoredOnDisk(handle)
 	if pagedText {
 		path, paged, err := checkpoint.ListedPagedPath(ctx, store, ref)
@@ -109,11 +117,14 @@ func loadListedSegment(ctx context.Context, store checkpoint.Store, handle *Hand
 			return err
 		}
 		if paged {
-			return attachPagedListed(ctx, handle, partitionID, ref.Key, path, schema)
+			return attachPagedListed(ctx, handle, partitionID, listed, path, schema)
 		}
 	}
 	segment, err := checkpoint.OpenStoredSegment(ctx, store, ref, pagedText)
 	if err != nil {
+		return err
+	}
+	if err := checkpoint.RequireListedCounts(listed, segment.DocumentTotal(), len(segment.RemovedIDs())); err != nil {
 		return err
 	}
 	if err := checkpoint.RequireAgreedSchema(schema, segment.FieldSchema(), ref.Key); err != nil {

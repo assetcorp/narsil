@@ -248,12 +248,6 @@ export async function createEngineCore(
           awaitCopiesOfIndex: indexName => orchestrator.awaitReplication(indexName),
           publishCheckpointedPartitions: (indexName, partitions) =>
             invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
-          recordCheckpoint(indexName, documentCount, partitionCount) {
-            const entry = indexRegistry.get(indexName)
-            if (entry === undefined) return
-            entry.documentCount = documentCount
-            entry.partitionCount = partitionCount
-          },
           engineCore: () => engineCore,
         })
 

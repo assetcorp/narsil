@@ -9,12 +9,11 @@ import { requestInsyncRemoval } from '../../replication/insync'
 import { previousTermOf, replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { recordAcknowledgements } from '../catch-up/acknowledgements'
+import { admittedBeyondTable, recordRemovalUnlessReadmitted } from '../catch-up/admitted'
 import {
-  admittedBeyondTable,
+  admissionGenerationOf,
   clearPendingAdmission,
-  forgetAdmittedReplica,
   getPendingAdmissions,
-  recordRemovedReplica,
   withoutRemovedReplicas,
 } from '../catch-up/state'
 import { untilSuperseded } from '../led-term'
@@ -124,6 +123,7 @@ async function removeEachFailedReplica(
   }
 
   for (const replicaNodeId of failedReplicas) {
+    const generationAtRemoval = admissionGenerationOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
     const accepted = await requestInsyncRemovalWithTargets(
       entry.indexName,
       entry.partitionId,
@@ -142,8 +142,14 @@ async function removeEachFailedReplica(
         { indexName: entry.indexName, partitionId: entry.partitionId, replicaNodeId },
       )
     }
-    forgetAdmittedReplica(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
-    recordRemovedReplica(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId, entry.primaryTerm)
+    recordRemovalUnlessReadmitted(
+      deps.catchUp,
+      entry.indexName,
+      entry.partitionId,
+      replicaNodeId,
+      entry.primaryTerm,
+      generationAtRemoval,
+    )
   }
 }
 

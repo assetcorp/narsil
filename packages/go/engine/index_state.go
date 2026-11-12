@@ -24,6 +24,7 @@ const (
 type closedSummary struct {
 	documentCount  int
 	partitionCount int
+	savedBytes     model.Optional[int64]
 	language       string
 	schema         model.Schema
 	config         model.IndexConfig

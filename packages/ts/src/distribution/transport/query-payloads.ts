@@ -188,6 +188,9 @@ export interface PartitionCountEntry {
   partitionId: number
   documentCount: number
   estimatedMemoryBytes: number
+  savedBytes?: number
+  vectorSavedBytes?: number
+  logBytes?: number
 }
 
 export interface CountResultPayload {

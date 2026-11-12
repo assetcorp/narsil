@@ -1,5 +1,6 @@
 import type { PartitionManager } from '../../../partitioning/manager'
 import { captureAppliedPrefix } from '../../../partitioning/manager/checkpoint-prefix'
+import { writeMetadataEnvelope } from '../../../serialization/envelope'
 import type { PersistenceAdapter } from '../../../types/adapters'
 import type { IndexMetadata } from '../../../types/internal'
 import type { VectorCheckpointPlan, VectorIndex } from '../../../vector/vector-index'
@@ -12,8 +13,22 @@ import { manifestWithinPartitionCount, type SegmentManifest } from '../segment/m
 import { adapterCheckpointStore, type CheckpointStore } from '../segment/store'
 import { garbageThatNoFieldStillReads, recordWrittenVectors } from '../segment/vector-adoption'
 import { writeLiveVectors } from '../segment/vector-write'
-import { commitCheckpointManifest, removeCheckpointGarbage, writeCheckpointSegments } from '../segment/write'
+import {
+  checkpointGarbage,
+  commitCheckpointManifest,
+  removeCheckpointGarbage,
+  writeCheckpointSegments,
+} from '../segment/write'
 import { SINGLE_NODE_PRIMARY_TERM } from '../seq-owner'
+import type { StoredBytes } from '../stored-bytes'
+import type { IndexDurabilityHooks } from '../types'
+import { metadataKey } from './index-state'
+
+export interface SnapshotOnlyCheckpointCommitted {
+  saved: StoredBytes
+  documentCount: number
+  partitionCount: number
+}
 
 export interface SnapshotOnlyCheckpointInput {
   adapter: PersistenceAdapter
@@ -23,6 +38,7 @@ export interface SnapshotOnlyCheckpointInput {
   vectorIndexes: Map<string, VectorIndex>
   appliedSeqNoByPartition: ReadonlyMap<number, number>
   rewritesEveryPartition: boolean
+  onCommitted(committed: SnapshotOnlyCheckpointCommitted): Promise<void>
 }
 
 interface CapturedState {
@@ -106,15 +122,33 @@ async function writeCaptured(
   })
   const committed = await commitCheckpointManifest(store, input.metadata, written, vectors.refs)
   recordWrittenVectors(input.vectorIndexes, vectors.written)
-  await removeCheckpointGarbage(
-    store,
-    await garbageThatNoFieldStillReads(store, input.vectorIndexes, committed.garbage),
-  )
+  await input.onCommitted({
+    saved: committed.saved,
+    documentCount: captured.documentCount,
+    partitionCount: captured.partitionCount,
+  })
+  const garbage = await checkpointGarbage(store, input.indexName, committed.manifest)
+  await removeCheckpointGarbage(store, await garbageThatNoFieldStillReads(store, input.vectorIndexes, garbage))
 }
 
-export async function writeSnapshotOnlyCheckpoint(
-  input: SnapshotOnlyCheckpointInput,
-): Promise<{ documentCount: number; positions: ReadonlyMap<number, number>; partitionCount: number }> {
+export async function saveCheckpointMetadata(
+  adapter: PersistenceAdapter,
+  hooks: IndexDurabilityHooks,
+  indexName: string,
+  committed: SnapshotOnlyCheckpointCommitted,
+): Promise<void> {
+  const { saved, documentCount, partitionCount } = committed
+  const checkpointMetadata = hooks.buildMetadata(indexName, documentCount, saved.bytes)
+  if (checkpointMetadata === undefined) return
+  checkpointMetadata.partitionCount = partitionCount
+  await adapter.save(metadataKey(indexName), await writeMetadataEnvelope(checkpointMetadata, { checksum: true }))
+  hooks.recordCheckpoint?.(indexName, documentCount, partitionCount, saved.bytes)
+}
+
+export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointInput): Promise<{
+  positions: ReadonlyMap<number, number>
+  partitionCount: number
+}> {
   const store = adapterCheckpointStore(input.adapter)
   const { prior, captured } = await whileGraphsStayComplete(input.vectorIndexes, async () => {
     const prior = await readCurrentManifest(store, input.indexName)
@@ -123,11 +157,7 @@ export async function writeSnapshotOnlyCheckpoint(
   })
   try {
     await writeCaptured(input, store, prior, captured)
-    return {
-      documentCount: captured.documentCount,
-      positions: captured.positions,
-      partitionCount: captured.partitionCount,
-    }
+    return { positions: captured.positions, partitionCount: captured.partitionCount }
   } finally {
     for (const plan of captured.plans.values()) plan.release()
   }

@@ -12,12 +12,14 @@ function configError(message: string): NarsilError {
   return new NarsilError(ErrorCodes.CONFIG_INVALID, message)
 }
 
-function requireKnob(name: string, value: number | undefined, minimum: number): void {
+function requireKnob(name: string, value: number | undefined, minimum: number, whole = false): void {
   if (value === undefined) {
     return
   }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum) {
-    throw configError(`durability.${name} must be a finite number of at least ${minimum}, got ${String(value)}`)
+  if (typeof value !== 'number' || !(whole ? Number.isSafeInteger(value) : Number.isFinite(value)) || value < minimum) {
+    throw configError(
+      `durability.${name} must be ${whole ? 'an integer' : 'a finite number'} of at least ${minimum}, got ${String(value)}`,
+    )
   }
 }
 
@@ -38,6 +40,7 @@ function requireValidDurabilityConfig(durability: DurabilityConfig): void {
     )
   }
   requireKnob('compactionThreshold', durability.compactionThreshold, 1)
+  requireKnob('rewriteBytesPerCheckpoint', durability.rewriteBytesPerCheckpoint, 1, true)
 
   if (durability.tier === 'snapshot') {
     for (const field of WAL_ONLY_FIELDS) {

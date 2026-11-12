@@ -30,7 +30,8 @@ func (durable *Durable) adoptsPartition(held capture, partitionID int) bool {
 	if held.whole[partitionID] {
 		return true
 	}
-	return held.logged[partitionID] && held.changes[partitionID].Clears() == durable.partitions[partitionID].clearsCovered
+	return (held.logged[partitionID] || held.rewritten[uint32(partitionID)]) &&
+		held.changes[partitionID].Clears() == durable.partitions[partitionID].clearsCovered
 }
 
 func (durable *Durable) adoptWritten(ctx context.Context, store checkpoint.Store, listed manifest.Manifest,
