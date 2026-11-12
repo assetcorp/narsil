@@ -237,6 +237,9 @@ func addColdFile(ctx context.Context, restore *vector.CheckpointRestore, fieldPa
 	if err := paged.CheckSectionPages(ctx, source.reader, vectors, key); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	codes, err := coldCodesOf(source, sections, key)
 	if err != nil {
 		return err
