@@ -31,20 +31,17 @@ export { storedBM25Params, validateBM25Params } from '../search/bm25-params'
 export { isSyncEpoch, newSyncEpoch } from '../sync/epoch'
 export { loadSchemaCodeFor } from '../workers/schema-code'
 export { arrayPositionsAreStale } from './array-positions'
-export { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from './constants'
+export { BATCH_CHUNK_SIZE, MAX_CALLS_ACROSS_INDEX_CHANGES, MIN_DOCUMENTS_FOR_SEGMENTS } from './constants'
 export { loadEmbedCode } from './embed-code'
 export { insertDocument } from './mutations/insert'
 export {
   admitBufferedUpsert,
   admitInsert,
-  asBatchInsertError,
-  createPendingAdmissions,
+  capsEachPartition,
   providedDocId,
-  recordPendingAdmission,
   requireDocumentObject,
   requireMatchingDocId,
 } from './mutations/insert-admission'
-export { prepareDocumentWrite, prepareDocumentWrites } from './mutations/write-preparation'
 export { awaitWriteVisibility } from './mutations/write-visibility'
 export { reconstructSchemaFromMetadata } from './recovery-schema'
 export { oneAtATime, withOpenIndex } from './serial-index-update'

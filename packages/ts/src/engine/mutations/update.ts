@@ -8,7 +8,6 @@ import {
   indexChangeOutsideExternalWaits,
   NarsilError,
   prepareDocumentVectors,
-  prepareDocumentWrites,
   requireDocumentWithinSizeLimit,
   requireMatchingDocId,
   updateDocumentVectors,
@@ -21,7 +20,7 @@ import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackUpdatedDocument } from './durable-rollback'
-import type { WritePreparation } from './write-preparation'
+import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 

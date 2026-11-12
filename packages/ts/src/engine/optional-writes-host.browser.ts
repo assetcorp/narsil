@@ -15,16 +15,16 @@ type EngineNames = Pick<
   OptionalCodeHost,
   | 'BATCH_CHUNK_SIZE'
   | 'ErrorCodes'
+  | 'MAX_CALLS_ACROSS_INDEX_CHANGES'
   | 'MIN_DOCUMENTS_FOR_SEGMENTS'
   | 'NarsilError'
   | 'admitBufferedUpsert'
   | 'admitInsert'
   | 'arrayPositionsAreStale'
-  | 'asBatchInsertError'
   | 'awaitWriteVisibility'
+  | 'capsEachPartition'
   | 'changeIndexOutsideExternalWaits'
   | 'createFrozenSegment'
-  | 'createPendingAdmissions'
   | 'deleteNestedValue'
   | 'emitSyncChange'
   | 'extractVectorFromDoc'
@@ -44,12 +44,9 @@ type EngineNames = Pick<
   | 'newSyncEpoch'
   | 'oneAtATime'
   | 'prepareDocumentVectors'
-  | 'prepareDocumentWrite'
-  | 'prepareDocumentWrites'
   | 'prepareStoredSynonyms'
   | 'providedDocId'
   | 'readHeapStatistics'
-  | 'recordPendingAdmission'
   | 'removeDocumentVectors'
   | 'requireDocumentObject'
   | 'requireDocumentWithinSizeLimit'
@@ -79,17 +76,17 @@ type SegmentCodecNames = Pick<typeof SegmentCodecCode, 'createSharedFrozenSegmen
 
 export let BATCH_CHUNK_SIZE: EngineNames['BATCH_CHUNK_SIZE']
 export let ErrorCodes: EngineNames['ErrorCodes']
+export let MAX_CALLS_ACROSS_INDEX_CHANGES: EngineNames['MAX_CALLS_ACROSS_INDEX_CHANGES']
 export let MIN_DOCUMENTS_FOR_SEGMENTS: EngineNames['MIN_DOCUMENTS_FOR_SEGMENTS']
 export let NarsilError: EngineNames['NarsilError']
 export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let admitBufferedUpsert: EngineNames['admitBufferedUpsert']
 export let admitInsert: EngineNames['admitInsert']
 export let arrayPositionsAreStale: EngineNames['arrayPositionsAreStale']
-export let asBatchInsertError: EngineNames['asBatchInsertError']
 export let awaitWriteVisibility: EngineNames['awaitWriteVisibility']
+export let capsEachPartition: EngineNames['capsEachPartition']
 export let changeIndexOutsideExternalWaits: EngineNames['changeIndexOutsideExternalWaits']
 export let createFrozenSegment: EngineNames['createFrozenSegment']
-export let createPendingAdmissions: EngineNames['createPendingAdmissions']
 export let deleteNestedValue: EngineNames['deleteNestedValue']
 export let emitSyncChange: EngineNames['emitSyncChange']
 export let extractVectorFromDoc: EngineNames['extractVectorFromDoc']
@@ -109,12 +106,9 @@ export let lookupOfStoredSynonyms: EngineNames['lookupOfStoredSynonyms']
 export let newSyncEpoch: EngineNames['newSyncEpoch']
 export let oneAtATime: EngineNames['oneAtATime']
 export let prepareDocumentVectors: EngineNames['prepareDocumentVectors']
-export let prepareDocumentWrite: EngineNames['prepareDocumentWrite']
-export let prepareDocumentWrites: EngineNames['prepareDocumentWrites']
 export let prepareStoredSynonyms: EngineNames['prepareStoredSynonyms']
 export let providedDocId: EngineNames['providedDocId']
 export let readHeapStatistics: EngineNames['readHeapStatistics']
-export let recordPendingAdmission: EngineNames['recordPendingAdmission']
 export let removeDocumentVectors: EngineNames['removeDocumentVectors']
 export let requireDocumentObject: EngineNames['requireDocumentObject']
 export let requireDocumentWithinSizeLimit: EngineNames['requireDocumentWithinSizeLimit']
@@ -156,16 +150,16 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
   ;({
     BATCH_CHUNK_SIZE,
     ErrorCodes,
+    MAX_CALLS_ACROSS_INDEX_CHANGES,
     MIN_DOCUMENTS_FOR_SEGMENTS,
     NarsilError,
     admitBufferedUpsert,
     admitInsert,
     arrayPositionsAreStale,
-    asBatchInsertError,
     awaitWriteVisibility,
+    capsEachPartition,
     changeIndexOutsideExternalWaits,
     createFrozenSegment,
-    createPendingAdmissions,
     deleteNestedValue,
     emitSyncChange,
     extractVectorFromDoc,
@@ -185,12 +179,9 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     newSyncEpoch,
     oneAtATime,
     prepareDocumentVectors,
-    prepareDocumentWrite,
-    prepareDocumentWrites,
     prepareStoredSynonyms,
     providedDocId,
     readHeapStatistics,
-    recordPendingAdmission,
     removeDocumentVectors,
     requireDocumentObject,
     requireDocumentWithinSizeLimit,

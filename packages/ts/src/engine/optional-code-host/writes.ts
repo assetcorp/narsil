@@ -29,14 +29,11 @@ import { insertDocument } from '../mutations/insert'
 import {
   admitBufferedUpsert,
   admitInsert,
-  asBatchInsertError,
-  createPendingAdmissions,
+  capsEachPartition,
   providedDocId,
-  recordPendingAdmission,
   requireDocumentObject,
   requireMatchingDocId,
 } from '../mutations/insert-admission'
-import { prepareDocumentWrite, prepareDocumentWrites } from '../mutations/write-preparation'
 import { awaitWriteVisibility } from '../mutations/write-visibility'
 import { loadOptionalWrites } from '../optional-writes-code'
 import { oneAtATime, withOpenIndex } from '../serial-index-update'
@@ -67,11 +64,10 @@ export function writesHostPart() {
     admitBufferedUpsert,
     admitInsert,
     arrayPositionsAreStale,
-    asBatchInsertError,
     awaitWriteVisibility,
+    capsEachPartition,
     changeIndexOutsideExternalWaits,
     createFrozenSegment,
-    createPendingAdmissions,
     deleteNestedValue,
     emitSyncChange,
     extractVectorFromDoc,
@@ -91,12 +87,9 @@ export function writesHostPart() {
     newSyncEpoch,
     oneAtATime,
     prepareDocumentVectors,
-    prepareDocumentWrite,
-    prepareDocumentWrites,
     prepareStoredSynonyms,
     providedDocId,
     readHeapStatistics,
-    recordPendingAdmission,
     removeDocumentVectors,
     requireDocumentObject,
     requireDocumentWithinSizeLimit,

@@ -1,5 +1,4 @@
 import {
-  asBatchInsertError,
   awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   createFrozenSegment,
@@ -11,6 +10,7 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import type { BuiltSegment } from '../orchestration/segments'
+import { asBatchInsertError } from './batch-admissions'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'

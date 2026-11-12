@@ -1,9 +1,13 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { validateRequiredFields } from '../../schema/validator'
+import {
+  BATCH_CHUNK_SIZE,
+  ErrorCodes,
+  loadEmbedCode,
+  MAX_CALLS_ACROSS_INDEX_CHANGES,
+  NarsilError,
+  validateRequiredFields,
+} from '#platform/optional-writes-host'
 import type { AnyDocument } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, MAX_CALLS_ACROSS_INDEX_CHANGES } from '../constants'
 import type { WriteEmbedding } from '../embed'
-import { loadEmbedCode } from '../embed-code'
 import type { IndexHold } from '../index-hold'
 import type { MutationContext } from './context'
 
