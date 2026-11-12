@@ -206,7 +206,7 @@ const main = () => {
     console.log('This event lists no changed files, so every area counts as changed.')
     for (const area of AREAS) touched.add(area)
   } else {
-    console.log(`Changed files:\n${files.join('\n')}`)
+    console.log(`Changed files:\n${files.map(path => JSON.stringify(path)).join('\n')}`)
     for (const path of files) {
       const areas = filesThatTouchEveryArea.has(path) ? AREAS : areasOf(path)
       for (const area of areas) touched.add(area)
