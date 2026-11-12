@@ -13,10 +13,13 @@ import {
 } from '#platform/optional-writes-host'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
+import type { PartitionManager } from '../../partitioning/manager'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
+import type { IndexHold } from '../index-hold'
 import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackRemovedDocument } from './durable-rollback'
+import { runOutside } from './outside-hold'
 import { recordChunk } from './record-batch'
 
 interface PreparedRemoval {
@@ -33,11 +36,13 @@ function asRemoveError(err: unknown): NarsilError {
   return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
 }
 
-async function prepareRemoval(ctx: MutationContext, indexName: string, docId: string): Promise<PreparedRemoval> {
+function validateRemoval(ctx: MutationContext, docId: string): void {
   ctx.guardShutdown()
   validateDocId(docId)
-  await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
+}
 
+function prepareRemoval(ctx: MutationContext, indexName: string, docId: string): PreparedRemoval {
+  ctx.guardShutdown()
   const rebalancing = ctx.isRebalancing(indexName)
   if (ctx.durability && !rebalancing && !ctx.requireManager(indexName).has(docId)) {
     throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
@@ -94,15 +99,25 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
   return () => manager.publication.writeNow(indexChangeOutsideExternalWaits(removeFromIndex))
 }
 
-async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
+async function settleRemovals(
+  ctx: MutationContext,
+  indexName: string,
+  docIds: string[],
+  hold: IndexHold | undefined,
+): Promise<void> {
+  if (docIds.length === 0) return
   const settling = ctx.orchestrator.settlePublications(indexName, 'none')
   if (settling !== undefined) await settling
-  const { docId } = prepared
-  try {
-    await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
-  } catch (err) {
-    console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
-  }
+  if (!ctx.pluginRegistry.hasHooks('afterRemove')) return
+  await runOutside(hold, async () => {
+    for (const docId of docIds) {
+      try {
+        await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
+      } catch (err) {
+        console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
+      }
+    }
+  })
 }
 
 export async function removeDocument(
@@ -110,10 +125,17 @@ export async function removeDocument(
   indexName: string,
   docId: string,
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<void> {
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
-  const prepared = await prepareRemoval(ctx, indexName, docId)
+  validateRemoval(ctx, docId)
+  if (ctx.pluginRegistry.hasHooks('beforeRemove')) {
+    await runOutside(hold, async () => {
+      await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
+    })
+  }
+  const prepared = prepareRemoval(ctx, indexName, docId)
   const apply = applyOfRemoval(ctx, indexName, prepared)
 
   if (ctx.durability) {
@@ -129,8 +151,38 @@ export async function removeDocument(
     await apply()
   }
 
-  if (!prepared.buffered) await settleRemoval(ctx, indexName, prepared)
+  if (!prepared.buffered) await settleRemovals(ctx, indexName, [docId], hold)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
+}
+
+async function refusedRemovalsOf(
+  ctx: MutationContext,
+  indexName: string,
+  docIds: string[],
+  chunkStart: number,
+  chunkEnd: number,
+  hold: IndexHold | undefined,
+): Promise<Map<number, unknown>> {
+  const refused = new Map<number, unknown>()
+  for (let i = chunkStart; i < chunkEnd; i++) {
+    try {
+      validateRemoval(ctx, docIds[i])
+    } catch (err) {
+      refused.set(i, err)
+    }
+  }
+  if (!ctx.pluginRegistry.hasHooks('beforeRemove')) return refused
+  await runOutside(hold, async () => {
+    for (let i = chunkStart; i < chunkEnd; i++) {
+      if (refused.has(i)) continue
+      try {
+        await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId: docIds[i] })
+      } catch (err) {
+        refused.set(i, err)
+      }
+    }
+  })
+  return refused
 }
 
 export async function removeDocumentBatch(
@@ -138,6 +190,7 @@ export async function removeDocumentBatch(
   indexName: string,
   docIds: string[],
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
@@ -145,17 +198,22 @@ export async function removeDocumentBatch(
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
-  const manager = ctx.requireManager(indexName)
-  await manager.publication.write(() => manager.beginBatchRemove())
+  const first = ctx.requireManager(indexName)
+  await first.publication.write(() => first.beginBatchRemove())
+  let manager: PartitionManager | undefined = first
 
   try {
     for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
       const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
+      const refused = await refusedRemovalsOf(ctx, indexName, docIds, chunkStart, chunkEnd, hold)
+      manager = await batchManagerAfterHooks(ctx, indexName, manager)
+      const removed: string[] = []
       const prepared: PreparedRemoval[] = []
       for (let i = chunkStart; i < chunkEnd; i++) {
         if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
         try {
-          prepared.push(await prepareRemoval(ctx, indexName, docIds[i]))
+          if (refused.has(i)) throw refused.get(i)
+          prepared.push(prepareRemoval(ctx, indexName, docIds[i]))
         } catch (err) {
           failed.push({ docId: docIds[i], error: asRemoveError(err) })
         }
@@ -186,22 +244,37 @@ export async function removeDocumentBatch(
             continue
           }
           removal.releaseVectorHolds?.()
-          if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
+          if (!removal.buffered) removed.push(removal.docId)
           succeeded.push(removal.docId)
         }
       } finally {
         for (const removal of prepared) removal.releaseVectorHolds?.()
       }
+      await settleRemovals(ctx, indexName, removed, hold)
+      manager = await batchManagerAfterHooks(ctx, indexName, manager)
 
       if (chunkEnd < docIds.length) {
         await new Promise<void>(r => setTimeout(r, 0))
       }
     }
   } finally {
-    await manager.publication.write(() => manager.endBatchRemove())
+    const ending = manager
+    await ending?.publication.write(() => ending.endBatchRemove())
   }
   ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }
+}
+
+async function batchManagerAfterHooks(
+  ctx: MutationContext,
+  indexName: string,
+  batchManager: PartitionManager | undefined,
+): Promise<PartitionManager | undefined> {
+  const current = ctx.executor.getManager(indexName)
+  if (current === batchManager) return batchManager
+  await batchManager?.publication.write(() => batchManager.endBatchRemove())
+  await current?.publication.write(() => current.beginBatchRemove())
+  return current
 }

@@ -2,7 +2,7 @@ import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { loadEmbedCode } from '../embed-code'
+import type { IndexHold } from '../index-hold'
 import { loadOptionalWrites } from '../optional-writes-code'
 import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
@@ -16,36 +16,23 @@ export async function insertDocument(
   document: AnyDocument,
   docId?: string,
   options?: InsertOptions,
+  hold?: IndexHold,
 ): Promise<string> {
   ctx.guardShutdown()
-  const entry = ctx.requireIndex(indexName)
+  let entry = ctx.requireIndex(indexName)
 
   if (docId !== undefined) requireMatchingDocId(docId, document)
   const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
-  await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
-
-  if (entry.config.required && entry.config.required.length > 0) {
+  const beforeInsert = ctx.pluginRegistry.hasHooks('beforeInsert')
+    ? () => ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
+    : null
+  if (beforeInsert !== null || entry.config.embedding !== undefined) {
+    const { prepareDocumentWrite } = await loadOptionalWrites()
+    entry = await prepareDocumentWrite(ctx, indexName, document, hold, beforeInsert)
+  } else if (entry.config.required !== undefined) {
     validateRequiredFields(document as Record<string, unknown>, entry.config.required)
-  }
-
-  if (entry.config.embedding) {
-    const { assertDocumentCarriesMappedVectors, embedDocumentFields } = await loadEmbedCode()
-    if (entry.embeddingAdapter) {
-      await embedDocumentFields(
-        document as Record<string, unknown>,
-        entry.config.embedding,
-        entry.embeddingAdapter,
-        ctx.abortController.signal,
-      )
-    } else {
-      assertDocumentCarriesMappedVectors(
-        document as Record<string, unknown>,
-        entry.config.embedding,
-        entry.embeddingAdapterName,
-      )
-    }
   }
 
   const sizing = requireDocumentWithinSizeLimit(document as Record<string, unknown>)
@@ -138,17 +125,19 @@ export async function insertDocument(
 
   await ctx.orchestrator.settlePublications(indexName)
 
-  try {
-    await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
-  } catch (err) {
-    console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+  if (ctx.pluginRegistry.hasHooks('afterInsert')) {
+    const runHook = async (): Promise<void> => {
+      try {
+        await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
+      } catch (err) {
+        console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+      }
+    }
+    await (hold === undefined ? runHook() : hold.outside(runHook))
   }
 
-  for (const fieldPath of extractedVectors.keys()) {
-    const vecIndex = insertVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
+  if (ctx.executor.getManager(indexName) === insertManager) {
+    for (const fieldPath of extractedVectors.keys()) insertVecIndexes.get(fieldPath)?.scheduleBuild()
   }
 
   ctx.checkWatermark(indexName, resolvedDocId)

@@ -47,6 +47,13 @@ impl PagedSections {
         if let Some(Cached::List(list)) = cached(self.file.number(), Kind::List, token as u64) {
             return Ok(list);
         }
+        let held = self.postings.length / POSTING_WIDTH_BYTES;
+        if u64::from(start) + u64::from(count) > held {
+            return load_failed(format!(
+                "The postings of token {token} of \"{}\" leave their section",
+                self.key
+            ));
+        }
         let mut bytes = vec![0u8; count as usize * POSTING_WIDTH_BYTES as usize];
         let section = self.file.section(&self.postings);
         let request = ffi::narsil_paged_posting_list {
@@ -107,7 +114,7 @@ impl PagedSections {
         let end = self
             .file
             .read_u32(offsets_section, u64::from(start) + u64::from(count))?;
-        if end < first {
+        if end < first || u64::from(end) * 4 > values_section.length {
             return load_failed(format!(
                 "The positions of token {token} of \"{}\" leave their section",
                 self.key

@@ -277,3 +277,50 @@ func TestTextStoredOnDiskKeepsEveryAnswerThroughCompactionRestartAndRestore(t *t
 	ledger.requireAnswers(t, restored, "after the restore into another engine")
 	ledger.requireExport(t, restored, "after the restore into another engine")
 }
+
+func createDiskTextIndex(t *testing.T, narsil *engine.Narsil) {
+	t.Helper()
+	if err := narsil.CreateIndex(context.Background(), diskTextIndex, engine.IndexConfig{
+		Schema: engine.Schema{"body": engine.FieldString}, Language: "english", TextStorage: engine.TextStorageDisk,
+	}); err != nil {
+		t.Fatalf("the engine refused the index with %s: %v", codeOrMessage(err), err)
+	}
+}
+
+func TestARestoreReplacesAnIndexWhoseTextIsOnDiskThenReplacesTheIndexThatItRestored(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	source := diskTextEngine(t, t.TempDir())
+	defer func() { _ = source.Shutdown(ctx) }()
+	createDiskTextIndex(t, source)
+	archived := &diskTextLedger{bodies: map[string]string{}}
+	archived.insert(t, source, diskTextDocuments)
+	diskTextCheckpoint(t, source, "before the snapshot")
+	var saved bytes.Buffer
+	if err := source.Snapshot(ctx, diskTextIndex, engine.SnapshotOptions{}, &saved); err != nil {
+		t.Fatalf("the snapshot failed with %s: %v", codeOrMessage(err), err)
+	}
+
+	directory := t.TempDir()
+	target := diskTextEngine(t, directory)
+	createDiskTextIndex(t, target)
+	replaced := &diskTextLedger{bodies: map[string]string{}, inserted: diskTextDocuments}
+	replaced.insert(t, target, diskTextInsertedPerRound)
+	diskTextCheckpoint(t, target, "before the first restore")
+	replaced.requireAnswers(t, target, "before the first restore")
+	for _, moment := range []string{"after the restore over the checkpointed index", "after the restore over the restored index"} {
+		if err := target.Restore(ctx, diskTextIndex, bytes.NewReader(saved.Bytes())); err != nil {
+			t.Fatalf("%s, the restore failed with %s: %v", moment, codeOrMessage(err), err)
+		}
+		archived.requireAnswers(t, target, moment)
+		archived.requireExport(t, target, moment)
+	}
+	if err := target.Shutdown(ctx); err != nil {
+		t.Fatalf("the engine failed to shut down with %s: %v", codeOrMessage(err), err)
+	}
+
+	target = diskTextEngine(t, directory)
+	defer func() { _ = target.Shutdown(ctx) }()
+	archived.requireAnswers(t, target, "after the restart")
+	archived.requireExport(t, target, "after the restart")
+}

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::EngineInner;
 use super::index::IndexState;
-use super::index_lifecycle::IndexResidencyState;
+use super::index_lifecycle::{ClosedListing, IndexResidencyState};
 use crate::error::Result;
 use crate::value::Map;
 
@@ -27,7 +27,10 @@ pub struct IndexInfo {
 }
 
 pub(crate) fn list_indexes(engine: &EngineInner) -> Vec<IndexInfo> {
-    let (open, closed) = engine.held_indexes();
+    engine.read_held_indexes(listed_indexes)
+}
+
+fn listed_indexes(open: &[&IndexState], closed: Vec<ClosedListing>) -> Vec<IndexInfo> {
     let mut listed: Vec<IndexInfo> = open
         .iter()
         .map(|index| IndexInfo {

@@ -28,6 +28,32 @@ const RESIDENT_LISTS: [&str; 8] = [
     "partialWords",
 ];
 
+const RESIDENT_TABLES: [&str; 9] = [
+    "tokens",
+    "tokenOffsets",
+    "documentFrequencies",
+    "postingOffsets",
+    "blockLists",
+    "blockListOffsets",
+    "blockSummaries",
+    "documentBlocks",
+    "idSample",
+];
+const SURFACE_FORMS_SECTION: &str = "surfaceForms";
+
+/// Returns the bytes of every section that [`read_resident`] reads whole into memory.
+pub(super) fn resident_bytes(head: &PagedHead) -> u64 {
+    head.sections
+        .iter()
+        .filter(|section| {
+            let name = section.name.as_str();
+            RESIDENT_TABLES.contains(&name)
+                || RESIDENT_LISTS.contains(&name)
+                || name == SURFACE_FORMS_SECTION
+        })
+        .fold(0u64, |total, section| total.saturating_add(section.length))
+}
+
 /// The resident sections of a paged segment once read and checked.
 pub(super) struct Resident {
     pub(super) segment: KeywordSegment,
@@ -270,7 +296,7 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
     for name in RESIDENT_LISTS {
         lists.insert(name, resident_list(file, head, name, key)?);
     }
-    if let Some(section) = head.section("surfaceForms") {
+    if let Some(section) = head.section(SURFACE_FORMS_SECTION) {
         let bytes = file.whole_checked(section)?;
         let value = decode_value(&bytes).or_else(|error| {
             load_failed(format!(

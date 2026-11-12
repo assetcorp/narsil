@@ -49,6 +49,10 @@ func (durable *Durable) unlockLayout(partitions []*partitionLog) {
 	durable.layoutMutex.Unlock()
 }
 
+func (durable *Durable) newPartitionLog(partitionID int) *partitionLog {
+	return &partitionLog{writer: durable.newLogWriter(partitionID)}
+}
+
 func (durable *Durable) installLayout(swap IndexSwap) swappedLayout {
 	previous := swappedLayout{index: durable.handle.Index, detached: durable.handle.NewDetachedIndex,
 		partitions: durable.partitions}

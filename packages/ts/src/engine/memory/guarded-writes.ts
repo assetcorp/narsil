@@ -1,6 +1,7 @@
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions, WriteOptions } from '../../types/schema'
 import type { EngineCore } from '../core'
+import type { IndexHold } from '../index-hold'
 import { dropEngineIndex as dropIndexUnguarded } from '../index-lifecycle'
 import {
   insertDocumentBatch as insertBatchUnguarded,
@@ -99,11 +100,12 @@ export async function insertDocument(
   document: AnyDocument,
   docId?: string,
   options?: InsertOptions,
+  hold?: IndexHold,
 ): Promise<string> {
   const block = blockFor(ctx, indexName)
-  if (block === undefined) return insertUnguarded(ctx, indexName, document, docId, options)
+  if (block === undefined) return insertUnguarded(ctx, indexName, document, docId, options, hold)
   return withReservation(block.grouping, indexName, document, () =>
-    insertUnguarded(ctx, indexName, document, docId, options),
+    insertUnguarded(ctx, indexName, document, docId, options, hold),
   )
 }
 
@@ -112,12 +114,13 @@ export async function insertDocumentBatch(
   indexName: string,
   documents: AnyDocument[],
   options?: InsertOptions,
+  hold?: IndexHold,
 ): Promise<BatchResult> {
   const block = blockFor(ctx, indexName)
-  if (block === undefined) return insertBatchUnguarded(ctx, indexName, documents, options)
+  if (block === undefined) return insertBatchUnguarded(ctx, indexName, documents, options, hold)
   const grouping = block.grouping
   if (grouping === undefined || !Array.isArray(documents) || documents.length === 0) {
-    return insertBatchUnguarded(ctx, indexName, documents, options)
+    return insertBatchUnguarded(ctx, indexName, documents, options, hold)
   }
   const items = documents.map(document => ({ docId: providedDocId(document) ?? '', document }))
   return writeInGroups(grouping, indexName, items, group =>
@@ -126,6 +129,7 @@ export async function insertDocumentBatch(
       indexName,
       group.map(item => item.document),
       options,
+      hold,
     ),
   )
 }
@@ -136,12 +140,13 @@ export async function updateDocument(
   docId: string,
   document: AnyDocument,
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<void> {
   const block = blockFor(ctx, indexName)
-  if (block === undefined) return updateUnguarded(ctx, indexName, docId, document, options)
+  if (block === undefined) return updateUnguarded(ctx, indexName, docId, document, options, hold)
   noteGroupedChurn(ctx, indexName, 1)
   return withReservation(block.grouping, indexName, document, () =>
-    updateUnguarded(ctx, indexName, docId, document, options),
+    updateUnguarded(ctx, indexName, docId, document, options, hold),
   )
 }
 
@@ -150,12 +155,13 @@ export async function updateDocumentBatch(
   indexName: string,
   updates: UpdateEntry[],
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<BatchResult> {
   const block = blockFor(ctx, indexName)
-  if (block === undefined) return updateBatchUnguarded(ctx, indexName, updates, options)
+  if (block === undefined) return updateBatchUnguarded(ctx, indexName, updates, options, hold)
   const grouping = block.grouping
   if (grouping === undefined || !Array.isArray(updates) || updates.length === 0) {
-    return updateBatchUnguarded(ctx, indexName, updates, options)
+    return updateBatchUnguarded(ctx, indexName, updates, options, hold)
   }
   noteGroupedChurn(ctx, indexName, updates.length)
   return writeInGroups(grouping, indexName, updates.map(updateItemOf), group =>
@@ -164,6 +170,7 @@ export async function updateDocumentBatch(
       indexName,
       group.map(item => item.update),
       options,
+      hold,
     ),
   )
 }
@@ -173,9 +180,10 @@ export async function removeDocument(
   indexName: string,
   docId: string,
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<void> {
   noteGroupedChurn(ctx, indexName, 1)
-  await removeUnguarded(ctx, indexName, docId, options)
+  await removeUnguarded(ctx, indexName, docId, options, hold)
   ctx.memoryWriteBlock?.memoryReleased()
 }
 
@@ -184,9 +192,10 @@ export async function removeDocumentBatch(
   indexName: string,
   docIds: string[],
   options?: WriteOptions,
+  hold?: IndexHold,
 ): Promise<BatchResult> {
   if (Array.isArray(docIds)) noteGroupedChurn(ctx, indexName, docIds.length)
-  const result = await removeBatchUnguarded(ctx, indexName, docIds, options)
+  const result = await removeBatchUnguarded(ctx, indexName, docIds, options, hold)
   if (result.succeeded.length > 0) ctx.memoryWriteBlock?.memoryReleased()
   return result
 }

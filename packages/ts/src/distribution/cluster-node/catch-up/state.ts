@@ -17,6 +17,10 @@ export interface AdmissionToWithdraw {
   withdrawing: boolean
 }
 
+export interface OutOfStepRemoval {
+  primaryTerm: number
+}
+
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
@@ -27,6 +31,7 @@ export interface CatchUpState {
   admissionGenerations: Map<string, Map<string, number>>
   lastAdmissionGeneration: number
   startedTerms: Map<string, number>
+  outOfStepRemovals: Map<string, OutOfStepRemoval>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -64,6 +69,7 @@ export function createCatchUpState(): CatchUpState {
     admissionGenerations: new Map(),
     lastAdmissionGeneration: 0,
     startedTerms: new Map(),
+    outOfStepRemovals: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
@@ -191,6 +197,27 @@ export function forgetCatchUpIndex(state: CatchUpState, indexName: string): void
   forgetKeysOfIndex(state.removedReplicas, indexName)
   forgetKeysOfIndex(state.admissionGenerations, indexName)
   forgetKeysOfIndex(state.startedTerms, indexName)
+  forgetKeysOfIndex(state.outOfStepRemovals, indexName)
+}
+
+export function forgetOutOfStepRemovalsOfIndex(state: CatchUpState, indexName: string): void {
+  for (const key of [...state.outOfStepRemovals.keys()]) {
+    if (key.slice(0, key.lastIndexOf(':')) !== indexName) continue
+    state.outOfStepRemovals.delete(key)
+    state.startedTerms.delete(key)
+  }
+}
+
+export function feedsReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): boolean {
+  const key = partitionKey(indexName, partitionId)
+  return (
+    state.cursors.get(key)?.has(replicaNodeId) === true || state.pendingAdmissions.get(key)?.has(replicaNodeId) === true
+  )
 }
 
 /**

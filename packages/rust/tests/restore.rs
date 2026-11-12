@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use narsil::{ErrorCode, Map, Narsil, QueryParams, SearchMode, Value, VectorQuery};
+use narsil::{
+    ErrorCode, IndexConfig, Map, Narsil, QueryParams, SearchMode, Storage, Value, VectorQuery,
+};
 use support::ScratchDirectory;
 use support::portable::{
     Tier, document_of, documents, every_id, fill, held_documents, index_config, snapshot_of,
@@ -19,6 +21,12 @@ const CHILD_DIRECTORY: &str = "NARSIL_RESTORE_CHILD_DIRECTORY";
 const KILL_ROUNDS: u64 = 6;
 const RACING_WRITERS: usize = 4;
 const TAR_END_BYTES: usize = 1_024;
+const TEXT_ON_DISK_WORDS: [&str; 4] = ["harbour", "lantern", "glacier", "ember"];
+const TAR_BLOCK_BYTES: usize = 512;
+const FIRST_SEGMENT_ENTRY: &str = "segments/0/s0000000000000000";
+const TAR_SIZE_OFFSET: usize = 124;
+const TAR_SIZE_BYTES: usize = 12;
+const DAMAGE_POINTS: usize = 16;
 
 fn words_of(document: &Map) -> Vec<String> {
     let mut words = Vec::new();
@@ -118,6 +126,112 @@ fn a_snapshot_restores_whole_on_every_tier_and_keeps_later_writes_across_a_resta
         );
         require_term_count(&reopened, "copy", "harbour", &expected);
     }
+}
+
+fn text_on_disk_config() -> IndexConfig {
+    IndexConfig {
+        text_storage: Some(Storage::Disk),
+        ..index_config()
+    }
+}
+
+fn require_whole_index(narsil: &Narsil, index: &str, ids: &[String], held: &BTreeMap<String, Map>) {
+    assert_eq!(&held_documents(narsil, index, ids), held, "{index}");
+    assert_eq!(
+        narsil.count_documents(index).expect("the count reads"),
+        held.len() as u64,
+        "{index}"
+    );
+    for word in TEXT_ON_DISK_WORDS {
+        require_term_count(narsil, index, word, held);
+    }
+}
+
+fn copies_with_a_damaged_segment(archive: &[u8]) -> Vec<Vec<u8>> {
+    let name = FIRST_SEGMENT_ENTRY.as_bytes();
+    let header = (0..archive.len())
+        .step_by(TAR_BLOCK_BYTES)
+        .find(|&at| archive[at..].starts_with(name))
+        .expect("the archive holds an entry for the first segment");
+    let size_field = &archive[header + TAR_SIZE_OFFSET..header + TAR_SIZE_OFFSET + TAR_SIZE_BYTES];
+    let size_text = String::from_utf8_lossy(size_field);
+    let size = usize::from_str_radix(size_text.trim_matches(|c: char| c == '\0' || c == ' '), 8)
+        .expect("the tar header gives the segment's size in octal");
+    let body = header + TAR_BLOCK_BYTES;
+    (1..=DAMAGE_POINTS)
+        .map(|point| {
+            let mut damaged = archive.to_vec();
+            damaged[body + size * point / (DAMAGE_POINTS + 1)] ^= 0xff;
+            damaged
+        })
+        .collect()
+}
+
+#[test]
+fn a_snapshot_of_text_on_disk_restores_every_document_and_serves_through_writes_and_a_restart() {
+    let source_root = ScratchDirectory::new("restore-disk-source");
+    let source = Tier::Log.open(source_root.path());
+    source
+        .create_index("source", text_on_disk_config())
+        .expect("the source index is created");
+    let first = documents("doc", 0..300);
+    let later = documents("later", 0..60);
+    let replaced = documents("replaced", 0..120);
+    let added = documents("added", 0..40);
+    let ids = every_id([&first, &later, &replaced, &added]);
+    let mut archived = first.clone();
+    fill(&source, "source", &first);
+    source.checkpoint("source").expect("the checkpoint writes");
+    fill(&source, "source", &later);
+    let removed: Vec<String> = first.keys().step_by(7).cloned().collect();
+    for id in &removed {
+        source.remove("source", id).expect("the removal applies");
+        archived.remove(id);
+    }
+    archived.extend(later.clone());
+    source.checkpoint("source").expect("the checkpoint writes");
+    let archive = snapshot_of(&source, "source");
+
+    let root = ScratchDirectory::new("restore-disk-target");
+    let target = Tier::Log.open(root.path());
+    target
+        .create_index("copy", text_on_disk_config())
+        .expect("the index is created");
+    fill(&target, "copy", &replaced);
+    target.checkpoint("copy").expect("the checkpoint writes");
+    for (point, damaged) in copies_with_a_damaged_segment(&archive).iter().enumerate() {
+        let refused = target
+            .restore("copy", &mut damaged.as_slice())
+            .expect_err("an archive whose paged segment holds a flipped byte restored");
+        assert_eq!(
+            refused.code(),
+            ErrorCode::PERSISTENCE_CRC_MISMATCH,
+            "damage point {point}"
+        );
+        require_whole_index(&target, "copy", &ids, &replaced);
+    }
+    for index in ["copy", "fresh"] {
+        target
+            .restore(index, &mut archive.as_slice())
+            .expect("the archive restores");
+        require_whole_index(&target, index, &ids, &archived);
+    }
+
+    let mut expected = archived.clone();
+    fill(&target, "copy", &added);
+    expected.extend(added.clone());
+    for id in archived.keys().step_by(5) {
+        target.remove("copy", id).expect("the removal applies");
+        expected.remove(id);
+    }
+    target.checkpoint("copy").expect("the checkpoint writes");
+    require_whole_index(&target, "copy", &ids, &expected);
+
+    target.shutdown().expect("the engine shuts down");
+    drop(target);
+    let reopened = Tier::Log.open(root.path());
+    require_whole_index(&reopened, "copy", &ids, &expected);
+    require_whole_index(&reopened, "fresh", &ids, &archived);
 }
 
 fn damaged_copies(archive: &[u8]) -> Vec<(&'static str, Vec<u8>)> {

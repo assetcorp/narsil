@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::durable::log::PendingLog;
 use super::index::IndexState;
+use super::vectors::HeldWrite;
 use crate::config::validate_doc_id;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::indexed::IndexedDocument;
@@ -16,7 +17,10 @@ use crate::schema::{
 };
 use crate::value::{Map, Value};
 
-pub(crate) use batch::{insert_batch, remove_batch, update_batch};
+pub(crate) use batch::{
+    ChunkWrite, InsertChunk, UpdateChunk, insert_chunk, insert_chunks, remove_batch, update_chunk,
+    update_chunks,
+};
 pub(crate) use replay::{place_document, replay_delete, replay_index};
 
 /// Gives the ID of a document inserted without one, as the engine's ID generator says.
@@ -169,8 +173,8 @@ fn apply_insert(
     appended
 }
 
-fn held_document(held: &mut Option<Map>) -> Result<&mut Map> {
-    held.as_mut().ok_or_else(|| {
+fn held_document(held: Option<&Map>) -> Result<&Map> {
+    held.ok_or_else(|| {
         NarsilError::new(
             ErrorCode::DOC_VALIDATION_FAILED,
             "The write received no document",
@@ -181,18 +185,19 @@ fn held_document(held: &mut Option<Map>) -> Result<&mut Map> {
 /// Inserts one document and returns its ID, after the checks that every Narsil engine applies in the same order.
 ///
 /// The document stays in `held` until the write holds the index's write lock, so that a caller can run the write
-/// again where the lock refuses it.
+/// again where the lock refuses it, and the write embeds it again only where the index that it runs on has
+/// another embedding adapter.
 pub(crate) fn insert(
     index: &IndexState,
-    held: &mut Option<Map>,
+    held: &mut HeldWrite,
     doc_id: Option<&str>,
     next_id: &NextDocumentId<'_>,
 ) -> Result<String> {
-    let document = held_document(held)?;
+    let document = held_document(held.document())?;
     let id = insert_doc_id(doc_id, document, next_id)?;
     require_required_fields(index, document)?;
-    index.vectors.embed_for_write(document)?;
-    require_document_within_size_limit(document)?;
+    index.vectors.embed_held_write(&index.name, held)?;
+    require_document_within_size_limit(held_document(held.prepared())?)?;
     let appended = {
         let _writer = index.lock_writes()?;
         let document = held.take().ok_or_else(|| index.not_found(&id))?;
@@ -272,18 +277,19 @@ fn replace_document(
 }
 
 /// Runs the checks of an update that come before the write lock, embedding the text of the document on the way.
-fn prepare_update(index: &IndexState, doc_id: &str, document: &mut Map) -> Result<()> {
+fn prepare_update(index: &IndexState, doc_id: &str, held: &mut HeldWrite) -> Result<()> {
     validate_doc_id(doc_id)?;
+    let document = held_document(held.document())?;
     require_matching_doc_id(doc_id, document)?;
     require_required_fields(index, document)?;
-    index.vectors.embed_for_write(document)?;
-    require_document_within_size_limit(document)
+    index.vectors.embed_held_write(&index.name, held)?;
+    require_document_within_size_limit(held_document(held.prepared())?)
 }
 
 /// Replaces the document stored under `doc_id` with the document in `held`, which stays there until the write
-/// holds the index's write lock.
-pub(crate) fn update(index: &IndexState, doc_id: &str, held: &mut Option<Map>) -> Result<()> {
-    prepare_update(index, doc_id, held_document(held)?)?;
+/// holds the index's write lock, as [`insert`] keeps its document.
+pub(crate) fn update(index: &IndexState, doc_id: &str, held: &mut HeldWrite) -> Result<()> {
+    prepare_update(index, doc_id, held)?;
     let appended = {
         let _writer = index.lock_writes()?;
         let document = held.take().ok_or_else(|| index.not_found(doc_id))?;

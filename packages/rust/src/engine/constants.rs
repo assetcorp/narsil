@@ -3,6 +3,7 @@ pub(crate) const EXPORT_CHUNK_BYTES: usize = 1_048_576;
 pub(crate) const IMPORT_BATCH_DOCUMENTS: usize = 1_000;
 pub(crate) const MAX_IMPORT_REFUSALS_REPORTED: usize = 1_000;
 pub(crate) const MAX_REPLACED_WRITE_ATTEMPTS: usize = 8;
+pub(crate) const MAX_CALLS_ACROSS_INDEX_CHANGES: u32 = 3;
 pub(crate) const MAX_REBALANCE_QUEUED_WRITES: usize = 10_000;
 pub(crate) const REBUILD_CHUNK_DOCUMENTS: usize = 1_000;
 pub(crate) const REBUILD_SWITCH_BACKLOG_DOCUMENTS: usize = 1_000;
