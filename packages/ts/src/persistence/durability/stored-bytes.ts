@@ -30,11 +30,6 @@ export function savedBytesOfManifest(manifest: SegmentManifest): StoredBytes {
   return { bytes: bytes + vectorBytes, vectorBytes, partitions }
 }
 
-export interface StoredSize {
-  savedBytes?: number
-  logBytes?: number
-}
-
 const savedBytesByPartition = new WeakMap<StoredBytes, ReadonlyMap<number, number>>()
 
 export function partitionSavedBytes(saved: StoredBytes): ReadonlyMap<number, number> {

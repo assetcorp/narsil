@@ -15,7 +15,7 @@ import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
 import type { RestoreStaging } from './restore-staging'
-import type { StoredBytes, StoredSize } from './stored-bytes'
+import type { StoredBytes } from './stored-bytes'
 import type { SyncStorage } from './sync/storage'
 
 export type { DurabilityConfig, TermStart }
@@ -118,8 +118,9 @@ export interface DurabilityManager {
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
   measureRestoredStorage?(indexName: string, restored?: StoredBytes): Promise<void>
-  storedSize?(indexName: string, recordedSavedBytes?: number): StoredSize
-  withPartitionStoredSizes?(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
+  savedBytes(indexName: string, recordedSavedBytes?: number): number | undefined
+  logBytes(indexName: string): number | undefined
+  addStoredSizes(indexName: string, stats: PartitionStatsResult[]): void
   vectorSavedBytes?(indexName: string): number | undefined
   syncStorage?(): SyncStorage
   historyStorage?(): HistoryStorage
