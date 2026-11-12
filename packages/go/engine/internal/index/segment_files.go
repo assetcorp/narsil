@@ -33,11 +33,12 @@ func (ix *Index) AttachSegmentFile(partitionID int, file *keyword.Segment, docum
 type PagedSegmentFile struct {
 	Path         string
 	RemovalPages *core.PageCache
-	Replaces     func(fieldSchema map[string]string, tombstones []string) error
+	Replaces     func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error
 }
 
 func (ix *Index) attachOpenedPaged(partitionID int, paged *segments.Paged, file PagedSegmentFile) (bool, error) {
-	if err := file.Replaces(paged.FieldSchema(), paged.Tombstones()); err != nil || paged.DocumentCount() == 0 {
+	err := file.Replaces(paged.FieldSchema(), paged.Tombstones(), paged.DocumentCount())
+	if err != nil || paged.DocumentCount() == 0 {
 		return false, err
 	}
 	return true, ix.Write(func(w *Write) error {

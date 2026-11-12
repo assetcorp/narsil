@@ -226,7 +226,10 @@ impl DurabilityStore {
             in_turn(&state, || {
                 let lost = |error| inner.mark_fatal(error);
                 state.mark_replaced();
-                commit_staged(staging, || inner.close_index_logs(&index_name), &lost)?;
+                let committed =
+                    commit_staged(staging, || inner.close_index_logs(&index_name), &lost);
+                let _ = inner.directory.measure_log_bytes(&index_name);
+                committed?;
                 for partition in checkpoint {
                     let start = LogStart {
                         active: None,

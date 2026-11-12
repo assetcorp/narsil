@@ -64,6 +64,7 @@ func (meta Metadata) Value() codec.OrderedMap {
 		is.Put(&entries, "vector_fields", vectorFieldsValue(meta.VectorFields))
 	}
 	is.PutOptional(&entries, "document_count", meta.DocumentCount, is.Number[uint64])
+	is.PutOptional(&entries, "saved_bytes", meta.SavedBytes, is.Number[uint64])
 	if meta.Embedding != nil {
 		is.Put(&entries, "embedding", meta.Embedding.Value())
 	}

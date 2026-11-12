@@ -14,6 +14,8 @@ type capture struct {
 	whole      []bool
 	logged     []bool
 	left       uint64
+	live       []int
+	rewritten  map[uint32]bool
 	vectors    []checkpoint.VectorCapture
 	partitions []checkpoint.PartitionCapture
 	selections []*heldSelections

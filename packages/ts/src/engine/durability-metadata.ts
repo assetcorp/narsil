@@ -23,6 +23,7 @@ export interface MetadataConfig {
   indexUuid?: string
   heldPartitions?: number[]
   documentCount: number
+  savedBytes?: number
   partitionCount: number
   schema: Record<string, string>
   language: string
@@ -78,6 +79,7 @@ export function metadataFromConfig(
   config: MetadataConfig,
   partitionCount: number | undefined,
   documentCount?: number,
+  savedBytes?: number,
 ): IndexMetadata {
   const metadata: IndexMetadata = {
     indexName,
@@ -93,6 +95,8 @@ export function metadataFromConfig(
     engineVersion: VERSION,
   }
   metadata.documentCount = documentCount ?? config.documentCount
+  const recordedSavedBytes = savedBytes ?? config.savedBytes
+  if (recordedSavedBytes !== undefined) metadata.savedBytes = recordedSavedBytes
   const vectorFields = vectorFieldsOf(config.schema, config.vectorPromotion)
   if (vectorFields !== null) {
     metadata.vectorFields = vectorFields
@@ -175,6 +179,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
     ...(entry.heldPartitions !== null ? { heldPartitions: entry.heldPartitions } : {}),
     documentCount: entry.documentCount,
+    savedBytes: entry.savedBytes,
     partitionCount: entry.partitionCount,
     schema: flattenSchema(entry.config.schema) as Record<string, string>,
     language: entry.language.name,

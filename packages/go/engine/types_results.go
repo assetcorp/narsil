@@ -46,7 +46,8 @@ type ImportRefusal = model.ImportRefusal
 type DocumentImportResult = model.DocumentImportResult
 
 // IndexStats holds the document count, partition count, memory estimate,
-// language, and schema of one index.
+// language, and schema of one index, with its saved size and log size where
+// durability records them.
 type IndexStats = model.IndexStats
 
 // IndexState reports whether an index is loaded.
@@ -64,7 +65,8 @@ const (
 // IndexInfo describes one index that ListIndexes returns.
 type IndexInfo = model.IndexInfo
 
-// PartitionStatsResult holds the figures of one partition.
+// PartitionStatsResult holds the document count, memory estimate, saved size,
+// and log size of one partition.
 type PartitionStatsResult = model.PartitionStatsResult
 
 // SuggestedTerm is one completion of a prefix with the number of documents that hold it.

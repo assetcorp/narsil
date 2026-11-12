@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from os import PathLike
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from narsil._errors import NarsilError
 from narsil._protocols import BinaryReader, BinaryWriter
@@ -136,6 +136,8 @@ class IndexStats(TypedDict):
     documentCount: int
     partitionCount: int
     estimatedMemoryBytes: int
+    savedBytes: NotRequired[int]
+    logBytes: NotRequired[int]
     language: str
     schema: dict[str, Any]
 
@@ -144,6 +146,8 @@ class PartitionStats(TypedDict):
     partitionId: int
     documentCount: int
     estimatedMemoryBytes: int
+    savedBytes: NotRequired[int]
+    logBytes: NotRequired[int]
 
 
 class MemoryStats(TypedDict):

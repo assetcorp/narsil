@@ -52,6 +52,8 @@ export function validateCountPayload(decoded: unknown): CountPayload {
   return decoded as unknown as CountPayload
 }
 
+const STORED_SIZE_FIELDS = ['savedBytes', 'vectorSavedBytes', 'logBytes'] as const
+
 export function validateCountResultPayload(decoded: unknown): CountResultPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid CountResultPayload: expected an object')
@@ -72,6 +74,10 @@ export function validateCountResultPayload(decoded: unknown): CountResultPayload
       MAX_COUNT_VALUE,
       CONFIG_INVALID,
     )
+    for (const figure of STORED_SIZE_FIELDS) {
+      if (entry[figure] === undefined) continue
+      validateNonNegativeInteger(entry[figure], `partitions[${i}].${figure}`, MAX_COUNT_VALUE, CONFIG_INVALID)
+    }
   }
   validateStringField(decoded.language, 'language', MAX_LANGUAGE_NAME_LENGTH, CONFIG_INVALID)
   return decoded as unknown as CountResultPayload

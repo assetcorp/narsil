@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 use super::backing::{Backing, CheckpointTarget};
 use super::checkpoint::{CheckpointPlan, build_checkpoint, write_checkpoint_locked};
+use super::config::CheckpointLimits;
 use super::constants::ARCHIVE_COPY_CHUNK_BYTES;
 use super::metadata::{created_metadata, metadata_of};
 use crate::analysis::StopWords;
 use crate::config::{PayloadFacts, StopWordsSetting, TokenizerSetting, configuration_payload};
 use crate::durability::archive_pins::PinnedCheckpoint;
 use crate::durability::checkpoint_store::{CheckpointStore, FileLength, read_listed_payload};
-use crate::durability::constants::DEFAULT_COMPACTION_THRESHOLD;
 use crate::durability::persistence::MemoryPersistence;
 use crate::durability::snapshot_only::SnapshotStore;
 use crate::engine::index::IndexState;
@@ -179,7 +179,7 @@ fn memory_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint> {
     let plan = CheckpointPlan {
         applied: &applied,
         metadata: current_metadata(index),
-        compaction_threshold: DEFAULT_COMPACTION_THRESHOLD,
+        limits: CheckpointLimits::default(),
         upgraded: None,
     };
     let built = build_checkpoint(&mut target, index, &partitions, plan)?;

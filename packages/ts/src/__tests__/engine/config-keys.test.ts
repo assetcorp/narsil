@@ -19,6 +19,17 @@ describe('a configuration that names a setting createNarsil does not take', () =
     await expect(createNarsil(config)).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
   })
 
+  it.each([
+    ['without a directory', loose({ durability: { directroy: '/tmp/narsil-typo' } })],
+    ['on the snapshot tier', loose({ durability: { tier: 'snapshot', rewriteBytes: 4_096 } })],
+  ])('reports the misspelt durability setting itself %s', async (_, config) => {
+    const misspelt = Object.keys(config.durability ?? {}).find(key => key !== 'tier')
+    await expect(createNarsil(config)).rejects.toMatchObject({
+      code: 'CONFIG_INVALID',
+      details: { setting: `durability.${misspelt}` },
+    })
+  })
+
   it('starts an engine whose settings are all known', async () => {
     const engine = await createNarsil({ workers: { enabled: false }, plugins: [{ name: 'audit' }] })
     await engine.shutdown()
