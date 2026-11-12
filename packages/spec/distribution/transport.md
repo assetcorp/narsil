@@ -385,7 +385,7 @@ The controller checks eight things:
 - The partition is in `ACTIVE`.
 - `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
 - The replica's node is registered with the cluster coordinator, because the controller removes an unregistered node from the in-sync set on its next allocator run.
-- The replica's registered `startedAt` equals `replicaStartedAt`, because a node that restarted after it acknowledged the proof can hold an empty copy.
+- The replica's registered `startedAt` equals `replicaStartedAt`, which the controller checks in the same atomic operation as the write that adds the replica, through the `replicaRegistration` of [putAllocation](cluster.md#getallocationindexname-and-putallocationindexname-table-expectedversion-writernodeid-replicaregistration), because a node that restarted after it acknowledged the proof can hold an empty copy.
 - `inSyncVersion` equals the assignment's stored [inSyncVersion](cluster.md#insyncversion), because a request that the primary sent before a removal must never add the replica back.
 
 The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.

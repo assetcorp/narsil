@@ -18,7 +18,7 @@ ClusterCoordinator {
   async watchNodes(handler: (event: NodeEvent) -> nothing) -> (() -> nothing)
 
   async getAllocation(indexName: string) -> AllocationTable or absent
-  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent, writerNodeId: string) -> boolean
+  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent, writerNodeId: string, replicaRegistration: { nodeId: string, startedAt: string } or absent) -> boolean
   async deleteAllocation(indexName: string) -> nothing
   async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
@@ -50,6 +50,7 @@ ClusterCoordinator {
 - Adds the node to the cluster's node registry.
 - The registration must carry a lease-based heartbeat. A node that fails to renew its lease within the TTL loses its registration, and the coordinator emits a `node_left` event.
 - Registering an existing `nodeId` again updates that registration, which is what a node does after a restart.
+- The coordinator also keeps the registration's `startedAt` on the same lease, in a record that only `registerNode` writes, so that `putAllocation` can compare it while a memory report rewrites the registration. A coordinator backed by etcd keeps it under `_narsil/nodes/{nodeId}/started-at`.
 
 ### deregisterNode(nodeId)
 
@@ -64,13 +65,14 @@ ClusterCoordinator {
 
 - Registers a callback that fires as nodes join and leave. A `node_joined` event follows a new registration, and a `node_left` event follows an expired lease or an explicit deregistration.
 
-### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion, writerNodeId)
+### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion, writerNodeId, replicaRegistration)
 
 - These read and write the allocation table of one index.
 - `putAllocation` must be atomic: the whole table is written or nothing is.
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
 - `putAllocation` must also check, in the same atomic operation, that the node named by `writerNodeId` holds the `_narsil/controller` lease, and it must return false where it does not, so that a controller whose lease expired before its next renewal cannot write a table.
+- `putAllocation` takes an optional `replicaRegistration` of `{ nodeId, startedAt }`, and with one supplied it must also check, in the same atomic operation, that the node is registered with that `startedAt`, and return false where it is not, so that a replica that restarted after the controller read its registration cannot enter the in-sync set.
 
 ### deleteAllocation(indexName)
 
