@@ -23,11 +23,9 @@ type EngineNames = Pick<
   | 'asBatchInsertError'
   | 'awaitWriteVisibility'
   | 'changeIndexOutsideExternalWaits'
-  | 'collectRequiredFieldFailures'
   | 'createFrozenSegment'
   | 'createPendingAdmissions'
   | 'deleteNestedValue'
-  | 'embedChunkDocuments'
   | 'emitSyncChange'
   | 'extractVectorFromDoc'
   | 'fnv1a'
@@ -46,6 +44,8 @@ type EngineNames = Pick<
   | 'newSyncEpoch'
   | 'oneAtATime'
   | 'prepareDocumentVectors'
+  | 'prepareDocumentWrite'
+  | 'prepareDocumentWrites'
   | 'prepareStoredSynonyms'
   | 'providedDocId'
   | 'readHeapStatistics'
@@ -88,11 +88,9 @@ export let arrayPositionsAreStale: EngineNames['arrayPositionsAreStale']
 export let asBatchInsertError: EngineNames['asBatchInsertError']
 export let awaitWriteVisibility: EngineNames['awaitWriteVisibility']
 export let changeIndexOutsideExternalWaits: EngineNames['changeIndexOutsideExternalWaits']
-export let collectRequiredFieldFailures: EngineNames['collectRequiredFieldFailures']
 export let createFrozenSegment: EngineNames['createFrozenSegment']
 export let createPendingAdmissions: EngineNames['createPendingAdmissions']
 export let deleteNestedValue: EngineNames['deleteNestedValue']
-export let embedChunkDocuments: EngineNames['embedChunkDocuments']
 export let emitSyncChange: EngineNames['emitSyncChange']
 export let extractVectorFromDoc: EngineNames['extractVectorFromDoc']
 export let fnv1a: EngineNames['fnv1a']
@@ -111,6 +109,8 @@ export let lookupOfStoredSynonyms: EngineNames['lookupOfStoredSynonyms']
 export let newSyncEpoch: EngineNames['newSyncEpoch']
 export let oneAtATime: EngineNames['oneAtATime']
 export let prepareDocumentVectors: EngineNames['prepareDocumentVectors']
+export let prepareDocumentWrite: EngineNames['prepareDocumentWrite']
+export let prepareDocumentWrites: EngineNames['prepareDocumentWrites']
 export let prepareStoredSynonyms: EngineNames['prepareStoredSynonyms']
 export let providedDocId: EngineNames['providedDocId']
 export let readHeapStatistics: EngineNames['readHeapStatistics']
@@ -164,11 +164,9 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     asBatchInsertError,
     awaitWriteVisibility,
     changeIndexOutsideExternalWaits,
-    collectRequiredFieldFailures,
     createFrozenSegment,
     createPendingAdmissions,
     deleteNestedValue,
-    embedChunkDocuments,
     emitSyncChange,
     extractVectorFromDoc,
     fnv1a,
@@ -187,6 +185,8 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     newSyncEpoch,
     oneAtATime,
     prepareDocumentVectors,
+    prepareDocumentWrite,
+    prepareDocumentWrites,
     prepareStoredSynonyms,
     providedDocId,
     readHeapStatistics,

@@ -48,8 +48,20 @@ function applyEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceCo
   }
 }
 
-async function afterEntry(manager: PartitionManager, entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
+export type DeferHooks = (work: () => Promise<void>) => void
+
+async function afterEntry(
+  manager: PartitionManager,
+  entry: WAQEntry,
+  ctx: RebalanceContext,
+  deferHooks: DeferHooks | undefined,
+): Promise<void> {
   for (const field of entry.vectors.keys()) manager.getVectorIndexes().get(field)?.scheduleBuild()
+  if (deferHooks === undefined) await runEntryHooks(entry, ctx)
+  else deferHooks(() => runEntryHooks(entry, ctx))
+}
+
+async function runEntryHooks(entry: WAQEntry, ctx: RebalanceContext): Promise<void> {
   try {
     if (entry.action === 'remove') {
       await ctx.pluginRegistry.runHook('afterRemove', { indexName: entry.indexName, docId: entry.docId })
@@ -79,6 +91,7 @@ export async function replayQueued(
   queue: WriteAheadQueue,
   ctx: RebalanceContext,
   deferredHooks?: Array<() => Promise<void>>,
+  deferHooks?: DeferHooks,
 ): Promise<void> {
   for (;;) {
     const entry = queue.first()
@@ -106,7 +119,7 @@ export async function replayQueued(
       queue.fail(error)
       throw error
     }
-    if (deferredHooks === undefined) await afterEntry(manager, entry, ctx)
-    else deferredHooks.push(() => afterEntry(manager, entry, ctx))
+    if (deferredHooks === undefined) await afterEntry(manager, entry, ctx, deferHooks)
+    else deferredHooks.push(() => afterEntry(manager, entry, ctx, deferHooks))
   }
 }
