@@ -305,8 +305,9 @@ export async function createClusterLocalEngine(
       try {
         const stats = core.requireManager(indexName).getPartitionStats()
         const durable = core.durability?.manager
+        durable?.addStoredSizes(indexName, stats)
         return {
-          partitions: durable?.withPartitionStoredSizes?.(indexName, stats) ?? stats,
+          partitions: stats,
           vectorSavedBytes: durable?.vectorSavedBytes?.(indexName),
         }
       } finally {

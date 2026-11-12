@@ -15,7 +15,6 @@ import {
   partitionSavedBytes,
   type SavedBytesRecord,
   type StoredBytes,
-  type StoredSize,
   savedBytesOfManifest,
 } from './stored-bytes'
 import { createSyncStorage, type SyncStorage } from './sync/storage'
@@ -37,8 +36,9 @@ export interface IndexStorageAccessDeps {
 }
 
 export interface StoredBytesAccess {
-  storedSize(indexName: string, recordedSavedBytes?: number): StoredSize
-  withPartitionStoredSizes(indexName: string, stats: PartitionStatsResult[]): PartitionStatsResult[]
+  savedBytes(indexName: string, recordedSavedBytes?: number): number | undefined
+  logBytes(indexName: string): number | undefined
+  addStoredSizes(indexName: string, stats: PartitionStatsResult[]): void
   vectorSavedBytes(indexName: string): number | undefined
   measureRestoredStorage(indexName: string, restored?: StoredBytes): Promise<void>
 }
@@ -104,18 +104,22 @@ export function createIndexStorageAccess(deps: IndexStorageAccessDeps): IndexSto
   }
   const sizeIsKnown = (indexName: string): boolean => savedBytes.of(indexName) !== undefined || indexes.has(indexName)
   const storedBytesAccess: StoredBytesAccess = {
-    storedSize(indexName, recordedSavedBytes) {
-      if (!sizeIsKnown(indexName)) return recordedSavedBytes === undefined ? {} : { savedBytes: recordedSavedBytes }
-      return { savedBytes: savedBytes.of(indexName)?.bytes ?? 0, logBytes: logBytes.bytesOf(indexName) ?? 0 }
+    savedBytes(indexName, recordedSavedBytes) {
+      const saved = savedBytes.of(indexName)
+      if (saved !== undefined) return saved.bytes
+      return indexes.has(indexName) ? 0 : recordedSavedBytes
     },
-    withPartitionStoredSizes(indexName, stats) {
-      if (!sizeIsKnown(indexName)) return stats
+    logBytes(indexName) {
+      if (!sizeIsKnown(indexName)) return undefined
+      return logBytes.bytesOf(indexName) ?? 0
+    },
+    addStoredSizes(indexName, stats) {
+      if (!sizeIsKnown(indexName)) return
       const saved = partitionSavedBytes(savedBytes.of(indexName) ?? NOTHING_SAVED)
       for (const partition of stats) {
         partition.savedBytes = saved.get(partition.partitionId) ?? 0
         partition.logBytes = logBytes.partitionBytesOf(indexName, partition.partitionId)
       }
-      return stats
     },
     vectorSavedBytes(indexName) {
       return sizeIsKnown(indexName) ? (savedBytes.of(indexName)?.vectorBytes ?? 0) : undefined
