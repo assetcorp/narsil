@@ -89,9 +89,12 @@ func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model
 // that the query reads. When a restore puts another embedding adapter on the
 // index during the embedding, the engine embeds the text again with that
 // adapter, and when a restore replaces the index during the rerank call, the
-// query runs again on the restored index. The query returns CodeWorkerBusy
-// once the adapter has changed after three embeddings, or once restores have
-// replaced the index during three rerank calls.
+// query runs again on the restored index. A rebalance or an analysis change
+// during the rerank call also runs the query again, on the index that it put
+// in place. The query returns CodeWorkerBusy once the adapter has changed
+// after three embeddings, or once a restore, a drop, or a close has replaced
+// the index during each of three rerank calls, while the reruns after a
+// rebalance or an analysis change count toward no limit.
 func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams) (QueryResult, error) {
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
