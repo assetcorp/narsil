@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { NarsilConfig } from '../../types/config'
-import type { NarsilPlugin } from '../../types/plugins'
+import type { InsertContext, NarsilPlugin } from '../../types/plugins'
 import type { BatchResult } from '../../types/results'
 import type { IndexConfig } from '../../types/schema'
 
@@ -323,6 +323,97 @@ describe.each([
         const next = await reopened(engine, settings, new Map([['titles', TITLES]]))
         expect(await storedVector(next, described.id)).toEqual(TITLES)
         expect(await next.get(INDEX, bodiless.id)).toBeUndefined()
+      }
+    },
+  )
+
+  const NAMES = [1, 1]
+
+  async function writeWithHook(
+    beforeInsert: (ctx: InsertContext, restoreTo: (name: string) => Promise<void>) => Promise<void>,
+  ) {
+    const archives = new Map([
+      ['titles', await archiveOf(configFor('titles', 'title'), new Map([['titles', TITLES]]), new Map())],
+      ['names', await archiveOf(configFor('names', 'title'), new Map([['names', NAMES]]), new Map())],
+    ])
+    const settings = await durableSettings(durable, WORKERS_OFF)
+    const calledWhileCurrent: Array<[string, string]> = []
+    let current = 'bodies'
+    let engine: Narsil | undefined
+    const restoreTo = async (name: string): Promise<void> => {
+      const archive = archives.get(name)
+      if (archive === undefined) return
+      archives.delete(name)
+      await engineOf(engine).restore(INDEX, archive)
+      current = name
+    }
+    const plugin: NarsilPlugin = { name: 'restoring-before-insert', beforeInsert: ctx => beforeInsert(ctx, restoreTo) }
+    engine = await engineWith({ ...settings, plugins: [plugin] })
+    for (const [name, vector] of [
+      ['bodies', BODIES],
+      ['titles', TITLES],
+      ['names', NAMES],
+    ] as const) {
+      const texts: string[] = []
+      engine.registerEmbeddingAdapter(
+        name,
+        batchEmbedding([...vector], texts, async () => {
+          calledWhileCurrent.push([name, current])
+          if (name === 'bodies') await restoreTo('titles')
+        }),
+      )
+    }
+    await engine.createIndex(INDEX, configFor('bodies', 'body'))
+    const result = await engine.insertBatch(INDEX, [{ ...described }, { ...bodiless }])
+    return { engine, settings, result, calledWhileCurrent }
+  }
+
+  it(
+    'runs the beforeInsert hook of the refused document only once the restored adapter has embedded it',
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const hooked: Array<[string, number[] | null]> = []
+      const { engine, result } = await writeWithHook(async ({ docId, document }) => {
+        const embedding = document.embedding
+        const vector =
+          embedding instanceof Float32Array || Array.isArray(embedding)
+            ? Array.from(embedding as ArrayLike<number>)
+            : null
+        hooked.push([docId, vector])
+        if (vector === null) throw new Error(`Document ${docId} reached beforeInsert without its vector`)
+      })
+
+      expect(result.failed.map(failure => failure.docId)).toEqual([])
+      expect(hooked).toEqual([
+        [described.id, BODIES],
+        [bodiless.id, TITLES],
+      ])
+      expect(await storedVector(engine, described.id)).toEqual(TITLES)
+      expect(await storedVector(engine, bodiless.id)).toEqual(TITLES)
+    },
+  )
+
+  it(
+    'calls each adapter only while it embeds for the index in place when the refused document hook restores again',
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const { engine, settings, result, calledWhileCurrent } = await writeWithHook(async ({ docId }, restoreTo) => {
+        if (docId === bodiless.id) await restoreTo('names')
+      })
+
+      expect(calledWhileCurrent).toEqual([
+        ['bodies', 'bodies'],
+        ['titles', 'titles'],
+        ['names', 'names'],
+      ])
+      expect(result.failed.map(failure => failure.docId)).toEqual([])
+      expect([...result.succeeded].sort()).toEqual([bodiless.id, described.id])
+      expect(await storedVector(engine, described.id)).toEqual(NAMES)
+      expect(await storedVector(engine, bodiless.id)).toEqual(NAMES)
+      if (durable) {
+        const next = await reopened(engine, settings, new Map([['names', NAMES]]))
+        expect(await storedVector(next, described.id)).toEqual(NAMES)
+        expect(await storedVector(next, bodiless.id)).toEqual(NAMES)
       }
     },
   )
