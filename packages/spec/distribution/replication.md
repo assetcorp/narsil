@@ -376,7 +376,7 @@ A replica must append each entry that it receives to its write-ahead log and mak
 
 A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
-A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica. A replica that fails while its admission is pending stays outside the set, so the primary abandons that admission and acknowledges without it.
+A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica. A replica that fails while its admission is pending must be outside the set before the primary acknowledges the write, because the controller can still accept that admission after the failure. The primary therefore waits for the controller's answer to the admission, and where the controller admitted the replica, it removes the replica as the [Removal Flow](#removal-flow) defines before it acknowledges. Where no answer arrives within its `replicationTimeout`, the primary treats the write as it treats a removal that failed.
 
 ### Waiting for Active Replicas
 
