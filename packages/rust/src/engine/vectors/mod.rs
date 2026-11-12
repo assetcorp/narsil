@@ -21,6 +21,7 @@ pub(crate) use apply::DocumentVectors;
 pub(crate) use embedding::EmbeddingBinding;
 pub use maintenance::VectorMaintenanceStatus;
 use paths::{set_value_at, take_value_at, value_at};
+pub(crate) use write_embedding::{HeldChunk, HeldWrite};
 
 /// One vector field of an index: its schema path and the store and graph that hold its vectors.
 pub(crate) struct IndexVectorField {
