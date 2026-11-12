@@ -4,8 +4,37 @@ import {
   type AdmittedReplica,
   admissionGenerationIs,
   type CatchUpState,
+  clearPendingAdmission,
+  type PendingAdmission,
   partitionKey,
 } from './state'
+
+export function admissionToWithdrawOf(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): AdmissionToWithdraw | undefined {
+  return state.admissionsToWithdraw.get(partitionKey(indexName, partitionId))?.get(replicaNodeId)
+}
+
+export function settleFencedAdmission(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  fenced: { pending: PendingAdmission | undefined; owed: AdmissionToWithdraw | undefined },
+): void {
+  if (fenced.pending?.unanswered === true) {
+    clearPendingAdmission(state, indexName, partitionId, replicaNodeId, fenced.pending)
+  }
+  if (
+    fenced.owed !== undefined &&
+    admissionToWithdrawOf(state, indexName, partitionId, replicaNodeId) === fenced.owed
+  ) {
+    forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
+  }
+}
 
 export function recordAdmissionToWithdraw(
   state: CatchUpState,

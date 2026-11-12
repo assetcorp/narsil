@@ -10,12 +10,20 @@ import { previousTermOf, replicateBatchToReplicas, replicateToReplicas } from '.
 import type { ReplicationLogEntry } from '../../replication/types'
 import { recordAcknowledgements } from '../catch-up/acknowledgements'
 import { withTimeout } from '../catch-up/admission'
-import { admittedBeyondTable, recordRemovalUnlessReadmitted, withoutRemovedReplicas } from '../catch-up/admitted'
+import {
+  admissionToWithdrawOf,
+  admittedBeyondTable,
+  recordRemovalUnlessReadmitted,
+  settleFencedAdmission,
+  withoutRemovedReplicas,
+} from '../catch-up/admitted'
 import {
   type AdmissionAnswer,
+  type AdmissionToWithdraw,
   admissionGenerationOf,
   clearPendingAdmission,
   getPendingAdmissions,
+  type PendingAdmission,
   pendingAdmissionOf,
 } from '../catch-up/state'
 import { untilSuperseded } from '../led-term'
@@ -25,6 +33,12 @@ import { replicationTimeoutOf, withinDeadline } from './deadline'
 import type { WriteRoutingDeps } from './types'
 
 type TermScope = Pick<ReplicationLogEntry, 'indexName' | 'partitionId' | 'primaryTerm'>
+
+interface FencedAdmission {
+  replicaNodeId: string
+  pending: PendingAdmission
+  owed: AdmissionToWithdraw | undefined
+}
 
 export async function assertPrimaryWriteAuthority(entry: TermScope, deps: WriteRoutingDeps): Promise<void> {
   const table = await deps.coordinator.getAllocation(entry.indexName)
@@ -229,8 +243,9 @@ async function inSyncFailuresOf(
   assignment: PartitionAssignment,
   admitted: string[],
   deps: WriteRoutingDeps,
-): Promise<{ inSyncFailures: string[]; unanswered: string[] }> {
+): Promise<{ inSyncFailures: string[]; unanswered: string[]; fenced: FencedAdmission[] }> {
   const inSyncFailures: string[] = []
+  const fenced: FencedAdmission[] = []
   const answers: { replicaNodeId: string; answer: Promise<AdmissionAnswer> }[] = []
   const admittedNow = admittedBeyondTable(deps.catchUp, entry.indexName, entry.partitionId, assignment)
   for (const replicaNodeId of failedReplicas) {
@@ -244,9 +259,18 @@ async function inSyncFailuresOf(
     }
     const pending = pendingAdmissionOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
     if (pending === undefined) continue
+    if (pending.unanswered) {
+      inSyncFailures.push(replicaNodeId)
+      const owed = admissionToWithdrawOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
+      fenced.push({ replicaNodeId, pending, owed })
+      continue
+    }
     pending.failedWrite = true
-    clearPendingAdmission(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId, pending)
-    if (pending.answer !== null) answers.push({ replicaNodeId, answer: pending.answer })
+    if (pending.answer === null) {
+      clearPendingAdmission(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId, pending)
+    } else {
+      answers.push({ replicaNodeId, answer: pending.answer })
+    }
   }
   const timeoutMs = replicationTimeoutOf(deps)
   const settled = await Promise.all(
@@ -260,7 +284,7 @@ async function inSyncFailuresOf(
     if (answer === 'accepted') inSyncFailures.push(replicaNodeId)
     if (answer === 'unanswered') unanswered.push(replicaNodeId)
   }
-  return { inSyncFailures, unanswered }
+  return { inSyncFailures, unanswered, fenced }
 }
 
 async function removeInSyncFailures(
@@ -270,8 +294,17 @@ async function removeInSyncFailures(
   admitted: string[],
   deps: WriteRoutingDeps,
 ): Promise<void> {
-  const { inSyncFailures, unanswered } = await inSyncFailuresOf(entry, failedReplicas, assignment, admitted, deps)
+  const { inSyncFailures, unanswered, fenced } = await inSyncFailuresOf(
+    entry,
+    failedReplicas,
+    assignment,
+    admitted,
+    deps,
+  )
   await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
+  for (const { replicaNodeId, pending, owed } of fenced) {
+    settleFencedAdmission(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId, { pending, owed })
+  }
   if (unanswered.length === 0) return
   await deps.refreshAllocation?.(entry.indexName)
   await assertPrimaryWriteAuthority(entry, deps)

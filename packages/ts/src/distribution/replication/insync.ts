@@ -114,9 +114,10 @@ export async function requestInsyncRemoval(
  * The controller refuses the request when it finds no allocation table, no assignment for the partition, or a
  * `primaryTerm` other than the assignment's own, because a stale primary must not shrink the set. It refuses the
  * request for a partition in `UNASSIGNED` as well, because no node leads such a partition and so no node may speak
- * for it. It accepts without a write when the
- * replica is already outside the set, and it otherwise writes the smaller set with a compare-and-set, retrying a
- * lost write a bounded number of times.
+ * for it. It writes the smaller set with a compare-and-set, retrying a lost write a bounded number of times, and it
+ * writes the table for a replica already outside the set as well, because every accepted removal raises the
+ * partition's `inSyncVersion`. That raise makes the controller refuse any admission of the replica that the primary
+ * sent before the removal and that has yet to arrive.
  *
  * @param payload - The removal request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -134,7 +135,7 @@ export function handleInsyncRemoval(
       return REFUSE
     }
     if (!assignment.inSyncSet.includes(payload.replicaNodeId)) {
-      return ACCEPT
+      return { outcome: 'write', assignment: { ...assignment, inSyncVersion: inSyncVersionOf(assignment) + 1 } }
     }
     return {
       outcome: 'write',

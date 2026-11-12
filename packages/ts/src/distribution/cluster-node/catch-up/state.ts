@@ -17,6 +17,7 @@ export type AdmissionAnswer = 'accepted' | 'refused' | 'unanswered'
 
 export interface PendingAdmission {
   failedWrite: boolean
+  unanswered: boolean
   answer: Promise<AdmissionAnswer> | null
 }
 
@@ -171,12 +172,13 @@ export function recordSnapshotSyncRequest(
 }
 
 /**
- * Drops everything the primary tracks for one replica of a partition, which is its cursor and any admission it has
- * in flight.
+ * Drops the cursor that the primary keeps for one replica of a partition, and any admission of that replica that the
+ * primary has claimed but not yet sent.
  *
  * The pump calls this once a replica joins the in-sync set, leaves the assignment, or falls behind the retained
  * log, because none of those replicas need feeding from the cursor any longer, and it cancels any feed still in
- * flight to that replica.
+ * flight to that replica. An admission that the primary has sent stays pending, because the controller can still
+ * apply it: the controller's answer settles it, and where no answer arrives, a removal of the replica settles it.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
@@ -198,7 +200,10 @@ export function forgetReplica(
       state.cursors.delete(key)
     }
   }
-  clearPendingAdmission(state, indexName, partitionId, replicaNodeId)
+  const pending = pendingAdmissionOf(state, indexName, partitionId, replicaNodeId)
+  if (pending !== undefined && pending.answer === null) {
+    clearPendingAdmission(state, indexName, partitionId, replicaNodeId, pending)
+  }
 }
 
 function forgetKeysOfIndex<T>(entries: Map<string, T>, indexName: string): void {
@@ -271,7 +276,7 @@ export function markPendingAdmission(
   if (pending.has(replicaNodeId)) {
     return false
   }
-  pending.set(replicaNodeId, { failedWrite: false, answer: null })
+  pending.set(replicaNodeId, { failedWrite: false, unanswered: false, answer: null })
   state.pendingAdmissions.set(key, pending)
   forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
   advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId)

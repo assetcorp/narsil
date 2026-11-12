@@ -29,12 +29,12 @@ const DATA_NODES = ['quay-north', 'quay-south']
 const REPLICATION_TIMEOUT_MS = 2_000
 const ADMISSION_REPLY_TIMEOUT_MS = 2_000
 const WITHDRAWAL_REPLY_TIMEOUT_MS = 5_000
-const WITHDRAWAL_REPLY_SETTLE_MS = 250
 const REMOVAL_REPLY_REPLICATION_TIMEOUT_MS = 8_000
 const BERTHS_AFTER_READMISSION = 12
 const BERTHS_AFTER_REFRESH = 6
 const ADMISSION_REPLY_SETTLE_MS = 250
 const PENDING_ADMISSION_RELEASE_MARGIN_MS = 250
+const ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS = 1_000
 const CATCH_UP_TICK_MS = 1_000
 const WAIT_BUDGET_MS = 30_000
 const POLL_MS = 25
@@ -519,7 +519,7 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     })
   }, 90_000)
 
-  it('withdraws an admission whose answer never came once the controller applies it after the replica has asked for a snapshot', async () => {
+  it('removes the replica to fence an admission whose answer never came, so the controller refuses that admission once it arrives after the replica has asked for a snapshot', async () => {
     const { router, primary, replica, term } = await startCluster(undefined, {
       requestTimeout: ADMISSION_REPLY_TIMEOUT_MS,
     })
@@ -533,26 +533,25 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.holdAdmission = true
     await syncAndReport(primary, logEnd, term)
     const releaseAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
-    await requestSync(primary, logEnd, term - 1)
-    await new Promise(resolve => setTimeout(resolve, ADMISSION_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
-
     const eventsBefore = script.controllerEvents.length
-    script.heldAdmission = null
-    await releaseAdmission()
-    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the released admission')).toBe(
-      true,
-    )
+    await requestSync(primary, logEnd, term - 1)
     await waitFor(
       () =>
         script.controllerEvents.slice(eventsBefore).some(event => event.type === ReplicationMessageTypes.INSYNC_REMOVE)
           ? true
           : null,
-      'the primary to withdraw the admission that the controller applied after its answer timed out',
+      'the primary to remove the replica once the admission timed out',
     )
-    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+
+    script.heldAdmission = null
+    await releaseAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the released admission')).toBe(
+      false,
+    )
+    expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
 
-  it('sends every acknowledged write to a replica readmitted while the reply to the withdrawal of its earlier admission was still on its way', async () => {
+  it('proposes a replica again only once the removal that fences its unanswered admission has its reply, then sends it every acknowledged write', async () => {
     const { router, primary, replica, term } = await startCluster(undefined, {
       requestTimeout: WITHDRAWAL_REPLY_TIMEOUT_MS,
     })
@@ -564,43 +563,39 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
     script.mode = 'ack'
     script.holdAdmission = true
+    script.holdRemovalReply = true
     await syncAndReport(primary, logEnd, term)
     const releaseStaleAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
-    await requestSync(primary, logEnd, term - 1)
-    await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_TIMEOUT_MS + CATCH_UP_TICK_MS))
-
-    script.holdRemovalReply = true
-    script.heldAdmission = null
-    await releaseStaleAdmission()
-    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the stale admission')).toBe(true)
-    const releaseWithdrawalReply = await waitFor(
+    const releaseFenceReply = await waitFor(
       () => script.heldRemovalReply,
-      'the controller to apply the withdrawal of the stale admission',
+      'the controller to apply the removal that fences the admission that timed out',
     )
-    const withdrawalRequestId = script.heldRemovalRequestId
-    if (withdrawalRequestId === null) throw new Error('the controller held a withdrawal reply without its request id')
-    await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+    const fenceRequestId = script.heldRemovalRequestId
+    if (fenceRequestId === null) throw new Error('the controller held a removal reply without its request id')
 
-    script.holdAdmission = true
-    script.heldAdmissionAccepted = null
+    const eventsWhileFenceUnanswered = script.controllerEvents.length
     await syncAndReport(primary, logEnd, term)
-    const releaseReadmission = await waitFor(
-      () => script.heldAdmission,
-      'the primary to propose the replica again while the withdrawal reply is held',
+    await new Promise(resolve => setTimeout(resolve, 2 * CATCH_UP_TICK_MS))
+    expect(script.controllerEvents.slice(eventsWhileFenceUnanswered)).not.toContainEqual(
+      expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_ADD }),
     )
+
     script.heldRemovalReply = null
-    await releaseWithdrawalReply()
+    await releaseFenceReply()
     expect(
       await waitFor(
-        () => script.insyncReplies.get(withdrawalRequestId) ?? null,
-        'the primary to receive the withdrawal reply or give up on it',
+        () => script.insyncReplies.get(fenceRequestId) ?? null,
+        'the primary to receive the removal reply or give up on it',
       ),
     ).toBe('answered')
-    await new Promise(resolve => setTimeout(resolve, WITHDRAWAL_REPLY_SETTLE_MS))
-    script.heldAdmission = null
-    await releaseReadmission()
-    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the readmission')).toBe(true)
     await waitFor(async () => ((await inSyncSet()).includes(replica) ? true : null), 'the replica to rejoin the set')
+
+    script.heldAdmission = null
+    script.heldAdmissionAccepted = null
+    await releaseStaleAdmission()
+    expect(await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the stale admission')).toBe(
+      false,
+    )
 
     script.deliveredDocumentIds.clear()
     const acknowledged: string[] = []
@@ -837,6 +832,35 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     expect(script.controllerEvents.slice(eventsBefore)).toContainEqual(
       expect.objectContaining({ type: ReplicationMessageTypes.INSYNC_REMOVE }),
     )
+    expect(await inSyncSet()).not.toContain(replica)
+  }, 90_000)
+
+  it('refuses an admission whose request timed out at the primary once the primary has acknowledged a write that the replica missed', async () => {
+    const { router, primary, replica, term } = await startCluster(undefined, {
+      requestTimeout: ADMISSION_REQUEST_TIMEOUT_BELOW_REPLICATION_MS,
+    })
+    await dropFromInSyncSet(router, replica)
+    for (let berth = 0; berth < BERTHS_BEFORE_RACE; berth++) {
+      await router.insert(INDEX_NAME, { id: `berth-${berth}`, note: BERTH_NOTE })
+    }
+    const logEnd = BERTHS_BEFORE_RACE + 1
+
+    script.holdAdmission = true
+    await syncAndReport(primary, logEnd, term)
+    const releaseTimedOutAdmission = await waitFor(() => script.heldAdmission, 'the primary to propose the replica')
+
+    const missedWrite = await router.insert(INDEX_NAME, { id: 'berth-missed', note: BERTH_NOTE }).then(
+      () => 'acknowledged',
+      (error: unknown) => error,
+    )
+    expect(missedWrite).toBe('acknowledged')
+    expect(script.deliveredDocumentIds.has('berth-missed')).toBe(false)
+
+    script.heldAdmission = null
+    await releaseTimedOutAdmission()
+    expect(
+      await waitFor(() => script.heldAdmissionAccepted, 'the controller to answer the admission that timed out'),
+    ).toBe(false)
     expect(await inSyncSet()).not.toContain(replica)
   }, 90_000)
 })

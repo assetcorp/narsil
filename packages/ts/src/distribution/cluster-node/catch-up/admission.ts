@@ -148,7 +148,9 @@ async function askController(
  * replica still qualifies. A replica that reports a lower position while the proposal is in flight has started a fresh
  * sync session, and the primary then asks the controller to remove it again, because the position the proposal
  * carried no longer describes it. A write that the replica fails while the proposal is in flight leaves the replica
- * to the write path, which waits for the answer and removes the replica where the controller admitted it.
+ * to the write path, which waits for the answer and removes the replica where the controller admitted it. A proposal
+ * whose answer never arrives stays pending, so the write path keeps sending the replica every entry, until a removal
+ * of the replica raises the partition's `inSyncVersion` and so fences the request that the controller may still apply.
  *
  * @param state - The catch-up state that holds the cursors and the pending admissions.
  * @param deps - The write routing dependencies, which give the proposal the coordinator and the transport.
@@ -221,6 +223,7 @@ export async function requestClaimedAdmission(
     }
 
     const answer = await askController(claim, payload, controllerNodeId)
+    pending.unanswered = answer === 'unanswered'
     settle(answer)
     if (answer === 'accepted' && pending.failedWrite) {
       recordAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId, assignment.primaryTerm)
@@ -245,6 +248,6 @@ export async function requestClaimedAdmission(
     }
   } finally {
     settle('refused')
-    clearPendingAdmission(state, indexName, partitionId, replicaNodeId, pending)
+    if (!pending.unanswered) clearPendingAdmission(state, indexName, partitionId, replicaNodeId, pending)
   }
 }
