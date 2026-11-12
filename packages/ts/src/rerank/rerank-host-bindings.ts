@@ -11,6 +11,7 @@ type RerankHost = Pick<
   | 'ErrorCodes'
   | 'HYBRID_RESCORE_WINDOW'
   | 'MAX_HYBRID_DEPTH'
+  | 'MAX_CALLS_ACROSS_INDEX_CHANGES'
   | 'MAX_RERANK_TIMEOUT_MS'
   | 'MAX_RERANK_WINDOW'
   | 'MIN_HYBRID_DEPTH'
@@ -29,6 +30,7 @@ export let DEFAULT_RERANK_WINDOW: RerankHost['DEFAULT_RERANK_WINDOW']
 export let ErrorCodes: RerankHost['ErrorCodes']
 export let HYBRID_RESCORE_WINDOW: RerankHost['HYBRID_RESCORE_WINDOW']
 export let MAX_HYBRID_DEPTH: RerankHost['MAX_HYBRID_DEPTH']
+export let MAX_CALLS_ACROSS_INDEX_CHANGES: RerankHost['MAX_CALLS_ACROSS_INDEX_CHANGES']
 export let MAX_RERANK_TIMEOUT_MS: RerankHost['MAX_RERANK_TIMEOUT_MS']
 export let MAX_RERANK_WINDOW: RerankHost['MAX_RERANK_WINDOW']
 export let MIN_HYBRID_DEPTH: RerankHost['MIN_HYBRID_DEPTH']
@@ -49,6 +51,7 @@ export function bindRerankHost(host: RerankHost): void {
     ErrorCodes,
     HYBRID_RESCORE_WINDOW,
     MAX_HYBRID_DEPTH,
+    MAX_CALLS_ACROSS_INDEX_CHANGES,
     MAX_RERANK_TIMEOUT_MS,
     MAX_RERANK_WINDOW,
     MIN_HYBRID_DEPTH,

@@ -30,14 +30,13 @@ import {
   admitBufferedUpsert,
   admitInsert,
   asBatchInsertError,
-  collectRequiredFieldFailures,
   createPendingAdmissions,
-  embedChunkDocuments,
   providedDocId,
   recordPendingAdmission,
   requireDocumentObject,
   requireMatchingDocId,
 } from '../mutations/insert-admission'
+import { prepareDocumentWrite, prepareDocumentWrites } from '../mutations/write-preparation'
 import { awaitWriteVisibility } from '../mutations/write-visibility'
 import { loadOptionalWrites } from '../optional-writes-code'
 import { oneAtATime, withOpenIndex } from '../serial-index-update'
@@ -71,11 +70,9 @@ export function writesHostPart() {
     asBatchInsertError,
     awaitWriteVisibility,
     changeIndexOutsideExternalWaits,
-    collectRequiredFieldFailures,
     createFrozenSegment,
     createPendingAdmissions,
     deleteNestedValue,
-    embedChunkDocuments,
     emitSyncChange,
     extractVectorFromDoc,
     fnv1a,
@@ -94,6 +91,8 @@ export function writesHostPart() {
     newSyncEpoch,
     oneAtATime,
     prepareDocumentVectors,
+    prepareDocumentWrite,
+    prepareDocumentWrites,
     prepareStoredSynonyms,
     providedDocId,
     readHeapStatistics,

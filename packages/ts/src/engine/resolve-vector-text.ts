@@ -1,9 +1,39 @@
-import { ErrorCodes, NarsilError } from '#platform/resolve-vector-text-host'
+import { ErrorCodes, MAX_CALLS_ACROSS_INDEX_CHANGES, NarsilError } from '#platform/resolve-vector-text-host'
 
 export { bindResolveVectorTextHost } from '#platform/resolve-vector-text-host'
 
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { QueryParams, VectorQueryConfig } from '../types/search'
+import type { IndexRegistryEntry } from './registry-entry'
+
+export interface EmbeddedQuery {
+  adapter: EmbeddingAdapter | null
+  params: QueryParams
+  embeddings: number
+}
+
+export async function embedQueryWithAdapterOf(
+  indexName: string,
+  params: QueryParams,
+  entry: Pick<IndexRegistryEntry, 'embeddingAdapter' | 'embeddingAdapterName'>,
+  signal: AbortSignal,
+  earlier: EmbeddedQuery | null,
+): Promise<EmbeddedQuery> {
+  if (earlier !== null && earlier.adapter === entry.embeddingAdapter) return earlier
+  const embeddings = earlier?.embeddings ?? 0
+  if (embeddings >= MAX_CALLS_ACROSS_INDEX_CHANGES) {
+    throw new NarsilError(
+      ErrorCodes.WORKER_BUSY,
+      `Changes to index "${indexName}" replaced its embedding adapter after each of ${embeddings} query embeddings`,
+      { indexName, embeddings },
+    )
+  }
+  return {
+    adapter: entry.embeddingAdapter,
+    params: await resolveVectorText(params, entry.embeddingAdapter, signal, entry.embeddingAdapterName),
+    embeddings: embeddings + 1,
+  }
+}
 
 export async function resolveVectorText(
   params: QueryParams,
