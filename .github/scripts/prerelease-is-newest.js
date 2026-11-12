@@ -45,12 +45,12 @@ const main = () => {
     writeOutput('newest', 'true')
     return
   }
-  if (isNewer(candidate, current)) {
-    console.log(`${candidate} is newer than ${current} under ${NEXT_DIST_TAG}, so this run publishes it.`)
+  if (!isNewer(current, candidate)) {
+    console.log(`${candidate} is at least as new as ${current} under ${NEXT_DIST_TAG}, so publishing can continue.`)
     writeOutput('newest', 'true')
     return
   }
-  console.log(`${NEXT_DIST_TAG} already holds ${current}, no older than ${candidate}, so nothing is published.`)
+  console.log(`${NEXT_DIST_TAG} already holds ${current}, newer than ${candidate}, so nothing is published.`)
   writeOutput('newest', 'false')
 }
 
