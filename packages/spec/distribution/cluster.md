@@ -50,7 +50,7 @@ ClusterCoordinator {
 - Adds the node to the cluster's node registry.
 - The registration must carry a lease-based heartbeat. A node that fails to renew its lease within the TTL loses its registration, and the coordinator emits a `node_left` event.
 - Registering an existing `nodeId` again updates that registration, which is what a node does after a restart.
-- The coordinator also keeps the registration's `startedAt` on the same lease, in a record that only `registerNode` writes, so that `putAllocation` can compare it while a memory report rewrites the registration. A coordinator backed by etcd keeps it under `_narsil/nodes/{nodeId}/started-at`.
+- The coordinator also keeps the registration's `startedAt` on the same lease, in a record that only `registerNode` writes, so that `putAllocation` can compare it while a memory report rewrites the registration. A coordinator backed by etcd keeps it under `_narsil/node-started-at/{nodeId}`, outside the `_narsil/nodes/` prefix, so that a node of an earlier release, which reads every key under that prefix as a registration, never reads it.
 
 ### deregisterNode(nodeId)
 
