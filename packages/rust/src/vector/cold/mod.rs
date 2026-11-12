@@ -10,6 +10,7 @@ mod writes;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock, RwLockWriteGuard};
+use std::thread::JoinHandle;
 
 use crate::config::{Quantization, Storage};
 use crate::error::{NarsilError, Result};
@@ -37,7 +38,6 @@ struct HoldState {
     writes: Vec<HeldWrite>,
     progress: Progress,
     load_wanted: bool,
-    loader_runs: bool,
 }
 
 pub(crate) struct ColdHold {
@@ -50,6 +50,7 @@ pub(crate) struct ColdHold {
 pub(crate) struct ColdSlot {
     occupied: AtomicBool,
     hold: RwLock<Option<Arc<ColdHold>>>,
+    loader: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ColdSlot {
@@ -57,7 +58,14 @@ impl ColdSlot {
         ColdSlot {
             occupied: AtomicBool::new(false),
             hold: RwLock::new(None),
+            loader: Mutex::new(None),
         }
+    }
+
+    fn loader(&self) -> MutexGuard<'_, Option<JoinHandle<()>>> {
+        self.loader
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn is_occupied(&self) -> bool {
@@ -149,19 +157,23 @@ impl Shared {
     }
 
     pub(crate) fn cancel_cold_hold(&self, waits_for_loader: bool) {
-        if !self.cold.is_occupied() {
+        if self.cold.is_occupied()
+            && let Some(hold) = self.cold.replace(None)
+        {
+            let mut state = hold.lock();
+            if !matches!(state.progress, Progress::Ended | Progress::Failed(_)) {
+                state.progress = Progress::Cancelled;
+            }
+            hold.changed.notify_all();
+        }
+        if !waits_for_loader {
             return;
         }
-        let Some(hold) = self.cold.replace(None) else {
-            return;
-        };
-        let mut state = hold.lock();
-        if !matches!(state.progress, Progress::Ended | Progress::Failed(_)) {
-            state.progress = Progress::Cancelled;
-        }
-        hold.changed.notify_all();
-        while waits_for_loader && state.loader_runs {
-            state = hold.wait(state);
+        let loader = self.cold.loader().take();
+        if let Some(loader) = loader
+            && loader.thread().id() != std::thread::current().id()
+        {
+            let _ = loader.join();
         }
     }
 }
@@ -182,15 +194,16 @@ impl VectorField {
                 writes: Vec::new(),
                 progress: Progress::Waiting,
                 load_wanted: false,
-                loader_runs: true,
             }),
             changed: Condvar::new(),
         });
+        let mut loader = shared.cold.loader();
         shared.cold.replace(Some(Arc::clone(&hold)));
-        if load::start(Arc::clone(shared), Arc::clone(&hold), read_graph) {
+        *loader = load::start(Arc::clone(shared), Arc::clone(&hold), read_graph);
+        if loader.is_some() {
             return Ok(true);
         }
-        hold.lock().loader_runs = false;
+        drop(loader);
         shared.cancel_cold_hold(false);
         Ok(false)
     }

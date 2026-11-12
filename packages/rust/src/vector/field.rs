@@ -376,6 +376,6 @@ impl VectorField {
 impl Drop for VectorField {
     fn drop(&mut self) {
         self.shared.disposed.store(true, Ordering::Release);
-        self.shared.cancel_cold_hold(false);
+        self.shared.cancel_cold_hold(true);
     }
 }
