@@ -322,7 +322,7 @@ PartitionAssignment {
   primary:          string or absent   (nodeId of the primary)
   replicas:         List<string>       (nodeIds of the replica nodes)
   inSyncSet:        List<string>       (nodeIds of the replicas fully caught up)
-  inSyncVersion:    uint64 or absent   (raised on every change to inSyncSet and on every accepted insync_remove)
+  inSyncVersion:    uint64 or absent   (raised on every change to inSyncSet, on every accepted insync_remove, and on every removal of a node from replicas)
   removingReplicas: List<string>       (nodeIds that a move takes the partition off, or absent)
   lastHolders:      List<string>       (nodeIds that still hold a copy of an unserved partition, or absent)
   state:            PartitionState
@@ -356,7 +356,7 @@ A map from partition ID to its assignment, with an entry for every partition in 
 
 ### inSyncVersion
 
-A counter for one partition that the controller raises by 1 in every table write that changes the partition's `inSyncSet`, whatever the reason for the change, and in every table write that accepts a [replication.insync_remove](transport.md#replicationinsync_remove), including one for a replica already outside the set. A primary sends the value that it last read in each [replication.insync_add](transport.md#replicationinsync_add), and the controller refuses a request whose value differs from the stored one, so that a request delayed past a removal can never add the replica back. The counter covers one partition alone, because a version for the whole table would refuse a request after a change to any other partition. A table written by a release that predates the field carries none, and every reader treats an absent value as 0.
+A counter for one partition that the controller raises by 1 in every table write that changes the partition's `inSyncSet`, whatever the reason for the change, and in every table write that accepts a [replication.insync_remove](transport.md#replicationinsync_remove), including one for a replica already outside the set, and in every table write that removes a node from the partition's `replicas`, because a node that leaves `replicas` can drop its copy, so a request sent before it left must never admit it after it returns. A table write that makes more than one of these changes to a partition raises its counter by 1 once. A primary sends the value that it last read in each [replication.insync_add](transport.md#replicationinsync_add), and the controller refuses a request whose value differs from the stored one, so that a request delayed past a removal can never add the replica back. The counter covers one partition alone, because a version for the whole table would refuse a request after a change to any other partition. A table written by a release that predates the field carries none, and every reader treats an absent value as 0.
 
 ### removingReplicas
 
