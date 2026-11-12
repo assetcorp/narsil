@@ -51,11 +51,15 @@ func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents [
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(name)
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
-	if err := n.insertChunk(ctx, entry, documents, outcome); err != nil {
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
+	if entry, release, err = n.insertChunk(ctx, entry, release, documents, outcome); err != nil {
 		return outcome.result, err
 	}
 	n.afterWrite(entry)
@@ -68,13 +72,18 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(name)
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
 	for _, update := range updates {
-		if err := n.updateOne(ctx, entry, update, outcome.touched); err != nil {
-			if !isPerDocument(err) {
+		entry, release, err = n.updateOne(ctx, entry, release, update, outcome.touched)
+		if err != nil {
+			if entry == nil || !isPerDocument(err) {
 				return outcome.result, err
 			}
 			outcome.fail(update.DocID, err)

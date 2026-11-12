@@ -51,12 +51,18 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(indexName)
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
 	err = eachBatchChunk(ctx, documents, func(chunk []*model.Document) error {
-		return n.insertChunk(ctx, entry, chunk, outcome)
+		var chunkErr error
+		entry, release, chunkErr = n.insertChunk(ctx, entry, release, chunk, outcome)
+		return chunkErr
 	})
 	if err != nil {
 		return outcome.result, err
@@ -77,7 +83,8 @@ func eachBatchChunk[T any](ctx context.Context, entries []T, apply func(chunk []
 	return nil
 }
 
-func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents []*model.Document, outcome *batchOutcome) error {
+func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, release func(), documents []*model.Document,
+	outcome *batchOutcome) (*indexEntry, func(), error) {
 	contexts := make([]*model.InsertContext, len(documents))
 	working := make([]*model.Document, len(documents))
 	live := make([]bool, len(documents))
@@ -111,8 +118,10 @@ func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents [
 		}
 		live[at] = true
 	}
-	if err := n.embedChunk(ctx, entry, working, live, contexts, outcome); err != nil {
-		return err
+	entry, release, err := n.embedChunk(ctx, entry, release,
+		chunkEmbedding{working: working, live: live, contexts: contexts, outcome: outcome})
+	if err != nil {
+		return entry, release, err
 	}
 	pending := make([]pendingInsert, 0, len(documents))
 	for at := range documents {
@@ -131,50 +140,9 @@ func (n *Narsil) insertChunk(ctx context.Context, entry *indexEntry, documents [
 		for _, insert := range pending {
 			outcome.fail(insert.id, err)
 		}
-		return nil
+		return entry, release, nil
 	}
-	return n.applyInsertChunk(ctx, entry, pending, outcome)
-}
-
-func (n *Narsil) embedChunk(ctx context.Context, entry *indexEntry, working []*model.Document, live []bool,
-	contexts []*model.InsertContext, outcome *batchOutcome) error {
-	config := entry.config.Embedding
-	if config == nil {
-		return nil
-	}
-	adapter := entry.boundEmbedder()
-	if adapter == nil {
-		for at := range working {
-			if !live[at] {
-				continue
-			}
-			if err := requireMappedVectors(working[at], config, entry.embeddingName); err != nil {
-				live[at] = false
-				outcome.fail(contexts[at].DocID, err)
-			}
-		}
-		return nil
-	}
-	failed, err := embedBatch(ctx, working, live, config, adapter)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		for at := range working {
-			if live[at] {
-				live[at] = false
-				outcome.fail(contexts[at].DocID, err)
-			}
-		}
-		return nil
-	}
-	for at := range working {
-		if failure, refused := failed[at]; refused && live[at] {
-			live[at] = false
-			outcome.fail(contexts[at].DocID, failure)
-		}
-	}
-	return nil
+	return entry, release, n.applyInsertChunk(ctx, entry, pending, outcome)
 }
 
 func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pending []pendingInsert, outcome *batchOutcome) error {
@@ -235,16 +203,21 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer release()
+	defer func() { release() }()
 	defer n.emitWrite(indexName)
 	outcome := newBatchOutcome()
-	defer entry.scheduleVectorBuilds(outcome.touched)
+	defer func() {
+		if entry != nil {
+			entry.scheduleVectorBuilds(outcome.touched)
+		}
+	}()
 	for _, update := range updates {
 		if err := ctx.Err(); err != nil {
 			return outcome.result, err
 		}
-		if err := n.updateOne(ctx, entry, update, outcome.touched); err != nil {
-			if !isPerDocument(err) {
+		entry, release, err = n.updateOne(ctx, entry, release, update, outcome.touched)
+		if err != nil {
+			if entry == nil || !isPerDocument(err) {
 				return outcome.result, err
 			}
 			outcome.fail(update.DocID, err)
@@ -261,21 +234,22 @@ func isPerDocument(err error) bool {
 	return isEngineError && narsilerr.CodeOf(err) != narsilerr.CodePersistenceSaveFailed
 }
 
-func (n *Narsil) updateOne(ctx context.Context, entry *indexEntry, update model.DocumentUpdate, touched touchedVectors) error {
+func (n *Narsil) updateOne(ctx context.Context, entry *indexEntry, release func(), update model.DocumentUpdate,
+	touched touchedVectors) (*indexEntry, func(), error) {
 	if err := schema.ValidateDocID(update.DocID); err != nil {
-		return err
+		return entry, release, err
 	}
 	working := codec.SnapshotDocument(update.Document)
 	if err := requireDocument(working); err != nil {
-		return err
+		return entry, release, err
 	}
-	hook, write, err := n.replaceDocument(ctx, entry, entry.name, update.DocID, working)
+	entry, release, hook, write, err := n.replaceDocument(ctx, entry, release, entry.name, update.DocID, working)
 	if err != nil {
-		return err
+		return entry, release, err
 	}
 	touched.note(write)
 	_ = n.plugins.update(ctx, hookAfterUpdate, hook)
-	return nil
+	return entry, release, nil
 }
 
 // RemoveBatch deletes the documents under docIDs from the index called
