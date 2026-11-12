@@ -79,19 +79,21 @@ export interface VectorWriteWatch {
 
 export function createSearchRetirement(
   pins: StatePins,
-  pending = new Set<Promise<void>>(),
+  indexName: string,
+  pending = new Map<Promise<void>, string>(),
 ): (free: () => void | Promise<void>) => Promise<void> {
   return free => {
     pins.afterRelease(() => {
       const disposal = free()
       if (disposal === undefined) return
-      pending.add(disposal)
+      pending.set(disposal, indexName)
       void disposal.then(
         () => pending.delete(disposal),
         () => pending.delete(disposal),
       )
     })
-    return Promise.all(pending).then(() => undefined)
+    const disposals = [...pending].filter(([, owner]) => owner === indexName).map(([disposal]) => disposal)
+    return Promise.all(disposals).then(() => undefined)
   }
 }
 

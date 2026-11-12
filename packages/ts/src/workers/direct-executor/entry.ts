@@ -54,7 +54,7 @@ export function disposeEntry(entry: IndexEntry): Promise<void> {
 export function createEntryBuilder(
   vectorStorage: VectorStorageMode,
   onVectorGraphRepaired: ((indexName: string) => void) | undefined,
-  pendingDisposals: Set<Promise<void>>,
+  pendingDisposals: Map<Promise<void>, string>,
 ) {
   return (
     indexName: string,

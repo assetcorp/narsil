@@ -51,7 +51,7 @@ export function createDirectExecutor(
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
   const threadSlot = options?.threadSlot ?? 0
   const vectorStorage: VectorStorageMode = options?.vectorStorage ?? 'memory'
-  const pendingDisposals = new Set<Promise<void>>()
+  const pendingDisposals = new Map<Promise<void>, string>()
   const buildEntry = createEntryBuilder(vectorStorage, options?.onVectorGraphRepaired, pendingDisposals)
 
   function requireIndex(indexName: string): IndexEntry {
@@ -346,7 +346,7 @@ export function createDirectExecutor(
           await entry.manager.publication.write(() => disposeEntry(entry))
         }
         indexes.clear()
-        await Promise.all(pendingDisposals)
+        await Promise.all(pendingDisposals.keys())
         return undefined as T
       }
     }
