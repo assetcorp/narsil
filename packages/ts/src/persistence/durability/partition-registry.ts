@@ -1,7 +1,8 @@
 import type { DurableDirectory } from './durable-filesystem'
+import type { StoredSizesRecord } from './index-stored-sizes'
 import type { IndexState, PartitionState } from './manager-state'
 import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import type { PartitionLogPosition } from './types'
+import type { IndexDurabilityHooks, PartitionLogPosition } from './types'
 import { createWalWriter } from './wal-writer'
 
 export interface PartitionRegistry {
@@ -15,7 +16,8 @@ export interface PartitionRegistry {
 export function createPartitionRegistry(
   directory: DurableDirectory,
   segmentMaxBytes: number,
-  onIndexHeld: (indexName: string) => void,
+  hooks: IndexDurabilityHooks,
+  sizes: StoredSizesRecord,
 ): PartitionRegistry {
   const indexes = new Map<string, IndexState>()
 
@@ -31,14 +33,19 @@ export function createPartitionRegistry(
         stalledWrites: [],
       }
       indexes.set(indexName, state)
-      onIndexHeld(indexName)
+      hooks.linkStoredSizes(indexName, sizes.hold(indexName))
     }
     return state
   }
 
   function freshPartition(indexName: string, partitionId: number, position: PartitionLogPosition): PartitionState {
     return {
-      walWriter: createWalWriter(directory, { indexName, partitionId, segmentMaxBytes }),
+      walWriter: createWalWriter(directory, {
+        indexName,
+        partitionId,
+        segmentMaxBytes,
+        recordsPreviousDocument: () => hooks.recordsPreviousDocument?.(indexName) === true,
+      }),
       seqOwner: createSeqOwner(position.seqNo, position.primaryTerm),
       appendChain: Promise.resolve(),
       appliedSeqNo: position.seqNo,

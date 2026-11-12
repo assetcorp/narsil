@@ -1,11 +1,10 @@
 import type { MessagePort } from 'node:worker_threads'
-import type { FeedAdmission, FeedHub } from '../../sync/feed/hub'
-import type { FeedSession, FeedSocket } from '../../sync/feed/session'
+import { NarsilError, ServerErrorCodes } from '../../errors'
+import type { FeedSocket } from '../../sync/feed/session'
 import { toHttpError } from '../errors'
 import type { Authorizer } from '../request'
-import type { FeedAdmitRequest, FeedAdmittedReply, MainFeedNote, ThreadFeedNote } from './feed-messages'
-import type { FeedGateway } from './feed-route'
-import type { SyncServing } from './serving'
+import type { FeedAdmitRequest, FeedAdmittedReply, FeedKind, MainFeedNote, ThreadFeedNote } from './feed-messages'
+import type { FeedEndpoint, FeedGateway } from './feed-route'
 
 export interface ThreadFeeds {
   admit(request: FeedAdmitRequest): Promise<FeedAdmittedReply>
@@ -13,8 +12,18 @@ export interface ThreadFeeds {
   closeAll(): void
 }
 
+export interface HostedAdmission {
+  open(socket: FeedSocket): FeedEndpoint
+  cancel(): void
+}
+
+export interface HostedFeed {
+  admit(indexName: string, expiresAt: number | null): Promise<HostedAdmission>
+  close(): void
+}
+
 export interface FeedHost {
-  gateway: FeedGateway
+  gateways: Partial<Record<FeedKind, FeedGateway>>
   forThread(port: MessagePort): ThreadFeeds
   close(): void
 }
@@ -65,51 +74,64 @@ class RelayedFeedSocket implements FeedSocket {
 }
 
 interface RelayedFeed {
-  admission: FeedAdmission
+  admission: HostedAdmission
   socket: RelayedFeedSocket
-  session: FeedSession | null
+  endpoint: FeedEndpoint | null
 }
 
-export function createFeedHost(hub: FeedHub, serving: SyncServing, authorize: Authorizer | undefined): FeedHost {
-  async function admit(indexName: string, expiresAt: number | null): Promise<FeedAdmission> {
-    await serving.admitFeed(indexName)
-    return hub.admit(indexName, expiresAt)
+function routeMissing(): NarsilError {
+  return new NarsilError(ServerErrorCodes.NOT_FOUND, 'Route not found')
+}
+
+export function createFeedHost(
+  feeds: Partial<Record<FeedKind, HostedFeed>>,
+  authorize: Authorizer | undefined,
+): FeedHost {
+  const authorizeContext: FeedGateway['authorize'] = context =>
+    authorize === undefined ? Promise.resolve({ allowed: true, expiresAt: null }) : authorize(context)
+
+  function admit(feed: FeedKind, indexName: string, expiresAt: number | null): Promise<HostedAdmission> {
+    const hosted = feeds[feed]
+    if (hosted === undefined) return Promise.reject(routeMissing())
+    return hosted.admit(indexName, expiresAt)
   }
 
-  const gateway: FeedGateway = {
-    authorize: context =>
-      authorize === undefined ? Promise.resolve({ allowed: true, expiresAt: null }) : authorize(context),
-    async admit(indexName, expiresAt) {
-      const admission = await admit(indexName, expiresAt)
-      return { open: socket => admission.open(socket), cancel: () => admission.cancel() }
-    },
+  const gateways: Partial<Record<FeedKind, FeedGateway>> = {}
+  for (const feed of Object.keys(feeds) as FeedKind[]) {
+    gateways[feed] = {
+      authorize: authorizeContext,
+      async admit(indexName, expiresAt) {
+        const admission = await admit(feed, indexName, expiresAt)
+        return { open: socket => admission.open(socket), cancel: () => admission.cancel() }
+      },
+    }
   }
 
   function forThread(port: MessagePort): ThreadFeeds {
-    const feeds = new Map<number, RelayedFeed>()
+    const relayed = new Map<number, RelayedFeed>()
     let nextFeedId = 0
     let closed = false
 
     function closeFeed(feedId: number): void {
-      const feed = feeds.get(feedId)
+      const feed = relayed.get(feedId)
       if (feed === undefined) return
-      feeds.delete(feedId)
+      relayed.delete(feedId)
       feed.socket.markClosed()
-      if (feed.session === null) feed.admission.cancel()
-      else feed.session.closedByPeer()
+      if (feed.endpoint === null) feed.admission.cancel()
+      else feed.endpoint.closedByPeer()
     }
 
     return {
       async admit(request) {
         try {
-          const admission = await admit(request.indexName, request.expiresAt)
+          const admission = await admit(request.feed, request.indexName, request.expiresAt)
           if (closed) {
             admission.cancel()
             return { type: 'feed-admitted', requestId: request.requestId, feedId: null, error: null }
           }
           nextFeedId += 1
           const feedId = nextFeedId
-          feeds.set(feedId, { admission, socket: new RelayedFeedSocket(port, feedId), session: null })
+          relayed.set(feedId, { admission, socket: new RelayedFeedSocket(port, feedId), endpoint: null })
           return { type: 'feed-admitted', requestId: request.requestId, feedId, error: null }
         } catch (err) {
           return { type: 'feed-admitted', requestId: request.requestId, feedId: null, error: toHttpError(err).body }
@@ -117,18 +139,18 @@ export function createFeedHost(hub: FeedHub, serving: SyncServing, authorize: Au
       },
 
       handle(note) {
-        const feed = feeds.get(note.feedId)
+        const feed = relayed.get(note.feedId)
         if (feed === undefined) return
         switch (note.type) {
           case 'feed-open':
-            if (feed.session === null) feed.session = feed.admission.open(feed.socket)
+            if (feed.endpoint === null) feed.endpoint = feed.admission.open(feed.socket)
             return
           case 'feed-message':
-            feed.session?.receive(note.bytes, note.binary)
+            feed.endpoint?.receive(note.bytes, note.binary)
             return
           case 'feed-sent':
             feed.socket.sent(note.bytes, note.buffered)
-            feed.session?.drained()
+            feed.endpoint?.drained()
             return
           case 'feed-cancel':
           case 'feed-closed':
@@ -139,10 +161,16 @@ export function createFeedHost(hub: FeedHub, serving: SyncServing, authorize: Au
 
       closeAll() {
         closed = true
-        for (const feedId of [...feeds.keys()]) closeFeed(feedId)
+        for (const feedId of [...relayed.keys()]) closeFeed(feedId)
       },
     }
   }
 
-  return { gateway, forThread, close: () => hub.close() }
+  return {
+    gateways,
+    forThread,
+    close() {
+      for (const hosted of Object.values(feeds)) hosted?.close()
+    },
+  }
 }

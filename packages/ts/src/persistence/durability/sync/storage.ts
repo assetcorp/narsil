@@ -19,6 +19,11 @@ export interface SyncStorageDeps {
   inCheckpointTurn(indexName: string, work: () => Promise<void>): Promise<void>
 }
 
+export interface RecoveredSyncFiles {
+  published: boolean
+  history: boolean
+}
+
 export type SnapshotConfiguration = (manifest: SegmentManifest) => Promise<Uint8Array>
 
 export interface SyncStorage {
@@ -26,7 +31,7 @@ export interface SyncStorage {
   published(indexName: string): Promise<PublishedSnapshot | null>
   pin(snapshot: PublishedSnapshot): () => void
   readFileRange(key: string, offset: number, length: number): Promise<Uint8Array>
-  release(indexName: string): Promise<void>
+  release(indexName: string, keepsHistory?: boolean): Promise<void>
   removeHistory(indexName: string, partitionId?: number): Promise<void>
   enforceHistoryLimits(
     indexName: string,
@@ -45,7 +50,7 @@ export interface SyncStorage {
   logBytesAfter(log: PartitionLog, afterSeqNo: number): Promise<number>
   currentManifest(indexName: string): Promise<SegmentManifest | null>
   keepsCheckpointKey(indexName: string): Promise<(key: string) => boolean>
-  settleAtRecovery(indexName: string, active: boolean): Promise<ReadonlySet<string>>
+  settleAtRecovery(indexName: string, kept: RecoveredSyncFiles): Promise<ReadonlySet<string>>
   forget(indexName: string): void
 }
 
@@ -113,13 +118,13 @@ export function createSyncStorage(deps: SyncStorageDeps): SyncStorage {
       return (whole ?? new Uint8Array(0)).subarray(offset, offset + length)
     },
 
-    async release(indexName) {
+    async release(indexName, keepsHistory = false) {
       await deps.inCheckpointTurn(indexName, async () => {
         const previous = await published(indexName)
         await directory.remove(publishedSnapshotKey(indexName))
         cache.set(indexName, null)
         if (previous !== null) await removeUnlisted(indexName, previous.keys, new Set())
-        await removeHistory(directory, indexName)
+        if (!keepsHistory) await removeHistory(directory, indexName)
       })
     },
 
@@ -153,15 +158,15 @@ export function createSyncStorage(deps: SyncStorageDeps): SyncStorage {
       return key => pins.isPinned(key) || (current?.keys.has(key) ?? false)
     },
 
-    async settleAtRecovery(indexName, active) {
+    async settleAtRecovery(indexName, kept) {
       cache.delete(indexName)
       const publishedKey = publishedSnapshotKey(indexName)
       for (const key of await directory.list(syncDirectoryPrefix(indexName))) {
         if (key !== publishedKey) await directory.remove(key)
       }
-      if (!active) {
+      if (!kept.history) await removeHistory(directory, indexName)
+      if (!kept.published) {
         await directory.remove(publishedSnapshotKey(indexName))
-        await removeHistory(directory, indexName)
         cache.set(indexName, null)
         return new Set()
       }

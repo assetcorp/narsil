@@ -8,6 +8,8 @@ const INDEX = 'products'
 const SEGMENT = 'wal/0/0000000000000046'
 const MARKER = 'wal/0/commit'
 const SEGMENT_HEADER_BYTES = 8
+const WAL_FORMAT_VERSION_OFFSET = 4
+const HIGHEST_SPECIFIED_WAL_FORMAT_VERSION = 2
 const FRAME_LENGTH_BYTES = 4
 const FRAME_CRC_BYTES = 4
 const SLOT_BYTES = 36
@@ -114,7 +116,7 @@ export async function logCases(): Promise<CaseBuild[]> {
   const wrongMagic = files.header.slice()
   wrongMagic[3] = 0x58
   const newerVersion = files.header.slice()
-  newerVersion[4] = 2
+  newerVersion[WAL_FORMAT_VERSION_OFFSET] = HIGHEST_SPECIFIED_WAL_FORMAT_VERSION + 1
   const segment = segmentOf(files.header, frames)
   const overrun = frame(first)
   new DataView(overrun.buffer).setUint32(0, segment.byteLength, false)

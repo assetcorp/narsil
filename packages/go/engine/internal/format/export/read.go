@@ -17,6 +17,11 @@ const (
 	headerVersionKey = "version"
 	headerIndexKey   = "index"
 	documentIDKey    = "id"
+
+	headerEpochKey       = "epoch"
+	headerPositionsKey   = "positions"
+	positionPartitionKey = "partitionId"
+	positionSeqNoKey     = "seqNo"
 )
 
 type Header struct {

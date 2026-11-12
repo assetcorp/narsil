@@ -44,12 +44,6 @@ pub(crate) struct HistorySegment {
     pub(crate) moved_at_ms: u64,
 }
 
-/// Reports whether a checkpoint of the index moves each covered log segment into history, which it does while
-/// sync is enabled and active.
-pub(crate) fn keeps_sync_history(metadata: &IndexMetadata) -> bool {
-    metadata.sync.as_ref().is_some_and(|sync| sync.enabled) && metadata.sync_active == Some(true)
-}
-
 fn sync_prefix(index_name: &str) -> String {
     format!("{index_name}/sync/")
 }
@@ -119,7 +113,7 @@ pub(crate) fn list_history(
     Ok(segments)
 }
 
-fn remove_history(
+pub(crate) fn remove_history(
     store: &dyn CheckpointStore,
     index_name: &str,
     partition_id: Option<u32>,
@@ -219,12 +213,13 @@ pub(crate) fn write_published(
 }
 
 /// Settles the sync files of an index as recovery opens it: deletes every file under its sync folder other than
-/// the published snapshot, and, where sync is not active, the published snapshot and the history too. A published
-/// snapshot that fails to read goes as well, so that the next request publishes a fresh one.
+/// the published snapshot, the published snapshot where device sync is not active, and the history where neither
+/// device sync nor change capture keeps one. A published snapshot that fails to read goes as well, so that the
+/// next request publishes a fresh one.
 pub(crate) fn settle_sync_files(
     store: &dyn CheckpointStore,
     index_name: &str,
-    active: bool,
+    metadata: &IndexMetadata,
 ) -> Result<()> {
     let published_key = published_snapshot_key(index_name);
     for key in store.list(&sync_prefix(index_name))? {
@@ -232,30 +227,34 @@ pub(crate) fn settle_sync_files(
             store.remove(&key)?;
         }
     }
-    if !active {
-        store.remove(&published_key)?;
-        return remove_history(store, index_name, None);
+    if !metadata.keeps_history() {
+        remove_history(store, index_name, None)?;
     }
-    if read_published(store, index_name).is_err() {
+    if !metadata.sync_is_active() || read_published(store, index_name).is_err() {
         store.remove(&published_key)?;
     }
     Ok(())
 }
 
 /// Deletes the published snapshot of an index, then every file that only the published manifest listed, then the
-/// history. A file that `keeps` reports, such as one that a reader holds, stays for the next checkpoint to delete.
+/// history where `with_history` is set. A file that `keeps` reports, such as one that a reader holds, stays for
+/// the next checkpoint to delete.
 pub(crate) fn release_published(
     store: &dyn CheckpointStore,
     index_name: &str,
     current: &BTreeSet<String>,
     keeps: &dyn Fn(&str) -> bool,
+    with_history: bool,
 ) -> Result<()> {
     let previous = read_published(store, index_name).ok().flatten();
     store.remove(&published_snapshot_key(index_name))?;
     if let Some(previous) = previous {
         remove_only_published(store, &previous.keys, current, &BTreeSet::new(), keeps)?;
     }
-    remove_history(store, index_name, None)
+    if with_history {
+        remove_history(store, index_name, None)?;
+    }
+    Ok(())
 }
 
 /// Deletes each file of `previous` that neither the index's manifest nor the next published manifest lists.

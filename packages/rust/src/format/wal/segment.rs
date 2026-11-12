@@ -1,16 +1,27 @@
 use super::entry::{LogEntry, decode_entry, encode_entry};
-use super::{MAX_WAL_RECORD_BYTES, SEGMENT_HEADER_BYTES, WAL_FORMAT_VERSION, WAL_MAGIC};
+use super::{MAX_WAL_RECORD_BYTES, SEGMENT_HEADER_BYTES, WAL_MAGIC};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::hash::crc32;
 
-const RECORD_LENGTH_BYTES: usize = 4;
-const FRAME_CRC_BYTES: usize = 4;
+pub(crate) const RECORD_LENGTH_BYTES: usize = 4;
+pub(crate) const FRAME_CRC_BYTES: usize = 4;
+pub(crate) const WAL_FORMAT_VERSION_AT: usize = 4;
 
-pub(crate) fn segment_header() -> [u8; SEGMENT_HEADER_BYTES] {
+/// The log framing version of a segment that holds no entry with a previous document.
+pub(crate) const WAL_FORMAT_VERSION: u8 = 1;
+/// The log framing version of a segment that can hold entries with a previous document.
+pub(crate) const WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT: u8 = 2;
+
+pub(crate) fn segment_header(version: u8) -> [u8; SEGMENT_HEADER_BYTES] {
     let mut header = [0u8; SEGMENT_HEADER_BYTES];
     header[..4].copy_from_slice(&WAL_MAGIC);
-    header[4] = WAL_FORMAT_VERSION;
+    header[WAL_FORMAT_VERSION_AT] = version;
     header
+}
+
+/// Returns the log framing version that a segment's header gives, or `None` for a segment shorter than its header.
+pub(crate) fn segment_version(data: &[u8]) -> Option<u8> {
+    (data.len() >= SEGMENT_HEADER_BYTES).then(|| data[WAL_FORMAT_VERSION_AT])
 }
 
 pub(crate) fn frame_record(entry: &LogEntry, out: &mut Vec<u8>) -> Result<()> {
@@ -45,12 +56,12 @@ pub(crate) fn check_segment_header(data: &[u8]) -> Result<()> {
             "WAL segment header invalid in durable region: missing NRSW magic",
         ));
     }
-    if data[4] > WAL_FORMAT_VERSION {
+    if data[WAL_FORMAT_VERSION_AT] > WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT {
         return Err(NarsilError::new(
             ErrorCode::ENVELOPE_VERSION_MISMATCH,
             format!(
-                "WAL segment header invalid in durable region: WAL format version {} is newer than supported version {WAL_FORMAT_VERSION}, so a newer release wrote this segment",
-                data[4]
+                "WAL segment header invalid in durable region: WAL format version {} is newer than supported version {WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT}, so a newer release wrote this segment",
+                data[WAL_FORMAT_VERSION_AT]
             ),
         ));
     }

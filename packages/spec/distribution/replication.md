@@ -123,14 +123,15 @@ Each entry is serialised as MessagePack:
 
 ```text
 ReplicationLogEntry {
-  seqNo:       uint64           (increases monotonically within a partition)
-  primaryTerm: uint64           (increases on primary failover)
-  operation:   'INDEX' or 'DELETE'
-  partitionId: uint32
-  indexName:   string
-  documentId:  string
-  document:    bytes or absent  (MessagePack document, present for INDEX)
-  checksum:    uint32           (CRC32 of the seven content fields)
+  seqNo:            uint64                 (increases monotonically within a partition)
+  primaryTerm:      uint64                 (increases on primary failover)
+  operation:        'INDEX' or 'DELETE'
+  partitionId:      uint32
+  indexName:        string
+  documentId:       string
+  document:         bytes or absent        (MessagePack document, present for INDEX)
+  previousDocument: bytes, nil, or absent  (the document before the write, where the index records it)
+  checksum:         uint32                 (CRC32 of the content fields)
 }
 ```
 
@@ -160,19 +161,29 @@ For an `INDEX` entry, this is the complete document body serialised as MessagePa
 
 For a `DELETE` entry, the field is absent.
 
+#### previousDocument
+
+The primary of an index with `previousDocument` on must write this key into every entry, as [Previous Document](../changes.md#previous-document) defines. The key holds the complete body of the document that the entry replaces or removes, serialised as `document` is, or nil where the partition held no document under that ID. The primary of any other index must leave the key absent.
+
 #### checksum
 
-The checksum covers the seven content fields, which is every field except `checksum` itself. An implementation encodes those fields as a MessagePack array in exactly this order:
+The checksum covers the content fields, which are every field except `checksum` itself. For an entry without the `previousDocument` key, an implementation encodes those fields as a MessagePack array of seven items in exactly this order:
 
 ```text
 [seqNo, primaryTerm, operation, partitionId, indexName, documentId, document]
 ```
 
-and computes CRC32 with the IEEE polynomial over the resulting bytes. The positional array form and that field order are the contract. The checksum input is a MessagePack array, not the keyed map that stores and transmits the entry, so every language derives identical bytes and an identical checksum for the same entry.
+For an entry that holds the `previousDocument` key, the array has that field as its eighth item, and a nil value takes the MessagePack nil:
 
-This logical checksum differs from the write-ahead log frame checksum in [Record Frame](../durability.md#record-frame). The frame checksum covers the framed payload bytes on disk, and this one covers the seven content fields and travels with the entry between nodes.
+```text
+[seqNo, primaryTerm, operation, partitionId, indexName, documentId, document, previousDocument]
+```
 
-Adding, removing, or reordering a content field changes these bytes and the checksum, so it is a breaking format change that must raise the log framing version instead of altering the layout in place. A replica verifies the checksum before it applies an entry, and recovery recomputes it while reading a segment. A mismatch means corruption and must be reported as an error; recovery raises `PERSISTENCE_WAL_CORRUPT`.
+The implementation computes CRC32 with the IEEE polynomial over the resulting bytes. The positional array form and that field order are the contract. The checksum input is a MessagePack array, not the keyed map that stores and transmits the entry, so every language derives identical bytes and an identical checksum for the same entry.
+
+This logical checksum differs from the write-ahead log frame checksum in [Record Frame](../durability.md#record-frame). The frame checksum covers the framed payload bytes on disk, and this one covers the content fields and travels with the entry between nodes.
+
+Adding, removing, or reordering a content field changes these bytes and the checksum, so it is a breaking format change that must raise the log framing version. The eighth item is such a change, so a segment that holds an entry with the `previousDocument` key has log framing version 2, as [Segment Header](../durability.md#segment-header) defines. A replica verifies the checksum before it applies an entry, and recovery recomputes it while reading a segment. A mismatch means corruption and must be reported as an error; recovery raises `PERSISTENCE_WAL_CORRUPT`.
 
 ### Document Write Record
 

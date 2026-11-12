@@ -173,16 +173,27 @@ async function* documentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<str
   }
 }
 
-async function* exportLines(header: Record<string, unknown>, checkpoint: ArchiveCheckpoint): AsyncGenerator<string> {
-  yield `${encodeExactJson({ format: DOCUMENT_EXPORT_FORMAT, version: DOCUMENT_EXPORT_VERSION, index: header }, '')}\n`
+export interface ExportPositions {
+  epoch: string
+  positions: { partitionId: number; seqNo: number }[]
+}
+
+async function* exportLines(
+  header: Record<string, unknown>,
+  checkpoint: ArchiveCheckpoint,
+  positions: ExportPositions | null,
+): AsyncGenerator<string> {
+  const exportHeader = { format: DOCUMENT_EXPORT_FORMAT, version: DOCUMENT_EXPORT_VERSION, index: header }
+  yield `${encodeExactJson(positions === null ? exportHeader : { ...exportHeader, ...positions }, '')}\n`
   yield* documentLines(checkpoint)
 }
 
 export function documentExportStream(
   header: Record<string, unknown>,
   checkpoint: ArchiveCheckpoint,
+  positions: ExportPositions | null = null,
 ): ReadableStream<Uint8Array> {
-  const lines = exportLines(header, checkpoint)
+  const lines = exportLines(header, checkpoint, positions)
   const encoder = new TextEncoder()
   let released = false
   const release = (): void => {

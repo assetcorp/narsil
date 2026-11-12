@@ -3,6 +3,7 @@ import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { type ArchiveLayout, archiveLayout } from '../../../persistence/archive/range-layout'
+import type { ArchiveCheckpoint } from '../../../persistence/durability/archive-checkpoint'
 import { segmentKey, vectorFileKey } from '../../../persistence/durability/segment/layout'
 import {
   type FileRef,
@@ -23,6 +24,8 @@ export interface SpooledArchive {
   backupName: string
   entityTag: string
   layout: ArchiveLayout
+  config: Uint8Array
+  checkpoint(release: () => void): ArchiveCheckpoint
   dispose(): Promise<void>
 }
 
@@ -185,13 +188,17 @@ export async function spoolBackupArchive(
     const prefix = `${sourceIndexName}/`
     const ordered = manifestFileRefs(manifest)
     const byKey = new Map(files.map(file => [file.ref.key, file]))
+    const pathOf = (ref: FileRef): string => {
+      const file = byKey.get(ref.key)
+      const path = file === undefined ? undefined : pathByDigest.get(file.listed.sha256)
+      if (path === undefined) throw damaged(backup.name, `lost the spooled copy of "${ref.key}"`)
+      return path
+    }
     const layout = archiveLayout(
       config,
       packed,
       ordered.map(ref => {
-        const file = byKey.get(ref.key)
-        const path = file === undefined ? undefined : pathByDigest.get(file.listed.sha256)
-        if (path === undefined) throw damaged(backup.name, `lost the spooled copy of "${ref.key}"`)
+        const path = pathOf(ref)
         return {
           name: ref.key.slice(prefix.length),
           bytes: ref.bytes,
@@ -199,7 +206,18 @@ export async function spoolBackupArchive(
         }
       }),
     )
-    return { backupName: backup.name, entityTag, layout, dispose }
+    const inPartitionOrder: SegmentManifest = {
+      ...manifest,
+      partitions: [...manifest.partitions].sort((a, b) => a.partitionId - b.partitionId),
+    }
+    const checkpoint = (release: () => void): ArchiveCheckpoint => ({
+      manifestBytes: packed,
+      manifest: inPartitionOrder,
+      readFile: ref => readSpooled(pathOf(ref), 0, ref.bytes),
+      readRange: (ref, offset, length) => readSpooled(pathOf(ref), offset, length),
+      release,
+    })
+    return { backupName: backup.name, entityTag, layout, config, checkpoint, dispose }
   } catch (error) {
     await dispose()
     throw error

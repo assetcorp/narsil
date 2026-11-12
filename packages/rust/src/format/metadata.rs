@@ -3,11 +3,11 @@ use crate::format::envelope::{Compression, Header};
 use crate::format::fields::{non_negative_safe_integer, string_list};
 pub(crate) use crate::format::lenient_envelope::{open_lenient_envelope, pack_lenient_envelope};
 use crate::format::metadata_parts::{
-    Bm25Params, EmbeddingMetadata, NamedAnalysis, PartitionLimits, PendingAnalysis, SyncSetting,
-    VectorFieldMetadata, VectorPromotion, bm25_from_wire, bm25_to_wire, config_invalid, describe,
-    embedding_from_wire, embedding_to_wire, is_sync_epoch, limits_from_wire, limits_to_wire,
-    named_analysis_to_wire, pending_from_wire, positive_integer, promotion_from_wire,
-    promotion_to_wire, sync_from_wire, sync_to_wire, vector_fields_from_wire,
+    Bm25Params, ChangesSetting, EmbeddingMetadata, NamedAnalysis, PartitionLimits, PendingAnalysis,
+    SyncSetting, VectorFieldMetadata, VectorPromotion, bm25_from_wire, bm25_to_wire,
+    config_invalid, describe, embedding_from_wire, embedding_to_wire, feeds_from_wire,
+    feeds_to_wire, limits_from_wire, limits_to_wire, named_analysis_to_wire, pending_from_wire,
+    positive_integer, promotion_from_wire, promotion_to_wire, vector_fields_from_wire,
     vector_fields_to_wire,
 };
 use crate::value::{Map, Value, decode_value, encode_value};
@@ -51,6 +51,7 @@ pub(crate) struct IndexMetadata {
     pub(crate) sync: Option<SyncSetting>,
     pub(crate) sync_active: Option<bool>,
     pub(crate) sync_epoch: Option<String>,
+    pub(crate) changes: Option<ChangesSetting>,
     pub(crate) query_suggestions: Option<Value>,
     pub(crate) banned_queries: Option<Vec<String>>,
     pub(crate) query_suggestions_source: Option<Value>,
@@ -90,6 +91,7 @@ impl IndexMetadata {
             sync: None,
             sync_active: None,
             sync_epoch: None,
+            changes: None,
             query_suggestions: None,
             banned_queries: None,
             query_suggestions_source: None,
@@ -169,27 +171,7 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
             .collect();
     }
     meta.synonyms = present(raw, "synonyms");
-    if let Some(sync) = raw.get("sync").filter(|value| !value.is_null()) {
-        meta.sync = Some(sync_from_wire(sync)?);
-    }
-    match raw.get("sync_active") {
-        None | Some(Value::Null) => {}
-        Some(Value::Bool(active)) => meta.sync_active = Some(*active),
-        Some(_) => {
-            return Err(config_invalid(
-                "The device sync state in the index metadata holds a sync_active that is not a boolean",
-            ));
-        }
-    }
-    match raw.get("sync_epoch") {
-        None | Some(Value::Null) => {}
-        Some(Value::String(epoch)) if is_sync_epoch(epoch) => meta.sync_epoch = Some(epoch.clone()),
-        Some(_) => {
-            return Err(config_invalid(
-                "The device sync state in the index metadata holds an epoch that is not 32 lowercase hexadecimal digits",
-            ));
-        }
-    }
+    feeds_from_wire(raw, &mut meta)?;
     meta.query_suggestions = present(raw, "query_suggestions");
     meta.banned_queries = super::metadata_bans::ban_list_of(raw.get("banned_queries"))?;
     meta.query_suggestions_source = present(raw, "query_suggestions_source");
@@ -288,15 +270,7 @@ pub(crate) fn metadata_to_wire(meta: &IndexMetadata) -> Map {
     {
         wire.insert("synonyms", Value::Array(groups.clone()));
     }
-    if let Some(sync) = &meta.sync {
-        wire.insert("sync", sync_to_wire(sync));
-    }
-    if let Some(active) = meta.sync_active {
-        wire.insert("sync_active", Value::Bool(active));
-    }
-    if let Some(epoch) = &meta.sync_epoch {
-        wire.insert("sync_epoch", Value::String(epoch.clone()));
-    }
+    feeds_to_wire(meta, &mut wire);
     if let Some(setting) = &meta.query_suggestions {
         wire.insert("query_suggestions", setting.clone());
     }

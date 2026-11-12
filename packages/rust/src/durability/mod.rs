@@ -1,5 +1,6 @@
 pub(crate) mod archive_pins;
 pub(crate) mod calling_threads;
+pub(crate) mod change_reader;
 pub(crate) mod checkpoint;
 pub(crate) mod checkpoint_files;
 pub(crate) mod checkpoint_store;
@@ -25,6 +26,7 @@ pub(crate) mod staged_file;
 pub(crate) mod store;
 pub(crate) mod store_config;
 pub(crate) mod store_inner;
+mod store_thread;
 pub(crate) mod sync_files;
 pub(crate) mod sync_retention;
 mod sync_store;

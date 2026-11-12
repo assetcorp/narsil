@@ -117,7 +117,10 @@ export async function recoverPersistedIndex(
   }
 
   const syncActive = metadata.sync?.enabled === true && metadata.syncActive === true
-  const keptForSync = await deps.syncStorage.settleAtRecovery(indexName, syncActive)
+  const keptForSync = await deps.syncStorage.settleAtRecovery(indexName, {
+    published: syncActive,
+    history: syncActive || metadata.changes?.enabled === true,
+  })
   const recovered = await recoverCheckpoint({
     store,
     indexName,

@@ -37,7 +37,8 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     entry.analysisGeneration,
   )
   const withSuggestions = { ...payload, ...entry.querySuggestions }
-  return entry.sync === null ? withSuggestions : { ...withSuggestions, syncEpoch: entry.sync.epoch }
+  const epoch = entry.sync?.epoch ?? entry.changes?.epoch
+  return epoch === undefined ? withSuggestions : { ...withSuggestions, syncEpoch: epoch }
 }
 
 export async function encodeIndexConfiguration(entry: IndexRegistryEntry): Promise<Uint8Array> {

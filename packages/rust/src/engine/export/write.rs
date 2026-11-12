@@ -5,7 +5,7 @@ use crate::engine::constants::EXPORT_CHUNK_BYTES;
 use crate::engine::durable::archive::ArchiveCheckpoint;
 use crate::engine::vectors::paths::set_value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::document_export::{document_line, header_line};
+use crate::format::document_export::{ExportPositions, document_line, header_line};
 use crate::format::keyword_segment::{KEYWORD_SEGMENT_ENVELOPE_VERSION, decode_keyword_segment};
 use crate::format::manifest::{PartitionEntry, SegmentRef};
 use crate::format::manifest_refs::VectorFileRef;
@@ -142,6 +142,18 @@ fn write_partition(
     Ok(())
 }
 
+fn export_positions(checkpoint: &ArchiveCheckpoint) -> Option<ExportPositions> {
+    let epoch = checkpoint.capture_epoch.clone()?;
+    let mut positions: Vec<(u32, u64)> = checkpoint
+        .manifest
+        .checkpoint
+        .iter()
+        .map(|entry| (entry.partition_id, entry.last_seq_no))
+        .collect();
+    positions.sort_by_key(|(partition_id, _)| *partition_id);
+    Some(ExportPositions { epoch, positions })
+}
+
 /// Writes a document export of `checkpoint`: the header line that carries `configuration`, then one line for
 /// each document that the checkpoint holds, with its vectors, partition by partition in segment order.
 pub(crate) fn write_document_export(
@@ -150,7 +162,7 @@ pub(crate) fn write_document_export(
     out: &mut dyn Write,
 ) -> Result<()> {
     let mut buffered = BufWriter::with_capacity(EXPORT_CHUNK_BYTES, out);
-    let header = header_line(configuration)?;
+    let header = header_line(configuration, export_positions(checkpoint).as_ref())?;
     buffered
         .write_all(header.as_bytes())
         .map_err(write_failed)?;

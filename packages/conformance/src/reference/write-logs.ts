@@ -25,8 +25,15 @@ function operationOf(value: Json | undefined, what: string): ReplicationOperatio
   return value
 }
 
+function previousDocumentOf(record: JsonObject, what: string): Uint8Array | null | undefined {
+  const value = record.previousDocument
+  if (value === undefined || value === null) return value
+  return encodeDocument(plainOf(untagged(value), `${what}.previousDocument`))
+}
+
 function recordFrame(record: JsonObject, what: string): Uint8Array {
   const document = record.document === undefined ? null : encodeDocument(plainOf(untagged(record.document), what))
+  const previousDocument = previousDocumentOf(record, what)
   return frameRecord(
     buildEntry({
       seqNo: numberFromJson(record.seqNo ?? null, `${what}.seqNo`),
@@ -36,6 +43,7 @@ function recordFrame(record: JsonObject, what: string): Uint8Array {
       indexName: stringAt(record.indexName, `${what}.indexName`),
       documentId: stringAt(record.documentId, `${what}.documentId`),
       document,
+      ...(previousDocument === undefined ? {} : { previousDocument }),
     }),
   )
 }

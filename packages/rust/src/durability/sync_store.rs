@@ -5,7 +5,8 @@ use crate::error::Result;
 use super::checkpoint_files::{manifest_keys, read_current_manifest};
 use super::store::DurabilityStore;
 use super::sync_files::{
-    PublishedSnapshot, read_published, release_published, remove_only_published, write_published,
+    PublishedSnapshot, list_history, read_published, release_published, remove_history,
+    remove_only_published, write_published,
 };
 use super::sync_retention::{HistoryLimits, enforce_history_limits};
 
@@ -67,12 +68,43 @@ impl DurabilityStore {
         Ok(next)
     }
 
-    /// Deletes the published snapshot and the history of an index, with every file that only the published
-    /// snapshot listed.
-    pub(crate) fn release_sync_files(&self, index_name: &str) -> Result<()> {
+    /// Deletes the published snapshot of an index, with every file that only the published snapshot listed, and its
+    /// history where `with_history` is set.
+    pub(crate) fn release_sync_files(&self, index_name: &str, with_history: bool) -> Result<()> {
         self.in_checkpoint_turn(index_name, |keeps, current| {
-            release_published(&self.inner.directory, index_name, current, keeps)
+            release_published(
+                &self.inner.directory,
+                index_name,
+                current,
+                keeps,
+                with_history,
+            )
         })
+    }
+
+    /// Deletes every history segment of an index, between checkpoints, so that no checkpoint moves a segment into
+    /// history during the deletion.
+    pub(crate) fn remove_history_files(&self, index_name: &str) -> Result<()> {
+        if list_history(&self.inner.directory, index_name, None)?.is_empty() {
+            return Ok(());
+        }
+        self.in_checkpoint_turn(index_name, |_, _| {
+            remove_history(&self.inner.directory, index_name, None)
+        })
+    }
+
+    /// Returns the length of the checkpoint of an index: the sum of the lengths of the files that its manifest
+    /// lists, or 0 where it has no manifest.
+    pub(crate) fn checkpoint_bytes(&self, index_name: &str) -> Result<u64> {
+        Ok(
+            read_current_manifest(&self.inner.directory, index_name)?.map_or(0, |manifest| {
+                manifest
+                    .file_refs()
+                    .into_iter()
+                    .map(|file| file.bytes)
+                    .fold(0, u64::saturating_add)
+            }),
+        )
     }
 
     /// Reports whether a checkpoint of the index moved log segments into history since the last call.
@@ -83,13 +115,14 @@ impl DurabilityStore {
     }
 
     /// Deletes the oldest history segments of an index while they break `limits`, publishing a snapshot through
-    /// `publish` first where a device that falls behind would otherwise find no snapshot to start from.
+    /// `publish`, where one is given, first where a device that falls behind would otherwise find no snapshot to
+    /// start from.
     pub(crate) fn enforce_history(
         &self,
         index_name: &str,
         limits: &HistoryLimits,
         now_ms: u64,
-        publish: &mut dyn FnMut() -> Result<PublishedSnapshot>,
+        publish: Option<&mut dyn FnMut() -> Result<PublishedSnapshot>>,
     ) -> Result<usize> {
         self.inner.verify()?;
         let published = self.published_snapshot(index_name);

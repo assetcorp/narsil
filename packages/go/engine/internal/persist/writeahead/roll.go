@@ -22,22 +22,12 @@ func (writer *Writer) PrepareCheckpointRoll() error {
 		return err
 	}
 	defer prepared.Close()
-	size, err := prepared.Size()
-	if err != nil {
-		return err
-	}
-	if size > 0 {
-		if err := prepared.Truncate(0); err != nil {
-			return err
-		}
-	}
-	if err := prepared.Append(wal.AppendSegmentHeader(nil)); err != nil {
-		return err
-	}
-	if err := prepared.Sync(); err != nil {
+	version := writer.newSegmentVersion(wal.FormatVersion)
+	if err := writeEmptySegment(prepared, version); err != nil {
 		return err
 	}
 	writer.nextSegmentPrepared = true
+	writer.preparedVersion = version
 	return nil
 }
 
@@ -52,7 +42,7 @@ func (writer *Writer) RollForCheckpoint() error {
 		return nil
 	}
 	if !prepared {
-		return writer.rollHeld(writer.highestAppended + 1)
+		return writer.rollHeld(writer.highestAppended+1, wal.FormatVersion)
 	}
 	return writer.swapToPreparedHeld()
 }
@@ -80,10 +70,12 @@ func (writer *Writer) swapToPreparedHeld() error {
 	writer.handle = handle
 	writer.activeStartSeqNo = startSeqNo
 	writer.activeBytes = wal.SegmentHeaderBytes
+	writer.activeVersion = max(writer.preparedVersion, wal.FormatVersion)
 	if err := marker.commit(startSeqNo, wal.SegmentHeaderBytes, durableSeqNo); err != nil {
 		_ = sealed.Close()
 		return err
 	}
 	writer.highestDurable = durableSeqNo
+	writer.reportDurable()
 	return sealed.Close()
 }

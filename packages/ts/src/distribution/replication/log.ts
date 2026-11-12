@@ -1,18 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { DEFAULT_LOG_RETENTION_BYTES, REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from './constants'
-import { computeEntryChecksum } from './entry-checksum'
+import { DEFAULT_LOG_RETENTION_BYTES } from './constants'
+import { buildEntry, computeEntryChecksum, entryByteEstimate } from './entry-checksum'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from './types'
-
-function estimateEntrySize(entry: ReplicationLogEntry): number {
-  return (
-    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
-    entry.indexName.length +
-    entry.documentId.length +
-    (entry.document?.byteLength ?? 0)
-  )
-}
-
-const computeChecksum = computeEntryChecksum
 
 function ownedDocument(document: Uint8Array | null): Uint8Array | null {
   if (document === null || (document.byteOffset === 0 && document.byteLength === document.buffer.byteLength)) {
@@ -66,7 +55,7 @@ export function createReplicationLog(
 
   function evictOldEntries(): void {
     while (liveCount() > 0 && totalSizeBytes > retentionBytes) {
-      totalSizeBytes -= estimateEntrySize(entries[headIndex])
+      totalSizeBytes -= entryByteEstimate(entries[headIndex])
       entries[headIndex] = null as unknown as ReplicationLogEntry
       headIndex += 1
     }
@@ -82,13 +71,10 @@ export function createReplicationLog(
     indexName: string
     documentId: string
     document: Uint8Array | null
+    previousDocument?: Uint8Array | null
     seqNo?: number
   }): void {
-    const entrySize =
-      REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
-      entry.indexName.length +
-      entry.documentId.length +
-      (entry.document?.byteLength ?? 0)
+    const entrySize = entryByteEstimate(entry)
     if (entrySize > retentionBytes) {
       throw new NarsilError(
         ErrorCodes.REPLICATION_LOG_FULL,
@@ -100,12 +86,13 @@ export function createReplicationLog(
 
   function storeEntry(appended: ReplicationLogEntry): ReplicationLogEntry {
     const entry = { ...appended, document: ownedDocument(appended.document) }
+    if (appended.previousDocument !== undefined) entry.previousDocument = ownedDocument(appended.previousDocument)
     entries.push(entry)
     if (entry.seqNo >= localLogEnd) {
       localLogEnd = entry.seqNo
       localLogEndPrimaryTerm = entry.primaryTerm
     }
-    totalSizeBytes += estimateEntrySize(entry)
+    totalSizeBytes += entryByteEstimate(entry)
     evictOldEntries()
     return { ...entry }
   }
@@ -120,16 +107,7 @@ export function createReplicationLog(
   }
 
   function verifyEntryChecksum(entry: ReplicationLogEntry): boolean {
-    const expected = computeChecksum({
-      seqNo: entry.seqNo,
-      primaryTerm: entry.primaryTerm,
-      operation: entry.operation,
-      partitionId: entry.partitionId,
-      indexName: entry.indexName,
-      documentId: entry.documentId,
-      document: entry.document,
-    })
-    return expected === entry.checksum
+    return computeEntryChecksum(entry) === entry.checksum
   }
 
   return {
@@ -139,20 +117,18 @@ export function createReplicationLog(
       const seqNo = nextSeqNo
       nextSeqNo += 1
 
-      const entryWithoutChecksum = {
-        seqNo,
-        primaryTerm: partial.primaryTerm,
-        operation: partial.operation,
-        partitionId,
-        indexName: partial.indexName,
-        documentId: partial.documentId,
-        document: partial.document,
-      }
-
-      const checksum = computeChecksum(entryWithoutChecksum)
-      const entry: ReplicationLogEntry = { ...entryWithoutChecksum, checksum }
-
-      return storeEntry(entry)
+      return storeEntry(
+        buildEntry({
+          seqNo,
+          primaryTerm: partial.primaryTerm,
+          operation: partial.operation,
+          partitionId,
+          indexName: partial.indexName,
+          documentId: partial.documentId,
+          document: partial.document,
+          previousDocument: partial.previousDocument,
+        }),
+      )
     },
 
     appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry {

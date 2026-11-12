@@ -52,6 +52,10 @@ class SyncTransport:
         self._owns_client = http_client is None
         self._client = http_client if http_client is not None else httpx.Client(follow_redirects=False)
 
+    @property
+    def core(self) -> TransportCore:
+        return self._core
+
     def close(self) -> None:
         if self._owns_client:
             self._client.close()

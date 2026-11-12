@@ -39,7 +39,7 @@ BackupManifest {
   completedAt:       uint64
   partitionCount:    uint32
   syncEpoch:         string or absent        (the index epoch, which the controller copies from IndexSettings when the backup starts)
-  takenBy:           string or absent        ("sync" where device sync started the backup, and absent for a caller's backup)
+  takenBy:           string or absent        ("sync" where device sync started the backup, "changes" where change capture did, and absent for a caller's backup)
   replicationFactor: uint32
   constraints:       AllocationConstraints   (as cluster.md defines)
   config:            StoredFile              (an index configuration payload)
@@ -114,7 +114,7 @@ Saving the manifest is the commit point, so a reader must treat a backup that ha
 
 Where `cluster.backup` sets `queryHistory`, the controller reads every node's files with [suggestions.counts](transport.md#suggestionscounts) before step 6, saves each file as a stored file as it arrives, and lists them in the manifest's `queryHistory`, as [In a Cluster](../query-suggestions.md#in-a-cluster) defines. It holds at most one history file in memory at a time, because the history of one index on one node can pass 4 GB. The files of a node that gives no answer stay out of the backup.
 
-The controller copies `takenBy` from `cluster.backup` into the manifest. A node sets `takenBy` only for a backup that [device sync](../sync.md#in-a-cluster) starts, and the backup operation that a caller reaches takes no `takenBy`, so that a caller's backup never carries it.
+The controller copies `takenBy` from `cluster.backup` into the manifest. A node sets `takenBy` only for a backup that [device sync](../sync.md#in-a-cluster) or [change capture](../changes.md#in-a-cluster-1) starts, and the backup operation that a caller reaches takes no `takenBy`, so that a caller's backup never carries it.
 
 A primary must stream each file that it saves through `saveStream` where the adapter offers that method, and it must bound the files that it saves at one time, so that a backup can't fill a serving node's memory.
 

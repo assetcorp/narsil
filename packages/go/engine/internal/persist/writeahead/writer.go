@@ -15,6 +15,8 @@ type Config struct {
 	IndexName       string
 	PartitionID     uint32
 	SegmentMaxBytes int64
+	SegmentVersion  func() uint8
+	Durable         func()
 }
 
 type Writer struct {
@@ -26,10 +28,12 @@ type Writer struct {
 	handle              *storage.AppendFile
 	activeStartSeqNo    uint64
 	activeBytes         int64
+	activeVersion       uint8
 	highestAppended     uint64
 	highestDurable      uint64
 	marker              *markerWriter
 	nextSegmentPrepared bool
+	preparedVersion     uint8
 	closed              bool
 }
 
@@ -86,6 +90,7 @@ func (writer *Writer) flush() error {
 	writer.state.Lock()
 	writer.highestDurable = max(writer.highestDurable, durableSeqNo)
 	writer.state.Unlock()
+	writer.reportDurable()
 	return nil
 }
 
@@ -105,10 +110,11 @@ func (writer *Writer) flushHeld() error {
 		return err
 	}
 	writer.highestDurable = durableSeqNo
+	writer.reportDurable()
 	return nil
 }
 
-func (writer *Writer) openSegmentHeld(key string) (bool, error) {
+func (writer *Writer) openSegmentHeld(key string, version uint8) (bool, error) {
 	start, ok := segmentStart(key, Prefix(writer.config.IndexName, writer.config.PartitionID))
 	if !ok {
 		return false, malformedSegmentKey(key)
@@ -124,15 +130,19 @@ func (writer *Writer) openSegmentHeld(key string) (bool, error) {
 	}
 	created := size == 0
 	if created {
-		if err := handle.Append(wal.AppendSegmentHeader(nil)); err != nil {
+		if err := handle.Append(wal.AppendSegmentHeaderOfVersion(nil, version)); err != nil {
 			_ = handle.Close()
 			return false, err
 		}
 		size = wal.SegmentHeaderBytes
+	} else if version, err = segmentVersionOf(writer.config.Directory, key); err != nil {
+		_ = handle.Close()
+		return false, err
 	}
 	writer.handle = handle
 	writer.activeStartSeqNo = start
 	writer.activeBytes = size
+	writer.activeVersion = version
 	if created {
 		if err := writer.config.Directory.SyncDirectoryOf(key); err != nil {
 			return true, err
@@ -141,7 +151,7 @@ func (writer *Writer) openSegmentHeld(key string) (bool, error) {
 	return created, nil
 }
 
-func (writer *Writer) ensureSegmentHeld(seqNo uint64) error {
+func (writer *Writer) ensureSegmentHeld(seqNo uint64, needed uint8) error {
 	if writer.handle != nil {
 		return nil
 	}
@@ -156,7 +166,7 @@ func (writer *Writer) ensureSegmentHeld(seqNo uint64) error {
 	if len(segments) > 0 {
 		key = segments[len(segments)-1].Key
 	}
-	created, err := writer.openSegmentHeld(key)
+	created, err := writer.openSegmentHeld(key, writer.newSegmentVersion(needed))
 	if err != nil {
 		return err
 	}
@@ -166,7 +176,7 @@ func (writer *Writer) ensureSegmentHeld(seqNo uint64) error {
 	return nil
 }
 
-func (writer *Writer) rollHeld(startSeqNo uint64) error {
+func (writer *Writer) rollHeld(startSeqNo uint64, needed uint8) error {
 	if writer.handle != nil {
 		if err := writer.flushHeld(); err != nil {
 			return err
@@ -178,7 +188,7 @@ func (writer *Writer) rollHeld(startSeqNo uint64) error {
 		}
 	}
 	if _, err := writer.openSegmentHeld(SegmentKey(writer.config.IndexName, writer.config.PartitionID,
-		startSeqNo)); err != nil {
+		startSeqNo), writer.newSegmentVersion(needed)); err != nil {
 		return err
 	}
 	return writer.flushHeld()
@@ -198,8 +208,10 @@ func (writer *Writer) AppendAll(entries []wal.Entry) error {
 		frames[index] = frame
 		total += int64(len(frame))
 	}
+	needed := versionNeededBy(entries)
 	writer.state.Lock()
-	if writer.handle != nil && writer.activeBytes+total <= writer.config.SegmentMaxBytes {
+	if writer.handle != nil && writer.activeVersion >= needed &&
+		writer.activeBytes+total <= writer.config.SegmentMaxBytes {
 		err := writer.writeFramesHeld(frames, entries[len(entries)-1].SeqNo)
 		writer.state.Unlock()
 		return err
@@ -209,14 +221,17 @@ func (writer *Writer) AppendAll(entries []wal.Entry) error {
 	defer writer.durability.Unlock()
 	writer.state.Lock()
 	defer writer.state.Unlock()
-	if err := writer.ensureSegmentHeld(entries[0].SeqNo); err != nil {
+	if err := writer.ensureSegmentHeld(entries[0].SeqNo, needed); err != nil {
+		return err
+	}
+	if err := writer.raiseActiveVersionHeld(entries[0].SeqNo, needed); err != nil {
 		return err
 	}
 	start := 0
 	for start < len(frames) {
 		if writer.activeBytes > wal.SegmentHeaderBytes && (writer.activeBytes >= writer.config.SegmentMaxBytes ||
 			writer.activeBytes+int64(len(frames[start])) > writer.config.SegmentMaxBytes) {
-			if err := writer.rollHeld(entries[start].SeqNo); err != nil {
+			if err := writer.rollHeld(entries[start].SeqNo, needed); err != nil {
 				return err
 			}
 		}

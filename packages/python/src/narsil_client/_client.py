@@ -9,6 +9,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from narsil_client._change_feed import ChangeSubscription, open_change_subscription
+from narsil_client._change_messages import PositionInput
 from narsil_client._errors import DOC_NOT_FOUND, NOT_FOUND, TASK_NOT_FOUND, NarsilError
 from narsil_client._exchange import Exchange, ndjson, path_segment
 from narsil_client._helpers import (
@@ -302,6 +304,58 @@ class NarsilClient(Operations):
         """Replaces many documents in one request. Each update holds a `docId` and a `document`."""
         body = batch_body("update", "updates", updates, options)
         return self.write_batch(name, body, timeout_ms=timeout_ms, headers=headers)
+
+    def follow_changes(
+        self,
+        name: str,
+        *,
+        epoch: str | None = None,
+        positions: Iterable[PositionInput] | None = None,
+        filter: BaseModel | Mapping[str, Any] | None = None,
+        credential: str | None = None,
+        max_message_bytes: int | None = None,
+    ) -> ChangeSubscription:
+        """Opens the change feed of an index and returns its events, one at a time.
+
+        The server serves the feed only where its `changes` option is on and the index has change capture on. A
+        subscriber receives the documents of the whole index. Apply each batch's changes, save its position, then
+        acknowledge it with :meth:`ChangeSubscription.ack`. After a disconnection, follow again from the saved
+        epoch and positions, and the feed repeats nothing at or below them. The client sends its headers, such as
+        the `api_key`, with the upgrade, and it connects to one address from its list. This method needs the
+        `changes` extra, which `pip install "narsil-client[changes]"` installs.
+
+        Args:
+            name: The server sends the changes of this index.
+            epoch: The epoch that the positions belong to. Pass it with `positions`, or leave both out to start at
+                the index's current heads.
+            positions: One saved position for each partition, as :class:`ChangePosition` values or as the mappings
+                with `partitionId` and `seqNo` that a document export's header holds.
+            filter: This keeps only the changes whose document before or after the write matches it, in the syntax
+                of a query's filters. It needs the index's `previousDocument` setting on.
+            credential: The client offers this as a second WebSocket subprotocol after `narsil.changes.v1`, which
+                the server's `onRequest` hook reads from the `sec-websocket-protocol` header. It must hold only the
+                characters that an HTTP token allows, and the client never writes it into an error.
+            max_message_bytes: The client closes the feed and raises `CLIENT_INVALID_RESPONSE` when one message
+                passes this many bytes, 67,108,864 unless you say otherwise.
+
+        Raises:
+            NarsilError: `CHANGES_INVALID_POSITIONS` for one of `epoch` and `positions` without the other or for a
+                malformed position, `CONFIG_INVALID` without the `changes` extra, and the server's code, such as
+                `FORBIDDEN` or `CHANGES_NOT_ENABLED`, when it refuses the upgrade. The iteration raises
+                `CHANGES_NOT_ENABLED` when capture turns off, the code in the close reason when the index's setting
+                refuses the subscription, `CONFIG_INVALID` when the server refuses the epoch, the positions, or the
+                filter, and `CLIENT_CONNECTION_FAILED` when the connection fails or the credential expires, in which
+                case follow again from the saved positions.
+        """
+        return open_change_subscription(
+            self._transport.core,
+            name,
+            epoch=epoch,
+            positions=positions,
+            filter=filter,
+            credential=credential,
+            max_message_bytes=max_message_bytes,
+        )
 
     def remove_batch(
         self,

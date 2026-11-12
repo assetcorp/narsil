@@ -32,6 +32,7 @@ const (
 	MergedSegmentTargetBytes             = 1_073_741_824
 	MergedSegmentGrowthAllowance         = 1.01
 	ColdLoadWaitWithoutSearch            = 400 * time.Millisecond
+	ChangesSegmentReadBytes              = 1_048_576
 )
 
 const (

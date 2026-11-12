@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { WRITE_MEMORY_FIGURES_MAX_AGE_MS } from './constants'
+import { createDocumentTableGrowth } from './document-tables'
 import { applyInGroups, type GroupedWriteProjection, reserveForDocument } from './grouped-writes'
 import { readRecentEngineMemoryFigures } from './measure'
 import { createMeasuredWriteBlock } from './measured-block'
@@ -36,6 +37,7 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
     refusedAfterCollection: figures => monitor.refusedAfterCollection(figures),
     analysisOf: indexName => writeAnalysisOf(deps.source, indexName),
     vectorGrowthBytesOf: (indexName, documents) => vectorGrowthBytesOf(deps.source, indexName, documents),
+    documentTableGrowthBytesOf: createDocumentTableGrowth(deps.source),
   })
   const grouped: GroupedWriteProjection = {
     boundOf: indexName => projection.boundOf(indexName),

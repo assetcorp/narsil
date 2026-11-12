@@ -79,6 +79,20 @@ const (
 	CodeSyncNotEnabled = narsilerr.CodeSyncNotEnabled
 	// CodeSyncSnapshotPreparing reports a sync snapshot that is still being built.
 	CodeSyncSnapshotPreparing = narsilerr.CodeSyncSnapshotPreparing
+	// CodeChangesDurabilityRequired reports change capture asked of an index without write-ahead log durability.
+	CodeChangesDurabilityRequired = narsilerr.CodeChangesDurabilityRequired
+	// CodeChangesBackupStoreRequired reports change capture asked of a cluster with no backup store.
+	CodeChangesBackupStoreRequired = narsilerr.CodeChangesBackupStoreRequired
+	// CodeChangesNotReady reports change capture asked while a node keeps no history for it.
+	CodeChangesNotReady = narsilerr.CodeChangesNotReady
+	// CodeChangesNotEnabled reports a request for the changes of an index whose change capture is off.
+	CodeChangesNotEnabled = narsilerr.CodeChangesNotEnabled
+	// CodeChangesPreviousDocumentRequired reports a filter on the changes of an index that records no previous document.
+	CodeChangesPreviousDocumentRequired = narsilerr.CodeChangesPreviousDocumentRequired
+	// CodeChangesExportPreparing reports a document export that waits for the backup it needs.
+	CodeChangesExportPreparing = narsilerr.CodeChangesExportPreparing
+	// CodeChangesInvalidPositions reports an epoch or a list of positions that breaks the rules of the changes request.
+	CodeChangesInvalidPositions = narsilerr.CodeChangesInvalidPositions
 	// CodeQuerySuggestionsNotEnabled reports a popular query call on an index whose suggestions are off.
 	CodeQuerySuggestionsNotEnabled = narsilerr.CodeQuerySuggestionsNotEnabled
 	// CodeSearchInvalidField reports a query that names a field the schema cannot search that way.

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::io;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 
-use super::constants::{DIRECTORY_IDENTITY_CHECK_INTERVAL_MS, SINGLE_NODE_PRIMARY_TERM};
+use super::constants::SINGLE_NODE_PRIMARY_TERM;
 use super::files::DurableDirectory;
 use super::index_state::IndexState;
 use super::lock::DirectoryLock;
@@ -15,7 +16,8 @@ use super::log_segment::LogStart;
 use super::log_writer::PartitionLog;
 use super::platform::{DirectoryIdentity, directory_identity};
 use super::restore_journal::{finish_restore_journals, require_index_name};
-use super::store_config::{DurabilityMode, StoreConfig};
+use super::store_config::StoreConfig;
+use super::store_thread::run_background;
 
 type PartitionLogs = HashMap<String, HashMap<u32, Arc<PartitionLog>>>;
 
@@ -193,6 +195,13 @@ impl StoreInner {
             .clone())
     }
 
+    fn records_previous_documents(&self, index_name: &str) -> Result<Arc<AtomicBool>> {
+        Ok(self
+            .index_state(index_name)?
+            .records_previous_documents
+            .clone())
+    }
+
     pub(crate) fn logs_of(&self, index_name: &str) -> Result<Vec<Arc<PartitionLog>>> {
         let logs = self.logs.read().map_err(|_| store_poisoned())?;
         Ok(logs
@@ -211,6 +220,7 @@ impl StoreInner {
             index_name,
             partition_id,
             self.config.segment_max_bytes,
+            self.records_previous_documents(index_name)?,
             start,
         ));
         let previous = {
@@ -246,6 +256,7 @@ impl StoreInner {
                 ),
             ));
         }
+        let records_previous_documents = self.records_previous_documents(index_name)?;
         let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
         self.require_open()?;
         let log = logs
@@ -257,6 +268,7 @@ impl StoreInner {
                     index_name,
                     partition_id,
                     self.config.segment_max_bytes,
+                    records_previous_documents,
                     LogStart {
                         active: None,
                         highest_seq_no: 0,
@@ -331,9 +343,23 @@ impl StoreInner {
         Ok(())
     }
 
-    fn every_log(&self) -> Result<Vec<Arc<PartitionLog>>> {
+    pub(crate) fn every_log(&self) -> Result<Vec<Arc<PartitionLog>>> {
         let logs = self.logs.read().map_err(|_| store_poisoned())?;
         Ok(logs.values().flat_map(HashMap::values).cloned().collect())
+    }
+
+    /// Waits up to `tick` for the store to stop, and reports whether it is stopping.
+    pub(crate) fn wait_for_stop(&self, tick: Duration) -> bool {
+        match self.stopping.lock() {
+            Ok(guard) => match self
+                .wake
+                .wait_timeout_while(guard, tick, |stopping| !*stopping)
+            {
+                Ok((guard, _)) => *guard,
+                Err(_) => true,
+            },
+            Err(_) => true,
+        }
     }
 
     pub(crate) fn shut_down(&self, thread: Option<JoinHandle<()>>) -> Result<()> {
@@ -353,42 +379,5 @@ impl StoreInner {
             lock.release();
         }
         outcome
-    }
-}
-
-fn run_background(inner: Arc<StoreInner>) {
-    let flushes = inner.config.mode == DurabilityMode::Async && inner.config.flush_interval_ms > 0;
-    let flush_every = Duration::from_millis(inner.config.flush_interval_ms);
-    let verify_every = Duration::from_millis(DIRECTORY_IDENTITY_CHECK_INTERVAL_MS);
-    let tick = if flushes {
-        flush_every.min(verify_every)
-    } else {
-        verify_every
-    };
-    let (mut flushed_at, mut verified_at) = (Instant::now(), Instant::now());
-    loop {
-        let stopping = match inner.stopping.lock() {
-            Ok(guard) => match inner
-                .wake
-                .wait_timeout_while(guard, tick, |stopping| !*stopping)
-            {
-                Ok((guard, _)) => *guard,
-                Err(_) => true,
-            },
-            Err(_) => true,
-        };
-        if stopping || inner.fatal_error().is_some() {
-            return;
-        }
-        if flushes && flushed_at.elapsed() >= flush_every {
-            if let Ok(logs) = inner.every_log() {
-                let _ = inner.flush_logs(&logs);
-            }
-            flushed_at = Instant::now();
-        }
-        if verified_at.elapsed() >= verify_every {
-            let _ = inner.verify();
-            verified_at = Instant::now();
-        }
     }
 }

@@ -7,6 +7,12 @@
       "expected": "expected/backup-manifest/products.json"
     },
     {
+      "name": "commit-marker/journal-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/journal/wal/0/commit",
+      "expected": "expected/commit-marker/journal-p0.json"
+    },
+    {
       "name": "commit-marker/notes-p0",
       "kind": "commit-marker",
       "file": "checkpoints/notes/wal/0/commit",
@@ -134,6 +140,12 @@
       "expected": "expected/index-metadata/every-key-named.json"
     },
     {
+      "name": "index-metadata/journal",
+      "kind": "index-metadata",
+      "file": "checkpoints/journal/meta",
+      "expected": "expected/index-metadata/journal.json"
+    },
+    {
       "name": "index-metadata/notes",
       "kind": "index-metadata",
       "file": "checkpoints/notes/meta",
@@ -174,6 +186,12 @@
       "kind": "keyword-segment",
       "file": "files/keyword-segment/cluster-copy.nrsl",
       "expected": "expected/keyword-segment/cluster-copy.json"
+    },
+    {
+      "name": "keyword-segment/journal-p0-s0",
+      "kind": "keyword-segment",
+      "file": "checkpoints/journal/segments/0/s0000000000000000",
+      "expected": "expected/keyword-segment/journal-p0-s0.json"
     },
     {
       "name": "keyword-segment/products-gzip",
@@ -218,6 +236,18 @@
       "expected": "expected/keyword-segment/readings-osq8-p0-s0.json"
     },
     {
+      "name": "log-segment/journal-p0-7",
+      "kind": "log-segment",
+      "file": "checkpoints/journal/wal/0/0000000000000007",
+      "expected": "expected/log-segment/journal-p0-7.json"
+    },
+    {
+      "name": "log-segment/journal-p0-history-1",
+      "kind": "log-segment",
+      "file": "checkpoints/journal/history/0/0000000000000001-0001794424211943",
+      "expected": "expected/log-segment/journal-p0-history-1.json"
+    },
+    {
       "name": "log-segment/notes-p0-141",
       "kind": "log-segment",
       "file": "checkpoints/notes/wal/0/0000000000000141",
@@ -252,6 +282,12 @@
       "kind": "manifest",
       "file": "files/manifest/cluster-copy.nrsl",
       "expected": "expected/manifest/cluster-copy.json"
+    },
+    {
+      "name": "manifest/journal",
+      "kind": "manifest",
+      "file": "checkpoints/journal/manifest",
+      "expected": "expected/manifest/journal.json"
     },
     {
       "name": "manifest/notes",
@@ -318,6 +354,13 @@
       "kind": "snapshot-archive",
       "file": "files/snapshot-archive/products.tar",
       "expected": "expected/snapshot-archive/products.json"
+    },
+    {
+      "name": "vector-file/journal-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/journal/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/journal-f0.json",
+      "storage": "memory"
     },
     {
       "name": "vector-file/notes-f0",

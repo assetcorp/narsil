@@ -8,6 +8,7 @@ export type {
   RequestContext,
   RequestDenial,
   RequestGrant,
+  ServerChangesOptions,
   ServerLimits,
   ServerOptions,
   ServerQuerySuggestionsOptions,

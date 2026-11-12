@@ -20,7 +20,12 @@ type Handle struct {
 	Metadata         func(documentCount uint64) (metadata.Metadata, error)
 	NewDetachedIndex func() (*index.Index, error)
 	SyncHistoryMoved func()
+	RecordsPrevious  func() bool
 	removalPages     removalPageCache
+}
+
+func (handle *Handle) recordsPreviousDocuments() bool {
+	return handle.RecordsPrevious != nil && handle.RecordsPrevious()
 }
 
 func (handle *Handle) metadata(documentCount uint64) (metadata.Metadata, error) {

@@ -76,6 +76,22 @@ export function respondError(ctx: RouteContext, err: unknown): void {
   sendError(ctx.res, status, body.code, body.message, body.details)
 }
 
+function retryAfterSecondsOf(err: unknown, preparingCode: string): number | null {
+  if (!(err instanceof NarsilError) || err.code !== preparingCode) return null
+  const retryAfterMs = err.details?.retryAfterMs
+  return typeof retryAfterMs === 'number' && retryAfterMs > 0 ? Math.ceil(retryAfterMs / 1000) : 1
+}
+
+export function respondPreparingError(ctx: RouteContext, err: unknown, preparingCode: string): void {
+  const retryAfterSeconds = retryAfterSecondsOf(err, preparingCode)
+  if (retryAfterSeconds === null || ctx.abort.aborted) {
+    respondError(ctx, err)
+    return
+  }
+  const { status, body } = toHttpError(err)
+  sendError(ctx.res, status, body.code, body.message, body.details, [['Retry-After', String(retryAfterSeconds)]])
+}
+
 export function respondJson(ctx: RouteContext, data: unknown, status = 200): void {
   if (ctx.abort.aborted) return
   sendJson(ctx.res, data, status, ctx.abort)

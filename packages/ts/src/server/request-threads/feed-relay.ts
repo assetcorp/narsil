@@ -2,7 +2,7 @@ import type { MessagePort } from 'node:worker_threads'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FeedSocket } from '../../sync/feed/session'
 import { SYNC_CLOSE_GOING_AWAY } from '../../sync/protocol'
-import { isMainFeedNote, type ThreadFeedNote } from '../sync/feed-messages'
+import { type FeedKind, isMainFeedNote, type ThreadFeedNote } from '../sync/feed-messages'
 import type { FeedGateway } from '../sync/feed-route'
 import type { RelayClient } from './relay-client'
 
@@ -10,7 +10,7 @@ export interface ThreadFeedGateway extends FeedGateway {
   close(): void
 }
 
-export function threadFeedGateway(port: MessagePort, relay: RelayClient): ThreadFeedGateway {
+export function threadFeedGateway(port: MessagePort, relay: RelayClient, feed: FeedKind): ThreadFeedGateway {
   const sockets = new Map<number, FeedSocket>()
 
   function post(note: ThreadFeedNote, transfer: ArrayBuffer[] = []): void {
@@ -42,7 +42,7 @@ export function threadFeedGateway(port: MessagePort, relay: RelayClient): Thread
     authorize: context => relay.authorize(context),
 
     async admit(indexName, expiresAt) {
-      const reply = await relay.admitFeed(indexName, expiresAt)
+      const reply = await relay.admitFeed(feed, indexName, expiresAt)
       const { feedId } = reply
       if (feedId === null) {
         const error = reply.error

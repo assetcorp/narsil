@@ -40,6 +40,7 @@ type EngineNames = Pick<
   | 'createFrozenRemovals'
   | 'createFrozenSegment'
   | 'createPartitionIndex'
+  | 'createPatternWorkMeter'
   | 'createPartitionManager'
   | 'createPartitionRouter'
   | 'createPublicationGate'
@@ -47,6 +48,7 @@ type EngineNames = Pick<
   | 'detectRuntime'
   | 'emitEngineEvent'
   | 'emitSyncChange'
+  | 'validQueryFilter'
   | 'emptyPendingRegions'
   | 'extractVectorFieldsFromSchema'
   | 'flattenSchema'
@@ -158,6 +160,8 @@ export let createCompositePartition: EngineNames['createCompositePartition']
 export let createFrozenRemovals: EngineNames['createFrozenRemovals']
 export let createFrozenSegment: EngineNames['createFrozenSegment']
 export let createPartitionIndex: EngineNames['createPartitionIndex']
+export let createPatternWorkMeter: EngineNames['createPatternWorkMeter']
+export let validQueryFilter: EngineNames['validQueryFilter']
 export let createPartitionManager: EngineNames['createPartitionManager']
 export let createPartitionRouter: EngineNames['createPartitionRouter']
 export let createPublicationGate: EngineNames['createPublicationGate']
@@ -274,6 +278,8 @@ export function bindEngineNames(host: EngineNames): void {
     createFrozenRemovals,
     createFrozenSegment,
     createPartitionIndex,
+    createPatternWorkMeter,
+    validQueryFilter,
     createPartitionManager,
     createPartitionRouter,
     createPublicationGate,

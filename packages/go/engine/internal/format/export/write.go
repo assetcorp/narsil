@@ -14,31 +14,47 @@ type Writer struct {
 	failure     error
 }
 
-func headerValue(index any) codec.OrderedMap {
-	return codec.OrderedMap{
+type ChangePositions struct {
+	Epoch      string
+	LastSeqNos []uint64
+}
+
+func headerValue(index any, positions *ChangePositions) codec.OrderedMap {
+	header := codec.OrderedMap{
 		{Key: headerFormatKey, Value: FormatName},
 		{Key: headerVersionKey, Value: float64(FormatVersion)},
 		{Key: headerIndexKey, Value: index},
 	}
+	if positions == nil {
+		return header
+	}
+	listed := make([]any, len(positions.LastSeqNos))
+	for partitionID, seqNo := range positions.LastSeqNos {
+		listed[partitionID] = codec.OrderedMap{{Key: positionPartitionKey, Value: float64(partitionID)},
+			{Key: positionSeqNoKey, Value: float64(seqNo)}}
+	}
+	return append(header, codec.MapEntry{Key: headerEpochKey, Value: positions.Epoch},
+		codec.MapEntry{Key: headerPositionsKey, Value: listed})
 }
 
 func NewWriter(destination io.Writer, header Header) (*Writer, error) {
 	if header.Index == nil {
 		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "The document export header holds no index configuration", nil)
 	}
-	return newWriter(destination, header.Index)
+	return newWriter(destination, header.Index, nil)
 }
 
-func NewWriterInStoredOrder(destination io.Writer, index codec.OrderedMap) (*Writer, error) {
+func NewWriterInStoredOrder(destination io.Writer, index codec.OrderedMap, positions *ChangePositions) (*Writer,
+	error) {
 	if index == nil {
 		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "The document export header holds no index configuration", nil)
 	}
-	return newWriter(destination, index)
+	return newWriter(destination, index, positions)
 }
 
-func newWriter(destination io.Writer, index any) (*Writer, error) {
+func newWriter(destination io.Writer, index any, positions *ChangePositions) (*Writer, error) {
 	writer := &Writer{destination: destination}
-	line, err := codec.AppendExactJSON(nil, headerValue(index), "")
+	line, err := codec.AppendExactJSON(nil, headerValue(index, positions), "")
 	if err != nil {
 		return nil, err
 	}
