@@ -12,7 +12,10 @@ use super::files::DurableDirectory;
 /// log directory persists its checkpoints.
 ///
 /// Such a store promises nothing beyond the last checkpoint, because a call that replaces one key at a time can
-/// express neither an append nor an fsync, so a crash loses every write made since that checkpoint.
+/// express neither an append nor an fsync, so a crash loses every write made since that checkpoint. The engine
+/// can hold a lock of the index while it calls a method of the store, so a call from the store back into the same
+/// engine on that thread can wait forever. A call to `shutdown` from a method of the store fails with
+/// `CONFIG_INVALID` and changes nothing that a shutdown changes.
 pub trait PersistenceAdapter: Send + Sync {
     /// Stores `data` under `key`, replacing whatever the key held.
     fn save(&self, key: &str, data: &[u8]) -> std::result::Result<(), AdapterError>;
