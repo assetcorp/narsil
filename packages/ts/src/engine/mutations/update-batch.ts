@@ -19,8 +19,7 @@ import {
   asUpdateError,
   finishUpdate,
   type PreparedUpdate,
-  runAfterUpdateHooks,
-  settleUpdate,
+  settleUpdates,
   updatePreparationOf,
 } from './update'
 import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
@@ -96,7 +95,6 @@ export async function updateDocumentBatch(
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
-  const settled: PreparedUpdate[] = []
   const touchedVectorFields = new Set<string>()
   for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
@@ -129,6 +127,7 @@ export async function updateDocumentBatch(
       for (const update of prepared) update.releaseVectorHolds?.()
     }
 
+    const settled: PreparedUpdate[] = []
     for (let i = 0; i < prepared.length; i++) {
       const update = prepared[i]
       const failure = failures[i]
@@ -136,15 +135,13 @@ export async function updateDocumentBatch(
         failed.push({ docId: update.docId, error: asUpdateError(failure.error) })
         continue
       }
-      if (!update.buffered) {
-        await settleUpdate(ctx, indexName, update)
-        settled.push(update)
-      }
+      if (!update.buffered) settled.push(update)
       for (const [fieldPath, vec] of update.extractedVectors) {
         if (vec !== null) touchedVectorFields.add(fieldPath)
       }
       succeeded.push(update.docId)
     }
+    await settleUpdates(ctx, indexName, settled, hold)
 
     if (chunkEnd < updates.length) {
       ctx.checkHeapPressure(indexName)
@@ -152,13 +149,12 @@ export async function updateDocumentBatch(
     }
   }
 
-  const vectorIndexes = ctx.requireManager(indexName).getVectorIndexes()
+  const vectorIndexes = ctx.executor.getManager(indexName)?.getVectorIndexes()
   for (const fieldPath of touchedVectorFields) {
-    vectorIndexes.get(fieldPath)?.scheduleBuild()
+    vectorIndexes?.get(fieldPath)?.scheduleBuild()
   }
   ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-  await runAfterUpdateHooks(ctx, indexName, settled, hold)
 
   return { succeeded, failed }
 }

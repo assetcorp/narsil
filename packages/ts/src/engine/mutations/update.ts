@@ -20,6 +20,7 @@ import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackUpdatedDocument } from './durable-rollback'
+import { runOutside } from './outside-hold'
 import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
 type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
@@ -77,38 +78,39 @@ export function asUpdateError(err: unknown): NarsilError {
   return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
 }
 
-export async function settleUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): Promise<void> {
-  await ctx.orchestrator.settlePublications(indexName)
-  const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
-  for (const [fieldPath, vec] of prepared.extractedVectors) {
-    if (vec === null) continue
-    vecIndexes.get(fieldPath)?.scheduleBuild()
+async function runAfterUpdateHooks(ctx: MutationContext, indexName: string, updates: PreparedUpdate[]): Promise<void> {
+  for (const update of updates) {
+    try {
+      await ctx.pluginRegistry.runHook('afterUpdate', {
+        indexName,
+        docId: update.docId,
+        oldDocument: update.oldDocument ?? ({} as AnyDocument),
+        newDocument: update.document,
+      })
+    } catch (err) {
+      console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
+    }
   }
 }
 
-export async function runAfterUpdateHooks(
+export async function settleUpdates(
   ctx: MutationContext,
   indexName: string,
   updates: PreparedUpdate[],
   hold: IndexHold | undefined,
 ): Promise<void> {
-  if (updates.length === 0 || !ctx.pluginRegistry.hasHooks('afterUpdate')) return
-  const runHooks = async (): Promise<void> => {
-    for (const update of updates) {
-      try {
-        await ctx.pluginRegistry.runHook('afterUpdate', {
-          indexName,
-          docId: update.docId,
-          oldDocument: update.oldDocument ?? ({} as AnyDocument),
-          newDocument: update.document,
-        })
-      } catch (err) {
-        console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
-      }
+  if (updates.length === 0) return
+  await ctx.orchestrator.settlePublications(indexName)
+  if (ctx.pluginRegistry.hasHooks('afterUpdate')) {
+    await runOutside(hold, () => runAfterUpdateHooks(ctx, indexName, updates))
+  }
+  const vecIndexes = ctx.executor.getManager(indexName)?.getVectorIndexes()
+  if (vecIndexes === undefined) return
+  for (const update of updates) {
+    for (const [fieldPath, vec] of update.extractedVectors) {
+      if (vec !== null) vecIndexes.get(fieldPath)?.scheduleBuild()
     }
   }
-  if (hold === undefined) await runHooks()
-  else hold.afterRelease(runHooks)
 }
 
 export function updatePreparationOf(
@@ -277,8 +279,7 @@ export async function updateDocument(
     await apply()
   }
 
-  if (!prepared.buffered) await settleUpdate(ctx, indexName, prepared)
+  if (!prepared.buffered) await settleUpdates(ctx, indexName, [prepared], hold)
   ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-  await runAfterUpdateHooks(ctx, indexName, prepared.buffered ? [] : [prepared], hold)
 }

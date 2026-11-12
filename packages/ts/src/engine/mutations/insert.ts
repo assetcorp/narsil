@@ -125,18 +125,6 @@ export async function insertDocument(
 
   await ctx.orchestrator.settlePublications(indexName)
 
-  for (const fieldPath of extractedVectors.keys()) {
-    const vecIndex = insertVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
-  }
-
-  ctx.checkWatermark(indexName, resolvedDocId)
-  ctx.checkHeapPressure(indexName)
-  await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-
   if (ctx.pluginRegistry.hasHooks('afterInsert')) {
     const runHook = async (): Promise<void> => {
       try {
@@ -145,9 +133,17 @@ export async function insertDocument(
         console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
       }
     }
-    if (hold === undefined) await runHook()
-    else hold.afterRelease(runHook)
+    await (hold === undefined ? runHook() : hold.outside(runHook))
   }
+
+  if (ctx.executor.getManager(indexName) === insertManager) {
+    for (const fieldPath of extractedVectors.keys()) insertVecIndexes.get(fieldPath)?.scheduleBuild()
+  }
+
+  ctx.checkWatermark(indexName, resolvedDocId)
+  ctx.checkHeapPressure(indexName)
+  await ctx.orchestrator.scaleOutReadyIndexes()
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return resolvedDocId
 }

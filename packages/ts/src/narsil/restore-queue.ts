@@ -1,4 +1,10 @@
-import { attachedRuntimeOf, loadOptionalWrites, loadStorageCode } from '#platform/restore-queue-host'
+import {
+  attachedRuntimeOf,
+  ErrorCodes,
+  loadOptionalWrites,
+  loadStorageCode,
+  NarsilError,
+} from '#platform/restore-queue-host'
 import { abandonChangeOf } from '../engine/analysis-change-entry'
 import type { EngineCore, IndexRegistryEntry } from '../engine/core'
 import type { RestoreDeps } from '../engine/snapshot'
@@ -74,6 +80,13 @@ export async function runRestore(
   data: ByteSource,
   engine: Narsil,
 ): Promise<void> {
+  if (core.rebalanceCtx.indexesInRebalanceHooks?.has(indexName) === true) {
+    throw new NarsilError(
+      ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+      `Index "${indexName}" is waiting on a plugin hook of its rebalance, so try the restore again once the rebalance ends`,
+      { indexName },
+    )
+  }
   const [{ restoreFromSnapshot }] = await Promise.all([loadStorageCode(), loadOptionalWrites()])
   await restoreFromSnapshot(indexName, data, restoreDepsOf(core, host, engine, indexName))
 }
