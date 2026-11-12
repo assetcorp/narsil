@@ -67,6 +67,7 @@ export interface FrozenSegment extends PartitionReadState {
     docId: string,
     removedSpellings?: RemovedSpellings,
     analysis?: FrozenRemovalAnalysis,
+    ordinalOfDocId?: number,
   ): FrozenTombstone | undefined
   tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
   tombstonedDocIds(): string[]
@@ -286,8 +287,8 @@ export function assembleFrozenSegment(
       docId: string,
       removedSpellings?: RemovedSpellings,
       analysis?: FrozenRemovalAnalysis,
+      ordinal = docStore.getInternalId(docId),
     ): FrozenTombstone | undefined {
-      const ordinal = docStore.getInternalId(docId)
       if (ordinal === undefined || tombstones.has(ordinal)) return undefined
       const publishTombstone = tombstones.prepare(ordinal)
       const strings =

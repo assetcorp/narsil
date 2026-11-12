@@ -42,15 +42,19 @@ const narsil = await createNarsil({
 })
 try {
   await narsil.createIndex(spec.index, spec.config)
+  let checkpoints = 0
   for (const step of spec.steps) {
     if (step.insert !== undefined) {
       const result = await narsil.insertBatch(spec.index, step.insert)
       if (result.failed.length > 0) throw new Error(`the reference refused ${JSON.stringify(result.failed)}`)
     }
     for (const id of step.remove ?? []) await narsil.remove(spec.index, id)
-    if (step.checkpoint === true) await narsil.checkpoint(spec.index)
+    if (step.checkpoint !== true) continue
+    await narsil.checkpoint(spec.index)
+    const copied = join(copiedDirectory, String(checkpoints))
+    await cp(join(liveDirectory, spec.index, 'segments'), copied, { recursive: true })
+    checkpoints += 1
   }
-  await cp(join(liveDirectory, spec.index, 'segments'), copiedDirectory, { recursive: true })
 } finally {
   await narsil.shutdown()
 }

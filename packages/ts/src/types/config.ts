@@ -252,6 +252,16 @@ export interface DurabilityConfig {
    * number of segments.
    */
   compactionThreshold?: number
+  /**
+   * A checkpoint rewrites at most this many bytes of existing segment files to
+   * drop the copies of removed and replaced documents, 268,435,456 by default.
+   * Beyond that budget, each partition whose removed share exceeds 0.2 still
+   * rewrites one segment, so every such partition shrinks at every checkpoint.
+   * The value is a whole number of bytes of at least 1. The snapshot tier
+   * accepts it and writes each changed partition whole, so the budget applies
+   * to the write-ahead log tier.
+   */
+  rewriteBytesPerCheckpoint?: number
 }
 
 /**

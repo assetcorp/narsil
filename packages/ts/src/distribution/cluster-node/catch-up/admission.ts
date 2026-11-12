@@ -1,43 +1,44 @@
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncAdmission, requestInsyncRemoval } from '../../replication/insync'
-import type { InsyncAddPayload } from '../../transport/types'
+import type { InsyncAddPayload, InsyncRemovePayload } from '../../transport/types'
 import { ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
+import { recordAdmittedReplica } from './admitted'
 import {
+  advanceAdmissionGeneration,
   type CatchUpState,
   clearPendingAdmission,
+  forgetAdmissionToWithdraw,
+  forgetRemovedReplica,
   markPendingAdmission,
   type ReplicaCursor,
-  recordAdmittedReplica,
+  recordAdmissionToWithdraw,
 } from './state'
+
+type AdmissionAnswer = 'accepted' | 'refused' | 'unanswered'
 
 async function sendToController(
   payload: InsyncAddPayload,
   controllerNodeId: string,
   deps: WriteRoutingDeps,
-): Promise<boolean> {
+): Promise<AdmissionAnswer> {
   const targets = await resolveNodeTargets(controllerNodeId, deps)
+  let sentWithoutAnswer = false
   for (const target of targets) {
     try {
       const result = await requestInsyncAdmission(payload, target, deps.transport, deps.nodeId)
-      return result.accepted
-    } catch (_) {}
+      if (result.accepted) return 'accepted'
+      return sentWithoutAnswer ? 'unanswered' : 'refused'
+    } catch (_) {
+      sentWithoutAnswer = true
+    }
   }
-  return false
+  return 'unanswered'
 }
 
-async function versionAfterAdmission(deps: WriteRoutingDeps, indexName: string): Promise<number | null> {
-  if (deps.readLiveAllocation === undefined) return null
-  try {
-    return (await deps.readLiveAllocation(indexName))?.version ?? null
-  } catch (_) {
-    return null
-  }
-}
-
-function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+export function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise<T>(resolve => {
     const timer = setTimeout(() => resolve(fallback), timeoutMs)
     timer.unref?.()
@@ -53,28 +54,29 @@ function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promi
   })
 }
 
-async function withdrawAdmission(
-  payload: InsyncAddPayload,
+export async function withdrawAdmission(
+  removal: InsyncRemovePayload,
   controllerNodeId: string,
   deps: WriteRoutingDeps,
-): Promise<void> {
+): Promise<boolean> {
   const targets = await resolveNodeTargets(controllerNodeId, deps)
   for (const target of targets) {
     try {
       const result = await requestInsyncRemoval(
-        payload.indexName,
-        payload.partitionId,
-        payload.replicaNodeId,
-        payload.primaryTerm,
+        removal.indexName,
+        removal.partitionId,
+        removal.replicaNodeId,
+        removal.primaryTerm,
         target,
         deps.transport,
         deps.nodeId,
       )
       if (result.accepted) {
-        return
+        return true
       }
     } catch (_) {}
   }
+  return false
 }
 
 /**
@@ -150,17 +152,26 @@ export async function requestClaimedAdmission(
       commitPoint: log.commitPoint,
     }
 
-    const accepted = await withTimeout(sendToController(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, false)
-    if (accepted && cursor.syncEpoch !== proposedEpoch) {
-      await withTimeout(withdrawAdmission(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, undefined)
-    } else if (accepted) {
+    const answer = await withTimeout<AdmissionAnswer>(
+      sendToController(payload, controllerNodeId, deps),
+      ADMISSION_TIMEOUT_MS,
+      'unanswered',
+    )
+    const outlived = answer === 'accepted' && cursor.syncEpoch !== proposedEpoch
+    const withdrawn =
+      outlived && (await withTimeout(withdrawAdmission(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, false))
+    if (answer === 'unanswered' || (outlived && !withdrawn)) {
+      recordAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId, assignment.primaryTerm)
+    } else if (answer === 'accepted' && !outlived) {
+      forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
+      forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
       recordAdmittedReplica(
         state,
         indexName,
         partitionId,
         replicaNodeId,
         assignment.primaryTerm,
-        await versionAfterAdmission(deps, indexName),
+        advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId),
       )
     }
   } finally {

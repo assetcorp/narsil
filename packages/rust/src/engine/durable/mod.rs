@@ -3,6 +3,7 @@ mod backing;
 mod build;
 mod bundle;
 mod checkpoint;
+mod checkpoint_listing;
 mod checkpoint_positions;
 mod checkpoint_segments;
 mod checkpoint_vectors;
@@ -16,8 +17,10 @@ pub(crate) mod load_source;
 pub(crate) mod log;
 pub(crate) mod metadata;
 mod recover;
+mod removed_documents;
 mod residency;
 mod restored;
+pub(crate) mod saved_size;
 mod schedule;
 pub(crate) mod switch;
 
@@ -25,7 +28,6 @@ use std::sync::Arc;
 
 use crate::durability::constants::{
     DEFAULT_CHECKPOINT_INTERVAL_MS, DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
-    DEFAULT_COMPACTION_THRESHOLD,
 };
 use crate::durability::snapshot_only::SnapshotStore;
 use crate::durability::store::DurabilityStore;
@@ -33,7 +35,7 @@ use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::error::Result;
 use backing::Backing;
-use config::{LogTier, SnapshotTier};
+use config::{CheckpointLimits, LogTier, SnapshotTier};
 use log::IndexLog;
 use metadata::created_metadata;
 use schedule::CheckpointSchedule;
@@ -42,7 +44,7 @@ use schedule::CheckpointSchedule;
 /// their checkpoints.
 pub(crate) struct Durable {
     backing: Backing,
-    compaction_threshold: u32,
+    limits: CheckpointLimits,
     schedule: CheckpointSchedule,
 }
 
@@ -55,7 +57,7 @@ impl Durable {
         );
         Ok(Durable {
             backing: Backing::Log(Arc::new(DurabilityStore::open(tier.store)?)),
-            compaction_threshold: tier.compaction_threshold,
+            limits: tier.limits,
             schedule,
         })
     }
@@ -70,7 +72,7 @@ impl Durable {
         );
         Ok(Durable {
             backing: Backing::Snapshot(Arc::new(SnapshotStore::open(tier.adapter)?)),
-            compaction_threshold: DEFAULT_COMPACTION_THRESHOLD,
+            limits: tier.limits,
             schedule,
         })
     }
@@ -95,7 +97,7 @@ impl Durable {
 
     /// Recovers every index that the store holds into `engine`, then starts the checkpoint thread.
     pub(crate) fn recover(&self, engine: &Arc<EngineInner>) -> Result<()> {
-        recover::recover_indexes(engine, &self.backing, self.compaction_threshold)?;
+        recover::recover_indexes(engine, &self.backing, self.limits)?;
         self.schedule.start(engine);
         Ok(())
     }
@@ -103,7 +105,7 @@ impl Durable {
     /// Writes the metadata file of a new index and gives the index its log, before any document reaches it.
     pub(crate) fn attach_created(&self, index: &IndexState) -> Result<()> {
         let recorded = created_metadata(&index.name, index.analyser().language());
-        let log = IndexLog::new(self.backing.clone(), recorded, self.compaction_threshold);
+        let log = IndexLog::new(self.backing.clone(), recorded, self.limits);
         log.write_metadata(index)?;
         index.attach_log(log);
         Ok(())

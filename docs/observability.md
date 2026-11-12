@@ -83,6 +83,8 @@ for (const partition of partitions) {
 }
 ```
 
+An index that saves to disk also reports `savedBytes` and `logBytes` in both calls. Those count the bytes of its files on disk, and they stay the same across a restart of an unchanged index, while `estimatedMemoryBytes` can change; see [Saved and log sizes](persistence-and-durability.md#saved-and-log-sizes).
+
 `getMemoryStats()` returns a runtime snapshot and worker reports. It is async because workers report their heap usage through the worker message channel.
 
 ```ts
