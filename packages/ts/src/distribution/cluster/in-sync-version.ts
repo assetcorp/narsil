@@ -17,7 +17,8 @@ function holdSameMembers(left: readonly string[], right: readonly string[]): boo
 function stampedInSyncVersion(previous: PartitionAssignment | undefined, next: PartitionAssignment): number {
   if (previous === undefined) return inSyncVersionOf(next)
   const stored = inSyncVersionOf(previous)
-  return holdSameMembers(previous.inSyncSet, next.inSyncSet) ? stored : stored + 1
+  const raised = holdSameMembers(previous.inSyncSet, next.inSyncSet) ? stored : stored + 1
+  return Math.max(raised, inSyncVersionOf(next))
 }
 
 export function withInSyncVersions(previous: AllocationTable | null, next: AllocationTable): AllocationTable {

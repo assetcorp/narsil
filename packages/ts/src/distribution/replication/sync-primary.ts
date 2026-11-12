@@ -1,5 +1,5 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { SyncRequestPayload } from '../transport/types'
-import { optionalIndexUuid } from './codec'
 import type { ReplicationLog } from './types'
 
 export function decideSyncTier(
@@ -14,39 +14,43 @@ export function decideSyncTier(
   return primaryTerm !== undefined && primaryTerm === replicaLastPrimaryTerm ? 'incremental' : 'snapshot'
 }
 
-function optionalSyncSession(value: unknown): string | undefined {
+function invalidSyncRequest(reason: string): NarsilError {
+  return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, `Invalid SyncRequestPayload: ${reason}`)
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function optionalNonEmptyString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error('Invalid SyncRequestPayload: "syncSession" must be a non-empty string or absent')
+    throw invalidSyncRequest(`"${field}" must be a non-empty string or absent`)
   }
   return value
 }
 
 export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
-    throw new Error('Invalid SyncRequestPayload: expected an object')
+    throw invalidSyncRequest('expected an object')
   }
   const record = decoded as Record<string, unknown>
   if (typeof record.indexName !== 'string') {
-    throw new Error('Invalid SyncRequestPayload: "indexName" must be a string')
+    throw invalidSyncRequest('"indexName" must be a string')
   }
-  if (typeof record.partitionId !== 'number' || !Number.isInteger(record.partitionId) || record.partitionId < 0) {
-    throw new Error('Invalid SyncRequestPayload: "partitionId" must be a non-negative integer')
+  if (!isNonNegativeInteger(record.partitionId)) {
+    throw invalidSyncRequest('"partitionId" must be a non-negative integer')
   }
-  if (typeof record.lastSeqNo !== 'number' || !Number.isInteger(record.lastSeqNo) || record.lastSeqNo < 0) {
-    throw new Error('Invalid SyncRequestPayload: "lastSeqNo" must be a non-negative integer')
+  if (!isNonNegativeInteger(record.lastSeqNo)) {
+    throw invalidSyncRequest('"lastSeqNo" must be a non-negative integer')
   }
-  if (
-    typeof record.lastPrimaryTerm !== 'number' ||
-    !Number.isInteger(record.lastPrimaryTerm) ||
-    record.lastPrimaryTerm < 0
-  ) {
-    throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a non-negative integer')
+  if (!isNonNegativeInteger(record.lastPrimaryTerm)) {
+    throw invalidSyncRequest('"lastPrimaryTerm" must be a non-negative integer')
   }
-  const indexUuid = optionalIndexUuid(record.indexUuid, 'SyncRequestPayload')
-  const syncSession = optionalSyncSession(record.syncSession)
+  const indexUuid = optionalNonEmptyString(record.indexUuid, 'indexUuid')
+  const syncSession = optionalNonEmptyString(record.syncSession, 'syncSession')
   return {
     indexName: record.indexName,
     partitionId: record.partitionId,
