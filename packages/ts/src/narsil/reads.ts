@@ -9,6 +9,7 @@ import { loadRerankRuntime } from '../engine/query/fixed-depth-code'
 import { answerFromOneState } from '../engine/query/state'
 import type { EmbeddedQuery } from '../engine/resolve-vector-text'
 import { loadResolveVectorText } from '../engine/resolve-vector-text-code'
+import { ErrorCodes, NarsilError } from '../errors'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
@@ -134,6 +135,7 @@ async function queryUnderHold<T>(
     options?.onRanked?.(manager, result)
     return result
   } catch (error) {
+    if (error instanceof NarsilError && error.code === ErrorCodes.RERANK_FAILED) throw error
     if (runner?.replaced) return INDEX_REPLACED_DURING_RERANK
     throw error
   } finally {

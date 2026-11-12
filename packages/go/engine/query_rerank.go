@@ -108,14 +108,14 @@ func (n *Narsil) rerankOnce(ctx context.Context, entry *indexEntry, resolved mod
 		return staged.result, rerankSettled, nil
 	}
 	scores, scoreErr := n.scoreWithoutHoldingEntry(entry, staged)
+	if scoreErr != nil {
+		return model.QueryResult{}, rerankSettled, scoreErr
+	}
 	if entry.retired {
 		return model.QueryResult{}, rerankEntryReplaced, ctx.Err()
 	}
 	if entry.index() != staged.target || entry.analysisIsStale() != stale {
 		return model.QueryResult{}, rerankIndexSwapped, nil
-	}
-	if scoreErr != nil {
-		return model.QueryResult{}, rerankSettled, scoreErr
 	}
 	var result model.QueryResult
 	err = n.workers.run(ctx, entry, func() error {

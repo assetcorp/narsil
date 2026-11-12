@@ -16,6 +16,7 @@ import (
 
 const (
 	promotingEngines           = 4
+	promotingThreshold         = 1_024
 	promotingBuildLimit        = 90 * time.Second
 	promotingBatchesAfterBuild = 8
 )
@@ -37,7 +38,7 @@ func writeThroughPromotion(narsil *engine.Narsil, seed int64) (map[string]any, e
 	ctx := context.Background()
 	random := rand.New(rand.NewSource(seed))
 	held := map[string]any{}
-	deadline := time.Now().Add(promotingBuildLimit)
+	var promotionDue time.Time
 	builtAt := -1
 	previous := []int{}
 	next := 0
@@ -54,8 +55,13 @@ func writeThroughPromotion(narsil *engine.Narsil, seed int64) (map[string]any, e
 		if builtAt >= 0 && batch-builtAt >= promotingBatchesAfterBuild {
 			return held, nil
 		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the vector graph was still unbuilt after %s", promotingBuildLimit)
+		if builtAt < 0 && next >= promotingThreshold {
+			if promotionDue.IsZero() {
+				promotionDue = time.Now()
+			} else if waited := time.Since(promotionDue); waited > promotingBuildLimit {
+				return nil, fmt.Errorf("the vector field had not reported an idle graph after waiting %s with at least %d vectors",
+					waited.Round(time.Second), promotingThreshold)
+			}
 		}
 		steps := []crashStep{{Op: "insert", Documents: map[string]map[string]any{}}}
 		inserted := make([]int, 0, crashInsertBatch)
@@ -110,7 +116,9 @@ func promoteWhileCheckpointing(directory string, seed int64) promotingRun {
 			run.failure = err
 		}
 	}()
-	if err := narsil.CreateIndex(ctx, crashIndexName, crashIndexConfig(crashModeCheckpoints)); err != nil {
+	config := crashIndexConfig(crashModeCheckpoints)
+	config.VectorPromotion = &engine.VectorIndexConfig{Threshold: engine.Some(promotingThreshold)}
+	if err := narsil.CreateIndex(ctx, crashIndexName, config); err != nil {
 		run.failure = err
 		return run
 	}
