@@ -13,14 +13,23 @@ const BUILDS = {
   'win32-arm64': { package: 'win32-arm64', binary: BINARY },
   'win32-x64': { package: 'win32-x64', binary: BINARY },
 }
-const PACKAGES = [...new Set(Object.values(BUILDS).map(build => build.package))]
+const ALL_PACKAGES = [...new Set(Object.values(BUILDS).map(build => build.package))]
 const ARTIFACTS_DIRECTORY = join('packages', 'native', 'artifacts')
 const PLATFORM_PACKAGES_DIRECTORY = join('packages', 'native', 'npm')
 const LIBRARY_MANIFEST = join('packages', 'ts', 'package.json')
 
-const [version, distTag] = process.argv.slice(2)
+const [version, distTag, platformList] = process.argv.slice(2)
 if (!version || !distTag) {
-  console.error('Usage: publish-native-packages.js <version> <dist-tag>')
+  console.error('Usage: publish-native-packages.js <version> <dist-tag> [comma-separated platform packages]')
+  process.exit(2)
+}
+
+const PACKAGES = platformList === undefined ? ALL_PACKAGES : platformList.split(',')
+const unknownPackages = PACKAGES.filter(packageName => !ALL_PACKAGES.includes(packageName))
+if (unknownPackages.length > 0 || new Set(PACKAGES).size !== PACKAGES.length) {
+  console.error(
+    `The platform list "${platformList}" must name each of ${ALL_PACKAGES.join(', ')} at most once, separated by commas`,
+  )
   process.exit(2)
 }
 
@@ -43,6 +52,7 @@ function rewriteManifest(manifestPath, apply) {
 }
 
 for (const [build, { package: packageName, binary }] of Object.entries(BUILDS)) {
+  if (!PACKAGES.includes(packageName)) continue
   const built = join(ARTIFACTS_DIRECTORY, `narsil-native-${build}`, BINARY)
   if (!existsSync(built)) {
     console.error(`The downloaded artifacts hold no ${BINARY} for ${build}`)

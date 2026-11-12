@@ -318,13 +318,20 @@ impl PagedFile {
         Ok(bytes)
     }
 
-    pub(crate) fn check_every_page(&self, section: &PagedSection) -> Result<()> {
+    pub(crate) fn check_every_page(
+        &self,
+        section: &PagedSection,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<()> {
         if section.page_bytes == 0 {
             return Err(unreadable(&self.path, section.offset));
         }
         let raw = self.section(section);
         let mut held = vec![0u8; page_length(section, 0)];
         for page in 0..section.page_count() {
+            if !still_wanted() {
+                return Ok(());
+            }
             let length = page_length(section, page);
             let Some(target) = held.get_mut(..length) else {
                 return Err(unreadable(&self.path, section.offset));

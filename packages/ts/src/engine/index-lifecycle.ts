@@ -205,7 +205,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
         throw error
       }
     }
-    if (core.executor.getManager(name) !== undefined) core.executor.dropIndex(name)
+    if (core.executor.getManager(name) !== undefined) await core.executor.dropIndex(name)
     core.indexRegistry.delete(name)
     core.watermarkNotifier.forget(name)
     core.analysisRebuild.clearStale(name)

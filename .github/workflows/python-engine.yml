@@ -107,8 +107,9 @@ jobs:
       fail-fast: false
       matrix:
         include: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"}
+          ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"},
+          {"label": "win32-x64", "runner": "windows-latest", "target": "x64"}
           ]' || '[
           {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"},
           {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "target": "aarch64", "manylinux": "2014"},
@@ -155,28 +156,29 @@ jobs:
           if-no-files-found: error
 
   test:
-    name: Test the ${{ matrix.platform.label }} wheel on Python ${{ matrix.python }}
+    name: ${{ matrix.platform.target && 'Build and test' || 'Test' }} the ${{ matrix.platform.label }} wheel on Python ${{ matrix.python }}
     needs: [reference, wheels]
     if: ${{ inputs.run-tests }}
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.14"]' || '["3.11", "3.14"]') }}
-        platform: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}
-          ]' || '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
-          {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},
-          {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true},
-          {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true},
-          {"label": "darwin-arm64", "runner": "macos-15", "musl": false},
-          {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false},
-          {"label": "win32-x64", "runner": "windows-latest", "musl": false},
-          {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}
-          ]') }}
+      matrix: >-
+        ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '{"include": [
+        {"python": "3.11", "platform": {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}},
+        {"python": "3.14", "platform": {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}},
+        {"python": "3.14", "platform": {"label": "darwin-arm64", "runner": "macos-15", "musl": false, "target": "aarch64"}},
+        {"python": "3.14", "platform": {"label": "win32-x64", "runner": "windows-latest", "musl": false}}
+        ]}' || '{"python": ["3.11", "3.14"], "platform": [
+        {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
+        {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},
+        {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true},
+        {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true},
+        {"label": "darwin-arm64", "runner": "macos-15", "musl": false},
+        {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false},
+        {"label": "win32-x64", "runner": "windows-latest", "musl": false},
+        {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}
+        ]}') }}
 
     steps:
       - name: Checkout
@@ -185,10 +187,33 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Download the wheel
+        if: ${{ !matrix.platform.target }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.artifact-prefix }}-wheel-${{ matrix.platform.label }}
           path: wheelhouse
+
+      - name: Setup Python for the build
+        if: ${{ matrix.platform.target }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Read the pinned Rust toolchain
+        if: ${{ matrix.platform.target }}
+        id: toolchain
+        shell: bash
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' packages/python-engine/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Build the wheel
+        if: ${{ matrix.platform.target }}
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          working-directory: packages/python-engine
+          maturin-version: v1.16.0
+          rust-toolchain: ${{ steps.toolchain.outputs.channel }}
+          target: ${{ matrix.platform.target }}
+          args: --release --locked --out ../../wheelhouse
 
       - name: Download the conformance dataset
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

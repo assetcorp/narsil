@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::error::{Result, load_failed};
@@ -18,21 +19,22 @@ use super::super::field::Shared;
 use super::super::restore::{
     CheckpointRestoreShape, LoadedVectorFile, VectorFileLocation, begin_restore_of,
 };
-use super::field::{ColdField, ColdFile};
+use super::field::ColdFile;
 use super::writes::replay;
 use super::{ColdHold, Progress};
 
-pub(crate) type GraphPartsReader = Box<dyn FnOnce() -> Result<Option<GraphParts>> + Send>;
+pub(crate) type GraphPartsReader =
+    Box<dyn FnOnce(&dyn Fn() -> bool) -> Result<Option<GraphParts>> + Send>;
 
 pub(super) fn start(
     shared: Arc<Shared>,
     hold: Arc<ColdHold>,
     read_graph: GraphPartsReader,
-) -> bool {
+) -> Option<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("narsil-vector-load".to_string())
         .spawn(move || run(&shared, &hold, read_graph))
-        .is_ok()
+        .ok()
 }
 
 fn still_wanted(shared: &Shared, hold: &ColdHold) -> bool {
@@ -83,21 +85,32 @@ fn doc_ids_of(file: &ColdFile) -> Result<Vec<String>> {
 
 fn loaded_by_sections(
     shared: &Shared,
-    field: &ColdField,
+    hold: &ColdHold,
     file: &ColdFile,
-) -> Result<LoadedVectorFile> {
+) -> Result<Option<LoadedVectorFile>> {
+    let field = &hold.field;
+    let wanted = || still_wanted(shared, hold);
     let sections = &file.sections;
     let doc_ids = doc_ids_of(file)?;
+    if !wanted() {
+        return Ok(None);
+    }
     let records = sections
         .records
         .as_ref()
         .map(|records| file.file.whole_checked(records))
         .transpose()?;
+    if !wanted() {
+        return Ok(None);
+    }
     let magnitudes = f64_list(
         &file.file.whole_checked(&sections.magnitudes)?,
         "magnitudes",
     )?;
-    file.file.check_every_page(&sections.vectors)?;
+    file.file.check_every_page(&sections.vectors, &wanted)?;
+    if !wanted() {
+        return Ok(None);
+    }
     let codes = match (records, field.codes()) {
         (Some(records), Some(codes)) => Some(VectorCodes {
             bits: codes.bits,
@@ -110,7 +123,7 @@ fn loaded_by_sections(
         }),
         _ => None,
     };
-    Ok(LoadedVectorFile {
+    Ok(Some(LoadedVectorFile {
         id: file.id,
         key: file.key.clone(),
         file: VectorFile {
@@ -129,11 +142,11 @@ fn loaded_by_sections(
             path: file.file.path().to_path_buf(),
             vectors_offset: HEADER_BYTES as u64 + sections.vectors.offset,
         }),
-    })
+    }))
 }
 
 fn load(shared: &Arc<Shared>, hold: &ColdHold, read_graph: GraphPartsReader) -> Result<bool> {
-    let graph = read_graph()?;
+    let graph = read_graph(&|| still_wanted(shared, hold))?;
     if !still_wanted(shared, hold) {
         return Ok(false);
     }
@@ -150,7 +163,10 @@ fn load(shared: &Arc<Shared>, hold: &ColdHold, read_graph: GraphPartsReader) -> 
         if !still_wanted(shared, hold) {
             return Ok(false);
         }
-        restore.add_file(loaded_by_sections(shared, field, file)?)?;
+        let Some(loaded) = loaded_by_sections(shared, hold, file)? else {
+            return Ok(false);
+        };
+        restore.add_file(loaded)?;
     }
     if !still_wanted(shared, hold) {
         return Ok(false);
@@ -202,7 +218,6 @@ fn run(shared: &Arc<Shared>, hold: &Arc<ColdHold>, read_graph: GraphPartsReader)
         {
             state.progress = Progress::Failed(error);
         }
-        state.loader_runs = false;
     }
     hold.changed.notify_all();
     schedule_build(shared);

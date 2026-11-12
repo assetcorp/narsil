@@ -46,10 +46,15 @@ async function openListedFile(
   return { payload, payloadLength: header.payloadLength }
 }
 
-export async function readGraphParts(store: CheckpointStore, ref: VectorFieldRef): Promise<VectorGraphParts | null> {
+export async function readGraphParts(
+  store: CheckpointStore,
+  ref: VectorFieldRef,
+  stillWanted: () => boolean = () => true,
+): Promise<VectorGraphParts | null> {
   if (ref.graphParts.length === 0) return null
   const parts: VectorGraphPartPayload[] = []
   for (const part of ref.graphParts) {
+    if (!stillWanted()) return null
     const { payload } = await openListedFile(store, part, 'graph part', true)
     const decoded = decodeVectorGraphPartPayload(decode(payload))
     if (decoded.fieldName !== ref.fieldPath) {
@@ -124,7 +129,7 @@ async function loadFieldOnDemand(
   vectorIndex.openColdField(field, async (beginRestore, stillWanted, loadingWanted) => {
     await waitBeforeColdLoad(loadingWanted)
     if (!stillWanted()) return
-    const graph = await readGraphParts(store, ref)
+    const graph = await readGraphParts(store, ref, stillWanted)
     if (!stillWanted()) return
     const restore = beginRestore({ liveVectors: liveVectorsOf(ref), holdsGraph: true, graph })
     await loadFilesByParts(files, restore, ref.fieldPath, vectorIndex.dimension, stillWanted)
