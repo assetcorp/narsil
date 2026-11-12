@@ -1,19 +1,17 @@
 mod call;
+mod finish;
 mod order;
 mod plan;
 
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use super::constants::{DEFAULT_PAGE_SIZE, RESULT_WINDOW};
 use super::cursor::{decode_page_cursor, query_binding_of, require_matching_cursor};
-use super::documents::QuerySnapshots;
 use super::fusion::{fixed_hybrid_depth, require_within_hybrid_depth};
-use super::highlight::highlight_hits;
-use super::pagination::{PositionWindow, page_by_position};
 use super::params::{DocumentProjection, Pin, QueryParams, RerankConfig, SearchMode};
-use super::projection::{Projection, project_document, resolve_projection};
-use super::results::{Hit, QueryResult};
+use super::projection::resolve_projection;
+use super::results::QueryResult;
 use super::shaped_query;
 use super::vector::has_term;
 use crate::engine::index::IndexState;
@@ -23,17 +21,26 @@ use crate::index::partition::Partition;
 use crate::pattern::SearchLimits;
 use crate::value::Value;
 use call::score_documents;
-use order::{Reordered, placed_hits, reorder_by_rerank, unordered};
+use finish::{StagedPage, finish_page};
+use order::{placed_hits, unordered};
 use plan::resolve_rerank;
 
+pub(crate) use finish::AwaitingScores;
 pub(crate) use plan::rerank_query_text;
 
 pub(crate) struct RerankRequest<'a> {
-    pub(crate) params: &'a QueryParams,
+    pub(crate) params: Cow<'a, QueryParams>,
     pub(crate) requested: &'a QueryParams,
     pub(crate) rerank: &'a RerankConfig,
     pub(crate) query_text: Option<String>,
     pub(crate) limits: &'a SearchLimits,
+}
+
+/// Where a query stands once its read of the index ends: answered, or waiting for the rerank adapter to score the
+/// best hits of its first stage.
+pub(crate) enum QueryStep<'a> {
+    Answered(QueryResult),
+    Reranking(Box<AwaitingScores<'a>>),
 }
 
 fn fuses_rankings(params: &QueryParams) -> bool {
@@ -117,65 +124,38 @@ fn stored_pins(
     Ok(stored)
 }
 
-fn with_documents(index: &IndexState, hits: Vec<Hit>, projection: &Projection) -> Result<Vec<Hit>> {
-    let mut filled = Vec::with_capacity(hits.len());
-    for mut hit in hits {
-        hit.document = match projection {
-            Projection::Nothing => Default::default(),
-            _ => match index.full_document(&hit.id)? {
-                Some(document) => project_document(&document, projection),
-                None => continue,
-            },
-        };
-        filled.push(hit);
-    }
-    Ok(filled)
-}
-
-fn ordered_hits(
-    index: &IndexState,
-    plan: &plan::RerankPlan,
-    ranked: Vec<Hit>,
-    scores_window: bool,
-) -> Result<Reordered> {
-    let registry = index.vectors.adapters();
-    let window_size = plan.window.min(ranked.len());
-    if window_size == 0 || !scores_window {
-        score_documents(registry, &plan.adapter, &plan.query, Vec::new())?;
-        return Ok(unordered(ranked));
-    }
-    let partitions = index.partitions();
-    let texts = ranked
-        .iter()
-        .take(window_size)
-        .map(|hit| rerank_text(index, &partitions, &hit.id, &plan.fields))
-        .collect::<Result<Vec<String>>>()?;
-    let scores = score_documents(registry, &plan.adapter, &plan.query, texts)?;
-    Ok(reorder_by_rerank(ranked, window_size, &scores))
-}
-
-pub(crate) fn reranked_query(
-    index: &IndexState,
-    request: RerankRequest<'_>,
-) -> Result<QueryResult> {
-    let params = request.params;
+/// Runs the first stage of a reranked query on `index`, which a read holds, and returns the query's page where the
+/// rerank adapter has no hit to score, or the texts of the best hits that it waits for the adapter to score.
+pub(crate) fn reranked_query<'a>(
+    index: &Arc<IndexState>,
+    request: RerankRequest<'a>,
+) -> Result<QueryStep<'a>> {
+    let RerankRequest {
+        params: resolved,
+        requested,
+        rerank,
+        query_text,
+        limits,
+    } = request;
+    let params = resolved.as_ref();
     let fuses = fuses_rankings(params);
     let hybrid_depth = match fuses {
         true => fixed_hybrid_depth(params.hybrid.as_ref())?,
         false => None,
     };
-    let max_window = index.vectors.adapters().rerank_settings().max_window;
+    let registry = index.vectors.adapters();
+    let max_window = registry.rerank_settings().max_window;
     let plan = resolve_rerank(
         params,
-        request.rerank,
+        rerank,
         &index.schema,
         hybrid_depth,
         max_window,
-        request.query_text,
+        query_text,
     )?;
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let offset = params.offset.unwrap_or(0);
-    let binding = query_binding_of(request.requested);
+    let binding = query_binding_of(requested);
     let cursor_depth = cursor_depth(params, &binding)?;
     let depth = first_stage_depth(hybrid_depth, plan.window, cursor_depth, offset, limit)?;
     let start = cursor_depth.saturating_add(offset);
@@ -190,7 +170,7 @@ pub(crate) fn reranked_query(
     first_params.document = Some(DocumentProjection::None);
     let places_pins = params.search_after.is_none() && params.pinned.is_some();
     let counts_apart = places_pins || (params.vector.is_some() && !fuses);
-    let first = shaped_query(index, &first_params, request.requested, request.limits)?;
+    let first = shaped_query(index, &first_params, requested, limits)?;
     let plain = match counts_apart {
         true => {
             let mut plain_params = first_params.clone();
@@ -201,12 +181,7 @@ pub(crate) fn reranked_query(
             plain_params.group = None;
             plain_params.offset = Some(start);
             plain_params.limit = Some(limit);
-            Some(shaped_query(
-                index,
-                &plain_params,
-                request.requested,
-                request.limits,
-            )?)
+            Some(shaped_query(index, &plain_params, requested, limits)?)
         }
         false => None,
     };
@@ -215,82 +190,54 @@ pub(crate) fn reranked_query(
         Some(pins) => Some(stored_pins(index, &partitions, pins)?),
         None => None,
     };
+    let (count, count_exact) = match &plain {
+        Some(plain) => (plain.count, plain.count_exact),
+        None => (first.count, first.count_exact),
+    };
     let QueryResult {
         hits: ranked,
         groups,
         facets,
         coverage,
         analysis_stale,
-        count: first_count,
-        count_exact: first_exact,
         ..
     } = first;
     let page_holds_hits = limit > 0 && start < placed_hits(&ranked, pins.as_deref())?.len();
-    let ordered = ordered_hits(index, &plan, ranked, page_holds_hits)?;
-    let placed = placed_hits(&ordered.hits, pins.as_deref())?;
-    let pinned_ids: Option<HashSet<&str>> = pins
-        .as_ref()
-        .map(|pins| pins.iter().map(|pin| pin.doc_id.as_str()).collect());
-    let organic: Vec<&str> = ordered.hits.iter().map(|hit| hit.id.as_str()).collect();
-    let page = page_by_position(
-        &placed,
-        &organic,
-        &PositionWindow {
-            start,
-            limit,
-            pinned_ids: pinned_ids.as_ref(),
-            binding: &binding,
+    let page = StagedPage {
+        pins,
+        binding,
+        start,
+        limit,
+        projection,
+        summary: QueryResult {
+            hits: Vec::new(),
+            count,
+            count_exact,
+            elapsed: std::time::Duration::ZERO,
+            cursor: None,
+            facets,
+            groups,
+            analysis_stale,
+            coverage,
         },
-    );
-    let mut hits = with_documents(index, placed[page.range].to_vec(), &projection)?;
-    let mut groups = groups;
-    for group in groups.iter_mut().flatten() {
-        let held = std::mem::take(&mut group.hits);
-        group.hits = with_documents(index, held, &projection)?;
-    }
-    let snapshots = QuerySnapshots::of(index)?;
-    highlight_hits(
-        index,
-        &snapshots.layout,
-        &snapshots.partitions,
-        params,
-        &mut hits,
-        &projection,
-    )?;
-    share_highlights(&mut groups, &hits, &ordered.shared_ids, pinned_ids.as_ref());
-    let (count, count_exact) = match &plain {
-        Some(plain) => (plain.count, plain.count_exact),
-        None => (first_count, first_exact),
     };
-    Ok(QueryResult {
-        hits,
-        count,
-        count_exact,
-        elapsed: std::time::Duration::ZERO,
-        cursor: page.cursor,
-        facets,
-        groups,
-        analysis_stale,
-        coverage,
-    })
-}
-
-fn share_highlights(
-    groups: &mut Option<Vec<super::results::GroupResult>>,
-    page: &[Hit],
-    shared_ids: &HashSet<String>,
-    pinned_ids: Option<&HashSet<&str>>,
-) {
-    for group in groups.iter_mut().flatten() {
-        for hit in group.hits.iter_mut() {
-            let shared = shared_ids.contains(&hit.id)
-                && pinned_ids.is_none_or(|ids| !ids.contains(hit.id.as_str()));
-            if !shared {
-                continue;
-            }
-            if let Some(found) = page.iter().find(|held| held.id == hit.id) {
-                hit.highlights = found.highlights.clone();
-            }
-        }
+    let window_size = plan.window.min(ranked.len());
+    if window_size == 0 || !page_holds_hits {
+        score_documents(registry, &plan.adapter, &plan.query, Vec::new())?;
+        let answered = finish_page(index, params, page, unordered(ranked))?;
+        return Ok(QueryStep::Answered(answered));
     }
+    let texts = ranked
+        .iter()
+        .take(window_size)
+        .map(|hit| rerank_text(index, &partitions, &hit.id, &plan.fields))
+        .collect::<Result<Vec<String>>>()?;
+    Ok(QueryStep::Reranking(Box::new(AwaitingScores {
+        ranked_on: Arc::clone(index),
+        params: resolved,
+        plan,
+        ranked,
+        texts,
+        page,
+    })))
 }

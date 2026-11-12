@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use super::constants::{MAX_PREFIX_LENGTH, MAX_TOLERANCE, PREFLIGHT_VECTOR_DEPTH};
+use super::embedded::resolve_vector_text;
 use super::gather::{QueryRun, RunShape, search_text};
 use super::hybrid::hybrid_hits;
 use super::params::{QueryParams, TermMatch};
@@ -8,9 +9,7 @@ use super::phrases::require_usable_phrases;
 use super::require_integer_up_to;
 use super::scope::QueryScope;
 use super::validate::{require_sortable_fields, require_usable_query_fields};
-use super::vector::{
-    SearchPlan, plan_search, require_vector_searchable, resolve_vector_text, vector_hits,
-};
+use super::vector::{SearchPlan, plan_search, require_vector_searchable, vector_hits};
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
 use crate::error::Result;

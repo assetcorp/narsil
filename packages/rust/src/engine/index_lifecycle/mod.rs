@@ -19,6 +19,7 @@ use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
 pub(crate) use close::{close_index, closed_facts};
 pub(crate) use limits::enforce_limits;
+pub(crate) use reading::PreparedRead;
 pub(crate) use reopen::reopen_index;
 use residency::WritableIndex;
 pub(crate) use sweep::Sweeper;

@@ -4,6 +4,7 @@ pub(crate) mod constants;
 mod coverage;
 mod cursor;
 pub(crate) mod documents;
+mod embedded;
 mod facets;
 mod fulltext;
 mod fusion;
@@ -35,26 +36,28 @@ mod validate;
 mod vector;
 mod work;
 
+use std::borrow::Cow;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
 use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
 use cursor::sort_signature_of;
+use embedded::{EmbeddedQuery, resolve_vector_text};
 use gather::{QueryRun, RunShape};
 use params::QueryParams;
 use phrases::require_usable_phrases;
 use projection::resolve_projection;
-use rerank::{RerankRequest, rerank_query_text, reranked_query};
+use rerank::{QueryStep, RerankRequest, rerank_query_text, reranked_query};
 use results::{QueryCoverage, QueryResult, ScoreComponents};
 use scope::QueryScope;
 use shaped::shaped_page;
 use validate::{require_sortable_fields, require_usable_query_fields};
-use vector::{
-    EmbeddedQuery, SearchPlan, plan_search, require_vector_searchable, resolve_vector_text,
-};
+use vector::{SearchPlan, plan_search, require_vector_searchable};
 
 fn require_integer_up_to(option: &str, value: Option<u32>, maximum: u32) -> Result<()> {
     match value {
@@ -152,35 +155,50 @@ pub(crate) fn embed_query_text<'a>(
     resolve_vector_text(index, params, earlier)
 }
 
-/// Runs a query whose vector clause [`embed_query_text`] has resolved against one index, reranking its best hits
-/// where `params` asks for that. Each search of the query may spend the work cap of `limits` on its pattern tests
-/// and phrases, and stops once the engine shuts down. The result reports the time since `started`.
-pub(crate) fn run_query(
-    index: &IndexState,
-    params: &QueryParams,
-    resolved: &QueryParams,
-    limits: &SearchLimits,
+/// Runs a query whose vector clause [`embed_query_text`] has resolved against one index, which a read holds. Where
+/// `params` asks for a rerank, the query stops once its first stage has ranked the hits that the rerank adapter
+/// scores, and [`finish_query`] completes it. Each search of the query may spend the work cap of `limits` on its
+/// pattern tests and phrases, and stops once the engine shuts down.
+pub(crate) fn run_query<'a>(
+    index: &Arc<IndexState>,
+    params: &'a QueryParams,
+    resolved: Cow<'a, QueryParams>,
+    limits: &'a SearchLimits,
+) -> Result<QueryStep<'a>> {
+    spread::counted(|| {
+        let Some(rerank) = &params.rerank else {
+            let answered = shaped_query(index, &resolved, params, limits)?;
+            return Ok(QueryStep::Answered(answered));
+        };
+        let request = RerankRequest {
+            params: resolved,
+            requested: params,
+            rerank,
+            query_text: rerank_query_text(params),
+            limits,
+        };
+        reranked_query(index, request)
+    })
+}
+
+/// Returns the result of a query that [`run_query`] ran on the index called `name`, reporting the time since
+/// `started`. A query that waits for a rerank adapter asks it for scores while the engine holds no index, then
+/// builds its page under a new read of the index that holds the name by then.
+pub(crate) fn finish_query(
+    engine: &EngineInner,
+    name: &str,
+    step: QueryStep<'_>,
     started: Instant,
 ) -> Result<QueryResult> {
-    spread::counted(|| {
-        let rerank_text = params
-            .rerank
-            .as_ref()
-            .and_then(|_| rerank_query_text(params));
-        let mut result = match &resolved.rerank {
-            Some(rerank) => {
-                let request = RerankRequest {
-                    params: resolved,
-                    requested: params,
-                    rerank,
-                    query_text: rerank_text,
-                    limits,
-                };
-                reranked_query(index, request)?
-            }
-            None => shaped_query(index, resolved, params, limits)?,
-        };
-        result.elapsed = started.elapsed();
-        Ok(result)
-    })
+    let mut result = match step {
+        QueryStep::Answered(result) => result,
+        QueryStep::Reranking(mut awaiting) => {
+            let scores = awaiting.score()?;
+            engine.read_index(name, |current| {
+                spread::counted(|| awaiting.finish(current, scores))
+            })?
+        }
+    };
+    result.elapsed = started.elapsed();
+    Ok(result)
 }
