@@ -107,8 +107,10 @@ jobs:
       fail-fast: false
       matrix:
         include: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"}
+          ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
+          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"},
+          {"label": "darwin-arm64", "runner": "macos-15", "target": "aarch64"},
+          {"label": "win32-x64", "runner": "windows-latest", "target": "x64"}
           ]' || '[
           {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "target": "x86_64", "manylinux": "2014"},
           {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "target": "aarch64", "manylinux": "2014"},
@@ -162,21 +164,22 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.14"]' || '["3.11", "3.14"]') }}
-        platform: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}
-          ]' || '[
-          {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
-          {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},
-          {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true},
-          {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true},
-          {"label": "darwin-arm64", "runner": "macos-15", "musl": false},
-          {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false},
-          {"label": "win32-x64", "runner": "windows-latest", "musl": false},
-          {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}
-          ]') }}
+      matrix: >-
+        ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '{"include": [
+        {"python": "3.11", "platform": {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}},
+        {"python": "3.14", "platform": {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}},
+        {"python": "3.14", "platform": {"label": "darwin-arm64", "runner": "macos-15", "musl": false}},
+        {"python": "3.14", "platform": {"label": "win32-x64", "runner": "windows-latest", "musl": false}}
+        ]}' || '{"python": ["3.11", "3.14"], "platform": [
+        {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
+        {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},
+        {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true},
+        {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true},
+        {"label": "darwin-arm64", "runner": "macos-15", "musl": false},
+        {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false},
+        {"label": "win32-x64", "runner": "windows-latest", "musl": false},
+        {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}
+        ]}') }}
 
     steps:
       - name: Checkout

@@ -73,6 +73,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/native-core.yml
+    with:
+      run-lint: ${{ github.event_name != 'push' }}
 
   react-native-checks:
     name: Build the React Native apps
@@ -210,7 +212,7 @@ jobs:
         if: steps.newest.outputs.newest == 'true'
         env:
           NPM_CONFIG_PROVENANCE: true
-        run: node .github/scripts/publish-native-packages.js "${{ needs.plan.outputs.version }}" next
+        run: node .github/scripts/publish-native-packages.js "${{ needs.plan.outputs.version }}" next linux-arm64,linux-x64,win32-arm64,win32-x64
 
       - name: Publish
         if: steps.newest.outputs.newest == 'true'
