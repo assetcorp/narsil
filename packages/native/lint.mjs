@@ -89,6 +89,19 @@ async function runAll(jobs) {
   return results
 }
 
+function requestedShard(args) {
+  const shardArguments = args.filter(argument => argument.startsWith('--shard='))
+  if (shardArguments.length === 0) return { index: 1, count: 1 }
+  const match = shardArguments.length === 1 ? /^--shard=([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(shardArguments[0]) : null
+  const index = match ? Number(match[1]) : 0
+  const count = match ? Number(match[2]) : 0
+  if (index < 1 || index > count) {
+    throw new Error(`Pass one --shard=<index>/<count> with 1 <= index <= count, not ${shardArguments.join(' ')}`)
+  }
+  return { index, count }
+}
+
+const shard = requestedShard(process.argv.slice(2))
 const { clangTidy, clangFormat, windowsHeaderDirectory, darwinHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
@@ -111,24 +124,31 @@ const lintedConfigurations = configurations(windowsHeaderDirectory, crossLintedM
 const [hostConfiguration] = lintedConfigurations
 const fuzzConfigurations = [hostConfiguration, ...crossLintedMacos.slice(0, 1)]
 const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
-const jobs = [
+const everyTidyJob = [
   ...lintedConfigurations.flatMap(configuration => sources.map(source => tidyJob(configuration, source))),
   ...fuzzConfigurations.flatMap(configuration => fuzzSources().map(source => tidyJob(configuration, source))),
 ]
-jobs.push({
-  label: 'clang-format',
-  command: clangFormat,
-  args: ['--dry-run', '--Werror', '--style=file', ...formattedFiles()],
-})
+const jobs = everyTidyJob.filter((_, position) => position % shard.count === shard.index - 1)
+const checksFormatting = shard.index === 1
+if (checksFormatting) {
+  jobs.push({
+    label: 'clang-format',
+    command: clangFormat,
+    args: ['--dry-run', '--Werror', '--style=file', ...formattedFiles()],
+  })
+}
 
 const results = await runAll(jobs)
 const failures = results.filter(result => result.code !== 0)
 for (const failure of failures) {
   console.error(`\n${failure.label}\n${failure.output.trim()}`)
 }
+const shardDescription =
+  shard.count === 1 ? '' : `, part ${shard.index} of ${shard.count} of ${everyTidyJob.length} clang-tidy checks`
+const formattingDescription = checksFormatting ? `; clang-format over ${formattedFiles().length} files` : ''
 console.log(
   `\n${results.length - failures.length} of ${results.length} lint checks passed (${lintedConfigurations
     .map(configuration => configuration.name)
-    .join(', ')}; clang-format over ${formattedFiles().length} files)`,
+    .join(', ')}${shardDescription}${formattingDescription})`,
 )
 if (failures.length > 0) process.exit(1)
