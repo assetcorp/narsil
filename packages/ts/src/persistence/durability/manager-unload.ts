@@ -12,6 +12,7 @@ export interface IndexUnloadDeps {
   closeWriterReportingFailure(close: Promise<void>): Promise<void>
   forgetSyncState(indexName: string): void
   forgetStoredBytes(indexName: string): void
+  dropStoredBytes(indexName: string): void
 }
 
 export interface IndexUnloading {
@@ -36,7 +37,7 @@ export function createIndexUnloading(deps: IndexUnloadDeps): IndexUnloading {
       }
       await removeQueryHistoryOf({ kind: 'directory', directory }, indexName)
       deps.forgetSyncState(indexName)
-      deps.forgetStoredBytes(indexName)
+      deps.dropStoredBytes(indexName)
     },
 
     async unloadIndex(indexName: string): Promise<void> {

@@ -12,7 +12,11 @@ export interface PartitionRegistry {
   freshPartition(indexName: string, partitionId: number, position: PartitionLogPosition): PartitionState
 }
 
-export function createPartitionRegistry(directory: DurableDirectory, segmentMaxBytes: number): PartitionRegistry {
+export function createPartitionRegistry(
+  directory: DurableDirectory,
+  segmentMaxBytes: number,
+  onIndexHeld: (indexName: string) => void,
+): PartitionRegistry {
   const indexes = new Map<string, IndexState>()
 
   function indexState(indexName: string): IndexState {
@@ -27,6 +31,7 @@ export function createPartitionRegistry(directory: DurableDirectory, segmentMaxB
         stalledWrites: [],
       }
       indexes.set(indexName, state)
+      onIndexHeld(indexName)
     }
     return state
   }

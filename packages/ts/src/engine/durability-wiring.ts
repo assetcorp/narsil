@@ -25,7 +25,7 @@ interface DurabilityWiring {
 }
 
 export function createDurabilityFromTier(tier: DurabilityTier, wiring: DurabilityWiring): DurabilityIntegration {
-  return createDurabilityIntegration(tier, {
+  const integration = createDurabilityIntegration(tier, {
     checkpointPublisher: { publishPartitions: wiring.publishCheckpointedPartitions },
     getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.getManager(indexName) : undefined),
     getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
@@ -46,13 +46,24 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     },
     queueDiskAdoption: wiring.queueDiskAdoption,
     awaitCopiesOfIndex: wiring.awaitCopiesOfIndex,
-    createIndexFromMetadata: wiring.createIndexFromMetadata,
+    async createIndexFromMetadata(metadata, loadData) {
+      await wiring.createIndexFromMetadata(metadata, loadData)
+      const entry = wiring.indexRegistry.get(metadata.indexName)
+      if (entry === undefined) return
+      entry.storedSizes = integration.manager.storedSizesOf(metadata.indexName)
+      entry.storedSizes.recordSavedBytes(entry.savedBytes)
+    },
     recordCheckpoint(indexName, documentCount, partitionCount, savedBytes) {
       const entry = wiring.indexRegistry.get(indexName)
       if (entry === undefined) return
       entry.documentCount = documentCount
       entry.partitionCount = partitionCount
       entry.savedBytes = savedBytes
+      entry.storedSizes?.recordSavedBytes(savedBytes)
+    },
+    linkStoredSizes(indexName, sizes) {
+      const entry = wiring.indexRegistry.get(indexName)
+      if (entry !== undefined) entry.storedSizes = sizes
     },
     onLayoutUpgrade: wiring.emitLayoutUpgrade,
     onCheckpointHeld: wiring.emitCheckpointHeld,
@@ -67,6 +78,7 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
       }
     },
   })
+  return integration
 }
 
 export async function reloadIndexAndCopies(

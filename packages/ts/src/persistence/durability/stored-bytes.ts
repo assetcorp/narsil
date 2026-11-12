@@ -29,33 +29,3 @@ export function savedBytesOfManifest(manifest: SegmentManifest): StoredBytes {
   }
   return { bytes: bytes + vectorBytes, vectorBytes, partitions }
 }
-
-const savedBytesByPartition = new WeakMap<StoredBytes, ReadonlyMap<number, number>>()
-
-export function partitionSavedBytes(saved: StoredBytes): ReadonlyMap<number, number> {
-  const known = savedBytesByPartition.get(saved)
-  if (known !== undefined) return known
-  const byPartition = new Map<number, number>()
-  for (const { partitionId, bytes } of saved.partitions) byPartition.set(partitionId, bytes)
-  savedBytesByPartition.set(saved, byPartition)
-  return byPartition
-}
-
-export interface SavedBytesRecord {
-  record(indexName: string, saved: StoredBytes): void
-  of(indexName: string): StoredBytes | undefined
-  forget(indexName: string): void
-}
-
-export function createSavedBytesRecord(): SavedBytesRecord {
-  const saved = new Map<string, StoredBytes>()
-  return {
-    record: (indexName, bytes) => {
-      saved.set(indexName, bytes)
-    },
-    of: indexName => saved.get(indexName),
-    forget: indexName => {
-      saved.delete(indexName)
-    },
-  }
-}

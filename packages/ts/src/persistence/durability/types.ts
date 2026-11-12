@@ -1,5 +1,6 @@
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
+import type { IndexStoredSizes } from '../../engine/stored-sizes'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../serialization/keyword-segment/types'
 import type { PersistenceAdapter } from '../../types/adapters'
@@ -62,6 +63,7 @@ export interface IndexDurabilityHooks {
   onFatalError(error: Error): void
   keepsSyncHistory?(indexName: string): boolean
   onHistoryMoved?(indexName: string): void
+  linkStoredSizes(indexName: string, sizes: IndexStoredSizes): void
   writeRecords?: WriteRecordKeeper
 }
 
@@ -118,8 +120,7 @@ export interface DurabilityManager {
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
   measureRestoredStorage?(indexName: string, restored?: StoredBytes): Promise<void>
-  savedBytes(indexName: string, recordedSavedBytes?: number): number | undefined
-  logBytes(indexName: string): number | undefined
+  storedSizesOf(indexName: string): IndexStoredSizes
   addStoredSizes(indexName: string, stats: PartitionStatsResult[]): void
   vectorSavedBytes?(indexName: string): number | undefined
   syncStorage?(): SyncStorage
