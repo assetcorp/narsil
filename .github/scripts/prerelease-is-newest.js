@@ -46,7 +46,7 @@ const registryErrorCode = error => {
 const nextTagOf = packageName => {
   let listing
   try {
-    listing = execFileSync('npm', ['view', packageName, 'dist-tags', '--json', '--prefer-online'], {
+    listing = execFileSync('npm', ['view', `${packageName}@${NEXT_DIST_TAG}`, 'dist-tags', '--json', '--prefer-online'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
