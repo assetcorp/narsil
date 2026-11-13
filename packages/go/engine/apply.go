@@ -53,27 +53,29 @@ func (entry *indexEntry) prepared(document *model.Document) (persist.Write, erro
 	return persist.Write{Document: prepared.Document.Map(), Encoded: encoded, Vectors: prepared.Vectors}, nil
 }
 
-func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind index.WriteKind) ([]error, error) {
+func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind index.WriteKind) ([]error,
+	persist.Commit, error) {
 	if len(writes) == 0 {
-		return []error{}, nil
+		return []error{}, persist.Commit{}, nil
 	}
-	if buffered, intercepted, err := entry.intercept(ctx, writes); intercepted {
-		return buffered, err
+	if buffered, commit, intercepted, err := entry.intercept(ctx, writes); intercepted {
+		return buffered, commit, err
 	}
 	var failures []error
+	var commit persist.Commit
 	var err error
 	if entry.durable != nil {
-		failures, err = entry.durable.Apply(ctx, writes)
+		failures, commit, err = entry.durable.Apply(ctx, writes)
 	} else {
 		failures, err = entry.applyInMemory(writes, kind)
 	}
 	if err != nil {
-		return nil, err
+		return nil, persist.Commit{}, err
 	}
 	for at, failure := range failures {
 		failures[at] = documentTokensRefused(failure)
 	}
-	return failures, nil
+	return failures, commit, nil
 }
 
 type touchedVectors map[string]struct{}

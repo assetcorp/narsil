@@ -140,7 +140,7 @@ func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 	}
 	defer releaseSync()
 	defer n.emitWrite(indexName)
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	if err := entry.noteCleared(); err != nil {
 		return err

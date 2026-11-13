@@ -4,9 +4,7 @@ import (
 	"context"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/assetcorp/narsil/packages/go/engine"
 )
@@ -15,8 +13,8 @@ const (
 	busyCheckpointIndex             = "ledger"
 	busyCheckpointWriters           = 4
 	busyCheckpointDocumentsPerWrite = 25
-	busyCheckpointAttempts          = 300
-	busyCheckpointLimit             = 20 * time.Second
+	busyCheckpointVersions          = 24
+	busyCheckpointWritesPerRound    = 40
 )
 
 func openBusyCheckpointEngine(t *testing.T, directory string) *engine.Narsil {
@@ -38,10 +36,10 @@ func busyTitle(id string, version int) string {
 	return "entry " + id + " version " + strconv.Itoa(version)
 }
 
-func rewriteUntilStopped(narsil *engine.Narsil, writer int, stopped *atomic.Bool, into *busyWriter) {
+func rewriteEveryVersion(narsil *engine.Narsil, writer int, progress *writeProgress, into *busyWriter) {
 	ctx := context.Background()
 	into.versions = map[string]string{}
-	for version := 0; !stopped.Load() || version == 0; version++ {
+	for version := range busyCheckpointVersions {
 		for slot := range busyCheckpointDocumentsPerWrite {
 			id := "w" + strconv.Itoa(writer) + "-" + strconv.Itoa(slot)
 			title := busyTitle(id, version)
@@ -57,27 +55,34 @@ func rewriteUntilStopped(narsil *engine.Narsil, writer int, stopped *atomic.Bool
 				return
 			}
 			into.versions[id] = title
+			progress.record()
 		}
 	}
 }
 
 func checkpointWhileWritersRewrite(t *testing.T, narsil *engine.Narsil) map[string]string {
 	t.Helper()
-	stopped := &atomic.Bool{}
+	progress := newWriteProgress(busyCheckpointWritesPerRound)
+	stop := make(chan struct{})
 	writers := make([]busyWriter, busyCheckpointWriters)
 	var group sync.WaitGroup
 	for at := range writers {
-		group.Go(func() { rewriteUntilStopped(narsil, at, stopped, &writers[at]) })
+		group.Go(func() { rewriteEveryVersion(narsil, at, progress, &writers[at]) })
 	}
 	var checkpointErr error
-	deadline := time.Now().Add(busyCheckpointLimit)
-	for attempt := 0; attempt < busyCheckpointAttempts && time.Now().Before(deadline); attempt++ {
-		if checkpointErr = narsil.Checkpoint(context.Background(), busyCheckpointIndex); checkpointErr != nil {
-			break
+	checkpoints := 0
+	var checkpointer sync.WaitGroup
+	checkpointer.Go(func() {
+		for round := 0; progress.await(round, stop); round++ {
+			if checkpointErr = narsil.Checkpoint(context.Background(), busyCheckpointIndex); checkpointErr != nil {
+				return
+			}
+			checkpoints++
 		}
-	}
-	stopped.Store(true)
+	})
 	group.Wait()
+	close(stop)
+	checkpointer.Wait()
 	if checkpointErr != nil {
 		t.Fatalf("a checkpoint taken while writers rewrote documents failed with %s: %v", codeOrMessage(checkpointErr),
 			checkpointErr)
@@ -90,6 +95,10 @@ func checkpointWhileWritersRewrite(t *testing.T, narsil *engine.Narsil) map[stri
 		for id, title := range writer.versions {
 			latest[id] = title
 		}
+	}
+	written := busyCheckpointWriters * busyCheckpointDocumentsPerWrite * busyCheckpointVersions
+	if expected := written / busyCheckpointWritesPerRound; checkpoints != expected {
+		t.Fatalf("took %d checkpoints during %d writes, expected %d", checkpoints, written, expected)
 	}
 	return latest
 }

@@ -91,7 +91,7 @@ func (n *Narsil) CompactVectors(ctx context.Context, indexName string, fieldName
 	if err != nil {
 		return err
 	}
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	defer n.emitWrite(indexName)
 	for _, field := range fields {

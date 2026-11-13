@@ -70,7 +70,7 @@ func (n *Narsil) UpdateBM25(ctx context.Context, indexName string, bm25 BM25Para
 		return err
 	}
 	stored := storedBM25(bm25)
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	return replaceSettings(ctx, entry, func(config *model.IndexConfig) {
 		config.BM25 = stored
@@ -94,7 +94,7 @@ func (n *Narsil) UpdateSynonyms(ctx context.Context, indexName string, rules []S
 	if err != nil {
 		return err
 	}
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	return replaceSettings(ctx, entry, func(config *model.IndexConfig) {
 		config.Synonyms = canonical

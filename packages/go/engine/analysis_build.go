@@ -114,7 +114,7 @@ func copyDocuments(ctx context.Context, handle *persist.Handle, source *index.In
 }
 
 func (entry *indexEntry) beginRebuildLog() {
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	entry.swap.mu.Lock()
 	defer entry.swap.mu.Unlock()
@@ -188,7 +188,7 @@ func (entry *indexEntry) catchUp(ctx context.Context, side *index.Index, proceed
 		if err := proceed(); err != nil {
 			return err
 		}
-		entry.writeMu.Lock()
+		entry.lockWrites()
 		err := entry.catchUpLocked(ctx, side)
 		entry.writeMu.Unlock()
 		if err != nil {
