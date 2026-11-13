@@ -3,6 +3,7 @@ import {
   awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   prepareDocumentVectors,
+  providedDocId,
   turnIsSpent,
   turnsAreBudgeted,
   validateVectorDimensions,
@@ -92,8 +93,12 @@ export async function insertInChunks(
     try {
       if (prepared.length > 0) ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     } catch (err) {
-      for (const doc of prepared) failed.push({ docId: doc.docId, error: asBatchInsertError(err) })
-      continue
+      const error = asBatchInsertError(err)
+      for (const doc of prepared) failed.push({ docId: doc.docId, error })
+      for (let i = chunkEnd; i < documents.length; i++) {
+        failed.push({ docId: providedDocId(documents[i]) ?? '', error })
+      }
+      break
     }
 
     if (prepared.length > 0) {

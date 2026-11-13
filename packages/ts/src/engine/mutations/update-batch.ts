@@ -102,8 +102,10 @@ export async function updateDocumentBatch(
     try {
       ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     } catch (err) {
-      for (const update of prepared) failed.push({ docId: update.docId, error: asUpdateError(err) })
-      continue
+      const error = asUpdateError(err)
+      for (const update of prepared) failed.push({ docId: update.docId, error })
+      for (let i = chunkEnd; i < updates.length; i++) failed.push({ docId: reportedDocIdOf(updates[i]), error })
+      break
     }
 
     const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
