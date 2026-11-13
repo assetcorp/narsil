@@ -1,3 +1,4 @@
+import { checkWriteMemory } from '#platform/memory-write-block'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { requireDocumentWithinSizeLimit } from '../../schema/validator'
@@ -50,6 +51,7 @@ export function admitInsert(
   docId: string,
   pending?: PendingAdmissions,
 ): void {
+  checkWriteMemory(ctx, indexName)
   const rebalancing = ctx.isRebalancing(indexName)
   if (rebalancing) {
     const bufferedState = ctx.bufferedDocState(indexName, docId)

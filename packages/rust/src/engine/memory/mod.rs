@@ -151,9 +151,6 @@ impl MemoryGuard {
         reading.full = full;
     }
 
-    /// Refuses an insert or an update of `index_name` with `MEMORY_WRITE_BLOCKED` while the process's resident
-    /// memory that no file backs stands above the block level, reading the memory again where the last reading is
-    /// more than a second old, and once more before it refuses.
     pub(crate) fn refuse_while_full(&self, index_name: &str) -> Result<()> {
         if self.fresh() && !self.full.load(Ordering::Acquire) {
             return Ok(());
