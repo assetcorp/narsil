@@ -4,7 +4,7 @@ const { appendFileSync } = require('node:fs')
 const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
 const SHARED_ENGINE_WORKFLOW = '.github/workflows/engine.yml'
 const MISSING_COMMIT = /^0+$/
-const TYPESCRIPT_JOB_AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness']
+const TYPESCRIPT_JOB_AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness', 'benchmark_languages']
 const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
 
 const AREAS_BY_PREFIX = [
@@ -12,6 +12,10 @@ const AREAS_BY_PREFIX = [
   ['assets/', []],
   ['skills/', []],
   ['benchmarks/server/', ['benchmark_harness']],
+  ['benchmarks/engine-languages/', ['benchmark_languages']],
+  ['benchmarks/in-process/src/data/', ['benchmark_languages']],
+  ['benchmarks/in-process/src/runner/', ['benchmark_languages']],
+  ['benchmarks/in-process/src/perf-corpus.ts', ['benchmark_languages']],
   ['benchmarks/', []],
   ['packages/rust/', []],
   ['packages/python-engine/', []],
@@ -22,6 +26,7 @@ const AREAS_BY_PREFIX = [
   ['packages/native/fuzz/', []],
   ['packages/native/test/', []],
   ['packages/conformance/samples/earlier-releases/', ['typescript', 'conformance']],
+  ['packages/conformance/oracle/', ['conformance', 'benchmark_languages']],
   ['packages/conformance/', ['conformance']],
   ['packages/certutil/', ['check']],
   ['packages/python/', ['check']],

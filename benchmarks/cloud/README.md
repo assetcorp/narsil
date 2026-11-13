@@ -62,6 +62,14 @@ container from `node:22-trixie-slim` as pinned in
 `../server/narsil-server.Dockerfile`, so it runs Narsil on Node 22 regardless of
 the host.
 
+`SUITES=languages` runs the suite in `../engine-languages/`, which measures Narsil
+in TypeScript, Rust, and Go, and `both` leaves it out. The setup step installs
+the two toolchains that it builds with: Go from the release archive, once its
+checksum matches, and Rust through rustup at the version that
+`../../packages/rust/rust-toolchain.toml` pins. Run it on a VM of its own,
+because another suite on the same machine would take CPU time from the engines
+under test.
+
 ## Test it before you trust it
 
 `--dry-run` prints every command the toolkit would run on any provider, touching
@@ -110,7 +118,7 @@ Every default is an environment variable:
 | `VM_NAME` | `narsil-bench` | Instance name |
 | `MACHINE_TYPE` | per provider | Instance size |
 | `DISK_SIZE` | `60` | Boot disk size in GB (ignored by Hetzner, which bundles storage) |
-| `SUITES` | `both` | `both`, `inprocess`, or `server` |
+| `SUITES` | `both` | `both`, `inprocess`, `server`, or `languages` |
 | `SSH_KEY` | `~/.ssh/id_ed25519` | Private key for the raw-SSH providers |
 | `BENCH_PROFILE` | `cloud` | `cloud` for the published results folders, `smoke` for git-ignored scratch folders |
 | `BENCH_INPROCESS_TIERS` | unset | Restrict the in-process suite to named tiers |
