@@ -4,6 +4,7 @@ import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from .config_datasets import DatasetSpec, load_datasets
 from .config_throughput import ThroughputConfig, load_throughput
@@ -16,6 +17,16 @@ DEFAULT_LATENCY_MIN_REPEATS = 1
 DEFAULT_LATENCY_MAX_REPEATS = 5
 DEFAULT_LATENCY_TOP_K = 10
 DEFAULT_TUNING_SAMPLE_QUERIES = 1000
+ENGINE_ADDRESS_ENV = "BENCH_ENGINE_ADDRESS"
+
+
+def _url_on_engine_address(url: str, address: str) -> str | None:
+    if not address:
+        return None
+    parts = urlsplit(url)
+    host = f"[{address}]" if ":" in address else address
+    netloc = host if parts.port is None else f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 @dataclass(frozen=True)
@@ -279,7 +290,9 @@ def select_engine(config: BenchmarkConfig, name: str | None) -> EngineConfig:
         available = ", ".join(sorted(config.engines))
         raise SystemExit(f"unknown engine '{chosen}'; configured engines: {available}")
     engine = config.engines[chosen]
-    url_override = os.environ.get("ENGINE_URL")
+    url_override = os.environ.get("ENGINE_URL") or _url_on_engine_address(
+        engine.url, os.environ.get(ENGINE_ADDRESS_ENV, "").strip()
+    )
     if url_override:
         engine = EngineConfig(
             name=engine.name,

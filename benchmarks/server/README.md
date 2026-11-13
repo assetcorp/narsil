@@ -285,18 +285,56 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   core divided by its per-request cost, whatever the engine could serve.
   `throughput.client_processes` sets how many processes drive the load
   (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
-  host's logical cores), and every level records the value used. That CPU comes out
-  of the same host the engine runs on, so raising it buys headroom to measure with
-  and costs the engine cores to be measured on. Each level also records whether the
-  engine or the client set the limit, read from the client's CPU against the cores
-  its own processes can reach and from the concurrency it achieved, so you can spot
-  a client-bound number before you trust it.
+  cores that the harness container may use), and every level records the value used.
+  On a shared host that CPU comes out of the cores the engine runs on, so raising it
+  buys headroom to measure with and costs the engine cores to be measured on. Set
+  `BENCH_ENGINE_CPUS` to a count of logical CPUs to end that trade: `run-all.sh`
+  reads the host's CPU topology, gives every engine container that many logical
+  CPUs on whole physical cores through the compose `cpuset`, and pins the harness
+  to every other core, so the two never share a core. The engine still shares the
+  host's memory bandwidth and last-level cache with the harness. Each level records
+  the engine container's allowed cores from its `cpuset.cpus.effective`, and the
+  client's ceiling counts only the cores the harness may use. Each level also records whether the
+  engine or the client set the limit, so you can spot a client-bound number before
+  you trust it. A level reads as client-bound when the client's processes run at 90%
+  of their ceiling, when the client keeps 80% of the harness's usable cores busy,
+  when the engine and the client together keep 75% of the machine's logical CPUs
+  busy, or when the client reaches less than 80% of its target concurrency, and
+  `client_bound_reasons` names each test that fired. The machine test catches a
+  shared host: on a 4-core, 8-thread machine, an engine at 3.0 cores beside a client
+  at 3.3 leaves neither its own core, although neither one alone looks saturated.
+  Treat a client-bound peak as a floor on what the engine can serve.
+- To keep the load generator off the engine's machine altogether, set
+  `BENCH_ENGINE_HOST` to an SSH target for a second machine and
+  `BENCH_ENGINE_ADDRESS` to that machine's address. `run-all.sh` then starts each
+  engine there through `docker-compose.remote-engine.yml`, which publishes the
+  engine's port on that address, and starts `python3 -m ir_bench.engine_stats`
+  beside it. That stdlib service serves the engine container's cgroup CPU and
+  memory files on port 9877, so the harness records the same engine figures that
+  it reads from disk on one machine. Before the tracks, the harness times 200 TCP
+  connects to that port and records the round trip under `network` in the
+  environment, with the engine machine's CPU and memory under `engine_machine`.
+  With the engine on another machine, the machine test counts the client's cores
+  alone against the harness's machine. Leave `BENCH_ENGINE_CPUS` unset in this mode.
 - Each level also records how many cores the engine container kept busy. The
   compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
   `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The
   harness then reads that container's `cpu.stat` before and after every measured
   window, and it divides the CPU time by the wall time. Where `run-all.sh`
   supplies no container id, the harness records the field as absent and carries on.
+- Each track also records the engine container's peak memory, from the same cgroup.
+  The harness samples `memory.current` and the `anon` line of `memory.stat` every
+  0.25 s while the track loads, queries, and drops its index, and it reports the
+  highest of each. The anonymous figure leaves out the page cache, so it counts what
+  the engine allocated.
+- `BENCH_SHARE_VECTOR_INDEX=1` keeps the index that the vector track built and
+  measures the hybrid track on it, so a large corpus loads once per engine. Both
+  tracks load the same documents into the same index with the same settings, and
+  the harness checks the engine's document count before it reuses the index. The
+  hybrid result then reports the vector track's build time with
+  `index_built_by_vector_track` set, and its peak memory leaves out the load. Where
+  the vector track came from a checkpoint, no index is left in the engine, so the
+  hybrid track loads its own.
 - The vector track measures throughput once more at every search-effort value its
   recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
   so the operating point's `sweep` carries queries per second beside the sample
@@ -460,6 +498,7 @@ benchmarks/server/
       throughput.py          the concurrency sweep: one pass per level, repeats at the peak, intervals, pooled tails
       throughput_process.py  the load-generator processes behind one measured window
       engine_cpu.py          the engine container's cgroup CPU counter and the cores-busy arithmetic
+      engine_memory.py       the engine container's peak cgroup memory, sampled through each track
       recall_sweep.py        throughput at every search-effort level of the recall sweep
       stats.py               percentiles, medians, and the bootstrap interval
       http_client.py         pooled HTTP client shared by every driver

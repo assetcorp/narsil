@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
 
@@ -24,8 +25,47 @@ from .track_common import (
     server_setup,
     verify_indexed,
 )
-from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, SERVER_TIME_UNAVAILABLE, VECTOR, VectorDoc, VectorIndexParams
+from .types import (
+    BEST_CONFIG,
+    EQUAL_PRECISION,
+    HYBRID,
+    SERVER_TIME_UNAVAILABLE,
+    VECTOR,
+    EngineError,
+    VectorDoc,
+    VectorIndexParams,
+)
 from .vector_tuning import OperatingPoint, sample_indices, tune_operating_point
+
+
+@dataclass(frozen=True)
+class LoadedVectorIndex:
+    """A vector index that the vector track built and left in the engine, so that
+    the hybrid track can measure the same documents without a second load."""
+
+    index: str
+    profile: str
+    documents: int
+    build_seconds: float
+
+
+KeepVectorIndex = Callable[[LoadedVectorIndex], None]
+
+
+def _reuse_loaded(driver, spec: DatasetSpec, profile: str, loaded: LoadedVectorIndex) -> tuple[str, int, float]:
+    expected = index_name(spec.dataset_id)
+    if loaded.index != expected or loaded.profile != profile:
+        raise EngineError(
+            f"{driver.name} vector index {loaded.index} ({loaded.profile}) cannot serve the hybrid track, "
+            f"which needs {expected} ({profile})"
+        )
+    server_count = driver.count(loaded.index)
+    if server_count != loaded.documents:
+        raise EngineError(
+            f"{driver.name} vector index {loaded.index} reports {server_count} documents after the vector track, "
+            f"expected {loaded.documents} for {spec.dataset_id}"
+        )
+    return loaded.index, loaded.documents, loaded.build_seconds
 
 
 def _create_and_load(
@@ -80,10 +120,13 @@ def _operating_point(driver, vec: VectorConfig, point: OperatingPoint, sweep: li
     }
 
 
-def _operational(indexed: int, build_seconds: float, ingest_rate: float, config: BenchmarkConfig, stats) -> dict:
+def _operational(
+    indexed: int, build_seconds: float, ingest_rate: float, config: BenchmarkConfig, stats, shared: bool = False
+) -> dict:
     return {
         "documents_indexed": indexed,
         "build_seconds": build_seconds,
+        "index_built_by_vector_track": shared,
         "ingest_docs_per_sec": ingest_rate,
         "ingest_clients": config.import_clients,
         "ingest_batch_size": config.import_batch,
@@ -151,6 +194,7 @@ def run_vector_track(
     run_tag: str,
     profile: str = EQUAL_PRECISION,
     engine_cpu: CpuCounter | None = None,
+    keep_index: KeepVectorIndex | None = None,
 ) -> dict:
     vec = config.vector
     assert vec is not None
@@ -205,7 +249,10 @@ def run_vector_track(
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
     setup_report = server_setup(driver)
-    driver.drop_index(index)
+    if keep_index is None:
+        driver.drop_index(index)
+    else:
+        keep_index(LoadedVectorIndex(index=index, profile=profile, documents=indexed, build_seconds=build_seconds))
 
     return {
         "dataset_id": spec.dataset_id,
@@ -243,6 +290,7 @@ def run_hybrid_track(
     profile: str = EQUAL_PRECISION,
     vector_oversample: float | None = None,
     engine_cpu: CpuCounter | None = None,
+    loaded: LoadedVectorIndex | None = None,
 ) -> dict:
     vec = config.vector
     assert vec is not None
@@ -254,8 +302,12 @@ def run_hybrid_track(
     query_terms = {query_id: terms.get(query_id, "") for query_id in qset.ids}
     query_vectors = {query_id: qset.vectors[i].tolist() for i, query_id in enumerate(qset.ids)}
 
-    print(f"{label} ingesting corpus", flush=True)
-    index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
+    if loaded is None:
+        print(f"{label} ingesting corpus", flush=True)
+        index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
+    else:
+        print(f"{label} measuring the index that the vector track built", flush=True)
+        index, indexed, build_seconds = _reuse_loaded(driver, spec, profile, loaded)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     if hasattr(driver, "set_rescore_oversample"):
         driver.set_rescore_oversample(vector_oversample)
@@ -321,7 +373,7 @@ def run_hybrid_track(
             "vector_ef_from_vector_track": vector_ef is not None,
             "rescore_oversample": vector_oversample,
         },
-        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
+        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats, shared=loaded is not None),
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,
