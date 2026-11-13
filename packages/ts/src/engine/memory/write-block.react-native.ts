@@ -8,7 +8,7 @@ import { vectorGrowthBytesOf, writeAnalysisOf } from './write-analysis'
 import type { MemoryWriteBlock, MemoryWriteBlockDeps } from './write-block-types'
 import { createWriteProjection, WRITE_WOULD_FILL_MEMORY_REASON } from './write-projection'
 
-export { checkWriteMemory, validateMemorySettings } from './write-block'
+export { validateMemorySettings } from './write-block'
 
 function refusedAfter(indexName: string, docId: string, refusedDocId: string): NarsilError {
   return new NarsilError(
