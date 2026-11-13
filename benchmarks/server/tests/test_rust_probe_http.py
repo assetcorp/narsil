@@ -95,6 +95,22 @@ def test_import_error_cap_duplicate_ids_and_bad_lines(probe):
     assert probe.client.get("/indexes/documents/count").json() == {"count": 1}
 
 
+def test_repeated_ids_across_many_batches_keep_the_first_valid_document(probe):
+    body = "\n".join([
+        '{"id":"repeated","text":42}',
+        '{"id":"repeated","text":"olive"}',
+        *(['{"id":"repeated","text":"changed"}'] * 20000),
+    ])
+    response = probe.client.post("/indexes/documents/documents/_import", content=body)
+    result = response.json()
+    assert result["indexed"] == 1, response.text
+    assert result["failed"] == 20001
+    assert len(result["errors"]) == 100
+    assert result["errorsTruncated"] is True
+    response = probe.client.post("/indexes/documents/search", json={"term": "olive"})
+    assert response.json()["hits"][0]["document"] == {"id": "repeated", "text": "olive"}
+
+
 def test_separate_body_and_ndjson_line_limits(probe):
     path = "/indexes/documents/documents/_import"
     for size, status in ((0, 400), (65537, 200), (8388608, 200), (8388609, 413)):

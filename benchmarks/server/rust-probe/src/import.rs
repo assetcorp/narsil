@@ -140,9 +140,12 @@ pub fn run_import(engine: &Narsil, index: &str, body: &[u8]) -> Result<ImportOut
         }
     }
     flush(engine, index, pending, &mut outcome)?;
-    for _ in 0..repeated.len().div_ceil(IMPORT_BATCH_SIZE) {
-        let rest = repeated.split_off(repeated.len().min(IMPORT_BATCH_SIZE));
-        let batch = std::mem::replace(&mut repeated, rest);
+    let mut repeated = repeated.into_iter();
+    loop {
+        let batch: Vec<Map> = repeated.by_ref().take(IMPORT_BATCH_SIZE).collect();
+        if batch.is_empty() {
+            break;
+        }
         flush(engine, index, batch, &mut outcome)?;
     }
     outcome.errors_truncated =
