@@ -295,9 +295,15 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   host's memory bandwidth and last-level cache with the harness. Each level records
   the engine container's allowed cores from its `cpuset.cpus.effective`, and the
   client's ceiling counts only the cores the harness may use. Each level also records whether the
-  engine or the client set the limit, read from the client's CPU against the cores
-  its own processes can reach and from the concurrency it achieved, so you can spot
-  a client-bound number before you trust it.
+  engine or the client set the limit, so you can spot a client-bound number before
+  you trust it. A level reads as client-bound when the client's processes run at 90%
+  of their ceiling, when the client keeps 80% of the harness's usable cores busy,
+  when the engine and the client together keep 75% of the machine's logical CPUs
+  busy, or when the client reaches less than 80% of its target concurrency, and
+  `client_bound_reasons` names each test that fired. The machine test catches a
+  shared host: on a 4-core, 8-thread machine, an engine at 3.0 cores beside a client
+  at 3.3 leaves neither its own core, although neither one alone looks saturated.
+  Treat a client-bound peak as a floor on what the engine can serve.
 - Each level also records how many cores the engine container kept busy. The
   compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
   `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The

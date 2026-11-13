@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import pickle
 
 import pytest
 
 from ir_bench.core.config import BM25Params, EngineConfig
 from ir_bench.core.config_throughput import ThroughputConfig
+from ir_bench.core.cpu_sets import usable_cpus
 from ir_bench.core.throughput import _level_record, _pass_record, measure_throughput
 from ir_bench.core.throughput_process import (
     PackedPairs,
@@ -155,6 +157,24 @@ def test_spare_capacity_across_processes_reads_as_engine_bound():
     assert level["client_cores_busy"] == pytest.approx(0.4)
     assert level["client_busy_fraction"] < 0.9
     assert level["client_bound"] is False
+
+
+def test_a_client_that_fills_most_of_the_harness_cpus_reads_as_client_bound():
+    cpus = usable_cpus()
+    level = _pinned_pass(processes=cpus * 4, cores_per_process=0.85 / 4)
+    assert level["client_busy_fraction"] < 0.9
+    assert level["client_share_of_harness_cpus"] == pytest.approx(0.85)
+    assert level["client_bound"] is True
+    assert level["client_bound_reasons"] == ["client_filled_harness_cpus"]
+
+
+def test_an_engine_and_client_that_fill_the_machine_read_as_client_bound():
+    machine = os.cpu_count() or 1
+    results = _process_results(4, 0.1)
+    record = _pass_record(results, 16, 4, False, engine_cores_busy=machine * 0.75).record
+    assert record["machine_busy_fraction"] >= 0.75
+    assert record["client_bound"] is True
+    assert record["client_bound_reasons"] == ["engine_and_client_filled_machine"]
 
 
 def test_qps_comes_from_the_measured_window():

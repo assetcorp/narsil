@@ -13,6 +13,13 @@ from .types import NOT_AVAILABLE, SERVER_TIME_UNAVAILABLE, ServerTimeSource
 
 CPU_SATURATION = 0.90
 CONCURRENCY_SHORTFALL = 0.80
+CLIENT_SHARE_OF_HARNESS_CPUS = 0.80
+MACHINE_SATURATION = 0.75
+
+CLIENT_PROCESSES_SATURATED = "client_processes_saturated"
+CLIENT_FILLED_HARNESS_CPUS = "client_filled_harness_cpus"
+ENGINE_AND_CLIENT_FILLED_MACHINE = "engine_and_client_filled_machine"
+CONCURRENCY_SHORT_OF_TARGET = "concurrency_short_of_target"
 
 PhaseRunner = Callable[[Workload, Any, int, int, float, float, bool, CpuCounter | None], PhaseOutcome]
 
@@ -49,12 +56,24 @@ def _pass_record(
     achieved_concurrency = qps * mean_latency_s
 
     logical_cpus = usable_cpus()
+    machine_cpus = os.cpu_count() or logical_cpus
     running = len(results) or processes
     ceiling_cores = float(min(running, logical_cpus))
     cores_busy = cpu_seconds / elapsed if elapsed > 0 else 0.0
     busy_fraction = cores_busy / ceiling_cores if ceiling_cores else 0.0
-    short_of_target = achieved_concurrency < CONCURRENCY_SHORTFALL * concurrency
-    client_bound = busy_fraction >= CPU_SATURATION or short_of_target
+    harness_share = cores_busy / logical_cpus
+    machine_busy = None if engine_cores_busy is None else (engine_cores_busy + cores_busy) / machine_cpus
+    reasons = [
+        reason
+        for reason, applies in (
+            (CLIENT_PROCESSES_SATURATED, busy_fraction >= CPU_SATURATION),
+            (CLIENT_FILLED_HARNESS_CPUS, harness_share >= CLIENT_SHARE_OF_HARNESS_CPUS),
+            (ENGINE_AND_CLIENT_FILLED_MACHINE, machine_busy is not None and machine_busy >= MACHINE_SATURATION),
+            (CONCURRENCY_SHORT_OF_TARGET, achieved_concurrency < CONCURRENCY_SHORTFALL * concurrency),
+        )
+        if applies
+    ]
+    client_bound = bool(reasons)
 
     record = {
         "concurrency": concurrency,
@@ -71,8 +90,12 @@ def _pass_record(
         "client_cores_busy": cores_busy,
         "client_cpu_ceiling_cores": ceiling_cores,
         "client_busy_fraction": busy_fraction,
+        "client_share_of_harness_cpus": harness_share,
         "logical_cpus": logical_cpus,
+        "machine_cpus": machine_cpus,
+        "machine_busy_fraction": machine_busy,
         "client_bound": client_bound,
+        "client_bound_reasons": reasons,
         "engine_cores_busy": engine_cores_busy,
     }
     return PassSamples(record=record, client_ms=client_ms, server_ms=server_ms)
@@ -92,7 +115,9 @@ def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: in
     server_ms = [sample for p in passes for sample in p.server_ms]
     capture_server = any(r["server_latency_ms"] is not None for r in records)
     engine_cores = [r["engine_cores_busy"] for r in records if r["engine_cores_busy"] is not None]
+    machine_busy = [r["machine_busy_fraction"] for r in records if r["machine_busy_fraction"] is not None]
     bound_votes = sum(1 for r in records if r["client_bound"])
+    reasons = sorted({reason for r in records for reason in r["client_bound_reasons"]})
     first = records[0]
     return {
         "concurrency": concurrency,
@@ -113,8 +138,12 @@ def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: in
         "client_cores_busy": median([float(r["client_cores_busy"]) for r in records]),
         "client_cpu_ceiling_cores": first["client_cpu_ceiling_cores"],
         "client_busy_fraction": median([float(r["client_busy_fraction"]) for r in records]),
+        "client_share_of_harness_cpus": median([float(r["client_share_of_harness_cpus"]) for r in records]),
         "logical_cpus": first["logical_cpus"],
+        "machine_cpus": first["machine_cpus"],
+        "machine_busy_fraction": median(machine_busy) if machine_busy else None,
         "client_bound": bound_votes * 2 >= len(records),
+        "client_bound_reasons": reasons,
         "engine_cores_busy": median(engine_cores) if engine_cores else None,
         "engine_cores_allowed": cores_allowed,
         "passes": records,
@@ -150,11 +179,13 @@ def measure_throughput(
     closed-loop workers. For each level the record holds the median wall-clock QPS
     across its passes with a bootstrap interval, the pooled per-request latency of
     every pass, and each pass whole. The
-    record also carries a client-saturation read (client CPU against the cores the
-    client's own processes can reach, and achieved versus target concurrency) so a
-    reader can tell whether the engine or the harness limited the measured rate. Where
-    the caller supplies a cgroup counter, the record carries the engine container's
-    busy cores as well."""
+    record also carries a client-saturation read, so a reader can tell whether the
+    engine or the harness limited the measured rate. A pass reads as client-bound when
+    the client's processes run near their ceiling, when the client keeps most of the
+    harness's usable cores busy, when the engine and the client together keep most of
+    the machine's cores busy, or when the client falls short of its target concurrency,
+    and the record names each reason that applied. Where the caller supplies a cgroup
+    counter, the record carries the engine container's busy cores as well."""
 
     if not config.enabled or not items:
         return None
