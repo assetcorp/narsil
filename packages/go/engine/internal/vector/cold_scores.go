@@ -42,17 +42,18 @@ func newColdScoreStore(dimension int, count int, files []*core.VectorFile) (*col
 		vectorStart: unsafe.Add(base, vectorStartAt), born: unsafe.Add(base, bornAt)}
 	int32Word(unsafe.Add(base, headerAt), core.StoreWordSlots).Store(int32(count))
 	native, err := core.NewStore(core.StoreLayout{
-		Header:       unsafe.Add(base, headerAt),
-		Dimension:    uint32(dimension),
-		CodePresent:  unsafe.Add(base, codePresentAt),
-		Centroid:     unsafe.Add(base, centroidAt),
-		Magnitudes:   scores.magnitudes,
-		Present:      scores.present,
-		VectorFile:   scores.vectorFile,
-		VectorOffset: scores.vectorStart,
-		Files:        files,
-		BornAt:       unsafe.Add(base, bornAt),
-		RetiredAt:    unsafe.Add(base, retiredAt),
+		Header:             unsafe.Add(base, headerAt),
+		Dimension:          uint32(dimension),
+		VectorStrideFloats: uint32(dimension),
+		CodePresent:        unsafe.Add(base, codePresentAt),
+		Centroid:           unsafe.Add(base, centroidAt),
+		Magnitudes:         scores.magnitudes,
+		Present:            scores.present,
+		VectorFile:         scores.vectorFile,
+		VectorOffset:       scores.vectorStart,
+		Files:              files,
+		BornAt:             unsafe.Add(base, bornAt),
+		RetiredAt:          unsafe.Add(base, retiredAt),
 	})
 	if err != nil {
 		block.Free()
