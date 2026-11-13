@@ -329,22 +329,24 @@ func (written Written) Record(ctx context.Context) error {
 	return nil
 }
 
-func RemoveGarbage(ctx context.Context, store Store, garbage []string, fields []*vector.Field) error {
+func RemoveGarbage(ctx context.Context, store Store, garbage []string, fields []*vector.Field) ([]string, error) {
 	inUse := map[string]struct{}{}
 	for _, field := range fields {
 		for _, path := range field.VectorFilesInUse() {
 			inUse[path] = struct{}{}
 		}
 	}
-	for _, key := range garbage {
+	var stillRead []string
+	for position, key := range garbage {
 		if path, located := store.PathOf(key); located {
 			if _, read := inUse[path]; read {
+				stillRead = append(stillRead, key)
 				continue
 			}
 		}
 		if err := store.Remove(ctx, key); err != nil {
-			return err
+			return append(stillRead, garbage[position:]...), err
 		}
 	}
-	return nil
+	return stillRead, nil
 }

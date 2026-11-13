@@ -159,6 +159,13 @@ func (f *Field) VectorFilesInUse() []string {
 		return []string{}
 	}
 	paths := f.store.filePaths()
+	for _, retired := range f.fileLayoutsInUse() {
+		for _, file := range retired.tables.files {
+			if file != nil && file.path != "" {
+				paths = append(paths, file.path)
+			}
+		}
+	}
 	if f.cold != nil {
 		paths = append(paths, f.cold.field.FilePaths()...)
 	}
