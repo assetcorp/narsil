@@ -14,6 +14,7 @@ import { createGroupCommitCoordinator } from './group-commit'
 import { createMarkerWriter, type MarkerWriter } from './marker-writer'
 import {
   frameRecord,
+  joinFrames,
   SEGMENT_HEADER_SIZE,
   WAL_FORMAT_VERSION,
   WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT,
@@ -63,6 +64,8 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
   let highestDurableSeqNo = 0
   let markerWriter: MarkerWriter | null = null
   let durabilityLock: Promise<unknown> = Promise.resolve()
+  let synced: { startSeqNo: number; bytes: number } | null = null
+  let failure: { error: unknown } | null = null
 
   const coordinator = createGroupCommitCoordinator(() => withDurabilityLock(flushActiveSegment))
 
@@ -89,18 +92,38 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     return markerWriter
   }
 
+  function latchFailure(err: unknown): unknown {
+    if (failure === null) {
+      failure = { error: err }
+    }
+    return failure.error
+  }
+
   async function flushActiveSegment(): Promise<void> {
-    if (handle === null) {
+    if (failure !== null) {
+      throw failure.error
+    }
+    const flushing = handle
+    if (flushing === null) {
       return
     }
-    const writer = await getMarkerWriter()
     const durableByteLength = activeBytes
     const activeSegmentSeqNo = activeStartSeqNo
-    const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
-    await handle.sync()
-    await writer.commit({ activeSegmentSeqNo, durableByteLength, highestDurableSeqNo: durableSeqNo })
-    if (durableSeqNo > highestDurableSeqNo) {
-      highestDurableSeqNo = durableSeqNo
+    const appendedSeqNo = highestAppendedSeqNo
+    if (synced !== null && synced.startSeqNo === activeSegmentSeqNo && synced.bytes === durableByteLength) {
+      return
+    }
+    try {
+      const writer = await getMarkerWriter()
+      const durableSeqNo = Math.max(appendedSeqNo, highestDurableSeqNo)
+      await flushing.sync()
+      await writer.commit({ activeSegmentSeqNo, durableByteLength, highestDurableSeqNo: durableSeqNo })
+      if (durableSeqNo > highestDurableSeqNo) {
+        highestDurableSeqNo = durableSeqNo
+      }
+      synced = { startSeqNo: activeSegmentSeqNo, bytes: durableByteLength }
+    } catch (err) {
+      throw latchFailure(err)
     }
   }
 
@@ -218,22 +241,30 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
   }
 
   async function swapToPreparedSegment(sealed: AppendHandle): Promise<void> {
-    const writer = await getMarkerWriter()
-    const startSeqNo = highestAppendedSeqNo + 1
-    const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
-    const key = segmentKey(config.indexName, config.partitionId, startSeqNo)
-    await Promise.all([sealed.sync(), directory.move(preparedKey, key)])
-    handle = await directory.appendHandle(key)
-    activeKey = key
-    activeStartSeqNo = startSeqNo
-    activeBytes = SEGMENT_HEADER_SIZE
-    activeFormatVersion = preparedFormatVersion
-    await writer.commit({
-      activeSegmentSeqNo: startSeqNo,
-      durableByteLength: SEGMENT_HEADER_SIZE,
-      highestDurableSeqNo: durableSeqNo,
-    })
-    highestDurableSeqNo = durableSeqNo
+    if (failure !== null) {
+      throw failure.error
+    }
+    try {
+      const writer = await getMarkerWriter()
+      const startSeqNo = highestAppendedSeqNo + 1
+      const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
+      const key = segmentKey(config.indexName, config.partitionId, startSeqNo)
+      await Promise.all([sealed.sync(), directory.move(preparedKey, key)])
+      handle = await directory.appendHandle(key)
+      activeKey = key
+      activeStartSeqNo = startSeqNo
+      activeBytes = SEGMENT_HEADER_SIZE
+      activeFormatVersion = preparedFormatVersion
+      await writer.commit({
+        activeSegmentSeqNo: startSeqNo,
+        durableByteLength: SEGMENT_HEADER_SIZE,
+        highestDurableSeqNo: durableSeqNo,
+      })
+      highestDurableSeqNo = durableSeqNo
+      synced = { startSeqNo, bytes: SEGMENT_HEADER_SIZE }
+    } catch (err) {
+      throw latchFailure(err)
+    }
     await sealed.close()
   }
 
@@ -244,23 +275,6 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     if (activeBytes >= segmentMaxBytes || activeBytes + appendedBytes > segmentMaxBytes) {
       await withDurabilityLock(() => rollUnderLock(nextSeqNo, formatVersionFor(holdsPreviousDocument)))
     }
-  }
-
-  function joinFrames(frames: Uint8Array[]): Uint8Array {
-    if (frames.length === 1) {
-      return frames[0]
-    }
-    let totalBytes = 0
-    for (const frame of frames) {
-      totalBytes += frame.length
-    }
-    const joined = new Uint8Array(totalBytes)
-    let offset = 0
-    for (const frame of frames) {
-      joined.set(frame, offset)
-      offset += frame.length
-    }
-    return joined
   }
 
   function framesThatFit(frames: readonly Uint8Array[], start: number): number {
