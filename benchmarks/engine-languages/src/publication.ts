@@ -14,10 +14,12 @@ export function publishRun(options: RunFolderOptions, write: (prepared: Prepared
   mkdirSync(destination, { recursive: true })
   const staging = mkdtempSync(resolve(destination, '.partial-'))
   try {
+    const now = options.now ?? new Date()
     const prepared = prepareRunFolder({
       ...options,
+      now,
       packageRoot: staging,
-      runId: `${mintRunId(options.now)}-${randomUUID()}`,
+      runId: `${mintRunId(now)}-${now.toISOString().slice(20, 23)}-${randomUUID()}`,
     })
     write(prepared)
     const published = resolve(destination, prepared.runId)
