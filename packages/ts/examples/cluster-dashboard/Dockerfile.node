@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json tsconfig.json .npmrc ./
+COPY patches patches
 COPY packages/spec/package.json packages/spec/package.json
 COPY packages/ts/package.json packages/ts/package.json
 COPY packages/certutil/package.json packages/certutil/package.json
