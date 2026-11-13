@@ -8,16 +8,14 @@ import (
 )
 
 type layout struct {
-	users    atomic.Int64
-	retired  atomic.Bool
-	released atomic.Bool
-	store    *storeMemory
-	head     *storeHead
-	tables   *storeTables
-	native   *core.Store
-	graph    *graphMemory
-	holds    []*sharedResource
-	drained  chan struct{}
+	users   publicationHolds
+	store   *storeMemory
+	head    *storeHead
+	tables  *storeTables
+	native  *core.Store
+	graph   *graphMemory
+	holds   []*sharedResource
+	drained chan struct{}
 }
 
 func (l *layout) word(index int) *atomic.Int32 {
@@ -29,33 +27,20 @@ func (l *layout) searchesCodes() bool {
 }
 
 func (l *layout) acquire() bool {
-	l.users.Add(1)
-	if l.retired.Load() {
-		l.done()
-		return false
-	}
-	return true
+	return l.users.hold()
 }
 
 func (l *layout) done() {
-	if l.users.Add(-1) == 0 && l.retired.Load() {
-		l.release()
-	}
+	l.users.drop()
 }
 
 func (l *layout) retire() {
-	l.retired.Store(true)
-	if l.users.Load() == 0 {
-		l.release()
-	}
+	l.users.retire()
 }
 
 func (l *layout) release() {
-	if !l.released.CompareAndSwap(false, true) {
-		return
-	}
 	if l.native != nil {
-		l.native.Retire()
+		l.native.Free()
 	}
 	for _, held := range l.holds {
 		held.drop()
@@ -65,6 +50,7 @@ func (l *layout) release() {
 
 func buildLayout(store *storeMemory, graph *graphMemory) (*layout, error) {
 	next := &layout{store: store, graph: graph, drained: make(chan struct{})}
+	next.users.publish(next.release)
 	if store == nil {
 		return next, nil
 	}

@@ -100,8 +100,6 @@ type Store struct {
 	codeBlocks   unsafe.Pointer
 	vectorBlocks unsafe.Pointer
 	files        unsafe.Pointer
-	users        atomic.Int64
-	retired      atomic.Bool
 	freed        atomic.Bool
 }
 
@@ -112,35 +110,13 @@ func NewStore(layout StoreLayout) (*Store, error) {
 	}
 	store := &Store{store: native}
 	if err := store.bind(layout); err != nil {
-		store.release()
+		store.Free()
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) Acquire() bool {
-	s.users.Add(1)
-	if s.retired.Load() {
-		s.Done()
-		return false
-	}
-	return true
-}
-
-func (s *Store) Done() {
-	if s.users.Add(-1) == 0 && s.retired.Load() {
-		s.release()
-	}
-}
-
-func (s *Store) Retire() {
-	s.retired.Store(true)
-	if s.users.Load() == 0 {
-		s.release()
-	}
-}
-
-func (s *Store) release() {
+func (s *Store) Free() {
 	if !s.freed.CompareAndSwap(false, true) {
 		return
 	}
