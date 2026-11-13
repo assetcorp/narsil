@@ -79,7 +79,9 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   }
 
   function silenceBeforeStopping(): number {
-    return askedToLeave && !answeredSinceAskedToLeave ? WORKER_SILENCE_BEFORE_PROBE_MS : WORKER_SILENCE_BEFORE_DEATH_MS
+    return askedToLeave && deathError !== null && !answeredSinceAskedToLeave
+      ? WORKER_SILENCE_BEFORE_PROBE_MS
+      : WORKER_SILENCE_BEFORE_DEATH_MS
   }
 
   function watchSilence(): void {
