@@ -18,6 +18,7 @@ class RecallComparison:
     standard_error: float
     bound: float
     builds: tuple[int, int]
+    threads: int
 
     @property
     def passed(self) -> bool:
@@ -28,6 +29,7 @@ class RecallComparison:
             "metric": self.metric,
             "engines": [self.first, self.second],
             "builds": list(self.builds),
+            "threads": self.threads,
             "meanDifference": self.mean_difference,
             "standardError": self.standard_error,
             "bound": self.bound,
@@ -42,16 +44,23 @@ def per_query_means(checks: list[OutputCheck], metric: str) -> list[float] | Non
     return [sum(values) / len(values) for values in zip(*lists, strict=True)]
 
 
-def compare_recall(metric: str, first: str, second: str, a: list[float], b: list[float], builds: tuple[int, int]) -> RecallComparison:
+def compare_recall(metric: str, first: str, second: str, a: list[float], b: list[float], builds: tuple[int, int], threads: int) -> RecallComparison:
     differences = [left - right for left, right in zip(a, b, strict=True)]
     count = len(differences)
     mean = sum(differences) / count
     variance = sum((value - mean) ** 2 for value in differences) / (count - 1) if count > 1 else 0.0
     standard_error = math.sqrt(variance / count)
-    return RecallComparison(metric, first, second, mean, standard_error, DIFFERENCE_STANDARD_ERRORS * standard_error, builds)
+    return RecallComparison(metric, first, second, mean, standard_error, DIFFERENCE_STANDARD_ERRORS * standard_error, builds, threads)
 
 
 def recall_comparisons(checks: list[OutputCheck]) -> list[RecallComparison]:
+    comparisons = []
+    for threads in sorted({check.threads for check in checks}):
+        comparisons.extend(compare_thread_count([check for check in checks if check.threads == threads], threads))
+    return comparisons
+
+
+def compare_thread_count(checks: list[OutputCheck], threads: int) -> list[RecallComparison]:
     by_engine: dict[str, list[OutputCheck]] = {}
     for check in checks:
         if check.workload == "vector":
@@ -64,7 +73,7 @@ def recall_comparisons(checks: list[OutputCheck]) -> list[RecallComparison]:
             if a is None or b is None:
                 continue
             builds = (len(by_engine[first]), len(by_engine[second]))
-            comparisons.append(compare_recall(metric, first, second, a, b, builds))
+            comparisons.append(compare_recall(metric, first, second, a, b, builds, threads))
     return comparisons
 
 

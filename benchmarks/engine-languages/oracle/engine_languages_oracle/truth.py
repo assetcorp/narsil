@@ -2,6 +2,8 @@ import hashlib
 import heapq
 import json
 import math
+import os
+import tempfile
 from array import array
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -11,7 +13,7 @@ from text_oracle.bm25 import TextIndex
 
 from .workload import TEXT_FIELDS, UnusableInput, Workload, read_json
 
-TRUTH_FORMAT = 2
+TRUTH_FORMAT = 3
 SCORE_RELATIVE_TOLERANCE = 1e-12
 
 
@@ -22,7 +24,8 @@ class KeywordTruth:
 
 
 def relative_gap(actual: float, wanted: float) -> float:
-    return abs(actual - wanted) / max(1.0, abs(wanted))
+    scale = max(abs(actual), abs(wanted))
+    return abs(actual - wanted) / scale if scale else 0.0
 
 
 def ranked_with_ties(hits: Sequence[tuple[str, float]], limit: int) -> list[tuple[str, float]]:
@@ -55,6 +58,11 @@ class ExactVectors:
             raise UnusableInput("a query vector has length 0, so its cosine similarity is undefined")
         scores = [math.sumprod(query, vector) / (query_norm * norm) for vector, norm in zip(self.vectors, self.norms)]
         best = heapq.nsmallest(depth, range(len(scores)), key=lambda row: (-scores[row], self.ids[row]))
+        if best:
+            edge = scores[best[-1]]
+            selected = set(best)
+            best.extend(row for row, score in enumerate(scores) if row not in selected and relative_gap(score, edge) <= SCORE_RELATIVE_TOLERANCE)
+            best.sort(key=lambda row: (-scores[row], self.ids[row]))
         return [(self.ids[row], scores[row]) for row in best]
 
 
@@ -82,6 +90,9 @@ def truth_key(workload: Workload, analysis_identity: str) -> str:
     digests = json.dumps(workload.manifest.get("sha256"), sort_keys=True)
     settings = json.dumps(workload.settings, sort_keys=True)
     material = f"{TRUTH_FORMAT}\n{analysis_identity}\n{digests}\n{settings}"
+    for directory in (Path(__file__).parent, Path(__file__).parents[4] / 'packages/conformance/oracle/text_oracle'):
+        for source in sorted(directory.glob('*.py')):
+            material += hashlib.sha256(source.read_bytes()).hexdigest()
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -104,11 +115,19 @@ def load_truth(
     path: Path, workload: Workload, key: str, tokens: Callable[[str], list[str]], exact: ExactVectors
 ) -> tuple[list[KeywordTruth], list[list[tuple[str, float]]]]:
     if path.is_file():
-        cached = read_json(path)
-        if isinstance(cached, dict) and cached.get("key") == key:
-            keyword = [KeywordTruth(entry["count"], [tuple(hit) for hit in entry["hits"]]) for entry in cached["keyword"]]
-            vector = [[tuple(hit) for hit in hits] for hits in cached["vector"]]
-            return keyword, vector
+        try:
+            cached = read_json(path)
+            payload = cached["payload"]
+            if not isinstance(payload, dict):
+                raise UnusableInput("cached truth must hold an object")
+            checksum = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            if cached.get("sha256") == checksum and payload.get("key") == key:
+                keyword = [KeywordTruth(entry["count"], [tuple(hit) for hit in entry["hits"]]) for entry in payload["keyword"]]
+                vector = [[tuple(hit) for hit in hits] for hits in payload["vector"]]
+                if len(keyword) == len(workload.keyword_queries) and len(vector) == len(workload.vector_queries):
+                    return keyword, vector
+        except (UnusableInput, KeyError, TypeError, ValueError):
+            pass
     keyword = keyword_truth(workload, tokens)
     vector = vector_truth(workload, exact)
     payload = {
@@ -116,7 +135,16 @@ def load_truth(
         "keyword": [{"count": entry.count, "hits": entry.hits} for entry in keyword],
         "vector": vector,
     }
-    partial = path.with_name(f"{path.name}.partial")
-    partial.write_text(json.dumps(payload), "utf-8")
-    partial.replace(path)
+    encoded = json.dumps({"payload": payload, "sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    partial = Path(temporary)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        partial.replace(path)
+    finally:
+        partial.unlink(missing_ok=True)
     return keyword, vector

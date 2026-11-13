@@ -21,6 +21,7 @@ export interface OutputVerdict {
 }
 
 export interface CrossEngineComparison {
+  threads: number
   metric: string
   engines: [string, string]
   builds: [number, number]
@@ -70,12 +71,16 @@ export function runOracle(
         fail(new Error(`the oracle could not check the outputs (exit ${code}); its message is above`))
         return
       }
-      const verdict = JSON.parse(readFileSync(verdictPath, 'utf-8')) as Verdict
-      if (code === EXIT_FAILED || !verdict.passed) {
-        fail(new Error(`the oracle rejected the run:\n${verdict.failures.slice(0, 40).join('\n')}`))
-        return
+      try {
+        const verdict = JSON.parse(readFileSync(verdictPath, 'utf-8')) as Verdict
+        if (code === EXIT_FAILED || verdict.passed !== true) {
+          fail(new Error(`the oracle rejected the run:\n${verdict.failures.slice(0, 40).join('\n')}`))
+          return
+        }
+        done(verdict)
+      } catch (error) {
+        fail(new Error(`the oracle wrote an unusable verdict: ${String(error)}`))
       }
-      done(verdict)
     })
   })
 }

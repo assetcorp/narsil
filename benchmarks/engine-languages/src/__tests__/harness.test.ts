@@ -1,22 +1,22 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ensureOracle } from '../oracle'
 import { ORACLE_PYTHON, ORACLE_ROOT, SUITE_ROOT } from '../paths'
-import { KEYWORD_QUERIES_FILE } from '../workload/format'
+import { KEYWORD_QUERIES_FILE, sha256OfFile } from '../workload/format'
 import { workloadSettings } from '../workload/settings'
 import { writeWorkload } from '../workload/write'
 
 const VOCABULARY_SIZE = 240
-const KEYWORD_DOCUMENTS = 400
+const KEYWORD_DOCUMENTS = 1_200
 const KEYWORD_QUERIES = 30
 const VECTOR_DOCUMENTS = 1_200
 const VECTOR_QUERIES = 40
 const DIMENSION = 16
 const WORDS_PER_BODY = 24
-const THREAD_COUNTS = '1,2'
+const THREAD_COUNTS = '1,8'
 const EXPECTED_MEASUREMENTS = 12
 const ORACLE_FAILED = 1
 const DISTINCT_SCORE_GAP = 1e-6
@@ -75,6 +75,7 @@ function runDriver(args: readonly string[], outputRoot: string) {
       env: { ...process.env, BENCH_PROFILE: 'smoke' },
       encoding: 'utf-8',
       maxBuffer: 64 * 1024 * 1024,
+      timeout: 120_000,
     },
   )
   const output = `${result.stdout}\n${result.stderr}`
@@ -82,14 +83,14 @@ function runDriver(args: readonly string[], outputRoot: string) {
   return { status: result.status, output, staging }
 }
 
-function runOracle(outputs: readonly string[]) {
+function runOracle(outputs: readonly string[], directory = workload) {
   const result = spawnSync(
     ORACLE_PYTHON,
     [
       '-m',
       'engine_languages_oracle',
       '--workload',
-      workload,
+      directory,
       '--truth',
       resolve(scratch, 'truth.json'),
       '--verdict',
@@ -143,6 +144,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   if (scratch !== '') rmSync(scratch, { recursive: true, force: true })
+  if (firstRun?.staging) rmSync(firstRun.staging, { recursive: true, force: true })
 })
 
 describe('the engine-languages benchmark', () => {
@@ -195,7 +197,7 @@ describe('the engine-languages benchmark', () => {
   })
 
   it('fails a runner whose hybrid count disagrees with its two fused legs', () => {
-    const path = tampered('rep-1-typescript-vector-2.json', file => {
+    const path = tampered('rep-1-typescript-vector-8.json', file => {
       const answer = file.verification.hybrid?.[0]
       if (answer === undefined) throw new Error('no hybrid answer')
       answer.count += 1
@@ -215,5 +217,131 @@ describe('the engine-languages benchmark', () => {
     expect(result.status).not.toBe(0)
     expect(result.output).toContain(`workload file ${KEYWORD_QUERIES_FILE} has sha256`)
     expect(runDirectories(outputRoot)).toEqual([])
+  })
+
+  it('allows final-bit score rounding but rejects a larger score error', () => {
+    const close = tampered('rep-1-rust-keyword-1.json', file => {
+      for (const answer of file.verification.keyword ?? []) {
+        for (const hit of answer.hits) hit[1] *= 1 + Number.EPSILON
+      }
+    })
+    expect(runOracle([close]).status).toBe(0)
+    const wrong = tampered('rep-1-rust-keyword-1.json', file => {
+      for (const answer of file.verification.keyword ?? []) {
+        for (const hit of answer.hits) hit[1] *= 1 + 1e-10
+      }
+    })
+    expect(runOracle([wrong]).status).toBe(1)
+  })
+
+  it('rebuilds truncated and corrupted truth caches without trusting their answers', () => {
+    const output = resolve(firstRun.staging, 'rep-1-rust-keyword-1.json')
+    expect(runOracle([output]).status).toBe(0)
+    const truth = resolve(scratch, 'truth.json')
+    const cached = JSON.parse(readFileSync(truth, 'utf-8'))
+    cached.payload.keyword[0].count += 1
+    writeFileSync(truth, JSON.stringify(cached))
+    expect(runOracle([output]).status).toBe(0)
+    writeFileSync(truth, '{')
+    expect(runOracle([output]).status).toBe(0)
+  })
+
+  it('rechecks workload digests before using cached truth', () => {
+    const damaged = resolve(scratch, 'oracle-damaged')
+    cpSync(workload, damaged, { recursive: true })
+    writeFileSync(resolve(damaged, KEYWORD_QUERIES_FILE), '{"text":"other"}\n'.repeat(KEYWORD_QUERIES))
+    const result = runOracle([resolve(firstRun.staging, 'rep-1-rust-keyword-1.json')], damaged)
+    expect(result.status).toBe(2)
+    expect(result.output).toContain('different sha256')
+  })
+
+  it('keeps an interrupted repetition unpublished and restarts without reusing its outputs', async () => {
+    const root = resolve(scratch, 'interrupted')
+    const args = ['--workload', workload, '--engines', 'typescript', '--threads', '1', '--repetitions', '2']
+    let output = ''
+    const status = await new Promise<number | null>((done, fail) => {
+      const child = spawn(
+        process.execPath,
+        ['--import', 'tsx', resolve(SUITE_ROOT, 'src/run.ts'), ...args, '--output-root', root],
+        { cwd: SUITE_ROOT, env: { ...process.env, BENCH_PROFILE: 'smoke' }, stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM')
+        fail(new Error('the interrupted run did not finish'))
+      }, 60_000)
+      child.stdout.on('data', chunk => {
+        output += String(chunk)
+        if (output.includes('Repetition 2 of 2')) child.kill('SIGTERM')
+      })
+      child.stderr.on('data', () => undefined)
+      child.on('error', fail)
+      child.on('close', code => {
+        clearTimeout(timer)
+        done(code)
+      })
+    })
+    const abandoned = /Runner outputs go to (\S+)/.exec(output)?.[1]
+    try {
+      expect(status).not.toBe(0)
+      expect(output).toContain('Repetition 2 of 2')
+      expect(runDirectories(root)).toEqual([])
+      const restarted = runDriver(
+        ['--workload', workload, '--engines', 'typescript', '--threads', '1', '--repetitions', '1'],
+        root,
+      )
+      expect(restarted.status, restarted.output).toBe(0)
+      expect(restarted.staging).not.toBe(abandoned)
+      expect(existsSync(restarted.staging)).toBe(false)
+      expect(runDirectories(root)).toHaveLength(1)
+    } finally {
+      if (abandoned) rmSync(abandoned, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['metric', 'dot'],
+    ['quantization', 'osq8'],
+    ['language', 'french'],
+    ['hybridLegDepth', 10],
+    ['warmupPasses', 0],
+    ['insertBatch', -1],
+    ['efSearch', null],
+    ['limit', 0],
+    ['recallDepth', 10],
+  ])('refuses unsupported settings %s=%j before starting a runner', (key, value) => {
+    const damaged = resolve(scratch, `settings-${key}`)
+    cpSync(workload, damaged, { recursive: true })
+    const path = resolve(damaged, 'manifest.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf-8'))
+    manifest.settings[key] = value
+    writeFileSync(path, JSON.stringify(manifest))
+    const root = resolve(scratch, `refused-${key}`)
+    const result = runDriver(['--workload', damaged], root)
+    expect(result.status).not.toBe(0)
+    expect(result.output).not.toContain('Building the')
+    expect(runDirectories(root)).toEqual([])
+  })
+
+  it.each([
+    ['keyword-documents.jsonl', '{'],
+    ['keyword-documents.jsonl', '{"id":"duplicate","title":"","body":""}\n'.repeat(KEYWORD_DOCUMENTS)],
+    ['keyword-queries.jsonl', '{"text":"one"}\n'],
+    ['keyword-queries.jsonl', '{"text":null}\n'.repeat(KEYWORD_QUERIES)],
+    ['vector-documents.f32', Buffer.alloc(4)],
+    ['vector-queries.f32', Buffer.alloc(VECTOR_QUERIES * DIMENSION * 4)],
+  ])('refuses malformed workload content in %s even when its digest matches', async (name, content) => {
+    const damaged = mkdtempSync(resolve(scratch, 'content-'))
+    cpSync(workload, damaged, { recursive: true })
+    const path = resolve(damaged, name)
+    writeFileSync(path, content)
+    const manifestPath = resolve(damaged, 'manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+    manifest.sha256[name] = await sha256OfFile(path)
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    const root = resolve(scratch, 'refused-content')
+    const result = runDriver(['--workload', damaged], root)
+    expect(result.status).not.toBe(0)
+    expect(result.output).not.toContain('Building the')
+    expect(runDirectories(root)).toEqual([])
   })
 })
