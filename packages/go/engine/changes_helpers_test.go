@@ -111,6 +111,26 @@ func (oracle *writeOracle) insert(t *testing.T, narsil *engine.Narsil, id string
 	oracle.record(id, document)
 }
 
+func (oracle *writeOracle) insertBatch(t *testing.T, narsil *engine.Narsil, ids []string, documents []map[string]any) {
+	t.Helper()
+	batch := make([]*engine.Document, 0, len(ids))
+	for at, id := range ids {
+		identified := map[string]any{"id": id}
+		for field, value := range documents[at] {
+			identified[field] = value
+		}
+		batch = append(batch, engine.DocumentFromMap(identified))
+	}
+	result, err := narsil.InsertBatch(context.Background(), changesIndex, batch, engine.InsertOptions{})
+	if err != nil || len(result.Failed) > 0 {
+		t.Fatalf("the batch insert of %d documents failed with %s: %v, refusing %d", len(ids), codeOrMessage(err), err,
+			len(result.Failed))
+	}
+	for at, id := range ids {
+		oracle.record(id, documents[at])
+	}
+}
+
 func (oracle *writeOracle) update(t *testing.T, narsil *engine.Narsil, id string, document map[string]any) {
 	t.Helper()
 	if err := narsil.Update(context.Background(), changesIndex, id, engine.DocumentFromMap(document),
