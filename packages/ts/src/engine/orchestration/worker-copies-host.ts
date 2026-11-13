@@ -27,9 +27,9 @@ export { returnsEveryMatch } from '../../search/fulltext'
 export {
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
   SHUTDOWN_TIMEOUT_MS,
-  WORKER_SILENCE_BEFORE_DEATH_MS,
-  WORKER_SILENCE_BEFORE_PROBE_MS,
 } from '../../workers/constants'
 export { createRequestId, isValidWorkerResponse } from '../../workers/protocol'
 export { growPartitionsTo } from '../../workers/segment-action-code'

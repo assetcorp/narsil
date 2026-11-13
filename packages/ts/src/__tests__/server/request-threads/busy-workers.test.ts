@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { MAX_PENDING_REPLICATION_DOCUMENTS } from '../../../engine/orchestration/constants'
-import { DEFAULT_REQUEST_TIMEOUT_MS } from '../../../workers/constants'
 import { waitFor } from '../helpers'
 import {
   ARMED_TOKEN,
@@ -16,14 +15,25 @@ import {
 } from './silent-workers'
 
 const BATCH = 50
-const BUSY_MS = DEFAULT_REQUEST_TIMEOUT_MS + 12_000
+const SILENCE_BEFORE_PROBE_MS = 1_000
+const BUSY_MS = 12 * SILENCE_BEFORE_PROBE_MS
+const SILENCE_BEFORE_RETIREMENT_MS = 2 * BUSY_MS
 const STALL_MS = 3_000
 const SEARCHES_WHILE_BUSY = 8
 
 it.skipIf(!existsSync(distEntry))(
-  'keeps a busy worker past the request timeout, answers every request, and caps the replication it queues',
+  'keeps a worker that stays silent past many probes but short of retirement, answers every request, and caps the replication it queues',
   async () => {
-    const srv = await startServerWithCopies('busy-worker-copies', { kind: 'block', waitMs: BUSY_MS + SETUP_MS })
+    const srv = await startServerWithCopies(
+      'busy-worker-copies',
+      { kind: 'block', waitMs: BUSY_MS + SETUP_MS },
+      {
+        workers: {
+          silenceBeforeProbeMs: SILENCE_BEFORE_PROBE_MS,
+          silenceBeforeRetirementMs: SILENCE_BEFORE_RETIREMENT_MS,
+        },
+      },
+    )
     try {
       await srv.armWorker()
       await srv.engine.update(INDEX, 'ticket-0', { title: `${ARMED_TOKEN} ticket 0` })

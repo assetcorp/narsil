@@ -14,9 +14,9 @@ import { returnsEveryMatch } from '../../search/fulltext'
 import {
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
   SHUTDOWN_TIMEOUT_MS,
-  WORKER_SILENCE_BEFORE_DEATH_MS,
-  WORKER_SILENCE_BEFORE_PROBE_MS,
 } from '../../workers/constants'
 import { growPartitionsTo } from '../../workers/segment-action-code'
 import { threadSlotOfWorker } from '../../workers/thread-slot'
@@ -67,8 +67,8 @@ export function workersHostPart() {
     RETIRED_THREADS_EXIT_WAIT_MS,
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
-    WORKER_SILENCE_BEFORE_DEATH_MS,
-    WORKER_SILENCE_BEFORE_PROBE_MS,
+    DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
+    DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,
