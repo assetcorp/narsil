@@ -18,7 +18,7 @@ import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { loadPublicationCode, releasePublicationOf } from './publication-code'
 import { trackPublicationStores } from './publication-stores'
 import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
-import { enqueueReplication, markCopiesLoaded } from './replication'
+import { endCopyLoadBuffer, enqueueReplication, markCopiesLoaded } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
 import { refreshVectorCopies } from './vector-copies'
@@ -190,7 +190,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
     throw err
   } finally {
-    state.copyLoadBuffers.delete(indexName)
+    endCopyLoadBuffer(state, indexName, buffered)
     if (!dispatched) for (const action of buffered) releasePublicationOf(action)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)

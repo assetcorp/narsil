@@ -5,7 +5,6 @@ import type { OptionalCodeHost } from '../optional-code-host'
 type EngineNames = Pick<
   OptionalCodeHost,
   | 'COMPACTION_SEGMENT_TRIGGER'
-  | 'CONSECUTIVE_TIMEOUTS_BEFORE_DEATH'
   | 'DEFAULT_BACKPRESSURE_LIMIT'
   | 'DEFAULT_COPY_IDLE_TIMEOUT_MS'
   | 'DEFAULT_COPY_THRESHOLD'
@@ -30,6 +29,8 @@ type EngineNames = Pick<
   | 'SEGMENTS_PER_MERGE'
   | 'SHUTDOWN_TIMEOUT_MS'
   | 'SegmentRefusal'
+  | 'WORKER_SILENCE_BEFORE_DEATH_MS'
+  | 'WORKER_SILENCE_BEFORE_PROBE_MS'
   | 'afterCurrentTurn'
   | 'availablePatternSearch'
   | 'createWorkerFactory'
@@ -76,7 +77,6 @@ type SegmentMergeNames = Pick<
 >
 
 export let COMPACTION_SEGMENT_TRIGGER: EngineNames['COMPACTION_SEGMENT_TRIGGER']
-export let CONSECUTIVE_TIMEOUTS_BEFORE_DEATH: EngineNames['CONSECUTIVE_TIMEOUTS_BEFORE_DEATH']
 export let DEFAULT_BACKPRESSURE_LIMIT: EngineNames['DEFAULT_BACKPRESSURE_LIMIT']
 export let DEFAULT_COPY_IDLE_TIMEOUT_MS: EngineNames['DEFAULT_COPY_IDLE_TIMEOUT_MS']
 export let DEFAULT_COPY_THRESHOLD: EngineNames['DEFAULT_COPY_THRESHOLD']
@@ -103,6 +103,8 @@ export let SEGMENTS_PER_MERGE: EngineNames['SEGMENTS_PER_MERGE']
 export let SHUTDOWN_TIMEOUT_MS: EngineNames['SHUTDOWN_TIMEOUT_MS']
 export let SegmentRefusal: EngineNames['SegmentRefusal']
 export type SegmentRefusal = InstanceType<EngineNames['SegmentRefusal']>
+export let WORKER_SILENCE_BEFORE_DEATH_MS: EngineNames['WORKER_SILENCE_BEFORE_DEATH_MS']
+export let WORKER_SILENCE_BEFORE_PROBE_MS: EngineNames['WORKER_SILENCE_BEFORE_PROBE_MS']
 export let afterCurrentTurn: EngineNames['afterCurrentTurn']
 export let availablePatternSearch: EngineNames['availablePatternSearch']
 export let createWorkerFactory: EngineNames['createWorkerFactory']
@@ -151,7 +153,6 @@ export function bindWorkerCopiesHost(
 ): void {
   ;({
     COMPACTION_SEGMENT_TRIGGER,
-    CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
     DEFAULT_BACKPRESSURE_LIMIT,
     DEFAULT_COPY_IDLE_TIMEOUT_MS,
     DEFAULT_COPY_THRESHOLD,
@@ -176,6 +177,8 @@ export function bindWorkerCopiesHost(
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
     SegmentRefusal,
+    WORKER_SILENCE_BEFORE_DEATH_MS,
+    WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,

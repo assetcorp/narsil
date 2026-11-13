@@ -8,10 +8,17 @@ import {
   yieldToEventLoop,
 } from '#platform/worker-copies-host'
 import type { AnyDocument } from '../../types/schema'
-import { executeRetained } from '../../workers/executor'
+import { executeUntilAnswered } from '../../workers/executor'
 import type { WorkerAction } from '../../workers/protocol'
 import { releasePublicationOf, retainPublicationOf } from './publication-code'
-import type { CopyTransition, OrchestratorState, ReplicationQueue, ReplicationRun, SegmentLedgerEntry } from './types'
+import type {
+  CopyLoadBufferHold,
+  CopyTransition,
+  OrchestratorState,
+  ReplicationQueue,
+  ReplicationRun,
+  SegmentLedgerEntry,
+} from './types'
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
@@ -20,10 +27,7 @@ export async function dispatchToWorkers(state: OrchestratorState, action: Worker
   if ('indexName' in action && !state.scaledOutIndexes.has(action.indexName)) return
 
   const results = await Promise.allSettled(
-    executors.map(workerExecutor => {
-      const release = retainPublicationOf(action)
-      return release === undefined ? workerExecutor.execute(action) : executeRetained(workerExecutor, action, release)
-    }),
+    executors.map(workerExecutor => executeUntilAnswered(workerExecutor, action, retainPublicationOf(action))),
   )
 
   for (let i = 0; i < results.length; i++) {
@@ -219,6 +223,23 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   queue.tail = run
 }
 
+function copyLoadBufferHoldOf(state: OrchestratorState, buffer: WorkerAction[]): CopyLoadBufferHold {
+  let hold = state.copyLoadBufferHolds.get(buffer)
+  if (hold === undefined) {
+    hold = { yieldedAt: 0, documents: 0, waiting: [] }
+    state.copyLoadBufferHolds.set(buffer, hold)
+  }
+  return hold
+}
+
+export function endCopyLoadBuffer(state: OrchestratorState, indexName: string, buffer: WorkerAction[]): void {
+  if (state.copyLoadBuffers.get(indexName) === buffer) state.copyLoadBuffers.delete(indexName)
+  const hold = state.copyLoadBufferHolds.get(buffer)
+  if (hold === undefined) return
+  state.copyLoadBufferHolds.delete(buffer)
+  for (const resume of hold.waiting.splice(0)) resume()
+}
+
 export function markCopiesLoaded(state: OrchestratorState, indexName: string, copyLoad: string): void {
   enqueueReplication(state, indexName, {
     type: 'copyLoaded',
@@ -250,6 +271,7 @@ export function queueForCopies(state: OrchestratorState, action: WorkerAction): 
   const loading = state.copyLoadBuffers.get(action.indexName)
   if (loading !== undefined) {
     loading.push(action)
+    copyLoadBufferHoldOf(state, loading).documents += documentWeight(action)
     return
   }
   if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) {
@@ -267,9 +289,12 @@ function recordMainWrite(state: OrchestratorState, action: WorkerAction): void {
 function replicationRoomWait(state: OrchestratorState, indexName: string): Promise<void> | null {
   const loading = state.copyLoadBuffers.get(indexName)
   if (loading !== undefined) {
-    const lastYield = state.copyLoadBufferYieldMarks.get(loading) ?? 0
-    if (loading.length - lastYield < LOAD_BUFFER_YIELD_INTERVAL) return null
-    state.copyLoadBufferYieldMarks.set(loading, loading.length)
+    const hold = copyLoadBufferHoldOf(state, loading)
+    if (hold.documents >= MAX_PENDING_REPLICATION_DOCUMENTS) {
+      return new Promise<void>(resume => hold.waiting.push(resume))
+    }
+    if (loading.length - hold.yieldedAt < LOAD_BUFFER_YIELD_INTERVAL) return null
+    hold.yieldedAt = loading.length
     return yieldToEventLoop()
   }
   const queue = state.replicationQueues.get(indexName)

@@ -12,10 +12,11 @@ import { schemaFieldsOf } from '../../schema/validator/schema'
 import { oversampledFacetConfig } from '../../search/facets'
 import { returnsEveryMatch } from '../../search/fulltext'
 import {
-  CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
   SHUTDOWN_TIMEOUT_MS,
+  WORKER_SILENCE_BEFORE_DEATH_MS,
+  WORKER_SILENCE_BEFORE_PROBE_MS,
 } from '../../workers/constants'
 import { growPartitionsTo } from '../../workers/segment-action-code'
 import { threadSlotOfWorker } from '../../workers/thread-slot'
@@ -45,7 +46,6 @@ import { afterCurrentTurn, yieldToEventLoop } from '../orchestration/turn'
 export function workersHostPart() {
   return {
     COMPACTION_SEGMENT_TRIGGER,
-    CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
     DEFAULT_BACKPRESSURE_LIMIT,
     DEFAULT_COPY_IDLE_TIMEOUT_MS,
     DEFAULT_COPY_THRESHOLD,
@@ -67,6 +67,8 @@ export function workersHostPart() {
     RETIRED_THREADS_EXIT_WAIT_MS,
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
+    WORKER_SILENCE_BEFORE_DEATH_MS,
+    WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,

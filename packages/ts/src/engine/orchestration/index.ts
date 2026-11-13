@@ -109,7 +109,7 @@ export function createWorkerOrchestrator(
     desyncedIndexes: new Set(),
     copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
-    copyLoadBufferYieldMarks: new WeakMap(),
+    copyLoadBufferHolds: new WeakMap(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
     lastAccessAt: new Map(),
