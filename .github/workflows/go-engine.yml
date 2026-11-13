@@ -146,8 +146,8 @@ jobs:
             4/4|5/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
             5/2) selection=(-run "^(${PART_2_TESTS})\$") timeout=8m ;;
             5/5) selection=(-run "^(${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
-            2/1) selection=(-run "^(${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
-            2/2) selection=(-skip "^(${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            2/1) selection=(-run "^(${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            2/2) selection=(-skip "^(${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
           go test -count=1 $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./...
