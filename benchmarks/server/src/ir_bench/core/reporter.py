@@ -265,12 +265,34 @@ def _environment_lines(report: dict) -> list[str]:
     lines.append(f"- OS / arch: {env.get('os')} / {env.get('arch')} (containerized: {env.get('containerized')})")
     lines.append(f"- CPU: {env.get('cpu_model') or env.get('arch')} ({env.get('logical_cpus')} logical)")
     lines.append(f"- Memory: {'n/a' if memory is None else f'{memory / 1e9:.1f} GB'}")
+    lines.extend(_engine_machine_lines(env))
     lines.append(f"- Memory cap per engine: {'n/a' if cap is None else f'{cap / 1e9:.1f} GB'}")
     lines.append(f"- Tracks: {tracks}")
     lines.append(f"- Keyword setup: {engine.get('keyword_setup')}")
     lines.append(f"- Run depth: {cfg.get('run_depth')}; run tag: {engine.get('run_tag')}")
     lines.extend(_provenance_lines(report))
     lines.append("")
+    return lines
+
+
+def _engine_machine_lines(env: dict) -> list[str]:
+    lines: list[str] = []
+    if env.get("engine_machine_label"):
+        lines.append(f"- Engine machine label: {env.get('engine_machine_label')}")
+    machine = env.get("engine_machine")
+    if isinstance(machine, dict):
+        machine_memory = machine.get("total_memory_bytes")
+        memory_text = "n/a" if not isinstance(machine_memory, int) else f"{machine_memory / 1e9:.1f} GB"
+        lines.append(
+            f"- Engine machine: {machine.get('cpu_model')} ({machine.get('cpus')} logical), {memory_text}"
+        )
+    network = env.get("network")
+    if isinstance(network, dict):
+        round_trip = network.get("round_trip_ms") or {}
+        lines.append(
+            f"- Network round trip to the engine machine: p50 {round_trip.get('p50', 0.0):.3f} ms, "
+            f"p99 {round_trip.get('p99', 0.0):.3f} ms over {network.get('samples')} TCP connects"
+        )
     return lines
 
 

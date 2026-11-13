@@ -37,6 +37,7 @@ def _pass_record(
     processes: int,
     capture_server: bool,
     engine_cores_busy: float | None = None,
+    engine_on_harness_machine: bool = True,
 ) -> PassSamples:
     completed = sum(r.completed for r in results)
     errors = sum(r.errors for r in results)
@@ -62,7 +63,10 @@ def _pass_record(
     cores_busy = cpu_seconds / elapsed if elapsed > 0 else 0.0
     busy_fraction = cores_busy / ceiling_cores if ceiling_cores else 0.0
     harness_share = cores_busy / logical_cpus
-    machine_busy = None if engine_cores_busy is None else (engine_cores_busy + cores_busy) / machine_cpus
+    if engine_on_harness_machine:
+        machine_busy = None if engine_cores_busy is None else (engine_cores_busy + cores_busy) / machine_cpus
+    else:
+        machine_busy = cores_busy / machine_cpus
     reasons = [
         reason
         for reason, applies in (
@@ -97,14 +101,23 @@ def _pass_record(
         "client_bound": client_bound,
         "client_bound_reasons": reasons,
         "engine_cores_busy": engine_cores_busy,
+        "engine_on_harness_machine": engine_on_harness_machine,
     }
     return PassSamples(record=record, client_ms=client_ms, server_ms=server_ms)
+
+
+def _engine_on_harness_machine(engine_cpu: CpuCounter | None) -> bool:
+    read = getattr(engine_cpu, "on_harness_machine", None)
+    return bool(read()) if callable(read) else True
 
 
 def _engine_cores_allowed(engine_cpu: CpuCounter | None) -> int | None:
     read = getattr(engine_cpu, "cores_allowed", None)
     allowed = read() if callable(read) else None
-    return allowed if allowed is not None else os.cpu_count()
+    if allowed is not None:
+        return allowed
+    read_machine = getattr(engine_cpu, "machine_cpus", None)
+    return read_machine() if callable(read_machine) else os.cpu_count()
 
 
 def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: int | None) -> dict[str, Any]:
@@ -146,6 +159,7 @@ def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: in
         "client_bound_reasons": reasons,
         "engine_cores_busy": median(engine_cores) if engine_cores else None,
         "engine_cores_allowed": cores_allowed,
+        "engine_on_harness_machine": first["engine_on_harness_machine"],
         "passes": records,
     }
 
@@ -184,7 +198,9 @@ def measure_throughput(
     the client's processes run near their ceiling, when the client keeps most of the
     harness's usable cores busy, when the engine and the client together keep most of
     the machine's cores busy, or when the client falls short of its target concurrency,
-    and the record names each reason that applied. Where the caller supplies a cgroup
+    and the record names each reason that applied. When the engine serves from another
+    machine, the machine check counts the client's cores alone against the harness's
+    machine. Where the caller supplies a cgroup
     counter, the record carries the engine container's busy cores as well."""
 
     if not config.enabled or not items:
@@ -192,6 +208,7 @@ def measure_throughput(
 
     capture_server = server_time.resolution != NOT_AVAILABLE
     cores_allowed = _engine_cores_allowed(engine_cpu)
+    engine_on_harness_machine = _engine_on_harness_machine(engine_cpu)
     packed = pack_items(items)
 
     def one_pass(concurrency: int) -> PassSamples:
@@ -206,7 +223,12 @@ def measure_throughput(
             engine_cpu,
         )
         return _pass_record(
-            outcome.results, concurrency, config.client_processes, capture_server, outcome.engine_cores_busy
+            outcome.results,
+            concurrency,
+            config.client_processes,
+            capture_server,
+            outcome.engine_cores_busy,
+            engine_on_harness_machine,
         )
 
     passes_by_level: dict[int, list[PassSamples]] = {level: [one_pass(level)] for level in config.concurrency}
@@ -225,5 +247,6 @@ def measure_throughput(
         "server_time_resolution": server_time.resolution if capture_server else NOT_AVAILABLE,
         "engine_cpu": None if engine_cpu is None else engine_cpu.describe(),
         "engine_cores_allowed": cores_allowed,
+        "engine_on_harness_machine": engine_on_harness_machine,
         "levels": levels,
     }

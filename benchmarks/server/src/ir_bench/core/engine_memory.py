@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from .cgroup_files import CgroupFiles, LocalCgroupFiles, remote_cgroup_files_from_env
 from .engine_cpu import CGROUP_ROOT_ENV, ENGINE_CONTAINER_ID_ENV, locate_engine_cgroup
 
 T = TypeVar("T")
@@ -22,35 +23,33 @@ MEMORY_COUNTER_SOURCE = (
 _ANON_LINE = re.compile(r"^anon (\d+)$", re.MULTILINE)
 
 
-def _read_integer(path: Path) -> int | None:
-    try:
-        text = path.read_text(encoding="utf-8").strip()
-    except OSError:
+def _parse_integer(text: str | None) -> int | None:
+    if text is None:
         return None
-    return int(text) if text.isdigit() else None
+    stripped = text.strip()
+    return int(stripped) if stripped.isdigit() else None
 
 
 class CgroupMemoryCounter:
-    def __init__(self, cgroup_dir: Path, interval_seconds: float = MEMORY_SAMPLE_INTERVAL_SECONDS) -> None:
-        self.cgroup_dir = Path(cgroup_dir)
+    def __init__(
+        self, files: CgroupFiles | Path, interval_seconds: float = MEMORY_SAMPLE_INTERVAL_SECONDS
+    ) -> None:
+        self.files: CgroupFiles = LocalCgroupFiles(files) if isinstance(files, Path) else files
         self.interval_seconds = interval_seconds
 
     def current_bytes(self) -> int | None:
-        return _read_integer(self.cgroup_dir / MEMORY_CURRENT_FILENAME)
+        return _parse_integer(self.files.read_text(MEMORY_CURRENT_FILENAME))
 
     def anon_bytes(self) -> int | None:
-        try:
-            text = (self.cgroup_dir / MEMORY_STAT_FILENAME).read_text(encoding="utf-8")
-        except OSError:
-            return None
-        match = _ANON_LINE.search(text)
+        text = self.files.read_text(MEMORY_STAT_FILENAME)
+        match = _ANON_LINE.search(text) if text is not None else None
         return int(match.group(1)) if match else None
 
     def container_peak_bytes(self) -> int | None:
-        return _read_integer(self.cgroup_dir / MEMORY_PEAK_FILENAME)
+        return _parse_integer(self.files.read_text(MEMORY_PEAK_FILENAME))
 
     def describe(self) -> dict[str, str]:
-        return {"source": MEMORY_COUNTER_SOURCE, "cgroup_dir": str(self.cgroup_dir)}
+        return {"source": MEMORY_COUNTER_SOURCE, **self.files.location()}
 
     def measure(self, run: Callable[[], T]) -> tuple[T, dict]:
         peaks = {"current": None, "anon": None, "samples": 0}
@@ -89,6 +88,9 @@ class CgroupMemoryCounter:
 
 
 def engine_memory_counter_from_env(environ: Mapping[str, str]) -> CgroupMemoryCounter | None:
+    remote = remote_cgroup_files_from_env(environ)
+    if remote is not None:
+        return CgroupMemoryCounter(remote) if remote.read_text(MEMORY_CURRENT_FILENAME) is not None else None
     root = (environ.get(CGROUP_ROOT_ENV) or "").strip()
     container_id = (environ.get(ENGINE_CONTAINER_ID_ENV) or "").strip()
     if not root or not container_id:

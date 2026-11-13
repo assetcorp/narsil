@@ -19,9 +19,16 @@ MACHINE_LABEL="${BENCH_MACHINE_LABEL:-}"
 MACHINE_TYPE="${MACHINE_TYPE:-}"
 PROFILE="${BENCH_PROFILE:-cloud}"
 RUN_ID_PATTERN='^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$'
+VM_MAX_HOURS="${VM_MAX_HOURS:-26}"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 log() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+
+case "$VM_MAX_HOURS" in
+  '' | *[!0-9]*) die "VM_MAX_HOURS must be a whole number of hours (0 disables the self-delete backstop)" ;;
+esac
+
+. "$CLOUD_DIR/lib/engine-vm.sh"
 
 # Single choke point for every side-effecting external command, so --dry-run can
 # show the plan without touching the cloud.
@@ -54,6 +61,10 @@ prov_wait_ssh() {
 }
 
 cmd_up() {
+  if two_vm; then
+    two_vm_up
+    return
+  fi
   if [ "$DRY_RUN" != "1" ] && prov_exists; then
     log "$VM_NAME already exists"
     return 0
@@ -99,14 +110,27 @@ cmd_sync() {
   COPYFILE_DISABLE=1 tar czf "$tarball" -C "$REPO_ROOT" --null -T "$filelist"
   rm -f "$filelist"
   log "upload and unpack to ~/narsil"
-  prov_scp_up "$tarball" "narsil.tgz"
-  prov_ssh "rm -rf narsil && mkdir -p narsil && tar xzf narsil.tgz -C narsil && rm -f narsil.tgz"
+  local rc=0
+  sync_unpack "$tarball" || rc=1
+  if two_vm; then
+    on_engine_vm sync_unpack "$tarball" || rc=1
+  fi
   rm -f "$tarball"
+  return "$rc"
+}
+
+sync_unpack() {
+  prov_scp_up "$1" "narsil.tgz"
+  prov_ssh "rm -rf narsil && mkdir -p narsil && tar xzf narsil.tgz -C narsil && rm -f narsil.tgz"
 }
 
 cmd_setup() {
   log "install Docker, Node 24, pnpm, and kernel settings on the VM"
   prov_ssh "bash narsil/benchmarks/cloud/remote-bootstrap.sh"
+  if two_vm; then
+    on_engine_vm prov_ssh "bash narsil/benchmarks/cloud/remote-bootstrap.sh"
+    link_engine_vm
+  fi
 }
 
 cmd_run() {
@@ -122,6 +146,7 @@ cmd_run() {
       forward+="$(printf '%q ' "$v=${!v}")"
     fi
   done
+  forward+="$(engine_vm_forward)" || exit 1
   prov_ssh "bash narsil/benchmarks/cloud/remote-launch.sh $forward"
   cmd_logs
 }
@@ -213,6 +238,10 @@ cmd_fetch() {
 }
 
 cmd_down() {
+  if two_vm; then
+    two_vm_down
+    return
+  fi
   if [ "$DRY_RUN" != "1" ] && ! prov_exists; then
     log "$VM_NAME not found; nothing to delete"
     return 0
@@ -227,6 +256,9 @@ cmd_status() {
     return 0
   fi
   prov_status
+  if two_vm; then
+    on_engine_vm prov_status
+  fi
 }
 
 cmd_all() {
@@ -258,8 +290,9 @@ Commands:
   logs     re-attach to a run in progress
   fetch    copy result run directories back into the repo
   ssh      open an interactive shell on the VM
+  ssh-engine  open an interactive shell on the engine VM (two-VM mode)
   status   show the VM state
-  down     delete the VM
+  down     delete the VM (both VMs and their firewall rule in two-VM mode)
 
 Flags: --yes (skip billing prompt), --teardown (delete on success),
        --dry-run (print the commands instead of running them).
@@ -270,7 +303,13 @@ Common env:
   BENCH_PROFILE (cloud|smoke), BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES,
   BENCH_MACHINE_LABEL, BENCH_RUN_ID, BENCH_BEST_CONFIG, BENCH_THROUGHPUT_PASSES,
   BENCH_DATASETS, BENCH_DATASET_ENGINES, BENCH_MEM_CAP, BENCH_JVM_HEAP,
-  BENCH_ENGINE_CPUS, BENCH_THROUGHPUT_CLIENT_PROCESSES, BENCH_SHARE_VECTOR_INDEX.
+  BENCH_ENGINE_CPUS, BENCH_THROUGHPUT_CLIENT_PROCESSES, BENCH_SHARE_VECTOR_INDEX,
+  VM_MAX_HOURS (self-delete backstop, default 26; 0 disables; gcp only).
+
+Two-VM mode (gcp only): set ENGINE_MACHINE_TYPE to serve each engine from a
+second VM, VM_NAME-engine, on the same private network. VM_NAME runs the
+harness on MACHINE_TYPE, and the harness reads the engine container's CPU and
+memory from a small stats service on the engine VM.
 
 A cheap end-to-end smoke on any provider, then clean up:
   PROVIDER=hetzner SUITES=inprocess BENCH_INPROCESS_TIERS=text \
@@ -303,6 +342,7 @@ main() {
     help | -h | --help) usage; return 0 ;;
   esac
   prov_init
+  require_two_vm_driver
   case "$sub" in
     up) cmd_up ;;
     sync) cmd_sync ;;
@@ -311,6 +351,7 @@ main() {
     logs) cmd_logs ;;
     fetch) cmd_fetch ;;
     ssh) prov_ssh_interactive ;;
+    ssh-engine) on_engine_vm prov_ssh_interactive ;;
     status) cmd_status ;;
     down) cmd_down ;;
     all) cmd_all ;;

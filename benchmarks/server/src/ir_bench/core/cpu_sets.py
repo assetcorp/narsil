@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 CPUSET_EFFECTIVE_FILENAME = "cpuset.cpus.effective"
 
@@ -34,11 +33,3 @@ def count_cpu_list(text: str) -> int | None:
             return None
         total += high - low + 1
     return total or None
-
-
-def cgroup_cpus_allowed(cgroup_dir: Path) -> int | None:
-    try:
-        text = (Path(cgroup_dir) / CPUSET_EFFECTIVE_FILENAME).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    return count_cpu_list(text)

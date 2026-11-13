@@ -10,6 +10,7 @@ from .core.config import load_config, select_datasets, select_engine
 from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
+from .core.engine_host import remote_engine_environment
 from .core.engine_memory import engine_memory_counter_from_env
 from .core.environment import capture_environment
 from .core.harness import CHECKPOINTS_DIRNAME, run_engine
@@ -83,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
 
     driver = build_driver(engine_cfg, config.bm25)
     environment = capture_environment()
+    remote_engine = remote_engine_environment(os.environ)
+    if remote_engine is not None:
+        environment.update(remote_engine)
     engine_info = {
         "name": engine_cfg.name,
         "run_tag": engine_cfg.run_tag,
@@ -166,12 +170,19 @@ def main(argv: list[str] | None = None) -> int:
         if engine_cpu is None:
             print("engine cores busy: not recorded (no engine container cgroup was supplied)", flush=True)
         else:
-            print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
+            print(f"engine cores busy: read from {engine_cpu.describe()}", flush=True)
         print(f"each finished track is written under {checkpoint_dir}; rerun with BENCH_RUN_ID={run_id} to resume", flush=True)
         if engine_memory is None:
             print("engine memory: not recorded (no engine container cgroup was supplied)", flush=True)
         else:
-            print(f"engine memory: read from {engine_memory.cgroup_dir}", flush=True)
+            print(f"engine memory: read from {engine_memory.describe()}", flush=True)
+        if remote_engine is not None:
+            round_trip = remote_engine["network"]["round_trip_ms"]
+            print(
+                f"engine machine: {remote_engine['engine_machine']}; network round trip "
+                f"p50 {round_trip['p50']:.3f} ms, p99 {round_trip['p99']:.3f} ms",
+                flush=True,
+            )
         if engine_cpu is not None:
             print(f"engine cores allowed: {engine_cpu.cores_allowed() or 'not read from the cgroup'}", flush=True)
         if share_vector_index:

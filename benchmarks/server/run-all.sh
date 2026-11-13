@@ -110,11 +110,13 @@ export NARSIL_RUST_VERSION NARSIL_RUST_GIT_DIRTY
 # image reports its registry digest; a locally built one (narsil, harness) has no
 # registry digest, so its local image id is used instead. Recorded with every result
 # as the authoritative build identity alongside the engine's self-reported version.
+. lib/remote-engine.sh
+
 image_digest_of() {
   local image_id
-  image_id="$(docker compose --profile "$1" images --quiet "$1" 2>/dev/null | head -1)"
+  image_id="$(engine_compose --profile "$1" images --quiet "$1" 2>/dev/null | head -1)"
   [ -z "$image_id" ] && return 0
-  docker image inspect \
+  engine_docker image inspect \
     --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' \
     "$image_id" 2>/dev/null || true
 }
@@ -162,12 +164,18 @@ split_engine_cpus() {
   export BENCH_ENGINE_CPUSET BENCH_HARNESS_CPUSET
 }
 
+check_engine_host || exit 2
 if [ -n "${BENCH_ENGINE_CPUS:-}" ]; then
   split_engine_cpus "$BENCH_ENGINE_CPUS" || exit 2
 fi
+trap stop_engine_stats EXIT
 
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
-echo "engine CPUs: ${BENCH_ENGINE_CPUSET:-every host CPU}; harness CPUs: ${BENCH_HARNESS_CPUSET:-every host CPU}"
+if engine_remote; then
+  echo "engines serve from ${BENCH_ENGINE_HOST} at ${BENCH_ENGINE_ADDRESS}; the harness has every CPU of this machine"
+else
+  echo "engine CPUs: ${BENCH_ENGINE_CPUSET:-every host CPU}; harness CPUs: ${BENCH_HARNESS_CPUSET:-every host CPU}"
+fi
 echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: ${BENCH_DATASET_ENGINES:-every engine on every dataset}; memory cap: ${BENCH_MEM_CAP:-8g}; throughput passes per level: ${BENCH_THROUGHPUT_PASSES}"
 
 if [ "$#" -gt 0 ]; then
@@ -194,18 +202,25 @@ docker compose run --rm --entrypoint python harness -m ir_bench.embed || exit 1
 failed=()
 for engine in "${ENGINES[@]}"; do
   echo "================ ${engine} ================"
-  if ! docker compose --profile "$engine" up -d --build "$engine"; then
+  if ! engine_compose --profile "$engine" up -d --build "$engine"; then
     echo "[${engine}] FAILED to start"
     failed+=("$engine")
-    docker compose --profile "$engine" down
+    engine_compose --profile "$engine" down
     continue
   fi
   image_digest="$(image_digest_of "$engine")"
-  container_id="$(docker compose --profile "$engine" ps -q "$engine" 2>/dev/null | head -1)"
+  container_id="$(engine_compose --profile "$engine" ps -q "$engine" 2>/dev/null | head -1)"
+  if engine_remote && ! start_engine_stats "$container_id"; then
+    echo "[${engine}] FAILED to serve the engine container's CPU and memory figures"
+    failed+=("$engine")
+    engine_compose --profile "$engine" down
+    continue
+  fi
+  harness_engine_args "$container_id"
   if docker compose run --rm \
       -e ENGINE="$engine" \
       -e ENGINE_IMAGE_DIGEST="$image_digest" \
-      -e BENCH_ENGINE_CONTAINER_ID="$container_id" \
+      "${HARNESS_ENGINE_ARGS[@]}" \
       harness; then
     echo "[${engine}] done (equal precision)"
   else
@@ -217,7 +232,7 @@ for engine in "${ENGINES[@]}"; do
     if docker compose run --rm \
         -e ENGINE="$engine" \
         -e ENGINE_IMAGE_DIGEST="$image_digest" \
-        -e BENCH_ENGINE_CONTAINER_ID="$container_id" \
+        "${HARNESS_ENGINE_ARGS[@]}" \
         -e BENCH_VECTOR_PROFILE="best-config" \
         harness; then
       echo "[${engine}] done (best config)"
@@ -226,7 +241,8 @@ for engine in "${ENGINES[@]}"; do
       failed+=("${engine}-bestconfig")
     fi
   fi
-  docker compose --profile "$engine" down
+  stop_engine_stats
+  engine_compose --profile "$engine" down
 done
 
 echo "================ comparison ================"

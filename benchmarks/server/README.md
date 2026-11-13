@@ -304,6 +304,18 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   shared host: on a 4-core, 8-thread machine, an engine at 3.0 cores beside a client
   at 3.3 leaves neither its own core, although neither one alone looks saturated.
   Treat a client-bound peak as a floor on what the engine can serve.
+- To keep the load generator off the engine's machine altogether, set
+  `BENCH_ENGINE_HOST` to an SSH target for a second machine and
+  `BENCH_ENGINE_ADDRESS` to that machine's address. `run-all.sh` then starts each
+  engine there through `docker-compose.remote-engine.yml`, which publishes the
+  engine's port on that address, and starts `python3 -m ir_bench.engine_stats`
+  beside it. That stdlib service serves the engine container's cgroup CPU and
+  memory files on port 9877, so the harness records the same engine figures that
+  it reads from disk on one machine. Before the tracks, the harness times 200 TCP
+  connects to that port and records the round trip under `network` in the
+  environment, with the engine machine's CPU and memory under `engine_machine`.
+  With the engine on another machine, the machine test counts the client's cores
+  alone against the harness's machine. Leave `BENCH_ENGINE_CPUS` unset in this mode.
 - Each level also records how many cores the engine container kept busy. The
   compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
   `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The
