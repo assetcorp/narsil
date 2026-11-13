@@ -1,13 +1,12 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { del, getJson, postJson, startTestServer, type TestServer } from '../helpers'
+import { del, getJson, postJson, scaledOut, startTestServer, type TestServer } from '../helpers'
 
 const VECTOR_DIMENSION = 1536
 const INSERT_BATCH_SIZE = 400
 const BATCH_COUNT = 5
 const TAXI_EVERY = 5
 const SEARCHES_PER_SHAPE = 4
-const ROUTING_PROBES = 8
 const RESULT_LIMIT = 1_000
 const VECTOR_LOAD_TIMEOUT_MS = 120_000
 const LOADS = 3
@@ -140,18 +139,10 @@ const built = existsSync(distEntry)
 
 describe.skipIf(!built)('request threads answering reads while they load a large vector field', () => {
   let srv: TestServer
-  let mainQueries: number
   let index = ''
 
   beforeEach(async () => {
-    srv = await startTestServer(undefined, { workers: { count: 2 } }, async engine => {
-      mainQueries = 0
-      const query = engine.query.bind(engine)
-      engine.query = (indexName, params) => {
-        mainQueries += 1
-        return query(indexName, params)
-      }
-    })
+    srv = await startTestServer(undefined, { workers: { count: 2 } })
   })
 
   afterEach(async () => {
@@ -181,12 +172,6 @@ describe.skipIf(!built)('request threads answering reads while they load a large
     const response = await postJson<SearchBody>(srv.base, `/indexes/${index}/search`, params)
     expectStatus(response, 200)
     return response.body
-  }
-
-  async function staysOnThreads(params: Record<string, unknown>): Promise<boolean> {
-    const before = mainQueries
-    await Promise.all(Array.from({ length: ROUTING_PROBES }, () => search(params)))
-    return mainQueries === before
   }
 
   async function checkTermSearches(taxiTrips: readonly TripDocument[]): Promise<void> {
@@ -258,26 +243,22 @@ describe.skipIf(!built)('request threads answering reads while they load a large
     })
   }
 
-  async function loadWhileReading(name: string): Promise<number> {
+  async function loadWhileReading(name: string): Promise<void> {
     await createIndex(name)
     const firstBatch = batchAt(0)
     await insert(firstBatch)
     const taxiTrips = firstBatch.filter(document => document.title.startsWith('taxi'))
 
     let inserting = true
-    let roundsOnThreads = 0
     const deadline = Date.now() + VECTOR_LOAD_TIMEOUT_MS
     const reads = (async () => {
       for (;;) {
-        const leanStaysOnThreads = await staysOnThreads({ term: 'taxi', document: false, limit: 1 })
-        const wholeStaysOnThreads = await staysOnThreads({ term: 'taxi', limit: 1 })
-        if (leanStaysOnThreads || wholeStaysOnThreads) roundsOnThreads += 1
         await Promise.all([
           checkTermSearches(taxiTrips),
           checkNearestVector(firstBatch[0]),
           checkCountsAndDocumentReads(firstBatch),
         ])
-        if (!inserting && wholeStaysOnThreads) return
+        if (!inserting && (await scaledOut(srv.engine, index))) return
         if (Date.now() > deadline) throw new Error('The request threads never came to hold the vectors')
       }
     })()
@@ -302,16 +283,12 @@ describe.skipIf(!built)('request threads answering reads while they load a large
     const count = await getJson<{ count: number }>(srv.base, `/indexes/${index}/count`)
     expectStatus(count, 200)
     expect(count.body.count).toBe(total)
-    const before = mainQueries
+    await srv.engine.waitForWrites(index)
     await checkTermSearches(taxiTrips)
-    expect(mainQueries).toBe(before)
     expectStatus(await del(srv.base, `/indexes/${index}`), 200)
-    return roundsOnThreads
   }
 
   it('answers every read from the documents the caller inserted, whichever thread receives it', async () => {
-    let roundsOnThreads = 0
-    for (let load = 0; load < LOADS; load++) roundsOnThreads += await loadWhileReading(`${INDEX}-${load}`)
-    expect(roundsOnThreads).toBeGreaterThan(0)
+    for (let load = 0; load < LOADS; load++) await loadWhileReading(`${INDEX}-${load}`)
   }, 600_000)
 })

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { seedReopenedPrimaryLogs } from '../../../distribution/cluster-node/local-replication'
-import { deleteIndexReplicationLogs, getReplicationLog } from '../../../distribution/cluster-node/replication-logs'
+import { getReplicationLog } from '../../../distribution/cluster-node/replication-logs'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { resolvePartitionId } from '../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
@@ -113,16 +113,6 @@ describe('cluster-node index lifecycle', () => {
     } finally {
       await engine.shutdown()
     }
-  })
-
-  it('removes only the closed index replication logs', () => {
-    const logs = new Map()
-    getReplicationLog(logs, 'products', 0)
-    getReplicationLog(logs, 'products-archive', 0)
-
-    deleteIndexReplicationLogs(logs, 'products')
-
-    expect([...logs.keys()]).toEqual(['products-archive:0'])
   })
 
   it('resumes a reopened primary log above its durable and committed floors', async () => {

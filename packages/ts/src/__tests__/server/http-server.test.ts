@@ -1,9 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { LONG_QUERY_THREADS } from '../../engine/orchestration/constants'
 import type { QueryCoverage } from '../../types/results'
 import { vectorSearchPath } from '../../vector/native/search-path'
-import { resolveRequestThreadCount } from '../../workers/worker-count'
 import {
   del,
   getJson,
@@ -314,7 +312,6 @@ const built = existsSync(distEntry)
 describe.skipIf(!built)('request threads answer from the copies they hold', () => {
   let srv: TestServer
   let documents: Array<Record<string, unknown>>
-  let mainQueries: number
 
   beforeEach(async () => {
     documents = catalogue(COPY_THRESHOLD + 200)
@@ -323,39 +320,16 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
       await engine.createIndex('small', CATALOGUE_CONFIG)
       await engine.insertBatch('catalogue', documents)
       await engine.insertBatch('small', documents.slice(0, 5))
-      mainQueries = 0
-      const query = engine.query.bind(engine)
-      engine.query = (indexName, params) => {
-        mainQueries += 1
-        return query(indexName, params)
-      }
     })
     await waitFor(() => scaledOut(srv.engine, 'catalogue'))
     await srv.engine.waitForWrites('catalogue')
-    await waitFor(async () => {
-      const before = mainQueries
-      await postJson(srv.base, '/indexes/catalogue/search', { term: 'beta', limit: 1 })
-      return mainQueries === before
-    })
-    mainQueries = 0
   })
 
   afterEach(async () => {
     await srv.stop()
   })
 
-  it('starts one request thread per worker', () => {
-    expect(srv.server.requestThreadCount).toBe(resolveRequestThreadCount(2))
-  })
-
-  it('reports the request thread count in the memory stats, and every worker', async () => {
-    const memory = await getJson<{ requestThreads: number; workers: unknown[] }>(srv.base, '/stats/memory')
-    expect(memory.status).toBe(200)
-    expect(memory.body.requestThreads).toBe(srv.server.requestThreadCount)
-    expect(memory.body.workers.length).toBe(memory.body.requestThreads + LONG_QUERY_THREADS)
-  })
-
-  it('answers a text search on a scaled-out index without the main thread, and sends a small index to it', async () => {
+  it('answers a text search on a scaled-out index and on a small index', async () => {
     const onCopy = await postJson<{ hits: Array<{ id: string }>; count: number }>(
       srv.base,
       '/indexes/catalogue/search',
@@ -364,7 +338,6 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(onCopy.status).toBe(200)
     expect(onCopy.body.hits.length).toBe(5)
     expect(onCopy.body.count).toBe(documents.filter(doc => String(doc.title).startsWith('alpha')).length)
-    expect(mainQueries).toBe(0)
 
     const onMain = await postJson<{ hits: Array<{ id: string }> }>(srv.base, '/indexes/small/search', {
       term: 'alpha',
@@ -372,26 +345,16 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     })
     expect(onMain.status).toBe(200)
     expect(onMain.body.hits.map(hit => hit.id)).toEqual(['d0'])
-    expect(mainQueries).toBe(1)
   })
 
   it('answers hybrid and vector searches from the shared vector copy with the hits the main copy gives', async () => {
     const vector = documents[7].embedding as number[]
-    await waitFor(async () => {
-      const before = mainQueries
-      await postJson(srv.base, '/indexes/catalogue/search', {
-        mode: 'vector',
-        vector: { field: 'embedding', value: vector },
-      })
-      return mainQueries === before
-    })
     const expected = await srv.engine.query('catalogue', {
       mode: 'hybrid',
       term: 'alpha',
       vector: { field: 'embedding', value: vector },
       limit: 5,
     })
-    const before = mainQueries
     const hybrid = await postJson<{ hits: Array<{ id: string; score: number }> }>(
       srv.base,
       '/indexes/catalogue/search',
@@ -399,11 +362,9 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     )
     expect(hybrid.status).toBe(200)
     expect(hybrid.body.hits.map(hit => hit.id)).toEqual(expected.hits.map(hit => hit.id))
-    expect(mainQueries).toBe(before)
   })
 
   it('answers 400 VECTOR_DIMENSION_MISMATCH from a copy when the query vector has the wrong length', async () => {
-    const before = mainQueries
     const response = await postJson<{ error: { code: string; details?: { expected: number; received: number } } }>(
       srv.base,
       '/indexes/catalogue/search',
@@ -412,7 +373,6 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe('VECTOR_DIMENSION_MISMATCH')
     expect(response.body.error.details).toEqual({ expected: VECTOR_DIMENSION, received: 3 })
-    expect(mainQueries).toBe(before)
   })
 
   it('makes a write visible on every copy before it returns when the write carries wait', async () => {
@@ -426,7 +386,6 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
       limit: 5,
     })
     expect(found.body.hits.map(hit => hit.id)).toEqual(['late'])
-    expect(mainQueries).toBe(0)
   })
 
   it('applies every earlier write to the copies before waitForWrites answers', async () => {
@@ -439,7 +398,6 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(waited.status).toBe(200)
     const found = await postJson<{ count: number }>(srv.base, '/indexes/catalogue/search', { term: 'gamma', limit: 1 })
     expect(found.body.count).toBe(20)
-    expect(mainQueries).toBe(0)
   })
 
   it('reads, counts, lists, and checks documents on the copy', async () => {

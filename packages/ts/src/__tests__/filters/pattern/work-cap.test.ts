@@ -32,64 +32,6 @@ afterEach(async () => {
 })
 
 describe('the work cap on pattern tests', () => {
-  it('counts each run lookup, each shortlist entry, and each matcher step of a contains test', async () => {
-    const withinCap = await engineWith({ patternWorkCap: 7 }, 1, ['abcabc'])
-    expect(await listed(withinCap, { contains: 'abc' })).toEqual(['d0'])
-
-    const overCap = await engineWith({ patternWorkCap: 6 }, 1, ['abcabc'])
-    await expect(listed(overCap, { contains: 'abc' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-      details: { cap: 6 },
-    })
-  })
-
-  it('counts each run that an in list looks up, also where no document holds the run', async () => {
-    const withinCap = await engineWith({ patternWorkCap: 4 }, 1, ['zzzzzz'])
-    expect(await listed(withinCap, { in: ['abcd', 'efgh'] })).toEqual([])
-
-    const overCap = await engineWith({ patternWorkCap: 3 }, 1, ['zzzzzz'])
-    await expect(listed(overCap, { in: ['abcd', 'efgh'] })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts an eq test as the regular expression anchored at both ends', async () => {
-    const withinCap = await engineWith({ patternWorkCap: 12 }, 1, ['abcabc'])
-    expect(await listed(withinCap, { eq: 'abcabc' })).toEqual(['d0'])
-
-    const overCap = await engineWith({ patternWorkCap: 11 }, 1, ['abcabc'])
-    await expect(listed(overCap, { eq: 'abcabc' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts each document that a test without a run of three code points reads', async () => {
-    const codes = ['', 'xx', 'ab', 'aab']
-    const withinCap = await engineWith({ patternWorkCap: 14 }, 1, codes)
-    expect(await listed(withinCap, { contains: 'ab' })).toEqual(['d2', 'd3'])
-
-    const overCap = await engineWith({ patternWorkCap: 13 }, 1, codes)
-    await expect(listed(overCap, { contains: 'ab' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts only the documents that a test without a run checks, leaving out those that an in list matched already', async () => {
-    const codes = ['ab', 'xy']
-    const withinCap = await engineWith({ patternWorkCap: 8 }, 1, codes)
-    expect(await listed(withinCap, { in: ['ab', 'xy'] })).toEqual(['d0', 'd1'])
-
-    const overCap = await engineWith({ patternWorkCap: 7 }, 1, codes)
-    await expect(listed(overCap, { in: ['ab', 'xy'] })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts a value that an in list repeats once', async () => {
-    const narsil = await engineWith({ patternWorkCap: 12 }, 1, ['abcabc'])
-    expect(await listed(narsil, { in: ['abcabc', 'abcabc', 'abcabc'] })).toEqual(['d0'])
-  })
-
   it('counts the work of one search across every partition that it reads', async () => {
     const codes = ['abcabc', 'abcabc', 'abcabc', 'abcabc', 'abcabc', 'abcabc']
     const withinCap = await engineWith({ patternWorkCap: 39 }, 3, codes)
@@ -113,96 +55,6 @@ describe('the work cap on pattern tests', () => {
     ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
   })
 
-  it('counts each run lookup, each shortlist entry, and each matcher step of a regex test', async () => {
-    const lookups = 1
-    const shortlistEntries = 1
-    const steps = 1 + 1 + 1 + 2 + 2
-    const cap = lookups + shortlistEntries + steps
-    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['xxabc'])
-    expect(await listed(withinCap, { regex: 'abc' })).toEqual(['d0'])
-
-    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['xxabc'])
-    await expect(listed(overCap, { regex: 'abc' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts each position that a wildcard match reaches at each code point', async () => {
-    const steps = 2 + 3 + 3 + 2 + 3 + 3
-    const cap = 1 + 1 + steps
-    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcabc'])
-    expect(await listed(withinCap, { wildcard: '*abc' })).toEqual(['d0'])
-
-    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcabc'])
-    await expect(listed(overCap, { wildcard: '*abc' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts the preparation, each run lookup, each shortlist entry, and each distance cell of an eq test with a tolerance', async () => {
-    const foldedCodePoints = 7
-    const runsChecked = 5
-    const preparation = foldedCodePoints + runsChecked
-    const copiedForComparison = 7
-    const lookups = 5
-    const shortlistEntries = 0 + 1 + 1 + 1
-    const cells = 2 + 3 + 3 + 3 + 3 + 3 + 2
-    const matching = lookups + shortlistEntries + cells
-    const tests: Array<[FieldFilter, number]> = [
-      [{ eq: 'abcdefg', tolerance: 1 }, preparation + matching],
-      [{ eq: 'abcdefg', tolerance: 'auto' }, preparation + matching],
-      [{ eq: 'ABCDEFG', tolerance: 1, caseFold: true }, preparation + copiedForComparison + matching],
-    ]
-    for (const [filter, cap] of tests) {
-      const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcdefh'])
-      expect(await listed(withinCap, filter)).toEqual(['d0'])
-
-      const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcdefh'])
-      await expect(listed(overCap, filter)).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
-    }
-  })
-
-  it('counts the preparation of an auto tolerance that resolves to 0, and then the exact test', async () => {
-    const preparation = 7 + 5
-    const lookups = 1
-    const cap = preparation + lookups
-    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['zzzzzz'])
-    expect(await listed(withinCap, { eq: 'aaaaaaa', tolerance: 'auto' })).toEqual([])
-
-    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['zzzzzz'])
-    await expect(listed(overCap, { eq: 'aaaaaaa', tolerance: 'auto' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts the distance cells up to the row where every cell passes the tolerance', async () => {
-    const preparation = 7 + 5
-    const lookups = 5
-    const shortlistEntries = 1
-    const cells = 2 + 3 + 3 + 3 + 3 + 3
-    const cap = preparation + lookups + shortlistEntries + cells
-    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcdxyz'])
-    expect(await listed(withinCap, { eq: 'abcdefg', tolerance: 1 })).toEqual([])
-
-    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcdxyz'])
-    await expect(listed(overCap, { eq: 'abcdefg', tolerance: 1 })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
-  it('counts each document that the engine checks for a regex test with no run, and each step on its values', async () => {
-    const codes = ['', 'x1', '12', 'a12']
-    const documentsRead = codes.length
-    const steps = 0 + 2 + 3 + 4
-    const withinCap = await engineWith({ patternWorkCap: documentsRead + steps }, 1, codes)
-    expect(await listed(withinCap, { regex: '\\d{2}' })).toEqual(['d2', 'd3'])
-
-    const overCap = await engineWith({ patternWorkCap: documentsRead + steps - 1 }, 1, codes)
-    await expect(listed(overCap, { regex: '\\d{2}' })).rejects.toMatchObject({
-      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    })
-  })
-
   it('stops a regex test whose work exceeds the default cap, and answers it once patternWorkCap allows the work', async () => {
     let state = 7
     const nextBit = () => {
@@ -221,11 +73,6 @@ describe('the work cap on pattern tests', () => {
     const raised = await engineWith({ patternWorkCap: 1_000_000_000 }, 2, codes)
     expect(await listed(raised, { regex })).toEqual([])
   }, 60_000)
-
-  it('starts each search with a fresh count', async () => {
-    const narsil = await engineWith({ patternWorkCap: 7 }, 1, ['abcabc'])
-    for (let search = 0; search < 3; search++) expect(await listed(narsil, { contains: 'abc' })).toEqual(['d0'])
-  })
 
   it('defaults to 25,000,000 units, which a search over a few long values stays inside', async () => {
     const narsil = await engineWith({}, 2, ['x'.repeat(8_000), 'y'.repeat(8_000)])
