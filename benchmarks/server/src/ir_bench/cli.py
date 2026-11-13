@@ -10,12 +10,17 @@ from .core.config import load_config, select_datasets, select_engine
 from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
+from .core.engine_host import remote_engine_environment
+from .core.engine_memory import engine_memory_counter_from_env
 from .core.environment import capture_environment
 from .core.harness import CHECKPOINTS_DIRNAME, run_engine
 from .core.registry import build_driver
 from .core.reporter import build_engine_report, render_engine_markdown, write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_write, run_directory, validate_engine_name, write_run_manifest
 from .core.types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, VECTOR, VECTOR_PROFILES
+
+SHARE_VECTOR_INDEX_ENV = "BENCH_SHARE_VECTOR_INDEX"
+ENABLED_SWITCH_VALUES = ("1", "true", "yes", "on")
 
 
 def _embeddings_dir() -> Path:
@@ -79,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
 
     driver = build_driver(engine_cfg, config.bm25)
     environment = capture_environment()
+    remote_engine = remote_engine_environment(os.environ)
+    if remote_engine is not None:
+        environment.update(remote_engine)
     engine_info = {
         "name": engine_cfg.name,
         "run_tag": engine_cfg.run_tag,
@@ -93,7 +101,12 @@ def main(argv: list[str] | None = None) -> int:
         "vector_profile": vector_profile,
     }
     engine_cpu = engine_cpu_counter_from_env(os.environ)
+    engine_memory = engine_memory_counter_from_env(os.environ)
+    share_vector_index = os.environ.get(SHARE_VECTOR_INDEX_ENV, "").strip().lower() in ENABLED_SWITCH_VALUES
     config_summary = {
+        "share_vector_index": share_vector_index,
+        "import_batch": config.import_batch,
+        "import_clients": config.import_clients,
         "k1": config.bm25.k1,
         "b": config.bm25.b,
         "run_depth": config.run_depth,
@@ -124,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
             "warmup_seconds": config.throughput.warmup_seconds,
             "engine_cpu": None if engine_cpu is None else engine_cpu.describe(),
         },
+        "engine_memory": None if engine_memory is None else engine_memory.describe(),
     }
     if config.vector is not None:
         config_summary.update(
@@ -158,10 +172,26 @@ def main(argv: list[str] | None = None) -> int:
         if engine_cpu is None:
             print("engine cores busy: not recorded (no engine container cgroup was supplied)", flush=True)
         else:
-            print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
+            print(f"engine cores busy: read from {engine_cpu.describe()}", flush=True)
         print(f"each finished track is written under {checkpoint_dir}; rerun with BENCH_RUN_ID={run_id} to resume", flush=True)
+        if engine_memory is None:
+            print("engine memory: not recorded (no engine container cgroup was supplied)", flush=True)
+        else:
+            print(f"engine memory: read from {engine_memory.describe()}", flush=True)
+        if remote_engine is not None:
+            round_trip = remote_engine["network"]["round_trip_ms"]
+            print(
+                f"engine machine: {remote_engine['engine_machine']}; network round trip "
+                f"p50 {round_trip['p50']:.3f} ms, p99 {round_trip['p99']:.3f} ms",
+                flush=True,
+            )
+        if engine_cpu is not None:
+            print(f"engine cores allowed: {engine_cpu.cores_allowed() or 'not read from the cgroup'}", flush=True)
+        if share_vector_index:
+            print("the hybrid track measures the index that the vector track built", flush=True)
         results = run_engine(
-            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir
+            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir,
+            engine_memory, share_vector_index,
         )
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")

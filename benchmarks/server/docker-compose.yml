@@ -19,6 +19,7 @@ services:
         NARSIL_GIT_DIRTY: "${NARSIL_GIT_DIRTY:-false}"
         NARSIL_VERSION: "${NARSIL_VERSION:-}"
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       NARSIL_HOST: "0.0.0.0"
       NARSIL_PORT: "7700"
@@ -37,6 +38,7 @@ services:
     profiles: ["elasticsearch"]
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       discovery.type: "single-node"
       xpack.security.enabled: "false"
@@ -58,6 +60,7 @@ services:
     profiles: ["opensearch"]
     image: opensearchproject/opensearch:3.8.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       discovery.type: "single-node"
       DISABLE_SECURITY_PLUGIN: "true"
@@ -74,6 +77,7 @@ services:
     profiles: ["qdrant"]
     image: qdrant/qdrant:v1.19.1
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: "256"
     volumes:
@@ -85,6 +89,7 @@ services:
     profiles: ["weaviate"]
     image: cr.weaviate.io/semitechnologies/weaviate:1.39.5
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
@@ -100,6 +105,7 @@ services:
     profiles: ["typesense"]
     image: typesense/typesense:30.2
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     command: ["--data-dir", "/data", "--api-key=${BENCH_API_KEY:-localdev}", "--enable-cors"]
     volumes:
       - typesense_data:/data
@@ -110,6 +116,7 @@ services:
     profiles: ["meilisearch"]
     image: getmeili/meilisearch:v1.54.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
+    cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
       MEILI_ENV: "development"
@@ -128,10 +135,12 @@ services:
       # loopback DNS stub, so pip and apt fail name resolution; the host netns
       # already resolves (bootstrap apt and image pulls use it).
       network: host
+    cpuset: "${BENCH_HARNESS_CPUSET:-}"
     environment:
       BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
       BENCH_RUN_ID: "${BENCH_RUN_ID:-}"
       BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
+      BENCH_ENGINE_MACHINE_LABEL: "${BENCH_ENGINE_MACHINE_LABEL:-}"
       BENCH_EMBEDDINGS_DIR: "/data/embeddings"
       BENCH_MEM_CAP: "${BENCH_MEM_CAP:-8g}"
       BENCH_DATASETS: "${BENCH_DATASETS:-}"
@@ -141,7 +150,10 @@ services:
       BENCH_THROUGHPUT_CONCURRENCY: "${BENCH_THROUGHPUT_CONCURRENCY:-}"
       BENCH_THROUGHPUT_CLIENT_PROCESSES: "${BENCH_THROUGHPUT_CLIENT_PROCESSES:-}"
       BENCH_THROUGHPUT_PASSES: "${BENCH_THROUGHPUT_PASSES:-}"
+      BENCH_SHARE_VECTOR_INDEX: "${BENCH_SHARE_VECTOR_INDEX:-}"
       BENCH_ENGINE_CONTAINER_ID: "${BENCH_ENGINE_CONTAINER_ID:-}"
+      BENCH_ENGINE_ADDRESS: "${BENCH_ENGINE_ADDRESS:-}"
+      BENCH_ENGINE_STATS_URL: "${BENCH_ENGINE_STATS_URL:-}"
       BENCH_CGROUP_ROOT: "/host/cgroup"
       BENCH_ARTIFACT_DIR: "/data/artifacts"
       IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"

@@ -17,10 +17,68 @@ prov_init() {
   IAP_FLAG=""
   [ "${USE_IAP:-0}" = "1" ] && IAP_FLAG="--tunnel-through-iap"
   : "${MACHINE_LABEL:=GCP ${MACHINE_TYPE}, ${ZONE}}"
+  [ -n "$ENGINE_MACHINE_TYPE" ] && : "${ENGINE_MACHINE_LABEL:=GCP ${ENGINE_MACHINE_TYPE}, ${ZONE}}"
+  GCP_NETWORK="${GCP_NETWORK:-default}"
+  GCP_BENCH_TAG="${HARNESS_VM_NAME}"
+  GCP_FIREWALL_RULE="${HARNESS_VM_NAME}-between-vms"
+}
+
+prov_network_up() {
+  if [ "$DRY_RUN" != "1" ] && gcloud compute firewall-rules describe "$GCP_FIREWALL_RULE" --project "$PROJECT" >/dev/null 2>&1; then
+    log "firewall rule $GCP_FIREWALL_RULE already exists"
+    return 0
+  fi
+  log "allow SSH, the engine ports, and the engine stats port between the two VMs on network $GCP_NETWORK"
+  _run gcloud compute firewall-rules create "$GCP_FIREWALL_RULE" --project "$PROJECT" \
+    --network "$GCP_NETWORK" --direction INGRESS \
+    --allow tcp:22,tcp:6333,tcp:7700,tcp:8080,tcp:8108,tcp:9200,tcp:9877 \
+    --source-tags "$GCP_BENCH_TAG" --target-tags "$GCP_BENCH_TAG"
+}
+
+prov_network_down() {
+  if [ "$DRY_RUN" != "1" ] && ! gcloud compute firewall-rules describe "$GCP_FIREWALL_RULE" --project "$PROJECT" >/dev/null 2>&1; then
+    return 0
+  fi
+  log "delete firewall rule $GCP_FIREWALL_RULE"
+  _run gcloud compute firewall-rules delete "$GCP_FIREWALL_RULE" --project "$PROJECT" --quiet
+}
+
+prov_private_ip() {
+  [ "$DRY_RUN" = "1" ] && { echo "<private-ip of $VM_NAME>"; return 0; }
+  gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" \
+    --format='value(networkInterfaces[0].networkIP)'
+}
+
+_gcp_termination_time() {
+  local at
+  at=$(( $(date +%s) + VM_MAX_HOURS * 3600 ))
+  date -u -r "$at" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$at" +%Y-%m-%dT%H:%M:%SZ
+}
+
+prov_lifetime_note() {
+  if [ "$VM_MAX_HOURS" = "0" ]; then
+    log "self-delete backstop disabled (VM_MAX_HOURS=0); $VM_NAME bills until 'down'"
+    return 0
+  fi
+  if [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) $VM_NAME would delete itself ${VM_MAX_HOURS}h after creation"
+    return 0
+  fi
+  local ts
+  ts="$(gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" \
+    --format='value(scheduling.terminationTime)' 2>/dev/null)"
+  if [ -n "$ts" ]; then
+    log "$VM_NAME deletes itself at $ts; fetch results before then"
+  else
+    log "warning: $VM_NAME has no self-delete deadline; recreate it (down, then up) to arm the backstop"
+  fi
 }
 
 prov_hourly() {
   case "$MACHINE_TYPE" in
+    c2d-highcpu-16) echo "~\$0.60" ;;
+    n2-highcpu-16) echo "~\$0.57" ;;
+    c3-highcpu-22) echo "~\$0.94" ;;
     c3-standard-8) echo "~\$0.40" ;;
     c3-standard-4) echo "~\$0.20" ;;
     n2-standard-8) echo "~\$0.39" ;;
@@ -43,8 +101,12 @@ prov_create() {
     --machine-type "$MACHINE_TYPE"
     --image-family "$IMAGE_FAMILY" --image-project "$IMAGE_PROJECT"
     --boot-disk-size "${DISK_SIZE}GB" --boot-disk-type pd-balanced
+    --network "$GCP_NETWORK" --tags "$GCP_BENCH_TAG"
   )
   [ -n "${MIN_CPU_PLATFORM:-}" ] && flags+=(--min-cpu-platform "$MIN_CPU_PLATFORM")
+  if [ "$VM_MAX_HOURS" != "0" ]; then
+    flags+=(--termination-time "$(_gcp_termination_time)" --instance-termination-action DELETE)
+  fi
   _run gcloud compute instances create "$VM_NAME" "${flags[@]}"
 }
 

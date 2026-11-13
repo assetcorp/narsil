@@ -246,7 +246,8 @@ class NarsilDriver:
     def build_vectors(self, index: str) -> None:
         response = self._client.post(f"/indexes/{index}/vectors/_optimize", json={"field": _VECTOR_FIELD})
         _raise_for_envelope(response)
-        task_id = response.json().get("taskId")
+        record = response.json()
+        task_id = record.get("id", record.get("taskId"))
         if task_id is not None:
             self._wait_task(str(task_id))
         self._wait_graph_ready(index)
