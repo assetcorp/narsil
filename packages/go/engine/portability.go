@@ -15,7 +15,7 @@ func (n *Narsil) openArchive(ctx context.Context, entry *indexEntry) (*persist.A
 	if entry.durable != nil {
 		return entry.durable.OpenArchive(ctx)
 	}
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	return persist.ArchiveFromMemory(ctx, entry.handle)
 }

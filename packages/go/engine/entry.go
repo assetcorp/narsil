@@ -43,6 +43,7 @@ type indexEntry struct {
 	embedBinding uint64
 
 	writeMu          sync.Mutex
+	commits          inFlightCommits
 	watermarkLatched int
 
 	useMu   sync.RWMutex

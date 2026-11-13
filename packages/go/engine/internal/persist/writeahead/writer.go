@@ -35,6 +35,8 @@ type Writer struct {
 	nextSegmentPrepared bool
 	preparedVersion     uint8
 	closed              bool
+	synced              syncedPoint
+	failure             error
 }
 
 func NewWriter(config Config) *Writer {
@@ -68,48 +70,59 @@ func (writer *Writer) markerWriter() (*markerWriter, error) {
 func (writer *Writer) flush() error {
 	writer.durability.Lock()
 	defer writer.durability.Unlock()
-	marker, err := writer.markerWriter()
-	if err != nil {
-		return err
-	}
 	writer.state.Lock()
-	handle := writer.handle
-	durableBytes := writer.activeBytes
-	activeStart := writer.activeStartSeqNo
-	durableSeqNo := max(writer.highestAppended, writer.highestDurable, marker.existingHighestSeen)
+	failure, handle, point := writer.failure, writer.handle, writer.pointHeld()
+	current := writer.synced.covers(point)
 	writer.state.Unlock()
-	if handle == nil {
+	if failure != nil {
+		return failure
+	}
+	if handle == nil || current {
 		return nil
 	}
-	if err := handle.Sync(); err != nil {
-		return err
-	}
-	if err := marker.commit(activeStart, uint64(durableBytes), durableSeqNo); err != nil {
-		return err
+	marker, err := writer.markerWriter()
+	if err != nil {
+		return writer.fail(err)
 	}
 	writer.state.Lock()
-	writer.highestDurable = max(writer.highestDurable, durableSeqNo)
+	durableSeqNo := max(point.appended, writer.highestDurable, marker.existingHighestSeen)
+	writer.state.Unlock()
+	if err := handle.Sync(); err != nil {
+		return writer.fail(err)
+	}
+	if err := marker.commit(point.start, uint64(point.bytes), durableSeqNo); err != nil {
+		return writer.fail(err)
+	}
+	writer.state.Lock()
+	writer.recordSyncedHeld(point, durableSeqNo)
 	writer.state.Unlock()
 	writer.reportDurable()
 	return nil
 }
 
 func (writer *Writer) flushHeld() error {
+	if writer.failure != nil {
+		return writer.failure
+	}
 	if writer.handle == nil {
+		return nil
+	}
+	point := writer.pointHeld()
+	if writer.synced.covers(point) {
 		return nil
 	}
 	marker, err := writer.markerWriter()
 	if err != nil {
-		return err
+		return writer.failHeld(err)
 	}
-	durableSeqNo := max(writer.highestAppended, writer.highestDurable, marker.existingHighestSeen)
+	durableSeqNo := max(point.appended, writer.highestDurable, marker.existingHighestSeen)
 	if err := writer.handle.Sync(); err != nil {
-		return err
+		return writer.failHeld(err)
 	}
-	if err := marker.commit(writer.activeStartSeqNo, uint64(writer.activeBytes), durableSeqNo); err != nil {
-		return err
+	if err := marker.commit(point.start, uint64(point.bytes), durableSeqNo); err != nil {
+		return writer.failHeld(err)
 	}
-	writer.highestDurable = durableSeqNo
+	writer.recordSyncedHeld(point, durableSeqNo)
 	writer.reportDurable()
 	return nil
 }
