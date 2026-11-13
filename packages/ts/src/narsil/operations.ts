@@ -74,6 +74,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
   }
 
   const rebalancesStarting = new Map<string, Promise<void>>()
+  let shutdownPromise: Promise<void> | null = null
 
   function withOpenIndexWrite<T>(indexName: string, action: (hold: IndexHold) => Promise<T>): Promise<T> {
     const starting = rebalancesStarting.get(indexName)
@@ -360,11 +361,12 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       }
     },
 
-    async shutdown(): Promise<void> {
-      if (shutdownState.isShutdown) return
+    shutdown(): Promise<void> {
+      if (shutdownPromise !== null) return shutdownPromise
       shutdownState.isShutdown = true
+      shutdownPromise = Promise.resolve().then(() => shutdownEngine(core))
       abortController.abort()
-      await shutdownEngine(core)
+      return shutdownPromise
     },
   }
 
