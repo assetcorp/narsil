@@ -172,6 +172,14 @@ function validateBootstrapModule(bootstrapModule: string | undefined): void {
   )
 }
 
+export function setsWorkerLiveness(workers: WorkerConfig | undefined): workers is WorkerConfig {
+  return (
+    workers?.silenceBeforeProbeMs !== undefined ||
+    workers?.silenceBeforeRetirementMs !== undefined ||
+    workers?.maxThreadsLeftRunning !== undefined
+  )
+}
+
 export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycle?: IndexLifecycleConfig): void {
   if (workers === undefined) return
   requirePositiveSafeInteger('workers.count', workers.count)

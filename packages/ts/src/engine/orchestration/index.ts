@@ -18,6 +18,7 @@ import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import { DEFAULT_MAX_THREADS_LEFT_RUNNING } from '../../workers/liveness/constants'
 import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
@@ -109,7 +110,7 @@ export function createWorkerOrchestrator(
     desyncedIndexes: new Set(),
     copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
-    copyLoadBufferYieldMarks: new WeakMap(),
+    copyLoadBufferHolds: new WeakMap(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
     lastAccessAt: new Map(),
@@ -128,6 +129,8 @@ export function createWorkerOrchestrator(
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
+    threadsLeftRunning: 0,
+    maxThreadsLeftRunning: config?.workers?.maxThreadsLeftRunning ?? DEFAULT_MAX_THREADS_LEFT_RUNNING,
     mainCopyTurnTaken: false,
     mainCopyQueries: config?.workers?.mainCopyQueries,
     repairTimer: null,

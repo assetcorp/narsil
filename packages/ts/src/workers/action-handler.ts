@@ -1,9 +1,9 @@
 import { ErrorCodes, isNarsilError, NarsilError } from '../errors'
 import type { DirectExecutorExtensions } from './direct-executor'
 import type { Executor } from './executor'
-import type { WorkerAction, WorkerResponse } from './protocol'
+import type { WorkerAction, WorkerMessage, WorkerResponse } from './protocol'
 
-export type ActionHandler = (action: WorkerAction, post: (msg: WorkerResponse) => void) => Promise<boolean>
+export type ActionHandler = (action: WorkerMessage, post: (msg: WorkerResponse) => void) => Promise<boolean>
 
 export function buildErrorResponse(
   requestId: string,
@@ -31,8 +31,8 @@ async function importBootstrapModule(moduleUrl: string): Promise<void> {
 }
 
 async function stopServingRequests(): Promise<void> {
-  const { closeRequestThread } = await import('../server/request-threads/thread')
-  closeRequestThread()
+  const { drainRequestThread } = await import('../server/request-threads/thread')
+  await drainRequestThread()
   const { closeLongQueryThread } = await import('../server/request-threads/long-query-thread')
   closeLongQueryThread()
 }
@@ -74,6 +74,10 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
   }
 
   return async function handleAction(action, post) {
+    if (action.type === 'probe') {
+      post(buildSuccessResponse(action.requestId, undefined))
+      return false
+    }
     try {
       if (stopping) throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'The worker is shutting down')
       if (action.type === 'shutdown') {

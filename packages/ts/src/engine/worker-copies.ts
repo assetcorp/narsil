@@ -1,4 +1,5 @@
 export { bindWorkerCopiesHost } from '#platform/worker-copies-host'
+export * from '../workers/liveness'
 export * from '../workers/pool'
 export * from '../workers/segment-actions'
 export * from '../workers/worker-executor'

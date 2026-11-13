@@ -334,4 +334,33 @@ export interface WorkerConfig {
    * value raises `CONFIG_INVALID`.
    */
   bootstrapModule?: string
+  /**
+   * The engine sends a worker a probe once the worker has given no answer for
+   * this many milliseconds, 10,000 by default. A worker answers a probe as
+   * soon as its thread is free, so a worker with a long queue keeps answering
+   * and stays in the pool. It must be less than `silenceBeforeRetirementMs`.
+   */
+  silenceBeforeProbeMs?: number
+  /**
+   * The engine retires a worker once the worker has answered neither a
+   * request nor a probe for this many milliseconds, 90,000 by default, and
+   * starts a replacement for it. When a retired worker stays silent after the
+   * engine asks it to leave, the engine stops its thread. The engine leaves a
+   * thread that still holds HTTP connections running in the background,
+   * because stopping that thread would end the whole process, and
+   * `maxThreadsLeftRunning` limits how many such threads exist at once.
+   */
+  silenceBeforeRetirementMs?: number
+  /**
+   * How many retired threads, each still holding HTTP connections, can run in
+   * the background while the engine keeps starting replacements, 1 by
+   * default. Each such thread keeps its copy of every index and its sockets,
+   * so the engine holds at most this many threads beyond those of a full
+   * worker pool. Once more threads than this run in the background, the
+   * engine replaces no retired thread and starts no new pool until one of
+   * them exits, and the main thread and the remaining request threads answer
+   * every request meanwhile. Set it to 0 so that a thread left running gains
+   * a replacement only once it exits.
+   */
+  maxThreadsLeftRunning?: number
 }

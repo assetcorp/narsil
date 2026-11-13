@@ -1,5 +1,4 @@
 import {
-  CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
   createRequestId,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -9,14 +8,22 @@ import {
   SHUTDOWN_TIMEOUT_MS,
 } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
-import type { WorkerAction, WorkerResponse } from './protocol'
+import {
+  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
+} from './liveness/constants'
+import type { WorkerAction, WorkerProbe, WorkerResponse } from './protocol'
 
 export interface WorkerExecutorConfig {
   backpressureLimit?: number
   requestTimeout?: number
+  silenceBeforeProbeMs?: number
+  silenceBeforeRetirementMs?: number
   onDeath?: (error: Error) => void
   onGone?: () => void
 }
+
+export type WorkerSilence = Pick<WorkerExecutorConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs'>
 
 export interface WorkerLike {
   postMessage(msg: unknown, transfer?: object[]): void
@@ -51,22 +58,117 @@ function errorFromEventLike(event: unknown): Error {
 export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutorConfig): Executor {
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
   const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const silenceBeforeProbe = config?.silenceBeforeProbeMs ?? DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS
+  const silenceBeforeRetirement = config?.silenceBeforeRetirementMs ?? DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS
   const pending = new Map<string, PendingRequest>()
   const retained = new Map<string, () => void>()
+  const unanswered = new Set<string>()
   let deathError: NarsilError | null = null
   let shutdownRequested = false
-  let consecutiveTimeouts = 0
+  let shutdownRequestId: string | null = null
   let gone = false
+  let lastSignOfLife = performance.now()
+  let probeId: string | null = null
+  let silenceCheck: ReturnType<typeof setTimeout> | undefined
+  let askedToLeave = false
+  let answeredSinceAskedToLeave = false
+  let servesConnections = false
+  const stopServingIds = new Set<string>()
+  let abandon: () => void = () => undefined
+  const abandoned = new Promise<void>(resolve => {
+    abandon = resolve
+  })
+  let noteExit: () => void = () => undefined
+  const exited = new Promise<void>(resolve => {
+    noteExit = resolve
+  })
   const waitingForTheThreadToGo: Array<() => void> = []
   const reportsItsExit = typeof worker.on === 'function'
+
+  function watchingSilence(): boolean {
+    if (gone) return false
+    if (askedToLeave) return true
+    if (deathError !== null || shutdownRequested) return false
+    return reportsItsExit || unanswered.size > 0
+  }
+
+  function stopWatchingSilence(): void {
+    clearTimeout(silenceCheck)
+    silenceCheck = undefined
+  }
+
+  function silenceBeforeStopping(): number {
+    return askedToLeave && deathError !== null && !answeredSinceAskedToLeave
+      ? silenceBeforeProbe
+      : silenceBeforeRetirement
+  }
+
+  function watchSilence(): void {
+    if (silenceCheck !== undefined || !watchingSilence()) return
+    const allowedSilence = probeId === null ? silenceBeforeProbe : silenceBeforeStopping()
+    const timer = setTimeout(
+      () => {
+        const afterQueuedAnswers = setTimeout(checkSilence, 0)
+        if (typeof afterQueuedAnswers.unref === 'function') afterQueuedAnswers.unref()
+        silenceCheck = afterQueuedAnswers
+      },
+      Math.max(0, lastSignOfLife + allowedSilence - performance.now()),
+    )
+    if (typeof timer.unref === 'function') timer.unref()
+    silenceCheck = timer
+  }
+
+  function probe(): void {
+    const requestId = createRequestId()
+    probeId = requestId
+    try {
+      worker.postMessage({ type: 'probe', requestId } satisfies WorkerProbe)
+    } catch {}
+  }
+
+  function checkSilence(): void {
+    silenceCheck = undefined
+    if (!watchingSilence()) return
+    const silentFor = performance.now() - lastSignOfLife
+    if (silentFor >= silenceBeforeStopping()) {
+      if (askedToLeave) stopOrLeaveTheThread()
+      else retireUnansweringWorker(new Error(`no answer to any request or probe for ${Math.round(silentFor)}ms`))
+      return
+    }
+    if (probeId === null && silentFor >= silenceBeforeProbe) probe()
+    watchSilence()
+  }
+
+  function noteAnswer(requestId: string): void {
+    lastSignOfLife = performance.now()
+    unanswered.delete(requestId)
+    const probeAnswered = requestId === probeId
+    if (probeAnswered) probeId = null
+    const firstAnswerSinceAskedToLeave = askedToLeave && !answeredSinceAskedToLeave
+    if (askedToLeave) answeredSinceAskedToLeave = true
+    if (!watchingSilence()) {
+      stopWatchingSilence()
+      return
+    }
+    if (!probeAnswered && !firstAnswerSinceAskedToLeave) return
+    stopWatchingSilence()
+    watchSilence()
+  }
 
   function processResponse(msg: unknown) {
     if (!isValidWorkerResponse(msg)) {
       return
     }
 
-    consecutiveTimeouts = 0
     const response = msg as WorkerResponse
+    noteAnswer(response.requestId)
+    if (stopServingIds.delete(response.requestId) && response.type === 'success') servesConnections = false
+    if (response.requestId === shutdownRequestId && response.type === 'success') {
+      shutdownRequestId = null
+      servesConnections = false
+      if (reportsItsExit) worker.unref?.()
+      else stopAWorkerThatReportsNoExit()
+    }
     retained.get(response.requestId)?.()
     retained.delete(response.requestId)
     const entry = pending.get(response.requestId)
@@ -90,6 +192,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
     const message = cause instanceof Error ? cause.message : String(cause)
     deathError = new NarsilError(ErrorCodes.WORKER_CRASHED, `Worker died: ${message}`)
+    stopWatchingSilence()
+    unanswered.clear()
     for (const [id, entry] of pending) {
       clearTimeout(entry.timeoutId)
       entry.reject(deathError)
@@ -105,6 +209,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       return
     }
     gone = true
+    stopWatchingSilence()
     for (const release of retained.values()) release()
     retained.clear()
     for (const resume of waitingForTheThreadToGo.splice(0)) resume()
@@ -129,6 +234,16 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     } catch {}
   }
 
+  function stopOrLeaveTheThread(): void {
+    if (!servesConnections) {
+      stopTheThread()
+      return
+    }
+    worker.unref?.()
+    abandon()
+    reportGone()
+  }
+
   function stopAWorkerThatReportsNoExit(): void {
     stopTheThread()
     reportGone()
@@ -140,13 +255,23 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     } catch {}
   }
 
+  function watchTheThreadLeave(): void {
+    if (!reportsItsExit || gone || askedToLeave) return
+    askedToLeave = true
+    lastSignOfLife = performance.now()
+    stopWatchingSilence()
+    probe()
+    watchSilence()
+  }
+
   function retireUnansweringWorker(cause: Error): void {
     handleDeath(cause)
-    if (reportsItsExit) {
-      askTheThreadToLeave(createRequestId())
+    if (!reportsItsExit) {
+      stopAWorkerThatReportsNoExit()
       return
     }
-    stopAWorkerThatReportsNoExit()
+    askTheThreadToLeave(createRequestId())
+    watchTheThreadLeave()
   }
 
   if (typeof worker.on === 'function') {
@@ -157,6 +282,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     worker.on('exit', (code: unknown) => {
       handleDeath(new Error(`Worker exited with code ${String(code)}`))
       reportGone()
+      noteExit()
     })
   } else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (event: unknown) => {
@@ -173,18 +299,19 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     if (pending.get(requestId) !== entry) return
     pending.delete(requestId)
     entry.reject(new NarsilError(ErrorCodes.WORKER_TIMEOUT, `Request ${requestId} timed out after ${requestTimeout}ms`))
-    consecutiveTimeouts += 1
-    if (consecutiveTimeouts >= CONSECUTIVE_TIMEOUTS_BEFORE_DEATH) {
-      retireUnansweringWorker(new Error(`no answer to ${CONSECUTIVE_TIMEOUTS_BEFORE_DEATH} consecutive requests`))
-    }
   }
 
-  function execute<T>(action: WorkerAction, transfer?: object[], settled?: () => void): Promise<T> {
+  function send<T>(
+    action: WorkerAction,
+    transfer: object[] | undefined,
+    settled: (() => void) | undefined,
+    bounded: boolean,
+  ): Promise<T> {
     if (deathError !== null) {
       settled?.()
       return Promise.reject(deathError)
     }
-    if (pending.size >= backpressureLimit) {
+    if (bounded && pending.size >= backpressureLimit) {
       settled?.()
       return Promise.reject(
         new NarsilError(ErrorCodes.WORKER_BUSY, `Backpressure limit of ${backpressureLimit} pending requests reached`),
@@ -193,14 +320,18 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
     const requestId = createRequestId()
     const taggedAction = { ...action, requestId }
+    if (action.type === 'serveRequests') servesConnections = true
+    if (action.type === 'stopServing') stopServingIds.add(requestId)
 
     return new Promise<T>((resolve, reject) => {
       const entry: PendingRequest = {
         resolve: resolve as (value: unknown) => void,
         reject,
-        timeoutId: setTimeout(() => {
-          entry.timeoutId = setTimeout(() => declareTimedOut(requestId, entry), 0)
-        }, requestTimeout),
+        timeoutId: bounded
+          ? setTimeout(() => {
+              entry.timeoutId = setTimeout(() => declareTimedOut(requestId, entry), 0)
+            }, requestTimeout)
+          : undefined,
       }
       pending.set(requestId, entry)
       if (settled !== undefined) retained.set(requestId, settled)
@@ -211,32 +342,35 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         clearTimeout(entry.timeoutId)
         pending.delete(requestId)
         retained.delete(requestId)
+        stopServingIds.delete(requestId)
         settled?.()
         reject(error)
+        return
       }
+      if (unanswered.size === 0 && probeId === null) lastSignOfLife = performance.now()
+      unanswered.add(requestId)
+      watchSilence()
     })
   }
 
   function stopOnceTheWorkerAcknowledges(): void {
     const requestId = createRequestId()
-    const stop = () => {
-      pending.delete(requestId)
-      if (!reportsItsExit) stopAWorkerThatReportsNoExit()
-    }
-    pending.set(requestId, { resolve: stop, reject: () => undefined, timeoutId: undefined })
+    shutdownRequestId = requestId
     askTheThreadToLeave(requestId)
   }
 
   async function shutdown(): Promise<void> {
+    const firstShutdown = !shutdownRequested
     shutdownRequested = true
-    if (deathError === null && !gone) stopOnceTheWorkerAcknowledges()
+    if (firstShutdown && deathError === null && !gone) stopOnceTheWorkerAcknowledges()
+    if (reportsItsExit) watchTheThreadLeave()
+    else stopWatchingSilence()
     try {
       if (await threadGoneWithin(SHUTDOWN_TIMEOUT_MS)) return
       if (!reportsItsExit) {
         stopAWorkerThatReportsNoExit()
         return
       }
-      worker.unref?.()
       throw new NarsilError(ErrorCodes.WORKER_TIMEOUT, 'Shutdown timed out')
     } finally {
       for (const [id, entry] of pending) {
@@ -247,5 +381,13 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
   }
 
-  return { execute, executeRetained: (action, settled) => execute(action, undefined, settled), shutdown }
+  watchSilence()
+
+  return {
+    execute: (action, transfer) => send(action, transfer, undefined, true),
+    executeUntilAnswered: (action, settled) => send(action, undefined, settled, false),
+    shutdown,
+    whenAbandoned: () => abandoned,
+    whenTheThreadExits: () => exited,
+  }
 }

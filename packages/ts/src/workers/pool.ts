@@ -1,6 +1,7 @@
 import { ErrorCodes, fnv1a, NarsilError, resolveWorkerCount, SHUTDOWN_TIMEOUT_MS } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import { type MemoryStats, memoryStatsOf } from './pool-memory'
+import type { WorkerExecutorConfig, WorkerSilence } from './worker-executor'
 
 export interface WorkerLease {
   readonly workerId: number
@@ -48,14 +49,16 @@ interface WorkerSlot {
   serving: boolean
 }
 
-export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void, onGone?: () => void) => Executor
+export type WorkerFactory = (workerId: number, config: WorkerExecutorConfig) => Executor
 
 export interface WorkerPoolConfig {
   count?: number
   longQueryWorkers?: number
   workerFactory: WorkerFactory
+  silence?: WorkerSilence
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
   onWorkerGone?: (workerId: number) => void
+  onThreadLeftRunning?: (workerId: number, exited: Promise<void>) => void
 }
 
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
@@ -98,14 +101,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
   function spawnSlot(slotIndex: number, serving: boolean): WorkerSlot {
     const slot: WorkerSlot = {
-      executor: config.workerFactory(
-        slotIndex,
-        error => handleWorkerDeath(slotIndex, error),
-        () => {
+      executor: config.workerFactory(slotIndex, {
+        ...config.silence,
+        onDeath: error => handleWorkerDeath(slotIndex, error),
+        onGone: () => {
           noteThreadGone(slot.executor)
           handleWorkerGone(slotIndex)
         },
-      ),
+      }),
       indexes: new Set(),
       inFlight: 0,
       serving,
@@ -116,7 +119,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     })
     threadsStillRunning.set(slot.executor, { indexes: slot.indexes, gone, finish })
     workers.set(slotIndex, slot)
+    watchForThreadLeftRunning(slotIndex, slot.executor)
     return slot
+  }
+
+  function watchForThreadLeftRunning(slotIndex: number, executor: Executor): void {
+    const exited = executor.whenTheThreadExits?.()
+    if (exited === undefined) return
+    void executor.whenAbandoned?.().then(() => config.onThreadLeftRunning?.(slotIndex, exited))
   }
 
   function noteThreadGone(executor: Executor): void {
