@@ -1,6 +1,7 @@
 use super::constants::KIBIBYTE_BYTES;
 
 const PROCESS_STATUS_PATH: &str = "/proc/self/status";
+const PROCESS_STATM_PATH: &str = "/proc/self/statm";
 const PROCESS_CGROUP_PATH: &str = "/proc/self/cgroup";
 const MEMORY_INFO_PATH: &str = "/proc/meminfo";
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
@@ -21,12 +22,25 @@ fn kibibyte_field(text: &str, field: &str) -> Option<u64> {
 
 /// Returns the resident memory of this process that no file backs, which is its anonymous and shared memory, and
 /// returns the whole resident set where the kernel reports neither figure.
-pub(super) fn process_bytes() -> Option<u64> {
+fn status_bytes() -> Option<u64> {
     let status = std::fs::read_to_string(PROCESS_STATUS_PATH).ok()?;
     let unbacked = kibibyte_field(&status, ANONYMOUS_RESIDENT_FIELD).and_then(|anonymous| {
         kibibyte_field(&status, SHARED_RESIDENT_FIELD)?.checked_add(anonymous)
     });
     unbacked.or_else(|| kibibyte_field(&status, RESIDENT_SET_FIELD))
+}
+
+unsafe extern "C" {
+    fn getpagesize() -> std::ffi::c_int;
+}
+
+pub(super) fn process_bytes() -> Option<u64> {
+    status_bytes().or_else(|| {
+        let statm = std::fs::read_to_string(PROCESS_STATM_PATH).ok()?;
+        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        let page_bytes = u64::try_from(unsafe { getpagesize() }).ok()?;
+        pages.checked_mul(page_bytes)
+    })
 }
 
 fn limit_in(path: &std::path::Path) -> Option<u64> {

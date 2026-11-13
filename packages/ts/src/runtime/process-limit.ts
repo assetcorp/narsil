@@ -42,7 +42,11 @@ function readProcessStatus(): string | null {
   } catch {
     return null
   } finally {
-    if (descriptor !== null) closeSync(descriptor)
+    if (descriptor !== null) {
+      try {
+        closeSync(descriptor)
+      } catch {}
+    }
   }
 }
 
@@ -60,7 +64,8 @@ function memoryThatNoFileBacks(): number | null {
   const anonymousBytes = kibibyteField(status, ANONYMOUS_RESIDENT_FIELD)
   const sharedBytes = kibibyteField(status, SHARED_RESIDENT_FIELD)
   if (anonymousBytes === null || sharedBytes === null) return null
-  return anonymousBytes + sharedBytes
+  const processBytes = anonymousBytes + sharedBytes
+  return Number.isSafeInteger(processBytes) ? processBytes : null
 }
 
 function readProcessLimit(processBytes: number): number {
