@@ -212,11 +212,6 @@ export async function* heldBack(data: ByteSource, released: Promise<void>): Asyn
   yield bytes.subarray(half)
 }
 
-export function holdRestores(engine: Narsil, released: Promise<void>): void {
-  const restore = engine.restore.bind(engine)
-  engine.restore = (indexName, data) => restore(indexName, heldBack(data, released))
-}
-
 export type EngineKind = 'memory' | 'wal' | 'snapshot'
 
 export async function newDirectory(roots: string[]): Promise<string> {
