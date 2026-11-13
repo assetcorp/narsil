@@ -2,15 +2,17 @@ import {
   createRequestId,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
   ErrorCodes,
   isValidWorkerResponse,
   NarsilError,
   SHUTDOWN_TIMEOUT_MS,
 } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
-import type { WorkerAction, WorkerResponse } from './protocol'
+import {
+  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
+} from './liveness/constants'
+import type { WorkerAction, WorkerProbe, WorkerResponse } from './protocol'
 
 export interface WorkerExecutorConfig {
   backpressureLimit?: number
@@ -120,7 +122,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     const requestId = createRequestId()
     probeId = requestId
     try {
-      worker.postMessage({ type: 'probe', requestId } satisfies WorkerAction)
+      worker.postMessage({ type: 'probe', requestId } satisfies WorkerProbe)
     } catch {}
   }
 

@@ -27,8 +27,6 @@ export { returnsEveryMatch } from '../../search/fulltext'
 export {
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
   SHUTDOWN_TIMEOUT_MS,
 } from '../../workers/constants'
 export { createRequestId, isValidWorkerResponse } from '../../workers/protocol'
@@ -42,7 +40,6 @@ export {
   COMPACTION_SEGMENT_TRIGGER,
   DEFAULT_COPY_IDLE_TIMEOUT_MS,
   DEFAULT_COPY_THRESHOLD,
-  DEFAULT_MAX_THREADS_LEFT_RUNNING,
   IDLE_MERGE_DELAY_MS,
   LIVE_TAIL_FLUSH_DOCUMENTS,
   LIVE_TAIL_FREEZE_FLOOR,

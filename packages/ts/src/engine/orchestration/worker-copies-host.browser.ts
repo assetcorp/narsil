@@ -8,7 +8,6 @@ type EngineNames = Pick<
   | 'DEFAULT_BACKPRESSURE_LIMIT'
   | 'DEFAULT_COPY_IDLE_TIMEOUT_MS'
   | 'DEFAULT_COPY_THRESHOLD'
-  | 'DEFAULT_MAX_THREADS_LEFT_RUNNING'
   | 'DEFAULT_REQUEST_TIMEOUT_MS'
   | 'ErrorCodes'
   | 'IDLE_MERGE_DELAY_MS'
@@ -30,8 +29,6 @@ type EngineNames = Pick<
   | 'SEGMENTS_PER_MERGE'
   | 'SHUTDOWN_TIMEOUT_MS'
   | 'SegmentRefusal'
-  | 'DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS'
-  | 'DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS'
   | 'afterCurrentTurn'
   | 'availablePatternSearch'
   | 'createWorkerFactory'
@@ -81,7 +78,6 @@ export let COMPACTION_SEGMENT_TRIGGER: EngineNames['COMPACTION_SEGMENT_TRIGGER']
 export let DEFAULT_BACKPRESSURE_LIMIT: EngineNames['DEFAULT_BACKPRESSURE_LIMIT']
 export let DEFAULT_COPY_IDLE_TIMEOUT_MS: EngineNames['DEFAULT_COPY_IDLE_TIMEOUT_MS']
 export let DEFAULT_COPY_THRESHOLD: EngineNames['DEFAULT_COPY_THRESHOLD']
-export let DEFAULT_MAX_THREADS_LEFT_RUNNING: EngineNames['DEFAULT_MAX_THREADS_LEFT_RUNNING']
 export let DEFAULT_REQUEST_TIMEOUT_MS: EngineNames['DEFAULT_REQUEST_TIMEOUT_MS']
 export let ErrorCodes: EngineNames['ErrorCodes']
 export let IDLE_MERGE_DELAY_MS: EngineNames['IDLE_MERGE_DELAY_MS']
@@ -105,8 +101,6 @@ export let SEGMENTS_PER_MERGE: EngineNames['SEGMENTS_PER_MERGE']
 export let SHUTDOWN_TIMEOUT_MS: EngineNames['SHUTDOWN_TIMEOUT_MS']
 export let SegmentRefusal: EngineNames['SegmentRefusal']
 export type SegmentRefusal = InstanceType<EngineNames['SegmentRefusal']>
-export let DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS: EngineNames['DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS']
-export let DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS: EngineNames['DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS']
 export let afterCurrentTurn: EngineNames['afterCurrentTurn']
 export let availablePatternSearch: EngineNames['availablePatternSearch']
 export let createWorkerFactory: EngineNames['createWorkerFactory']
@@ -158,7 +152,6 @@ export function bindWorkerCopiesHost(
     DEFAULT_BACKPRESSURE_LIMIT,
     DEFAULT_COPY_IDLE_TIMEOUT_MS,
     DEFAULT_COPY_THRESHOLD,
-    DEFAULT_MAX_THREADS_LEFT_RUNNING,
     DEFAULT_REQUEST_TIMEOUT_MS,
     ErrorCodes,
     IDLE_MERGE_DELAY_MS,
@@ -180,8 +173,6 @@ export function bindWorkerCopiesHost(
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
     SegmentRefusal,
-    DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
-    DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,

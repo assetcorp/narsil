@@ -11,13 +11,7 @@ import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { schemaFieldsOf } from '../../schema/validator/schema'
 import { oversampledFacetConfig } from '../../search/facets'
 import { returnsEveryMatch } from '../../search/fulltext'
-import {
-  DEFAULT_BACKPRESSURE_LIMIT,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
-  SHUTDOWN_TIMEOUT_MS,
-} from '../../workers/constants'
+import { DEFAULT_BACKPRESSURE_LIMIT, DEFAULT_REQUEST_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS } from '../../workers/constants'
 import { growPartitionsTo } from '../../workers/segment-action-code'
 import { threadSlotOfWorker } from '../../workers/thread-slot'
 import { requireLoadedVectorCode } from '../../workers/vector-code'
@@ -27,7 +21,6 @@ import {
   COMPACTION_SEGMENT_TRIGGER,
   DEFAULT_COPY_IDLE_TIMEOUT_MS,
   DEFAULT_COPY_THRESHOLD,
-  DEFAULT_MAX_THREADS_LEFT_RUNNING,
   IDLE_MERGE_DELAY_MS,
   LIVE_TAIL_FLUSH_DOCUMENTS,
   LIVE_TAIL_FREEZE_FLOOR,
@@ -50,7 +43,6 @@ export function workersHostPart() {
     DEFAULT_BACKPRESSURE_LIMIT,
     DEFAULT_COPY_IDLE_TIMEOUT_MS,
     DEFAULT_COPY_THRESHOLD,
-    DEFAULT_MAX_THREADS_LEFT_RUNNING,
     DEFAULT_REQUEST_TIMEOUT_MS,
     IDLE_MERGE_DELAY_MS,
     LIVE_TAIL_FLUSH_DOCUMENTS,
@@ -69,8 +61,6 @@ export function workersHostPart() {
     RETIRED_THREADS_EXIT_WAIT_MS,
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
-    DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
-    DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,

@@ -1,7 +1,6 @@
 import {
   DEFAULT_COPY_IDLE_TIMEOUT_MS,
   DEFAULT_COPY_THRESHOLD,
-  DEFAULT_MAX_THREADS_LEFT_RUNNING,
   ErrorCodes,
   NarsilError,
   POOL_RESTART_DELAY_MS,
@@ -19,6 +18,7 @@ import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import { DEFAULT_MAX_THREADS_LEFT_RUNNING } from '../../workers/liveness/constants'
 import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'

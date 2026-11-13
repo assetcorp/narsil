@@ -1,10 +1,6 @@
-import {
-  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
-  ErrorCodes,
-  NarsilError,
-} from '#platform/worker-copies-host'
-import type { WorkerConfig } from '../types/config'
+import { ErrorCodes, NarsilError } from '#platform/worker-copies-host'
+import type { WorkerConfig } from '../../types/config'
+import { DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS, DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS } from './constants'
 
 function requireWholeNumber(field: string, value: number | undefined, minimum: number): void {
   if (value === undefined || (Number.isSafeInteger(value) && value >= minimum)) return
