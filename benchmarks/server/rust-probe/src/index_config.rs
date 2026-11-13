@@ -9,6 +9,7 @@ use crate::search::parse_metric;
 #[serde(deny_unknown_fields)]
 pub struct CreateIndexBody {
     pub name: String,
+    #[serde(deserialize_with = "crate::json::object")]
     pub config: IndexConfigBody,
 }
 
@@ -32,6 +33,7 @@ struct HnswBody {
 struct VectorPromotionBody {
     threshold: Option<u64>,
     quantization: Option<String>,
+    #[serde(default, deserialize_with = "crate::json::optional_object")]
     hnsw_config: Option<HnswBody>,
 }
 
@@ -40,7 +42,9 @@ struct VectorPromotionBody {
 pub struct IndexConfigBody {
     schema: serde_json::Value,
     language: Option<String>,
+    #[serde(default, deserialize_with = "crate::json::optional_object")]
     bm25: Option<Bm25Body>,
+    #[serde(default, deserialize_with = "crate::json::optional_object")]
     vector_promotion: Option<VectorPromotionBody>,
 }
 

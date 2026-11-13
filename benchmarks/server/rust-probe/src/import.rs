@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::constants::{IMPORT_BATCH_SIZE, MAX_IMPORT_ERRORS, MAX_LINE_BYTES};
 use crate::errors::ApiError;
+use crate::respond::to_engine_value;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,9 +83,7 @@ fn trimmed_line(raw: &[u8]) -> &[u8] {
 }
 
 fn parse_line(bytes: &[u8]) -> Result<Map, (&'static str, &'static str)> {
-    let text =
-        std::str::from_utf8(bytes).map_err(|_| ("INVALID_JSON", "Line is not valid JSON"))?;
-    match narsil::parse_json(text) {
+    match serde_json::from_slice(bytes).map(to_engine_value) {
         Ok(Value::Object(document)) => Ok(document),
         Ok(_) => Err(("INVALID_REQUEST", "Line is not a JSON object")),
         Err(_) => Err(("INVALID_JSON", "Line is not valid JSON")),

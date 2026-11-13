@@ -8,6 +8,7 @@ use serde_json::value::RawValue;
 
 use crate::constants::MAX_RESULT_WINDOW;
 use crate::errors::ApiError;
+use crate::json::PlainValue;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -17,7 +18,9 @@ pub struct SearchBody {
     limit: Option<usize>,
     offset: Option<usize>,
     mode: Option<String>,
+    #[serde(default, deserialize_with = "crate::json::optional_object")]
     vector: Option<VectorClause>,
+    #[serde(default, deserialize_with = "crate::json::optional_object")]
     hybrid: Option<HybridClause>,
     document: Option<bool>,
 }
@@ -177,7 +180,8 @@ fn wire_document(document: narsil::Map) -> Result<WireDocument, ApiError> {
     if document.is_empty() {
         return Ok(WireDocument::Empty);
     }
-    let text = narsil::write_json(&Value::Object(document));
+    let text = serde_json::to_string(&PlainValue(&Value::Object(document)))
+        .map_err(|_| ApiError::internal("A stored document could not be written as JSON"))?;
     RawValue::from_string(text)
         .map(WireDocument::Written)
         .map_err(|_| ApiError::internal("A stored document could not be written as JSON"))

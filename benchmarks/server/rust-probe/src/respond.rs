@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::errors::ApiError;
+use crate::json::Object;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const SERIALIZE_FAILURE_BODY: &str =
@@ -42,21 +43,23 @@ pub fn parse_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
             "Request body is empty",
         ));
     }
-    serde_json::from_slice(body).map_err(|error| {
-        if error.is_syntax() || error.is_eof() {
-            ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "INVALID_JSON",
-                "Request body is not valid JSON",
-            )
-        } else {
-            ApiError::invalid(format!("Request body does not match the route: {error}"))
-        }
-    })
+    serde_json::from_slice::<Object<T>>(body)
+        .map(|value| value.0)
+        .map_err(|error| {
+            if error.is_syntax() || error.is_eof() {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "INVALID_JSON",
+                    "Request body is not valid JSON",
+                )
+            } else {
+                ApiError::invalid(format!("Request body does not match the route: {error}"))
+            }
+        })
 }
 
 pub fn parse_optional_body<T: DeserializeOwned + Default>(body: &Bytes) -> Result<T, ApiError> {
-    if body.iter().all(u8::is_ascii_whitespace) {
+    if body.is_empty() {
         return Ok(T::default());
     }
     parse_body(body)

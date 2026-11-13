@@ -14,6 +14,7 @@ use serde_json::value::RawValue;
 use crate::errors::ApiError;
 use crate::import::run_import;
 use crate::index_config::CreateIndexBody;
+use crate::json::PlainValue;
 use crate::pool::CpuPool;
 use crate::respond::{json_response, ok, parse_body, parse_optional_body};
 use crate::search::{SearchBody, wire_result};
@@ -46,7 +47,9 @@ fn body_bytes(body: Result<Bytes, BytesRejection>) -> Result<Bytes, ApiError> {
 }
 
 fn raw_json(value: &narsil::Value) -> Result<Box<RawValue>, ApiError> {
-    RawValue::from_string(narsil::write_json(value))
+    let text = serde_json::to_string(&PlainValue(value))
+        .map_err(|_| ApiError::internal("A value could not be written as JSON"))?;
+    RawValue::from_string(text)
         .map_err(|_| ApiError::internal("A value could not be written as JSON"))
 }
 
