@@ -1,4 +1,4 @@
-import type { WorkloadKind } from './workload/format'
+import type { WorkloadKind, WorkloadManifest } from './workload/format'
 
 export type EngineName = 'typescript' | 'rust' | 'go'
 export const ENGINE_NAMES: readonly EngineName[] = ['typescript', 'rust', 'go']
@@ -77,13 +77,18 @@ function parsePhase(raw: unknown, name: string): MeasuredPhase {
       `runner output: phase ${name} records ${phase.latencyNs.length} latencies for ${phase.queries} queries over ${phase.passes} passes`,
     )
   }
-  if (phase.wallNs === 0) throw new Error(`runner output: phase ${name} took no time`)
+  if (phase.wallNs === 0 || phase.queries === 0 || phase.passes === 0 || phase.warmupPasses === 0) {
+    throw new Error(`runner output: phase ${name} has an empty measurement`)
+  }
+  if (phase.mismatches > 0 || phase.latencyNs.some(latency => latency === 0 || latency > phase.wallNs)) {
+    throw new Error(`runner output: phase ${name} has mismatches or invalid latencies`)
+  }
   return phase
 }
 
 export function parseRunnerOutput(
   text: string,
-  expected: { engine: EngineName; workload: WorkloadKind; threads: number },
+  expected: { engine: EngineName; workload: WorkloadKind; threads: number; manifest: WorkloadManifest },
 ): RunnerOutput {
   const raw: unknown = JSON.parse(text)
   if (!isRecord(raw)) throw new Error('runner output must be a JSON object')
@@ -103,6 +108,16 @@ export function parseRunnerOutput(
     if (phases[name].threads !== expected.threads) {
       throw new Error(`runner output: phase ${name} ran on ${phases[name].threads} threads`)
     }
+    if (
+      phases[name].queries !== expected.manifest[expected.workload].queries ||
+      phases[name].passes !== expected.manifest.settings.measuredPasses[name] ||
+      phases[name].warmupPasses !== expected.manifest.settings.warmupPasses
+    ) {
+      throw new Error(`runner output: phase ${name} differs from the workload's queries or passes`)
+    }
+  }
+  if (load.documents !== expected.manifest[expected.workload].documents || load.insertNs === 0) {
+    throw new Error('runner output: document count or insertion time is invalid')
   }
   return {
     engine: expected.engine,

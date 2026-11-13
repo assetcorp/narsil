@@ -28,7 +28,7 @@ export const SMALL_MEASURED_PASSES = 5
 export const THREAD_COUNTS = [1, 8]
 export const REPETITIONS = 3
 export const SMALL_REPETITIONS = 1
-export const MAX_THREADS = 256
+export const MAX_THREADS = 31
 export const MAX_REPETITIONS = 100
 
 export const RUNNER_TIMEOUT_MS = 1_800_000
@@ -40,3 +40,4 @@ export const VERSION_PROBE_TIMEOUT_MS = 60_000
 export const PROCESS_MEMORY_PROBE_TIMEOUT_MS = 10_000
 export const MAX_RUNNER_OUTPUT_BYTES = 268_435_456
 export const MAX_RUNNER_STDOUT_LINE_BYTES = 4_096
+export const MAX_RUNNER_STDOUT_BYTES = 65_536
