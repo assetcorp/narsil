@@ -286,5 +286,6 @@ export async function prepareDocumentWrite(
   const preparation: WritePreparation = { document, beforeWrite, failure: undefined }
   const { entry } = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
   if (preparation.failure !== undefined) throw preparation.failure
+  ctx.memoryWriteBlock?.refuseWhileFull(indexName)
   return entry
 }

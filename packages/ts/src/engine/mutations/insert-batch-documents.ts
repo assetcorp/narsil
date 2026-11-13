@@ -49,6 +49,12 @@ export async function applyAdmittedDocuments(
     if (ctx.abortController.signal.aborted) break
 
     const chunk = admitted.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
+    try {
+      ctx.memoryWriteBlock?.refuseWhileFull(indexName)
+    } catch (err) {
+      for (const doc of chunk) failed.push({ docId: doc.docId, error: asBatchInsertError(err) })
+      continue
+    }
     const applications = await applyInsertChunk(ctx, indexName, chunk, options)
     const inserted: AdmittedInsert[] = []
 

@@ -172,7 +172,6 @@ export function applyOfUpdate(ctx: MutationContext, indexName: string, prepared:
   const manager = ctx.requireManager(indexName)
   const { docId, document, partitionDoc, extractedVectors } = prepared
   const updateInIndex = () => {
-    ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
@@ -256,6 +255,7 @@ export async function updateDocument(
   const { entry } = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
   if (preparation.failure !== undefined) throw preparation.failure
   const prepared = await finishUpdate(ctx, indexName, entry, docId, document)
+  ctx.memoryWriteBlock?.refuseWhileFull(indexName)
   const apply = applyOfUpdate(ctx, indexName, prepared)
 
   if (ctx.durability) {
