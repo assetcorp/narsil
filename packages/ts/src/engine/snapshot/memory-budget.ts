@@ -4,7 +4,7 @@ import {
   extractVectorFieldsFromSchema,
   NarsilError,
   readHeapStatistics,
-  readResidentMemory,
+  readProcessMemoryUse,
 } from '#platform/storage-host'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import {
@@ -200,9 +200,9 @@ function shortfallOf(heapBytes: number, processBytes: number, countInUse: boolea
     const availableBytes = countInUse ? limitBytes - heap.usedBytes : limitBytes
     if (heapBytes > availableBytes) return { budget: 'heap', neededBytes: heapBytes, availableBytes }
   }
-  const resident = readResidentMemory()
-  if (resident !== null) {
-    const availableBytes = countInUse ? resident.limitBytes - resident.residentBytes : resident.limitBytes
+  const memory = readProcessMemoryUse()
+  if (memory !== null) {
+    const availableBytes = countInUse ? memory.limitBytes - memory.processBytes : memory.limitBytes
     if (processBytes > availableBytes) return { budget: 'process', neededBytes: processBytes, availableBytes }
   }
   return null

@@ -54,13 +54,30 @@ std::string privateStorageDirectory() {
 
 #elif defined(__ANDROID__)
 
-double residentBytesOfThisProcess() {
+constexpr double KIBIBYTE_BYTES = 1024;
+
+double wholeResidentBytes() {
   std::ifstream statm("/proc/self/statm");
   double totalPages = 0;
   double residentPages = 0;
   if (!(statm >> totalPages >> residentPages)) return UNKNOWN_BYTES;
   long page = sysconf(_SC_PAGESIZE);
   return residentPages * static_cast<double>(page > 0 ? page : 4096);
+}
+
+double residentBytesOfThisProcess() {
+  std::ifstream status("/proc/self/status");
+  double anonymousKibibytes = UNKNOWN_BYTES;
+  double sharedKibibytes = UNKNOWN_BYTES;
+  std::string field;
+  while (status >> field) {
+    if (field == "RssAnon:" && !(status >> anonymousKibibytes)) break;
+    if (field == "RssShmem:" && !(status >> sharedKibibytes)) break;
+    if (anonymousKibibytes >= 0 && sharedKibibytes >= 0) {
+      return (anonymousKibibytes + sharedKibibytes) * KIBIBYTE_BYTES;
+    }
+  }
+  return wholeResidentBytes();
 }
 
 double availableBytesForThisProcess() { return androidAvailableBytes(); }

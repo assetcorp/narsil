@@ -16,7 +16,7 @@ import {
 const MEGABYTE_BYTES = 1024 * 1024
 const CONTAINER_MEMORY_MEGABYTES = 1024
 const REMOVAL_INDEX_GUARD_FRACTION = 0.9
-const RESIDENT_FILL_FRACTION = 0.92
+const PROCESS_FILL_FRACTION = 0.905
 const NODE_IMAGE = 'node:24-bookworm-slim@sha256:8579e5fce559544b50072d05cc5d3b84b6a14d0989ae56c331d9e983a36a21f1'
 const DOCUMENTS = 8_000
 const BATCH_DOCUMENTS = 500
@@ -46,7 +46,7 @@ describe('removes from a frozen segment under a container memory limit', () => {
     async () => {
       workDirectory = await mkdtemp(join(tmpdir(), 'narsil-container-removes-'))
       const plan = { ...removalPlan(DOCUMENTS, BATCH_DOCUMENTS, FULL_BATCHES + 1), releaseFillBefore: FULL_BATCHES }
-      const jobPath = await writeRemovalJob(workDirectory, plan, { kind: 'resident', fraction: RESIDENT_FILL_FRACTION })
+      const jobPath = await writeRemovalJob(workDirectory, plan, { kind: 'process', fraction: PROCESS_FILL_FRACTION })
       containerName = `narsil-container-removes-${randomUUID()}`
       const run = await runCommand('docker', [
         'run',
@@ -71,7 +71,7 @@ describe('removes from a frozen segment under a container memory limit', () => {
       const outcome = await readRemovalOutcome(workDirectory)
       const limitBytes = outcome.processLimitBytes ?? 0
       expect(limitBytes).toBe(CONTAINER_MEMORY_MEGABYTES * MEGABYTE_BYTES)
-      expect(outcome.filledResidentBytes).toBeGreaterThanOrEqual(REMOVAL_INDEX_GUARD_FRACTION * limitBytes)
+      expect(outcome.filledProcessBytes).toBeGreaterThanOrEqual(REMOVAL_INDEX_GUARD_FRACTION * limitBytes)
       expectEveryPhaseMatchesOracle(plan, outcome)
 
       const indexFloor = MIN_REMOVAL_INDEX_BYTES_PER_DOCUMENT * DOCUMENTS
@@ -81,7 +81,7 @@ describe('removes from a frozen segment under a container memory limit', () => {
       }
       const lastFull = fullPhases[fullPhases.length - 1]
       const afterRelease = outcome.phases[FULL_BATCHES]
-      expect(afterRelease.residentBytes).toBeLessThan(REMOVAL_INDEX_GUARD_FRACTION * limitBytes)
+      expect(afterRelease.processBytes).toBeLessThan(REMOVAL_INDEX_GUARD_FRACTION * limitBytes)
       expect(afterRelease.estimatedMemoryBytes - lastFull.estimatedMemoryBytes).toBeGreaterThanOrEqual(indexFloor)
     },
     300_000,
