@@ -14,7 +14,11 @@
 #include <os/proc.h>
 #elif defined(__ANDROID__)
 #include "AndroidEnvironment.hpp"
+#include <charconv>
+#include <cstdint>
 #include <fstream>
+#include <limits>
+#include <sstream>
 #endif
 
 namespace margelo::nitro::narsil {
@@ -54,7 +58,7 @@ std::string privateStorageDirectory() {
 
 #elif defined(__ANDROID__)
 
-constexpr double KIBIBYTE_BYTES = 1024;
+constexpr uint64_t KIBIBYTE_BYTES = 1024;
 
 double wholeResidentBytes() {
   std::ifstream statm("/proc/self/statm");
@@ -67,15 +71,31 @@ double wholeResidentBytes() {
 
 double residentBytesOfThisProcess() {
   std::ifstream status("/proc/self/status");
-  double anonymousKibibytes = UNKNOWN_BYTES;
-  double sharedKibibytes = UNKNOWN_BYTES;
-  std::string field;
-  while (status >> field) {
-    if (field == "RssAnon:" && !(status >> anonymousKibibytes)) break;
-    if (field == "RssShmem:" && !(status >> sharedKibibytes)) break;
-    if (anonymousKibibytes >= 0 && sharedKibibytes >= 0) {
-      return (anonymousKibibytes + sharedKibibytes) * KIBIBYTE_BYTES;
+  uint64_t anonymousKibibytes = 0;
+  uint64_t sharedKibibytes = 0;
+  bool hasAnonymous = false;
+  bool hasShared = false;
+  std::string line;
+  while (std::getline(status, line)) {
+    std::istringstream fields(line);
+    std::string field, digits, unit, extra;
+    if (!(fields >> field) || (field != "RssAnon:" && field != "RssShmem:")) continue;
+    if (!(fields >> digits >> unit) || unit != "kB" || (fields >> extra)) return wholeResidentBytes();
+    uint64_t value = 0;
+    const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()) return wholeResidentBytes();
+    if (field == "RssAnon:") {
+      anonymousKibibytes = value;
+      hasAnonymous = true;
+    } else {
+      sharedKibibytes = value;
+      hasShared = true;
     }
+  }
+  const uint64_t largestKibibytes = std::numeric_limits<uint64_t>::max() / KIBIBYTE_BYTES;
+  if (!status.bad() && hasAnonymous && hasShared && anonymousKibibytes <= largestKibibytes &&
+      sharedKibibytes <= largestKibibytes - anonymousKibibytes) {
+    return static_cast<double>((anonymousKibibytes + sharedKibibytes) * KIBIBYTE_BYTES);
   }
   return wholeResidentBytes();
 }
