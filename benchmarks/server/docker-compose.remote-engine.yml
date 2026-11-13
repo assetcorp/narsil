@@ -1,0 +1,22 @@
+services:
+  narsil:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:7700:7700"
+  elasticsearch:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:9200:9200"
+  opensearch:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:9200:9200"
+  qdrant:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:6333:6333"
+  weaviate:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:8080:8080"
+  typesense:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:8108:8108"
+  meilisearch:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:7700:7700"

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+from .engine_machine_report import engine_machine_lines, harness_machine_heading
 from .latency_report import client_summary, disclosure, server_summary
 from .throughput_report import per_engine_lines
 from .types import EQUAL_PRECISION, HYBRID, KEYWORD, VECTOR
@@ -88,6 +89,7 @@ def _operational_columns(rows: list[dict]) -> list[str]:
     lines.append("")
     lines.extend(_client_latency_columns(rows))
     lines.append("")
+    lines.extend(_engine_memory_columns(rows))
     lines.extend(_server_time_disclosure(rows))
     for row in rows:
         throughput = per_engine_lines(row)
@@ -117,6 +119,35 @@ def _client_latency_columns(rows: list[dict]) -> list[str]:
                 p99=_fmt(client.get("p99_ms"), 2),
             )
         )
+    return lines
+
+
+def _gigabytes(value: object) -> str:
+    return f"{value / 1e9:.2f} GB" if isinstance(value, (int, float)) else "n/a"
+
+
+def _engine_memory_columns(rows: list[dict]) -> list[str]:
+    measured = [row for row in rows if isinstance(row.get("engine_memory"), dict)]
+    if not measured:
+        return []
+    lines = [
+        "Engine container memory through the whole track, load included (anonymous memory is the heap the "
+        "kernel cannot reclaim; charged memory adds the page cache of the engine's files):",
+        "",
+        "| Dataset | Peak anonymous | Peak charged | Samples |",
+        "| --- | --- | --- | --- |",
+    ]
+    for row in measured:
+        memory = row["engine_memory"]
+        lines.append(
+            "| {id} | {anon} | {charged} | {samples} |".format(
+                id=row["dataset_id"],
+                anon=_gigabytes(memory.get("peak_anon_bytes")),
+                charged=_gigabytes(memory.get("peak_charged_bytes")),
+                samples=memory.get("samples", "n/a"),
+            )
+        )
+    lines.append("")
     return lines
 
 
@@ -231,10 +262,11 @@ def _environment_lines(report: dict) -> list[str]:
     lines = ["## Environment", ""]
     lines.append(f"- Captured: {env.get('captured_at')}")
     if env.get("machine_label"):
-        lines.append(f"- Machine: {env.get('machine_label')}")
+        lines.append(f"- {harness_machine_heading(env)}: {env.get('machine_label')}")
     lines.append(f"- OS / arch: {env.get('os')} / {env.get('arch')} (containerized: {env.get('containerized')})")
     lines.append(f"- CPU: {env.get('cpu_model') or env.get('arch')} ({env.get('logical_cpus')} logical)")
     lines.append(f"- Memory: {'n/a' if memory is None else f'{memory / 1e9:.1f} GB'}")
+    lines.extend(engine_machine_lines(env))
     lines.append(f"- Memory cap per engine: {'n/a' if cap is None else f'{cap / 1e9:.1f} GB'}")
     lines.append(f"- Tracks: {tracks}")
     lines.append(f"- Keyword setup: {engine.get('keyword_setup')}")

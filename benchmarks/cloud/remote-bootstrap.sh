@@ -66,8 +66,9 @@ fi
 log "install the Rust toolchain that packages/rust pins"
 ( cd "$HOME/narsil/packages/rust" && "$HOME/.cargo/bin/rustup" toolchain install )
 
-log "raise vm.max_map_count for the JVM search engines"
-echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-narsil-bench.conf >/dev/null
+log "raise vm.max_map_count for the JVM search engines and keep IPv4 forwarding on for Docker's bridge"
+printf '%s\n' 'vm.max_map_count=262144' 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-narsil-bench.conf >/dev/null
 sudo sysctl --system >/dev/null
+[ "$(sysctl -n net.ipv4.ip_forward)" = "1" ] || { log "IPv4 forwarding is off, so containers cannot reach the network"; exit 1; }
 
 log "done"

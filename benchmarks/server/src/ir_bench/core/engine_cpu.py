@@ -4,6 +4,9 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from .cgroup_files import CgroupFiles, LocalCgroupFiles, remote_cgroup_files_from_env
+from .cpu_sets import CPUSET_EFFECTIVE_FILENAME, count_cpu_list
+
 CPU_STAT_FILENAME = "cpu.stat"
 CGROUP_ROOT_ENV = "BENCH_CGROUP_ROOT"
 ENGINE_CONTAINER_ID_ENV = "BENCH_ENGINE_CONTAINER_ID"
@@ -14,19 +17,26 @@ _USAGE_LINE = re.compile(r"^usage_usec (\d+)$", re.MULTILINE)
 
 
 class CgroupCpuCounter:
-    def __init__(self, cgroup_dir: Path) -> None:
-        self.cgroup_dir = Path(cgroup_dir)
+    def __init__(self, files: CgroupFiles | Path) -> None:
+        self.files: CgroupFiles = LocalCgroupFiles(files) if isinstance(files, Path) else files
 
     def usage_usec(self) -> int | None:
-        try:
-            text = (self.cgroup_dir / CPU_STAT_FILENAME).read_text(encoding="utf-8")
-        except OSError:
-            return None
-        match = _USAGE_LINE.search(text)
+        text = self.files.read_text(CPU_STAT_FILENAME)
+        match = _USAGE_LINE.search(text) if text is not None else None
         return int(match.group(1)) if match else None
 
+    def cores_allowed(self) -> int | None:
+        text = self.files.read_text(CPUSET_EFFECTIVE_FILENAME)
+        return count_cpu_list(text) if text is not None else None
+
+    def on_harness_machine(self) -> bool:
+        return self.files.on_harness_machine
+
+    def machine_cpus(self) -> int | None:
+        return self.files.machine_cpus()
+
     def describe(self) -> dict[str, str]:
-        return {"source": COUNTER_SOURCE, "cgroup_dir": str(self.cgroup_dir)}
+        return {"source": COUNTER_SOURCE, **self.files.location()}
 
 
 def cores_busy(before_usec: int | None, after_usec: int | None, elapsed_seconds: float) -> float | None:
@@ -55,6 +65,9 @@ def locate_engine_cgroup(root: Path, container_id: str, max_depth: int = CGROUP_
 
 
 def engine_cpu_counter_from_env(environ: Mapping[str, str]) -> CgroupCpuCounter | None:
+    remote = remote_cgroup_files_from_env(environ)
+    if remote is not None:
+        return CgroupCpuCounter(remote)
     root = (environ.get(CGROUP_ROOT_ENV) or "").strip()
     container_id = (environ.get(ENGINE_CONTAINER_ID_ENV) or "").strip()
     if not root or not container_id:

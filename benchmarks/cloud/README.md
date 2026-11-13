@@ -125,16 +125,39 @@ Every default is an environment variable:
 | `BENCH_SERVER_ENGINES` | unset | Restrict the server suite to named engines |
 | `BENCH_MACHINE_LABEL` | derived | Host label recorded in server results |
 | `BENCH_RUN_ID` | minted on the VM | Run id every engine file is written under; share one across VMs to merge them |
+| `ENGINE_MACHINE_TYPE` | unset | Serve each engine from a second VM of this size (GCP only) |
+| `VM_MAX_HOURS` | `26` | Self-delete backstop in hours; `0` disables it (GCP only) |
 
 Provider-specific: `GCP_PROJECT`, `GCP_ZONE`, `MIN_CPU_PLATFORM`, `USE_IAP` for
 GCP; `HCLOUD_LOCATION` for Hetzner; `DO_REGION` for DigitalOcean; `AWS_REGION`,
 `AWS_SUBNET`, `AWS_AMI`, `AWS_SG_NAME` for AWS. The server suite reads
 `BENCH_BEST_CONFIG`, `BENCH_THROUGHPUT_PASSES`, `BENCH_DATASETS`,
-`BENCH_DATASET_ENGINES`, `BENCH_MEM_CAP`, and `BENCH_JVM_HEAP`, and this toolkit
-forwards them to the VM unchanged. The
+`BENCH_DATASET_ENGINES`, `BENCH_MEM_CAP`, `BENCH_JVM_HEAP`, `BENCH_ENGINE_CPUS`,
+`BENCH_THROUGHPUT_CLIENT_PROCESSES`, `BENCH_SHARE_VECTOR_INDEX`, and `BENCH_IMPORT_CLIENTS`, and this
+toolkit forwards them to the VM unchanged. The
 best-config pass runs by default, and on the cloud profile the harness measures
 every concurrency level once and the peak level three times unless
 `BENCH_THROUGHPUT_PASSES` says otherwise.
+
+## The engine on its own VM
+
+On one machine, the load generator's CPU comes out of the cores that the engine
+would serve with. Set `ENGINE_MACHINE_TYPE` on GCP to give the engine a second
+VM, `VM_NAME-engine`, in the same zone and on the same network:
+
+```bash
+MACHINE_TYPE=<harness size> ENGINE_MACHINE_TYPE=<engine size> SUITES=server \
+  ./run-cloud.sh all --yes
+```
+
+`VM_NAME` runs the harness, and the engine VM holds only the engine container and
+a small stats service. `up` creates a firewall rule that opens SSH, the engine
+ports, and port 9877 between the two VMs alone, and `setup` gives the harness VM an
+SSH key that reaches the engine VM over the private network, then tests it. Each
+result records the engine machine and the network round trip between the two.
+`down` deletes both VMs and the firewall rule. Both VMs delete themselves
+`VM_MAX_HOURS` after creation, so a run that loses its connection stops billing
+at that deadline; fetch the results before it.
 
 ## One engine per VM
 

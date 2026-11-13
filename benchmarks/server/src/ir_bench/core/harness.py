@@ -9,6 +9,7 @@ from .artifacts import dataset_slug
 from .config import BenchmarkConfig, EngineConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
+from .engine_memory import CgroupMemoryCounter
 from .keyword_relevance import load_keyword_index, score_keyword_queries
 from .latency import measure_latency, warmup_sample
 from .reporter import write_json
@@ -17,7 +18,7 @@ from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
 from .track_common import best_effort, index_size_bytes, server_setup
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
-from .vector_runner import run_hybrid_track, run_vector_track
+from .vector_runner import LoadedVectorIndex, run_hybrid_track, run_vector_track
 
 CHECKPOINTS_DIRNAME = "tracks"
 
@@ -34,6 +35,17 @@ def _load_checkpoint(path: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return loaded if isinstance(loaded, dict) else None
+
+
+def _with_memory(engine_memory: CgroupMemoryCounter | None, run: Callable[[], dict]) -> Callable[[], dict]:
+    if engine_memory is None:
+        return run
+
+    def measured() -> dict:
+        result, memory = engine_memory.measure(run)
+        return {**result, "engine_memory": memory}
+
+    return measured
 
 
 def _checkpointed(checkpoint_dir: Path | None, label: str, track: str, spec: DatasetSpec, run: Callable[[], dict]) -> dict:
@@ -142,6 +154,8 @@ def run_engine(
     vector_profile: str = EQUAL_PRECISION,
     engine_cpu: CpuCounter | None = None,
     checkpoint_dir: Path | None = None,
+    engine_memory: CgroupMemoryCounter | None = None,
+    share_vector_index: bool = False,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
@@ -150,6 +164,8 @@ def run_engine(
     for spec in specs:
         chosen_vector_ef: int | None = None
         chosen_vector_oversample: float | None = None
+        kept: list[LoadedVectorIndex] = []
+        keep_index = kept.append if share_vector_index and HYBRID in engine_cfg.tracks else None
         for track in engine_cfg.tracks:
             if track == KEYWORD:
                 if vector_profile == BEST_CONFIG:
@@ -157,7 +173,10 @@ def run_engine(
                 results.append(
                     _checkpointed(
                         checkpoint_dir, label, KEYWORD, spec,
-                        lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                        _with_memory(
+                            engine_memory,
+                            lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                        ),
                     )
                 )
             elif track == VECTOR:
@@ -165,9 +184,13 @@ def run_engine(
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
                 result = _checkpointed(
                     checkpoint_dir, label, VECTOR, spec,
-                    lambda: run_vector_track(
-                        driver, engine_cfg, config, spec, runs_dir, store,
-                        f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                    _with_memory(
+                        engine_memory,
+                        lambda: run_vector_track(
+                            driver, engine_cfg, config, spec, runs_dir, store,
+                            f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                            keep_index=keep_index,
+                        ),
                     ),
                 )
                 point = result.get("operating_point")
@@ -181,10 +204,17 @@ def run_engine(
                 results.append(
                     _checkpointed(
                         checkpoint_dir, label, HYBRID, spec,
-                        lambda: run_hybrid_track(
-                            driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
-                            chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                        _with_memory(
+                            engine_memory,
+                            lambda: run_hybrid_track(
+                                driver, engine_cfg, config, spec, runs_dir, store,
+                                f"{engine_cfg.name}_hybrid{suffix}",
+                                chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                                loaded=kept.pop() if kept else None,
+                            ),
                         ),
                     )
                 )
+        for leftover in kept:
+            driver.drop_index(leftover.index)
     return results
