@@ -282,6 +282,21 @@ jobs:
           NARSIL_REQUIRE_NATIVE_CORE: '1'
         run: pnpm run test:native
 
+      - name: Download the TypeScript engine so a child process can map vector files through the core
+        if: startsWith(matrix.label, 'linux-')
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Accept writes beside vector files mapped from disk and refuse them once anonymous memory passes the block
+        if: startsWith(matrix.label, 'linux-')
+        working-directory: packages/ts
+        env:
+          NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/${{ matrix.output }}/narsil-core.node
+          NARSIL_REQUIRE_NATIVE_CORE: '1'
+        run: pnpm run test:file-backed-memory
+
       - name: Build the core without its AVX2 and POPCNT kernels
         if: matrix.label == 'linux-x64'
         working-directory: packages/native

@@ -1238,13 +1238,16 @@ type MultiGetResponse struct {
 // NodeMemoryReport: How much memory one node uses against its limits, which the node publishes with
 // every heartbeat so that the cluster stops taking writes before the node runs out of memory.
 type NodeMemoryReport struct {
-	// The whole process holds this many bytes of resident memory, including vectors and segments kept
-	// outside the heap.
+	// The process holds this many bytes of resident memory, including the vectors and segments that it
+	// keeps outside the heap. On Linux, the figure counts only the anonymous and shared resident memory,
+	// which leaves out the pages that the process maps from files, because the kernel can drop those pages
+	// without ending the process. On any other system, Node.js reports only the whole resident memory, so
+	// the figure counts all of it.
 	ProcessBytes float64 `json:"processBytes"`
 	// The process may hold this many bytes. Where a container sets a memory limit, this figure is that
-	// limit. Without one, a node on Linux reports its own resident memory plus the memory that the host
-	// reports as available, up to the host's total memory, so the figure falls whenever other processes on
-	// the host take memory. A node on any other system reports the host's total memory.
+	// limit. Without one, a node on Linux reports `processBytes` plus the memory that the host reports as
+	// available, up to the host's total memory, so the figure falls whenever other processes on the host
+	// take memory. A node on any other system reports the host's total memory.
 	ProcessLimitBytes float64 `json:"processLimitBytes"`
 	// The main thread's old generation uses this many bytes. The old generation is the V8 heap without the
 	// young generation, which holds new objects until the collector empties it.
