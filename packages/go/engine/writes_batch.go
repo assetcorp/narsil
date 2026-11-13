@@ -201,8 +201,10 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, contex
 	for at, remove := range accepted {
 		writes[at] = persist.Write{DocumentID: remove.DocID}
 	}
-	failures, err := entry.apply(ctx, writes, index.WriteRemove)
-	entry.writeMu.Unlock()
+	failures, commit, err := entry.apply(ctx, writes, index.WriteRemove)
+	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		err = awaited
+	}
 	if err != nil {
 		for _, remove := range accepted {
 			outcome.fail(remove.DocID, err)
