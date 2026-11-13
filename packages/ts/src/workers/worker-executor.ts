@@ -326,8 +326,9 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   }
 
   async function shutdown(): Promise<void> {
+    const firstShutdown = !shutdownRequested
     shutdownRequested = true
-    if (deathError === null && !gone) stopOnceTheWorkerAcknowledges()
+    if (firstShutdown && deathError === null && !gone) stopOnceTheWorkerAcknowledges()
     if (reportsItsExit) watchTheThreadLeave()
     else stopWatchingSilence()
     try {
