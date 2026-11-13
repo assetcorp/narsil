@@ -6,10 +6,6 @@ import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
 import type { SchemaDefinition } from '../types/schema'
 import {
-  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
-  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
-} from '../workers/constants'
-import {
   ABSOLUTE_WINDOWS_PATH_PATTERN,
   DEFAULT_LIMIT,
   DEFAULT_OFFSET,
@@ -176,27 +172,11 @@ function validateBootstrapModule(bootstrapModule: string | undefined): void {
   )
 }
 
-function validateWorkerSilence(workers: WorkerConfig): void {
-  requirePositiveSafeInteger('workers.silenceBeforeProbeMs', workers.silenceBeforeProbeMs)
-  requirePositiveSafeInteger('workers.silenceBeforeRetirementMs', workers.silenceBeforeRetirementMs)
-  const beforeProbe = workers.silenceBeforeProbeMs ?? DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS
-  const beforeRetirement = workers.silenceBeforeRetirementMs ?? DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS
-  if (beforeProbe < beforeRetirement) return
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    'workers.silenceBeforeProbeMs must be less than workers.silenceBeforeRetirementMs, so that a worker gets a probe before the engine retires it',
-    { silenceBeforeProbeMs: beforeProbe, silenceBeforeRetirementMs: beforeRetirement },
-  )
-}
-
-function validateThreadsLeftRunning(limit: number | undefined): void {
-  if (limit === undefined || (Number.isSafeInteger(limit) && limit >= 0)) return
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    'workers.maxThreadsLeftRunning must be a whole number of 0 or more',
-    {
-      maxThreadsLeftRunning: limit,
-    },
+export function setsWorkerLiveness(workers: WorkerConfig | undefined): workers is WorkerConfig {
+  return (
+    workers?.silenceBeforeProbeMs !== undefined ||
+    workers?.silenceBeforeRetirementMs !== undefined ||
+    workers?.maxThreadsLeftRunning !== undefined
   )
 }
 
@@ -205,8 +185,6 @@ export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycl
   requirePositiveSafeInteger('workers.count', workers.count)
   requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
   requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
-  validateWorkerSilence(workers)
-  validateThreadsLeftRunning(workers.maxThreadsLeftRunning)
   if (
     workers.mainCopyQueries !== undefined &&
     workers.mainCopyQueries !== 'lone' &&
