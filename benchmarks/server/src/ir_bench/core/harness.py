@@ -18,7 +18,7 @@ from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
 from .track_common import best_effort, index_size_bytes, server_setup
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
-from .vector_runner import run_hybrid_track, run_vector_track
+from .vector_runner import LoadedVectorIndex, run_hybrid_track, run_vector_track
 
 CHECKPOINTS_DIRNAME = "tracks"
 
@@ -155,6 +155,7 @@ def run_engine(
     engine_cpu: CpuCounter | None = None,
     checkpoint_dir: Path | None = None,
     engine_memory: CgroupMemoryCounter | None = None,
+    share_vector_index: bool = False,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
@@ -163,6 +164,8 @@ def run_engine(
     for spec in specs:
         chosen_vector_ef: int | None = None
         chosen_vector_oversample: float | None = None
+        kept: list[LoadedVectorIndex] = []
+        keep_index = kept.append if share_vector_index and HYBRID in engine_cfg.tracks else None
         for track in engine_cfg.tracks:
             if track == KEYWORD:
                 if vector_profile == BEST_CONFIG:
@@ -186,6 +189,7 @@ def run_engine(
                         lambda: run_vector_track(
                             driver, engine_cfg, config, spec, runs_dir, store,
                             f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                            keep_index=keep_index,
                         ),
                     ),
                 )
@@ -206,8 +210,11 @@ def run_engine(
                                 driver, engine_cfg, config, spec, runs_dir, store,
                                 f"{engine_cfg.name}_hybrid{suffix}",
                                 chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                                loaded=kept.pop() if kept else None,
                             ),
                         ),
                     )
                 )
+        for leftover in kept:
+            driver.drop_index(leftover.index)
     return results

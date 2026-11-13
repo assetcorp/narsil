@@ -285,9 +285,16 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   core divided by its per-request cost, whatever the engine could serve.
   `throughput.client_processes` sets how many processes drive the load
   (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
-  host's logical cores), and every level records the value used. That CPU comes out
-  of the same host the engine runs on, so raising it buys headroom to measure with
-  and costs the engine cores to be measured on. Each level also records whether the
+  cores that the harness container may use), and every level records the value used.
+  On a shared host that CPU comes out of the cores the engine runs on, so raising it
+  buys headroom to measure with and costs the engine cores to be measured on. Set
+  `BENCH_ENGINE_CPUS` to a count of logical CPUs to end that trade: `run-all.sh`
+  reads the host's CPU topology, gives every engine container that many logical
+  CPUs on whole physical cores through the compose `cpuset`, and pins the harness
+  to every other core, so the two never share a core. The engine still shares the
+  host's memory bandwidth and last-level cache with the harness. Each level records
+  the engine container's allowed cores from its `cpuset.cpus.effective`, and the
+  client's ceiling counts only the cores the harness may use. Each level also records whether the
   engine or the client set the limit, read from the client's CPU against the cores
   its own processes can reach and from the concurrency it achieved, so you can spot
   a client-bound number before you trust it.
@@ -302,6 +309,14 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   0.25 s while the track loads, queries, and drops its index, and it reports the
   highest of each. The anonymous figure leaves out the page cache, so it counts what
   the engine allocated.
+- `BENCH_SHARE_VECTOR_INDEX=1` keeps the index that the vector track built and
+  measures the hybrid track on it, so a large corpus loads once per engine. Both
+  tracks load the same documents into the same index with the same settings, and
+  the harness checks the engine's document count before it reuses the index. The
+  hybrid result then reports the vector track's build time with
+  `index_built_by_vector_track` set, and its peak memory leaves out the load. Where
+  the vector track came from a checkpoint, no index is left in the engine, so the
+  hybrid track loads its own.
 - The vector track measures throughput once more at every search-effort value its
   recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
   so the operating point's `sweep` carries queries per second beside the sample

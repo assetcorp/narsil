@@ -18,6 +18,9 @@ from .core.reporter import build_engine_report, render_engine_markdown, write_js
 from .core.run_store import resolve_run_id_for_write, run_directory, validate_engine_name, write_run_manifest
 from .core.types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, VECTOR, VECTOR_PROFILES
 
+SHARE_VECTOR_INDEX_ENV = "BENCH_SHARE_VECTOR_INDEX"
+ENABLED_SWITCH_VALUES = ("1", "true", "yes", "on")
+
 
 def _embeddings_dir() -> Path:
     return Path(os.environ.get("BENCH_EMBEDDINGS_DIR", "/data/embeddings"))
@@ -95,7 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     engine_cpu = engine_cpu_counter_from_env(os.environ)
     engine_memory = engine_memory_counter_from_env(os.environ)
+    share_vector_index = os.environ.get(SHARE_VECTOR_INDEX_ENV, "").strip().lower() in ENABLED_SWITCH_VALUES
     config_summary = {
+        "share_vector_index": share_vector_index,
         "k1": config.bm25.k1,
         "b": config.bm25.b,
         "run_depth": config.run_depth,
@@ -167,9 +172,13 @@ def main(argv: list[str] | None = None) -> int:
             print("engine memory: not recorded (no engine container cgroup was supplied)", flush=True)
         else:
             print(f"engine memory: read from {engine_memory.cgroup_dir}", flush=True)
+        if engine_cpu is not None:
+            print(f"engine cores allowed: {engine_cpu.cores_allowed() or 'not read from the cgroup'}", flush=True)
+        if share_vector_index:
+            print("the hybrid track measures the index that the vector track built", flush=True)
         results = run_engine(
             driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir,
-            engine_memory,
+            engine_memory, share_vector_index,
         )
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")

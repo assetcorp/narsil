@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .config_throughput import ThroughputConfig
+from .cpu_sets import usable_cpus
 from .stats import bootstrap_median_interval, median, summarize_ms
 from .throughput_process import CpuCounter, PhaseOutcome, ProcessResult, pack_items, run_phase
 from .throughput_workload import Workload
@@ -47,7 +48,7 @@ def _pass_record(
     mean_latency_s = client_summary["mean_ms"] / 1000.0
     achieved_concurrency = qps * mean_latency_s
 
-    logical_cpus = os.cpu_count() or 1
+    logical_cpus = usable_cpus()
     running = len(results) or processes
     ceiling_cores = float(min(running, logical_cpus))
     cores_busy = cpu_seconds / elapsed if elapsed > 0 else 0.0
@@ -75,6 +76,12 @@ def _pass_record(
         "engine_cores_busy": engine_cores_busy,
     }
     return PassSamples(record=record, client_ms=client_ms, server_ms=server_ms)
+
+
+def _engine_cores_allowed(engine_cpu: CpuCounter | None) -> int | None:
+    read = getattr(engine_cpu, "cores_allowed", None)
+    allowed = read() if callable(read) else None
+    return allowed if allowed is not None else os.cpu_count()
 
 
 def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: int | None) -> dict[str, Any]:
@@ -153,7 +160,7 @@ def measure_throughput(
         return None
 
     capture_server = server_time.resolution != NOT_AVAILABLE
-    cores_allowed = os.cpu_count()
+    cores_allowed = _engine_cores_allowed(engine_cpu)
     packed = pack_items(items)
 
     def one_pass(concurrency: int) -> PassSamples:

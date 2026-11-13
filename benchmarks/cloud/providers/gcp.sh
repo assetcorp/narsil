@@ -21,6 +21,7 @@ prov_init() {
 
 prov_hourly() {
   case "$MACHINE_TYPE" in
+    c3-highcpu-44) echo "~\$1.87" ;;
     c3-standard-8) echo "~\$0.40" ;;
     c3-standard-4) echo "~\$0.20" ;;
     n2-standard-8) echo "~\$0.39" ;;

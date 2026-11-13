@@ -119,7 +119,55 @@ image_digest_of() {
     "$image_id" 2>/dev/null || true
 }
 
+cpu_list_members() {
+  local part first last cpu
+  local IFS=,
+  for part in $1; do
+    first="${part%-*}"
+    last="${part#*-}"
+    for ((cpu = first; cpu <= last; cpu++)); do
+      printf '%s\n' "$cpu"
+    done
+  done
+}
+
+split_engine_cpus() {
+  local want="$1" index group cpu
+  local -a groups engine harness
+  if ! [[ "$want" =~ ^[1-9][0-9]*$ ]]; then
+    echo "BENCH_ENGINE_CPUS must be a positive whole number, got '${want}'" >&2
+    return 1
+  fi
+  mapfile -t groups < <(cat /sys/devices/system/cpu/cpu[0-9]*/topology/thread_siblings_list 2>/dev/null | sort -un)
+  if [ "${#groups[@]}" -eq 0 ]; then
+    echo "BENCH_ENGINE_CPUS needs the Linux CPU topology under /sys/devices/system/cpu" >&2
+    return 1
+  fi
+  engine=()
+  harness=()
+  for ((index = ${#groups[@]} - 1; index >= 0; index--)); do
+    group="${groups[$index]}"
+    if [ "${#engine[@]}" -lt "$want" ]; then
+      while read -r cpu; do engine+=("$cpu"); done < <(cpu_list_members "$group")
+    else
+      while read -r cpu; do harness+=("$cpu"); done < <(cpu_list_members "$group")
+    fi
+  done
+  if [ "${#engine[@]}" -ne "$want" ] || [ "${#harness[@]}" -eq 0 ]; then
+    echo "cannot give the engine ${want} logical CPUs on whole physical cores and leave the harness at least one; the host has ${#groups[@]} physical cores" >&2
+    return 1
+  fi
+  BENCH_ENGINE_CPUSET="$(printf '%s\n' "${engine[@]}" | sort -n | paste -sd, -)"
+  BENCH_HARNESS_CPUSET="$(printf '%s\n' "${harness[@]}" | sort -n | paste -sd, -)"
+  export BENCH_ENGINE_CPUSET BENCH_HARNESS_CPUSET
+}
+
+if [ -n "${BENCH_ENGINE_CPUS:-}" ]; then
+  split_engine_cpus "$BENCH_ENGINE_CPUS" || exit 2
+fi
+
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
+echo "engine CPUs: ${BENCH_ENGINE_CPUSET:-every host CPU}; harness CPUs: ${BENCH_HARNESS_CPUSET:-every host CPU}"
 echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: ${BENCH_DATASET_ENGINES:-every engine on every dataset}; memory cap: ${BENCH_MEM_CAP:-8g}; throughput passes per level: ${BENCH_THROUGHPUT_PASSES}"
 
 if [ "$#" -gt 0 ]; then

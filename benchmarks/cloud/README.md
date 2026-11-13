@@ -122,8 +122,9 @@ Provider-specific: `GCP_PROJECT`, `GCP_ZONE`, `MIN_CPU_PLATFORM`, `USE_IAP` for
 GCP; `HCLOUD_LOCATION` for Hetzner; `DO_REGION` for DigitalOcean; `AWS_REGION`,
 `AWS_SUBNET`, `AWS_AMI`, `AWS_SG_NAME` for AWS. The server suite reads
 `BENCH_BEST_CONFIG`, `BENCH_THROUGHPUT_PASSES`, `BENCH_DATASETS`,
-`BENCH_DATASET_ENGINES`, `BENCH_MEM_CAP`, and `BENCH_JVM_HEAP`, and this toolkit
-forwards them to the VM unchanged. The
+`BENCH_DATASET_ENGINES`, `BENCH_MEM_CAP`, `BENCH_JVM_HEAP`, `BENCH_ENGINE_CPUS`,
+`BENCH_THROUGHPUT_CLIENT_PROCESSES`, and `BENCH_SHARE_VECTOR_INDEX`, and this
+toolkit forwards them to the VM unchanged. The
 best-config pass runs by default, and on the cloud profile the harness measures
 every concurrency level once and the peak level three times unless
 `BENCH_THROUGHPUT_PASSES` says otherwise.

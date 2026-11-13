@@ -4,6 +4,8 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from .cpu_sets import cgroup_cpus_allowed
+
 CPU_STAT_FILENAME = "cpu.stat"
 CGROUP_ROOT_ENV = "BENCH_CGROUP_ROOT"
 ENGINE_CONTAINER_ID_ENV = "BENCH_ENGINE_CONTAINER_ID"
@@ -24,6 +26,9 @@ class CgroupCpuCounter:
             return None
         match = _USAGE_LINE.search(text)
         return int(match.group(1)) if match else None
+
+    def cores_allowed(self) -> int | None:
+        return cgroup_cpus_allowed(self.cgroup_dir)
 
     def describe(self) -> dict[str, str]:
         return {"source": COUNTER_SOURCE, "cgroup_dir": str(self.cgroup_dir)}

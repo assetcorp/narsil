@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import __version__
+from .cpu_sets import usable_cpus
 from .datasets import dataset_version
 from .scoring import pytrec_eval_version
 
@@ -38,6 +39,7 @@ def capture_environment() -> dict:
         "arch": platform.machine(),
         "cpu_model": _cpu_model(),
         "logical_cpus": os.cpu_count(),
+        "harness_cpus": usable_cpus(),
         "total_memory_bytes": _total_memory_bytes(),
         "python_version": platform.python_version(),
         "ir_datasets_version": dataset_version(),
