@@ -82,7 +82,8 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 
 func isPerDocument(err error) bool {
 	_, isEngineError := narsilerr.As(err)
-	return isEngineError && narsilerr.CodeOf(err) != narsilerr.CodePersistenceSaveFailed
+	code := narsilerr.CodeOf(err)
+	return isEngineError && code != narsilerr.CodePersistenceSaveFailed && code != narsilerr.CodePersistenceFsyncFailed
 }
 
 func (n *Narsil) updateOne(ctx context.Context, holder indexHolder, entry *indexEntry, release func(),

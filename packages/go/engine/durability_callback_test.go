@@ -44,7 +44,8 @@ func TestDurabilityFailureListenerCanReenter(t *testing.T) {
 	}
 }
 
-func testDurabilityFailureCallback(t *testing.T, operation string) {
+func failingSyncEngine(t *testing.T) *engine.Narsil {
+	t.Helper()
 	ctx := context.Background()
 	directory := t.TempDir()
 	narsil := openSharedFlushEngine(t, directory)
@@ -58,7 +59,7 @@ func testDurabilityFailureCallback(t *testing.T, operation string) {
 	}
 	shutDown(t, narsil, "before reopening")
 	narsil = openSharedFlushEngine(t, directory)
-	defer func() { _ = narsil.Shutdown(ctx) }()
+	t.Cleanup(func() { _ = narsil.Shutdown(ctx) })
 	markers, err := filepath.Glob(filepath.Join(directory, sharedFlushIndex, "wal", "*", "commit"))
 	if err != nil || len(markers) == 0 {
 		t.Fatalf("The seeded index has no commit marker: %v", err)
@@ -71,6 +72,12 @@ func testDurabilityFailureCallback(t *testing.T, operation string) {
 			t.Fatal(err)
 		}
 	}
+	return narsil
+}
+
+func testDurabilityFailureCallback(t *testing.T, operation string) {
+	ctx := context.Background()
+	narsil := failingSyncEngine(t)
 	completed := make(chan error, 1)
 	narsil.On(engine.EventHandlers{DurabilityError: func(event engine.DurabilityErrorEvent) {
 		if engine.ErrorCode(event.Err) != engine.CodePersistenceFsyncFailed {
@@ -88,7 +95,7 @@ func testDurabilityFailureCallback(t *testing.T, operation string) {
 		}
 		completed <- err
 	}})
-	_, err = narsil.Insert(ctx, sharedFlushIndex, engine.DocumentFromMap(map[string]any{"title": "unflushed"}),
+	_, err := narsil.Insert(ctx, sharedFlushIndex, engine.DocumentFromMap(map[string]any{"title": "unflushed"}),
 		"unflushed", engine.InsertOptions{})
 	if engine.ErrorCode(err) != engine.CodePersistenceFsyncFailed {
 		t.Fatalf("The failed sync returned %v", err)
@@ -96,5 +103,24 @@ func testDurabilityFailureCallback(t *testing.T, operation string) {
 	if err := <-completed; engine.ErrorCode(err) != engine.CodePersistenceFsyncFailed &&
 		engine.ErrorCode(err) != engine.CodePersistenceSaveFailed {
 		t.Fatalf("The %s listener returned %v", operation, err)
+	}
+}
+
+func TestUpdateBatchReturnsAFatalSyncFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The failing sync uses /dev/null")
+	}
+	ctx := context.Background()
+	narsil := failingSyncEngine(t)
+	result, err := narsil.UpdateBatch(ctx, sharedFlushIndex, []engine.DocumentUpdate{
+		{DocID: "seed", Document: engine.DocumentFromMap(map[string]any{"title": "unflushed"})},
+		{DocID: "seed", Document: engine.DocumentFromMap(map[string]any{"title": "after failure"})},
+	}, engine.WriteOptions{})
+	if engine.ErrorCode(err) != engine.CodePersistenceFsyncFailed {
+		t.Fatalf("The batch returned %v with %d successes and %d document failures after fsync failed", err,
+			len(result.Succeeded), len(result.Failed))
+	}
+	if len(result.Succeeded) != 0 {
+		t.Fatalf("The batch acknowledged %v after fsync failed", result.Succeeded)
 	}
 }
