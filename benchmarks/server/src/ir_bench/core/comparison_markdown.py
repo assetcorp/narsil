@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .engine_machine_report import engine_machine_lines, harness_machine_heading, memory_held_by_engine_machine
 from .throughput_report import comparison_lines as throughput_lines
 from .throughput_report import ranks_on_speed
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, INTEGER_MS, KEYWORD, VECTOR
@@ -302,9 +303,10 @@ def _run_conditions(comparison: dict) -> list[str]:
     else:
         lines.append("- Vector and hybrid tracks hold every engine at full float (no quantization) for an equal-precision comparison.")
     if env.get("machine_label"):
-        lines.append(f"- Machine: {env.get('machine_label')}")
+        lines.append(f"- {harness_machine_heading(env)}: {env.get('machine_label')}")
     lines.append(f"- OS / arch: {env.get('os')} / {env.get('arch')}")
-    lines.append(f"- Equal memory cap per engine: {_memory_cap_text(cap, env.get('total_memory_bytes'))}")
+    lines.extend(engine_machine_lines(env))
+    lines.append(f"- Equal memory cap per engine: {_memory_cap_text(cap, memory_held_by_engine_machine(env))}")
     java_heaps = _java_heap_text(comparison.get("engines"))
     if java_heaps:
         lines.append(f"- Java heap inside that cap, as each node reports it: {java_heaps}")
