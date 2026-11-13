@@ -138,7 +138,7 @@ impl Narsil {
         if plugins.is_empty() {
             let mut held = HeldWrite::new(document);
             return self.write_one(index, |state| {
-                writes::insert(state, &mut held, doc_id, &next_id)
+                writes::insert(state, &self.inner.memory, &mut held, doc_id, &next_id)
             });
         }
         let name = self.inner.open_index(index)?.name.clone();
@@ -147,7 +147,7 @@ impl Narsil {
         let kept = document.clone();
         let mut held = HeldWrite::new(document);
         let id = self.write_one(index, |state| {
-            writes::insert(state, &mut held, Some(&id), &next_id)
+            writes::insert(state, &self.inner.memory, &mut held, Some(&id), &next_id)
         })?;
         plugins.after(|plugin| plugin.after_insert(&name, &id, &kept));
         Ok(id)
@@ -164,7 +164,7 @@ impl Narsil {
         let next_id = || self.inner.next_document_id();
         let plugins = &self.inner.plugins;
         let write = |state: &IndexState, chunk: &mut InsertChunk, result: &mut BatchResult| {
-            writes::insert_chunk(state, chunk, result, &next_id)
+            writes::insert_chunk(state, &self.inner.memory, chunk, result, &next_id)
         };
         if plugins.is_empty() {
             let chunks = writes::insert_chunks(documents, Vec::new());
@@ -194,14 +194,18 @@ impl Narsil {
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
             let mut held = HeldWrite::new(document);
-            return self.write_one(index, |state| writes::update(state, doc_id, &mut held));
+            return self.write_one(index, |state| {
+                writes::update(state, &self.inner.memory, doc_id, &mut held)
+            });
         }
         let state = self.inner.open_index(index)?;
         let mut document = document;
         let old = hooked::before_update(plugins, &state, doc_id, &mut document)?;
         let kept = document.clone();
         let mut held = HeldWrite::new(document);
-        self.write_one(index, |state| writes::update(state, doc_id, &mut held))?;
+        self.write_one(index, |state| {
+            writes::update(state, &self.inner.memory, doc_id, &mut held)
+        })?;
         plugins.after(|plugin| plugin.after_update(&state.name, doc_id, &old, &kept));
         Ok(())
     }
@@ -213,10 +217,13 @@ impl Narsil {
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn update_batch(&self, index: &str, updates: Vec<(String, Map)>) -> Result<BatchResult> {
         self.inner.refuse_while_memory_full(index)?;
+        let write = |state: &IndexState, chunk: &mut UpdateChunk, result: &mut BatchResult| {
+            writes::update_chunk(state, &self.inner.memory, chunk, result)
+        };
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
             let chunks = writes::update_chunks(updates);
-            return self.write_chunks(index, chunks, writes::update_chunk, UpdateChunk::refuse);
+            return self.write_chunks(index, chunks, write, UpdateChunk::refuse);
         }
         let state = self.inner.open_index(index)?;
         let mut admitted = Vec::with_capacity(updates.len());
@@ -232,8 +239,7 @@ impl Narsil {
             }
         }
         let chunks = writes::update_chunks(admitted);
-        let mut result =
-            self.write_chunks(index, chunks, writes::update_chunk, UpdateChunk::refuse)?;
+        let mut result = self.write_chunks(index, chunks, write, UpdateChunk::refuse)?;
         let mut written = result.succeeded.iter().peekable();
         for (doc_id, old, new) in kept {
             if written.next_if(|id| **id == doc_id).is_some() {

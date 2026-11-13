@@ -118,6 +118,14 @@ async function recordMergedDocuments(
 
   for (let index = 0; index < chunks.length; index++) {
     const { docs, attachmentOf } = chunks[index]
+    try {
+      ctx.memoryWriteBlock?.refuseWhileFull(indexName)
+    } catch (error) {
+      for (const later of chunks.slice(index)) {
+        for (const doc of later.docs) errorOf.set(doc.docId, error)
+      }
+      break
+    }
     const applies = docs.map(doc => {
       const attachment = attachmentOf.get(doc.docId)
       if (attachment === undefined) return async (): Promise<void> => undefined

@@ -1,9 +1,10 @@
 import { open, readFile, writeFile } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { getHeapStatistics } from 'node:v8'
+import { memoryThatNoFileBacks } from '../../runtime/process-memory-oracle.mjs'
 
 const INSERT_CHUNK_DOCUMENTS = 2_000
-const RESIDENT_FILL_CHUNK_BYTES = 8 * 1024 * 1024
+const PROCESS_FILL_CHUNK_BYTES = 8 * 1024 * 1024
 const HEAP_FILL_OBJECTS = 2_000
 
 const job = JSON.parse(await readFile(process.argv[2], 'utf8'))
@@ -47,11 +48,11 @@ function fillMemory() {
       filler.push(Array.from({ length: HEAP_FILL_OBJECTS }, (_, at) => ({ at, label: `filler-${filler.length}` })))
     }
   }
-  if (job.fill.kind === 'resident') {
+  if (job.fill.kind === 'process') {
     const limit = processLimitBytes()
     if (limit === null) throw new Error('the process reports no container memory limit')
-    while (process.memoryUsage.rss() < job.fill.fraction * limit) {
-      filler.push(new Uint8Array(RESIDENT_FILL_CHUNK_BYTES).fill(1))
+    while (memoryThatNoFileBacks() < job.fill.fraction * limit) {
+      filler.push(new Uint8Array(PROCESS_FILL_CHUNK_BYTES).fill(1))
     }
   }
 }
@@ -84,7 +85,7 @@ async function writeAnswers(path) {
 }
 
 fillMemory()
-const filledResidentBytes = process.memoryUsage.rss()
+const filledProcessBytes = memoryThatNoFileBacks()
 const filledHeapBytes = getHeapStatistics().used_heap_size
 const phases = []
 for (const [at, docIds] of job.removalBatches.entries()) {
@@ -93,7 +94,7 @@ for (const [at, docIds] of job.removalBatches.entries()) {
   phases.push({
     failed: outcome.failed,
     estimatedMemoryBytes: (await engine.getStats(job.indexName)).estimatedMemoryBytes,
-    residentBytes: process.memoryUsage.rss(),
+    processBytes: memoryThatNoFileBacks(),
   })
   await writeAnswers(`${job.resultPath}.phase-${at}`)
 }
@@ -103,7 +104,7 @@ await writeFile(
   job.resultPath,
   JSON.stringify({
     loadedBytes,
-    filledResidentBytes,
+    filledProcessBytes,
     filledHeapBytes,
     processLimitBytes: processLimitBytes(),
     fillerChunks: filler.length,

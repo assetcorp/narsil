@@ -3,6 +3,7 @@ import {
   awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   prepareDocumentVectors,
+  providedDocId,
   turnIsSpent,
   turnsAreBudgeted,
   validateVectorDimensions,
@@ -89,6 +90,16 @@ export async function insertInChunks(
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
     const earlier = embeddingOfDocuments(embedded, documents.slice(chunkStart, chunkEnd))
     const prepared = await admitChunk(ctx, indexName, documents, chunkStart, chunkEnd, hold, hooked, failed, earlier)
+    try {
+      if (prepared.length > 0) ctx.memoryWriteBlock?.refuseWhileFull(indexName)
+    } catch (err) {
+      const error = asBatchInsertError(err)
+      for (const doc of prepared) failed.push({ docId: doc.docId, error })
+      for (let i = chunkEnd; i < documents.length; i++) {
+        failed.push({ docId: providedDocId(documents[i]) ?? '', error })
+      }
+      break
+    }
 
     if (prepared.length > 0) {
       const applications = await applyInsertChunk(ctx, indexName, prepared, options)

@@ -81,7 +81,7 @@ type EngineNames = Pick<
   | 'prepareStoredSynonyms'
   | 'raiseEarlierReleaseGraphSetting'
   | 'readHeapStatistics'
-  | 'readResidentMemory'
+  | 'readProcessMemoryUse'
   | 'removeDocumentVectors'
   | 'removedSurfaceSpellings'
   | 'requireEncodedConfigurationWithinSizeLimit'
@@ -201,7 +201,7 @@ export let prepareRemovalText: EngineNames['prepareRemovalText']
 export let prepareStoredSynonyms: EngineNames['prepareStoredSynonyms']
 export let raiseEarlierReleaseGraphSetting: EngineNames['raiseEarlierReleaseGraphSetting']
 export let readHeapStatistics: EngineNames['readHeapStatistics']
-export let readResidentMemory: EngineNames['readResidentMemory']
+export let readProcessMemoryUse: EngineNames['readProcessMemoryUse']
 export let removeDocumentVectors: EngineNames['removeDocumentVectors']
 export let removedSurfaceSpellings: EngineNames['removedSurfaceSpellings']
 export let requireEncodedConfigurationWithinSizeLimit: EngineNames['requireEncodedConfigurationWithinSizeLimit']
@@ -319,7 +319,7 @@ export function bindEngineNames(host: EngineNames): void {
     prepareStoredSynonyms,
     raiseEarlierReleaseGraphSetting,
     readHeapStatistics,
-    readResidentMemory,
+    readProcessMemoryUse,
     removeDocumentVectors,
     removedSurfaceSpellings,
     requireEncodedConfigurationWithinSizeLimit,
