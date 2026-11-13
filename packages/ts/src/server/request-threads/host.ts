@@ -51,6 +51,7 @@ interface ServingThread {
   executor: Executor
   departure: Int32Array<SharedArrayBuffer>
   closeAtExit: Int32Array<SharedArrayBuffer>
+  closed: Promise<void>
 }
 
 const RELAYED_TYPES: ReadonlySet<string> = new Set([
@@ -179,8 +180,6 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   function retireThread(workerId: number, thread: ServingThread): Promise<void> {
     releaseDescriptor(thread)
     thread.port.unref()
-    clearGateSlot(options.gate, gateSlotOfWorker(workerId))
-    clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
     return executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).then(
       () => undefined,
       () => undefined,
@@ -199,6 +198,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         executor,
         departure: createDepartureWord(),
         closeAtExit: createCloseAtExitWords(),
+        closed: new Promise(resolve => channel.port2.once('close', resolve)),
       }
       relayFrom(relaying)
       try {
@@ -239,6 +239,13 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         executor,
         departure: createDepartureWord(),
         closeAtExit: createCloseAtExitWords(),
+        closed: new Promise(resolve => {
+          channel.port2.once('close', () => {
+            clearGateSlot(options.gate, gateSlotOfWorker(workerId))
+            clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
+            resolve()
+          })
+        }),
       }
       relayFrom(thread)
       closeAtExit.add(thread.closeAtExit)
