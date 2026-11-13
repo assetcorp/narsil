@@ -125,6 +125,10 @@ func (r *sharedResource) retain() *sharedResource {
 	return r
 }
 
+func (r *sharedResource) soleHolder() bool {
+	return r.refs.Load() == 1
+}
+
 func (r *sharedResource) released() bool {
 	return r.refs.Load() <= 0
 }

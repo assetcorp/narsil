@@ -80,21 +80,15 @@ func (s *storeMemory) ensureOrdinal(ordinal int32, cold bool) (bool, error) {
 		region *growable
 		bytes  uintptr
 	}{
-		{s.magnitudes, next * 8}, {s.present, next}, {s.head.codePresent, next}, {s.tables.locations.offsets, next * 4},
-		{s.born, next * 8}, {s.retired, next * 8},
+		{s.magnitudes, next * 8}, {s.present, next}, {s.head.codePresent, next}, {s.born, next * 8}, {s.retired, next * 8},
 	}
 	for _, growth := range growths {
 		if err := growth.region.growTo(growth.bytes); err != nil {
 			return false, err
 		}
 	}
-	files := s.tables.locations.files
-	held := files.length
-	if err := files.growTo(next * 4); err != nil {
+	if err := s.growLocations(next * 4); err != nil {
 		return false, err
-	}
-	if files.length > held {
-		s.fillInMemory(held)
 	}
 	s.table.reserve(ordinal)
 	changed := false
