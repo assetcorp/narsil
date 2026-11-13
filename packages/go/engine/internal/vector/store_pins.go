@@ -75,7 +75,7 @@ func (s *storeMemory) readStoredVector(tables *storeTables, ordinal int32, targe
 	if ordinal < 0 || ordinal >= s.slots() || len(target) < s.dimension {
 		return false
 	}
-	if s.isCold(ordinal) {
+	if tables.locations.fileOf(ordinal) != vectorInMemory {
 		return s.vectorFromFile(tables, ordinal, target)
 	}
 	slot := s.vectorSlot(tables, ordinal)
