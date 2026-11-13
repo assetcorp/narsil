@@ -30,6 +30,23 @@ export function frameRecord(entry: ReplicationLogEntry): Uint8Array {
   return frame
 }
 
+export function joinFrames(frames: readonly Uint8Array[]): Uint8Array {
+  if (frames.length === 1) {
+    return frames[0]
+  }
+  let totalBytes = 0
+  for (const frame of frames) {
+    totalBytes += frame.length
+  }
+  const joined = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const frame of frames) {
+    joined.set(frame, offset)
+    offset += frame.length
+  }
+  return joined
+}
+
 export type SegmentHeaderCheck =
   | { ok: true }
   | {

@@ -63,7 +63,7 @@ func (entry *indexEntry) installTerms(ctx context.Context, install func() (persi
 }
 
 func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, settings index.Settings, side sideRebuild) error {
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	previous := entry.index()
 	return entry.installTerms(ctx, func() (persist.IndexSwap, bool, error) {
@@ -95,7 +95,7 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	entry.beginRebuildLog()
 	defer entry.endRebuildLog()
 	live := entry.index()
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	settings := entry.settingsFor(side.analyzer, live.PartitionCount())
 	entry.writeMu.Unlock()
 	built, err := index.New(settings)

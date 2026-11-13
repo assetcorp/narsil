@@ -37,7 +37,7 @@ func (run *rebalanceRun) state(id string) (bool, bool) {
 	return present, buffered
 }
 
-func (run *rebalanceRun) buffer(ctx context.Context, writes []persist.Write) ([]error, error) {
+func (run *rebalanceRun) buffer(ctx context.Context, writes []persist.Write) ([]error, persist.Commit, error) {
 	failures := make([]error, len(writes))
 	room := max(0, maxRebalanceQueueEntries-len(run.queue))
 	accepted := writes
@@ -47,16 +47,18 @@ func (run *rebalanceRun) buffer(ctx context.Context, writes []persist.Write) ([]
 			failures[at] = queueFull(len(run.queue) + room)
 		}
 	}
+	var commit persist.Commit
 	if run.buffered != nil && len(accepted) > 0 {
-		if err := run.buffered.Append(ctx, accepted); err != nil {
-			return nil, err
+		var err error
+		if commit, err = run.buffered.Append(ctx, accepted); err != nil {
+			return nil, persist.Commit{}, err
 		}
 	}
 	for _, write := range accepted {
 		run.queue = append(run.queue, write)
 		run.states[write.DocumentID] = write.Document != nil
 	}
-	return failures, nil
+	return failures, commit, nil
 }
 
 func (run *rebalanceRun) take() []persist.Write {
@@ -65,7 +67,7 @@ func (run *rebalanceRun) take() []persist.Write {
 	return queued
 }
 
-func (entry *indexEntry) intercept(ctx context.Context, writes []persist.Write) ([]error, bool, error) {
+func (entry *indexEntry) intercept(ctx context.Context, writes []persist.Write) ([]error, persist.Commit, bool, error) {
 	entry.swap.mu.Lock()
 	run := entry.swap.rebalance
 	if log := entry.swap.log; log != nil {
@@ -75,10 +77,10 @@ func (entry *indexEntry) intercept(ctx context.Context, writes []persist.Write) 
 	}
 	entry.swap.mu.Unlock()
 	if run == nil {
-		return nil, false, nil
+		return nil, persist.Commit{}, false, nil
 	}
-	failures, err := run.buffer(ctx, writes)
-	return failures, true, err
+	failures, commit, err := run.buffer(ctx, writes)
+	return failures, commit, true, err
 }
 
 func (entry *indexEntry) queuedWrites() int {

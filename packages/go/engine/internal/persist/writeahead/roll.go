@@ -48,24 +48,28 @@ func (writer *Writer) RollForCheckpoint() error {
 }
 
 func (writer *Writer) swapToPreparedHeld() error {
+	if writer.failure != nil {
+		return writer.failure
+	}
 	marker, err := writer.markerWriter()
 	if err != nil {
-		return err
+		return writer.failHeld(err)
 	}
 	sealed := writer.handle
+	sealedPoint := writer.pointHeld()
 	startSeqNo := writer.highestAppended + 1
 	durableSeqNo := max(writer.highestAppended, writer.highestDurable, marker.existingHighestSeen)
 	key := SegmentKey(writer.config.IndexName, writer.config.PartitionID, startSeqNo)
 	if err := sealed.Sync(); err != nil {
-		return err
+		return writer.failHeld(err)
 	}
 	if err := writer.config.Directory.Move(PreparedKey(writer.config.IndexName, writer.config.PartitionID),
 		key); err != nil {
-		return err
+		return writer.failHeld(err)
 	}
 	handle, err := writer.config.Directory.OpenAppend(key)
 	if err != nil {
-		return err
+		return writer.failHeld(err)
 	}
 	writer.handle = handle
 	writer.activeStartSeqNo = startSeqNo
@@ -73,9 +77,11 @@ func (writer *Writer) swapToPreparedHeld() error {
 	writer.activeVersion = max(writer.preparedVersion, wal.FormatVersion)
 	if err := marker.commit(startSeqNo, wal.SegmentHeaderBytes, durableSeqNo); err != nil {
 		_ = sealed.Close()
-		return err
+		return writer.failHeld(err)
 	}
-	writer.highestDurable = durableSeqNo
+	opened := writer.pointHeld()
+	opened.appended = sealedPoint.appended
+	writer.recordSyncedHeld(opened, durableSeqNo)
 	writer.reportDurable()
 	return sealed.Close()
 }

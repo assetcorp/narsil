@@ -108,8 +108,10 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 		return "", err
 	}
 	entry.writeMu.Lock()
-	err = n.applyInsertLocked(ctx, entry, write)
-	entry.writeMu.Unlock()
+	commit, err := n.applyInsertLocked(ctx, entry, write)
+	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		err = awaited
+	}
 	if err != nil {
 		return "", err
 	}
@@ -126,18 +128,19 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	return id, nil
 }
 
-func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {
+func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
+	error) {
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || held {
-		return cmp.Or(err, entry.alreadyExists(write.DocumentID))
+		return persist.Commit{}, cmp.Or(err, entry.alreadyExists(write.DocumentID))
 	}
 	if err := entry.capacityError(0); err != nil {
-		return err
+		return persist.Commit{}, err
 	}
-	failures, err := entry.apply(ctx, []persist.Write{write}, index.WriteInsert)
+	failures, commit, err := entry.apply(ctx, []persist.Write{write}, index.WriteInsert)
 	if err != nil {
-		return err
+		return persist.Commit{}, err
 	}
-	return failures[0]
+	return commit, failures[0]
 }
 
 // Update replaces the stored document under docID in the index called
@@ -218,23 +221,26 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 		return entry, release, nil, persist.Write{}, err
 	}
 	entry.writeMu.Lock()
-	err = n.applyUpdateLocked(ctx, entry, write)
-	entry.writeMu.Unlock()
+	commit, err := n.applyUpdateLocked(ctx, entry, write)
+	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		err = awaited
+	}
 	if err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
 	return entry, release, update, write, nil
 }
 
-func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) error {
+func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
+	error) {
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || !held {
-		return cmp.Or(err, documentNotFound(write.DocumentID))
+		return persist.Commit{}, cmp.Or(err, documentNotFound(write.DocumentID))
 	}
-	failures, err := entry.apply(ctx, []persist.Write{write}, index.WriteUpdate)
+	failures, commit, err := entry.apply(ctx, []persist.Write{write}, index.WriteUpdate)
 	if err != nil {
-		return err
+		return persist.Commit{}, err
 	}
-	return failures[0]
+	return commit, failures[0]
 }
 
 // Remove deletes the document under docID from the index called indexName.
@@ -259,8 +265,10 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 		}
 	}
 	entry.writeMu.Lock()
-	err = n.applyRemoveLocked(ctx, entry, docID)
-	entry.writeMu.Unlock()
+	commit, err := n.applyRemoveLocked(ctx, entry, docID)
+	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		err = awaited
+	}
 	if err != nil {
 		return err
 	}
@@ -272,15 +280,15 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	return nil
 }
 
-func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID string) error {
+func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID string) (persist.Commit, error) {
 	if held, err := entry.holds(ctx, docID); err != nil || !held {
-		return cmp.Or(err, documentNotFound(docID))
+		return persist.Commit{}, cmp.Or(err, documentNotFound(docID))
 	}
-	failures, err := entry.apply(ctx, []persist.Write{{DocumentID: docID}}, index.WriteRemove)
+	failures, commit, err := entry.apply(ctx, []persist.Write{{DocumentID: docID}}, index.WriteRemove)
 	if err != nil {
-		return err
+		return persist.Commit{}, err
 	}
-	return failures[0]
+	return commit, failures[0]
 }
 
 // WaitForWrites returns once every write that the index called indexName

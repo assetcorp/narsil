@@ -111,9 +111,16 @@ func TestFilteredChangesAdvanceThePositionWhenNothingMatches(t *testing.T) {
 	reader := newSubscriber(tap.subscribed(t))
 	oracle := newWriteOracle()
 	const closedTickets = 3000
-	for slot := range closedTickets {
-		id := "c" + strconv.Itoa(slot)
-		oracle.insert(t, narsil, id, ticket(id, 0, "closed"))
+	const closedTicketsPerBatch = 100
+	for first := 0; first < closedTickets; first += closedTicketsPerBatch {
+		ids := make([]string, 0, closedTicketsPerBatch)
+		documents := make([]map[string]any, 0, closedTicketsPerBatch)
+		for slot := first; slot < first+closedTicketsPerBatch; slot++ {
+			id := "c" + strconv.Itoa(slot)
+			ids = append(ids, id)
+			documents = append(documents, ticket(id, 0, "closed"))
+		}
+		oracle.insertBatch(t, narsil, ids, documents)
 	}
 	groups := 0
 	for scannedTotal(reader.positions) < closedTickets {

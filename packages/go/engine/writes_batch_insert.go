@@ -192,8 +192,10 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pendin
 	for at, insert := range accepted {
 		writes[at] = insert.write
 	}
-	failures, err := entry.apply(ctx, writes, index.WriteInsert)
-	entry.writeMu.Unlock()
+	failures, commit, err := entry.apply(ctx, writes, index.WriteInsert)
+	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		err = awaited
+	}
 	if err != nil {
 		for _, insert := range accepted {
 			outcome.fail(insert.id, err)
