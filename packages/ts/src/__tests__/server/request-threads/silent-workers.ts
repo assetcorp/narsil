@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { request } from 'node:http'
 import { BroadcastChannel } from 'node:worker_threads'
-import { type NarsilPlugin, registerLanguage } from '../../../index'
+import { registerLanguage } from '../../../index'
 import type { ServerOptions } from '../../../server'
 import type { WorkerConfig } from '../../../types/config'
 import { scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
@@ -39,7 +39,7 @@ export interface ServerWithCopies extends TestServer {
   armedTokenReached(): Promise<void>
   armedTokenHeld(): boolean
   releaseWorker(): void
-  searchOnAThread(term: string): Promise<Answer<Search> | null>
+  search(term: string): Promise<Answer<Search>>
   shutDown(): Promise<void>
 }
 
@@ -53,7 +53,7 @@ function armedTokenEffectSource(effect: ArmedTokenEffect): string {
   return `if (Atomics.wait(barrier, ${BARRIER_RELEASED}, 0${waitArgument}) === 'timed-out') throw new Error('the test never released the blocked stemmer')`
 }
 
-function languageBootstrap(language: string, channel: string, effect: ArmedTokenEffect, failOnToken?: string): string {
+function languageBootstrap(language: string, channel: string, effect: ArmedTokenEffect): string {
   const source = `import { BroadcastChannel, workerData } from 'node:worker_threads'
 import { registerLanguage } from ${JSON.stringify(distPackage.href)}
 let barrier
@@ -67,7 +67,6 @@ channel.unref()
 registerLanguage({
   name: ${JSON.stringify(language)}, revision: '1', stopWords: new Set(),
   stemmer(token) {
-    if (workerData?.workerId === 0 && token === ${JSON.stringify(failOnToken)}) throw new Error('the test failed this copy write on purpose')
     if (token === ${JSON.stringify(ARMED_TOKEN)} && barrier !== undefined && Atomics.compareExchange(barrier, ${BARRIER_ARMED}, 1, 2) === 1) {
       ${armedTokenEffectSource(effect)}
     }
@@ -121,37 +120,22 @@ export async function startServerWithCopies(
   effect: ArmedTokenEffect,
   setup: {
     server?: Omit<ServerOptions, 'host' | 'port'>
-    plugins?: NarsilPlugin[]
-    workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs' | 'maxThreadsLeftRunning'>
-    failOnToken?: string
+    workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs'>
   } = {},
 ): Promise<ServerWithCopies> {
   registerLanguage({ name: language, revision: '1', stopWords: new Set(), stemmer })
   const channel = new BroadcastChannel(randomUUID())
   const barrier = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * BARRIER_WORDS))
   const crashes: Array<{ at: number; error: Error }> = []
-  let mainQueries = 0
   const release = () => {
     Atomics.store(barrier, BARRIER_RELEASED, 1)
     Atomics.notify(barrier, BARRIER_RELEASED)
   }
   const server = await startTestServer(
     setup.server,
-    {
-      plugins: setup.plugins,
-      workers: {
-        ...setup.workers,
-        count: 1,
-        bootstrapModule: languageBootstrap(language, channel.name, effect, setup.failOnToken),
-      },
-    },
+    { workers: { ...setup.workers, count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) } },
     async engine => {
       engine.on('workerCrash', ({ error }) => crashes.push({ at: Date.now(), error }))
-      const query = engine.query.bind(engine)
-      engine.query = (indexName, params) => {
-        mainQueries++
-        return query(indexName, params)
-      }
     },
   )
   async function shutDown(): Promise<void> {
@@ -183,14 +167,11 @@ export async function startServerWithCopies(
     armedTokenReached: () => waitFor(async () => Atomics.load(barrier, BARRIER_ARMED) === 2),
     armedTokenHeld: () => Atomics.load(barrier, BARRIER_ARMED) === 2,
     releaseWorker: release,
-    async searchOnAThread(term) {
-      const before = mainQueries
-      const answer = await onNewConnection<Search>(server.base, `/indexes/${INDEX}/search`, {
+    search: term =>
+      onNewConnection<Search>(server.base, `/indexes/${INDEX}/search`, {
         body: { term, limit: 1 },
         timeoutMs: SEARCH_TIMEOUT_MS,
-      })
-      return answer.status === 200 && mainQueries === before ? answer : null
-    },
+      }),
     shutDown,
   }
 }

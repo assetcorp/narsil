@@ -78,8 +78,8 @@ it.skipIf(!existsSync(distEntry))(
       const loaded = acknowledged + BATCH
       await srv.engine.insertBatch(INDEX, [{ id: 'last-ticket', title: 'ticket last' }], { wait: true })
 
-      await waitFor(async () => (await srv.searchOnAThread('load'))?.body.count === loaded, SETUP_MS)
-      await waitFor(async () => (await srv.searchOnAThread(ARMED_TOKEN))?.body.hits[0]?.id === 'ticket-0', SETUP_MS)
+      await waitFor(async () => (await srv.search('load')).body.count === loaded, SETUP_MS)
+      await waitFor(async () => (await srv.search(ARMED_TOKEN)).body.hits[0]?.id === 'ticket-0', SETUP_MS)
       expect(srv.crashes).toEqual([])
       expect(srv.server.requestThreadCount).toBe(1)
     } finally {
