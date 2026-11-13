@@ -3,7 +3,7 @@ import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
 import { trackPublicationStores } from './publication-stores'
-import { enqueueReplication, markCopiesLoaded } from './replication'
+import { endCopyLoadBuffer, enqueueReplication, markCopiesLoaded } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
 import { refreshVectorCopies, releaseVectorLocksOf } from './vector-copies'
@@ -90,7 +90,7 @@ async function loadOntoReplacement(
     )
     replacement.hold(indexName)
   } finally {
-    state.copyLoadBuffers.delete(indexName)
+    endCopyLoadBuffer(state, indexName, buffered)
     for (const action of buffered) enqueueReplication(state, indexName, action)
   }
   markCopiesLoaded(state, indexName, copyLoad)

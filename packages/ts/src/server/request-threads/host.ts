@@ -2,7 +2,7 @@ import type { TemplatedApp } from 'uWebSockets.js'
 import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
-import type { Executor } from '../../workers/executor'
+import { type Executor, executeUntilAnswered } from '../../workers/executor'
 import { clearBodyBudgetSlot } from '../body-budget'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import {
@@ -176,12 +176,15 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     longQueryThread = null
   }
 
-  async function stopThread(workerId: number, thread: ServingThread): Promise<void> {
+  function retireThread(workerId: number, thread: ServingThread): Promise<void> {
     releaseDescriptor(thread)
-    thread.port.close()
+    thread.port.unref()
     clearGateSlot(options.gate, gateSlotOfWorker(workerId))
     clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
-    await thread.executor.execute({ type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(() => undefined)
+    return executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).then(
+      () => undefined,
+      () => undefined,
+    )
   }
 
   const listener: RequestThreadListener = {
@@ -282,7 +285,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       thread.descriptor = result.descriptor
       if (stopped || departureConfirmed(thread.departure)) {
         longQueryChannel?.port2.close()
-        await stopThread(workerId, thread)
+        await retireThread(workerId, thread)
         return
       }
       if (longQueryChannel !== null && longQueries !== null && longQueryThread === longQueries) {
@@ -304,10 +307,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       const thread = threads.get(workerId)
       if (thread === undefined) return
       threads.delete(workerId)
-      releaseDescriptor(thread)
-      thread.port.close()
-      clearGateSlot(options.gate, gateSlotOfWorker(workerId))
-      clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
+      void retireThread(workerId, thread)
     },
   }
 
@@ -320,11 +320,11 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     async stop(): Promise<void> {
       stopped = true
       process.off('exit', closeThreadsAtExit)
-      core.orchestrator.stopRequestThreads()
       const stopping = [...threads.entries()].map(([workerId, thread]) => {
         threads.delete(workerId)
-        return stopThread(workerId, thread)
+        return retireThread(workerId, thread)
       })
+      core.orchestrator.stopRequestThreads()
       const longQueries = longQueryThread
       dropLongQueryThread()
       if (longQueries !== null) {

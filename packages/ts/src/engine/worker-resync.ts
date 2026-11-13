@@ -7,7 +7,7 @@ import type { SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { CopyPublication } from '../workers/copy-publication'
 import { holdCopyPublication } from '../workers/copy-publication'
-import { type Executor, executeRetained } from '../workers/executor'
+import { type Executor, executeUntilAnswered } from '../workers/executor'
 import type { WorkerPool } from '../workers/pool'
 
 export interface CopySource {
@@ -239,7 +239,7 @@ export async function loadIndexOntoWorkers(
     onDropped?.()
     const created = await Promise.allSettled(
       executors.map(workerExecutor =>
-        executeRetained(
+        executeUntilAnswered(
           workerExecutor,
           {
             type: 'createIndex',

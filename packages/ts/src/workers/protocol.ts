@@ -146,6 +146,7 @@ type WorkerCommand =
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
+  | { type: 'probe'; requestId: string }
 
 export type DiskAdoptionSegment = { snapshot: PagedSegmentSnapshot } | { segmentId: string }
 
@@ -196,6 +197,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'memoryReport',
   'bootstrap',
   'shutdown',
+  'probe',
 ]
 
 export type DiskAdoptionAction = Extract<WorkerAction, { type: 'adoptDiskSegments' }>

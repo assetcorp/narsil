@@ -34,12 +34,17 @@ let servingApp: {
   relay: RelayClient
   longQueries: LongQueryRoute
   feeds: ThreadFeedGateway[]
+  departure: ThreadDeparture
 } | null = null
 
-function guardEveryRoute(handlers: ServerHandlers, departure: ThreadDeparture): ServerHandlers {
+function guardEveryRoute(
+  handlers: ServerHandlers,
+  onMainThread: Record<RelayedRoute, RouteHandler>,
+  departure: ThreadDeparture,
+): ServerHandlers {
   const guarded = { ...handlers }
   for (const route of Object.keys(guarded) as Array<keyof ServerHandlers>) {
-    guarded[route] = departure.guardRoute(handlers[route])
+    guarded[route] = departure.guardRoute(handlers[route], isRelayedRoute(route) ? onMainThread[route] : undefined)
   }
   return guarded
 }
@@ -155,13 +160,12 @@ function relayedHandlers(relay: RelayClient, limits: ResolvedLimits): Record<Rel
 
 function threadHandlers(
   local: ThreadReadEngine,
-  relay: RelayClient,
+  forwarded: Record<RelayedRoute, RouteHandler>,
   longQueries: LongQueryRoute,
   settings: RequestThreadSettings,
 ): ServerHandlers {
   const { allowRegex } = settings
   const reads = createDocumentReadHandlers({ engine: local, limits: settings.limits, allowRegex })
-  const forwarded = relayedHandlers(relay, settings.limits)
   return {
     ...forwarded,
     livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' } satisfies LivenessResponse),
@@ -230,9 +234,11 @@ export async function serveRequests(
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
     bodyBudget: createSharedBodyBudget(settings.bodyBudget, settings.limits.maxBodyBytesInFlight, settings.gateSlot),
     corsHeaders: settings.cors ? corsHeaderReader(settings.cors) : undefined,
+    respondThrough: departure.respondThrough,
     track: departure.track,
   })
-  const handlers = guardEveryRoute(threadHandlers(local, relay, longQueries, settings), departure)
+  const forwarded = relayedHandlers(relay, settings.limits)
+  const handlers = guardEveryRoute(threadHandlers(local, forwarded, longQueries, settings), forwarded, departure)
   const feeds = settings.feeds.map(feed => {
     const gateway = threadFeedGateway(settings.port, relay, feed)
     registerFeedRoute(app, gateway, feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE)
@@ -240,9 +246,16 @@ export async function serveRequests(
   })
   registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
-  servingApp = { app: child, relay, longQueries, feeds }
+  servingApp = { app: child, relay, longQueries, feeds, departure }
   void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
   return { descriptor: child.getDescriptor() }
+}
+
+export async function drainRequestThread(): Promise<void> {
+  const serving = servingApp
+  if (serving === null) return
+  await serving.departure.drain()
+  closeRequestThread()
 }
 
 export function closeRequestThread(): void {

@@ -103,6 +103,7 @@ export interface RunnerDeps {
   gate: RequestGate
   bodyBudget: BodyBudget
   corsHeaders?: (req: HttpRequest) => Array<[string, string]>
+  respondThrough?: (res: ResponseSink) => ResponseSink
   track?: (res: ResponseSink, abort: ResponseAbort) => () => void
 }
 
@@ -208,7 +209,7 @@ function sendDenial(res: ResponseSink, authorization: Authorization): void {
  * sheds load past the concurrency cap, and turns any thrown value into a 500.
  */
 export function createRouteRunner(deps: RunnerDeps) {
-  const { authorize, gate, bodyBudget, corsHeaders, track } = deps
+  const { authorize, gate, bodyBudget, corsHeaders, respondThrough, track } = deps
 
   return (handler: RouteHandler, opts: RouteOptions) => {
     const paramCount = opts.paramCount ?? 0
@@ -217,7 +218,8 @@ export function createRouteRunner(deps: RunnerDeps) {
     const gated = !opts.skipHooks
 
     return (response: HttpResponse, req: HttpRequest): void => {
-      const res = corsHeaders ? sinkWritingAfterStatus(response, corsHeaders(req)) : response
+      const sink = corsHeaders ? sinkWritingAfterStatus(response, corsHeaders(req)) : response
+      const res = respondThrough === undefined ? sink : respondThrough(sink)
       const params: string[] = []
       let malformed: string | null = null
       for (let i = 0; i < paramCount; i++) {

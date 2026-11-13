@@ -349,6 +349,9 @@ export function createDirectExecutor(
         await Promise.all(pendingDisposals.keys())
         return undefined as T
       }
+
+      case 'probe':
+        return undefined as T
     }
   }
 
