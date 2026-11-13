@@ -21,14 +21,12 @@ const SCHEDULING_SLACK_MS = 5_000
 const COPY_LOAD_SLACK_MS = 20_000
 const CRASH_BOUND_MS = SILENCE_BEFORE_RETIREMENT_MS + SILENCE_BEFORE_PROBE_MS + SCHEDULING_SLACK_MS
 const REPLACEMENT_BOUND_MS = CRASH_BOUND_MS + SILENCE_BEFORE_PROBE_MS + POOL_RESTART_DELAY_MS + COPY_LOAD_SLACK_MS
-const NO_REPLACEMENT_WINDOW_MS = 3 * (SILENCE_BEFORE_PROBE_MS + POOL_RESTART_DELAY_MS)
-const NO_REPLACEMENT_CHECK_SPACING_MS = 500
 const SEARCH_SPACING_MS = 50
 const FRESH_CONNECTIONS = 24
 const FRESH_CONNECTION_TIMEOUT_MS = 10_000
 const TEST_TIMEOUT_MS = 2 * REPLACEMENT_BOUND_MS + 2 * SETUP_MS
 
-function startHangingServer(maxThreadsLeftRunning?: number): Promise<ServerWithCopies> {
+function startHangingServer(): Promise<ServerWithCopies> {
   return startServerWithCopies(
     'hung-worker-copies',
     { kind: 'block', waitMs: null },
@@ -36,7 +34,6 @@ function startHangingServer(maxThreadsLeftRunning?: number): Promise<ServerWithC
       workers: {
         silenceBeforeProbeMs: SILENCE_BEFORE_PROBE_MS,
         silenceBeforeRetirementMs: SILENCE_BEFORE_RETIREMENT_MS,
-        maxThreadsLeftRunning,
       },
     },
   )
@@ -84,41 +81,12 @@ describe.skipIf(!existsSync(distEntry))('a request thread that hangs inside a re
         await expectEveryFreshConnectionAnswered(srv)
 
         await waitFor(
-          async () => (await srv.searchOnAThread('ticket'))?.body.count === TICKETS,
+          async () => srv.server.requestThreadCount === 1 && (await srv.search('ticket')).body.count === TICKETS,
           REPLACEMENT_BOUND_MS - (Date.now() - hungAt),
         )
         expect(Date.now() - hungAt).toBeLessThanOrEqual(REPLACEMENT_BOUND_MS)
         await expectEveryFreshConnectionAnswered(srv)
         expect(srv.crashes).toHaveLength(1)
-        expect(srv.server.requestThreadCount).toBe(1)
-      } finally {
-        await srv.shutDown()
-      }
-    },
-    TEST_TIMEOUT_MS,
-  )
-
-  it(
-    'gains no replacement while more threads than the limit run in the background, and gains one once the thread exits',
-    async () => {
-      const srv = await startHangingServer(0)
-      try {
-        await hangTheThreadAndWaitForItsRetirement(srv)
-        const windowEnds = Date.now() + NO_REPLACEMENT_WINDOW_MS
-        while (Date.now() < windowEnds) {
-          expect(srv.server.requestThreadCount).toBe(0)
-          await expectEveryFreshConnectionAnswered(srv)
-          await sleep(NO_REPLACEMENT_CHECK_SPACING_MS)
-        }
-        expect(srv.server.requestThreadCount).toBe(0)
-
-        srv.releaseWorker()
-        const releasedAt = Date.now()
-        await waitFor(async () => (await srv.searchOnAThread('ticket'))?.body.count === TICKETS, REPLACEMENT_BOUND_MS)
-        expect(Date.now() - releasedAt).toBeLessThanOrEqual(REPLACEMENT_BOUND_MS)
-        await expectEveryFreshConnectionAnswered(srv)
-        expect(srv.crashes).toHaveLength(1)
-        expect(srv.server.requestThreadCount).toBe(1)
       } finally {
         await srv.shutDown()
       }
