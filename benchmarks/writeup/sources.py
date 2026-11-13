@@ -18,6 +18,8 @@ _RUN_ID = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 
 SERVER_SUITE_DIR = "benchmarks/server"
 INPROCESS_SUITE_DIR = "benchmarks/in-process"
+LANGUAGES_SUITE_DIR = "benchmarks/engine-languages"
+LANGUAGES_RESULTS_FILENAME = "results.json"
 COMPARISON_FILENAME = "comparison.json"
 BEST_CONFIG_COMPARISON_FILENAME = "comparison-best-config.json"
 INPROCESS_RESULTS_FILENAME = "results.json"
@@ -86,3 +88,9 @@ def load_server_best_config_source(root: Path = _REPO_ROOT) -> Source | None:
 
 def load_inprocess_source(root: Path = _REPO_ROOT) -> Source:
     return _load(root, INPROCESS_SUITE_DIR, INPROCESS_RESULTS_FILENAME, "in-process", "comparison.md")
+
+
+def load_languages_source(root: Path = _REPO_ROOT) -> Source | None:
+    if _latest_run(root / LANGUAGES_SUITE_DIR / "results" / "runs") is None:
+        return None
+    return _load(root, LANGUAGES_SUITE_DIR, LANGUAGES_RESULTS_FILENAME, "engine-languages", "report.md")

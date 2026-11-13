@@ -34,6 +34,7 @@ export interface AnalysisRebuildCoordinator {
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
   abandon(indexName: string): Promise<void>
+  shutdown(): Promise<void>
   runExclusive<T>(indexName: string, work: () => Promise<T>, turnEnds?: Promise<void>): Promise<T>
 }
 
@@ -97,10 +98,11 @@ export function createAnalysisRebuildCoordinator(
   const rebuildMode = config?.rebuild ?? 'auto'
   let queue: Promise<void> = Promise.resolve()
   let active: ActiveRebuild | null = null
+  let closed = false
 
   async function rebuildNow(indexName: string, entry: StaleEntry): Promise<void> {
     const manager = deps.getManager(indexName)
-    if (manager === undefined || entry.abandoned) {
+    if (manager === undefined || entry.abandoned || closed) {
       entry.run = null
       return
     }
@@ -155,7 +157,7 @@ export function createAnalysisRebuildCoordinator(
   }
 
   function runTracked(indexName: string, entry: StaleEntry): Promise<void> {
-    const done = rebuildNow(indexName, entry)
+    const done = Promise.resolve().then(() => rebuildNow(indexName, entry))
     const tracked: ActiveRebuild = { indexName, entry, done }
     active = tracked
     return done.finally(() => {
@@ -245,6 +247,12 @@ export function createAnalysisRebuildCoordinator(
       if (running === null || running.indexName !== indexName) return
       running.entry.abandoned = true
       await running.done.catch(() => undefined)
+    },
+
+    async shutdown(): Promise<void> {
+      closed = true
+      for (const entry of stale.values()) entry.abandoned = true
+      await active?.done.catch(() => undefined)
     },
 
     review(indexName: string): Promise<void> {

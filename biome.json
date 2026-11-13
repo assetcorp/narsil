@@ -12,6 +12,7 @@
       "!.claude",
       "!**/results.json",
       "!benchmarks/in-process/results",
+      "!benchmarks/engine-languages/results",
       "!benchmarks/server",
       "!benchmarks/datasets",
       "!data/**/*.json",
