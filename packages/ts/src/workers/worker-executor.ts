@@ -57,6 +57,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   const unanswered = new Set<string>()
   let deathError: NarsilError | null = null
   let shutdownRequested = false
+  let shutdownRequestId: string | null = null
   let gone = false
   let lastSignOfLife = performance.now()
   let probeId: string | null = null
@@ -143,6 +144,11 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
     const response = msg as WorkerResponse
     noteAnswer(response.requestId)
+    if (response.requestId === shutdownRequestId && response.type === 'success') {
+      shutdownRequestId = null
+      if (reportsItsExit) worker.unref?.()
+      else stopAWorkerThatReportsNoExit()
+    }
     retained.get(response.requestId)?.()
     retained.delete(response.requestId)
     const entry = pending.get(response.requestId)
@@ -315,11 +321,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
   function stopOnceTheWorkerAcknowledges(): void {
     const requestId = createRequestId()
-    const stop = () => {
-      pending.delete(requestId)
-      if (!reportsItsExit) stopAWorkerThatReportsNoExit()
-    }
-    pending.set(requestId, { resolve: stop, reject: () => undefined, timeoutId: undefined })
+    shutdownRequestId = requestId
     askTheThreadToLeave(requestId)
   }
 
@@ -334,7 +336,6 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         stopAWorkerThatReportsNoExit()
         return
       }
-      worker.unref?.()
       throw new NarsilError(ErrorCodes.WORKER_TIMEOUT, 'Shutdown timed out')
     } finally {
       for (const [id, entry] of pending) {
