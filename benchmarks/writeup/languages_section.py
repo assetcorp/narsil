@@ -125,6 +125,12 @@ def _setup_block(source: Source) -> str:
     return "\n".join(bullets) + "\n\n" + engines_table
 
 
+SHARED_MAIN_THREAD_SENTENCE = (
+    "Embedded TypeScript sends every search through the one JavaScript main thread, which caps its throughput when "
+    "several callers query at once, while the HTTP server answers requests on separate request threads."
+)
+
+
 def _worker_copy_sentences(results: dict) -> str:
     found = _measurements(results)
     most = max(_threads(results), default=1)
@@ -153,7 +159,7 @@ def _worker_copy_sentences(results: dict) -> str:
 def _speed_block(source: Source) -> str:
     results = source.data
     found = _measurements(results)
-    chunks: list[str] = [_worker_copy_sentences(results)]
+    chunks: list[str] = [SHARED_MAIN_THREAD_SENTENCE, _worker_copy_sentences(results)]
     for workload, phase, title in _PHASES:
         rows = []
         for threads in _threads(results):
