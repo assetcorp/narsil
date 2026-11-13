@@ -3,7 +3,6 @@ package vector
 import (
 	"encoding/binary"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -11,38 +10,23 @@ import (
 )
 
 type coldMapping struct {
-	users    atomic.Int64
-	retired  atomic.Bool
-	released atomic.Bool
-	files    []*core.VectorFile
+	users publicationHolds
+	files []*core.VectorFile
 }
 
 func (m *coldMapping) acquire() bool {
-	m.users.Add(1)
-	if m.retired.Load() {
-		m.done()
-		return false
-	}
-	return true
+	return m.users.hold()
 }
 
 func (m *coldMapping) done() {
-	if m.users.Add(-1) == 0 && m.retired.Load() {
-		m.release()
-	}
+	m.users.drop()
 }
 
 func (m *coldMapping) retire() {
-	m.retired.Store(true)
-	if m.users.Load() == 0 {
-		m.release()
-	}
+	m.users.retire()
 }
 
 func (m *coldMapping) release() {
-	if !m.released.CompareAndSwap(false, true) {
-		return
-	}
 	for _, file := range m.files {
 		file.Unmap()
 	}
@@ -71,6 +55,7 @@ func requireMappedVectorPages(file ColdGraphFile, content []byte) error {
 
 func (c *coldGraphField) mapFiles() (*coldMapping, error) {
 	mapping := &coldMapping{files: make([]*core.VectorFile, 0, len(c.input.Files))}
+	mapping.users.publish(mapping.release)
 	for _, file := range c.input.Files {
 		mapped, err := core.MapVectorFile(file.Path)
 		if err != nil {

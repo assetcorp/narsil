@@ -63,7 +63,7 @@ func newColdScoreStore(dimension int, count int, files []*core.VectorFile) (*col
 }
 
 func (s *coldScoreStore) release() {
-	s.native.Retire()
+	s.native.Free()
 	s.block.Free()
 }
 
