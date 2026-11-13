@@ -12,6 +12,7 @@ const AREAS_BY_PREFIX = [
   ['assets/', []],
   ['skills/', []],
   ['benchmarks/server/', ['benchmark_harness']],
+  ['benchmarks/writeup/', ['benchmark_harness']],
   ['benchmarks/engine-languages/', ['benchmark_languages']],
   ['benchmarks/in-process/src/data/', ['benchmark_languages']],
   ['benchmarks/in-process/src/runner/', ['benchmark_languages']],
