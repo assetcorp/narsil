@@ -4,6 +4,7 @@
 !pnpm-workspace.yaml
 !.npmrc
 !tsconfig.json
+!patches
 !packages/embeddings-transformers/package.json
 !packages/native/package.json
 !packages/native/build.mjs
