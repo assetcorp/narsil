@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import { basename, resolve } from 'node:path'
 import { writeJsonAtomicSync, writeTextAtomicSync } from 'benchmarks/src/runner/atomic-write'
-import { prepareRunFolder } from 'benchmarks/src/runner/run-paths'
 import { type MeasuredRun, summarise } from './aggregate'
 import { parseRunOptions, type RunOptions } from './cli'
 import { cCompiler, type EngineSpec, prepareEngines } from './engines/catalog'
 import { runRunner } from './engines/spawn'
 import { ensureOracle, type OutputVerdict, runOracle, type Verdict } from './oracle'
 import { BUILD_ROOT, STAGING_ROOT, SUITE_ROOT } from './paths'
+import { publishRun } from './publication'
 import {
   type LanguagesResults,
   type MachineDescription,
@@ -106,32 +106,32 @@ function writeRun(
   const verdicts = new Map<string, OutputVerdict>(verdict.outputs.map(output => [output.source, output]))
   const measurements = summarise(runs, verdicts, sourceOfRun)
   const now = new Date()
-  const prepared = prepareRunFolder({ packageRoot: options.outputRoot ?? SUITE_ROOT, profile: options.profile, now })
-  const results: LanguagesResults = {
-    format: RESULTS_FORMAT,
-    runId: prepared.runId,
-    createdAt: prepared.manifest.createdAt,
-    git: { branch: prepared.manifest.git.branch, commit: prepared.manifest.git.commit },
-    machine: describeMachine(),
-    engines: Object.fromEntries([...engines].map(([name, spec]) => [name, spec.identity])),
-    cCompiler: compiler,
-    workload: {
-      keyword: workload.manifest.keyword,
-      vector: workload.manifest.vector,
-      settings: workload.manifest.settings,
-      sha256: workload.manifest.sha256,
-    },
-    repetitions: options.repetitions,
-    threadCounts: options.threadCounts,
-    engineOrder: order,
-    measurements,
-    crossEngine: verdict.crossEngine,
-    oracle: verdict.oracle,
-  }
-  writeJsonAtomicSync(resolve(prepared.runDir, RESULTS_FILE), results)
-  writeJsonAtomicSync(resolve(prepared.runDir, VERDICT_FILE), verdict)
-  writeTextAtomicSync(resolve(prepared.runDir, REPORT_FILE), `${renderReport(results)}\n`)
-  return prepared.runDir
+  return publishRun({ packageRoot: options.outputRoot ?? SUITE_ROOT, profile: options.profile, now }, prepared => {
+    const results: LanguagesResults = {
+      format: RESULTS_FORMAT,
+      runId: prepared.runId,
+      createdAt: prepared.manifest.createdAt,
+      git: { branch: prepared.manifest.git.branch, commit: prepared.manifest.git.commit },
+      machine: describeMachine(),
+      engines: Object.fromEntries([...engines].map(([name, spec]) => [name, spec.identity])),
+      cCompiler: compiler,
+      workload: {
+        keyword: workload.manifest.keyword,
+        vector: workload.manifest.vector,
+        settings: workload.manifest.settings,
+        sha256: workload.manifest.sha256,
+      },
+      repetitions: options.repetitions,
+      threadCounts: options.threadCounts,
+      engineOrder: order,
+      measurements,
+      crossEngine: verdict.crossEngine,
+      oracle: verdict.oracle,
+    }
+    writeJsonAtomicSync(resolve(prepared.runDir, RESULTS_FILE), results)
+    writeJsonAtomicSync(resolve(prepared.runDir, VERDICT_FILE), verdict)
+    writeTextAtomicSync(resolve(prepared.runDir, REPORT_FILE), `${renderReport(results)}\n`)
+  })
 }
 
 async function main(): Promise<void> {
