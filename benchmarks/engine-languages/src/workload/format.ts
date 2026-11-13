@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
-import { createReadStream, readFileSync } from 'node:fs'
+import { createReadStream, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { MAX_RUNNER_OUTPUT_BYTES } from '../constants'
+import { validateContent, validateSettings } from './validate'
 
 export const WORKLOAD_FORMAT = 1
 export const MANIFEST_FILE = 'manifest.json'
@@ -82,7 +84,7 @@ function parseSettings(raw: unknown): WorkloadSettings {
   if (!isRecord(raw)) throw new Error('workload manifest: settings must be an object')
   const passes = raw.measuredPasses
   if (!isRecord(passes)) throw new Error('workload manifest: settings.measuredPasses must be an object')
-  return {
+  const settings = {
     language: requireText(raw.language, 'settings.language'),
     limit: requireCount(raw.limit, 'settings.limit'),
     recallDepth: requireCount(raw.recallDepth, 'settings.recallDepth'),
@@ -103,6 +105,8 @@ function parseSettings(raw: unknown): WorkloadSettings {
       hybrid: requireCount(passes.hybrid, 'settings.measuredPasses.hybrid'),
     },
   }
+  validateSettings(settings)
+  return settings
 }
 
 export function parseManifest(text: string): WorkloadManifest {
@@ -144,7 +148,16 @@ export function parseManifest(text: string): WorkloadManifest {
 }
 
 export function readManifest(directory: string): WorkloadManifest {
-  return parseManifest(readFileSync(resolve(directory, MANIFEST_FILE), 'utf-8'))
+  const path = resolve(directory, MANIFEST_FILE)
+  requireFile(path)
+  return parseManifest(readFileSync(path, 'utf-8'))
+}
+
+function requireFile(path: string): void {
+  const file = statSync(path)
+  if (!file.isFile() || file.size > MAX_RUNNER_OUTPUT_BYTES) {
+    throw new Error(`workload file ${path} must be a regular file within ${MAX_RUNNER_OUTPUT_BYTES} bytes`)
+  }
 }
 
 export function sha256OfFile(path: string): Promise<string> {
@@ -160,15 +173,18 @@ export function sha256OfFile(path: string): Promise<string> {
 export async function verifyWorkload(directory: string): Promise<WorkloadManifest> {
   const manifest = readManifest(directory)
   for (const name of WORKLOAD_FILES) {
+    requireFile(resolve(directory, name))
     const actual = await sha256OfFile(resolve(directory, name))
     if (actual !== manifest.sha256[name]) {
       throw new Error(`workload file ${name} has sha256 ${actual}, while the manifest records ${manifest.sha256[name]}`)
     }
   }
+  validateContent(directory, manifest)
   return manifest
 }
 
 function parseJsonLines(path: string): unknown[] {
+  requireFile(path)
   const text = readFileSync(path, 'utf-8')
   const rows: unknown[] = []
   for (const line of text.split('\n')) {
@@ -201,6 +217,7 @@ export function readVectorQueries(path: string): VectorQueryText[] {
 }
 
 export function readVectors(path: string, rows: number, dimension: number): Float32Array {
+  requireFile(path)
   const raw = readFileSync(path)
   const expected = rows * dimension * Float32Array.BYTES_PER_ELEMENT
   if (raw.byteLength !== expected) {

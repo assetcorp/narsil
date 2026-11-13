@@ -63,6 +63,10 @@ export function parseRunOptions(argv: readonly string[]): RunOptions {
     return name
   })
   const threadCounts = listOf(values.threads, 'threads').map(raw => wholeNumberIn(raw, 'threads', MAX_THREADS))
+  if (new Set(threadCounts).size !== threadCounts.length) throw new Error('--threads lists a count twice')
+  for (const key of ['workload', 'output-root'] as const) {
+    if (values[key] !== undefined && values[key].trim().length === 0) throw new Error(`--${key} needs a path`)
+  }
   const defaultRepetitions = values.size === 'small' ? SMALL_REPETITIONS : REPETITIONS
   return {
     size: values.size,
