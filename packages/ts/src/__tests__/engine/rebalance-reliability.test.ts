@@ -21,10 +21,21 @@ function seedDocs(count: number): Array<Record<string, unknown>> {
   return docs
 }
 
-async function walHoldsDocId(dir: string, indexName: string, docId: string): Promise<boolean> {
-  const walRoot = join(dir, indexName, 'wal')
+const WAL_WALKS_BEFORE_GIVING_UP = 5
+
+class SegmentRenamedDuringWalk extends Error {}
+
+async function readListedSegment(path: string): Promise<Buffer> {
+  try {
+    return await readFile(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new SegmentRenamedDuringWalk(path)
+    throw error
+  }
+}
+
+async function walkWalForDocId(walRoot: string, needle: Buffer): Promise<boolean> {
   const stack = [walRoot]
-  const needle = Buffer.from(docId, 'utf8')
   while (stack.length > 0) {
     const current = stack.pop()
     if (current === undefined) break
@@ -38,13 +49,24 @@ async function walHoldsDocId(dir: string, indexName: string, docId: string): Pro
       const full = join(current, entry.name)
       if (entry.isDirectory()) {
         stack.push(full)
-      } else {
-        const bytes = await readFile(full)
-        if (bytes.includes(needle)) return true
+      } else if ((await readListedSegment(full)).includes(needle)) {
+        return true
       }
     }
   }
   return false
+}
+
+async function walHoldsDocId(dir: string, indexName: string, docId: string): Promise<boolean> {
+  const walRoot = join(dir, indexName, 'wal')
+  const needle = Buffer.from(docId, 'utf8')
+  for (let walk = 1; ; walk++) {
+    try {
+      return await walkWalForDocId(walRoot, needle)
+    } catch (error) {
+      if (!(error instanceof SegmentRenamedDuringWalk) || walk >= WAL_WALKS_BEFORE_GIVING_UP) throw error
+    }
+  }
 }
 
 describe('rebalance write buffering', () => {
