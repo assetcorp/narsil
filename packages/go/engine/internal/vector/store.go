@@ -117,6 +117,8 @@ type storeMemory struct {
 	docIDBytes     int
 	longestDocID   int
 	resource       *sharedResource
+
+	publishedLocations []*storeLocations
 }
 
 func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots) (*storeMemory, error) {
@@ -165,7 +167,6 @@ func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots
 		}
 		*region.target = memory
 	}
-	store.fillInMemory(0)
 	store.resource = newSharedResource(store.releaseRegions)
 	return store, nil
 }
@@ -217,14 +218,6 @@ func (s *storeMemory) releaseRegions() {
 		if region != nil {
 			region.release()
 		}
-	}
-}
-
-func (s *storeMemory) fillInMemory(fromBytes uintptr) {
-	files := s.tables.locations.files
-	words := int32Values(files.pointer(), int(files.length/4))
-	for index := int(fromBytes / 4); index < len(words); index++ {
-		words[index] = vectorInMemory
 	}
 }
 
@@ -296,6 +289,7 @@ func (s *storeMemory) size() int {
 
 func (s *storeMemory) discard() {
 	s.tables.locations.resource.drop()
+	s.dropPublishedLocations()
 	dropBlocks(s.tables.vectorBlocks)
 	dropBlocks(s.tables.codeBlocks)
 	for _, file := range s.tables.files {

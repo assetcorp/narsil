@@ -27,19 +27,26 @@ func (c *checkpointContext) Err() error {
 	return c.Context.Err()
 }
 
+type checkpointCallbackCase struct {
+	rebuild      bool
+	checkpointed bool
+	filtered     bool
+}
+
 func TestVectorSearchKeepsItsFilesWhenAContextCallbackCheckpoints(t *testing.T) {
 	for _, rebuild := range []bool{false, true} {
-		t.Run(fmt.Sprintf("rebuild-%t", rebuild), func(t *testing.T) {
-			for _, checkpointed := range []bool{false, true} {
-				t.Run(fmt.Sprintf("checkpointed-%t", checkpointed), func(t *testing.T) {
-					checkVectorCheckpointCallbacks(t, rebuild, checkpointed)
+		for _, checkpointed := range []bool{false, true} {
+			for _, filtered := range []bool{false, true} {
+				scenario := checkpointCallbackCase{rebuild: rebuild, checkpointed: checkpointed, filtered: filtered}
+				t.Run(fmt.Sprintf("rebuild-%t/checkpointed-%t/filtered-%t", rebuild, checkpointed, filtered), func(t *testing.T) {
+					checkVectorCheckpointCallbacks(t, scenario)
 				})
 			}
-		})
+		}
 	}
 }
 
-func checkVectorCheckpointCallbacks(t *testing.T, rebuild, checkpointed bool) {
+func checkVectorCheckpointCallbacks(t *testing.T, scenario checkpointCallbackCase) {
 	t.Helper()
 	for at := int64(1); ; at++ {
 		called := false
@@ -66,7 +73,7 @@ func checkVectorCheckpointCallbacks(t *testing.T, rebuild, checkpointed bool) {
 			if err := narsil.OptimizeVectors(ctx, "catalogue", "embedding"); err != nil {
 				t.Fatal(err)
 			}
-			if checkpointed {
+			if scenario.checkpointed {
 				if err := narsil.Checkpoint(ctx, "catalogue"); err != nil {
 					t.Fatal(err)
 				}
@@ -74,31 +81,35 @@ func checkVectorCheckpointCallbacks(t *testing.T, rebuild, checkpointed bool) {
 					t.Fatal(err)
 				}
 			}
+			query := catalogueVector(nearestNeighboursChecked)
 			var callbackErr error
 			callback := &checkpointContext{Context: ctx, at: at, act: func() {
 				called = true
 				bounded, cancel := context.WithTimeout(ctx, checkpointCallbackTimeout)
 				defer cancel()
-				if rebuild {
+				if scenario.rebuild {
 					callbackErr = narsil.OptimizeVectors(bounded, "catalogue", "embedding")
 				}
 				if callbackErr == nil {
 					callbackErr = narsil.Checkpoint(bounded, "catalogue")
 				}
 			}}
-			query := catalogueVector(nearestNeighboursChecked)
-			result, err := narsil.Query(callback, "catalogue", engine.QueryParams{
+			params := engine.QueryParams{
 				Mode: engine.SearchVector, Limit: engine.Some(nearestNeighboursChecked), IncludeScores: true,
-				Vector:  &engine.VectorQueryConfig{Field: "embedding", Value: query},
-				Filters: &engine.FilterExpression{Fields: map[string]engine.FieldFilter{"selected": {Eq: engine.BooleanValue(true)}}},
-			})
+				Vector: &engine.VectorQueryConfig{Field: "embedding", Value: query},
+			}
+			expected := cosineOracle(query, documentsBelowPromotion)[:nearestNeighboursChecked]
+			if scenario.filtered {
+				params.Filters = &engine.FilterExpression{Fields: map[string]engine.FieldFilter{"selected": {Eq: engine.BooleanValue(true)}}}
+				expected = cosineOracle(query, nearestNeighboursChecked)
+			}
+			result, err := narsil.Query(callback, "catalogue", params)
 			if callbackErr != nil {
 				t.Fatalf("the checkpoint callback failed: %v", callbackErr)
 			}
 			if err != nil {
 				t.Fatalf("the query failed after the checkpoint callback: %v", err)
 			}
-			expected := cosineOracle(query, nearestNeighboursChecked)
 			if len(result.Hits) != len(expected) {
 				t.Fatalf("the search returned %d hits, expected %d", len(result.Hits), len(expected))
 			}

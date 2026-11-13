@@ -109,7 +109,7 @@ func (f *Field) releaseLocations(ctx context.Context, paths []string, located []
 	var opened []*sharedResource
 	defer func() {
 		if committed {
-			previous.locations.resource.drop()
+			f.store.keepPublishedLocations(previous.locations)
 			return
 		}
 		for _, resource := range opened {
@@ -159,13 +159,6 @@ func (f *Field) VectorFilesInUse() []string {
 		return []string{}
 	}
 	paths := f.store.filePaths()
-	for _, retired := range f.fileLayoutsInUse() {
-		for _, file := range retired.tables.files {
-			if file != nil && file.path != "" {
-				paths = append(paths, file.path)
-			}
-		}
-	}
 	if f.cold != nil {
 		paths = append(paths, f.cold.field.FilePaths()...)
 	}
