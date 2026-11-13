@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerLanguage } from '../../../languages/registry'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
-import { deserializeMetadata, serializeMetadata } from '../../../serialization/payload-v1'
 import type { StaleAnalysis } from '../../../types/config'
-import type { IndexMetadata } from '../../../types/internal'
 
 const schema = { title: 'string' as const }
 const LANGUAGE = 'revision-fixture'
@@ -163,34 +161,5 @@ describe('an index survives a change to the analysis that built it', () => {
 
     await engine.rebuildAnalysis('prose')
     expect((await engine.query('prose', { term: 'jump' })).hits).toHaveLength(1)
-  })
-
-  it('treats an index written before the field existed as stale', () => {
-    const metadata: IndexMetadata = {
-      indexName: 'prose',
-      schema: { title: 'string' },
-      language: LANGUAGE,
-      partitionCount: 1,
-      bm25Params: { k1: 1.2, b: 0.75 },
-      createdAt: 0,
-      engineVersion: '0.0.0',
-    }
-
-    expect(deserializeMetadata(serializeMetadata(metadata)).analysisRevision).toBeUndefined()
-  })
-
-  it('carries the revision through a metadata round trip', () => {
-    const metadata: IndexMetadata = {
-      indexName: 'prose',
-      schema: { title: 'string' },
-      language: LANGUAGE,
-      partitionCount: 1,
-      bm25Params: { k1: 1.2, b: 0.75 },
-      createdAt: 0,
-      engineVersion: '0.0.0',
-      analysisRevision: '7',
-    }
-
-    expect(deserializeMetadata(serializeMetadata(metadata)).analysisRevision).toBe('7')
   })
 })

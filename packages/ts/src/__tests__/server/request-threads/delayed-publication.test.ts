@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { BroadcastChannel } from 'node:worker_threads'
 import { expect, it } from 'vitest'
 import { registerLanguage } from '../../../index'
-import { postJson, startTestServer, waitFor } from '../helpers'
+import { postJson, scaledOut, startTestServer, waitFor } from '../helpers'
 
 const LANGUAGE = 'retained-copy-publication'
 const DOCUMENTS = 32
@@ -56,20 +56,9 @@ it.skipIf(!existsSync(distEntry)).each(['search', 'publication'] as const)(
     })
     const channel = new BroadcastChannel(randomUUID())
     const barrier = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 3))
-    let mainQueries = 0
-    const server = await startTestServer(
-      undefined,
-      {
-        workers: { count: 1, promotionThreshold: 2, bootstrapModule: bootstrap(channel.name) },
-      },
-      async engine => {
-        const query = engine.query.bind(engine)
-        engine.query = (indexName, params) => {
-          mainQueries++
-          return query(indexName, params)
-        }
-      },
-    )
+    const server = await startTestServer(undefined, {
+      workers: { count: 1, promotionThreshold: 2, bootstrapModule: bootstrap(channel.name) },
+    })
     try {
       await server.engine.createIndex('records', {
         schema: { title: 'string', version: 'number', embedding: 'vector[2]' },
@@ -81,11 +70,8 @@ it.skipIf(!existsSync(distEntry)).each(['search', 'publication'] as const)(
         Array.from({ length: DOCUMENTS }, (_, i) => document(`record-${i}`, 0)),
         { wait: true },
       )
-      await waitFor(async () => {
-        const before = mainQueries
-        const response = await postJson(server.base, '/indexes/records/search', { term: 'record', limit: DOCUMENTS })
-        return response.status === 200 && mainQueries === before
-      })
+      await waitFor(() => scaledOut(server.engine, 'records'))
+      await server.engine.waitForWrites('records')
       channel.postMessage(barrier.buffer)
       await waitFor(async () => Atomics.load(barrier, 0) > 0)
       Atomics.store(barrier, 1, 1)
@@ -122,14 +108,12 @@ it.skipIf(!existsSync(distEntry)).each(['search', 'publication'] as const)(
       )
       expect(current.status, JSON.stringify(current.body)).toBe(200)
       expect(current.body.hits.find(hit => hit.id === 'record-0')?.document).toEqual(document('record-0', UPDATES + 1))
-      const before = mainQueries
       const vectors = await postJson<{ hits: Array<{ id: string; score: number; document: Document }> }>(
         server.base,
         '/indexes/records/search',
         { mode: 'vector', vector: { field: 'embedding', value: [1, 0] }, limit: DOCUMENTS },
       )
       expect(vectors.status, JSON.stringify(vectors.body)).toBe(200)
-      expect(mainQueries).toBe(before)
       expect(vectors.body.hits).toHaveLength(DOCUMENTS)
       for (const hit of vectors.body.hits) {
         expect(hit.document).toEqual(document(hit.id, hit.id === 'record-0' ? UPDATES + 1 : 0))

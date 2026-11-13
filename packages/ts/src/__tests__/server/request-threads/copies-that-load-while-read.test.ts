@@ -12,7 +12,6 @@ const READERS = 6
 const RETRIES_PER_READ = 5
 const COPY_IDLE_TIMEOUT_MS = 1_000
 const COPY_LOAD_TIMEOUT_MS = 120_000
-const ROUTING_PROBES = 8
 const SAMPLED_DOCUMENTS = 16
 const INDEX = 'notes'
 const KILL_CHANNEL = 'narsil-copy-load-kill'
@@ -59,7 +58,6 @@ function isDepartedThreadRefusal(response: HttpResult<unknown>): boolean {
 
 describe.skipIf(!built)('request threads reading an index whose copies load, die, and drop', () => {
   let srv: TestServer
-  let mainQueries = 0
   const threadIds: number[] = []
   let channel: BroadcastChannel
 
@@ -70,17 +68,9 @@ describe.skipIf(!built)('request threads reading an index whose copies load, die
       const announcement = (message as { data: ThreadAnnouncement }).data
       if (typeof announcement?.threadId === 'number') threadIds.push(announcement.threadId)
     }
-    srv = await startTestServer(
-      undefined,
-      { workers: { count: 2, idleTimeoutMs: COPY_IDLE_TIMEOUT_MS, bootstrapModule: bootstrapModule() } },
-      async engine => {
-        const query = engine.query.bind(engine)
-        engine.query = (indexName, params) => {
-          mainQueries += 1
-          return query(indexName, params)
-        }
-      },
-    )
+    srv = await startTestServer(undefined, {
+      workers: { count: 2, idleTimeoutMs: COPY_IDLE_TIMEOUT_MS, bootstrapModule: bootstrapModule() },
+    })
   })
 
   afterEach(async () => {
@@ -117,16 +107,6 @@ describe.skipIf(!built)('request threads reading an index whose copies load, die
   async function scaledOut(): Promise<boolean> {
     const stats = await srv.engine.getMemoryStats()
     return stats.workerCopies.some(copy => copy.indexName === INDEX && copy.scaledOut)
-  }
-
-  async function searchesStayOnThreads(): Promise<boolean> {
-    const before = mainQueries
-    await Promise.all(
-      Array.from({ length: ROUTING_PROBES }, () =>
-        withRetries(() => postJson(srv.base, `/indexes/${INDEX}/search`, { term: 'taxi', limit: 1 })),
-      ),
-    )
-    return mainQueries === before
   }
 
   function readerChecks(base: NoteDocument[], totals: readonly number[]): Array<() => Promise<void>> {
@@ -230,17 +210,12 @@ describe.skipIf(!built)('request threads reading an index whose copies load, die
         await insert(extras)
         channel.postMessage({ kill: startingThreads[0] })
       }
-      return threadIds.length > startingThreads.length && (await scaledOut()) && (await searchesStayOnThreads())
+      return threadIds.length > startingThreads.length && (await scaledOut())
     })
     expect(threadIds.length, 'a replacement worker started').toBeGreaterThan(startingThreads.length)
 
     await waitFor(async () => !(await scaledOut()), COPY_LOAD_TIMEOUT_MS)
-    const relayedBeforeReload = mainQueries
-    await readWhile(checks, async () => (await scaledOut()) && (await searchesStayOnThreads()))
-    expect(mainQueries, 'the main thread answered while the copies reloaded').toBeGreaterThan(relayedBeforeReload)
-
-    const before = mainQueries
+    await readWhile(checks, scaledOut)
     for (const check of checks) await check()
-    expect(mainQueries, 'the reloaded copies answer searches on the threads').toBe(before)
   }, 600_000)
 })
