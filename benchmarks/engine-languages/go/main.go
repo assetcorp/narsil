@@ -23,6 +23,7 @@ const (
 	keywordKind  = "keyword"
 	vectorKind   = "vector"
 	runnerEngine = "go"
+	maxThreads   = 31
 )
 
 type arguments struct {
@@ -53,16 +54,16 @@ func parseArguments(values []string) (arguments, error) {
 		return arguments{}, errors.New(usage)
 	}
 	threads, err := strconv.Atoi(values[2])
-	if err != nil || threads < 1 {
-		return arguments{}, errors.New("threads must be a whole number of at least 1")
+	if err != nil || threads < 1 || threads > maxThreads {
+		return arguments{}, fmt.Errorf("threads must be a whole number from 1 to %d", maxThreads)
 	}
 	return arguments{workload: values[0], kind: values[1], threads: threads, output: values[3]}, nil
 }
 
-func openEngine(ctx context.Context, threads int) (*engine.Narsil, error) {
+func openEngine(ctx context.Context, threads int, threshold int) (*engine.Narsil, error) {
 	workers := engine.WorkerConfig{Enabled: engine.Some(false)}
 	if threads > 1 {
-		workers = engine.WorkerConfig{Enabled: engine.Some(true), Count: engine.Some(threads)}
+		workers = engine.WorkerConfig{Enabled: engine.Some(true), Count: engine.Some(threads), PromotionThreshold: engine.Some(threshold)}
 	}
 	return engine.New(ctx, engine.Config{Workers: workers})
 }
@@ -239,7 +240,7 @@ func run(ctx context.Context, args arguments) error {
 	if err != nil {
 		return err
 	}
-	narsil, err := openEngine(ctx, args.threads)
+	narsil, err := openEngine(ctx, args.threads, plan.Settings.WorkerPromotionThreshold)
 	if err != nil {
 		return err
 	}
@@ -255,8 +256,9 @@ func run(ctx context.Context, args arguments) error {
 		Verification: map[string][]verifiedAnswer{}, Phases: map[string]measuredPhase{},
 	}
 	out.Load.Documents = len(documents)
+	batches := batchesOf(documents, plan.Settings.InsertBatch)
 	insertStart := time.Now()
-	if err := insertAll(ctx, narsil, batchesOf(documents, plan.Settings.InsertBatch), args.threads); err != nil {
+	if err := insertAll(ctx, narsil, batches, args.threads); err != nil {
 		return err
 	}
 	out.Load.InsertNs = time.Since(insertStart).Nanoseconds()

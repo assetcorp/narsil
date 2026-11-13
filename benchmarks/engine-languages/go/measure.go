@@ -22,7 +22,6 @@ type verifiedAnswer struct {
 	Count      int     `json:"count"`
 	CountExact bool    `json:"countExact"`
 	Hits       [][]any `json:"hits"`
-	firstID    string
 }
 
 type measuredPhase struct {
@@ -47,18 +46,20 @@ func verified(result engine.QueryResult) (verifiedAnswer, error) {
 		hits[index] = []any{hit.ID, score}
 	}
 	answer := verifiedAnswer{Count: result.Count, CountExact: result.CountExact, Hits: hits}
-	if len(result.Hits) > 0 {
-		answer.firstID = result.Hits[0].ID
-	}
 	return answer, nil
 }
 
 func sameAnswer(result engine.QueryResult, expected verifiedAnswer) bool {
-	first := ""
-	if len(result.Hits) > 0 {
-		first = result.Hits[0].ID
+	if result.Count != expected.Count || result.CountExact != expected.CountExact || len(result.Hits) != len(expected.Hits) {
+		return false
 	}
-	return result.Count == expected.Count && first == expected.firstID
+	for rank, hit := range result.Hits {
+		score, present := hit.Score.Get()
+		if !present || hit.ID != expected.Hits[rank][0] || score != expected.Hits[rank][1] {
+			return false
+		}
+	}
+	return true
 }
 
 func inParallel(threads int, items int, work func(item int) error) error {

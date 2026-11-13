@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createNarsil, type Narsil, type QueryParams } from '@delali/narsil'
-import { MEMORY_SETTLE_MS, WORKER_PROMOTION_TIMEOUT_MS } from '../constants'
+import { MAX_THREADS, MEMORY_SETTLE_MS, WORKER_PROMOTION_TIMEOUT_MS } from '../constants'
 import type { MeasuredPhase, RunnerOutput, VerifiedAnswer } from '../runner-output'
 import {
   KEYWORD_DOCUMENTS_FILE,
@@ -36,10 +36,16 @@ interface Arguments {
 function parseArguments(argv: readonly string[]): Arguments {
   const [workload, kind, threadText, output] = argv
   const threads = Number(threadText)
-  if (workload === undefined || output === undefined || (kind !== 'keyword' && kind !== 'vector')) {
+  if (
+    argv.length !== 4 ||
+    workload === undefined ||
+    output === undefined ||
+    (kind !== 'keyword' && kind !== 'vector')
+  ) {
     throw new Error('usage: main.ts <workload-dir> <keyword|vector> <threads> <output-file>')
   }
-  if (!Number.isSafeInteger(threads) || threads < 1) throw new Error('threads must be a whole number of at least 1')
+  if (!Number.isSafeInteger(threads) || threads < 1 || threads > MAX_THREADS)
+    throw new Error(`threads must be a whole number from 1 to ${MAX_THREADS}`)
   return { workload, kind, threads, output }
 }
 
@@ -138,7 +144,8 @@ function asAnswer(result: { count: number; countExact: boolean; hits: Array<{ id
 async function runKeyword(narsil: Narsil, directory: string, manifest: WorkloadManifest, threads: number) {
   const queries = readKeywordQueries(resolve(directory, KEYWORD_QUERIES_FILE))
   const limit = manifest.settings.limit
-  const run = async (query: number) => asAnswer(await narsil.query(INDEX, { term: queries[query], limit }))
+  const params = queries.map(term => ({ term, limit }))
+  const run = async (query: number) => asAnswer(await narsil.query(INDEX, params[query]))
   const keyword = await verifyEach(queries.length, run)
   const { warmupPasses, measuredPasses } = manifest.settings
   const phase = await measurePhase(threads, warmupPasses, measuredPasses.keyword, keyword, run)
@@ -156,18 +163,20 @@ async function runVector(narsil: Narsil, directory: string, manifest: WorkloadMa
     metric: 'cosine' as const,
     efSearch: settings.efSearch,
   })
-  const vectorQuery = (limit: number) => async (query: number) =>
-    asAnswer(await narsil.query(INDEX, { mode: 'vector', vector: vectorClause(query), limit }))
-  const hybridParams = (query: number): QueryParams => ({
+  const vectorQuery = (limit: number) => {
+    const params: QueryParams[] = texts.map((_, query) => ({ mode: 'vector', vector: vectorClause(query), limit }))
+    return async (query: number) => asAnswer(await narsil.query(INDEX, params[query]))
+  }
+  const hybridParams: QueryParams[] = texts.map((_, query) => ({
     mode: 'hybrid',
     term: texts[query].text,
     vector: vectorClause(query),
     hybrid: { strategy: 'rrf', k: settings.rrfK },
     limit: settings.limit,
-  })
-  const hybridQuery = async (query: number) => asAnswer(await narsil.query(INDEX, hybridParams(query)))
-  const textLegQuery = async (query: number) =>
-    asAnswer(await narsil.query(INDEX, { term: texts[query].text, limit: settings.hybridLegDepth }))
+  }))
+  const hybridQuery = async (query: number) => asAnswer(await narsil.query(INDEX, hybridParams[query]))
+  const textParams = texts.map(({ text }) => ({ term: text, limit: settings.hybridLegDepth }))
+  const textLegQuery = async (query: number) => asAnswer(await narsil.query(INDEX, textParams[query]))
   const count = texts.length
   const verification: Record<string, VerifiedAnswer[]> = {
     vector: await verifyEach(count, vectorQuery(settings.limit)),
@@ -198,7 +207,14 @@ async function main(): Promise<void> {
     promoted = done
   })
   const narsil = await createNarsil({
-    workers: args.threads === 1 ? { enabled: false } : { enabled: true, count: args.threads },
+    workers:
+      args.threads === 1
+        ? { enabled: false }
+        : {
+            enabled: true,
+            count: args.threads,
+            promotionThreshold: manifest.settings.workerPromotionThreshold,
+          },
     events: { workerPromote: () => promoted() },
   })
   await createIndex(narsil, args.kind, manifest)

@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, mpsc};
 use std::time::Instant;
 
 use narsil::QueryResult;
@@ -47,8 +47,13 @@ pub fn verified(result: &QueryResult) -> Result<VerifiedAnswer, String> {
 
 fn same_answer(result: &QueryResult, expected: &VerifiedAnswer) -> bool {
     result.count == expected.count
-        && result.hits.first().map(|hit| hit.id.as_str())
-            == expected.hits.first().map(|(id, _)| id.as_str())
+        && result.count_exact == expected.count_exact
+        && result.hits.len() == expected.hits.len()
+        && result
+            .hits
+            .iter()
+            .zip(&expected.hits)
+            .all(|(hit, (id, score))| hit.id == *id && hit.score == Some(*score))
 }
 
 pub fn in_parallel<Work>(threads: usize, items: usize, work: Work) -> Result<(), String>
@@ -105,24 +110,76 @@ where
     Run: Fn(usize) -> Result<QueryResult, String> + Sync,
 {
     let queries = expected.len();
-    in_parallel(threads, warmup_passes * queries, |item| {
-        run(item % queries).map(|_| ())
-    })?;
     let total = passes * queries;
     let latencies: Vec<AtomicU64> = (0..total).map(|_| AtomicU64::new(0)).collect();
     let mismatches = AtomicU64::new(0);
-    let start = Instant::now();
-    in_parallel(threads, total, |item| {
-        let query = item % queries;
-        let began = Instant::now();
-        let result = run(query)?;
-        latencies[item].store(elapsed_ns(began), Ordering::Relaxed);
-        if !same_answer(&result, &expected[query]) {
-            mismatches.fetch_add(1, Ordering::Relaxed);
+    let next = AtomicUsize::new(0);
+    let wall_ns = std::thread::scope(|scope| -> Result<u64, String> {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let mut starts = Vec::new();
+        let run = &run;
+        let latencies = &latencies;
+        let mismatches = &mismatches;
+        let next = &next;
+        for thread in 0..threads {
+            let (start_tx, start_rx) = mpsc::channel();
+            let ready = ready_tx.clone();
+            let done = done_tx.clone();
+            std::thread::Builder::new()
+                .spawn_scoped(scope, move || {
+                    let warmed = (thread..warmup_passes * queries)
+                        .step_by(threads)
+                        .try_for_each(|item| run(item % queries).map(|_| ()));
+                    let failed = warmed.is_err();
+                    let _ = ready.send(warmed);
+                    drop(ready);
+                    if failed || start_rx.recv().is_err() {
+                        return;
+                    }
+                    let measured = (|| -> Result<(), String> {
+                        loop {
+                            let item = next.fetch_add(1, Ordering::Relaxed);
+                            if item >= total {
+                                return Ok(());
+                            }
+                            let query = item % queries;
+                            let began = Instant::now();
+                            let result = run(query)?;
+                            latencies[item].store(elapsed_ns(began), Ordering::Relaxed);
+                            if !same_answer(&result, &expected[query]) {
+                                mismatches.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    })();
+                    let _ = done.send(measured);
+                })
+                .map_err(|error| error.to_string())?;
+            starts.push(start_tx);
         }
-        Ok(())
+        drop(ready_tx);
+        drop(done_tx);
+        let warmed: Vec<_> = ready_rx.into_iter().collect();
+        if warmed.len() != threads {
+            return Err("a warm-up thread exited without an answer".to_string());
+        }
+        for result in warmed {
+            result?;
+        }
+        let start = Instant::now();
+        for sender in starts {
+            sender.send(()).map_err(|error| error.to_string())?;
+        }
+        let finished: Vec<_> = done_rx.into_iter().collect();
+        let elapsed = elapsed_ns(start);
+        if finished.len() != threads {
+            return Err("a measurement thread exited without an answer".to_string());
+        }
+        for result in finished {
+            result?;
+        }
+        Ok(elapsed)
     })?;
-    let wall_ns = elapsed_ns(start);
     Ok(MeasuredPhase {
         queries,
         warmup_passes,

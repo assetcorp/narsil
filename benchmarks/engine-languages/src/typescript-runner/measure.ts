@@ -27,10 +27,13 @@ export function verifiedAnswer(answer: Answer): VerifiedAnswer {
 }
 
 function sameAnswer(answer: Answer, expected: VerifiedAnswer): boolean {
-  if (answer.count !== expected.count) return false
-  const first = answer.hits[0]?.id
-  const expectedFirst = expected.hits[0]?.[0]
-  return first === expectedFirst
+  if (
+    answer.count !== expected.count ||
+    answer.countExact !== expected.countExact ||
+    answer.hits.length !== expected.hits.length
+  )
+    return false
+  return answer.hits.every((hit, rank) => hit.id === expected.hits[rank][0] && hit.score === expected.hits[rank][1])
 }
 
 async function inParallel(threads: number, items: number, work: (item: number) => Promise<void>): Promise<void> {
