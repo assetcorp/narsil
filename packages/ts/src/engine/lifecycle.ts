@@ -24,6 +24,7 @@ export async function startEngineCore(core: EngineCore, config: NarsilConfig | u
 export async function shutdownEngine(core: EngineCore): Promise<void> {
   const { executor, durability, indexRegistry, eventHandlers, orchestrator } = core
 
+  await core.analysisRebuild.shutdown()
   await core.querySuggestionHooks?.shutdown()
   core.indexState.dispose()
 

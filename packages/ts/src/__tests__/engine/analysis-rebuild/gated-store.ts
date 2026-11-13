@@ -22,16 +22,20 @@ export function settledAfter(promise: Promise<unknown>, milliseconds: number): P
 export interface GatedStore {
   adapter: PersistenceAdapter
   storage: ReturnType<typeof createMemoryPersistence>
-  holdNextSave(): { started: Promise<void>; release: () => void }
+  holdNextSave(matches?: (key: string) => boolean): { started: Promise<void>; release: () => void }
+}
+
+function inProse(key: string): boolean {
+  return key.startsWith('prose/')
 }
 
 export function gatedStore(): GatedStore {
   const storage = createMemoryPersistence()
-  let hold: { started: () => void; gate: Promise<void> } | null = null
+  let hold: { matches: (key: string) => boolean; started: () => void; gate: Promise<void> } | null = null
   const adapter: PersistenceAdapter = {
     async save(key, data) {
       const held = hold
-      if (held !== null && key.startsWith('prose/')) {
+      if (held?.matches(key)) {
         hold = null
         held.started()
         await held.gate
@@ -45,10 +49,10 @@ export function gatedStore(): GatedStore {
   return {
     adapter,
     storage,
-    holdNextSave() {
+    holdNextSave(matches = inProse) {
       const started = deferred()
       const gate = deferred()
-      hold = { started: started.resolve, gate: gate.promise }
+      hold = { matches, started: started.resolve, gate: gate.promise }
       return { started: started.promise, release: gate.resolve }
     },
   }

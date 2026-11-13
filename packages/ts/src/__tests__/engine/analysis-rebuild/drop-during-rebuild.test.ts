@@ -1,20 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
-import { createNarsil, type Narsil } from '../../../narsil'
-import { type GatedStore, gatedStore, settledAfter } from './gated-store'
-import {
-  FIRST_REVISION,
-  LANGUAGE,
-  OracleCorpus,
-  registerRevision,
-  SECOND_REVISION,
-  seededRandom,
-  sentence,
-} from './oracle'
-
-const SCHEMA = { title: 'string' as const }
-const DOCUMENTS = 2_000
-const PARTITIONS = 4
+import type { Narsil } from '../../../narsil'
+import { gatedStore, settledAfter } from './gated-store'
+import { LANGUAGE, OracleCorpus } from './oracle'
+import { openUnderSecondRevision, SCHEMA, writeUnderFirstRevision } from './stale-store'
 
 describe('a drop that meets a rebuild that the engine started', () => {
   let engine: Narsil | null = null
@@ -23,45 +12,6 @@ describe('a drop that meets a rebuild that the engine started', () => {
     await engine?.shutdown()
     engine = null
   })
-
-  async function writeUnderFirstRevision(store: GatedStore, corpus: OracleCorpus): Promise<void> {
-    registerRevision(FIRST_REVISION)
-    const random = seededRandom(71)
-    const writer = await createNarsil({
-      persistence: store.adapter,
-      durability: { tier: 'snapshot' },
-      workers: { enabled: false },
-    })
-    await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE, partitions: { maxPartitions: PARTITIONS } })
-    const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
-    await writer.insertBatch('prose', documents)
-    for (const document of documents) corpus.write(document.id, document.title, FIRST_REVISION)
-    await writer.rebalance('prose', PARTITIONS)
-    await writer.checkpoint('prose')
-    await writer.shutdown()
-    registerRevision(SECOND_REVISION)
-  }
-
-  async function openWithRebuildTrigger(store: GatedStore): Promise<{ opened: Narsil; rebuild: () => Promise<void> }> {
-    const announced: { rebuild: (() => Promise<void>) | null } = { rebuild: null }
-    const opened = await createNarsil({
-      persistence: store.adapter,
-      durability: { tier: 'snapshot' },
-      workers: { enabled: false },
-      lifecycle: {},
-      analysis: {
-        rebuild: 'manual',
-        onStaleAnalysis(_index, rebuild) {
-          announced.rebuild = rebuild
-        },
-      },
-    })
-    engine = opened
-    await opened.open('prose')
-    const rebuild = announced.rebuild
-    if (rebuild === null) throw new Error('the engine announced no stale index')
-    return { opened, rebuild }
-  }
 
   async function expectNewIndexUnderTheName(opened: Narsil): Promise<void> {
     await opened.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
@@ -80,8 +30,11 @@ describe('a drop that meets a rebuild that the engine started', () => {
     'drops the index when the drop arrives %s and leaves nothing of it behind',
     async (_when, point) => {
       const store = gatedStore()
-      await writeUnderFirstRevision(store, new OracleCorpus())
-      const { opened, rebuild } = await openWithRebuildTrigger(store)
+      await writeUnderFirstRevision(store.adapter, new OracleCorpus())
+      const { opened, rebuild } = await openUnderSecondRevision(store.adapter, created => {
+        engine = created
+      })
+      if (rebuild === null) throw new Error('the engine announced no stale index')
       const started = new Promise<void>(resolve => {
         opened.on('analysisRebuild', payload => {
           if (payload.status === 'started') resolve()
