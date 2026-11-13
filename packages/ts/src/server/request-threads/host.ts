@@ -87,6 +87,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   const longQueriesInFlight = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
   let longQueryThread: { workerId: number; port: MessagePort; executor: Executor } | null = null
   const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
+  const retiring = new Set<Promise<void>>()
   let stopped = false
 
   function closeThreadsAtExit(): void {
@@ -100,6 +101,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       try {
         acceptor.removeChildAppDescriptor(thread.descriptor)
       } catch {}
+      thread.descriptor = null
     }
     confirmDeparture(thread.departure)
   }
@@ -180,10 +182,12 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   function retireThread(workerId: number, thread: ServingThread): Promise<void> {
     releaseDescriptor(thread)
     thread.port.unref()
-    return executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).then(
-      () => undefined,
+    retiring.add(thread.closed)
+    void thread.closed.then(() => retiring.delete(thread.closed))
+    void executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(
       () => undefined,
     )
+    return thread.closed
   }
 
   const listener: RequestThreadListener = {
@@ -344,7 +348,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             ),
         )
       }
-      await Promise.all(stopping)
+      await Promise.all([...stopping, ...retiring])
     },
   }
 }
