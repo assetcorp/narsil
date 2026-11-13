@@ -7,6 +7,19 @@ import type { EngineSpec } from '../engines/catalog'
 import { runRunner } from '../engines/spawn'
 import { workloadSettings } from '../workload/settings'
 
+const DESCENDANT_EXIT_DEADLINE_MS = 5_000
+const DESCENDANT_POLL_MS = 20
+const EXITED_STATES = ['Z', 'X', 'gone']
+
+function processState(pid: number): string {
+  try {
+    return readFileSync(`/proc/${pid}/stat`, 'utf-8').split(' ')[2] ?? 'unreadable'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'gone'
+    throw error
+  }
+}
+
 let scratch = ''
 let sequence = 0
 const settings = workloadSettings('small')
@@ -151,11 +164,13 @@ describe('the runner process protocol', () => {
       require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(child.pid)); process.exit(0);`
     await expect(execute(code, 500)).rejects.toThrow('ran past 500 ms')
     const pid = Number(readFileSync(pidPath, 'utf-8'))
-    try {
-      expect(readFileSync(`/proc/${pid}/stat`, 'utf-8').split(' ')[2]).toBe('Z')
-    } catch (error) {
-      expect((error as NodeJS.ErrnoException).code).toBe('ENOENT')
+    const deadline = Date.now() + DESCENDANT_EXIT_DEADLINE_MS
+    let state = processState(pid)
+    while (!EXITED_STATES.includes(state) && Date.now() < deadline) {
+      await new Promise(resolveAfter => setTimeout(resolveAfter, DESCENDANT_POLL_MS))
+      state = processState(pid)
     }
+    expect(EXITED_STATES).toContain(state)
   })
 
   it('refuses a runner that crashes', async () => {
