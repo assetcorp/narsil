@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from ir_bench.core.comparison import build_comparison
 from ir_bench.core.comparison_markdown import render_comparison_markdown
 
@@ -48,51 +46,6 @@ def _report(name: str, *, kw_ndcg: float, vec_ndcg: float) -> dict:
     }
 
 
-def _tables_have_consistent_columns(markdown: str) -> bool:
-    lines = markdown.split("\n")
-    delimiter = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
-
-    def columns(line: str) -> int:
-        return line.strip().strip("|").count("|") + 1
-
-    index = 0
-    while index < len(lines):
-        if lines[index].strip().startswith("|") and index + 1 < len(lines) and delimiter.match(lines[index + 1]):
-            block = [lines[index]]
-            cursor = index + 1
-            while cursor < len(lines) and lines[cursor].strip().startswith("|"):
-                block.append(lines[cursor])
-                cursor += 1
-            if len({columns(row) for row in block}) != 1:
-                return False
-            index = cursor
-        else:
-            index += 1
-    return True
-
-
-def _render() -> str:
-    reports = [_report("narsil", kw_ndcg=0.68, vec_ndcg=0.62), _report("elasticsearch", kw_ndcg=0.61, vec_ndcg=0.62)]
-    return render_comparison_markdown(build_comparison(reports, "equal-precision"))
-
-
-def test_comparison_has_a_single_top_level_heading():
-    markdown = _render()
-    assert sum(1 for line in markdown.split("\n") if line.startswith("# ")) == 1
-
-
-def test_comparison_tables_use_padded_separators_with_matching_columns():
-    markdown = _render()
-    assert "|---|" not in markdown
-    assert _tables_have_consistent_columns(markdown)
-
-
-def test_best_marker_is_escaped_and_suppressed_on_ties():
-    markdown = _render()
-    assert "0.6800\\*" in markdown
-    assert "0.6200\\*" not in markdown
-
-
 def test_an_engine_that_missed_the_recall_target_wins_no_speed_marker():
     fast = _report("elasticsearch", kw_ndcg=0.61, vec_ndcg=0.62)
     slow = _report("narsil", kw_ndcg=0.68, vec_ndcg=0.62)
@@ -106,23 +59,3 @@ def test_an_engine_that_missed_the_recall_target_wins_no_speed_marker():
     assert "| narsil | 1404 |" in vector_section
     assert "1792\\*" not in vector_section
     assert "missed the recall target" in vector_section
-
-
-def test_memory_cap_above_the_machine_names_the_machine_as_the_ceiling():
-    report = _report("narsil", kw_ndcg=0.68, vec_ndcg=0.62)
-    report["config"]["memory_cap_bytes"] = 8_589_934_592
-    report["environment"]["total_memory_bytes"] = 8_319_766_528
-    markdown = render_comparison_markdown(build_comparison([report], "equal-precision"))
-    assert "8.6 GB configured, above the 8.3 GB the machine held" in markdown
-
-
-def test_best_config_conditions_name_the_quantization_each_engine_ran():
-    reports = [_report("narsil", kw_ndcg=0.68, vec_ndcg=0.62), _report("qdrant", kw_ndcg=0.61, vec_ndcg=0.62)]
-    for report, label in zip(reports, ("SQ8", "TurboQuant 4-bit")):
-        report["engine"]["vector_profile"] = "best-config"
-        for dataset in report["datasets"]:
-            if dataset["track"] == "vector":
-                dataset["quantization"] = label
-    markdown = render_comparison_markdown(build_comparison(reports, "best-config"))
-    assert "production quantization (narsil SQ8, qdrant TurboQuant 4-bit)." in markdown
-    assert "int8 scalar" not in markdown

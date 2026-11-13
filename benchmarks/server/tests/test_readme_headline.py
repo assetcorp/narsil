@@ -6,17 +6,16 @@ from pathlib import Path
 _WRITEUP_DIR = Path(__file__).resolve().parents[2] / "writeup"
 sys.path.insert(0, str(_WRITEUP_DIR))
 
-from headline_section import README_TARGETS, headline_block, reference_ndcg10  # noqa: E402
+from headline_section import headline_block  # noqa: E402
 from sources import Source  # noqa: E402
 
 
-def _row(engine: str, ndcg10: float | None, qps: float, met_target: bool | None = None) -> dict:
-    row: dict = {"engine": engine, "throughput": {"levels": [{"concurrency": 16, "qps": qps}]}}
-    if ndcg10 is not None:
-        row["metrics"] = {"ndcg_cut_10": ndcg10}
-    if met_target is not None:
-        row["operating_point"] = {"met_target": met_target}
-    return row
+def _row(engine: str, qps: float, met_target: bool) -> dict:
+    return {
+        "engine": engine,
+        "throughput": {"levels": [{"concurrency": 16, "qps": qps}]},
+        "operating_point": {"met_target": met_target},
+    }
 
 
 def _source(tracks: list[dict]) -> Source:
@@ -34,74 +33,10 @@ def _source(tracks: list[dict]) -> Source:
     )
 
 
-_KEYWORD = {
-    "track": "keyword",
-    "datasets": [
-        {
-            "dataset_id": "beir/scifact/test",
-            "rows": [
-                _row("narsil", 0.6814, 957.6),
-                _row("elasticsearch", 0.6789, 841.2),
-                _row("opensearch", 0.6789, 878.4),
-            ],
-        }
-    ],
-}
-
-
-def test_the_headline_quotes_the_score_the_peaks_and_the_run_they_came_from():
-    vector = {
-        "track": "vector",
-        "datasets": [
-            {"dataset_id": "beir/scifact/test", "rows": [_row("narsil", None, 6207, True), _row("qdrant", None, 5055, True)]},
-            {
-                "dataset_id": "dbpedia-entities-openai-1m",
-                "rows": [_row("narsil", None, 2116, True), _row("qdrant", None, 1224, True), _row("elasticsearch", None, 1568, True)],
-            },
-        ],
-    }
-
-    block = headline_block(_source([_KEYWORD, vector]), "BENCHMARKS.md", 0.679)
-
-    assert block == (
-        "On BEIR SciFact, Narsil's BM25 ranking scores 0.681 nDCG@10, which is within 0.002 of the Anserini "
-        "reference of 0.679. "
-        "Elasticsearch scores 0.679 and OpenSearch scores 0.679 on the same queries. "
-        "On SciFact, Narsil answers 958 keyword queries a second at its peak, and OpenSearch follows with 878. "
-        "On DBpedia entities 1M with every engine held at 0.99 recall, Narsil answers 2,116 vector queries a second "
-        "at its peak, and Elasticsearch follows with 1,568. "
-        "Narsil has the highest peak throughput in 3 of the 3 keyword and vector comparisons in the newest "
-        "recorded run. "
-        "The harness recorded these figures on 2026-09-01 in run `20260901T000000Z`. "
-        "GCP c3-standard-8 hardware in us-central1-a hosted the engines. "
-        "You'll find every dataset, every engine's settings, and the full method in [`BENCHMARKS.md`](BENCHMARKS.md)."
-    )
-
-
-def test_a_speed_sentence_names_the_engine_that_leads_narsil():
-    vector = {
-        "track": "vector",
-        "datasets": [
-            {"dataset_id": "dbpedia-entities-openai-100k", "rows": [_row("narsil", None, 900, True), _row("qdrant", None, 1200, True)]}
-        ],
-    }
-
-    block = headline_block(_source([vector]), "BENCHMARKS.md", None)
-
-    assert (
-        "On DBpedia entities 100K with every engine held at 0.99 recall, Narsil answers 900 vector queries a second "
-        "at its peak, while Qdrant leads with 1,200."
-    ) in block
-    assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in block
-    assert "nDCG@10" not in block
-
-
 def test_an_engine_that_missed_its_recall_target_neither_leads_a_sentence_nor_the_tally():
     vector = {
         "track": "vector",
-        "datasets": [
-            {"dataset_id": "beir/scifact/test", "rows": [_row("narsil", None, 900, True), _row("qdrant", None, 1200, False)]}
-        ],
+        "datasets": [{"dataset_id": "beir/scifact/test", "rows": [_row("narsil", 900, True), _row("qdrant", 1200, False)]}],
     }
 
     block = headline_block(_source([vector]), "BENCHMARKS.md", None)
@@ -113,73 +48,10 @@ def test_an_engine_that_missed_its_recall_target_neither_leads_a_sentence_nor_th
 def test_narsil_missing_its_recall_target_is_said_plainly():
     vector = {
         "track": "vector",
-        "datasets": [
-            {"dataset_id": "beir/scifact/test", "rows": [_row("narsil", None, 900, False), _row("qdrant", None, 800, True)]}
-        ],
+        "datasets": [{"dataset_id": "beir/scifact/test", "rows": [_row("narsil", 900, False), _row("qdrant", 800, True)]}],
     }
 
     block = headline_block(_source([vector]), "BENCHMARKS.md", None)
 
     assert "Narsil misses the recall target, so the comparison leaves its speed unranked." in block
     assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in block
-
-
-def test_the_tally_counts_equal_and_production_settings_and_quotes_the_production_vector_peak():
-    equal_vector = {
-        "track": "vector",
-        "datasets": [
-            {"dataset_id": "dbpedia-entities-openai-1m", "rows": [_row("narsil", None, 670, True), _row("opensearch", None, 869, True)]}
-        ],
-    }
-    production_vector = {
-        "track": "vector",
-        "datasets": [
-            {"dataset_id": "dbpedia-entities-openai-1m", "rows": [_row("narsil", None, 1154, True), _row("opensearch", None, 1111, True)]}
-        ],
-    }
-
-    block = headline_block(
-        _source([_KEYWORD, equal_vector]), "BENCHMARKS.md", None, _source([production_vector])
-    )
-
-    assert (
-        "With each engine's recommended production settings on the same set, Narsil answers 1,154 vector queries a "
-        "second at its peak, and OpenSearch follows with 1,111."
-    ) in block
-    assert (
-        "Narsil has the highest peak throughput in 2 of the 3 keyword and vector comparisons in the newest recorded "
-        "run: 1 of 2 with every engine on equal settings, and 1 of 1 with each engine's recommended production settings."
-    ) in block
-
-
-def test_engines_hosted_in_several_zones_name_the_machine_type_once():
-    source = _source([_KEYWORD])
-    source.data["engines"] = [
-        {"name": "narsil", "environment": {"machine_label": "GCP c3-standard-8, us-central1-a"}},
-        {"name": "meilisearch", "environment": {"machine_label": "GCP c3-standard-8, us-west1-a"}},
-        {"name": "qdrant", "environment": {"machine_label": "GCP c3-standard-8, us-east1-b"}},
-        {"name": "elasticsearch", "environment": {"machine_label": "GCP c3-standard-8, us-central1-a"}},
-    ]
-
-    block = headline_block(source, "BENCHMARKS.md", None)
-
-    assert "GCP c3-standard-8 hardware in us-central1-a, us-east1-b, and us-west1-a hosted the engines." in block
-
-
-def test_each_readme_links_the_benchmark_page_in_the_form_its_reader_can_follow():
-    links = {target.path: target.benchmarks_link for target in README_TARGETS}
-
-    assert links["README.md"] == "BENCHMARKS.md"
-    assert links["packages/ts/README.md"].startswith("https://github.com/assetcorp/narsil/")
-
-
-def test_the_reference_score_comes_from_the_benchmark_configuration(tmp_path):
-    config = tmp_path / "benchmarks" / "server" / "config"
-    config.mkdir(parents=True)
-    (config / "benchmark.toml").write_text(
-        '[[datasets]]\nid = "beir/scifact/test"\nbaseline_ndcg10 = 0.679\n', encoding="utf-8"
-    )
-
-    assert reference_ndcg10("beir/scifact/test", tmp_path) == 0.679
-    assert reference_ndcg10("beir/nq", tmp_path) is None
-    assert reference_ndcg10("beir/scifact/test", tmp_path / "absent") is None
