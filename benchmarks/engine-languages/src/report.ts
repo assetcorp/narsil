@@ -113,7 +113,8 @@ export function renderReport(results: LanguagesResults): string {
     '',
     `Keyword search uses ${rounded(keyword.documents, 0)} ${keyword.dataset} documents and ${rounded(keyword.queries, 0)} queries. ` +
       `Vector and hybrid search use ${rounded(vector.documents, 0)} ${vector.dataset} documents with ${vector.dimension}-dimension ${vector.model} vectors and ${rounded(vector.queries, 0)} queries. ` +
-      `Every figure is the median of ${results.repetitions} repetitions, and the oracle checked every answer.`,
+      `Rates and memory figures are medians across ${results.repetitions} repetitions. ` +
+      'Latency percentiles pool every measured query. The oracle checked the verification answers against the workload.',
     '',
     ...phaseTable(results.measurements, 'keyword'),
     ...phaseTable(results.measurements, 'vector'),

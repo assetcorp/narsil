@@ -67,7 +67,7 @@ def _spread(spread: object) -> str:
 def _repetitions(count: object) -> str:
     if count == 1:
         return "The figures come from a single repetition."
-    return f"The figures are the median of {integer(count)} repetitions, and the engine order rotates between them."
+    return f"Rates and memory figures are medians across {integer(count)} repetitions. Latency percentiles pool every measured query. The engine order rotates between repetitions."
 
 
 def _setup_block(source: Source) -> str:
@@ -104,7 +104,7 @@ def _setup_block(source: Source) -> str:
         f"`{commit}`{dirty}. The full tables, with peak memory, are in [the run report]({source.report_link}).",
         f"- **Machine.** {machine_sentence} Its C compiler is {results.get('cCompiler') or 'unknown'}.",
         f"- **Keyword workload.** Keyword search covers {integer(keyword.get('documents'))} documents from BEIR "
-        f"{dataset_name(keyword.get('dataset') or '')} with {integer(keyword.get('queries'))} of its queries.",
+        f"{dataset_name(keyword.get('dataset') or '')} with {integer(keyword.get('queries'))} queries drawn from the document text.",
         f"- **Vector workload.** Vector and hybrid search cover {integer(vector.get('documents'))} documents from BEIR "
         f"{dataset_name(vector.get('dataset') or '')} with {integer(vector.get('queries'))} queries, each carrying a "
         f"{integer(vector.get('dimension'))}-dimension `{vector.get('model')}` vector.",
@@ -113,9 +113,9 @@ def _setup_block(source: Source) -> str:
         f"{integer(settings.get('hnswM'))} and `efConstruction` {integer(settings.get('hnswEfConstruction'))}, searches "
         f"it with `efSearch` {integer(settings.get('efSearch'))}, and fuses hybrid results by reciprocal rank with `k` "
         f"{integer(settings.get('rrfK'))}.",
-        f"- **Threads.** The suite measures {threads} threads. On 1 thread every engine turns its worker copies off. "
-        "On more threads the suite sets every engine's worker count to the thread count, and that many callers query "
-        "the engine at once.",
+        f"- **Threads.** The suite measures {threads} concurrent callers with the same worker budget. "
+        "One caller disables worker copies. TypeScript divides its budget between keyword and vector workers, "
+        "Go configures a query pool, and Rust searches on the caller threads.",
         f"- **Repetitions.** {_repetitions(results.get('repetitions'))} Each repetition makes "
         f"{integer(settings.get('warmupPasses'))} warm-up passes over the queries, then "
         f"{integer(passes.get('keyword'))} measured keyword passes, {integer(passes.get('vector'))} vector passes, "
