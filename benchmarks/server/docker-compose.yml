@@ -33,6 +33,28 @@ services:
     volumes:
       - narsil_data:/var/lib/narsil
 
+  narsil-rust:
+    profiles: ["narsil-rust"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/server/narsil-rust-probe.Dockerfile
+      args:
+        NARSIL_GIT_SHA: "${NARSIL_GIT_SHA:-}"
+        NARSIL_GIT_DIRTY: "${NARSIL_RUST_GIT_DIRTY:-true}"
+        NARSIL_VERSION: "${NARSIL_RUST_VERSION:-}"
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
+    environment:
+      NARSIL_HOST: "0.0.0.0"
+      NARSIL_PORT: "7700"
+      NARSIL_ALLOW_INSECURE: "true"
+      NARSIL_MAX_BODY_BYTES: "67108864"
+      NARSIL_MAX_IMPORT_BYTES: "268435456"
+      NARSIL_DURABILITY_DIR: "/var/lib/narsil"
+    expose:
+      - "7700"
+    volumes:
+      - narsil_rust_data:/var/lib/narsil
+
   elasticsearch:
     profiles: ["elasticsearch"]
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
@@ -157,6 +179,7 @@ volumes:
   ir_datasets_cache:
   embeddings_cache:
   narsil_data:
+  narsil_rust_data:
   qdrant_data:
   weaviate_data:
   typesense_data:

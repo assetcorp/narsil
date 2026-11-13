@@ -14,6 +14,7 @@ def build_driver(engine: EngineConfig, bm25: BM25Params):
 
     factories = {
         "narsil": NarsilDriver,
+        "narsil-rust": NarsilDriver,
         "elasticsearch": ElasticsearchDriver,
         "opensearch": OpenSearchDriver,
         "typesense": TypesenseDriver,

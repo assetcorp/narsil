@@ -1,0 +1,12 @@
+*
+!packages/rust/Cargo.toml
+!packages/rust/Cargo.lock
+!packages/rust/build.rs
+!packages/rust/README.md
+!packages/rust/layout
+!packages/rust/src
+!packages/native/include
+!packages/native/src
+!benchmarks/server/rust-probe/Cargo.toml
+!benchmarks/server/rust-probe/Cargo.lock
+!benchmarks/server/rust-probe/src

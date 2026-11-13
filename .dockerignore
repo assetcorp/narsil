@@ -3,6 +3,7 @@
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !.npmrc
+!patches
 !tsconfig.json
 !packages/embeddings-transformers/package.json
 !packages/native/package.json

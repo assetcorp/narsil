@@ -297,6 +297,11 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   harness then reads that container's `cpu.stat` before and after every measured
   window, and it divides the CPU time by the wall time. Where `run-all.sh`
   supplies no container id, the harness records the field as absent and carries on.
+- Each track also records the engine container's peak memory, from the same cgroup.
+  The harness samples `memory.current` and the `anon` line of `memory.stat` every
+  0.25 s while the track loads, queries, and drops its index, and it reports the
+  highest of each. The anonymous figure leaves out the page cache, so it counts what
+  the engine allocated.
 - The vector track measures throughput once more at every search-effort value its
   recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
   so the operating point's `sweep` carries queries per second beside the sample
@@ -441,6 +446,8 @@ benchmarks/server/
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)
   narsil-server.Dockerfile   Narsil server image, built from repo source
+  narsil-rust-probe.Dockerfile  Rust crate behind the same routes, a measurement probe (see rust-probe/README.md)
+  rust-probe/                the probe's source
   requirements.in / .txt     direct dependencies and the version-pinned lock
   config/benchmark.toml       datasets, BM25 reference, vector config, per-engine tracks
   src/ir_bench/
@@ -460,6 +467,7 @@ benchmarks/server/
       throughput.py          the concurrency sweep: one pass per level, repeats at the peak, intervals, pooled tails
       throughput_process.py  the load-generator processes behind one measured window
       engine_cpu.py          the engine container's cgroup CPU counter and the cores-busy arithmetic
+      engine_memory.py       the engine container's peak cgroup memory, sampled through each track
       recall_sweep.py        throughput at every search-effort level of the recall sweep
       stats.py               percentiles, medians, and the bootstrap interval
       http_client.py         pooled HTTP client shared by every driver

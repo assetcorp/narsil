@@ -9,6 +9,7 @@ from .artifacts import dataset_slug
 from .config import BenchmarkConfig, EngineConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
+from .engine_memory import CgroupMemoryCounter
 from .keyword_relevance import load_keyword_index, score_keyword_queries
 from .latency import measure_latency, warmup_sample
 from .reporter import write_json
@@ -34,6 +35,17 @@ def _load_checkpoint(path: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return loaded if isinstance(loaded, dict) else None
+
+
+def _with_memory(engine_memory: CgroupMemoryCounter | None, run: Callable[[], dict]) -> Callable[[], dict]:
+    if engine_memory is None:
+        return run
+
+    def measured() -> dict:
+        result, memory = engine_memory.measure(run)
+        return {**result, "engine_memory": memory}
+
+    return measured
 
 
 def _checkpointed(checkpoint_dir: Path | None, label: str, track: str, spec: DatasetSpec, run: Callable[[], dict]) -> dict:
@@ -142,6 +154,7 @@ def run_engine(
     vector_profile: str = EQUAL_PRECISION,
     engine_cpu: CpuCounter | None = None,
     checkpoint_dir: Path | None = None,
+    engine_memory: CgroupMemoryCounter | None = None,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
@@ -157,7 +170,10 @@ def run_engine(
                 results.append(
                     _checkpointed(
                         checkpoint_dir, label, KEYWORD, spec,
-                        lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                        _with_memory(
+                            engine_memory,
+                            lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                        ),
                     )
                 )
             elif track == VECTOR:
@@ -165,9 +181,12 @@ def run_engine(
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
                 result = _checkpointed(
                     checkpoint_dir, label, VECTOR, spec,
-                    lambda: run_vector_track(
-                        driver, engine_cfg, config, spec, runs_dir, store,
-                        f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                    _with_memory(
+                        engine_memory,
+                        lambda: run_vector_track(
+                            driver, engine_cfg, config, spec, runs_dir, store,
+                            f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                        ),
                     ),
                 )
                 point = result.get("operating_point")
@@ -181,9 +200,13 @@ def run_engine(
                 results.append(
                     _checkpointed(
                         checkpoint_dir, label, HYBRID, spec,
-                        lambda: run_hybrid_track(
-                            driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
-                            chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                        _with_memory(
+                            engine_memory,
+                            lambda: run_hybrid_track(
+                                driver, engine_cfg, config, spec, runs_dir, store,
+                                f"{engine_cfg.name}_hybrid{suffix}",
+                                chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                            ),
                         ),
                     )
                 )

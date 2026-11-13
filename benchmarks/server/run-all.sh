@@ -87,6 +87,25 @@ if [ -n "$NARSIL_VERSION" ] &&
 fi
 export NARSIL_GIT_SHA NARSIL_GIT_DIRTY NARSIL_VERSION
 
+RUST_PROBE_SOURCE_PATHS=(
+  packages/rust/src
+  packages/rust/build.rs
+  packages/rust/Cargo.toml
+  packages/rust/Cargo.lock
+  packages/rust/layout
+  packages/native/include
+  packages/native/src
+  benchmarks/server/rust-probe
+  benchmarks/server/narsil-rust-probe.Dockerfile
+)
+NARSIL_RUST_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' ../../packages/rust/Cargo.toml 2>/dev/null | head -1)"
+NARSIL_RUST_GIT_DIRTY="true"
+if rust_probe_changes="$(git -C ../.. status --porcelain -- "${RUST_PROBE_SOURCE_PATHS[@]}" 2>/dev/null)" &&
+  [ -z "$rust_probe_changes" ]; then
+  NARSIL_RUST_GIT_DIRTY="false"
+fi
+export NARSIL_RUST_VERSION NARSIL_RUST_GIT_DIRTY
+
 # Resolve the immutable image artifact a running engine was started from. A pulled
 # image reports its registry digest; a locally built one (narsil, harness) has no
 # registry digest, so its local image id is used instead. Recorded with every result
@@ -111,7 +130,7 @@ fi
 
 is_vector_engine() {
   case "$1" in
-    narsil|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
+    narsil|narsil-rust|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
     *) return 1 ;;
   esac
 }

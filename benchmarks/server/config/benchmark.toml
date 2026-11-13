@@ -160,6 +160,12 @@ run_tag = "narsil_bm25"
 ranking = "bm25"
 tracks = ["keyword", "vector", "hybrid"]
 
+[engines.narsil-rust]
+url = "http://narsil-rust:7700"
+run_tag = "narsil_rust_bm25"
+ranking = "bm25"
+tracks = ["keyword", "vector", "hybrid"]
+
 [engines.elasticsearch]
 url = "http://elasticsearch:9200"
 run_tag = "elasticsearch_bm25"

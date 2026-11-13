@@ -1,0 +1,19 @@
+[package]
+name = "narsil-rust-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json"] }
+delali-narsil = { version = "0.1.1", path = "../../../packages/rust" }
+rayon = "=1.12.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "macros", "signal", "sync", "time"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

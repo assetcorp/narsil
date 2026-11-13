@@ -10,6 +10,7 @@ from .core.config import load_config, select_datasets, select_engine
 from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
+from .core.engine_memory import engine_memory_counter_from_env
 from .core.environment import capture_environment
 from .core.harness import CHECKPOINTS_DIRNAME, run_engine
 from .core.registry import build_driver
@@ -93,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         "vector_profile": vector_profile,
     }
     engine_cpu = engine_cpu_counter_from_env(os.environ)
+    engine_memory = engine_memory_counter_from_env(os.environ)
     config_summary = {
         "k1": config.bm25.k1,
         "b": config.bm25.b,
@@ -124,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             "warmup_seconds": config.throughput.warmup_seconds,
             "engine_cpu": None if engine_cpu is None else engine_cpu.describe(),
         },
+        "engine_memory": None if engine_memory is None else engine_memory.describe(),
     }
     if config.vector is not None:
         config_summary.update(
@@ -160,8 +163,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
         print(f"each finished track is written under {checkpoint_dir}; rerun with BENCH_RUN_ID={run_id} to resume", flush=True)
+        if engine_memory is None:
+            print("engine memory: not recorded (no engine container cgroup was supplied)", flush=True)
+        else:
+            print(f"engine memory: read from {engine_memory.cgroup_dir}", flush=True)
         results = run_engine(
-            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir
+            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir,
+            engine_memory,
         )
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
