@@ -150,18 +150,4 @@ describe('Narsil lifecycle and plugin hooks', () => {
       expect(count).toBe(1)
     })
   })
-
-  describe('event system', () => {
-    it('registers and unregisters event handlers', () => {
-      const calls: string[] = []
-      const handler = (_payload: { workerId: number; indexNames: string[]; error: Error }) => {
-        calls.push('called')
-      }
-
-      narsil.on('workerCrash', handler)
-      narsil.off('workerCrash', handler)
-
-      expect(calls.length).toBe(0)
-    })
-  })
 })

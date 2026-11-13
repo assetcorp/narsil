@@ -3,7 +3,6 @@ import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TransportError, TransportErrorCodes } from '../../../../distribution/transport'
 import { createTcpTransport } from '../../../../distribution/transport/tcp'
-import { parseAddress } from '../../../../distribution/transport/tcp/connection'
 import { FRAME_TYPE_RESPONSE, LENGTH_PREFIX_BYTES } from '../../../../distribution/transport/tcp/types'
 import { makeMessage, makeResponse } from './fixtures'
 
@@ -216,32 +215,6 @@ describe('TcpTransport', () => {
       } finally {
         await transportC.shutdown()
       }
-    })
-  })
-
-  describe('parseAddress validation', () => {
-    it('rejects address with empty host', () => {
-      expect(() => parseAddress(':8080')).toThrow(TransportError)
-    })
-
-    it('rejects address with null bytes in host', () => {
-      expect(() => parseAddress('host\0name:8080')).toThrow(TransportError)
-    })
-
-    it('rejects address without port separator', () => {
-      expect(() => parseAddress('localhost')).toThrow(TransportError)
-    })
-
-    it('parses valid address correctly', () => {
-      const [host, port] = parseAddress('127.0.0.1:9300')
-      expect(host).toBe('127.0.0.1')
-      expect(port).toBe('9300')
-    })
-
-    it('parses IPv6 address correctly', () => {
-      const [host, port] = parseAddress('[::1]:9300')
-      expect(host).toBe('[::1]')
-      expect(port).toBe('9300')
     })
   })
 

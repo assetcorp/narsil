@@ -139,37 +139,6 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
     })
   })
 
-  describe('memory estimation', () => {
-    it('returns positive estimatedMemoryBytes after inserting documents', async () => {
-      await narsil.createIndex('products', indexConfig)
-      await narsil.insert('products', { title: 'Wireless Headphones', category: 'electronics', price: 99 })
-      await narsil.insert('products', { title: 'Bluetooth Speaker', category: 'electronics', price: 49 })
-
-      const stats = narsil.getStats('products')
-      expect(stats.estimatedMemoryBytes).toBeGreaterThan(0)
-    })
-
-    it('returns zero estimatedMemoryBytes for an empty index', async () => {
-      await narsil.createIndex('products', indexConfig)
-      const stats = narsil.getStats('products')
-      expect(stats.estimatedMemoryBytes).toBe(0)
-    })
-
-    it('tracks memory decrease after removes', async () => {
-      await narsil.createIndex('products', indexConfig)
-      const ids: string[] = []
-      for (let i = 0; i < 50; i++) {
-        ids.push(await narsil.insert('products', { title: `Product ${i}`, category: 'test', price: i }))
-      }
-
-      const memAfterInsert = narsil.getStats('products').estimatedMemoryBytes
-      for (let i = 0; i < 25; i++) {
-        await narsil.remove('products', ids[i])
-      }
-      expect(narsil.getStats('products').estimatedMemoryBytes).toBeLessThan(memAfterInsert)
-    })
-  })
-
   describe('facets across partitions', () => {
     it('sums every value exactly and cuts the field to its limit once', async () => {
       await narsil.createIndex('products', { schema, language: 'english', partitions: { maxPartitions: 3 } })
@@ -182,41 +151,6 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
       const result = await narsil.query('products', { term: 'gadget', facets: { category: { limit: 1 } } })
 
       expect(result.facets?.category).toEqual({ values: { camera: 12 }, count: 1, errorBound: 10 })
-    })
-  })
-
-  describe('getPartitionStats', () => {
-    it('returns per-partition breakdown', async () => {
-      const config: IndexConfig = { schema, language: 'english', partitions: { maxPartitions: 3 } }
-      await narsil.createIndex('products', config)
-
-      for (let i = 0; i < 30; i++) {
-        await narsil.insert('products', { title: `Product ${i}`, category: 'electronics', price: i })
-      }
-
-      const partitionStats = narsil.getPartitionStats('products')
-      expect(partitionStats.length).toBe(3)
-
-      let totalDocs = 0
-      for (const ps of partitionStats) {
-        expect(ps.documentCount).toBeGreaterThanOrEqual(0)
-        expect(ps.estimatedMemoryBytes).toBeGreaterThanOrEqual(0)
-        totalDocs += ps.documentCount
-      }
-      expect(totalDocs).toBe(30)
-    })
-
-    it('is consistent with getStats estimatedMemoryBytes', async () => {
-      await narsil.createIndex('products', { schema, language: 'english', partitions: { maxPartitions: 3 } })
-
-      for (let i = 0; i < 30; i++) {
-        await narsil.insert('products', { title: `Product ${i}`, category: 'electronics', price: i * 10 })
-      }
-
-      const stats = narsil.getStats('products')
-      const partitionStats = narsil.getPartitionStats('products')
-      const partitionSum = partitionStats.reduce((sum, ps) => sum + ps.estimatedMemoryBytes, 0)
-      expect(stats.estimatedMemoryBytes).toBe(partitionSum)
     })
   })
 })

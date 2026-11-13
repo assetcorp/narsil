@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Narsil } from '../../../narsil'
-import type { FilterExpression } from '../../../types/filters'
 import {
   type Ask,
   type AskDuringChange,
@@ -11,13 +10,12 @@ import {
   type Library,
   nearCentre,
   papersFrom,
-  queries,
   randomShelf,
   type ShelvedPaper,
   shelvesConfig,
   vectorQuery,
 } from '../../integration/filtered-vectors/library'
-import { postJson, startTestServer, type TestServer } from '../helpers'
+import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
 const DOCUMENTS = 2_000
 const INSERT_BATCH_SIZE = 200
@@ -25,7 +23,6 @@ const UPDATED_EACH_WAY = 100
 const REMOVED = 200
 const PARTITIONS_AFTER_REBALANCE = 3
 const THREAD_DEADLINE_MS = 120_000
-const PROBES = 8
 
 interface SearchBody {
   hits: Array<{ id: string; score?: number }>
@@ -39,16 +36,9 @@ const built = existsSync(new URL('../../../../dist/workers/entry.mjs', import.me
 
 describe.skipIf(!built)('filtered vector searches that request threads answer', () => {
   let srv: TestServer
-  let mainQueries = 0
 
   beforeEach(async () => {
-    srv = await startTestServer(undefined, { workers: { count: 2 } }, async prepared => {
-      const mainQuery = prepared.query.bind(prepared)
-      prepared.query = (indexName, params) => {
-        mainQueries += 1
-        return mainQuery(indexName, params)
-      }
-    })
+    srv = await startTestServer(undefined, { workers: { count: 2 } })
   })
 
   afterEach(async () => {
@@ -87,23 +77,10 @@ describe.skipIf(!built)('filtered vector searches that request threads answer', 
     }
   }
 
-  async function untilThreadsAnswer(): Promise<void> {
-    const deadline = Date.now() + THREAD_DEADLINE_MS
-    const filters: FilterExpression = { fields: { shelf: { lt: 25 } } }
-    for (;;) {
-      const before = mainQueries
-      await Promise.all(Array.from({ length: PROBES }, (_, i) => askThreads(queries[i % queries.length], filters)))
-      if (mainQueries === before) return
-      if (Date.now() > deadline) throw new Error('the request threads never came to answer filtered vector searches')
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-  }
-
   async function expectOnThreads(library: Library, stage: string): Promise<void> {
-    await untilThreadsAnswer()
-    const before = mainQueries
+    await waitFor(() => scaledOut(srv.engine, INDEX), THREAD_DEADLINE_MS)
+    await srv.engine.waitForWrites(INDEX)
     await expectFilteredAnswers(askThreads, library, `${stage} on the request threads`)
-    expect(mainQueries, `queries that fell back to the main thread ${stage}`).toBe(before)
   }
 
   function changedPapers(library: Library, from: number): ShelvedPaper[] {

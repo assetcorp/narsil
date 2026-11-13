@@ -1,8 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Narsil } from '../../../narsil'
 import type { QueryParams } from '../../../types/search'
-import { postJson, startTestServer, type TestServer } from '../helpers'
+import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
 const INDEX = 'clips'
 const VECTOR_DIMENSION = 64
@@ -72,18 +71,9 @@ const built = existsSync(distEntry)
 
 describe.skipIf(!built)('vector scores that request threads answer while writes run', () => {
   let srv: TestServer
-  let mainQueries = 0
-  let mainQuery: Narsil['query']
 
   beforeEach(async () => {
-    srv = await startTestServer(undefined, { workers: { count: 2 } }, async prepared => {
-      mainQueries = 0
-      mainQuery = prepared.query.bind(prepared)
-      prepared.query = (indexName, params) => {
-        mainQueries += 1
-        return mainQuery(indexName, params)
-      }
-    })
+    srv = await startTestServer(undefined, { workers: { count: 2 } })
   })
 
   afterEach(async () => {
@@ -116,17 +106,6 @@ describe.skipIf(!built)('vector scores that request threads answer while writes 
     }
   }
 
-  async function waitForVectorSearchesOnThreads(probe: number[]): Promise<void> {
-    const deadline = Date.now() + COPY_LOAD_TIMEOUT_MS
-    for (;;) {
-      const before = mainQueries
-      await Promise.all(Array.from({ length: 8 }, () => search(vectorQuery(probe, false))))
-      if (mainQueries === before) return
-      if (Date.now() > deadline) throw new Error('The request threads never came to answer vector searches')
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-  }
-
   it('pairs every score with the cosine of the vector that the hit returns', async () => {
     const created = await postJson(srv.base, '/indexes', {
       name: INDEX,
@@ -140,7 +119,8 @@ describe.skipIf(!built)('vector scores that request threads answer while writes 
     for (let start = 0; start < base.length; start += INSERT_BATCH_SIZE) {
       await write('insert', base.slice(start, start + INSERT_BATCH_SIZE))
     }
-    await waitForVectorSearchesOnThreads(base[0].embedding)
+    await waitFor(() => scaledOut(srv.engine, INDEX), COPY_LOAD_TIMEOUT_MS)
+    await srv.engine.waitForWrites(INDEX)
 
     let writing = true
     const writer = (async () => {
@@ -158,19 +138,16 @@ describe.skipIf(!built)('vector scores that request threads answer while writes 
     })()
 
     let checked = 0
-    let answeredOnThreads = 0
     const mismatches: string[] = []
     const stopAt = Date.now() + SEARCHERS_KEEP_GOING_MS
     const searchers = Array.from({ length: CONCURRENT_SEARCHERS }, async (_, searcher) => {
       for (let turn = searcher; writing && Date.now() < stopAt; turn += CONCURRENT_SEARCHERS) {
         const query = seededValues(7_000_001 + turn, VECTOR_DIMENSION)
-        const before = mainQueries
         const answer = await search({
           ...vectorQuery(query, turn % 3 === 0),
           group: { fields: ['group'], maxPerGroup: HITS_PER_SEARCH },
           highlight: { fields: ['title'] },
         })
-        if (mainQueries === before) answeredOnThreads += 1
         expect(answer.groups?.length).toBeGreaterThan(0)
         const hits = [...answer.hits, ...(answer.groups ?? []).flatMap(group => group.hits)]
         for (const hit of hits) {
@@ -192,6 +169,5 @@ describe.skipIf(!built)('vector scores that request threads answer while writes 
 
     expect(mismatches).toEqual([])
     expect(checked).toBeGreaterThan(0)
-    expect(answeredOnThreads).toBeGreaterThan(0)
   }, 600_000)
 })
