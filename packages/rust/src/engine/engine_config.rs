@@ -37,7 +37,7 @@ pub struct IndexLifecycleConfig {
 /// The memory levels at which an engine stops and resumes accepting inserts and updates, as fractions of the
 /// process's memory limit.
 ///
-/// The engine reads the process's memory and its limit before a write once its last reading is more than a second
+/// The engine reads the process's memory and its limit before a write once its last reading is more than 10 ms
 /// old. The process's memory is the resident memory that no file backs, because the operating system can drop a
 /// page that a file backs, such as a page of a mapped vector file, without ending the process. On Linux the engine
 /// counts the anonymous and shared resident memory, on macOS the resident memory less the part that files back,

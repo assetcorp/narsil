@@ -28,3 +28,7 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
   const measured = createMeasuredWriteBlock(deps.settings)
   return { refuseWhileFull: measured.refuseWhileFull, memoryReleased: measured.memoryReleased }
 }
+
+export function checkWriteMemory(context: { memoryWriteBlock?: MemoryWriteBlock }, indexName: string): void {
+  context.memoryWriteBlock?.refuseWhileFull(indexName)
+}

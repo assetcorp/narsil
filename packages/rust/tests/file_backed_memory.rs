@@ -1,12 +1,17 @@
 #![cfg(target_os = "linux")]
 
+mod support;
+
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use narsil::{
-    DurabilityConfig, ErrorCode, HnswSettings, IndexConfig, Map, MemoryConfig, Narsil,
-    NarsilConfig, QueryParams, Storage, Value, VectorPromotion, VectorQuery, parse_json,
+    AdapterSetting, DurabilityConfig, EmbeddingConfig, ErrorCode, HnswSettings, IndexConfig, Map,
+    MemoryConfig, Narsil, NarsilConfig, QueryParams, Storage, Value, VectorPromotion, VectorQuery,
+    parse_json,
 };
+use support::adapters::EmbedWith;
 
 const MAPPED_INDEX: &str = "passages";
 const WRITTEN_INDEX: &str = "ledger";
@@ -24,7 +29,7 @@ const ANONYMOUS_GROWTH_MARGINS: u64 = 3;
 const WRITES_BESIDE_MAPPED_VECTORS: u64 = 3;
 const LOAD_WAIT: Duration = Duration::from_secs(120);
 const LOAD_POLL: Duration = Duration::from_millis(50);
-const STALE_MEASUREMENT_WAIT: Duration = Duration::from_millis(1_100);
+const STALE_MEASUREMENT_WAIT: Duration = Duration::from_millis(50);
 const TMPFS_TYPES: [&str; 2] = ["tmpfs", "ramfs"];
 const DISK_TEMPORARY_DIRECTORY: &str = "/var/tmp";
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
@@ -311,6 +316,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
             .expect("a write beside the mapped vectors is accepted");
     }
 
+    let last_write = Instant::now();
     let grown = vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
     std::thread::sleep(STALE_MEASUREMENT_WAIT);
     let after = process_status();
@@ -320,6 +326,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
         before.unbacked_bytes,
         after.unbacked_bytes
     );
+    assert!(last_write.elapsed() < Duration::from_secs(1));
     let refused = written
         .insert(
             WRITTEN_INDEX,
@@ -332,4 +339,115 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
         grown.iter().map(|byte| u64::from(*byte)).sum::<u64>(),
         grown.len() as u64
     );
+    drop(grown);
+    written.shutdown().unwrap();
+    for operation in ["insert", "update", "insert_batch", "update_batch"] {
+        refuse_after_embedding(operation);
+    }
+}
+
+fn refuse_after_embedding(operation: &str) {
+    let before = process_status();
+    let block = (before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES) as f64
+        / process_limit_bytes(before.unbacked_bytes) as f64;
+    let engine = Arc::new(
+        Narsil::open(NarsilConfig {
+            memory: Some(MemoryConfig {
+                block_writes_above: Some(block),
+                resume_writes_below: Some(block / 2.0),
+            }),
+            ..NarsilConfig::default()
+        })
+        .unwrap(),
+    );
+    engine
+        .create_index(
+            WRITTEN_INDEX,
+            IndexConfig {
+                schema: parse_json(r#"{"body":"string"}"#).unwrap(),
+                ..IndexConfig::default()
+            },
+        )
+        .unwrap();
+    let target = Arc::downgrade(&engine);
+    let held = Arc::new(Mutex::new(Vec::new()));
+    let ballast = Arc::clone(&held);
+    engine
+        .register_embedding_adapter(
+            "pressure",
+            Arc::new(EmbedWith {
+                dimensions: 2,
+                embed: move |_: &str| {
+                    let engine = target.upgrade().unwrap();
+                    engine
+                        .insert(WRITTEN_INDEX, ledger_entry(0), Some("nested"))
+                        .unwrap();
+                    *ballast.lock().unwrap() =
+                        vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
+                    std::thread::sleep(STALE_MEASUREMENT_WAIT);
+                    let error = engine
+                        .insert(WRITTEN_INDEX, ledger_entry(1), Some("refused"))
+                        .unwrap_err();
+                    assert_eq!(error.code(), ErrorCode::MEMORY_WRITE_BLOCKED);
+                    Ok(vec![1.0, 0.0])
+                },
+            }),
+        )
+        .unwrap();
+    engine
+        .create_index(
+            "embedded",
+            IndexConfig {
+                schema: parse_json(r#"{"body":"string","embedding":"vector[2]"}"#).unwrap(),
+                embedding: Some(EmbeddingConfig {
+                    fields: vec![("embedding".into(), vec!["body".into()])],
+                    adapter: Some(AdapterSetting::Named("pressure".into())),
+                }),
+                ..IndexConfig::default()
+            },
+        )
+        .unwrap();
+    let mut original = ledger_entry(0);
+    original.insert(
+        "embedding",
+        Value::Array(vec![Value::Number(0.0), Value::Number(1.0)]),
+    );
+    engine
+        .insert("embedded", original.clone(), Some("original"))
+        .unwrap();
+    let failure = match operation {
+        "insert" => engine
+            .insert("embedded", ledger_entry(1), Some("outer"))
+            .unwrap_err(),
+        "update" => engine
+            .update("embedded", "original", ledger_entry(1))
+            .unwrap_err(),
+        "insert_batch" => {
+            engine
+                .insert_batch("embedded", vec![ledger_entry(1)])
+                .unwrap()
+                .failed
+                .remove(0)
+                .error
+        }
+        _ => {
+            engine
+                .update_batch("embedded", vec![("original".into(), ledger_entry(1))])
+                .unwrap()
+                .failed
+                .remove(0)
+                .error
+        }
+    };
+    assert_eq!(
+        failure.code(),
+        ErrorCode::MEMORY_WRITE_BLOCKED,
+        "{operation}"
+    );
+    assert_eq!(engine.count_documents("embedded").unwrap(), 1);
+    assert_eq!(engine.get("embedded", "original").unwrap(), Some(original));
+    assert!(engine.get(WRITTEN_INDEX, "nested").unwrap().is_some());
+    assert!(engine.get(WRITTEN_INDEX, "refused").unwrap().is_none());
+    assert!(!held.lock().unwrap().is_empty());
+    engine.shutdown().unwrap();
 }
