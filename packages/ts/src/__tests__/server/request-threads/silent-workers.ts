@@ -53,7 +53,7 @@ function armedTokenEffectSource(effect: ArmedTokenEffect): string {
   return `if (Atomics.wait(barrier, ${BARRIER_RELEASED}, 0${waitArgument}) === 'timed-out') throw new Error('the test never released the blocked stemmer')`
 }
 
-function languageBootstrap(language: string, channel: string, effect: ArmedTokenEffect): string {
+function languageBootstrap(language: string, channel: string, effect: ArmedTokenEffect, failOnToken?: string): string {
   const source = `import { BroadcastChannel, workerData } from 'node:worker_threads'
 import { registerLanguage } from ${JSON.stringify(distPackage.href)}
 let barrier
@@ -67,6 +67,7 @@ channel.unref()
 registerLanguage({
   name: ${JSON.stringify(language)}, revision: '1', stopWords: new Set(),
   stemmer(token) {
+    if (workerData?.workerId === 0 && token === ${JSON.stringify(failOnToken)}) throw new Error('the test failed this copy write on purpose')
     if (token === ${JSON.stringify(ARMED_TOKEN)} && barrier !== undefined && Atomics.compareExchange(barrier, ${BARRIER_ARMED}, 1, 2) === 1) {
       ${armedTokenEffectSource(effect)}
     }
@@ -122,6 +123,7 @@ export async function startServerWithCopies(
     server?: Omit<ServerOptions, 'host' | 'port'>
     plugins?: NarsilPlugin[]
     workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs' | 'maxThreadsLeftRunning'>
+    failOnToken?: string
   } = {},
 ): Promise<ServerWithCopies> {
   registerLanguage({ name: language, revision: '1', stopWords: new Set(), stemmer })
@@ -137,7 +139,11 @@ export async function startServerWithCopies(
     setup.server,
     {
       plugins: setup.plugins,
-      workers: { ...setup.workers, count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) },
+      workers: {
+        ...setup.workers,
+        count: 1,
+        bootstrapModule: languageBootstrap(language, channel.name, effect, setup.failOnToken),
+      },
     },
     async engine => {
       engine.on('workerCrash', ({ error }) => crashes.push({ at: Date.now(), error }))
