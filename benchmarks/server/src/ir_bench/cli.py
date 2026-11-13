@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     share_vector_index = os.environ.get(SHARE_VECTOR_INDEX_ENV, "").strip().lower() in ENABLED_SWITCH_VALUES
     config_summary = {
         "share_vector_index": share_vector_index,
+        "import_batch": config.import_batch,
+        "import_clients": config.import_clients,
         "k1": config.bm25.k1,
         "b": config.bm25.b,
         "run_depth": config.run_depth,
