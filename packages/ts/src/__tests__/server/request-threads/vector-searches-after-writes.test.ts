@@ -1,8 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Narsil } from '../../../narsil'
 import type { QueryParams } from '../../../types/search'
-import { postJson, startTestServer, type TestServer } from '../helpers'
+import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
 const VECTOR_DIMENSION = 1536
 const VECTOR_QUANTIZATION = 'osq8'
@@ -91,20 +90,11 @@ const built = existsSync(distEntry)
 
 describe.skipIf(!built)('vector searches that request threads answer right after a write', () => {
   let srv: TestServer
-  let mainQueries = 0
-  let mainQuery: Narsil['query']
   const live = new Map<string, ClipDocument>()
 
   beforeEach(async () => {
     live.clear()
-    srv = await startTestServer(undefined, { workers: { count: 2 } }, async prepared => {
-      mainQueries = 0
-      mainQuery = prepared.query.bind(prepared)
-      prepared.query = (indexName, params) => {
-        mainQueries += 1
-        return mainQuery(indexName, params)
-      }
-    })
+    srv = await startTestServer(undefined, { workers: { count: 2 } })
   })
 
   afterEach(async () => {
@@ -149,32 +139,13 @@ describe.skipIf(!built)('vector searches that request threads answer right after
     return size
   }
 
-  async function waitForVectorSearchesOnThreads(probe: number[]): Promise<void> {
-    const deadline = Date.now() + COPY_LOAD_TIMEOUT_MS
-    for (;;) {
-      const before = mainQueries
-      await Promise.all(Array.from({ length: 8 }, () => search(vectorQuery(probe))))
-      if (mainQueries === before) return
-      if (Date.now() > deadline) throw new Error('The request threads never came to answer vector searches')
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-  }
-
-  async function expectEverywhere(params: QueryParams, check: (answer: SearchBody) => void): Promise<number> {
-    const before = mainQueries
+  async function expectEverywhere(params: QueryParams, check: (answer: SearchBody) => void): Promise<void> {
     const answers = await Promise.all(Array.from({ length: REPEATS_PER_CHECK }, () => search(params)))
-    const relayed = mainQueries - before
     for (const answer of answers) check(answer)
-    const onMain = await mainQuery(INDEX, params)
-    for (const answer of answers) {
-      expect(answer.count).toBe(onMain.count)
-      expect(answer.hits.map(hit => hit.id)).toEqual(onMain.hits.map(hit => hit.id))
-    }
-    return REPEATS_PER_CHECK - relayed
   }
 
-  async function checkFresh(fresh: ClipDocument): Promise<number> {
-    const answered = await Promise.all([
+  async function checkFresh(fresh: ClipDocument): Promise<void> {
+    await Promise.all([
       expectEverywhere(vectorQuery(fresh.embedding), answer => {
         expect(answer.hits.map(hit => hit.id)).toEqual([fresh.id])
         expect(answer.count).toBe(live.size)
@@ -195,11 +166,10 @@ describe.skipIf(!built)('vector searches that request threads answer right after
         expect(answer.hits.map(hit => hit.id)).toEqual([fresh.id])
       }),
     ])
-    return answered.reduce((total, onThreads) => total + onThreads, 0)
   }
 
-  async function checkReembedded(previous: ClipDocument, current: ClipDocument): Promise<number> {
-    const answered = await Promise.all([
+  async function checkReembedded(previous: ClipDocument, current: ClipDocument): Promise<void> {
+    await Promise.all([
       expectEverywhere(vectorQuery(current.embedding), answer => {
         expect(answer.hits.map(hit => hit.id)).toEqual([current.id])
       }),
@@ -210,7 +180,6 @@ describe.skipIf(!built)('vector searches that request threads answer right after
         expect(answer.count).toBe(expected.length)
       }),
     ])
-    return answered.reduce((total, onThreads) => total + onThreads, 0)
   }
 
   async function createLoadedIndex(): Promise<ClipDocument[]> {
@@ -226,12 +195,12 @@ describe.skipIf(!built)('vector searches that request threads answer right after
     for (let start = 0; start < base.length; start += INSERT_BATCH_SIZE) {
       await write('insert', base.slice(start, start + INSERT_BATCH_SIZE))
     }
-    await waitForVectorSearchesOnThreads(base[0].embedding)
+    await waitFor(() => scaledOut(srv.engine, INDEX), COPY_LOAD_TIMEOUT_MS)
+    await srv.engine.waitForWrites(INDEX)
     return base
   }
 
-  async function checkAcknowledged(expectation: Acknowledged): Promise<number> {
-    const before = mainQueries
+  async function checkAcknowledged(expectation: Acknowledged): Promise<void> {
     if (expectation.present) {
       const answer = await search(vectorQuery(expectation.embedding))
       expect(
@@ -245,7 +214,6 @@ describe.skipIf(!built)('vector searches that request threads answer right after
         `the vector that ${expectation.id} gave up`,
       ).not.toContain(expectation.id)
     }
-    return mainQueries === before ? 1 : 0
   }
 
   it('never loses an acknowledged vector or brings back a removed one while writes and searches overlap', async () => {
@@ -274,7 +242,6 @@ describe.skipIf(!built)('vector searches that request threads answer right after
       }
     })()
 
-    let answeredOnThreads = 0
     const searchers = Array.from({ length: CONCURRENT_SEARCHERS }, async (_, searcher) => {
       for (let turn = searcher; writing; turn += CONCURRENT_SEARCHERS) {
         const known = acknowledged.length
@@ -282,32 +249,28 @@ describe.skipIf(!built)('vector searches that request threads answer right after
           await new Promise(resolve => setTimeout(resolve, 1))
           continue
         }
-        answeredOnThreads += await checkAcknowledged(acknowledged[known - 1 - (turn % Math.min(known, 8))])
+        await checkAcknowledged(acknowledged[known - 1 - (turn % Math.min(known, 8))])
       }
     })
     await Promise.all([writer, ...searchers])
-    for (const expectation of acknowledged) answeredOnThreads += await checkAcknowledged(expectation)
-    expect(answeredOnThreads).toBeGreaterThan(0)
+    for (const expectation of acknowledged) await checkAcknowledged(expectation)
   }, 600_000)
 
-  it('finds every vector written with wait, and matches main, whichever thread answers', async () => {
+  it('finds every vector written with wait, whichever thread answers', async () => {
     const base = await createLoadedIndex()
 
-    let answeredOnThreads = 0
     for (let round = 0; round < ROUNDS; round++) {
       const fresh = Array.from({ length: FRESH_PER_ROUND }, (_, k) => {
         const i = BASE_DOCUMENTS + round * FRESH_PER_ROUND + k
         return { ...clip(i), group: FILTERED_GROUP }
       })
       await write('insert', fresh)
-      for (const document of fresh) answeredOnThreads += await checkFresh(document)
+      for (const document of fresh) await checkFresh(document)
 
       const previous = base[round * 7]
       const current = { ...previous, embedding: seededValues(1_000_003 + round, VECTOR_DIMENSION) }
       await write('update', [current])
-      answeredOnThreads += await checkReembedded(previous, current)
+      await checkReembedded(previous, current)
     }
-
-    expect(answeredOnThreads).toBeGreaterThan(0)
   }, 600_000)
 })

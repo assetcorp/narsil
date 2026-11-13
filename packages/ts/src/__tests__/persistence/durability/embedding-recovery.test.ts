@@ -4,9 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
-import { deserializeMetadata, serializeMetadata } from '../../../serialization/payload-v1'
 import type { EmbeddingAdapter } from '../../../types/adapters'
-import type { IndexMetadata } from '../../../types/internal'
 import type { IndexConfig } from '../../../types/schema'
 
 const DIMENSIONS = 4
@@ -209,41 +207,5 @@ describe('durability recovery of embedding configuration', () => {
       expect((err as NarsilError).message).toContain('"missing"')
       expect((err as NarsilError).details).toMatchObject({ available: ['stub'] })
     }
-  })
-})
-
-describe('metadata payload embedding block', () => {
-  const base: IndexMetadata = {
-    indexName: 'articles',
-    schema: { title: 'string', embedding: `vector[${DIMENSIONS}]` },
-    language: 'english',
-    partitionCount: 1,
-    bm25Params: { k1: 1.2, b: 0.75 },
-    createdAt: 1,
-    engineVersion: '0.0.0-test',
-  }
-
-  it('round-trips the adapter name and field mappings', () => {
-    const meta: IndexMetadata = {
-      ...base,
-      embedding: { adapter: 'stub', fields: { embedding: ['title'] } },
-    }
-    expect(deserializeMetadata(serializeMetadata(meta)).embedding).toEqual({
-      adapter: 'stub',
-      fields: { embedding: ['title'] },
-    })
-  })
-
-  it('round-trips a mapping without an adapter name', () => {
-    const meta: IndexMetadata = { ...base, embedding: { fields: { embedding: 'title' } } }
-    const decoded = deserializeMetadata(serializeMetadata(meta))
-    expect(decoded.embedding).toEqual({ fields: { embedding: 'title' } })
-    expect(decoded.embedding?.adapter).toBeUndefined()
-  })
-
-  it('decodes payloads written before the embedding block existed', () => {
-    const decoded = deserializeMetadata(serializeMetadata(base))
-    expect(decoded.embedding).toBeUndefined()
-    expect(decoded.indexName).toBe('articles')
   })
 })

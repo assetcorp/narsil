@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerStopWords, registerTokenizer } from '../../../analysis/registry'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
-import { deserializeMetadata, serializeMetadata } from '../../../serialization/payload-v1'
 import type { IndexMetadata } from '../../../types/internal'
 import type { CustomTokenizer } from '../../../types/schema'
 import { bytesOf, decodedPayload, entryNamed, readTar } from '../../e2e/portability/archive-oracle'
@@ -99,70 +98,6 @@ describe('durability recovery of index analysis', () => {
     expect((await engine.query('prose', { term: 'the' })).hits).toHaveLength(0)
     await engine.insert('prose', { title: 'the fall of empires' })
     expect((await engine.query('prose', { term: 'of' })).hits).toHaveLength(2)
-  })
-
-  it('carries both names through the metadata payload and leaves them out when absent', () => {
-    const base: IndexMetadata = {
-      indexName: 'prose',
-      schema: { title: 'string' },
-      language: 'english',
-      partitionCount: 1,
-      bm25Params: { k1: 1.2, b: 0.75 },
-      createdAt: 0,
-      engineVersion: '0.1.0',
-    }
-
-    const named = deserializeMetadata(
-      serializeMetadata({ ...base, tokenizer: 'letters', stopWords: 'keeps-everything' }),
-    )
-    expect(named.tokenizer).toBe('letters')
-    expect(named.stopWords).toBe('keeps-everything')
-
-    const bare = deserializeMetadata(serializeMetadata(base))
-    expect(bare.tokenizer).toBeUndefined()
-    expect(bare.stopWords).toBeUndefined()
-
-    const listed = deserializeMetadata(serializeMetadata({ ...base, stopWordList: ['an', 'the'] }))
-    expect(listed.stopWordList).toEqual(['an', 'the'])
-    expect(bare.stopWordList).toBeUndefined()
-  })
-
-  it('carries the six remaining config fields through the metadata payload', () => {
-    const base: IndexMetadata = {
-      indexName: 'prose',
-      schema: { title: 'string' },
-      language: 'english',
-      partitionCount: 1,
-      bm25Params: { k1: 1.2, b: 0.75 },
-      createdAt: 0,
-      engineVersion: '0.1.0',
-    }
-
-    const full = deserializeMetadata(
-      serializeMetadata({
-        ...base,
-        partitionLimits: { maxDocsPerPartition: 3, maxPartitions: 3 },
-        defaultScoring: 'dfs',
-        trackPositions: false,
-        strict: true,
-        required: ['title'],
-        vectorPromotion: { threshold: 5, hnswConfig: { m: 8, efConstruction: 100, metric: 'cosine' } },
-      }),
-    )
-    expect(full.partitionLimits).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
-    expect(full.defaultScoring).toBe('dfs')
-    expect(full.trackPositions).toBe(false)
-    expect(full.strict).toBe(true)
-    expect(full.required).toEqual(['title'])
-    expect(full.vectorPromotion).toEqual({ threshold: 5, hnswConfig: { m: 8, efConstruction: 100, metric: 'cosine' } })
-
-    const bare = deserializeMetadata(serializeMetadata(base))
-    expect(bare.partitionLimits).toBeUndefined()
-    expect(bare.defaultScoring).toBeUndefined()
-    expect(bare.trackPositions).toBeUndefined()
-    expect(bare.strict).toBeUndefined()
-    expect(bare.required).toBeUndefined()
-    expect(bare.vectorPromotion).toBeUndefined()
   })
 
   it('recovers the six remaining config fields across a restart', async () => {

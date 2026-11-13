@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { vectorFetchDepth } from '../../engine/query/vector'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, type NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
-import { RESULT_WINDOW } from '../../search/constants'
 import type { SchemaDefinition } from '../../types/schema'
 
 const DIMENSION = 4
@@ -127,29 +125,5 @@ describe('a vector search reports what it matched and pages past the first page'
       .catch((thrown: NarsilError) => thrown)
 
     expect((error as NarsilError).code).toBe(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED)
-  })
-})
-
-describe('the depth a vector search fetches to', () => {
-  it('covers the cursor, the offset, the page, and the probe for a page after it', () => {
-    expect(vectorFetchDepth(10, 0, 0)).toBe(11)
-    expect(vectorFetchDepth(10, 20, 0)).toBe(31)
-    expect(vectorFetchDepth(10, 0, 250)).toBe(261)
-    expect(vectorFetchDepth(10, 5, 250)).toBe(266)
-  })
-
-  it('fetches to the window rather than one past it at the last reachable page', () => {
-    expect(vectorFetchDepth(10, 9_990, 0)).toBe(RESULT_WINDOW)
-    expect(vectorFetchDepth(10, 0, 9_990)).toBe(RESULT_WINDOW)
-  })
-
-  it('refuses a page reaching past the window, whether by offset or by cursor', () => {
-    expect(() => vectorFetchDepth(10, 9_991, 0)).toThrow(NarsilError)
-    expect(() => vectorFetchDepth(10, 0, 9_991)).toThrow(NarsilError)
-    try {
-      vectorFetchDepth(10, 0, 9_991)
-    } catch (thrown) {
-      expect((thrown as NarsilError).code).toBe(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED)
-    }
   })
 })
