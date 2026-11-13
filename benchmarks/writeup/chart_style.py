@@ -37,6 +37,12 @@ ENGINE_COLOURS = {
     "minisearch": CHART_GREEN,
 }
 
+LANGUAGE_COLOURS = {
+    "typescript": CHART_BLUE,
+    "rust": CHART_AMBER,
+    "go": CHART_CYAN,
+}
+
 FIGURE_WIDTH_INCHES = 8.2
 BASE_FONT_POINTS = 9
 CAPTION_RESERVE_POINTS = 46
@@ -77,6 +83,10 @@ def apply_style() -> None:
 
 def engine_colour(engine: str) -> str:
     return ENGINE_COLOURS.get(engine, REFERENCE_COLOUR)
+
+
+def language_colour(engine: str) -> str:
+    return LANGUAGE_COLOURS.get(engine, REFERENCE_COLOUR)
 
 
 def rate_label(value: float, _position: float = 0) -> str:

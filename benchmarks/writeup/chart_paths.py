@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sources import INPROCESS_SUITE_DIR, SERVER_SUITE_DIR
+from sources import INPROCESS_SUITE_DIR, LANGUAGES_SUITE_DIR, SERVER_SUITE_DIR
 
 CHART_DIRNAME = "charts"
 
@@ -11,6 +11,14 @@ def server_chart_dir(run_id: str) -> str:
 
 def inprocess_chart_dir(run_id: str) -> str:
     return f"{INPROCESS_SUITE_DIR}/results/runs/{run_id}/{CHART_DIRNAME}"
+
+
+def languages_chart_dir(run_id: str) -> str:
+    return f"{LANGUAGES_SUITE_DIR}/results/runs/{run_id}/{CHART_DIRNAME}"
+
+
+def languages_bars_chart(directory: str, phase: str) -> str:
+    return f"{directory}/languages-{phase}-bars.svg"
 
 
 def _dataset_slug(dataset_id: str) -> str:

@@ -1,42 +1,12 @@
 from __future__ import annotations
 
+from chart_paths import figure, languages_bars_chart, languages_chart_dir
+from languages_data import PHASES, dig, engines_in, language_label, measurements, phase_summary, thread_counts
 from render import and_join, dataset_name, decimal, integer, is_number, table
 from sources import Source
 
 MEBIBYTE_BYTES = 1024**2
-_ENGINE_ORDER = ["typescript", "rust", "go"]
-_ENGINE_LABELS = {"typescript": "TypeScript", "rust": "Rust", "go": "Go"}
-_PHASES = [("keyword", "keyword", "Keyword search"), ("vector", "vector", "Vector search"), ("vector", "hybrid", "Hybrid search")]
 _RECALL_METRICS = {"recall10": "recall@10", "recall100": "recall@100", "hybridRecall10": "hybrid recall@10"}
-
-
-def _label(engine: str) -> str:
-    return _ENGINE_LABELS.get(engine, engine)
-
-
-def _dig(node: object, *path: str) -> object:
-    for key in path:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(key)
-    return node
-
-
-def _measurements(results: dict) -> dict[tuple[str, str, int], dict]:
-    found: dict[tuple[str, str, int], dict] = {}
-    for entry in results.get("measurements") or []:
-        if isinstance(entry, dict):
-            found[(entry.get("engine"), entry.get("workload"), entry.get("threads"))] = entry
-    return found
-
-
-def _engines(results: dict) -> list[str]:
-    present = results.get("engines") or {}
-    return [engine for engine in _ENGINE_ORDER if engine in present]
-
-
-def _threads(results: dict) -> list[int]:
-    return [count for count in results.get("threadCounts") or [] if isinstance(count, int)]
 
 
 def _grouped(value: object, places: int) -> str:
@@ -55,8 +25,8 @@ def _storage(settings: dict) -> str:
 
 
 def _spread(spread: object) -> str:
-    median = _dig(spread, "median")
-    low, high = _dig(spread, "min"), _dig(spread, "max")
+    median = dig(spread, "median")
+    low, high = dig(spread, "min"), dig(spread, "max")
     if not is_number(median):
         return "n/a"
     if not (is_number(low) and is_number(high)) or round(low) == round(high):
@@ -87,17 +57,17 @@ def _setup_block(source: Source) -> str:
     )
     label = machine.get("machineLabel")
     machine_sentence = f"{label} hosted this run, and it reports {host}." if label else f"The host reports {host}."
-    threads = and_join([integer(count) for count in _threads(results)])
+    threads = and_join([integer(count) for count in thread_counts(results)])
     identities = results.get("engines") or {}
     engine_rows = [
         [
-            _label(engine),
-            f"`{_dig(identities, engine, 'package')}`",
-            str(_dig(identities, engine, "version")),
-            str(_dig(identities, engine, "runtime")),
-            str(_dig(identities, engine, "build")),
+            language_label(engine),
+            f"`{dig(identities, engine, 'package')}`",
+            str(dig(identities, engine, "version")),
+            str(dig(identities, engine, "runtime")),
+            str(dig(identities, engine, "build")),
         ]
-        for engine in _engines(results)
+        for engine in engines_in(results)
     ]
     bullets = [
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {created[:10]} from commit "
@@ -132,10 +102,10 @@ SHARED_MAIN_THREAD_SENTENCE = (
 
 
 def _worker_copy_sentences(results: dict) -> str:
-    found = _measurements(results)
-    most = max(_threads(results), default=1)
-    alone = _dig(found.get(("typescript", "keyword", 1)), "phases", "keyword")
-    shared = _dig(found.get(("typescript", "keyword", most)), "phases", "keyword")
+    found = measurements(results)
+    most = max(thread_counts(results), default=1)
+    alone = phase_summary(found, "typescript", "keyword", "keyword", 1)
+    shared = phase_summary(found, "typescript", "keyword", "keyword", most)
     mechanism = (
         f"On {integer(most)} threads TypeScript answers through worker copies. Its {integer(most)} callers share the "
         "one Node.js main thread, which copies a query into a message to a free worker thread and copies the answer "
@@ -143,35 +113,46 @@ def _worker_copy_sentences(results: dict) -> str:
         "each caller's thread, and Go hands each query to a free goroutine of its query pool over a channel, so both "
         "search the one index in shared memory and copy neither the query nor the answer."
     )
-    if most == 1 or not is_number(_dig(alone, "p50Us")) or not is_number(_dig(shared, "p50Us")):
+    if most == 1 or not is_number(dig(alone, "p50Us")) or not is_number(dig(shared, "p50Us")):
         return mechanism
     return (
-        f"{mechanism} On 1 thread a TypeScript keyword query takes {_grouped(_dig(alone, 'p50Us'), 1)} µs at the "
+        f"{mechanism} On 1 thread a TypeScript keyword query takes {_grouped(dig(alone, 'p50Us'), 1)} µs at the "
         f"median. On {integer(most)} threads each query also waits for those two copies and for its turn on the shared "
-        f"main thread, and TypeScript's keyword p50 reaches {_grouped(_dig(shared, 'p50Us'), 1)} µs while its queries "
+        f"main thread, and TypeScript's keyword p50 reaches {_grouped(dig(shared, 'p50Us'), 1)} µs while its queries "
         "per second go from "
-        f"{integer(_dig(alone, 'queriesPerSecond', 'median'))} to {integer(_dig(shared, 'queriesPerSecond', 'median'))}. "
+        f"{integer(dig(alone, 'queriesPerSecond', 'median'))} to {integer(dig(shared, 'queriesPerSecond', 'median'))}. "
         "A worker copy runs the query itself off the main thread, so the application's own code on that thread keeps "
         "running while a search is under way."
     )
 
 
+def _speed_figure(source: Source, phase: str, title: str) -> str:
+    threads = and_join([integer(count) for count in thread_counts(source.data)])
+    languages = and_join([language_label(engine) for engine in engines_in(source.data)])
+    return figure(
+        languages_bars_chart(languages_chart_dir(source.run_id), phase),
+        f"{title} in {languages} on {threads} threads: bars for the median queries per second, with the range across "
+        "repetitions, beside bars for the p50 latency in microseconds.",
+    )
+
+
 def _speed_block(source: Source) -> str:
     results = source.data
-    found = _measurements(results)
+    found = measurements(results)
     chunks: list[str] = [SHARED_MAIN_THREAD_SENTENCE, _worker_copy_sentences(results)]
-    for workload, phase, title in _PHASES:
+    for workload, phase, title in PHASES:
         rows = []
-        for threads in _threads(results):
-            for engine in _engines(results):
-                summary = _dig(found.get((engine, workload, threads)), "phases", phase)
+        for threads in thread_counts(results):
+            for engine in engines_in(results):
+                summary = phase_summary(found, engine, workload, phase, threads)
                 rows.append([
-                    _label(engine),
+                    language_label(engine),
                     integer(threads),
-                    _spread(_dig(summary, "queriesPerSecond")),
-                    _grouped(_dig(summary, "p50Us"), 1),
-                    _grouped(_dig(summary, "p99Us"), 1),
+                    _spread(dig(summary, "queriesPerSecond")),
+                    _grouped(dig(summary, "p50Us"), 1),
+                    _grouped(dig(summary, "p99Us"), 1),
                 ])
+        chunks.append(_speed_figure(source, phase, title))
         chunks.append(f"{title}, with queries per second as the median and the range across repetitions:")
         chunks.append(
             table(
@@ -185,18 +166,18 @@ def _speed_block(source: Source) -> str:
 
 def _load_block(source: Source) -> str:
     results = source.data
-    found = _measurements(results)
+    found = measurements(results)
     rows = []
-    for threads in _threads(results):
-        for engine in _engines(results):
+    for threads in thread_counts(results):
+        for engine in engines_in(results):
             keyword, vector = found.get((engine, "keyword", threads)), found.get((engine, "vector", threads))
             rows.append([
-                _label(engine),
+                language_label(engine),
                 integer(threads),
-                _spread(_dig(keyword, "load", "documentsPerSecond")),
-                _mebibytes(_dig(keyword, "memory", "residentBytes")),
-                _spread(_dig(vector, "load", "documentsPerSecond")),
-                _mebibytes(_dig(vector, "memory", "residentBytes")),
+                _spread(dig(keyword, "load", "documentsPerSecond")),
+                _mebibytes(dig(keyword, "memory", "residentBytes")),
+                _spread(dig(vector, "load", "documentsPerSecond")),
+                _mebibytes(dig(vector, "memory", "residentBytes")),
             ])
     headers = ["Language", "Threads", "Keyword docs/s", "Keyword MiB", "Vector docs/s", "Vector MiB"]
     return "\n\n".join([
@@ -213,21 +194,21 @@ def _agreement_sentence(results: dict) -> str:
     first, second = (widest.get("engines") or ["", ""])[:2]
     return (
         f"The widest gap between two engines is {decimal(abs(widest['meanDifference']), 4)} in mean "
-        f"{_RECALL_METRICS.get(widest.get('metric'), widest.get('metric'))}, between {_label(first)} and "
-        f"{_label(second)}, and the oracle allows up to {decimal(widest.get('bound'), 4)} for that pair."
+        f"{_RECALL_METRICS.get(widest.get('metric'), widest.get('metric'))}, between {language_label(first)} and "
+        f"{language_label(second)}, and the oracle allows up to {decimal(widest.get('bound'), 4)} for that pair."
     )
 
 
 def _quality_block(source: Source) -> str:
     results = source.data
-    found = _measurements(results)
+    found = measurements(results)
     rows = []
-    for threads in _threads(results):
-        for engine in _engines(results):
-            quality = _dig(found.get((engine, "vector", threads)), "quality") or {}
+    for threads in thread_counts(results):
+        for engine in engines_in(results):
+            quality = dig(found.get((engine, "vector", threads)), "quality") or {}
             error = quality.get("maxVectorScoreError")
             rows.append([
-                _label(engine),
+                language_label(engine),
                 integer(threads),
                 decimal(quality.get("recall10"), 4),
                 decimal(quality.get("recall100"), 4),

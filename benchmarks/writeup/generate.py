@@ -56,7 +56,9 @@ def _missing_figures(page_text: str, root: Path) -> list[str]:
     return sorted({path for path in _IMAGE_SOURCE.findall(page_text) if not (root / path).is_file()})
 
 
-def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: Source) -> list[str] | None:
+def _stale_figures(
+    root: Path, server: Source, best: Source | None, inprocess: Source, languages: Source | None
+) -> list[str] | None:
     try:
         from charts import render
     except ModuleNotFoundError as error:
@@ -66,7 +68,7 @@ def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: S
     stale: list[str] = []
     with tempfile.TemporaryDirectory() as scratch:
         scratch_root = Path(scratch)
-        for drawn in render(scratch_root, server, best, inprocess):
+        for drawn in render(scratch_root, server, best, inprocess, languages):
             relative = drawn.relative_to(scratch_root)
             committed = root / relative
             if not committed.is_file() or committed.read_bytes() != drawn.read_bytes():
@@ -122,7 +124,7 @@ def main(argv: list[str]) -> int:
                 "Run `python3 benchmarks/writeup/charts.py` and commit the result.\n"
             )
             return 1
-        stale = _stale_figures(root, server, best, inprocess)
+        stale = _stale_figures(root, server, best, inprocess, languages)
         if stale is None:
             sys.stdout.write("Every page is up to date with the latest runs; matplotlib is not installed, so the figures were checked for presence alone.\n")
             return 0

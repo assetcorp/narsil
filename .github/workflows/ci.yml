@@ -314,7 +314,7 @@ jobs:
 
       - name: Install the harness
         working-directory: benchmarks/server
-        run: python3 -m pip install -e '.[dev]'
+        run: python3 -m pip install -e '.[dev,charts]'
 
       - name: Run harness tests
         working-directory: benchmarks/server

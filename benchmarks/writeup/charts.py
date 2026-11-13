@@ -6,11 +6,19 @@ from pathlib import Path
 from chart_bars import bars_figure
 from chart_data import BEST_CONFIG, EQUAL_PRECISION, track, tracks
 from chart_embedded import embedded_scale_figure
+from chart_languages import languages_figures
 from chart_recall import recall_figure
 from chart_style import apply_style
 from chart_sweep import sweep_figure
 from chart_tail import tail_figure
-from sources import Source, load_inprocess_source, load_server_best_config_source, load_server_source, repo_root
+from sources import (
+    Source,
+    load_inprocess_source,
+    load_languages_source,
+    load_server_best_config_source,
+    load_server_source,
+    repo_root,
+)
 
 
 def _server_charts(root: Path, source: Source, best: Source | None) -> list[Path]:
@@ -32,18 +40,26 @@ def _server_charts(root: Path, source: Source, best: Source | None) -> list[Path
     return [path for path in written if path is not None]
 
 
-def render(root: Path, server: Source, best: Source | None, inprocess: Source) -> list[Path]:
+def render(root: Path, server: Source, best: Source | None, inprocess: Source, languages: Source | None) -> list[Path]:
     apply_style()
     written = _server_charts(root, server, best)
     embedded = embedded_scale_figure(root, inprocess.run_id, inprocess.data)
     if embedded is not None:
         written.append(embedded)
+    if languages is not None:
+        written.extend(languages_figures(root, languages))
     return written
 
 
 def main() -> int:
     root = repo_root()
-    written = render(root, load_server_source(), load_server_best_config_source(), load_inprocess_source())
+    written = render(
+        root,
+        load_server_source(),
+        load_server_best_config_source(),
+        load_inprocess_source(),
+        load_languages_source(),
+    )
     sys.stdout.write(f"Rendered {len(written)} charts.\n")
     return 0
 
