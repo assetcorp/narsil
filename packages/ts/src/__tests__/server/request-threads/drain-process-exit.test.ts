@@ -25,7 +25,7 @@ const server = createServer(engine, {
 })
 await server.listen()
 if (server.requestThreadCount !== 1) throw new Error('The request thread did not start')
-console.log(server.listeningPort)
+console.log('listening-port=' + server.listeningPort)
 })().catch(error => { console.error(error); process.exitCode = 1 })`
     const child = spawn(process.execPath, ['-e', source], { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
@@ -40,7 +40,8 @@ console.log(server.listeningPort)
         let output = ''
         child.stdout.setEncoding('utf8').on('data', chunk => {
           output += chunk
-          if (output.includes('\n')) resolve(Number(output.trim()))
+          const port = /listening-port=(\d+)\n/.exec(output)?.[1]
+          if (port !== undefined) resolve(Number(port))
         })
         child.once('error', reject)
         child.once('exit', () => reject(new Error(stderr)))

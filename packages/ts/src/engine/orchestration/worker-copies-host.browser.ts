@@ -29,8 +29,8 @@ type EngineNames = Pick<
   | 'SEGMENTS_PER_MERGE'
   | 'SHUTDOWN_TIMEOUT_MS'
   | 'SegmentRefusal'
-  | 'WORKER_SILENCE_BEFORE_DEATH_MS'
-  | 'WORKER_SILENCE_BEFORE_PROBE_MS'
+  | 'DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS'
+  | 'DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS'
   | 'afterCurrentTurn'
   | 'availablePatternSearch'
   | 'createWorkerFactory'
@@ -103,8 +103,8 @@ export let SEGMENTS_PER_MERGE: EngineNames['SEGMENTS_PER_MERGE']
 export let SHUTDOWN_TIMEOUT_MS: EngineNames['SHUTDOWN_TIMEOUT_MS']
 export let SegmentRefusal: EngineNames['SegmentRefusal']
 export type SegmentRefusal = InstanceType<EngineNames['SegmentRefusal']>
-export let WORKER_SILENCE_BEFORE_DEATH_MS: EngineNames['WORKER_SILENCE_BEFORE_DEATH_MS']
-export let WORKER_SILENCE_BEFORE_PROBE_MS: EngineNames['WORKER_SILENCE_BEFORE_PROBE_MS']
+export let DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS: EngineNames['DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS']
+export let DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS: EngineNames['DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS']
 export let afterCurrentTurn: EngineNames['afterCurrentTurn']
 export let availablePatternSearch: EngineNames['availablePatternSearch']
 export let createWorkerFactory: EngineNames['createWorkerFactory']
@@ -177,8 +177,8 @@ export function bindWorkerCopiesHost(
     SEGMENTS_PER_MERGE,
     SHUTDOWN_TIMEOUT_MS,
     SegmentRefusal,
-    WORKER_SILENCE_BEFORE_DEATH_MS,
-    WORKER_SILENCE_BEFORE_PROBE_MS,
+    DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
+    DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
     afterCurrentTurn,
     availablePatternSearch,
     createWorkerFactory,

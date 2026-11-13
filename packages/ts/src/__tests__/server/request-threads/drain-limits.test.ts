@@ -23,19 +23,21 @@ it.skipIf(!existsSync(distEntry)).each(['concurrency', 'body memory'] as const)(
       `drain-${limit}`,
       { kind: 'throw' },
       {
-        limits:
-          limit === 'concurrency' ? { maxConcurrentRequests: 1 } : { maxBodyBytesInFlightFraction: Number.MIN_VALUE },
-      },
-      [
-        {
-          name: 'hold-insert',
-          async beforeInsert(ctx) {
-            if (ctx.docId !== 'held-insert') return
-            entered = true
-            await held
-          },
+        server: {
+          limits:
+            limit === 'concurrency' ? { maxConcurrentRequests: 1 } : { maxBodyBytesInFlightFraction: Number.MIN_VALUE },
         },
-      ],
+        plugins: [
+          {
+            name: 'hold-insert',
+            async beforeInsert(ctx) {
+              if (ctx.docId !== 'held-insert') return
+              entered = true
+              await held
+            },
+          },
+        ],
+      },
     )
     try {
       await srv.armWorker()

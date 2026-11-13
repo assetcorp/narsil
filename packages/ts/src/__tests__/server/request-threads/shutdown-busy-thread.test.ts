@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import { expect, it } from 'vitest'
-import { WORKER_SILENCE_BEFORE_PROBE_MS } from '../../../workers/constants'
 import {
   ARMED_TOKEN,
   distEntry,
@@ -12,10 +11,22 @@ import {
   startServerWithCopies,
 } from './silent-workers'
 
+const SILENCE_BEFORE_PROBE_MS = 1_000
+const SILENCE_BEFORE_RETIREMENT_MS = 20_000
+
 it.skipIf(!existsSync(distEntry))(
   'lets a busy request thread finish during engine shutdown past the first probe',
   async () => {
-    const srv = await startServerWithCopies('shutdown-busy-thread', { kind: 'block', waitMs: SETUP_MS })
+    const srv = await startServerWithCopies(
+      'shutdown-busy-thread',
+      { kind: 'block', waitMs: SETUP_MS },
+      {
+        workers: {
+          silenceBeforeProbeMs: SILENCE_BEFORE_PROBE_MS,
+          silenceBeforeRetirementMs: SILENCE_BEFORE_RETIREMENT_MS,
+        },
+      },
+    )
     try {
       await srv.armWorker()
       const response = onNewConnection<Search>(srv.base, `/indexes/${INDEX}/search`, {
@@ -27,7 +38,7 @@ it.skipIf(!existsSync(distEntry))(
       )
       await srv.armedTokenReached()
       const closing = srv.engine.shutdown()
-      await sleep(WORKER_SILENCE_BEFORE_PROBE_MS + 2_000)
+      await sleep(3 * SILENCE_BEFORE_PROBE_MS)
       srv.releaseWorker()
       const outcome = await response
       expect(outcome).not.toHaveProperty('error')

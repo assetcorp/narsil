@@ -2,12 +2,12 @@ import {
   createRequestId,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS,
+  DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS,
   ErrorCodes,
   isValidWorkerResponse,
   NarsilError,
   SHUTDOWN_TIMEOUT_MS,
-  WORKER_SILENCE_BEFORE_DEATH_MS,
-  WORKER_SILENCE_BEFORE_PROBE_MS,
 } from '#platform/worker-copies-host'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
@@ -15,9 +15,13 @@ import type { WorkerAction, WorkerResponse } from './protocol'
 export interface WorkerExecutorConfig {
   backpressureLimit?: number
   requestTimeout?: number
+  silenceBeforeProbeMs?: number
+  silenceBeforeRetirementMs?: number
   onDeath?: (error: Error) => void
   onGone?: () => void
 }
+
+export type WorkerSilence = Pick<WorkerExecutorConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs'>
 
 export interface WorkerLike {
   postMessage(msg: unknown, transfer?: object[]): void
@@ -52,6 +56,8 @@ function errorFromEventLike(event: unknown): Error {
 export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutorConfig): Executor {
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
   const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const silenceBeforeProbe = config?.silenceBeforeProbeMs ?? DEFAULT_WORKER_SILENCE_BEFORE_PROBE_MS
+  const silenceBeforeRetirement = config?.silenceBeforeRetirementMs ?? DEFAULT_WORKER_SILENCE_BEFORE_RETIREMENT_MS
   const pending = new Map<string, PendingRequest>()
   const retained = new Map<string, () => void>()
   const unanswered = new Set<string>()
@@ -64,6 +70,12 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   let silenceCheck: ReturnType<typeof setTimeout> | undefined
   let askedToLeave = false
   let answeredSinceAskedToLeave = false
+  let servesConnections = false
+  const stopServingIds = new Set<string>()
+  let abandon: () => void = () => undefined
+  const abandoned = new Promise<void>(resolve => {
+    abandon = resolve
+  })
   const waitingForTheThreadToGo: Array<() => void> = []
   const reportsItsExit = typeof worker.on === 'function'
 
@@ -81,13 +93,13 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
   function silenceBeforeStopping(): number {
     return askedToLeave && deathError !== null && !answeredSinceAskedToLeave
-      ? WORKER_SILENCE_BEFORE_PROBE_MS
-      : WORKER_SILENCE_BEFORE_DEATH_MS
+      ? silenceBeforeProbe
+      : silenceBeforeRetirement
   }
 
   function watchSilence(): void {
     if (silenceCheck !== undefined || !watchingSilence()) return
-    const allowedSilence = probeId === null ? WORKER_SILENCE_BEFORE_PROBE_MS : silenceBeforeStopping()
+    const allowedSilence = probeId === null ? silenceBeforeProbe : silenceBeforeStopping()
     const timer = setTimeout(
       () => {
         const afterQueuedAnswers = setTimeout(checkSilence, 0)
@@ -113,11 +125,11 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     if (!watchingSilence()) return
     const silentFor = performance.now() - lastSignOfLife
     if (silentFor >= silenceBeforeStopping()) {
-      if (askedToLeave) stopTheThread()
+      if (askedToLeave) stopOrLeaveTheThread()
       else retireUnansweringWorker(new Error(`no answer to any request or probe for ${Math.round(silentFor)}ms`))
       return
     }
-    if (probeId === null && silentFor >= WORKER_SILENCE_BEFORE_PROBE_MS) probe()
+    if (probeId === null && silentFor >= silenceBeforeProbe) probe()
     watchSilence()
   }
 
@@ -144,8 +156,10 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
     const response = msg as WorkerResponse
     noteAnswer(response.requestId)
+    if (stopServingIds.delete(response.requestId) && response.type === 'success') servesConnections = false
     if (response.requestId === shutdownRequestId && response.type === 'success') {
       shutdownRequestId = null
+      servesConnections = false
       if (reportsItsExit) worker.unref?.()
       else stopAWorkerThatReportsNoExit()
     }
@@ -212,6 +226,16 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       const stopping = worker.terminate?.()
       if (stopping instanceof Promise) stopping.catch(() => undefined)
     } catch {}
+  }
+
+  function stopOrLeaveTheThread(): void {
+    if (!servesConnections) {
+      stopTheThread()
+      return
+    }
+    worker.unref?.()
+    abandon()
+    reportGone()
   }
 
   function stopAWorkerThatReportsNoExit(): void {
@@ -289,6 +313,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
 
     const requestId = createRequestId()
     const taggedAction = { ...action, requestId }
+    if (action.type === 'serveRequests') servesConnections = true
+    if (action.type === 'stopServing') stopServingIds.add(requestId)
 
     return new Promise<T>((resolve, reject) => {
       const entry: PendingRequest = {
@@ -309,6 +335,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         clearTimeout(entry.timeoutId)
         pending.delete(requestId)
         retained.delete(requestId)
+        stopServingIds.delete(requestId)
         settled?.()
         reject(error)
         return
@@ -353,5 +380,6 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     execute: (action, transfer) => send(action, transfer, undefined, true),
     executeUntilAnswered: (action, settled) => send(action, undefined, settled, false),
     shutdown,
+    whenAbandoned: () => abandoned,
   }
 }

@@ -34,11 +34,13 @@ describe.skipIf(!existsSync(distEntry))('a request thread that leaves while requ
       'draining-thread-copies',
       { kind: 'throw' },
       {
-        onRequest: async ctx => {
-          if (ctx.headers[HELD_HEADER] === undefined) return undefined
-          heldArrivals += 1
-          await held
-          return undefined
+        server: {
+          onRequest: async ctx => {
+            if (ctx.headers[HELD_HEADER] === undefined) return undefined
+            heldArrivals += 1
+            await held
+            return undefined
+          },
         },
       },
     )

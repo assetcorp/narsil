@@ -3,6 +3,7 @@ import { request } from 'node:http'
 import { BroadcastChannel } from 'node:worker_threads'
 import { type NarsilPlugin, registerLanguage } from '../../../index'
 import type { ServerOptions } from '../../../server'
+import type { WorkerConfig } from '../../../types/config'
 import { scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
 export const ARMED_TOKEN = 'suspend'
@@ -36,6 +37,7 @@ export interface ServerWithCopies extends TestServer {
   crashes: Array<{ at: number; error: Error }>
   armWorker(): Promise<void>
   armedTokenReached(): Promise<void>
+  armedTokenHeld(): boolean
   releaseWorker(): void
   searchOnAThread(term: string): Promise<Answer<Search> | null>
   shutDown(): Promise<void>
@@ -116,8 +118,11 @@ export function onNewConnection<T>(
 export async function startServerWithCopies(
   language: string,
   effect: ArmedTokenEffect,
-  options?: Omit<ServerOptions, 'host' | 'port'>,
-  plugins?: NarsilPlugin[],
+  setup: {
+    server?: Omit<ServerOptions, 'host' | 'port'>
+    plugins?: NarsilPlugin[]
+    workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs'>
+  } = {},
 ): Promise<ServerWithCopies> {
   registerLanguage({ name: language, revision: '1', stopWords: new Set(), stemmer })
   const channel = new BroadcastChannel(randomUUID())
@@ -129,8 +134,11 @@ export async function startServerWithCopies(
     Atomics.notify(barrier, BARRIER_RELEASED)
   }
   const server = await startTestServer(
-    options,
-    { plugins, workers: { count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) } },
+    setup.server,
+    {
+      plugins: setup.plugins,
+      workers: { ...setup.workers, count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) },
+    },
     async engine => {
       engine.on('workerCrash', ({ error }) => crashes.push({ at: Date.now(), error }))
       const query = engine.query.bind(engine)
@@ -167,6 +175,7 @@ export async function startServerWithCopies(
       Atomics.store(barrier, BARRIER_ARMED, 1)
     },
     armedTokenReached: () => waitFor(async () => Atomics.load(barrier, BARRIER_ARMED) === 2),
+    armedTokenHeld: () => Atomics.load(barrier, BARRIER_ARMED) === 2,
     releaseWorker: release,
     async searchOnAThread(term) {
       const before = mainQueries

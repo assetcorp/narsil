@@ -2144,6 +2144,8 @@ export interface WorkerConfig {
     idleTimeoutMs?: number;
     mainCopyQueries?: MainCopyQueries;
     promotionThreshold?: number;
+    silenceBeforeProbeMs?: number;
+    silenceBeforeRetirementMs?: number;
 }
 
 // @public

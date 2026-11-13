@@ -54,6 +54,20 @@ interface ServingThread {
   closed: Promise<void>
 }
 
+function threadClosed(port: MessagePort, executor: Executor, clearSlots: () => void): Promise<void> {
+  return new Promise(resolve => {
+    let leftBehind = false
+    port.once('close', () => {
+      if (!leftBehind) clearSlots()
+      resolve()
+    })
+    void executor.whenAbandoned?.().then(() => {
+      leftBehind = true
+      resolve()
+    })
+  })
+}
+
 const RELAYED_TYPES: ReadonlySet<string> = new Set([
   'request',
   'authorize',
@@ -243,12 +257,9 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         executor,
         departure: createDepartureWord(),
         closeAtExit: createCloseAtExitWords(),
-        closed: new Promise(resolve => {
-          channel.port2.once('close', () => {
-            clearGateSlot(options.gate, gateSlotOfWorker(workerId))
-            clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
-            resolve()
-          })
+        closed: threadClosed(channel.port2, executor, () => {
+          clearGateSlot(options.gate, gateSlotOfWorker(workerId))
+          clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
         }),
       }
       relayFrom(thread)

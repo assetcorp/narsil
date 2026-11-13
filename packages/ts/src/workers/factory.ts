@@ -6,7 +6,7 @@ import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { workerResourceLimits } from './resource-limits'
 import { noteThreadSlotLive, threadSlotOfWorker } from './thread-slot'
-import { createWorkerExecutor, type WorkerLike } from './worker-executor'
+import { createWorkerExecutor, type WorkerLike, type WorkerSilence } from './worker-executor'
 
 declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
@@ -30,7 +30,7 @@ export async function requireWorkerEntry(): Promise<string> {
   return entry
 }
 
-export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
+export async function createWorkerFactory(entryPoint?: string, silence?: WorkerSilence): Promise<WorkerFactory> {
   const runtime = detectRuntime()
   const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
@@ -44,14 +44,14 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
         workerData: { workerId },
       })
       countEngineThread(instance, workerResourceLimits().maxYoungGenerationSizeMb)
-      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })
+      return createWorkerExecutor(instance as unknown as WorkerLike, { ...silence, onDeath, onGone })
     }
   }
 
   if (runtime.supportsWebWorkers) {
     return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
-      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })
+      return createWorkerExecutor(instance as unknown as WorkerLike, { ...silence, onDeath, onGone })
     }
   }
 

@@ -65,6 +65,8 @@ const WORKER_CONFIG_KEYS: Record<keyof WorkerConfig, true> = {
   idleTimeoutMs: true,
   mainCopyQueries: true,
   bootstrapModule: true,
+  silenceBeforeProbeMs: true,
+  silenceBeforeRetirementMs: true,
 }
 
 const LIFECYCLE_CONFIG_KEYS: Record<keyof IndexLifecycleConfig, true> = {

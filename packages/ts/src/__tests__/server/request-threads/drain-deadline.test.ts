@@ -12,11 +12,13 @@ it.skipIf(!existsSync(distEntry))(
       'drain-hook-close',
       { kind: 'throw' },
       {
-        async onRequest(ctx) {
-          if (ctx.headers['x-close-server'] === undefined || srv === undefined) return
-          closing = srv.server.close()
-          await closing
-          return { status: 403, code: 'DENIED', message: 'Access denied' }
+        server: {
+          async onRequest(ctx) {
+            if (ctx.headers['x-close-server'] === undefined || srv === undefined) return
+            closing = srv.server.close()
+            await closing
+            return { status: 403, code: 'DENIED', message: 'Access denied' }
+          },
         },
       },
     )
