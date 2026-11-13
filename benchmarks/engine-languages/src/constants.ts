@@ -1,0 +1,43 @@
+export const KEYWORD_DATASET = 'fiqa'
+export const KEYWORD_DOCUMENT_COUNT = 50_000
+export const KEYWORD_QUERY_COUNT = 1_000
+export const KEYWORD_QUERY_SEED = 42
+export const VECTOR_DATASET = 'scifact'
+
+export const SMALL_KEYWORD_DOCUMENT_COUNT = 5_000
+export const SMALL_KEYWORD_QUERY_COUNT = 200
+export const SMALL_VECTOR_QUERY_COUNT = 100
+
+export const RESULT_LIMIT = 10
+export const RECALL_DEPTH = 100
+export const HNSW_M = 16
+export const HNSW_EF_CONSTRUCTION = 200
+export const EF_SEARCH = 50
+export const VECTOR_PROMOTION_THRESHOLD = 1_024
+export const RRF_RANK_CONSTANT = 60
+export const INSERT_BATCH_DOCUMENTS = 1_000
+export const WORKER_PROMOTION_THRESHOLD = 1_000
+
+export const WARMUP_PASSES = 50
+export const KEYWORD_MEASURED_PASSES = 500
+export const VECTOR_MEASURED_PASSES = 1_000
+export const HYBRID_MEASURED_PASSES = 1_000
+export const SMALL_WARMUP_PASSES = 2
+export const SMALL_MEASURED_PASSES = 5
+
+export const THREAD_COUNTS = [1, 8]
+export const REPETITIONS = 3
+export const SMALL_REPETITIONS = 1
+export const MAX_THREADS = 31
+export const MAX_REPETITIONS = 100
+
+export const RUNNER_TIMEOUT_MS = 1_800_000
+export const WORKER_PROMOTION_TIMEOUT_MS = 120_000
+export const MEMORY_SETTLE_MS = 200
+export const BUILD_TIMEOUT_MS = 1_800_000
+export const ORACLE_TIMEOUT_MS = 1_800_000
+export const VERSION_PROBE_TIMEOUT_MS = 60_000
+export const PROCESS_MEMORY_PROBE_TIMEOUT_MS = 10_000
+export const MAX_RUNNER_OUTPUT_BYTES = 268_435_456
+export const MAX_RUNNER_STDOUT_LINE_BYTES = 4_096
+export const MAX_RUNNER_STDOUT_BYTES = 65_536

@@ -21,12 +21,21 @@ from pathlib import Path
 
 from headline_section import README_TARGETS, readme_blocks
 from inprocess_section import inprocess_blocks
+from languages_section import languages_blocks
 from server_section import server_blocks
-from sources import Source, load_inprocess_source, load_server_best_config_source, load_server_source, repo_root
+from sources import (
+    Source,
+    load_inprocess_source,
+    load_languages_source,
+    load_server_best_config_source,
+    load_server_source,
+    repo_root,
+)
 
 _IMAGE_SOURCE = re.compile(r'<img src="([^"]+)"')
 CHART_LIBRARY_MODULE = "matplotlib"
 BENCHMARKS_PAGE = "BENCHMARKS.md"
+LANGUAGES_MARKER = "<!-- BENCH:languages-"
 
 
 def _inject(text: str, blocks: dict[str, str], page_name: str) -> str:
@@ -47,7 +56,9 @@ def _missing_figures(page_text: str, root: Path) -> list[str]:
     return sorted({path for path in _IMAGE_SOURCE.findall(page_text) if not (root / path).is_file()})
 
 
-def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: Source) -> list[str] | None:
+def _stale_figures(
+    root: Path, server: Source, best: Source | None, inprocess: Source, languages: Source | None
+) -> list[str] | None:
     try:
         from charts import render
     except ModuleNotFoundError as error:
@@ -57,7 +68,7 @@ def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: S
     stale: list[str] = []
     with tempfile.TemporaryDirectory() as scratch:
         scratch_root = Path(scratch)
-        for drawn in render(scratch_root, server, best, inprocess):
+        for drawn in render(scratch_root, server, best, inprocess, languages):
             relative = drawn.relative_to(scratch_root)
             committed = root / relative
             if not committed.is_file() or committed.read_bytes() != drawn.read_bytes():
@@ -65,10 +76,23 @@ def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: S
     return sorted(stale)
 
 
-def _generated_pages(root: Path, server: Source, best: Source | None, inprocess: Source) -> dict[str, tuple[str, str]]:
+def _languages_blocks(page_text: str, languages: Source | None) -> dict[str, str]:
+    if languages is not None:
+        return languages_blocks(languages)
+    if LANGUAGES_MARKER in page_text:
+        raise SystemExit(
+            f"benchmark writeup: {BENCHMARKS_PAGE} holds engine-languages markers, but no engine-languages run is "
+            "recorded; commit the run directory that the section reports"
+        )
+    return {}
+
+
+def _generated_pages(
+    root: Path, server: Source, best: Source | None, inprocess: Source, languages: Source | None
+) -> dict[str, tuple[str, str]]:
     pages: dict[str, tuple[str, str]] = {}
     current = (root / BENCHMARKS_PAGE).read_text(encoding="utf-8")
-    blocks = {**server_blocks(server, best), **inprocess_blocks(inprocess)}
+    blocks = {**server_blocks(server, best), **inprocess_blocks(inprocess), **_languages_blocks(current, languages)}
     pages[BENCHMARKS_PAGE] = (current, _inject(current, blocks, BENCHMARKS_PAGE))
     for target in README_TARGETS:
         current = (root / target.path).read_text(encoding="utf-8")
@@ -82,7 +106,8 @@ def main(argv: list[str]) -> int:
     server = load_server_source()
     best = load_server_best_config_source()
     inprocess = load_inprocess_source()
-    pages = _generated_pages(root, server, best, inprocess)
+    languages = load_languages_source()
+    pages = _generated_pages(root, server, best, inprocess, languages)
     out_of_date = [name for name, (current, updated) in pages.items() if updated != current]
 
     if check:
@@ -99,7 +124,7 @@ def main(argv: list[str]) -> int:
                 "Run `python3 benchmarks/writeup/charts.py` and commit the result.\n"
             )
             return 1
-        stale = _stale_figures(root, server, best, inprocess)
+        stale = _stale_figures(root, server, best, inprocess, languages)
         if stale is None:
             sys.stdout.write("Every page is up to date with the latest runs; matplotlib is not installed, so the figures were checked for presence alone.\n")
             return 0

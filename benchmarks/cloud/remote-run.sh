@@ -34,15 +34,27 @@ esac
 stamp "pnpm install"
 pnpm install || status=1
 
-stamp "build workspace libraries (the example apps are not part of either suite)"
-pnpm exec nx run-many -t build \
-  --exclude=@delali/narsil-example-browser,@delali/narsil-example-server-app || status=1
+if [ "$SUITES" = "languages" ]; then
+  stamp "build the TypeScript engine, its native search core, and the embedding adapter"
+  pnpm exec nx run-many -t build \
+    --projects=narsil-ts,narsil-embeddings-transformers,@delali/narsil-native-build || status=1
+else
+  stamp "build workspace libraries (the example apps are not part of either suite)"
+  pnpm exec nx run-many -t build \
+    --exclude=@delali/narsil-example-browser,@delali/narsil-example-server-app || status=1
+fi
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "inprocess" ]; then
   stamp "in-process suite (Orama, MiniSearch, Narsil)"
   inproc_args=()
   [ -n "${BENCH_INPROCESS_TIERS:-}" ] && inproc_args=(-- --tiers "$BENCH_INPROCESS_TIERS")
   pnpm --filter benchmarks bench "${inproc_args[@]}" || status=1
+fi
+
+if [ "$SUITES" = "languages" ]; then
+  stamp "engine-languages suite (TypeScript, Rust, and Go on the C core)"
+  ( export PATH="$HOME/.local/go/bin:$HOME/.cargo/bin:$PATH" BENCH_MACHINE_LABEL="$LABEL" \
+      && pnpm --filter engine-languages-benchmark bench ) || status=1
 fi
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "server" ]; then
