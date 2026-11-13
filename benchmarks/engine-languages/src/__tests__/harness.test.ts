@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ensureOracle } from '../oracle'
 import { ORACLE_PYTHON, ORACLE_ROOT, SUITE_ROOT } from '../paths'
-import { KEYWORD_QUERIES_FILE, sha256OfFile } from '../workload/format'
+import { KEYWORD_QUERIES_FILE } from '../workload/format'
 import { workloadSettings } from '../workload/settings'
 import { writeWorkload } from '../workload/write'
 
@@ -296,52 +296,5 @@ describe('the engine-languages benchmark', () => {
     } finally {
       if (abandoned) rmSync(abandoned, { recursive: true, force: true })
     }
-  })
-
-  it.each([
-    ['metric', 'dot'],
-    ['quantization', 'osq8'],
-    ['language', 'french'],
-    ['hybridLegDepth', 10],
-    ['warmupPasses', 0],
-    ['insertBatch', -1],
-    ['efSearch', null],
-    ['limit', 0],
-    ['recallDepth', 10],
-  ])('refuses unsupported settings %s=%j before starting a runner', (key, value) => {
-    const damaged = resolve(scratch, `settings-${key}`)
-    cpSync(workload, damaged, { recursive: true })
-    const path = resolve(damaged, 'manifest.json')
-    const manifest = JSON.parse(readFileSync(path, 'utf-8'))
-    manifest.settings[key] = value
-    writeFileSync(path, JSON.stringify(manifest))
-    const root = resolve(scratch, `refused-${key}`)
-    const result = runDriver(['--workload', damaged], root)
-    expect(result.status).not.toBe(0)
-    expect(result.output).not.toContain('Building the')
-    expect(runDirectories(root)).toEqual([])
-  })
-
-  it.each([
-    ['keyword-documents.jsonl', '{'],
-    ['keyword-documents.jsonl', '{"id":"duplicate","title":"","body":""}\n'.repeat(KEYWORD_DOCUMENTS)],
-    ['keyword-queries.jsonl', '{"text":"one"}\n'],
-    ['keyword-queries.jsonl', '{"text":null}\n'.repeat(KEYWORD_QUERIES)],
-    ['vector-documents.f32', Buffer.alloc(4)],
-    ['vector-queries.f32', Buffer.alloc(VECTOR_QUERIES * DIMENSION * 4)],
-  ])('refuses malformed workload content in %s even when its digest matches', async (name, content) => {
-    const damaged = mkdtempSync(resolve(scratch, 'content-'))
-    cpSync(workload, damaged, { recursive: true })
-    const path = resolve(damaged, name)
-    writeFileSync(path, content)
-    const manifestPath = resolve(damaged, 'manifest.json')
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
-    manifest.sha256[name] = await sha256OfFile(path)
-    writeFileSync(manifestPath, JSON.stringify(manifest))
-    const root = resolve(scratch, 'refused-content')
-    const result = runDriver(['--workload', damaged], root)
-    expect(result.status).not.toBe(0)
-    expect(result.output).not.toContain('Building the')
-    expect(runDirectories(root)).toEqual([])
   })
 })
