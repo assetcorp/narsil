@@ -93,4 +93,21 @@ describe.skipIf(!existsSync(distEntry))('a request thread that leaves while requ
     await closing
     expect(srv.crashes).toEqual([])
   }, 180_000)
+
+  it('waits for an already retired thread when the server closes', async () => {
+    await srv.armWorker()
+    const answers = await holdRequests()
+    await srv.engine.update(INDEX, 'ticket-0', { title: `${ARMED_TOKEN} ticket 0` })
+    await waitFor(async () => srv.crashes.length > 0, SETUP_MS)
+    let closed = false
+    const closing = srv.server.close().then(() => {
+      closed = true
+    })
+    await sleep(AFTER_RETIREMENT_MS)
+    const closedBeforeAnswers = closed
+    releaseHeld()
+    expectEveryCount(await Promise.all(answers))
+    await closing
+    expect(closedBeforeAnswers).toBe(false)
+  }, 90_000)
 })
