@@ -1,0 +1,23 @@
+{
+  "name": "engine-languages-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node --import tsx src/run.ts",
+    "oracle:install": "python3 -m venv oracle/.venv && oracle/.venv/bin/python -m pip install --quiet --require-hashes -r ../../packages/conformance/oracle/requirements.txt",
+    "test:harness": "vitest run",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*",
+    "benchmarks": "workspace:*",
+    "tsx": "4.21.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "22.15.18",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}
