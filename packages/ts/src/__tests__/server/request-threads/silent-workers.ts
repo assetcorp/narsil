@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { request } from 'node:http'
 import { BroadcastChannel } from 'node:worker_threads'
-import { registerLanguage } from '../../../index'
+import { type NarsilPlugin, registerLanguage } from '../../../index'
 import type { ServerOptions } from '../../../server'
 import { scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
@@ -117,6 +117,7 @@ export async function startServerWithCopies(
   language: string,
   effect: ArmedTokenEffect,
   options?: Omit<ServerOptions, 'host' | 'port'>,
+  plugins?: NarsilPlugin[],
 ): Promise<ServerWithCopies> {
   registerLanguage({ name: language, revision: '1', stopWords: new Set(), stemmer })
   const channel = new BroadcastChannel(randomUUID())
@@ -129,7 +130,7 @@ export async function startServerWithCopies(
   }
   const server = await startTestServer(
     options,
-    { workers: { count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) } },
+    { plugins, workers: { count: 1, bootstrapModule: languageBootstrap(language, channel.name, effect) } },
     async engine => {
       engine.on('workerCrash', ({ error }) => crashes.push({ at: Date.now(), error }))
       const query = engine.query.bind(engine)
