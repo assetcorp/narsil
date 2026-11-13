@@ -1,9 +1,9 @@
 import { ErrorCodes, isNarsilError, NarsilError } from '../errors'
 import type { DirectExecutorExtensions } from './direct-executor'
 import type { Executor } from './executor'
-import type { WorkerAction, WorkerResponse } from './protocol'
+import type { WorkerAction, WorkerMessage, WorkerResponse } from './protocol'
 
-export type ActionHandler = (action: WorkerAction, post: (msg: WorkerResponse) => void) => Promise<boolean>
+export type ActionHandler = (action: WorkerMessage, post: (msg: WorkerResponse) => void) => Promise<boolean>
 
 export function buildErrorResponse(
   requestId: string,

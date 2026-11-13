@@ -6,7 +6,7 @@ import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { workerResourceLimits } from './resource-limits'
 import { noteThreadSlotLive, threadSlotOfWorker } from './thread-slot'
-import { createWorkerExecutor, type WorkerLike, type WorkerSilence } from './worker-executor'
+import { createWorkerExecutor, type WorkerExecutorConfig, type WorkerLike } from './worker-executor'
 
 declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
@@ -30,28 +30,28 @@ export async function requireWorkerEntry(): Promise<string> {
   return entry
 }
 
-export async function createWorkerFactory(entryPoint?: string, silence?: WorkerSilence): Promise<WorkerFactory> {
+export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
   const runtime = detectRuntime()
   const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')
 
-    return function nodeFactory(workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
+    return function nodeFactory(workerId: number, config: WorkerExecutorConfig): Executor {
       noteThreadSlotLive(threadSlotOfWorker(workerId))
       const instance = new workerThreadsModule.Worker(new URL(resolvedEntry), {
         resourceLimits: workerResourceLimits(),
         workerData: { workerId },
       })
       countEngineThread(instance, workerResourceLimits().maxYoungGenerationSizeMb)
-      return createWorkerExecutor(instance as unknown as WorkerLike, { ...silence, onDeath, onGone })
+      return createWorkerExecutor(instance as unknown as WorkerLike, config)
     }
   }
 
   if (runtime.supportsWebWorkers) {
-    return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
+    return function webFactory(_workerId: number, config: WorkerExecutorConfig): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
-      return createWorkerExecutor(instance as unknown as WorkerLike, { ...silence, onDeath, onGone })
+      return createWorkerExecutor(instance as unknown as WorkerLike, config)
     }
   }
 
