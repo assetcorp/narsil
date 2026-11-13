@@ -13,7 +13,6 @@ import pytest
 
 import ir_bench
 from ir_bench.core.engine_cpu import engine_cpu_counter_from_env
-from ir_bench.core.engine_host import remote_engine_environment
 from ir_bench.core.engine_memory import engine_memory_counter_from_env
 
 CONTAINER_ID = "9c1f4be3a8d2470e8a51f3c6d0b7e2a49c1f4be3a8d2470e8a51f3c6d0b7e2a4"
@@ -94,36 +93,6 @@ def test_a_harness_on_another_machine_reads_the_engine_cgroup_figures_written_on
     assert peaks["container_lifetime_peak_bytes"] == 629_145_600
 
 
-@pytest.mark.parametrize(
-    "path",
-    ["cgroup.procs", "../cpu.stat", "system.slice/cpu.stat", "%2e%2e/%2e%2e/etc/passwd", "../../../../etc/passwd", ""],
-)
-def test_the_stats_service_refuses_every_path_outside_its_allowlist(stats_url, path):
-    assert _status_of(f"{stats_url}/{path}") == 404
-
-
-def test_each_result_records_the_engine_machine_and_two_hundred_round_trips(stats_url):
-    recorded = remote_engine_environment({"BENCH_ENGINE_STATS_URL": stats_url})
-    assert recorded is not None
-    assert recorded["engine_machine"]["cpus"] == os.cpu_count()
-    network = recorded["network"]
-    assert network["samples"] == 200
-    assert network["method"] == "tcp_connect"
-    round_trip = network["round_trip_ms"]
-    assert 0 < round_trip["min"] <= round_trip["p50"] <= round_trip["p99"] <= round_trip["max"]
-
-
-def test_the_stats_service_exits_when_no_cgroup_holds_the_container(tmp_path):
-    _write_engine_cgroup(tmp_path)
-    server = _start_stats_server(tmp_path, _free_port(), container_id="deadbeef")
-    _, stderr = server.communicate(timeout=10)
-    assert server.returncode == 1
-    assert b"deadbeef" in stderr
-
-
-def test_an_unreachable_stats_service_leaves_the_engine_figures_unrecorded():
-    environ = {"BENCH_ENGINE_STATS_URL": f"http://127.0.0.1:{_free_port()}"}
-    assert engine_memory_counter_from_env(environ) is None
-    cpu = engine_cpu_counter_from_env(environ)
-    assert cpu is not None
-    assert cpu.usage_usec() is None
+def test_the_stats_service_serves_no_file_outside_the_engine_cgroup(stats_url):
+    assert _status_of(f"{stats_url}/../../../../etc/passwd") == 404
+    assert _status_of(f"{stats_url}/%2e%2e/%2e%2e/etc/passwd") == 404

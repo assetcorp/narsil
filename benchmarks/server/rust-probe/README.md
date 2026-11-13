@@ -59,11 +59,3 @@ NARSIL_PORT=17701 NARSIL_DURABILITY_DIR=/var/tmp/narsil-probe ./target/release/n
 ```
 
 The server listens on loopback unless `NARSIL_ALLOW_INSECURE=true` lets it bind another address.
-
-The HTTP and recovery tests start separate probe processes with temporary durability directories. Set `NARSIL_RUST_PROBE_BINARY` to the absolute path of the release binary and execute these tests from `benchmarks/server`:
-
-```bash
-python -m pytest -q tests/test_rust_probe_http.py tests/test_rust_probe_lifecycle.py
-```
-
-The tests cover malformed bodies, exact byte boundaries, duplicate IDs, task limits, concurrent index operations, and restarts during imports and optimization. They check stored documents and cosine scores against independently constructed expectations. A zero body limit rejects every non-empty body, matching the supplied TypeScript server.

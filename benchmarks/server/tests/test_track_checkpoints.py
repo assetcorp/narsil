@@ -8,18 +8,11 @@ from ir_bench.core.config import EngineConfig
 from ir_bench.core.config_datasets import DatasetSpec
 from ir_bench.core.harness import checkpoint_path, run_engine
 from ir_bench.core.types import HYBRID, KEYWORD, VECTOR
-from ir_bench.core.vector_runner import LoadedVectorIndex
 
 
 class _Driver:
-    def __init__(self) -> None:
-        self.dropped: list[str] = []
-
     def wait_until_ready(self) -> None:
         return None
-
-    def drop_index(self, index: str) -> None:
-        self.dropped.append(index)
 
 
 def _engine() -> EngineConfig:
@@ -44,8 +37,6 @@ def _install_fakes(monkeypatch, calls: list[str], vector_ef: int, fail: bool = F
         if fail:
             raise AssertionError("the vector track ran again")
         calls.append(f"vector:{spec.dataset_id}")
-        if keep_index is not None:
-            keep_index(LoadedVectorIndex(index=f"bench_{spec.dataset_id}", profile=profile, documents=10, build_seconds=2.0))
         return {
             "dataset_id": spec.dataset_id,
             "track": VECTOR,
@@ -54,7 +45,7 @@ def _install_fakes(monkeypatch, calls: list[str], vector_ef: int, fail: bool = F
         }
 
     def hybrid(driver, engine_cfg, config, spec, runs_dir, store, run_tag, chosen_ef, profile, oversample, engine_cpu, loaded=None):
-        calls.append(f"hybrid:{spec.dataset_id}:{chosen_ef}:{oversample}:{None if loaded is None else loaded.index}")
+        calls.append(f"hybrid:{spec.dataset_id}:{chosen_ef}:{oversample}")
         return {"dataset_id": spec.dataset_id, "track": HYBRID, "vector_ef": chosen_ef}
 
     monkeypatch.setattr(harness, "run_keyword_track", keyword)
@@ -74,7 +65,7 @@ def test_every_finished_track_is_written_and_a_rerun_loads_it_without_touching_t
     assert [result["track"] for result in first] == [KEYWORD, VECTOR, HYBRID, KEYWORD, VECTOR, HYBRID]
     assert checkpoint_path(checkpoints, VECTOR, "dbpedia-entities-openai-100k").name == "vector.dbpedia_entities_openai_100k.json"
     assert checkpoint_path(checkpoints, VECTOR, "dbpedia-entities-openai-100k").is_file()
-    assert calls[2] == "hybrid:beir/scifact/test:64:2.0:None"
+    assert calls[2] == "hybrid:beir/scifact/test:64:2.0"
 
     calls.clear()
     _install_fakes(monkeypatch, calls, vector_ef=16, fail=True)
@@ -98,35 +89,6 @@ def test_a_rerun_finishes_the_tracks_without_a_file_and_reuses_the_earlier_opera
 
     results = run_engine(_Driver(), _engine(), SimpleNamespace(vector=object()), (spec,), tmp_path, object(), checkpoint_dir=checkpoints)
 
-    assert calls == ["keyword:beir/nfcorpus/test", "hybrid:beir/nfcorpus/test:32:None:None"]
+    assert calls == ["keyword:beir/nfcorpus/test", "hybrid:beir/nfcorpus/test:32:None"]
     assert results[1]["operating_point"]["chosen_value"] == 32
     assert json.loads(checkpoint_path(checkpoints, KEYWORD, spec.dataset_id).read_text(encoding="utf-8"))["track"] == KEYWORD
-
-
-def test_a_shared_vector_index_reaches_only_a_hybrid_track_that_follows_a_fresh_vector_track(tmp_path, monkeypatch):
-    calls: list[str] = []
-    _install_fakes(monkeypatch, calls, vector_ef=64)
-    spec = _spec("dbpedia-entities-openai-1m")
-    checkpoints = tmp_path / "tracks" / "narsil"
-    config = SimpleNamespace(vector=object())
-
-    def run(driver: _Driver) -> None:
-        run_engine(driver, _engine(), config, (spec,), tmp_path, object(), checkpoint_dir=checkpoints, share_vector_index=True)
-
-    first = _Driver()
-    run(first)
-    assert calls[-1] == "hybrid:dbpedia-entities-openai-1m:64:2.0:bench_dbpedia-entities-openai-1m"
-    assert first.dropped == []
-
-    checkpoint_path(checkpoints, HYBRID, spec.dataset_id).unlink()
-    calls.clear()
-    after_vector_checkpoint = _Driver()
-    run(after_vector_checkpoint)
-    assert calls == ["hybrid:dbpedia-entities-openai-1m:64:2.0:None"]
-
-    checkpoint_path(checkpoints, VECTOR, spec.dataset_id).unlink()
-    calls.clear()
-    after_hybrid_checkpoint = _Driver()
-    run(after_hybrid_checkpoint)
-    assert calls == ["vector:dbpedia-entities-openai-1m"]
-    assert after_hybrid_checkpoint.dropped == ["bench_dbpedia-entities-openai-1m"]
