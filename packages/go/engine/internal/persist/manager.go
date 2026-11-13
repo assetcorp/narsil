@@ -133,7 +133,7 @@ func (manager *Manager) markFatal(err error) {
 	}
 	manager.fatalMutex.Unlock()
 	if first && manager.settings.OnFatal != nil {
-		manager.settings.OnFatal(err)
+		go manager.settings.OnFatal(err)
 	}
 }
 
