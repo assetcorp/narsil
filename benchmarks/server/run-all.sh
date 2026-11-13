@@ -169,6 +169,7 @@ if [ -n "${BENCH_ENGINE_CPUS:-}" ]; then
   split_engine_cpus "$BENCH_ENGINE_CPUS" || exit 2
 fi
 trap stop_engine_stats EXIT
+mkdir -p "${BENCH_HOST_RESULTS_DIR}/runs/${BENCH_RUN_ID}"
 
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
 if engine_remote; then
@@ -242,6 +243,9 @@ for engine in "${ENGINES[@]}"; do
     fi
   fi
   stop_engine_stats
+  engine_compose --profile "$engine" logs --no-color "$engine" \
+    > "${BENCH_HOST_RESULTS_DIR}/runs/${BENCH_RUN_ID}/engine-${engine}.log" 2>&1 \
+    || echo "[${engine}] could not save the engine container's log"
   engine_compose --profile "$engine" down
 done
 
