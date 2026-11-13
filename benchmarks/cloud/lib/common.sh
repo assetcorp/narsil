@@ -122,7 +122,7 @@ cmd_sync() {
 
 sync_unpack() {
   prov_scp_up "$1" "narsil.tgz"
-  prov_ssh "rm -rf narsil && mkdir -p narsil && tar xzf narsil.tgz -C narsil && rm -f narsil.tgz"
+  prov_ssh "sudo rm -rf narsil && mkdir -p narsil && tar xzf narsil.tgz -C narsil && rm -f narsil.tgz"
 }
 
 cmd_setup() {
