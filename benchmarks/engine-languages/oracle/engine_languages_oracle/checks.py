@@ -33,10 +33,15 @@ class OutputCheck:
         return sum(values) / len(values) if values else None
 
 
-def recall(found: list[str], wanted: list[str]) -> float:
-    if not wanted:
+def tied_recall(found: list[str], ranked: list[tuple[str, float]], depth: int) -> float:
+    count = min(depth, len(ranked))
+    if count == 0:
         return 1.0
-    return len(set(found) & set(wanted)) / len(wanted)
+    edge = ranked[count - 1][1]
+    required = {identifier for identifier, score in ranked if score > edge and not same_score(score, edge)}
+    boundary = {identifier for identifier, score in ranked if same_score(score, edge)}
+    returned = set(found)
+    return (len(returned & required) + min(count - len(required), len(returned & boundary))) / count
 
 
 def reciprocal_rank_fusion(text_ids: list[str], vector_ids: list[str], k: int) -> list[tuple[str, float]]:
@@ -66,7 +71,6 @@ def check_ranking(
         check.fail(f"{label} returns one document twice in {answer.ids}")
         return
     scores = dict(ranked)
-    previous: float | None = None
     for rank, (identifier, score) in enumerate(answer.hits, start=1):
         oracle_score = scores.get(identifier)
         if oracle_score is None:
@@ -74,9 +78,8 @@ def check_ranking(
             return
         if not same_score(score, oracle_score):
             check.fail(f"{label} scores {identifier} at rank {rank} as {score!r} where the oracle scores {oracle_score!r}")
-        if previous is not None and oracle_score > previous and not same_score(oracle_score, previous):
-            check.fail(f"{label} ranks {identifier} at rank {rank} below a document that the oracle scores lower")
-        previous = oracle_score
+        if not same_score(oracle_score, ranked[rank - 1][1]):
+            check.fail(f"{label} ranks {identifier} at rank {rank} where the oracle requires score {ranked[rank - 1][1]!r}")
     edge = ranked[wanted - 1][1]
     returned = set(answer.ids)
     for identifier, score in ranked:
@@ -95,7 +98,7 @@ def check_vector_list(
 ) -> None:
     documents = len(workload.vector_documents)
     for query, answer in enumerate(answers):
-        if answer.count != documents:
+        if answer.count != documents or not answer.count_exact:
             check.fail(f"{name} query {query} counts {answer.count} where {documents} vectors match a query with no filter and no floor")
         if len(answer.hits) != min(size, documents):
             check.fail(f"{name} query {query} returns {len(answer.hits)} hits where it asked for {size}")
@@ -125,11 +128,11 @@ def check_vector(
     check_vector_list(check, "vectorLeg", runner.answers["vectorLeg"], workload, exact, leg)
     check_vector_list(check, "vectorDeep", runner.answers["vectorDeep"], workload, exact, deep)
     check.per_query["recall10"] = [
-        recall(answer.ids, [identifier for identifier, _ in nearest[:limit]])
+        tied_recall(answer.ids, nearest, limit)
         for answer, nearest in zip(runner.answers["vector"], truth, strict=True)
     ]
     check.per_query["recall100"] = [
-        recall(answer.ids, [identifier for identifier, _ in nearest[:deep]])
+        tied_recall(answer.ids, nearest, deep)
         for answer, nearest in zip(runner.answers["vectorDeep"], truth, strict=True)
     ]
     check.vector_scores = [dict(answer.hits) for answer in runner.answers["vectorDeep"]]
@@ -152,8 +155,10 @@ def check_hybrid(
         fused = reciprocal_rank_fusion(text_leg.ids, vector_leg.ids, k)
         check_ranking(check, f"hybrid query {query}", answer, ranked_with_ties(fused, limit), limit, len(fused), exact_count=False)
         exact_leg = [identifier for identifier, _ in truth[query][:leg_depth]]
-        exact_fused = [identifier for identifier, _ in reciprocal_rank_fusion(text_leg.ids, exact_leg, k)[:limit]]
-        hybrid_recall.append(recall(answer.ids, exact_fused))
+        if tied_recall(vector_leg.ids, truth[query], leg_depth) == 1.0:
+            exact_leg = vector_leg.ids
+        exact_fused = reciprocal_rank_fusion(text_leg.ids, exact_leg, k)
+        hybrid_recall.append(tied_recall(answer.ids, exact_fused, limit))
     check.per_query["hybridRecall10"] = hybrid_recall
     mean = check.mean("hybridRecall10")
     if mean is not None and mean < HYBRID_RECALL_AT_10_FLOOR:

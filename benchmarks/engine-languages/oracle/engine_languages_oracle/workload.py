@@ -1,4 +1,5 @@
 import json
+import hashlib
 import math
 import sys
 from array import array
@@ -100,11 +101,26 @@ def load_workload(directory: Path) -> Workload:
     vector = manifest.get("vector")
     if not isinstance(keyword, dict) or not isinstance(vector, dict) or not isinstance(manifest.get("settings"), dict):
         raise UnusableInput("the workload manifest needs keyword, vector, and settings objects")
+    for name in (KEYWORD_DOCUMENTS_FILE, KEYWORD_QUERIES_FILE, VECTOR_DOCUMENTS_FILE, VECTOR_DOCUMENT_VECTORS_FILE, VECTOR_QUERIES_FILE, VECTOR_QUERY_VECTORS_FILE):
+        with (directory / name).open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if digest != manifest.get('sha256', {}).get(name):
+            raise UnusableInput(f"workload file {name} has a different sha256 from its manifest")
+    settings = manifest['settings']
+    for key, required in {'language': 'english', 'metric': 'cosine', 'quantization': 'none', 'limit': 10, 'recallDepth': 100, 'hybridLegDepth': 11}.items():
+        if settings.get(key) != required:
+            raise UnusableInput(f"the benchmark requires {key} {required}")
     dimension = positive_count(vector, "dimension")
     keyword_documents = read_json_lines(directory / KEYWORD_DOCUMENTS_FILE)
     keyword_queries = [row["text"] for row in read_json_lines(directory / KEYWORD_QUERIES_FILE)]
     vector_documents = read_json_lines(directory / VECTOR_DOCUMENTS_FILE)
     vector_queries = read_json_lines(directory / VECTOR_QUERIES_FILE)
+    for documents in (keyword_documents, vector_documents):
+        identifiers = [document['id'] for document in documents]
+        if any(not identifier for identifier in identifiers) or len(set(identifiers)) != len(identifiers):
+            raise UnusableInput('the corpus needs distinct non-empty document IDs')
+        if any(not all(field in document for field in TEXT_FIELDS) for document in documents):
+            raise UnusableInput('every document needs title and body strings')
     if len(keyword_documents) != positive_count(keyword, "documents"):
         raise UnusableInput("the keyword corpus holds another number of documents than the manifest records")
     if len(keyword_queries) != positive_count(keyword, "queries"):
