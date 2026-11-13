@@ -37,17 +37,20 @@ pub struct IndexLifecycleConfig {
 /// The memory levels at which an engine stops and resumes accepting inserts and updates, as fractions of the
 /// process's memory limit.
 ///
-/// The engine reads the process's resident memory and its limit before a write once its last reading is more
-/// than a second old. The limit is the cgroup's memory limit on Linux where one is set below the machine's
-/// memory, and otherwise the machine's memory, which Linux counts as the resident memory plus the memory
-/// available. A full engine refuses each insert and update with `MEMORY_WRITE_BLOCKED`, and keeps accepting
+/// The engine reads the process's memory and its limit before a write once its last reading is more than 10 ms
+/// old. The process's memory is the resident memory that no file backs, because the operating system can drop a
+/// page that a file backs, such as a page of a mapped vector file, without ending the process. On Linux the engine
+/// counts the anonymous and shared resident memory, on macOS the resident memory less the part that files back,
+/// and on Windows the private working set. The limit is the cgroup's memory limit on Linux where one is set below
+/// the machine's memory, and otherwise the machine's memory, which Linux counts as the process's memory plus the
+/// memory available. A full engine refuses each insert and update with `MEMORY_WRITE_BLOCKED`, and keeps accepting
 /// removes, searches, and reads, so that removing documents frees memory.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MemoryConfig {
-    /// The engine counts as full once its resident memory passes this fraction of the limit: above
+    /// The engine counts as full once the process's memory passes this fraction of the limit: above
     /// `resume_writes_below`, at most 1, and 0.9 by default.
     pub block_writes_above: Option<f64>,
-    /// A full engine accepts writes again once its resident memory falls below this fraction of the limit: above
+    /// A full engine accepts writes again once the process's memory falls below this fraction of the limit: above
     /// 0, below `block_writes_above`, and 0.8 by default.
     pub resume_writes_below: Option<f64>,
 }

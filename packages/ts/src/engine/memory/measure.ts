@@ -1,5 +1,5 @@
 import { readOldGenerationStatistics } from '#platform/heap-statistics'
-import { readResidentMemory } from '#platform/process-limit'
+import { readProcessMemoryUse } from '#platform/process-limit'
 import type { NodeMemoryReport } from '../../distribution/coordinator/types'
 import { engineThreadYoungGenerationBytes } from '../../runtime/engine-threads'
 import { admittedHeapBytes } from '../../runtime/thread-heap'
@@ -30,12 +30,12 @@ const recentFigures: MemoryFigures = {
 function readFreshFigures(): MemoryFigures | null {
   try {
     const heap = readOldGenerationStatistics()
-    const resident = readResidentMemory()
-    lastFiguresComplete = heap !== null && resident !== null
-    if (heap === null && resident === null) return null
+    const memory = readProcessMemoryUse()
+    lastFiguresComplete = heap !== null && memory !== null
+    if (heap === null && memory === null) return null
     return {
-      processBytes: resident?.residentBytes ?? 0,
-      processLimitBytes: resident?.limitBytes ?? Number.POSITIVE_INFINITY,
+      processBytes: memory?.processBytes ?? 0,
+      processLimitBytes: memory?.limitBytes ?? Number.POSITIVE_INFINITY,
       heapBytes: heap?.usedBytes ?? 0,
       heapLimitBytes: heap?.limitBytes ?? Number.POSITIVE_INFINITY,
       youngHeapBytes: heap?.youngUsedBytes ?? 0,

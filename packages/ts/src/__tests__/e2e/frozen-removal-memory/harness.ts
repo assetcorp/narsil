@@ -14,7 +14,7 @@ const JOB_FILE = 'job.json'
 const RESULT_FILE = 'result.json'
 const RETURNED_FIELD = 'title'
 
-export type MemoryFill = { kind: 'heap'; limitBytes: number; fraction: number } | { kind: 'resident'; fraction: number }
+export type MemoryFill = { kind: 'heap'; limitBytes: number; fraction: number } | { kind: 'process'; fraction: number }
 
 export interface RemovalPlan {
   documents: AnyDocument[]
@@ -26,13 +26,13 @@ export interface RemovalPlan {
 export interface RemovalPhase {
   failed: unknown[]
   estimatedMemoryBytes: number
-  residentBytes: number
+  processBytes: number
   answers: OracleHit[][]
 }
 
 export interface RemovalOutcome {
   loadedBytes: number
-  filledResidentBytes: number
+  filledProcessBytes: number
   filledHeapBytes: number
   processLimitBytes: number | null
   counted: number

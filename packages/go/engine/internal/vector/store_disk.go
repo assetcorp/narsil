@@ -47,7 +47,7 @@ func (s *storeMemory) mappedVectorBytes(fileIndex int32, offset uint32) []byte {
 
 func (s *storeMemory) heldVectorBytes(ordinal int32) []byte {
 	if s.isCold(ordinal) {
-		return s.mappedVectorBytes(s.vectorFileOf(ordinal), uint32Word(s.vectorOffset.pointer(), int(ordinal)).Load())
+		return s.mappedVectorBytes(s.vectorFileOf(ordinal), s.tables.locations.offsetOf(ordinal))
 	}
 	held := s.vectorSlot(s.tables, ordinal)
 	if held == nil {
@@ -67,8 +67,7 @@ func (s *storeMemory) releaseToFile(ordinal int32, location diskLocation) bool {
 		return false
 	}
 	s.word(storeWordReleasedVectorsToDisk).Store(1)
-	uint32Word(s.vectorOffset.pointer(), int(ordinal)).Store(location.offset)
-	int32Word(s.vectorFile.pointer(), int(ordinal)).Store(location.fileIndex)
+	s.tables.locations.set(ordinal, location)
 	return true
 }
 

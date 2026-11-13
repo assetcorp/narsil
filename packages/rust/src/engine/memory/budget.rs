@@ -13,7 +13,7 @@ struct Shortfall {
 fn shortfall_of(needed_bytes: u64, counts_in_use: bool) -> Option<Shortfall> {
     let figures = read_process_memory()?;
     let available_bytes = match counts_in_use {
-        true => figures.limit_bytes.saturating_sub(figures.resident_bytes),
+        true => figures.limit_bytes.saturating_sub(figures.process_bytes),
         false => figures.limit_bytes,
     };
     (needed_bytes > available_bytes).then_some(Shortfall {

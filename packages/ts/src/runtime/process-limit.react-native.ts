@@ -1,20 +1,20 @@
 import { PROCESS_LIMIT_REFRESH_INTERVAL_MS } from './constants'
-import type { ResidentMemory } from './process-limit'
+import type { ProcessMemoryUse } from './process-limit'
 import { reactNativeHost } from './react-native-host'
 
-export type { ResidentMemory } from './process-limit'
+export type { ProcessMemoryUse } from './process-limit'
 
 let limitBytes = 0
 let limitReadAt = Number.NEGATIVE_INFINITY
 
-function readPhoneMemory(): ResidentMemory | null {
+function readPhoneMemory(): ProcessMemoryUse | null {
   const { residentBytes, availableBytes } = reactNativeHost().processMemory()
   if (!Number.isFinite(residentBytes) || residentBytes < 0) return null
   if (!Number.isFinite(availableBytes) || availableBytes < 0) return null
-  return { residentBytes, limitBytes: residentBytes + availableBytes }
+  return { processBytes: residentBytes, limitBytes: residentBytes + availableBytes }
 }
 
-export function processLimitBytes(_residentBytes: number): number {
+export function processLimitBytes(_processBytes: number): number {
   const now = performance.now()
   if (now - limitReadAt >= PROCESS_LIMIT_REFRESH_INTERVAL_MS) {
     try {
@@ -27,7 +27,7 @@ export function processLimitBytes(_residentBytes: number): number {
   return limitBytes
 }
 
-export function readResidentMemory(): ResidentMemory | null {
+export function readProcessMemoryUse(): ProcessMemoryUse | null {
   try {
     const reading = readPhoneMemory()
     if (reading === null || reading.limitBytes <= 0) return null

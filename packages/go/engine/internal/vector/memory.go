@@ -31,7 +31,8 @@ func blocksGrowth(blocks []*storeBlock, geometry blockGeometry, slots, last int)
 
 func (s *storeMemory) memoryBytes() int {
 	total := len(*s.table.chunks.Load())*ordinalChunkBytes + s.docIDBytes
-	for _, region := range append(s.every(), s.head.header, s.head.centroid, s.head.codePresent) {
+	for _, region := range append(s.every(), s.head.header, s.head.centroid, s.head.codePresent,
+		s.tables.locations.files, s.tables.locations.offsets) {
 		total += int(region.length)
 	}
 	for _, block := range s.tables.vectorBlocks {
@@ -53,7 +54,7 @@ func (s *storeMemory) growthBytesFor(vectors int) int {
 	}
 	next := uintptr(last + 1)
 	bytes := growthOf(s.magnitudes, next*8) + growthOf(s.present, next) + growthOf(s.head.codePresent, next) +
-		growthOf(s.vectorFile, next*4) + growthOf(s.vectorOffset, next*4) + growthOf(s.born, next*8) +
+		growthOf(s.tables.locations.files, next*4) + growthOf(s.tables.locations.offsets, next*4) + growthOf(s.born, next*8) +
 		growthOf(s.retired, next*8)
 	chunks := len(*s.table.chunks.Load())
 	bytes += max(0, (last/ordinalChunkOrdinals+1)-chunks) * ordinalChunkBytes
@@ -126,6 +127,7 @@ func (f *Field) releaseHeldMemory() {
 		f.fresh = nil
 	}
 	f.earlier = nil
+	f.retiredFileLayouts = nil
 	f.tombstones.forget()
 	f.buffer.forget()
 	clear(f.pendingLocations)
