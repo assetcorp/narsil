@@ -56,15 +56,11 @@ interface ServingThread {
 
 function threadClosed(port: MessagePort, executor: Executor, clearSlots: () => void): Promise<void> {
   return new Promise(resolve => {
-    let leftBehind = false
     port.once('close', () => {
-      if (!leftBehind) clearSlots()
+      clearSlots()
       resolve()
     })
-    void executor.whenAbandoned?.().then(() => {
-      leftBehind = true
-      resolve()
-    })
+    void executor.whenAbandoned?.().then(resolve)
   })
 }
 
@@ -98,6 +94,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   const searchHooks = core.pluginRegistry.hasHooks('beforeSearch') || core.pluginRegistry.hasHooks('afterSearch')
   const touchIntervalMs = touchIntervalFor(core.orchestrator.copyIdleTimeoutMs())
   const threads = new Map<number, ServingThread>()
+  const slotUsers = new Map<number, number>()
   const longQueriesInFlight = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
   let longQueryThread: { workerId: number; port: MessagePort; executor: Executor } | null = null
   const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
@@ -250,6 +247,8 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     async onWorkerReady(workerId: number, executor: Executor): Promise<void> {
       if (stopped) return
       const channel = new MessageChannel()
+      const slot = gateSlotOfWorker(workerId)
+      slotUsers.set(slot, (slotUsers.get(slot) ?? 0) + 1)
       const thread: ServingThread = {
         feeds: options.feeds?.forThread(channel.port2) ?? null,
         descriptor: null,
@@ -258,8 +257,14 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         departure: createDepartureWord(),
         closeAtExit: createCloseAtExitWords(),
         closed: threadClosed(channel.port2, executor, () => {
-          clearGateSlot(options.gate, gateSlotOfWorker(workerId))
-          clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
+          const remaining = (slotUsers.get(slot) ?? 1) - 1
+          if (remaining > 0) {
+            slotUsers.set(slot, remaining)
+            return
+          }
+          slotUsers.delete(slot)
+          clearGateSlot(options.gate, slot)
+          clearBodyBudgetSlot(options.bodyBudget, slot)
         }),
       }
       relayFrom(thread)
