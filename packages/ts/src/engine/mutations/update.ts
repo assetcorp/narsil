@@ -255,6 +255,7 @@ export async function updateDocument(
   const { entry } = await prepareDocumentWrites(ctx, indexName, [preparation], hold, false)
   if (preparation.failure !== undefined) throw preparation.failure
   const prepared = await finishUpdate(ctx, indexName, entry, docId, document)
+  ctx.memoryWriteBlock?.refuseWhileFull(indexName)
   const apply = applyOfUpdate(ctx, indexName, prepared)
 
   if (ctx.durability) {

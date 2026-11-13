@@ -201,13 +201,13 @@ func (durable *Durable) BeginBufferedLog() *BufferedLog {
 	return &BufferedLog{durable: durable, next: next, held: map[int]heldDocuments{}}
 }
 
-func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) error {
+func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) (Commit, error) {
 	durable := buffered.durable
 	if err := durable.refuseWrites(); err != nil {
-		return err
+		return Commit{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return Commit{}, err
 	}
 	groups := map[int][]Write{}
 	for _, write := range writes {
@@ -221,25 +221,19 @@ func (buffered *BufferedLog) Append(ctx context.Context, writes []Write) error {
 	sort.Ints(order)
 	durable.layoutMutex.RLock()
 	defer durable.layoutMutex.RUnlock()
-	var touched []*partitionLog
-	var documentBytes int64
+	commit := Commit{durable: durable, applied: len(writes)}
 	for _, partitionID := range order {
 		if partitionID >= len(durable.partitions) || partitionID >= len(buffered.next) {
 			continue
 		}
 		log := durable.partitions[partitionID]
-		logged, err := buffered.appendGroup(ctx, log, partitionID, groups[partitionID])
+		logged, err := buffered.appendGroup(ctx, log, partitionID, groups[partitionID], &commit)
 		if err != nil {
-			return err
+			return Commit{}, err
 		}
-		documentBytes += logged
-		touched = append(touched, log)
+		commit.documentBytes += logged
 	}
-	if err := durable.commit(touched); err != nil {
-		return err
-	}
-	durable.noteRecorded(len(writes), documentBytes)
-	return nil
+	return commit, nil
 }
 
 func (buffered *BufferedLog) heldFor(ctx context.Context, log *partitionLog, partitionID int,
@@ -256,7 +250,7 @@ func (buffered *BufferedLog) heldFor(ctx context.Context, log *partitionLog, par
 }
 
 func (buffered *BufferedLog) appendGroup(ctx context.Context, log *partitionLog, partitionID int,
-	group []Write) (int64, error) {
+	group []Write, commit *Commit) (int64, error) {
 	durable := buffered.durable
 	log.mutex.Lock()
 	defer log.mutex.Unlock()
@@ -285,6 +279,8 @@ func (buffered *BufferedLog) appendGroup(ctx context.Context, log *partitionLog,
 		if err := log.writer.AppendAll(entries); err != nil {
 			return 0, durable.failPartition(log, err)
 		}
+		commit.appended = append(commit.appended,
+			appendedRecords{log: log, writer: log.writer, seqNo: entries[len(entries)-1].SeqNo})
 	}
 	return documentBytes, nil
 }

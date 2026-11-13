@@ -8,16 +8,14 @@ import (
 )
 
 type layout struct {
-	users    atomic.Int64
-	retired  atomic.Bool
-	released atomic.Bool
-	store    *storeMemory
-	head     *storeHead
-	tables   *storeTables
-	native   *core.Store
-	graph    *graphMemory
-	holds    []*sharedResource
-	drained  chan struct{}
+	users   publicationHolds
+	store   *storeMemory
+	head    *storeHead
+	tables  *storeTables
+	native  *core.Store
+	graph   *graphMemory
+	holds   []*sharedResource
+	drained chan struct{}
 }
 
 func (l *layout) word(index int) *atomic.Int32 {
@@ -29,33 +27,20 @@ func (l *layout) searchesCodes() bool {
 }
 
 func (l *layout) acquire() bool {
-	l.users.Add(1)
-	if l.retired.Load() {
-		l.done()
-		return false
-	}
-	return true
+	return l.users.hold()
 }
 
 func (l *layout) done() {
-	if l.users.Add(-1) == 0 && l.retired.Load() {
-		l.release()
-	}
+	l.users.drop()
 }
 
 func (l *layout) retire() {
-	l.retired.Store(true)
-	if l.users.Load() == 0 {
-		l.release()
-	}
+	l.users.retire()
 }
 
 func (l *layout) release() {
-	if !l.released.CompareAndSwap(false, true) {
-		return
-	}
 	if l.native != nil {
-		l.native.Retire()
+		l.native.Free()
 	}
 	for _, held := range l.holds {
 		held.drop()
@@ -65,6 +50,7 @@ func (l *layout) release() {
 
 func buildLayout(store *storeMemory, graph *graphMemory) (*layout, error) {
 	next := &layout{store: store, graph: graph, drained: make(chan struct{})}
+	next.users.publish(next.release)
 	if store == nil {
 		return next, nil
 	}
@@ -115,6 +101,9 @@ func (f *Field) publish(store *storeMemory, graph *graphMemory) error {
 	previous := f.current.Swap(next)
 	if previous != nil {
 		previous.retire()
+		if previous.tables != nil && len(previous.tables.files) > 0 {
+			f.retiredFileLayouts = append(f.fileLayoutsInUse(), previous)
+		}
 	}
 	return nil
 }
@@ -128,6 +117,13 @@ func (f *Field) publishAndDrain(ctx context.Context) error {
 	if err := f.publish(f.store, f.graph); err != nil {
 		return err
 	}
+	for _, retired := range f.fileLayoutsInUse() {
+		select {
+		case <-retired.drained:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if previous == nil {
 		return nil
 	}
@@ -137,4 +133,18 @@ func (f *Field) publishAndDrain(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (f *Field) fileLayoutsInUse() []*layout {
+	held := f.retiredFileLayouts[:0]
+	for _, retired := range f.retiredFileLayouts {
+		select {
+		case <-retired.drained:
+		default:
+			held = append(held, retired)
+		}
+	}
+	clear(f.retiredFileLayouts[len(held):])
+	f.retiredFileLayouts = held
+	return held
 }

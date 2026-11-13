@@ -537,11 +537,12 @@ benchmarks/server/
 
 The result-layout, aggregation, throughput-record, engine-CPU, dataset-artifact,
 and query-trip logic has unit tests that run on the host without Docker, and
-continuous integration runs them on every push. Install the dev extra and run
-them:
+continuous integration runs them on every push. The same tests check the
+benchmark page writeup, and they draw its figures with matplotlib, so install
+the dev and charts extras and run them:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,charts]"
 pytest
 ```
 

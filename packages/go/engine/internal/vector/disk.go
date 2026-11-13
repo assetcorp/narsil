@@ -95,16 +95,40 @@ func (f *Field) releasePendingLocations(ctx context.Context) error {
 }
 
 func (f *Field) releaseLocations(ctx context.Context, paths []string, located []locatedVector) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	previous := f.store.tables
+	locations, err := previous.locations.clone()
+	if err != nil {
+		return err
+	}
+	f.store.tables = previous.clone()
+	f.store.tables.locations = locations
+	committed := false
+	var opened []*sharedResource
+	defer func() {
+		if committed {
+			f.store.keepPublishedLocations(previous.locations)
+			return
+		}
+		for _, resource := range opened {
+			resource.drop()
+		}
+		f.store.tables = previous
+		locations.resource.drop()
+	}()
 	indexes := make(map[string]int32, len(paths))
 	for _, path := range paths {
+		before := len(f.store.tables.files)
 		index, err := f.store.addVectorFile(path)
 		if err != nil {
 			return err
 		}
 		indexes[path] = index
-	}
-	if err := f.publishAndDrain(ctx); err != nil {
-		return err
+		if int(index) >= before {
+			opened = append(opened, f.store.tables.files[index].resource)
+		}
 	}
 	for _, vector := range located {
 		ordinal, held := f.store.ordinalOf(vector.docID)
@@ -115,13 +139,13 @@ func (f *Field) releaseLocations(ctx context.Context, paths []string, located []
 		f.store.releaseToFile(ordinal, diskLocation{fileIndex: index, offset: uint32(vector.location.offset)})
 	}
 	next, dropped := f.store.releaseColdBlocks()
-	if next == nil {
-		return nil
+	if next != nil {
+		f.store.tables = next
 	}
-	f.store.tables = next
 	if err := f.publish(f.store, f.graph); err != nil {
 		return err
 	}
+	committed = true
 	for _, resource := range dropped {
 		resource.drop()
 	}
@@ -135,6 +159,13 @@ func (f *Field) VectorFilesInUse() []string {
 		return []string{}
 	}
 	paths := f.store.filePaths()
+	for _, retired := range f.fileLayoutsInUse() {
+		for _, file := range retired.tables.files {
+			if file != nil && file.path != "" {
+				paths = append(paths, file.path)
+			}
+		}
+	}
 	if f.cold != nil {
 		paths = append(paths, f.cold.field.FilePaths()...)
 	}
@@ -153,13 +184,10 @@ func (f *Field) ReleaseVectorFiles(ctx context.Context) error {
 	next, dropped := f.store.closedFiles()
 	f.store.tables = next
 	f.filesClosed.Store(len(f.store.filePaths()) > 0)
-	if err := f.publishAndDrain(ctx); err != nil {
-		return err
-	}
 	for _, resource := range dropped {
 		resource.drop()
 	}
-	return nil
+	return f.publishAndDrain(ctx)
 }
 
 func (f *Field) RelocateVectorFiles(rewrite func(path string) string) error {

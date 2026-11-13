@@ -5,6 +5,7 @@
 !.npmrc
 !patches
 !tsconfig.json
+!patches
 !packages/embeddings-transformers/package.json
 !packages/native/package.json
 !packages/native/build.mjs

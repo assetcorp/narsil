@@ -7,6 +7,7 @@ use crate::config::validate_doc_id;
 use crate::engine::constants::BATCH_CHUNK_DOCUMENTS;
 use crate::engine::durable::log::{LogFailure, PendingLog};
 use crate::engine::index::IndexState;
+use crate::engine::memory::MemoryGuard;
 use crate::engine::vectors::{HeldChunk, HeldWrite};
 use crate::error::{NarsilError, Result};
 use crate::index::partition::in_keyword_batch;
@@ -114,6 +115,7 @@ pub(crate) fn insert_chunks(
 /// their embedded copies, so that the caller can write it again on the index that a restore put under the name.
 pub(crate) fn insert_chunk(
     index: &IndexState,
+    memory: &MemoryGuard,
     chunk: &mut InsertChunk,
     result: &mut BatchResult,
     next_id: &NextDocumentId<'_>,
@@ -153,7 +155,10 @@ pub(crate) fn insert_chunk(
         }
     }
     let appended = {
-        let _writer = match index.lock_writes() {
+        let _writer = match index.lock_writes().and_then(|writer| {
+            memory.refuse_while_full(&index.name)?;
+            Ok(writer)
+        }) {
             Ok(writer) => writer,
             Err(error) => {
                 for ((document, refused), id) in documents.iter().zip(&refused).zip(&chunk.ids) {
@@ -242,6 +247,7 @@ pub(crate) fn update_chunks(updates: Vec<(String, Map)>) -> Vec<UpdateChunk> {
 /// its updates as [`insert_chunk`] keeps its documents.
 pub(crate) fn update_chunk(
     index: &IndexState,
+    memory: &MemoryGuard,
     chunk: &mut UpdateChunk,
     result: &mut BatchResult,
 ) -> Result<ChunkWrite> {
@@ -257,7 +263,10 @@ pub(crate) fn update_chunk(
         }
     }
     let appended = {
-        let _writer = match index.lock_writes() {
+        let _writer = match index.lock_writes().and_then(|writer| {
+            memory.refuse_while_full(&index.name)?;
+            Ok(writer)
+        }) {
             Ok(writer) => writer,
             Err(error) => {
                 for ((doc_id, _), prepared) in chunk.updates.iter().zip(&prepared) {

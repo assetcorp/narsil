@@ -63,12 +63,26 @@ func (durable *Durable) withoutSyncKept(garbage []string) ([]string, error) {
 	return kept, nil
 }
 
-func (durable *Durable) removeGarbage(ctx context.Context, store checkpoint.Store, garbage []string) error {
-	removable, err := durable.withoutSyncKept(garbage)
+func (durable *Durable) removeGarbage(ctx context.Context, store checkpoint.Store, listed manifest.Manifest,
+	garbage []string) error {
+	referenced := checkpoint.ReferencedKeys(listed)
+	candidates := make([]string, 0, len(durable.deferredGarbage)+len(garbage))
+	for _, key := range append(durable.deferredGarbage, garbage...) {
+		if _, kept := referenced[key]; !kept {
+			candidates = append(candidates, key)
+		}
+	}
+	durable.deferredGarbage = candidates
+	if durable.heldFiles.Load() != 0 {
+		return nil
+	}
+	removable, err := durable.withoutSyncKept(candidates)
 	if err != nil {
 		return err
 	}
-	return checkpoint.RemoveGarbage(ctx, store, removable, durable.handle.vectorFields())
+	stillRead, err := checkpoint.RemoveGarbage(ctx, store, removable, durable.handle.vectorFields())
+	durable.deferredGarbage = stillRead
+	return err
 }
 
 func (manager *Manager) settleSyncAtRecovery(handle *Handle) (map[string]struct{}, error) {

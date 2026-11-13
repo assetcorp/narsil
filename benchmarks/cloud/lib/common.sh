@@ -100,7 +100,8 @@ cmd_sync() {
   {
     git -C "$REPO_ROOT" ls-files -z
     git -C "$REPO_ROOT" ls-files --others --exclude-standard -z \
-      -- . ':(exclude)benchmarks/in-process/results/runs' ':(exclude)benchmarks/server/results/runs'
+      -- . ':(exclude)benchmarks/in-process/results/runs' ':(exclude)benchmarks/server/results/runs' \
+      ':(exclude)benchmarks/engine-languages/results/runs'
     printf '.git\0'
   } >"$filelist"
   # COPYFILE_DISABLE stops macOS tar from embedding AppleDouble '._*' sidecar
@@ -234,6 +235,7 @@ cmd_fetch() {
   fetch_suite "benchmarks/in-process/$runs"
   fetch_suite "benchmarks/server/$runs"
   [ "$DRY_RUN" = "1" ] || aggregate_server_runs
+  fetch_suite "benchmarks/engine-languages/$runs"
   [ "$DRY_RUN" = "1" ] || log "results merged under benchmarks/*/$runs/ in this repo"
 }
 
@@ -298,7 +300,7 @@ Flags: --yes (skip billing prompt), --teardown (delete on success),
        --dry-run (print the commands instead of running them).
 
 Common env:
-  VM_NAME, MACHINE_TYPE, DISK_SIZE (GB), SUITES (both|inprocess|server),
+  VM_NAME, MACHINE_TYPE, DISK_SIZE (GB), SUITES (both|inprocess|server|languages),
   SSH_KEY (private key for hetzner/digitalocean/aws; the public key is <key>.pub),
   BENCH_PROFILE (cloud|smoke), BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES,
   BENCH_MACHINE_LABEL, BENCH_RUN_ID, BENCH_BEST_CONFIG, BENCH_THROUGHPUT_PASSES,

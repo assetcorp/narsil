@@ -1,0 +1,18 @@
+[package]
+name = "narsil-engine-languages-runner"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "narsil-engine-languages-runner"
+path = "src/main.rs"
+
+[dependencies]
+narsil = { package = "delali-narsil", path = "../../../packages/rust" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+[workspace]

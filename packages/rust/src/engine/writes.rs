@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::durable::log::PendingLog;
 use super::index::IndexState;
+use super::memory::MemoryGuard;
 use super::vectors::HeldWrite;
 use crate::config::validate_doc_id;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -189,6 +190,7 @@ fn held_document(held: Option<&Map>) -> Result<&Map> {
 /// another embedding adapter.
 pub(crate) fn insert(
     index: &IndexState,
+    memory: &MemoryGuard,
     held: &mut HeldWrite,
     doc_id: Option<&str>,
     next_id: &NextDocumentId<'_>,
@@ -200,6 +202,7 @@ pub(crate) fn insert(
     require_document_within_size_limit(held_document(held.prepared())?)?;
     let appended = {
         let _writer = index.lock_writes()?;
+        memory.refuse_while_full(&index.name)?;
         let document = held.take().ok_or_else(|| index.not_found(&id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
@@ -288,10 +291,16 @@ fn prepare_update(index: &IndexState, doc_id: &str, held: &mut HeldWrite) -> Res
 
 /// Replaces the document stored under `doc_id` with the document in `held`, which stays there until the write
 /// holds the index's write lock, as [`insert`] keeps its document.
-pub(crate) fn update(index: &IndexState, doc_id: &str, held: &mut HeldWrite) -> Result<()> {
+pub(crate) fn update(
+    index: &IndexState,
+    memory: &MemoryGuard,
+    doc_id: &str,
+    held: &mut HeldWrite,
+) -> Result<()> {
     prepare_update(index, doc_id, held)?;
     let appended = {
         let _writer = index.lock_writes()?;
+        memory.refuse_while_full(&index.name)?;
         let document = held.take().ok_or_else(|| index.not_found(doc_id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();

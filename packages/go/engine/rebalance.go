@@ -34,7 +34,7 @@ func validateRebalanceTarget(config model.IndexConfig, target int) error {
 }
 
 func (entry *indexEntry) startRebalance(target int) (*rebalanceRun, error) {
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	run := &rebalanceRun{target: target, states: map[string]bool{}, replayed: make(chan struct{})}
 	if entry.durable != nil {
@@ -67,7 +67,7 @@ func (entry *indexEntry) finishRebalanceLocked(run *rebalanceRun) {
 }
 
 func (entry *indexEntry) abandonRebalance(ctx context.Context, run *rebalanceRun) error {
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	err := entry.replayInto(ctx, entry.index(), run.take())
 	if run.buffered != nil {
@@ -98,7 +98,7 @@ func (n *Narsil) proceedFor(ctx context.Context, entry *indexEntry, operation st
 
 func (entry *indexEntry) swapLayout(ctx context.Context, run *rebalanceRun, built *index.Index, settings index.Settings,
 	proceed func() error) error {
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	previous := entry.index()
 	install := func() (persist.IndexSwap, bool, error) {
@@ -181,7 +181,7 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 	defer entry.maintenance.Add(-1)
 	oldCount := entry.index().PartitionCount()
 	proceed := n.proceedFor(ctx, entry, "rebalance")
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	settings := entry.settingsFor(entry.currentAnalyzer(), targetPartitionCount)
 	entry.writeMu.Unlock()
 	live := entry.index()
@@ -219,7 +219,7 @@ func (n *Narsil) UpdatePartitionConfig(ctx context.Context, indexName string, pa
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	entry.writeMu.Lock()
+	entry.lockWrites()
 	err = n.updatePartitionConfigLocked(ctx, entry, partitions)
 	entry.writeMu.Unlock()
 	if err == nil {

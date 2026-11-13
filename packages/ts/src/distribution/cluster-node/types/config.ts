@@ -82,13 +82,16 @@ export interface ClusterNodeConfig {
  * copy on the node.
  *
  * The node measures its process memory and its main thread's heap once a second, and it compares the heap with the
- * heap limit. It compares the process memory with the container's memory limit where a container sets one. Without a
- * container limit, a node on Linux compares it with its own resident memory plus the memory that the host reports as
- * available, up to the host's total memory, so that the memory that other processes take counts against the node. A
- * node on any other system compares it with the host's total memory. The node counts as full once either figure passes
- * `blockWritesAbove` of its limit, and as clear again once both fall below `resumeWritesBelow`, so that a node hovering
- * at the threshold does not switch writes on and off. Removes and searches go through while the node is full, which is
- * how an operator frees memory.
+ * heap limit. On Linux, the process memory is the node's anonymous and shared resident memory, which leaves out the
+ * pages that the node maps from files, such as the pages of its vector files, because the kernel can drop those pages
+ * without ending the process. On any other system, Node.js reports only the whole resident memory, so the node counts
+ * all of it. The node compares the process memory with the container's memory limit where a container sets one.
+ * Without a container limit, a node on Linux compares it with that process memory plus the memory that the host
+ * reports as available, up to the host's total memory, so that the memory that other processes take counts against
+ * the node. A node on any other system compares it with the host's total memory. The node counts as full once either
+ * figure passes `blockWritesAbove` of its limit, and as clear again once both fall below `resumeWritesBelow`, so that a
+ * node hovering at the threshold does not switch writes on and off. Removes and searches go through while the node is
+ * full, which is how an operator frees memory.
  *
  * @public
  */
@@ -99,7 +102,7 @@ export interface ClusterMemoryConfig {
    *
    * The node compares its heap with the smaller of this setting and 0.75. V8, the engine that runs Node.js, stops the
    * process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit,
-   * so a full node keeps its heap below that line. The node compares its resident memory with the setting as it is.
+   * so a full node keeps its heap below that line. The node compares its process memory with the setting as it is.
    */
   blockWritesAbove?: number
   /**
@@ -107,7 +110,7 @@ export interface ClusterMemoryConfig {
    * above 0 and below `blockWritesAbove`, and it is 0.8 where you name none.
    *
    * The node compares its heap with the smaller of this setting and 0.65, for the same V8 rule that caps the heap side
-   * of `blockWritesAbove` at 0.75. The node compares its resident memory with the setting as it is.
+   * of `blockWritesAbove` at 0.75. The node compares its process memory with the setting as it is.
    */
   resumeWritesBelow?: number
   /**

@@ -33,6 +33,8 @@ type Durable struct {
 	closed               atomic.Bool
 	stall                writeStall
 	heads                Signal
+
+	deferredGarbage []string
 }
 
 func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {
@@ -132,12 +134,12 @@ func (durable *Durable) refuseWrites() error {
 	return durable.manager.Fatal()
 }
 
-func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, error) {
+func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, Commit, error) {
 	if err := durable.refuseWrites(); err != nil {
-		return nil, err
+		return nil, Commit{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, Commit{}, err
 	}
 	groups := map[int][]int{}
 	for at, write := range writes {
@@ -150,9 +152,7 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, err
 	}
 	sort.Ints(order)
 	failures := make([]error, len(writes))
-	var touched []*partitionLog
-	applied := 0
-	var documentBytes int64
+	commit := Commit{durable: durable, stalls: true}
 	for _, partitionID := range order {
 		members := groups[partitionID]
 		group := make([]Write, len(members))
@@ -160,29 +160,23 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, err
 			group[at] = writes[member]
 		}
 		log := durable.partitions[partitionID]
-		outcomes, logged, err := durable.applyLogged(ctx, log, partitionID, group)
+		outcomes, logged, err := durable.applyLogged(ctx, log, partitionID, group, &commit)
 		if err != nil {
-			return nil, err
+			return nil, Commit{}, err
 		}
-		documentBytes += logged
+		commit.documentBytes += logged
 		for at, member := range members {
 			failures[member] = outcomes[at]
 			if outcomes[at] == nil {
-				applied++
+				commit.applied++
 			}
 		}
-		touched = append(touched, log)
 	}
-	if err := durable.commit(touched); err != nil {
-		return nil, err
-	}
-	durable.noteRecorded(applied, documentBytes)
-	durable.stallWhileCheckpointsFallBehind(ctx)
-	return failures, nil
+	return failures, commit, nil
 }
 
-func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, partitionID int, group []Write) ([]error,
-	int64, error) {
+func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, partitionID int, group []Write,
+	commit *Commit) ([]error, int64, error) {
 	log.mutex.Lock()
 	defer log.mutex.Unlock()
 	if log.failed != nil {
@@ -220,6 +214,8 @@ func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, part
 		if err := log.writer.AppendAll(entries); err != nil {
 			return nil, 0, durable.failPartition(log, err)
 		}
+		commit.appended = append(commit.appended,
+			appendedRecords{log: log, writer: log.writer, seqNo: entries[len(entries)-1].SeqNo})
 	}
 	return outcomes, documentBytes, nil
 }
@@ -230,35 +226,6 @@ func (durable *Durable) failPartition(log *partitionLog, cause error) error {
 	log.failed = failure
 	durable.manager.markFatal(failure)
 	return failure
-}
-
-func (durable *Durable) commit(touched []*partitionLog) error {
-	if !durable.manager.logged() || durable.manager.settings.Mode != ModeSync || len(touched) == 0 {
-		return nil
-	}
-	errs := make([]error, len(touched))
-	if len(touched) == 1 {
-		errs[0] = touched[0].writer.Commit()
-	} else {
-		var waiting sync.WaitGroup
-		for at, log := range touched {
-			waiting.Add(1)
-			go func() {
-				defer waiting.Done()
-				errs[at] = log.writer.Commit()
-			}()
-		}
-		waiting.Wait()
-	}
-	for at, err := range errs {
-		if err != nil {
-			touched[at].mutex.Lock()
-			failure := durable.failPartition(touched[at], err)
-			touched[at].mutex.Unlock()
-			return failure
-		}
-	}
-	return durable.manager.verifyDirectory()
 }
 
 func (durable *Durable) flush() error {

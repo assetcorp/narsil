@@ -242,8 +242,8 @@ The specification version the node follows, which is 1.5 for this specification.
 
 The memory that the node uses, which the [Memory Write Block](#memory-write-block) reads. A node that runs where it cannot measure these figures leaves the field absent.
 
-- `processBytes` must be the resident memory of the whole process, because a node can keep vectors and saved segments outside the heap.
-- `processLimitBytes` must be the memory limit that a container sets on the process. Where no container sets one, it must be, on Linux, the process's resident memory plus the memory that the host reports as available (`MemAvailable`), capped at the host's total memory, and elsewhere the host's total memory.
+- `processBytes` must be the resident memory of the whole process less the pages that it maps from files, because a node can keep vectors and saved segments outside the heap, while the operating system can reclaim a page that a file backs without ending the process. On Linux it must be `RssAnon` plus `RssShmem` from `/proc/self/status`, and where a runtime can't separate the pages that files back, it must be the whole resident memory.
+- `processLimitBytes` must be the memory limit that a container sets on the process. Where no container sets one, it must be, on Linux, `processBytes` plus the memory that the host reports as available (`MemAvailable`), capped at the host's total memory, and elsewhere the host's total memory.
 - `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow. Both figures must cover the same part of the heap. Where the runtime keeps new objects in a young generation that its collector empties on its own, both figures must leave that generation out. A node runs out of memory when the rest of its heap can't grow, so the garbage in the young generation never causes that failure.
 - `full` must hold the value that the [Memory Write Block](#memory-write-block) rules give it.
 
