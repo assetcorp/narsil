@@ -2,7 +2,7 @@
 
 `narsil-client` calls a Narsil search server, or every node of a Narsil cluster, from Python 3.11 or later. It holds a typed method for every route that the server documents in its OpenAPI file, in a blocking form and in an async form with the same names.
 
-This package sends HTTP requests to a server that the TypeScript package serves. A separate Python package that searches an index inside the Python process, built on [the Rust crate](https://github.com/assetcorp/narsil/tree/main/packages/rust), is planned in [#173](https://github.com/assetcorp/narsil/issues/173).
+This package sends HTTP requests to a server that the TypeScript package serves. To search an index inside the Python process with no server, install [`delali-narsil`](https://github.com/assetcorp/narsil/tree/main/packages/python-engine), which wraps [the Rust crate](https://github.com/assetcorp/narsil/tree/main/packages/rust).
 
 ```bash
 pip install narsil-client
