@@ -304,10 +304,8 @@ func (durable *Durable) commitCheckpoint(ctx context.Context, store checkpoint.S
 	if err := durable.adoptWritten(ctx, store, written.Manifest, held); err != nil {
 		return written.Manifest, err
 	}
-	if durable.heldFiles.Load() == 0 {
-		if err := durable.removeGarbage(ctx, store, written.Garbage); err != nil {
-			return written.Manifest, err
-		}
+	if err := durable.removeGarbage(ctx, store, written.Manifest, written.Garbage); err != nil {
+		return written.Manifest, err
 	}
 	return written.Manifest, durable.writeMetadata(ctx, uint64(durable.handle.Index.Count()))
 }

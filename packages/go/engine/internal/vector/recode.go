@@ -90,7 +90,7 @@ func (f *Field) recodeEveryVector(ctx context.Context, live *liveVectorMean) err
 		}
 		return nil
 	})
-	native.Retire()
+	native.Free()
 	if err != nil {
 		abandon()
 		return err

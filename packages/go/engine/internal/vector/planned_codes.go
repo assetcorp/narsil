@@ -77,7 +77,7 @@ func newPlannedCodeStore(dimension int, bits uint32, centroid []float64, slots i
 }
 
 func (p *plannedCodeStore) release() {
-	p.native.Retire()
+	p.native.Free()
 	p.block.Free()
 }
 

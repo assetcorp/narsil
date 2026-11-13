@@ -45,8 +45,11 @@ type Field struct {
 	config  fieldConfig
 	writeMu sync.Mutex
 	current atomic.Pointer[layout]
-	slots   *Slots
-	writer  *Lease
+
+	slots  *Slots
+	writer *Lease
+
+	retiredFileLayouts []*layout
 
 	store       *storeMemory
 	graph       *graphMemory
