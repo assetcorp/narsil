@@ -98,8 +98,6 @@ type storeMemory struct {
 	head           *storeHead
 	magnitudes     *growable
 	present        *growable
-	vectorFile     *growable
-	vectorOffset   *growable
 	born           *growable
 	retired        *growable
 	slotTable      *Slots
@@ -141,6 +139,12 @@ func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots
 		return nil, err
 	}
 	store.head = head
+	locations, err := newStoreLocations(vectorStoreInitialCapacity * 4)
+	if err != nil {
+		head.resource.drop()
+		return nil, err
+	}
+	store.tables.locations = locations
 	regions := []struct {
 		target  **growable
 		initial uintptr
@@ -148,8 +152,6 @@ func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots
 	}{
 		{&store.magnitudes, vectorStoreInitialCapacity * 8, (MaxVectorOrdinals + 1) * 8},
 		{&store.present, vectorStoreInitialCapacity, MaxVectorOrdinals + 1},
-		{&store.vectorFile, vectorStoreInitialCapacity * 4, (MaxVectorOrdinals + 1) * 4},
-		{&store.vectorOffset, vectorStoreInitialCapacity * 4, (MaxVectorOrdinals + 1) * 4},
 		{&store.born, vectorStoreInitialCapacity * 8, (MaxVectorOrdinals + 1) * 8},
 		{&store.retired, vectorStoreInitialCapacity * 8, (MaxVectorOrdinals + 1) * 8},
 	}
@@ -157,6 +159,7 @@ func newStoreMemory(dimension int, bits uint32, blockBytes uintptr, slots *Slots
 		memory, err := newGrowable(region.initial, region.max)
 		if err != nil {
 			store.releaseRegions()
+			locations.resource.drop()
 			head.resource.drop()
 			return nil, err
 		}
@@ -206,7 +209,7 @@ func (h *storeHead) release() {
 }
 
 func (s *storeMemory) every() []*growable {
-	return []*growable{s.magnitudes, s.present, s.vectorFile, s.vectorOffset, s.born, s.retired}
+	return []*growable{s.magnitudes, s.present, s.born, s.retired}
 }
 
 func (s *storeMemory) releaseRegions() {
@@ -218,7 +221,8 @@ func (s *storeMemory) releaseRegions() {
 }
 
 func (s *storeMemory) fillInMemory(fromBytes uintptr) {
-	words := int32Values(s.vectorFile.pointer(), int(s.vectorFile.length/4))
+	files := s.tables.locations.files
+	words := int32Values(files.pointer(), int(files.length/4))
 	for index := int(fromBytes / 4); index < len(words); index++ {
 		words[index] = vectorInMemory
 	}
@@ -257,7 +261,7 @@ func (s *storeMemory) holdsCode(ordinal int32) bool {
 }
 
 func (s *storeMemory) vectorFileOf(ordinal int32) int32 {
-	return int32Word(s.vectorFile.pointer(), int(ordinal)).Load()
+	return s.tables.locations.fileOf(ordinal)
 }
 
 func (s *storeMemory) isCold(ordinal int32) bool {
@@ -291,6 +295,7 @@ func (s *storeMemory) size() int {
 }
 
 func (s *storeMemory) discard() {
+	s.tables.locations.resource.drop()
 	dropBlocks(s.tables.vectorBlocks)
 	dropBlocks(s.tables.codeBlocks)
 	for _, file := range s.tables.files {
@@ -303,6 +308,7 @@ func (s *storeMemory) discard() {
 }
 
 type storeTables struct {
+	locations    *storeLocations
 	vectorBlocks []*storeBlock
 	codeBlocks   []*storeBlock
 	files        []*mappedVectorFile
@@ -310,6 +316,7 @@ type storeTables struct {
 
 func (t *storeTables) clone() *storeTables {
 	return &storeTables{
+		locations:    t.locations,
 		vectorBlocks: append([]*storeBlock(nil), t.vectorBlocks...),
 		codeBlocks:   append([]*storeBlock(nil), t.codeBlocks...),
 		files:        append([]*mappedVectorFile(nil), t.files...),
@@ -317,7 +324,7 @@ func (t *storeTables) clone() *storeTables {
 }
 
 func (t *storeTables) resources() []*sharedResource {
-	var held []*sharedResource
+	held := []*sharedResource{t.locations.resource}
 	for _, block := range t.vectorBlocks {
 		if block != nil {
 			held = append(held, block.resource)

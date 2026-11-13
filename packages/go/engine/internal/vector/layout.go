@@ -101,6 +101,9 @@ func (f *Field) publish(store *storeMemory, graph *graphMemory) error {
 	previous := f.current.Swap(next)
 	if previous != nil {
 		previous.retire()
+		if previous.tables != nil && len(previous.tables.files) > 0 {
+			f.retiredFileLayouts = append(f.fileLayoutsInUse(), previous)
+		}
 	}
 	return nil
 }
@@ -114,6 +117,13 @@ func (f *Field) publishAndDrain(ctx context.Context) error {
 	if err := f.publish(f.store, f.graph); err != nil {
 		return err
 	}
+	for _, retired := range f.fileLayoutsInUse() {
+		select {
+		case <-retired.drained:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if previous == nil {
 		return nil
 	}
@@ -123,4 +133,18 @@ func (f *Field) publishAndDrain(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (f *Field) fileLayoutsInUse() []*layout {
+	held := f.retiredFileLayouts[:0]
+	for _, retired := range f.retiredFileLayouts {
+		select {
+		case <-retired.drained:
+		default:
+			held = append(held, retired)
+		}
+	}
+	clear(f.retiredFileLayouts[len(held):])
+	f.retiredFileLayouts = held
+	return held
 }
