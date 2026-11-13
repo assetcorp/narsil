@@ -37,8 +37,9 @@ import { createWorkerOrchestrator, workersEnabledByDefault } from './orchestrati
 import { loadRerankRuntime } from './query/fixed-depth-code'
 import type { RebalanceContext } from './rebalance-executor'
 import type { IndexRegistryEntry } from './registry-entry'
-import { validateWorkerConfig } from './validation'
+import { setsWorkerLiveness, validateWorkerConfig } from './validation'
 import type { WatermarkNotifier } from './watermark'
+import { loadWorkerCopies } from './worker-copies-code'
 import { emitWriteEventAfter } from './write-events'
 
 export type { DurableAnalysis, IndexRegistryEntry } from './registry-entry'
@@ -92,6 +93,7 @@ export async function createEngineCore(
   capacityScope: CapacityScope = 'index',
 ): Promise<EngineCore> {
   validateWorkerConfig(config?.workers, config?.lifecycle)
+  if (setsWorkerLiveness(config?.workers)) (await loadWorkerCopies()).validateWorkerLiveness(config.workers)
   const rerankSettings: RerankSettings =
     config?.rerankTimeout === undefined && config?.maxRerankWindow === undefined
       ? { timeoutMs: DEFAULT_RERANK_TIMEOUT_MS, maxWindow: DEFAULT_MAX_RERANK_WINDOW }

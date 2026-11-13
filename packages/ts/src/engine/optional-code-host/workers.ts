@@ -11,12 +11,7 @@ import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { schemaFieldsOf } from '../../schema/validator/schema'
 import { oversampledFacetConfig } from '../../search/facets'
 import { returnsEveryMatch } from '../../search/fulltext'
-import {
-  CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
-  DEFAULT_BACKPRESSURE_LIMIT,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  SHUTDOWN_TIMEOUT_MS,
-} from '../../workers/constants'
+import { DEFAULT_BACKPRESSURE_LIMIT, DEFAULT_REQUEST_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS } from '../../workers/constants'
 import { growPartitionsTo } from '../../workers/segment-action-code'
 import { threadSlotOfWorker } from '../../workers/thread-slot'
 import { requireLoadedVectorCode } from '../../workers/vector-code'
@@ -45,7 +40,6 @@ import { afterCurrentTurn, yieldToEventLoop } from '../orchestration/turn'
 export function workersHostPart() {
   return {
     COMPACTION_SEGMENT_TRIGGER,
-    CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
     DEFAULT_BACKPRESSURE_LIMIT,
     DEFAULT_COPY_IDLE_TIMEOUT_MS,
     DEFAULT_COPY_THRESHOLD,

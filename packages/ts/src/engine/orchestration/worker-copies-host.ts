@@ -25,7 +25,6 @@ export { schemaFieldsOf } from '../../schema/validator/schema'
 export { mergeFacets, oversampledFacetConfig } from '../../search/facets'
 export { returnsEveryMatch } from '../../search/fulltext'
 export {
-  CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
   DEFAULT_BACKPRESSURE_LIMIT,
   DEFAULT_REQUEST_TIMEOUT_MS,
   SHUTDOWN_TIMEOUT_MS,

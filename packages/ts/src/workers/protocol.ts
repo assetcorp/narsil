@@ -147,6 +147,10 @@ type WorkerCommand =
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
 
+export type WorkerProbe = { type: 'probe'; requestId: string }
+
+export type WorkerMessage = WorkerAction | WorkerProbe
+
 export type DiskAdoptionSegment = { snapshot: PagedSegmentSnapshot } | { segmentId: string }
 
 export interface DiskAdoptionPartition {
@@ -162,7 +166,7 @@ export type WorkerResponse =
   | { type: 'success'; requestId: string; data: unknown }
   | { type: 'error'; requestId: string; code: string; message: string; details?: Record<string, unknown> }
 
-const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
+const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerMessage['type']> = [
   'insert',
   'remove',
   'update',
@@ -196,6 +200,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'memoryReport',
   'bootstrap',
   'shutdown',
+  'probe',
 ]
 
 export type DiskAdoptionAction = Extract<WorkerAction, { type: 'adoptDiskSegments' }>
@@ -207,7 +212,7 @@ export function createRequestId(): string {
   return String(nextRequestSequence)
 }
 
-export function isValidWorkerAction(msg: unknown): msg is WorkerAction {
+export function isValidWorkerAction(msg: unknown): msg is WorkerMessage {
   if (msg === null || msg === undefined || typeof msg !== 'object') {
     return false
   }

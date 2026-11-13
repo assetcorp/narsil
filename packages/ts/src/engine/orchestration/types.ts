@@ -104,6 +104,12 @@ export interface ReplicationQueue {
   drainWaiters: Array<() => void>
 }
 
+export interface CopyLoadBufferHold {
+  yieldedAt: number
+  documents: number
+  waiting: Array<() => void>
+}
+
 export interface SegmentLedgerEntry {
   segmentId: string
   documentCount: number
@@ -139,7 +145,7 @@ export interface OrchestratorState {
   readonly desyncedIndexes: Set<string>
   readonly copyReleaseHolds: Map<string, CopyReleaseHold>
   readonly copyLoadBuffers: Map<string, WorkerAction[]>
-  readonly copyLoadBufferYieldMarks: WeakMap<WorkerAction[], number>
+  readonly copyLoadBufferHolds: WeakMap<WorkerAction[], CopyLoadBufferHold>
   readonly copyTransitions: Map<string, CopyTransition>
   readonly droppedCopies: Map<string, string>
   readonly lastAccessAt: Map<string, number>
@@ -161,6 +167,8 @@ export interface OrchestratorState {
   poolRetryAt: number
   poolRetryDelayMs: number
   poolRepair: Promise<void> | null
+  threadsLeftRunning: number
+  readonly maxThreadsLeftRunning: number
   mainCopyTurnTaken: boolean
   mainCopyQueries: MainCopyQueries | undefined
   repairTimer: ReturnType<typeof setTimeout> | null

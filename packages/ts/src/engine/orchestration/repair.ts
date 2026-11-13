@@ -3,7 +3,7 @@ import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
 import { trackPublicationStores } from './publication-stores'
-import { enqueueReplication, markCopiesLoaded } from './replication'
+import { endCopyLoadBuffer, enqueueReplication, markCopiesLoaded } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
 import { refreshVectorCopies, releaseVectorLocksOf } from './vector-copies'
@@ -52,8 +52,29 @@ export function handleWorkerThreadGone(state: OrchestratorState, pool: WorkerPoo
   scheduleRepair(state, pool)
 }
 
+export function threadsLeftRunningPastLimit(state: OrchestratorState): boolean {
+  return state.threadsLeftRunning > state.maxThreadsLeftRunning
+}
+
+export function noteThreadLeftRunning(state: OrchestratorState, workerId: number, exited: Promise<void>): void {
+  state.threadsLeftRunning += 1
+  if (threadsLeftRunningPastLimit(state)) {
+    console.warn(
+      `Worker ${workerId} stopped answering while it held HTTP connections, so its thread keeps running in the background. ${state.threadsLeftRunning} such threads pass the limit of ${state.maxThreadsLeftRunning} that workers.maxThreadsLeftRunning sets, so the engine starts no replacement thread until one of them exits, and the main thread and the remaining request threads answer meanwhile.`,
+    )
+  }
+  void exited.then(() => {
+    state.threadsLeftRunning -= 1
+    if (state.shuttingDown) return
+    const pool = state.workerPool
+    if (pool !== null) scheduleRepair(state, pool)
+    else scheduleRequestThreadPoolRestart(state)
+  })
+}
+
 export function scheduleRepair(state: OrchestratorState, pool: WorkerPool): void {
   if (state.workerPool !== pool || state.repairTimer !== null || state.poolRepair !== null) return
+  if (threadsLeftRunningPastLimit(state)) return
   const timer = setTimeout(() => {
     state.repairTimer = null
     void repairPool(state, pool)
@@ -90,7 +111,7 @@ async function loadOntoReplacement(
     )
     replacement.hold(indexName)
   } finally {
-    state.copyLoadBuffers.delete(indexName)
+    endCopyLoadBuffer(state, indexName, buffered)
     for (const action of buffered) enqueueReplication(state, indexName, action)
   }
   markCopiesLoaded(state, indexName, copyLoad)
@@ -123,7 +144,7 @@ async function replaceWorker(state: OrchestratorState, pool: WorkerPool, workerI
 
 async function replaceDeadWorkers(state: OrchestratorState, pool: WorkerPool): Promise<void> {
   for (const workerId of pool.deadWorkerIds()) {
-    if (state.workerPool !== pool) return
+    if (state.workerPool !== pool || threadsLeftRunningPastLimit(state)) return
     await replaceWorker(state, pool, workerId)
   }
   state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
