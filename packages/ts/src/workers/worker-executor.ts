@@ -76,6 +76,10 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   const abandoned = new Promise<void>(resolve => {
     abandon = resolve
   })
+  let noteExit: () => void = () => undefined
+  const exited = new Promise<void>(resolve => {
+    noteExit = resolve
+  })
   const waitingForTheThreadToGo: Array<() => void> = []
   const reportsItsExit = typeof worker.on === 'function'
 
@@ -276,6 +280,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     worker.on('exit', (code: unknown) => {
       handleDeath(new Error(`Worker exited with code ${String(code)}`))
       reportGone()
+      noteExit()
     })
   } else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (event: unknown) => {
@@ -381,5 +386,6 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     executeUntilAnswered: (action, settled) => send(action, undefined, settled, false),
     shutdown,
     whenAbandoned: () => abandoned,
+    whenTheThreadExits: () => exited,
   }
 }

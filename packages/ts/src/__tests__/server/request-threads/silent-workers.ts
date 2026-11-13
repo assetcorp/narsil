@@ -121,7 +121,7 @@ export async function startServerWithCopies(
   setup: {
     server?: Omit<ServerOptions, 'host' | 'port'>
     plugins?: NarsilPlugin[]
-    workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs'>
+    workers?: Pick<WorkerConfig, 'silenceBeforeProbeMs' | 'silenceBeforeRetirementMs' | 'maxThreadsLeftRunning'>
   } = {},
 ): Promise<ServerWithCopies> {
   registerLanguage({ name: language, revision: '1', stopWords: new Set(), stemmer })

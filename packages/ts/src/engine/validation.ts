@@ -189,12 +189,24 @@ function validateWorkerSilence(workers: WorkerConfig): void {
   )
 }
 
+function validateThreadsLeftRunning(limit: number | undefined): void {
+  if (limit === undefined || (Number.isSafeInteger(limit) && limit >= 0)) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    'workers.maxThreadsLeftRunning must be a whole number of 0 or more',
+    {
+      maxThreadsLeftRunning: limit,
+    },
+  )
+}
+
 export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycle?: IndexLifecycleConfig): void {
   if (workers === undefined) return
   requirePositiveSafeInteger('workers.count', workers.count)
   requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
   requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
   validateWorkerSilence(workers)
+  validateThreadsLeftRunning(workers.maxThreadsLeftRunning)
   if (
     workers.mainCopyQueries !== undefined &&
     workers.mainCopyQueries !== 'lone' &&

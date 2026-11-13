@@ -1,6 +1,6 @@
 import { LONG_QUERY_THREADS, resolveRequestThreadCount, resolveWorkerCount } from '#platform/worker-copies-host'
 import type { WorkerPool } from '../../workers/pool'
-import { retirePool } from './repair'
+import { retirePool, threadsLeftRunningPastLimit } from './repair'
 import { copyThresholdReason, ensurePool, indexReadyForCopies, scaleOutIndex, scaleOutReadyIndexes } from './scale-out'
 import type { OrchestratorState, RequestThreadListener } from './types'
 import { refreshVectorCopies, sharedCopyHostOf } from './vector-copies'
@@ -21,7 +21,7 @@ export function scheduleRequestThreadPoolRestart(state: OrchestratorState): void
   if (state.requestThreads === null) return
   const timer = setTimeout(
     () => {
-      if (state.requestThreads === null || state.workerPool !== null) return
+      if (state.requestThreads === null || state.workerPool !== null || threadsLeftRunningPastLimit(state)) return
       void ensurePool(state)
         .then(() => scaleOutReadyIndexes(state))
         .catch(err => {
