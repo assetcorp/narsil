@@ -27,6 +27,7 @@ use workload::{
 
 const INDEX: &str = "bench";
 const VECTOR_FIELD: &str = "embedding";
+const MAX_THREADS: usize = 31;
 const USAGE: &str =
     "usage: narsil-engine-languages-runner <workload-dir> <keyword|vector> <threads> <output-file>";
 
@@ -51,8 +52,10 @@ fn parse_arguments() -> Result<Arguments, String> {
     let threads: usize = threads
         .parse()
         .map_err(|_| "threads must be a whole number of at least 1".to_string())?;
-    if threads == 0 {
-        return Err("threads must be a whole number of at least 1".to_string());
+    if threads == 0 || threads > MAX_THREADS {
+        return Err(format!(
+            "threads must be a whole number from 1 to {MAX_THREADS}"
+        ));
     }
     Ok(Arguments {
         workload: PathBuf::from(workload),
@@ -66,7 +69,7 @@ fn failed(error: narsil::NarsilError) -> String {
     format!("{error:?}")
 }
 
-fn open_engine(threads: usize) -> Result<Narsil, String> {
+fn open_engine(threads: usize, threshold: u64) -> Result<Narsil, String> {
     let workers = if threads == 1 {
         WorkerConfig {
             enabled: Some(false),
@@ -76,6 +79,7 @@ fn open_engine(threads: usize) -> Result<Narsil, String> {
         WorkerConfig {
             enabled: Some(true),
             count: Some(threads as u64),
+            promotion_threshold: Some(threshold),
             ..WorkerConfig::default()
         }
     };
@@ -321,7 +325,10 @@ fn run_vector(
 fn run() -> Result<(), String> {
     let arguments = parse_arguments()?;
     let manifest = read_manifest(&arguments.workload)?;
-    let engine = open_engine(arguments.threads)?;
+    let engine = open_engine(
+        arguments.threads,
+        manifest.settings.worker_promotion_threshold,
+    )?;
     create_index(&engine, &arguments.kind, &manifest)?;
 
     let loaded = documents(&arguments.workload, &arguments.kind, &manifest)?;

@@ -30,18 +30,19 @@ type measuredPasses struct {
 }
 
 type settings struct {
-	Language           string         `json:"language"`
-	Limit              int            `json:"limit"`
-	RecallDepth        int            `json:"recallDepth"`
-	HybridLegDepth     int            `json:"hybridLegDepth"`
-	EfSearch           int            `json:"efSearch"`
-	HnswM              int            `json:"hnswM"`
-	HnswEfConstruction int            `json:"hnswEfConstruction"`
-	VectorThreshold    int            `json:"vectorThreshold"`
-	RrfK               int            `json:"rrfK"`
-	InsertBatch        int            `json:"insertBatch"`
-	WarmupPasses       int            `json:"warmupPasses"`
-	MeasuredPasses     measuredPasses `json:"measuredPasses"`
+	Language                 string         `json:"language"`
+	Limit                    int            `json:"limit"`
+	RecallDepth              int            `json:"recallDepth"`
+	HybridLegDepth           int            `json:"hybridLegDepth"`
+	EfSearch                 int            `json:"efSearch"`
+	HnswM                    int            `json:"hnswM"`
+	HnswEfConstruction       int            `json:"hnswEfConstruction"`
+	VectorThreshold          int            `json:"vectorThreshold"`
+	RrfK                     int            `json:"rrfK"`
+	InsertBatch              int            `json:"insertBatch"`
+	WarmupPasses             int            `json:"warmupPasses"`
+	WorkerPromotionThreshold int            `json:"workerPromotionThreshold"`
+	MeasuredPasses           measuredPasses `json:"measuredPasses"`
 }
 
 type manifest struct {
@@ -86,22 +87,23 @@ func readManifest(directory string) (manifest, error) {
 		return parsed, fmt.Errorf("the manifest's settings.language must be a non-empty string")
 	}
 	return parsed, requirePositive(map[string]int{
-		"vector.dimension":                parsed.Vector.Dimension,
-		"vector.documents":                parsed.Vector.Documents,
-		"vector.queries":                  parsed.Vector.Queries,
-		"settings.limit":                  s.Limit,
-		"settings.recallDepth":            s.RecallDepth,
-		"settings.hybridLegDepth":         s.HybridLegDepth,
-		"settings.efSearch":               s.EfSearch,
-		"settings.hnswM":                  s.HnswM,
-		"settings.hnswEfConstruction":     s.HnswEfConstruction,
-		"settings.vectorThreshold":        s.VectorThreshold,
-		"settings.rrfK":                   s.RrfK,
-		"settings.insertBatch":            s.InsertBatch,
-		"settings.warmupPasses":           s.WarmupPasses,
-		"settings.measuredPasses.keyword": s.MeasuredPasses.Keyword,
-		"settings.measuredPasses.vector":  s.MeasuredPasses.Vector,
-		"settings.measuredPasses.hybrid":  s.MeasuredPasses.Hybrid,
+		"vector.dimension":                  parsed.Vector.Dimension,
+		"vector.documents":                  parsed.Vector.Documents,
+		"vector.queries":                    parsed.Vector.Queries,
+		"settings.limit":                    s.Limit,
+		"settings.recallDepth":              s.RecallDepth,
+		"settings.hybridLegDepth":           s.HybridLegDepth,
+		"settings.efSearch":                 s.EfSearch,
+		"settings.hnswM":                    s.HnswM,
+		"settings.hnswEfConstruction":       s.HnswEfConstruction,
+		"settings.vectorThreshold":          s.VectorThreshold,
+		"settings.rrfK":                     s.RrfK,
+		"settings.insertBatch":              s.InsertBatch,
+		"settings.warmupPasses":             s.WarmupPasses,
+		"settings.workerPromotionThreshold": s.WorkerPromotionThreshold,
+		"settings.measuredPasses.keyword":   s.MeasuredPasses.Keyword,
+		"settings.measuredPasses.vector":    s.MeasuredPasses.Vector,
+		"settings.measuredPasses.hybrid":    s.MeasuredPasses.Hybrid,
 	})
 }
 
