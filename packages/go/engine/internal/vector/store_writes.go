@@ -80,20 +80,15 @@ func (s *storeMemory) ensureOrdinal(ordinal int32, cold bool) (bool, error) {
 		region *growable
 		bytes  uintptr
 	}{
-		{s.magnitudes, next * 8}, {s.present, next}, {s.head.codePresent, next}, {s.vectorOffset, next * 4},
-		{s.born, next * 8}, {s.retired, next * 8},
+		{s.magnitudes, next * 8}, {s.present, next}, {s.head.codePresent, next}, {s.born, next * 8}, {s.retired, next * 8},
 	}
 	for _, growth := range growths {
 		if err := growth.region.growTo(growth.bytes); err != nil {
 			return false, err
 		}
 	}
-	held := s.vectorFile.length
-	if err := s.vectorFile.growTo(next * 4); err != nil {
+	if err := s.growLocations(next * 4); err != nil {
 		return false, err
-	}
-	if s.vectorFile.length > held {
-		s.fillInMemory(held)
 	}
 	s.table.reserve(ordinal)
 	changed := false
@@ -114,7 +109,7 @@ func (s *storeMemory) claimSlot(docID string, cold bool) (int32, bool, error) {
 	if err != nil {
 		return 0, changed, err
 	}
-	int32Word(s.vectorFile.pointer(), int(ordinal)).Store(vectorInMemory)
+	int32Word(s.tables.locations.files.pointer(), int(ordinal)).Store(vectorInMemory)
 	s.docIDBytes += len(docID)
 	s.longestDocID = max(s.longestDocID, len(docID))
 	s.word(storeWordDocIDBytes).Store(int32(min(s.docIDBytes, math.MaxInt32)))
@@ -253,8 +248,7 @@ func (s *storeMemory) releaseFreeableReplaced(oldestPin int64, stillNode func(or
 
 func (s *storeMemory) publishOnDisk(ordinal int32, magnitude float64, location diskLocation) {
 	*float64Slot(s.magnitudes.pointer(), int(ordinal)) = magnitude
-	uint32Word(s.vectorOffset.pointer(), int(ordinal)).Store(location.offset)
-	int32Word(s.vectorFile.pointer(), int(ordinal)).Store(location.fileIndex)
+	s.tables.locations.set(ordinal, location)
 	s.publishOrdinal(ordinal)
 }
 
@@ -317,13 +311,13 @@ func (s *storeMemory) readable(ordinal int32) bool {
 }
 
 func (s *storeMemory) vectorFromFile(tables *storeTables, ordinal int32, target []float32) bool {
-	position := int(s.vectorFileOf(ordinal))
+	position := int(tables.locations.fileOf(ordinal))
 	files := tables.files
 	if position < 0 || position >= len(files) || files[position] == nil || files[position].mapped == nil {
 		return false
 	}
 	bytes := files[position].mapped.Bytes()
-	offset := int(uint32Word(s.vectorOffset.pointer(), int(ordinal)).Load())
+	offset := int(tables.locations.offsetOf(ordinal))
 	length := s.dimension * 4
 	if offset < 0 || offset+length > len(bytes) || len(target) < s.dimension {
 		return false

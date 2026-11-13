@@ -207,7 +207,7 @@ func (f *Field) compactGraph(graph *graphMemory) (*graphMemory, error) {
 			if err != nil {
 				return coreFailure("attachStore", err)
 			}
-			defer native.Retire()
+			defer native.Free()
 			slot := f.writerSlotOn(held)
 			defer f.writer.leave()
 			if err := workspace.Compact(held.native, native, f.config.nativeMetric, slot); err != nil {
