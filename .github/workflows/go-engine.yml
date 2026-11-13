@@ -73,6 +73,7 @@ jobs:
       PART_3_TESTS: TestSearchesDuringLargeWriteBatchesMatchTheCommittedTally|TestTextStoredOnDiskLeavesNoCheckpointedTextInMemory|TestCrashKeepsEveryAcknowledgedWrite
       PART_5_TESTS: TestVectorsFindThemselvesAfterAStopFollowingACheckpointTakenWhileTheGraphGrew
       PROMOTION_TEST: TestEmbeddingsUpdatedWhileTheVectorFieldPromotesReachSnapshotsAndRestarts
+      GRAPH_WRITES_TEST: TestVectorSearchesAgreeWithTheirVectorsWhileTheGraphPlacesWrites
 
     defaults:
       run:
@@ -137,6 +138,7 @@ jobs:
           PART: ${{ matrix.shard }}
           PARTS: ${{ matrix.parts }}
           RACE_FLAG: ${{ matrix.target.race && '-race' || '' }}
+          PRINTS_TEST_DURATIONS: ${{ startsWith(matrix.target.platform, 'darwin') }}
         run: |
           case "$PARTS/$PART" in
             1/1) selection=() timeout=30m ;;
@@ -146,8 +148,22 @@ jobs:
             4/4|5/4) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_3_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
             5/2) selection=(-run "^(${PART_2_TESTS})\$") timeout=8m ;;
             5/5) selection=(-run "^(${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=8m ;;
-            2/1) selection=(-run "^(${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
-            2/2) selection=(-skip "^(${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST})\$") timeout=12m ;;
+            2/1) selection=(-run "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST}|${GRAPH_WRITES_TEST})\$") timeout=12m ;;
+            2/2) selection=(-skip "^(${PART_1_TESTS}|${PART_2_TESTS}|${PART_5_TESTS}|${PROMOTION_TEST}|${GRAPH_WRITES_TEST})\$") timeout=12m ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
-          go test -count=1 $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./...
+          if [ "$PRINTS_TEST_DURATIONS" != true ]; then
+            go test -count=1 $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./...
+            exit
+          fi
+          log="$RUNNER_TEMP/go-test-part-$PART.log"
+          status=0
+          go test -count=1 -v $RACE_FLAG -timeout "$timeout" "${selection[@]}" ./... > "$log" 2>&1 || status=$?
+          echo "Each top-level test, slowest first:"
+          grep -E '^--- (PASS|FAIL|SKIP): ' "$log" | sed -E 's/^--- [A-Z]+: (.*) \(([0-9.]+)s\)$/\2s \1/' | sort -rn || true
+          grep -E '^(ok|FAIL|---)[[:space:]]' "$log" | grep -vE '^--- (PASS|SKIP): ' || true
+          if [ "$status" -ne 0 ]; then
+            echo "go test exited with $status, so the full output follows:"
+            cat "$log"
+          fi
+          exit "$status"
