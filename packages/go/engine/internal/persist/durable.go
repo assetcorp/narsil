@@ -33,6 +33,8 @@ type Durable struct {
 	closed               atomic.Bool
 	stall                writeStall
 	heads                Signal
+
+	deferredGarbage []string
 }
 
 func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {

@@ -1,10 +1,13 @@
 use super::constants::KIBIBYTE_BYTES;
 
 const PROCESS_STATUS_PATH: &str = "/proc/self/status";
+const PROCESS_STATM_PATH: &str = "/proc/self/statm";
 const PROCESS_CGROUP_PATH: &str = "/proc/self/cgroup";
 const MEMORY_INFO_PATH: &str = "/proc/meminfo";
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 const CGROUP_V1_MEMORY_ROOT: &str = "/sys/fs/cgroup/memory";
+const ANONYMOUS_RESIDENT_FIELD: &str = "RssAnon:";
+const SHARED_RESIDENT_FIELD: &str = "RssShmem:";
 const RESIDENT_SET_FIELD: &str = "VmRSS:";
 const TOTAL_MEMORY_FIELD: &str = "MemTotal:";
 const AVAILABLE_MEMORY_FIELD: &str = "MemAvailable:";
@@ -17,10 +20,27 @@ fn kibibyte_field(text: &str, field: &str) -> Option<u64> {
     kibibytes.checked_mul(KIBIBYTE_BYTES)
 }
 
-/// Returns the resident set size of this process.
-pub(super) fn resident_bytes() -> Option<u64> {
+/// Returns the resident memory of this process that no file backs, which is its anonymous and shared memory, and
+/// returns the whole resident set where the kernel reports neither figure.
+fn status_bytes() -> Option<u64> {
     let status = std::fs::read_to_string(PROCESS_STATUS_PATH).ok()?;
-    kibibyte_field(&status, RESIDENT_SET_FIELD)
+    let unbacked = kibibyte_field(&status, ANONYMOUS_RESIDENT_FIELD).and_then(|anonymous| {
+        kibibyte_field(&status, SHARED_RESIDENT_FIELD)?.checked_add(anonymous)
+    });
+    unbacked.or_else(|| kibibyte_field(&status, RESIDENT_SET_FIELD))
+}
+
+unsafe extern "C" {
+    fn getpagesize() -> std::ffi::c_int;
+}
+
+pub(super) fn process_bytes() -> Option<u64> {
+    status_bytes().or_else(|| {
+        let statm = std::fs::read_to_string(PROCESS_STATM_PATH).ok()?;
+        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        let page_bytes = u64::try_from(unsafe { getpagesize() }).ok()?;
+        pages.checked_mul(page_bytes)
+    })
 }
 
 fn limit_in(path: &std::path::Path) -> Option<u64> {
@@ -70,9 +90,8 @@ fn cgroup_limit_bytes() -> Option<u64> {
 }
 
 /// Returns the memory that this process may use: its cgroup's limit where one lies below the machine's memory,
-/// and otherwise the smaller of the machine's memory and the resident memory plus the memory available, which is
-/// how Node.js measures the same limit.
-pub(super) fn limit_bytes(resident: u64) -> Option<u64> {
+/// and otherwise the smaller of the machine's memory and `process_bytes` plus the memory available.
+pub(super) fn limit_bytes(process_bytes: u64) -> Option<u64> {
     let info = std::fs::read_to_string(MEMORY_INFO_PATH).ok()?;
     let host = kibibyte_field(&info, TOTAL_MEMORY_FIELD)?;
     if let Some(constrained) = cgroup_limit_bytes()
@@ -81,7 +100,7 @@ pub(super) fn limit_bytes(resident: u64) -> Option<u64> {
         return Some(constrained);
     }
     match kibibyte_field(&info, AVAILABLE_MEMORY_FIELD) {
-        Some(available) => Some(host.min(resident.saturating_add(available))),
+        Some(available) => Some(host.min(process_bytes.saturating_add(available))),
         None => Some(host),
     }
 }

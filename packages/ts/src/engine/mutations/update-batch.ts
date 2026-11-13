@@ -99,6 +99,14 @@ export async function updateDocumentBatch(
   for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared = await prepareChunk(ctx, indexName, updates, chunkStart, chunkEnd, hold, failed)
+    try {
+      ctx.memoryWriteBlock?.refuseWhileFull(indexName)
+    } catch (err) {
+      const error = asUpdateError(err)
+      for (const update of prepared) failed.push({ docId: update.docId, error })
+      for (let i = chunkEnd; i < updates.length; i++) failed.push({ docId: reportedDocIdOf(updates[i]), error })
+      break
+    }
 
     const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
     let failures: (ChunkFailure | null)[]

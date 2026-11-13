@@ -23,26 +23,27 @@ use macos as platform;
 #[cfg(windows)]
 use windows as platform;
 
-/// The resident memory of this process and the memory that it may use.
+/// The resident memory of this process that no file backs, and the memory that it may use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProcessMemory {
-    pub(crate) resident_bytes: u64,
+    pub(crate) process_bytes: u64,
     pub(crate) limit_bytes: u64,
 }
 
 impl ProcessMemory {
     fn fraction(&self) -> f64 {
-        self.resident_bytes as f64 / self.limit_bytes as f64
+        self.process_bytes as f64 / self.limit_bytes as f64
     }
 }
 
-/// Reads the resident memory of this process and its limit, or returns `None` on a system that reports neither.
+/// Reads the resident memory of this process that no file backs and its limit, or returns `None` on a system that
+/// reports neither.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub(crate) fn read_process_memory() -> Option<ProcessMemory> {
-    let resident_bytes = platform::resident_bytes()?;
-    let limit_bytes = platform::limit_bytes(resident_bytes).filter(|bytes| *bytes > 0)?;
+    let process_bytes = platform::process_bytes()?;
+    let limit_bytes = platform::limit_bytes(process_bytes).filter(|bytes| *bytes > 0)?;
     Some(ProcessMemory {
-        resident_bytes,
+        process_bytes,
         limit_bytes,
     })
 }
@@ -150,9 +151,6 @@ impl MemoryGuard {
         reading.full = full;
     }
 
-    /// Refuses an insert or an update of `index_name` with `MEMORY_WRITE_BLOCKED` while the process's resident
-    /// memory stands above the block level, reading the memory again where the last reading is more than a second
-    /// old, and once more before it refuses.
     pub(crate) fn refuse_while_full(&self, index_name: &str) -> Result<()> {
         if self.fresh() && !self.full.load(Ordering::Acquire) {
             return Ok(());
@@ -175,7 +173,7 @@ impl MemoryGuard {
             ErrorCode::MEMORY_WRITE_BLOCKED,
             format!(
                 "The engine refuses inserts and updates to index '{index_name}' because its memory passed the block level of its limit ({} MB of {} MB). Remove documents to free memory, and writes resume once memory falls below the resume level.",
-                megabytes(figures.resident_bytes),
+                megabytes(figures.process_bytes),
                 megabytes(figures.limit_bytes)
             ),
         ))

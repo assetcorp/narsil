@@ -8,6 +8,7 @@ import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribut
 import { registerLanguage, registerTokenizer } from '../../../../dist/index.mjs'
 import { chinese } from '../../../../dist/languages/chinese.mjs'
 import { createServer } from '../../../../dist/server.mjs'
+import { memoryThatNoFileBacks } from '../../runtime/process-memory-oracle.mjs'
 
 const SHINGLE_LENGTH = 3
 const BALLAST_HEADER = 'x-narsil-test-ballast'
@@ -17,7 +18,7 @@ const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 
 const hostShareBytes = Number(process.env.NARSIL_TEST_HOST_SHARE_BYTES ?? 0)
 if (hostShareBytes > 0) {
-  os.freemem = () => Math.max(0, hostShareBytes - process.memoryUsage.rss())
+  os.freemem = () => Math.max(0, hostShareBytes - memoryThatNoFileBacks())
   syncBuiltinESMExports()
 }
 

@@ -1,11 +1,11 @@
-export type { ResidentMemory } from './process-limit'
+export type { ProcessMemoryUse } from './process-limit'
 
-import type { ResidentMemory } from './process-limit'
+import type { ProcessMemoryUse } from './process-limit'
 
-export function readResidentMemory(): ResidentMemory | null {
+export function readProcessMemoryUse(): ProcessMemoryUse | null {
   return null
 }
 
-export function processLimitBytes(_residentBytes: number): number {
+export function processLimitBytes(_processBytes: number): number {
   return 0
 }

@@ -164,7 +164,7 @@ await narsil.restoreFromFile('notes', 'backups/notes.nrsl')
 
 ## Memory
 
-A phone ends an app that uses too much memory, so the engine refuses an insert or an update that could take the app past its limit, with `MEMORY_WRITE_BLOCKED`. On iOS the limit is the app's memory footprint plus the memory that `os_proc_available_memory()` reports, and on Android it is the available memory that `ActivityManager` reports, less its low-memory threshold. Removes, searches, and reads keep working while writes are blocked, as [The memory write block](observability.md#the-memory-write-block) describes.
+A phone ends an app that uses too much memory, so the engine refuses an insert or an update that could take the app past its limit, with `MEMORY_WRITE_BLOCKED`. On iOS the engine counts the app's memory footprint, and the limit is that footprint plus the memory that `os_proc_available_memory()` reports. On Android the engine counts the app's anonymous and shared resident memory, which leaves out the pages that the app maps from files, such as its code and libraries, because the kernel can drop those pages without ending the app. A phone whose kernel is older than Linux 4.5 reports only the whole resident memory, so there the engine counts all of it. The Android limit is that memory plus the available memory that `ActivityManager` reports, less its low-memory threshold. Removes, searches, and reads keep working while writes are blocked, as [The memory write block](observability.md#the-memory-write-block) describes.
 
 ## Pauses during large writes
 
