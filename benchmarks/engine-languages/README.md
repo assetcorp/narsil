@@ -15,6 +15,8 @@ Every engine uses the same settings: English analysis, a page of 10, float32 vec
 
 The thread setting counts concurrent callers and sets the engine's worker budget to the same value. One caller disables worker copies. With 8 callers, TypeScript divides its budget between 4 keyword workers and 4 vector workers, Go configures 8 query workers, and Rust searches on the caller threads. Each engine keeps its standard scheduling policy. The CLI accepts 1 to 31 callers because TypeScript and Go cap their worker budgets at 31.
 
+Rust and Go search one index in shared memory. TypeScript's threads share no memory, so its 8 callers share the Node.js main thread, which copies each query into a message to a worker thread and copies the answer back out of the reply. A keyword query takes tens of microseconds on 1 thread, so on 8 threads those copies and the wait for the shared main thread can take longer than the search itself, and TypeScript's 8-thread p50 can reach several times its 1-thread p50.
+
 ## How the answers are checked
 
 A Python oracle in `oracle/` shares no code with any engine, and it checks every answer before the suite records a run:
