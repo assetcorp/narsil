@@ -2143,6 +2143,7 @@ export interface WorkerConfig {
     enabled?: boolean;
     idleTimeoutMs?: number;
     mainCopyQueries?: MainCopyQueries;
+    maxThreadsLeftRunning?: number;
     promotionThreshold?: number;
     silenceBeforeProbeMs?: number;
     silenceBeforeRetirementMs?: number;

@@ -17,7 +17,14 @@ import { scheduleIdleMerge } from './compaction'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { loadPublicationCode, releasePublicationOf } from './publication-code'
 import { trackPublicationStores } from './publication-stores'
-import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
+import {
+  deferPoolRestart,
+  handleWorkerCrash,
+  handleWorkerThreadGone,
+  noteThreadLeftRunning,
+  retirePool,
+  threadsLeftRunningPastLimit,
+} from './repair'
 import { endCopyLoadBuffer, enqueueReplication, markCopiesLoaded } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
@@ -27,7 +34,8 @@ export const COPY_RELOAD_REASON = 'A request arrived after an idle spell dropped
 
 export function copiesAllowed(state: OrchestratorState): boolean {
   if (!state.workersEnabled || state.scaleOutBlocked || state.shuttingDown) return false
-  return state.workerPool !== null || Date.now() >= state.poolRetryAt
+  if (state.workerPool !== null) return true
+  return Date.now() >= state.poolRetryAt && !threadsLeftRunningPastLimit(state)
 }
 
 function retiredThreadsGoneWithin(state: OrchestratorState, timeoutMs: number): Promise<boolean> {
@@ -53,6 +61,12 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
       `A thread of the retired worker pool still runs after ${RETIRED_THREADS_EXIT_WAIT_MS}ms, so no new pool starts yet`,
     )
   }
+  if (threadsLeftRunningPastLimit(state)) {
+    throw new NarsilError(
+      ErrorCodes.WORKER_CRASHED,
+      `${state.threadsLeftRunning} worker threads that stopped answering still run in the background, past the limit of ${state.maxThreadsLeftRunning} that workers.maxThreadsLeftRunning sets, so no new pool starts until one of them exits`,
+    )
+  }
   eligibleIndexNames(state)
   const factory = await createWorkerFactory(undefined, {
     silenceBeforeProbeMs: state.config?.workers?.silenceBeforeProbeMs,
@@ -68,6 +82,9 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     },
     onWorkerGone(workerId) {
       if (started !== null) handleWorkerThreadGone(state, started, workerId)
+    },
+    onThreadLeftRunning(workerId, exited) {
+      noteThreadLeftRunning(state, workerId, exited)
     },
   })
   started = pool

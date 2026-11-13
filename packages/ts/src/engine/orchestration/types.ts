@@ -167,6 +167,8 @@ export interface OrchestratorState {
   poolRetryAt: number
   poolRetryDelayMs: number
   poolRepair: Promise<void> | null
+  threadsLeftRunning: number
+  readonly maxThreadsLeftRunning: number
   mainCopyTurnTaken: boolean
   mainCopyQueries: MainCopyQueries | undefined
   repairTimer: ReturnType<typeof setTimeout> | null

@@ -1,6 +1,7 @@
 import {
   DEFAULT_COPY_IDLE_TIMEOUT_MS,
   DEFAULT_COPY_THRESHOLD,
+  DEFAULT_MAX_THREADS_LEFT_RUNNING,
   ErrorCodes,
   NarsilError,
   POOL_RESTART_DELAY_MS,
@@ -128,6 +129,8 @@ export function createWorkerOrchestrator(
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
+    threadsLeftRunning: 0,
+    maxThreadsLeftRunning: config?.workers?.maxThreadsLeftRunning ?? DEFAULT_MAX_THREADS_LEFT_RUNNING,
     mainCopyTurnTaken: false,
     mainCopyQueries: config?.workers?.mainCopyQueries,
     repairTimer: null,

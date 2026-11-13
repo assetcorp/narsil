@@ -5,6 +5,7 @@ export interface Executor {
   executeUntilAnswered?<T>(action: WorkerAction, settled?: () => void): Promise<T>
   shutdown(): Promise<void>
   whenAbandoned?(): Promise<void>
+  whenTheThreadExits?(): Promise<void>
 }
 
 export function executeUntilAnswered<T>(executor: Executor, action: WorkerAction, settled?: () => void): Promise<T> {

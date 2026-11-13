@@ -67,6 +67,7 @@ const WORKER_CONFIG_KEYS: Record<keyof WorkerConfig, true> = {
   bootstrapModule: true,
   silenceBeforeProbeMs: true,
   silenceBeforeRetirementMs: true,
+  maxThreadsLeftRunning: true,
 }
 
 const LIFECYCLE_CONFIG_KEYS: Record<keyof IndexLifecycleConfig, true> = {

@@ -56,6 +56,7 @@ export interface WorkerPoolConfig {
   workerFactory: WorkerFactory
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
   onWorkerGone?: (workerId: number) => void
+  onThreadLeftRunning?: (workerId: number, exited: Promise<void>) => void
 }
 
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
@@ -116,7 +117,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     })
     threadsStillRunning.set(slot.executor, { indexes: slot.indexes, gone, finish })
     workers.set(slotIndex, slot)
+    watchForThreadLeftRunning(slotIndex, slot.executor)
     return slot
+  }
+
+  function watchForThreadLeftRunning(slotIndex: number, executor: Executor): void {
+    const exited = executor.whenTheThreadExits?.()
+    if (exited === undefined) return
+    void executor.whenAbandoned?.().then(() => config.onThreadLeftRunning?.(slotIndex, exited))
   }
 
   function noteThreadGone(executor: Executor): void {

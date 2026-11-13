@@ -347,7 +347,20 @@ export interface WorkerConfig {
    * starts a replacement for it. When a retired worker stays silent after the
    * engine asks it to leave, the engine stops its thread. The engine leaves a
    * thread that still holds HTTP connections running in the background,
-   * because stopping that thread would end the whole process.
+   * because stopping that thread would end the whole process, and
+   * `maxThreadsLeftRunning` limits how many such threads exist at once.
    */
   silenceBeforeRetirementMs?: number
+  /**
+   * How many retired threads, each still holding HTTP connections, can run in
+   * the background while the engine keeps starting replacements, 1 by
+   * default. Each such thread keeps its copy of every index and its sockets,
+   * so the engine holds at most this many threads beyond those of a full
+   * worker pool. Once more threads than this run in the background, the
+   * engine replaces no retired thread and starts no new pool until one of
+   * them exits, and the main thread and the remaining request threads answer
+   * every request meanwhile. Set it to 0 so that a thread left running gains
+   * a replacement only once it exits.
+   */
+  maxThreadsLeftRunning?: number
 }
