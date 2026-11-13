@@ -125,10 +125,35 @@ def _setup_block(source: Source) -> str:
     return "\n".join(bullets) + "\n\n" + engines_table
 
 
+def _worker_copy_sentences(results: dict) -> str:
+    found = _measurements(results)
+    most = max(_threads(results), default=1)
+    alone = _dig(found.get(("typescript", "keyword", 1)), "phases", "keyword")
+    shared = _dig(found.get(("typescript", "keyword", most)), "phases", "keyword")
+    mechanism = (
+        f"On {integer(most)} threads TypeScript answers through worker copies. Its {integer(most)} callers share the "
+        "one Node.js main thread, which copies a query into a message to a free worker thread and copies the answer "
+        "back out of its reply, and which answers on its own copy only while every worker is busy. Rust answers on "
+        "each caller's thread, and Go hands each query to a free goroutine of its query pool over a channel, so both "
+        "search the one index in shared memory and copy neither the query nor the answer."
+    )
+    if most == 1 or not is_number(_dig(alone, "p50Us")) or not is_number(_dig(shared, "p50Us")):
+        return mechanism
+    return (
+        f"{mechanism} On 1 thread a TypeScript keyword query takes {_grouped(_dig(alone, 'p50Us'), 1)} µs at the "
+        f"median. On {integer(most)} threads each query also waits for those two copies and for its turn on the shared "
+        f"main thread, and TypeScript's keyword p50 reaches {_grouped(_dig(shared, 'p50Us'), 1)} µs while its queries "
+        "per second go from "
+        f"{integer(_dig(alone, 'queriesPerSecond', 'median'))} to {integer(_dig(shared, 'queriesPerSecond', 'median'))}. "
+        "A worker copy runs the query itself off the main thread, so the application's own code on that thread keeps "
+        "running while a search is under way."
+    )
+
+
 def _speed_block(source: Source) -> str:
     results = source.data
     found = _measurements(results)
-    chunks: list[str] = []
+    chunks: list[str] = [_worker_copy_sentences(results)]
     for workload, phase, title in _PHASES:
         rows = []
         for threads in _threads(results):
