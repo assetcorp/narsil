@@ -12,7 +12,7 @@ import pytest
 
 from ir_bench.core.config import load_config
 from ir_bench.core.registry import build_driver
-from ir_bench.core.types import EQUAL_PRECISION, VectorDoc, VectorIndexParams
+from ir_bench.core.types import BEST_CONFIG, EQUAL_PRECISION, VectorDoc, VectorIndexParams
 
 SERVER_URL_ENVS = {"narsil": "NARSIL_PARITY_TS_URL", "narsil-rust": "NARSIL_PARITY_RUST_URL"}
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "benchmark.toml"
@@ -112,8 +112,8 @@ class Oracle:
         return sorted(fused.items(), key=lambda pair: (-pair[1], pair[0]))
 
 
-@pytest.fixture(scope="module")
-def loaded():
+@pytest.fixture(scope="module", params=[EQUAL_PRECISION, BEST_CONFIG])
+def loaded(request):
     config = load_config(CONFIG_PATH)
     ids, texts, vectors, queries, query_vectors = _corpus()
     drivers = {}
@@ -124,7 +124,7 @@ def loaded():
         driver.drop_index(INDEX)
         driver.create_vector_index(
             INDEX,
-            VectorIndexParams(dims=DIMENSIONS, metric="cosine", m=16, ef_construction=200, profile=EQUAL_PRECISION),
+            VectorIndexParams(dims=DIMENSIONS, metric="cosine", m=16, ef_construction=200, profile=request.param),
         )
         documents = (
             VectorDoc(doc_id=doc_id, text=" ".join(words), vector=vector.tolist())
