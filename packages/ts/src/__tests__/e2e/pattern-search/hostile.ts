@@ -55,6 +55,7 @@ export async function expectRejected(server: PatternServer, filters: unknown, co
 
 interface FreshAnswer extends Omit<TimedResponse, 'elapsedMs'> {
   endedAt: number
+  body: string
 }
 
 function searchOnFreshConnection(server: PatternServer, body: unknown): Promise<FreshAnswer> {
@@ -76,8 +77,8 @@ function searchOnFreshConnection(server: PatternServer, body: unknown): Promise<
         response.on('error', reject)
         response.on('end', () => {
           const endedAt = performance.now()
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as SearchAnswer
-          resolve({ ...answerOf(response.statusCode ?? 0, parsed), endedAt })
+          const body = Buffer.concat(chunks).toString('utf8')
+          resolve({ ...answerOf(response.statusCode ?? 0, JSON.parse(body) as SearchAnswer), endedAt, body })
         })
       },
     )
@@ -172,9 +173,9 @@ async function expectOtherThreadsAnswerFirst(
   if (held !== undefined && moved) {
     const report = await held.report()
     expect(report.movedSinceClosed, label).toBeGreaterThanOrEqual(1)
-    expect(report.longQuery, label).toBeGreaterThan(Math.max(0, ...report.others))
+    expect(report.heldAnswer, label).toEqual({ status: answered.status, body: answered.body })
   }
-  const { endedAt, ...answer } = answered
+  const { endedAt, body: _body, ...answer } = answered
   return { ...answer, elapsedMs: endedAt - started }
 }
 
