@@ -33,7 +33,9 @@ const STALE_MEASUREMENT_WAIT: Duration = Duration::from_millis(50);
 const TMPFS_TYPES: [&str; 2] = ["tmpfs", "ramfs"];
 const DISK_TEMPORARY_DIRECTORY: &str = "/var/tmp";
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
-const CGROUP_LIMIT_FILES: [&str; 2] = ["memory.max", "memory.high"];
+const CGROUP_V2_LIMIT_FILES: [&str; 2] = ["memory.max", "memory.high"];
+const CGROUP_V1_MEMORY_ROOT: &str = "/sys/fs/cgroup/memory";
+const CGROUP_V1_LIMIT_FILES: [&str; 1] = ["memory.limit_in_bytes"];
 
 struct DiskDirectory {
     path: PathBuf,
@@ -108,19 +110,32 @@ fn process_status() -> ProcessStatus {
     }
 }
 
-fn container_limit_bytes() -> Option<u64> {
-    let membership = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-    let path = membership
-        .lines()
-        .find_map(|line| line.strip_prefix("0::"))?;
-    let root = Path::new(CGROUP_ROOT);
-    let mut directory = root.join(path.trim_start_matches('/'));
+#[cfg(target_env = "gnu")]
+unsafe extern "C" {
+    fn malloc_trim(pad: usize) -> i32;
+}
+
+fn release_free_pages() {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+fn settled_process_status() -> ProcessStatus {
+    release_free_pages();
+    process_status()
+}
+
+fn smallest_limit_above(root: &Path, member: &str, files: &[&str]) -> Option<u64> {
+    let mut directory = root.join(member.trim_start_matches('/'));
     let mut smallest: Option<u64> = None;
     loop {
-        for file in CGROUP_LIMIT_FILES {
+        for file in files {
             let limit = std::fs::read_to_string(directory.join(file))
                 .ok()
-                .and_then(|text| text.trim().parse::<u64>().ok());
+                .and_then(|text| text.trim().parse::<u64>().ok())
+                .filter(|bytes| *bytes > 0);
             smallest = match (smallest, limit) {
                 (Some(held), Some(found)) => Some(held.min(found)),
                 (held, found) => held.or(found),
@@ -132,6 +147,28 @@ fn container_limit_bytes() -> Option<u64> {
     }
 }
 
+fn container_limit_bytes() -> Option<u64> {
+    let membership = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    membership
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, ':');
+            let (_, controllers, member) = (parts.next()?, parts.next()?, parts.next()?);
+            if controllers.is_empty() {
+                smallest_limit_above(Path::new(CGROUP_ROOT), member, &CGROUP_V2_LIMIT_FILES)
+            } else if controllers.split(',').any(|name| name == "memory") {
+                smallest_limit_above(
+                    Path::new(CGROUP_V1_MEMORY_ROOT),
+                    member,
+                    &CGROUP_V1_LIMIT_FILES,
+                )
+            } else {
+                None
+            }
+        })
+        .min()
+}
+
 fn process_limit_bytes(unbacked_bytes: u64) -> u64 {
     let meminfo = std::fs::read_to_string("/proc/meminfo").expect("the kernel reports memory");
     let host = kibibyte_field(&meminfo, "MemTotal:");
@@ -139,6 +176,32 @@ fn process_limit_bytes(unbacked_bytes: u64) -> u64 {
         Some(container) if container < host => container,
         _ => host.min(unbacked_bytes + kibibyte_field(&meminfo, "MemAvailable:")),
     }
+}
+
+fn unbacked_fraction(status: &ProcessStatus) -> f64 {
+    status.unbacked_bytes as f64 / process_limit_bytes(status.unbacked_bytes) as f64
+}
+
+fn block_level_one_margin_above(before: &ProcessStatus) -> f64 {
+    (before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES) as f64
+        / process_limit_bytes(before.unbacked_bytes) as f64
+}
+
+fn assert_at_or_below_block_level(block: f64) {
+    let fraction = unbacked_fraction(&settled_process_status());
+    assert!(
+        fraction <= block,
+        "the unbacked memory stays at or below the block level: {fraction} of the limit against {block}"
+    );
+}
+
+fn assert_above_block_level(block: f64) -> f64 {
+    let fraction = unbacked_fraction(&settled_process_status());
+    assert!(
+        fraction > block,
+        "the unbacked memory passes the block level: {fraction} of the limit against {block}"
+    );
+    fraction
 }
 
 fn vector_of(serial: u64) -> Vec<f64> {
@@ -282,15 +345,14 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
         nearest.as_deref(),
         Some(format!("passage-{}", DOCUMENTS - 1).as_str())
     );
-    let before = process_status();
+    let before = settled_process_status();
     assert!(
         before.file_bytes > MAPPED_VECTOR_BYTES,
         "the vector file is resident through its mapping: {} bytes",
         before.file_bytes
     );
 
-    let block_writes_above = (before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES) as f64
-        / process_limit_bytes(before.unbacked_bytes) as f64;
+    let block_writes_above = block_level_one_margin_above(&before);
     let written = Narsil::open(NarsilConfig {
         memory: Some(MemoryConfig {
             block_writes_above: Some(block_writes_above),
@@ -311,22 +373,26 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
     for serial in 1..=WRITES_BESIDE_MAPPED_VECTORS {
         fault_every_mapped_page(&mapped);
         std::thread::sleep(STALE_MEASUREMENT_WAIT);
+        assert_at_or_below_block_level(block_writes_above);
         written
             .insert(WRITTEN_INDEX, ledger_entry(serial), None)
             .expect("a write beside the mapped vectors is accepted");
     }
 
-    let last_write = Instant::now();
     let grown = vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
     std::thread::sleep(STALE_MEASUREMENT_WAIT);
-    let after = process_status();
+    let after = settled_process_status();
     assert!(
         after.unbacked_bytes > before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES,
         "the anonymous memory grows past the block level: {} bytes before, {} after",
         before.unbacked_bytes,
         after.unbacked_bytes
     );
-    assert!(last_write.elapsed() < Duration::from_secs(1));
+    let fraction = unbacked_fraction(&after);
+    assert!(
+        fraction > block_writes_above,
+        "the unbacked memory passes the block level: {fraction} of the limit against {block_writes_above}"
+    );
     let refused = written
         .insert(
             WRITTEN_INDEX,
@@ -347,9 +413,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
 }
 
 fn refuse_after_embedding(operation: &str) {
-    let before = process_status();
-    let block = (before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES) as f64
-        / process_limit_bytes(before.unbacked_bytes) as f64;
+    let block = block_level_one_margin_above(&settled_process_status());
     let engine = Arc::new(
         Narsil::open(NarsilConfig {
             memory: Some(MemoryConfig {
@@ -372,6 +436,8 @@ fn refuse_after_embedding(operation: &str) {
     let target = Arc::downgrade(&engine);
     let held = Arc::new(Mutex::new(Vec::new()));
     let ballast = Arc::clone(&held);
+    let measured = Arc::new(Mutex::new(None));
+    let measurement = Arc::clone(&measured);
     engine
         .register_embedding_adapter(
             "pressure",
@@ -379,16 +445,19 @@ fn refuse_after_embedding(operation: &str) {
                 dimensions: 2,
                 embed: move |_: &str| {
                     let engine = target.upgrade().unwrap();
+                    assert_at_or_below_block_level(block);
                     engine
                         .insert(WRITTEN_INDEX, ledger_entry(0), Some("nested"))
                         .unwrap();
                     *ballast.lock().unwrap() =
                         vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
                     std::thread::sleep(STALE_MEASUREMENT_WAIT);
+                    assert_above_block_level(block);
                     let error = engine
                         .insert(WRITTEN_INDEX, ledger_entry(1), Some("refused"))
                         .unwrap_err();
                     assert_eq!(error.code(), ErrorCode::MEMORY_WRITE_BLOCKED);
+                    *measurement.lock().unwrap() = Some(assert_above_block_level(block));
                     Ok(vec![1.0, 0.0])
                 },
             }),
@@ -412,9 +481,11 @@ fn refuse_after_embedding(operation: &str) {
         "embedding",
         Value::Array(vec![Value::Number(0.0), Value::Number(1.0)]),
     );
+    assert_at_or_below_block_level(block);
     engine
         .insert("embedded", original.clone(), Some("original"))
         .unwrap();
+    assert_at_or_below_block_level(block);
     let failure = match operation {
         "insert" => engine
             .insert("embedded", ledger_entry(1), Some("outer"))
@@ -439,6 +510,14 @@ fn refuse_after_embedding(operation: &str) {
                 .error
         }
     };
+    let fraction = measured
+        .lock()
+        .unwrap()
+        .expect("the adapter measures the memory");
+    assert!(
+        fraction > block,
+        "the unbacked memory passes the block level inside {operation}: {fraction} of the limit against {block}"
+    );
     assert_eq!(
         failure.code(),
         ErrorCode::MEMORY_WRITE_BLOCKED,
