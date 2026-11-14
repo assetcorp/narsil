@@ -71,9 +71,9 @@ await narsil.checkpoint('products')
 | `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick where several processes share one directory, because the engine holds a write-ahead log directory alone. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
 | `directory` | `string` | none | Sets the root directory for the log and checkpoints. |
 | `mode` | `'sync' \| 'async'` | `'sync'` | Selects the acknowledgement contract described below. |
-| `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk. |
+| `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk, and `0` turns that timed flush off. |
 | `segmentMaxBytes` | `number` | `67108864` | Caps a log segment at this size (64 MiB), so the engine rolls to a new segment before an append would pass the cap. `createNarsil` rejects a value above 2,147,483,647 with `CONFIG_INVALID`, because every file in the format has that limit. |
-| `checkpointIntervalMs` | `number` | `300000` | Sets the time between automatic checkpoints (5 minutes). |
+| `checkpointIntervalMs` | `number` | `300000` | Sets the time between automatic checkpoints (5 minutes), and `0` turns the timer off, so that only `checkpointMutationThreshold` and `checkpoint()` start a checkpoint. |
 | `checkpointMutationThreshold` | `number` | `100000` | Sets the mutation count that triggers a checkpoint early. |
 | `compactionThreshold` | `number` | `12` | Sets the checkpoint segment count that triggers compaction. |
 | `rewriteBytesPerCheckpoint` | `number` | `268435456` | Sets how many bytes of existing segment files one checkpoint rewrites to drop removed documents, beyond the one segment that each partition above the removed share always rewrites. It takes an integer of at least 1; see [Removed documents](#removed-documents). |

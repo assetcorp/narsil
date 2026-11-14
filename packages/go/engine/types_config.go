@@ -24,7 +24,11 @@ const (
 )
 
 // DurabilityConfig sets the write-ahead log or snapshot tier and how often
-// the engine checkpoints.
+// the engine checkpoints. An unset CheckpointInterval checkpoints every 5
+// minutes, and a CheckpointInterval of 0 turns that timer off, so that only
+// CheckpointMutationThreshold and Narsil.Checkpoint start a checkpoint. In
+// the async mode an unset FlushInterval flushes the log every second, and a
+// FlushInterval of 0 turns that timer off.
 type DurabilityConfig = model.DurabilityConfig
 
 // DurabilityTier picks the write-ahead log tier or the snapshot tier.
