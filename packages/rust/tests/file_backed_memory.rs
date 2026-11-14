@@ -134,7 +134,8 @@ fn smallest_limit_above(root: &Path, member: &str, files: &[&str]) -> Option<u64
         for file in files {
             let limit = std::fs::read_to_string(directory.join(file))
                 .ok()
-                .and_then(|text| text.trim().parse::<u64>().ok());
+                .and_then(|text| text.trim().parse::<u64>().ok())
+                .filter(|bytes| *bytes > 0);
             smallest = match (smallest, limit) {
                 (Some(held), Some(found)) => Some(held.min(found)),
                 (held, found) => held.or(found),
