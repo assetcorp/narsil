@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { MAX_EF_SEARCH } from '../../../vector/search-depth/constants'
 import {
   type EtcdContainerHandle,
   MANAGED_ETCD_ENDPOINT,
@@ -157,7 +158,7 @@ async function expectKeptLampsServed(node: ContainerNode, outcome: FeedOutcome):
   expect(outcome.probes.size).toBeGreaterThan(0)
   for (const [docId, embedding] of outcome.probes) {
     const reply = await request(node.base, 'POST', `/indexes/${INDEX_NAME}/search`, {
-      vector: { field: 'embedding', value: embedding },
+      vector: { field: 'embedding', value: embedding, efSearch: MAX_EF_SEARCH },
       limit: 1,
     })
     expect(reply.status, JSON.stringify(reply.body).slice(0, 500)).toBe(200)
@@ -235,11 +236,12 @@ describe('a cluster node whose vectors fill memory outside its heap', () => {
     await createLampIndex(started)
     const outcome = await feedUntilRefused(started)
     const highestResident = await started.peakResidentBytes()
+    const mostUnbacked = await started.mostUnbackedBytes()
     console.log(
-      `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
+      `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} with at most ${mostUnbacked} that no file backs, of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
     )
     expect(outcome.firstRefusal, `the node refused nothing after ${SEND_BUDGET_DOCUMENTS} lamps`).not.toBeNull()
-    expect(highestResident, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
+    expect(mostUnbacked, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
     expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL * NODE_SHARE_BYTES)
     expect(started.exited(), started.output().slice(-3_000)).toBe(false)
     await expectKeptLampsServed(started, outcome)
