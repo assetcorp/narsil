@@ -4,6 +4,11 @@ Hybrid search runs a BM25 ranking and a vector ranking in one query, and this gu
 
 The vector side of a hybrid query needs a query vector: pass a precomputed `value` array, or a `text` string that the index or instance embedding adapter turns into a vector. The `text` form needs an embedding adapter configured first, so passing `text` without one fails with `EMBEDDING_CONFIG_INVALID`; see [Embedding adapters](embedding-adapters.md#embedding-adapters).
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+declare const myQueryVector: number[]
+-->
 ```ts
 const results = await narsil.query('docs', {
   mode: 'hybrid',
@@ -31,6 +36,11 @@ Set `strategy` to one of two values:
 
 The engine validates all four values before it searches. It throws a `NarsilError` with code `CONFIG_INVALID` for any `strategy` other than those two, for a `k` that is not a whole number of at least 1, for an `alpha` outside 0 to 1, and for a `depth` that is not a whole number from 1 to 10,000.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+declare const myQueryVector: number[]
+-->
 ```ts
 const weighted = await narsil.query('docs', {
   mode: 'hybrid',

@@ -2,6 +2,10 @@
 
 ## A catalogue search
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+declare const narsil: Narsil
+-->
 ```ts
 await narsil.createIndex('products', {
   schema: {
@@ -37,10 +41,13 @@ const results = await narsil.query('products', {
 - For search as you type, set `prefix: true`, which completes the last word. `narsil.suggest(index, { prefix, limit })` returns whole terms for a dropdown.
 - To find `proof` inside `waterproof`, declare the field as `string:partial` and set `partialWords: true` on the query. The engine then matches each query word of three or more characters inside the longer words of that field, although it ranks those matches below whole-word matches.
 - The engine stems text, so `bicycles` matches `bicycle`. Under `exact: true`, the engine turns off tolerance, prefix completion, and partial-word matching.
+- Words inside double quotes in `term` form a phrase, which a document has to hold side by side and in that order inside one field. The engine matches a phrase through the term positions that an index records, so it throws `SEARCH_INVALID_PHRASE` for a phrase on an index that you created with `trackPositions: false`.
+- Give `createIndex` a `synonyms` list so that a search for one word also matches another. A rule such as `{ words: ['sofa', 'couch'] }` works in both directions, while `{ word: 'tv', synonyms: ['television'] }` adds `television` to a search for `tv` but adds nothing to a search for `television`. `narsil.updateSynonyms(index, rules)` replaces the set on a live index.
 
 ## Filters and facet counts
 
 - `filters.fields` takes `eq` and `ne` on numbers, booleans, and whole-value text, `gt`, `gte`, `lt`, `lte`, and `between` on numbers, `in`, `nin`, `startsWith`, and `endsWith` on whole-value text, `containsAll`, `matchesAny`, and `size` on lists, and `exists`, `notExists`, `isEmpty`, and `isNotEmpty` on any field that the schema declares. Whole-value text is an `enum`, a `verbatim`, or a `string:pattern` field, or a list of one of them. Combine expressions with `and`, `or`, and `not`.
+- On a pattern field, which is a `verbatim` field or a text field whose type includes `pattern`, `filters.fields` also takes `contains`, `wildcard`, as in `INV-*-2024`, and `regex`. With `caseFold: true` beside any of those tests, the engine compares case folds, so `error` matches `ERROR`. With `tolerance: 1` or `2` beside `eq`, the engine also matches a value within that many edits of the text.
 - The engine throws `SEARCH_INVALID_FILTER` for an operator that the field's type lacks, such as `startsWith` on a number.
 - The engine answers every filter test from an index, so it throws `SEARCH_INVALID_FILTER` for a whole-value test, such as `eq`, `in`, or `startsWith`, on a `string` or `string[]` field without the `pattern` option. Declare a field that a filter tests by whole value as `enum`, `verbatim`, or `string:pattern` for that reason. The engine throws `SEARCH_INVALID_FIELD` for a filter on a field outside the schema.
 - A filter holds at most 1,024 tests across all of its nested expressions, and each `in`, `nin`, `containsAll`, or `matchesAny` list holds at most 65,536 values.
@@ -64,9 +71,30 @@ With `highlight: { fields }`, each hit carries `highlights[field]`, which holds 
 
 Declare a `geopoint` field and store `{ lat, lon }` in degrees. Filter it inside a query that carries a `term`, or through `listDocuments`:
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+declare const narsil: Narsil
+-->
 ```ts
-filters: { fields: { location: { radius: { lat: 5.5502, lon: -0.2174, distance: 50, unit: 'km' } } } }
-filters: { fields: { location: { polygon: { points: [{ lat: 5.4, lon: -0.4 }, { lat: 5.4, lon: 0.1 }, { lat: 5.8, lon: 0.1 }, { lat: 5.8, lon: -0.4 }] } } } }
+const withinRadius = await narsil.listDocuments('stores', {
+  filters: { fields: { location: { radius: { lat: 5.5502, lon: -0.2174, distance: 50, unit: 'km' } } } },
+})
+const withinArea = await narsil.listDocuments('stores', {
+  filters: {
+    fields: {
+      location: {
+        polygon: {
+          points: [
+            { lat: 5.4, lon: -0.4 },
+            { lat: 5.4, lon: 0.1 },
+            { lat: 5.8, lon: 0.1 },
+            { lat: 5.8, lon: -0.4 },
+          ],
+        },
+      },
+    },
+  },
+})
 ```
 
 `unit` takes `'km'`, `'mi'`, or `'m'`, and `inside: false` flips either test. List a polygon's corners counter-clockwise. A sort or a facet cannot name a `geopoint` field.

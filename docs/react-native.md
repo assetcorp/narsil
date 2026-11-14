@@ -2,6 +2,9 @@
 
 `@delali/narsil-react-native` runs a Narsil engine inside an iOS or Android app, so the app can search its own documents by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so the index survives a restart.
 
+<!-- example setup
+declare const tentVector: number[]
+-->
 ```ts
 import { createNarsil } from '@delali/narsil-react-native'
 
@@ -26,13 +29,13 @@ The package carries native code, which compiles the C search core for iOS and fo
 
 1. Install the packages:
 
-   ```bash
+   ```bash skip
    npx expo install @delali/narsil @delali/narsil-react-native react-native-nitro-modules
    ```
 
 2. Add the config plugin to `app.json`, which limits the Android build to 64-bit architectures, because the native module ships no 32-bit library:
 
-   ```json
+   ```json skip
    {
      "expo": {
        "plugins": ["@delali/narsil-react-native"]
@@ -48,13 +51,13 @@ The app keeps its Babel and Metro settings as they are. The app in [`packages/re
 
 Install the packages:
 
-```bash
+```bash skip
 npm install @delali/narsil @delali/narsil-react-native react-native-nitro-modules
 ```
 
 Set the Android architectures in `android/gradle.properties`, which the Expo plugin would otherwise set for you:
 
-```properties
+```properties skip
 reactNativeArchitectures=arm64-v8a,x86_64
 ```
 
@@ -72,13 +75,13 @@ A larger check compared an Expo app on the app's JS runtime with a bare app on t
 
 That runtime loads the package's code through Worklets Bundle Mode, so the app has to install `react-native-worklets`, turn Bundle Mode on in its Babel settings, and wrap its Metro config:
 
-```bash
+```bash skip
 npm install react-native-worklets
 ```
 
 In an Expo app, `babel.config.js` turns Bundle Mode on and forwards the package's source to the engine's runtime:
 
-```js
+```js skip
 module.exports = api => {
   api.cache(true)
   return {
@@ -99,7 +102,7 @@ module.exports = api => {
 
 and `metro.config.js` wraps the Metro config:
 
-```js
+```js skip
 const { getDefaultConfig } = require('expo/metro-config')
 const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 
@@ -108,7 +111,7 @@ module.exports = getBundleModeMetroConfig(getDefaultConfig(__dirname))
 
 In an app without Expo, `babel.config.js` adds the same plugin to the React Native preset:
 
-```js
+```js skip
 module.exports = {
   presets: ['module:@react-native/babel-preset'],
   plugins: [
@@ -126,7 +129,7 @@ module.exports = {
 
 and `metro.config.js` wraps the React Native Metro config:
 
-```js
+```js skip
 const { getDefaultConfig } = require('@react-native/metro-config')
 const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 
@@ -143,6 +146,9 @@ Each setting has to cross to that runtime as data, so this entry point leaves ou
 
 `createNarsil()` turns on a write-ahead log in a `narsil` directory inside the app's private storage, which is `Library/Application Support` on iOS and the app's files directory on Android. The engine syncs each write to that log before the write resolves, so a write that has resolved survives the app being ended. Pass another `directory` in `durability` to keep the files somewhere else; a relative path resolves against the private storage, while an absolute path stays as it is. Pass `durability: null` to keep the index in memory alone.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil-react-native'
+-->
 ```ts
 const narsil = await createNarsil({ durability: { directory: 'search' } })
 ```
@@ -155,6 +161,10 @@ On iOS the engine syncs each file with `F_FULLFSYNC`, which asks the drive to wr
 
 For an index too large to hold twice in memory, pass a path in place of the bytes. `snapshotToFile` writes the snapshot to a file and resolves with its size in bytes, and `restoreFromFile` reads a snapshot from a file in chunks:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil-react-native'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.snapshotToFile('notes', 'backups/notes.nrsl')
 await narsil.restoreFromFile('notes', 'backups/notes.nrsl')
@@ -176,6 +186,12 @@ On a physical Android phone, the longest wait that a 10-millisecond timer saw wa
 
 A failed call rejects with an error that carries the engine's `code` and `details`. `isNarsilError` from `@delali/narsil-react-native` tells a Narsil error from any other error, and [Errors](errors.md) lists every code:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil-react-native'
+const narsil = await createNarsil()
+declare const bytes: Uint8Array
+declare function showDamagedBackupMessage(): void
+-->
 ```ts
 import { isNarsilError } from '@delali/narsil-react-native'
 

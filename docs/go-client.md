@@ -2,37 +2,60 @@
 
 The Go module `github.com/assetcorp/narsil/packages/go` reaches a Narsil server, or every node of a Narsil cluster, from Go 1.26 or later. It holds one typed method for every route in the server's OpenAPI file, under the route's name in Go form, so `createIndex` becomes `CreateIndex`. It depends on the standard library alone.
 
-```bash
+```bash skip
 go get github.com/assetcorp/narsil/packages/go
 ```
 
 ```go
-import narsil "github.com/assetcorp/narsil/packages/go"
+package main
 
-client, err := narsil.New(narsil.Config{URLs: []string{"http://localhost:9876"}})
-if err != nil {
-	return err
-}
-defer client.CloseIdleConnections()
+import (
+	"context"
+	"fmt"
+	"log"
 
-_, err = client.CreateIndex(ctx, narsil.HTTPCreateIndexBody{
-	Name: "movies",
-	Config: narsil.HTTPIndexBody{Schema: narsil.SchemaDefinition{
-		"title": {FieldType: narsil.Ptr(narsil.FieldTypeString)},
-		"year":  {FieldType: narsil.Ptr(narsil.FieldTypeNumber)},
-	}},
-})
-if err != nil {
-	return err
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func main() {
+	if err := run(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 }
-_, err = client.Insert(ctx, "movies", narsil.InsertBody{
-	ID:       narsil.Ptr("the-matrix"),
-	Document: narsil.AnyDocument{"title": "The Matrix", "year": 1999},
-})
-if err != nil {
-	return err
+
+func run(ctx context.Context) error {
+	client, err := narsil.New(narsil.Config{URLs: []string{"http://localhost:9876"}})
+	if err != nil {
+		return err
+	}
+	defer client.CloseIdleConnections()
+
+	_, err = client.CreateIndex(ctx, narsil.HTTPCreateIndexBody{
+		Name: "movies",
+		Config: narsil.HTTPIndexBody{Schema: narsil.SchemaDefinition{
+			"title": {FieldType: narsil.Ptr(narsil.FieldTypeString)},
+			"year":  {FieldType: narsil.Ptr(narsil.FieldTypeNumber)},
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = client.Insert(ctx, "movies", narsil.InsertBody{
+		ID:       narsil.Ptr("the-matrix"),
+		Document: narsil.AnyDocument{"title": "The Matrix", "year": 1999},
+	})
+	if err != nil {
+		return err
+	}
+	results, err := client.Query(ctx, "movies", narsil.HTTPQueryParams{Term: narsil.Ptr("matrix")})
+	if err != nil {
+		return err
+	}
+	for _, hit := range results.Hits {
+		fmt.Println(hit.ID)
+	}
+	return nil
 }
-results, err := client.Query(ctx, "movies", narsil.HTTPQueryParams{Term: narsil.Ptr("matrix")})
 ```
 
 Every method takes a `context.Context` first and any number of `CallOption` values last. One `Client` is safe to use from many goroutines at once, so keep one for the lifetime of the application.
@@ -60,6 +83,23 @@ Only `URLs` is required in `narsil.Config`.
 
 `narsil.WithTimeout`, `narsil.WithHeader`, and `narsil.WithMaxResponseBytes` change one call.
 
+<!-- example setup
+package main
+
+import (
+	"context"
+	"time"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func run(ctx context.Context, client *narsil.Client) {
+{example}
+	_, _ = results, err
+}
+
+func main() {}
+-->
 ```go
 results, err := client.Query(ctx, "movies", narsil.HTTPQueryParams{Term: narsil.Ptr("matrix")},
 	narsil.WithTimeout(2*time.Second))
@@ -81,6 +121,23 @@ A body that you pass as a `*bytes.Reader`, a `*bytes.Buffer`, or a `*strings.Rea
 
 Every failure comes back as a `*narsil.Error`, under the code that the server sent, so a branch that you write against a code works whichever node answered. `narsil.ErrorCode(err)` returns the code, and the empty string when the error holds no `*narsil.Error`, such as a value that the client could not encode as JSON.
 
+<!-- example setup
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func run(ctx context.Context, client *narsil.Client) {
+{example}
+}
+
+func main() {}
+-->
 ```go
 _, err := client.Insert(ctx, "movies", narsil.InsertBody{Document: narsil.AnyDocument{"title": 42}})
 var failure *narsil.Error
@@ -105,6 +162,23 @@ if errors.As(err, &failure) && failure.Code == "DOC_VALIDATION_FAILED" {
 
 `ImportDocuments` encodes the documents as NDJSON, sends them in one request, and returns once the whole load has finished. `ImportNDJSON` sends NDJSON that you already hold or stream from a file.
 
+<!-- example setup
+package main
+
+import (
+	"context"
+	"log"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func run(ctx context.Context, client *narsil.Client) error {
+{example}
+	return nil
+}
+
+func main() {}
+-->
 ```go
 result, err := client.ImportDocuments(ctx, "movies", []narsil.AnyDocument{
 	{"id": "alien", "title": "Alien", "year": 1979},
@@ -133,6 +207,25 @@ The wait fails with `TASK_NOT_FOUND` when the server drops the record before the
 
 `Snapshot` and `ExportDocuments` return a `*narsil.ResponseStream`, which is an `io.ReadCloser` over the body as it arrives. The client never holds the whole body in memory, so `io.Copy` writes an index of any size to a file. Close the stream when you finish, so that the client can release the connection.
 
+<!-- example setup
+package main
+
+import (
+	"context"
+	"io"
+	"os"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func run(ctx context.Context, client *narsil.Client) error {
+{example}
+	_ = finished
+	return err
+}
+
+func main() {}
+-->
 ```go
 archive, err := client.Snapshot(ctx, "movies", narsil.SnapshotParams{})
 if err != nil {
@@ -168,6 +261,22 @@ finished, err := client.WaitForTask(ctx, task.ID, narsil.WaitOptions{})
 
 `IsAlive` and `IsReady` return true for an answer of 200 and false for any other answer, so `IsReady` returns false while a server starts up and once it starts draining, because the server answers 503 then. Both return an error when no server answers at all. `Supports` reports whether the server serves an optional route, and the client reads the list once and keeps it.
 
+<!-- example setup
+package main
+
+import (
+	"context"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+)
+
+func run(ctx context.Context, client *narsil.Client) error {
+{example}
+	return nil
+}
+
+func main() {}
+-->
 ```go
 exports, err := client.Supports(ctx, narsil.CapabilityDocumentExport)
 if err != nil {
@@ -186,10 +295,36 @@ if exports {
 
 `UpdateChanges` and `GetChanges` turn [change capture](change-capture.md) on for an index and report its epoch. The module `github.com/assetcorp/narsil/packages/go/changes` follows the server's change feed, so the client module stays free of dependencies, while the subscriber module depends on the client and on `github.com/coder/websocket`.
 
-```bash
+```bash skip
 go get github.com/assetcorp/narsil/packages/go/changes
 ```
 
+<!-- example setup
+package main
+
+import (
+	"context"
+
+	narsil "github.com/assetcorp/narsil/packages/go"
+	"github.com/assetcorp/narsil/packages/go/changes"
+)
+
+type savedFeed struct {
+	Epoch     string
+	Positions []changes.Position
+}
+
+func apply(received []changes.Change) {}
+
+func save(partitionID uint32, seqNo uint64) {}
+
+func run(ctx context.Context, client *narsil.Client, saved savedFeed, token string) error {
+{example}
+	return nil
+}
+
+func main() {}
+-->
 ```go
 subscription, err := changes.Follow(ctx, client, "orders", changes.Options{
 	Epoch: saved.Epoch, Positions: saved.Positions, Credential: token,

@@ -26,6 +26,11 @@ await narsil.createIndex('articles', {
 
 ## Query by meaning
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+declare const narsil: Narsil
+declare const question: string
+-->
 ```ts
 const results = await narsil.query('articles', {
   mode: 'hybrid',
