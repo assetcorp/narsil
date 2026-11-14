@@ -100,6 +100,18 @@ struct ProcessStatus {
     file_bytes: u64,
 }
 
+#[cfg(target_env = "gnu")]
+unsafe extern "C" {
+    fn malloc_trim(pad: usize) -> i32;
+}
+
+fn hand_free_heap_pages_back() {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
 fn process_status() -> ProcessStatus {
     let status = std::fs::read_to_string("/proc/self/status").expect("the kernel reports status");
     ProcessStatus {
@@ -139,6 +151,10 @@ fn process_limit_bytes(unbacked_bytes: u64) -> u64 {
         Some(container) if container < host => container,
         _ => host.min(unbacked_bytes + kibibyte_field(&meminfo, "MemAvailable:")),
     }
+}
+
+fn unbacked_fraction(status: &ProcessStatus) -> f64 {
+    status.unbacked_bytes as f64 / process_limit_bytes(status.unbacked_bytes) as f64
 }
 
 fn vector_of(serial: u64) -> Vec<f64> {
@@ -282,6 +298,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
         nearest.as_deref(),
         Some(format!("passage-{}", DOCUMENTS - 1).as_str())
     );
+    hand_free_heap_pages_back();
     let before = process_status();
     assert!(
         before.file_bytes > MAPPED_VECTOR_BYTES,
@@ -319,12 +336,18 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
     let last_write = Instant::now();
     let grown = vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
     std::thread::sleep(STALE_MEASUREMENT_WAIT);
+    hand_free_heap_pages_back();
     let after = process_status();
     assert!(
         after.unbacked_bytes > before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES,
         "the anonymous memory grows past the block level: {} bytes before, {} after",
         before.unbacked_bytes,
         after.unbacked_bytes
+    );
+    let after_fraction = unbacked_fraction(&after);
+    assert!(
+        after_fraction > block_writes_above,
+        "the unbacked fraction of the limit passes the block level: {after_fraction} against {block_writes_above}"
     );
     assert!(last_write.elapsed() < Duration::from_secs(1));
     let refused = written
@@ -347,6 +370,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
 }
 
 fn refuse_after_embedding(operation: &str) {
+    hand_free_heap_pages_back();
     let before = process_status();
     let block = (before.unbacked_bytes + ANONYMOUS_MARGIN_BYTES) as f64
         / process_limit_bytes(before.unbacked_bytes) as f64;
@@ -385,6 +409,9 @@ fn refuse_after_embedding(operation: &str) {
                     *ballast.lock().unwrap() =
                         vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
                     std::thread::sleep(STALE_MEASUREMENT_WAIT);
+                    hand_free_heap_pages_back();
+                    let fraction = unbacked_fraction(&process_status());
+                    assert!(fraction > block, "{fraction} against {block}");
                     let error = engine
                         .insert(WRITTEN_INDEX, ledger_entry(1), Some("refused"))
                         .unwrap_err();
