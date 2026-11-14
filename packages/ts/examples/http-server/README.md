@@ -8,14 +8,14 @@ For the routes themselves, read the [HTTP server guide](../../../../docs/http-se
 
 A workspace install here already provides `uWebSockets.js`, the optional peer that handles HTTP for the server.
 
-```bash
+```bash skip
 pnpm --filter @delali/narsil build
 node --experimental-strip-types packages/ts/examples/http-server/server.ts
 ```
 
 It prints the address that it listens on. Create an index, add a document, and search it:
 
-```bash
+```bash skip
 curl localhost:7700/livez
 curl -X POST localhost:7700/indexes \
   -H 'content-type: application/json' \
@@ -30,7 +30,7 @@ curl -X POST localhost:7700/indexes/movies/search \
 
 ## Run it in Docker
 
-```bash
+```bash skip
 docker build -f packages/ts/examples/http-server/Dockerfile -t narsil-server .
 docker run --rm -p 7700:7700 --memory 4g narsil-server
 ```

@@ -4,7 +4,7 @@
 
 ## Install
 
-```bash
+```bash skip
 npm install @delali/narsil @delali/narsil-react-native react-native-nitro-modules
 ```
 
@@ -33,7 +33,7 @@ The engine works on the app's own JS runtime and takes the same settings as on N
 
 An Expo app adds the config plugin to `app.json`, which limits the Android build to 64-bit architectures, and then makes a development build:
 
-```json
+```json skip
 {
   "expo": {
     "plugins": ["@delali/narsil-react-native"]

@@ -1,4 +1,5 @@
 const { execFileSync } = require('node:child_process')
+const { relative } = require('node:path')
 const { tableKeyPattern } = require('./toml-table.js')
 
 const RELEASED_PROJECTS = {
@@ -14,7 +15,8 @@ const MARKER_OPENING = /^\s*<!--\s*release-version\s+(\S+)\s*-->\s*$/
 const MARKER_CLOSING = /^\s*<!--\s*\/release-version\s*-->\s*$/
 const MARKER_ANY = /<!--\s*\/?release-version\b/
 const INLINE_CODE = /(`+)[^`]*?\1/g
-const VERSION = /(?<![\w.-])v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?![\w.]*\d)/g
+const VERSION =
+  /(?<![\w.-])v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?![\w.]*\d)/g
 const NARSIL_PACKAGE = new RegExp(
   [
     '@delali/narsil',
@@ -22,8 +24,10 @@ const NARSIL_PACKAGE = new RegExp(
     '\\bnarsil-client\\b',
     'github\\.com/assetcorp/narsil/packages/go',
     '\\bpackages/go(?:/engine|/changes)?/v\\d',
-    '\\bNarsil\\s+v?\\d+\\.\\d+\\.\\d+',
+    '\\bnarsil-[a-z-]+@v\\d',
+    '\\bNarsil\\s+(?:version\\s+|release\\s+)?v?\\d+\\.\\d+\\.\\d+',
   ].join('|'),
+  'i',
 )
 const FILES_OUTSIDE_THE_CHECK = [/(^|\/)CHANGELOG\.md$/, /^packages\/spec\//, /^BENCHMARKS\.md$/, /^benchmarks\//]
 
@@ -109,13 +113,15 @@ function problemsIn(path, text, versionOf) {
   return problems
 }
 
-function rewrittenText(path, text, project, version) {
+function rewrittenText(path, text, project, previousVersion, version) {
   const { lines, regions } = markedRegions(path, text)
   let changed = false
   for (const region of regions.filter(candidate => candidate.project === project)) {
     for (let index = region.start + 1; index < region.end; index += 1) {
       const line = lines[index]
-      const rewritten = line.replace(VERSION, (whole, number) => whole.replace(number, version))
+      const rewritten = line.replace(VERSION, (whole, number) =>
+        number === previousVersion ? whole.replace(number, version) : whole,
+      )
       if (rewritten !== line) {
         lines[index] = rewritten
         changed = true
@@ -125,13 +131,13 @@ function rewrittenText(path, text, project, version) {
   return changed ? lines.join('\n') : null
 }
 
-function rewriteMarkedVersions(tree, project, version) {
+function rewriteMarkedVersions(tree, project, previousVersion, version) {
   if (RELEASED_PROJECTS[project] === undefined) throw new Error(`${project} has no entry in RELEASED_PROJECTS`)
   const messages = []
   for (const path of markdownFilesInScope(tree.root)) {
     const text = tree.read(path, 'utf-8')
     if (text === null) continue
-    const rewritten = rewrittenText(path, text, project, version)
+    const rewritten = rewrittenText(path, text, project, previousVersion, version)
     if (rewritten === null) continue
     tree.write(path, rewritten)
     messages.push(`✍️  New version ${version} written to the marked lines of ${path}`)
@@ -142,8 +148,11 @@ function rewriteMarkedVersions(tree, project, version) {
 function rewritingMarkedVersions(VersionActions) {
   return class extends VersionActions {
     async updateProjectVersion(tree, newVersion) {
+      const project = this.projectGraphNode.name
+      const readFromTree = path => tree.read(relative(tree.root, path), 'utf-8')
+      const previousVersion = manifestVersion(tree.root, project, readFromTree)
       const messages = await super.updateProjectVersion(tree, newVersion)
-      return [...messages, ...rewriteMarkedVersions(tree, this.projectGraphNode.name, newVersion)]
+      return [...messages, ...rewriteMarkedVersions(tree, project, previousVersion, newVersion)]
     }
   }
 }

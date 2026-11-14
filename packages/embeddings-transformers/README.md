@@ -4,7 +4,7 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 
 ## Installation
 
-```bash
+```bash skip
 pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
 ```
 

@@ -4,7 +4,7 @@
 
 To search an index inside a Go process with no server, use [the Go engine](https://github.com/assetcorp/narsil/tree/main/packages/go/engine) at `github.com/assetcorp/narsil/packages/go/engine`. The two modules carry separate version tags: this client's releases carry tags of the form `packages/go/vX.Y.Z`, while the engine's carry `packages/go/engine/vX.Y.Z`. The change feed subscriber at `github.com/assetcorp/narsil/packages/go/changes` carries `packages/go/changes/vX.Y.Z`, and each of its releases requires the newest client release, so the release workflow refuses it while the client on `main` holds changes that no client release includes.
 
-```bash
+```bash skip
 go get github.com/assetcorp/narsil/packages/go
 ```
 

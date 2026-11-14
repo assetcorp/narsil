@@ -1,7 +1,9 @@
 const { readFileSync } = require('node:fs')
-const { basename } = require('node:path')
+const { relative, resolve } = require('node:path')
 
-const FENCE_OPENING = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const REPOSITORY_ROOT = resolve(__dirname, '..', '..')
+const FENCE_OPENING = /^((?:[ \t]*>)*[ \t]*)(`{3,}|~{3,})(.*)$/
+const QUOTE_MARKERS = /^(?:[ \t]*>)+[ \t]?/
 const INFO_STRING_SEPARATOR = /[\s,]+/
 const SETUP_OPENING = '<!-- example setup'
 const COMMENT_CLOSING = '-->'
@@ -10,10 +12,25 @@ const RUN_ATTRIBUTE = 'run'
 const SKIP_ATTRIBUTE = 'skip'
 const KNOWN_ATTRIBUTES = new Set([RUN_ATTRIBUTE, SKIP_ATTRIBUTE])
 
+function withoutContainer(line, container) {
+  if (line.startsWith(container)) return line.slice(container.length)
+  const quoted = container.includes('>') ? line.replace(QUOTE_MARKERS, '') : line
+  const indent = container.replace(QUOTE_MARKERS, '').length
+  return quoted.replace(new RegExp(`^[ \\t]{0,${indent}}`), '')
+}
+
 function closesFence(line, opening) {
   const trimmed = line.trim()
   if (trimmed.length < opening.length || trimmed[0] !== opening[0]) return false
   return [...trimmed].every(character => character === opening[0]) && line.search(/\S/) <= 3
+}
+
+function blockName(markdownPath, line) {
+  const path = relative(REPOSITORY_ROOT, markdownPath).replace(/\.md$/i, '')
+  return `${path}-L${line}`
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+/, '')
+    .toLowerCase()
 }
 
 function setupEndingAt(lines, fenceIndex, markdownPath) {
@@ -46,8 +63,9 @@ function codeBlocksIn(markdownPath) {
   let open = null
   lines.forEach((line, index) => {
     if (open !== null) {
-      if (!closesFence(line, open.fence)) {
-        open.body.push(line)
+      const content = withoutContainer(line, open.container)
+      if (!closesFence(content, open.fence)) {
+        open.body.push(content)
         return
       }
       const location = `${markdownPath}:${open.line}`
@@ -67,17 +85,18 @@ function codeBlocksIn(markdownPath) {
         skipped: open.attributes.includes(SKIP_ATTRIBUTE),
         setupLineCount,
         code: `${code.join('\n')}\n`,
-        name: `${basename(markdownPath, '.md')}-L${open.line}`.replace(/[^A-Za-z0-9]+/g, '_').toLowerCase(),
+        name: blockName(markdownPath, open.line),
       })
       open = null
       return
     }
     const match = FENCE_OPENING.exec(line)
     if (match === null) return
-    const [, fence, infoString] = match
+    const [, container, fence, infoString] = match
     if (fence[0] === '`' && infoString.includes('`')) return
     const [language = '', ...attributes] = infoString.trim().split(INFO_STRING_SEPARATOR).filter(Boolean)
     open = {
+      container,
       fence,
       line: index + 1,
       language: language.toLowerCase(),
