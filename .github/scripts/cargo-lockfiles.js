@@ -1,6 +1,7 @@
 const { execFileSync } = require('node:child_process')
 const { createRequire } = require('node:module')
 const { posix } = require('node:path')
+const { versionPathPackage } = require('./cargo-lockfile-references.js')
 
 const requireFromNx = createRequire(require.resolve('nx/package.json'))
 const { parse, stringify } = requireFromNx('smol-toml')
@@ -66,14 +67,7 @@ function rewrittenLockfile(path, text, packageName, newVersion) {
   }
   const entry = document.package.find(candidate => candidate.name === packageName && candidate.source === undefined)
   if (entry === undefined) return null
-  const previousVersion = entry.version
-  entry.version = newVersion
-  for (const candidate of document.package) {
-    if (candidate.dependencies === undefined) continue
-    candidate.dependencies = candidate.dependencies.map(reference =>
-      reference === `${packageName} ${previousVersion}` ? `${packageName} ${newVersion}` : reference,
-    )
-  }
+  versionPathPackage(document.package, entry, newVersion)
   return lockfileText(document, text)
 }
 
