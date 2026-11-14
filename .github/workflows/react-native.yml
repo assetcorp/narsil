@@ -2,6 +2,12 @@ name: React Native
 
 on:
   workflow_call:
+    inputs:
+      android:
+        description: 'Build the Android apps, which a release skips where main has built them on the same inputs'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -9,6 +15,7 @@ permissions:
 jobs:
   android:
     name: Android (${{ matrix.app }})
+    if: ${{ inputs.android }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

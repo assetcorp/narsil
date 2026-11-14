@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: 'python-engine'
+      proven-on-main:
+        description: 'Main has passed the push checks of the package on the same inputs, so a release tests only the platforms and Python versions that main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -173,6 +178,19 @@ jobs:
         {"python": "3.14", "platform": {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false}},
         {"python": "3.14", "platform": {"label": "darwin-arm64", "runner": "macos-15", "musl": false, "target": "aarch64"}},
         {"python": "3.14", "platform": {"label": "win32-x64", "runner": "windows-latest", "musl": false}}
+        ]}' || inputs.proven-on-main && '{"include": [
+        {"python": "3.11", "platform": {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false}},
+        {"python": "3.11", "platform": {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true}},
+        {"python": "3.11", "platform": {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true}},
+        {"python": "3.11", "platform": {"label": "darwin-arm64", "runner": "macos-15", "musl": false}},
+        {"python": "3.11", "platform": {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false}},
+        {"python": "3.11", "platform": {"label": "win32-x64", "runner": "windows-latest", "musl": false}},
+        {"python": "3.11", "platform": {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}},
+        {"python": "3.14", "platform": {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false}},
+        {"python": "3.14", "platform": {"label": "linux-x64-musl", "runner": "ubuntu-latest", "musl": true}},
+        {"python": "3.14", "platform": {"label": "linux-arm64-musl", "runner": "ubuntu-24.04-arm", "musl": true}},
+        {"python": "3.14", "platform": {"label": "darwin-x64", "runner": "macos-15-intel", "musl": false}},
+        {"python": "3.14", "platform": {"label": "win32-arm64", "runner": "windows-11-arm", "musl": false}}
         ]}' || '{"python": ["3.11", "3.14"], "platform": [
         {"label": "linux-x64-gnu", "runner": "ubuntu-latest", "musl": false},
         {"label": "linux-arm64-gnu", "runner": "ubuntu-24.04-arm", "musl": false},

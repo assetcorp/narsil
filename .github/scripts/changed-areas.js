@@ -259,4 +259,6 @@ const main = () => {
   writeOutput('engine', String(CI_AREAS_THAT_LOAD_THE_ENGINE.some(area => touched.has(area))))
 }
 
-main()
+if (require.main === module) main()
+
+module.exports = { FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE, PATHS_BY_LANGUAGE_AREA, README_EXAMPLE_SCRIPTS, matchesAnyPath }

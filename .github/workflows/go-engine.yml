@@ -2,6 +2,12 @@ name: Go engine
 
 on:
   workflow_call:
+    inputs:
+      proven-on-main:
+        description: 'Main has passed the push checks of the Go engine on the same inputs, so a release tests only the platforms that main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -9,6 +15,7 @@ permissions:
 jobs:
   checks:
     name: Core copy, gofmt, and go vet
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -57,18 +64,35 @@ jobs:
         {"parts": 5, "shard": 3, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
         {"parts": 5, "shard": 4, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
         {"parts": 5, "shard": 5, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}}
-        ]}' || '{"parts": [4], "shard": [1, 2, 3, 4], "target": [
-        {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "1.26", "race": true},
-        {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true},
-        {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true},
-        {"platform": "darwin-arm64", "runner": "macos-15", "go": "stable", "race": true},
-        {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false},
-        {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true},
-        {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false,
-        "llvm-mingw-release": "20261104",
-        "llvm-mingw-archive": "llvm-mingw-20261104-ucrt-aarch64",
-        "llvm-mingw-sha256": "7d7f8387a8706639b0b47a629d6e23f8b3ef9acce67e9832b8cd4c5bb2816eab",
-        "llvm-mingw-cc": "aarch64-w64-mingw32-clang"}
+        ]}' || inputs.proven-on-main && '{"include": [
+        {"parts": 2, "shard": 1, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 2, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 1, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 2, "shard": 2, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 1, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 2, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 3, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 4, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}}
+        ]}' || '{"include": [
+        {"parts": 2, "shard": 1, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "1.26", "race": true}},
+        {"parts": 2, "shard": 2, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "1.26", "race": true}},
+        {"parts": 2, "shard": 1, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 2, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 1, "target": {"platform": "darwin-arm64", "runner": "macos-15", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 2, "target": {"platform": "darwin-arm64", "runner": "macos-15", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 1, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 2, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 3, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 4, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 5, "shard": 5, "target": {"platform": "win32-x64", "runner": "windows-latest", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 1, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 2, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
+        {"parts": 2, "shard": 1, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 2, "shard": 2, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 1, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 2, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 3, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 4, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}}
         ]}') }}
 
     env:
@@ -117,13 +141,13 @@ jobs:
           path: packages/conformance/.dataset
 
       - name: Use llvm-mingw as the C compiler
-        if: matrix.target.llvm-mingw-archive
+        if: matrix.target.platform == 'win32-arm64'
         shell: pwsh
         env:
-          LLVM_MINGW_RELEASE: ${{ matrix.target.llvm-mingw-release }}
-          LLVM_MINGW_ARCHIVE: ${{ matrix.target.llvm-mingw-archive }}
-          LLVM_MINGW_SHA256: ${{ matrix.target.llvm-mingw-sha256 }}
-          LLVM_MINGW_CC: ${{ matrix.target.llvm-mingw-cc }}
+          LLVM_MINGW_RELEASE: '20261104'
+          LLVM_MINGW_ARCHIVE: llvm-mingw-20261104-ucrt-aarch64
+          LLVM_MINGW_SHA256: 7d7f8387a8706639b0b47a629d6e23f8b3ef9acce67e9832b8cd4c5bb2816eab
+          LLVM_MINGW_CC: aarch64-w64-mingw32-clang
         run: |
           $archive = Join-Path $env:RUNNER_TEMP "$env:LLVM_MINGW_ARCHIVE.zip"
           Invoke-WebRequest -Uri "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_RELEASE/$env:LLVM_MINGW_ARCHIVE.zip" -OutFile $archive -MaximumRetryCount 5 -RetryIntervalSec 5
