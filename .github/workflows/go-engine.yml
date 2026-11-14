@@ -67,8 +67,10 @@ jobs:
         ]}' || inputs.proven-on-main && '{"include": [
         {"parts": 2, "shard": 1, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
         {"parts": 2, "shard": 2, "target": {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm", "go": "stable", "race": true}},
-        {"parts": 2, "shard": 1, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
-        {"parts": 2, "shard": 2, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 1, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 2, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 3, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
+        {"parts": 4, "shard": 4, "target": {"platform": "darwin-x64", "runner": "macos-15-intel", "go": "stable", "race": false}},
         {"parts": 4, "shard": 1, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
         {"parts": 4, "shard": 2, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
         {"parts": 4, "shard": 3, "target": {"platform": "win32-arm64", "runner": "windows-11-arm", "go": "stable", "race": false}},
