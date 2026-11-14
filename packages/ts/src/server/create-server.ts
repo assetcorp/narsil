@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import type { EngineCore } from '../engine/core'
 import { readMemoryFigures } from '../engine/memory/measure'
-import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
 import { detectRuntime } from '../runtime/detect'
 import { createBodyBudgetBuffer, createSharedBodyBudget } from './body-budget'
 import { createChangesSettingHandlers } from './changes/setting-handlers'
+import { type ClosingRequests, watchClosingRequests } from './closing-requests'
 import {
   createSharedGateBuffer,
   createSharedRequestGate,
@@ -29,6 +29,7 @@ import {
   DEFAULT_MAX_RESTORE_BYTES,
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
+  SERVER_CLOSE_DRAIN_DEADLINE_MS,
 } from './constants'
 import { corsHeaderReader, resolveCors } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
@@ -49,6 +50,7 @@ import { createVersionHandler } from './handlers/version'
 import {
   assertAllowRegex,
   assertQuerySuggestionsOptions,
+  assertSecureBinding,
   assertServerEngine,
   assertServerLimits,
 } from './options-validation'
@@ -100,19 +102,6 @@ function resolveBuild(build: ServerOptions['build']): ResolvedBuild {
     gitSha: build?.gitSha ?? null,
     dirty: build?.dirty ?? false,
   }
-}
-
-function isLoopback(host: string): boolean {
-  return host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
-}
-
-function assertSecureBinding(host: string, options: ServerOptions): void {
-  if (isLoopback(host) || options.onRequest || options.allowInsecure) return
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    `Refusing to start: bound to a non-loopback address ("${host}") with no onRequest auth hook. The server exposes destructive admin endpoints (restore, drop, clear, rebalance, optimize). Resolve one of: (1) set options.onRequest to authenticate requests, (2) bind to 127.0.0.1, or (3) set options.allowInsecure: true if this address is on a trusted private network.`,
-    { host },
-  )
 }
 
 function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | null): ServerHandlers {
@@ -210,6 +199,8 @@ class NarsilHttpServer implements NarsilServer {
   private readonly engine: Narsil
   private readonly deps: HandlerDeps
   private uws: UWebSockets | null = null
+  private app: TemplatedApp | null = null
+  private closingRequests: ClosingRequests | null = null
   private listenSocket: us_listen_socket | null = null
   private ready = false
   private threads: RequestThreadHost | null = null
@@ -261,6 +252,7 @@ class NarsilHttpServer implements NarsilServer {
     const uws = await loadUWebSockets()
     this.uws = uws
     const app = uws.App()
+    this.app = app
     await this.registerRoutes(app)
     await new Promise<void>((resolve, reject) => {
       app.listen(this.host, this.port, socket => {
@@ -288,11 +280,14 @@ class NarsilHttpServer implements NarsilServer {
     this.feeds?.close()
     this.feeds = null
     this.syncServing = null
-    if (this.threads !== null) {
-      const threads = this.threads
-      this.threads = null
-      await threads.stop()
-    }
+    const app = this.app
+    const closingRequests = this.closingRequests
+    const threads = this.threads
+    this.app = null
+    this.closingRequests = null
+    this.threads = null
+    await Promise.all([closingRequests?.close(SERVER_CLOSE_DRAIN_DEADLINE_MS), threads?.stop()])
+    app?.close()
   }
 
   async shutdown(): Promise<void> {
@@ -334,14 +329,17 @@ class NarsilHttpServer implements NarsilServer {
     const { limits, build, allowRegex } = this.deps
     const handlers = mainThreadHandlers(this.deps, () => this.syncServing)
     this.startFeeds(app, authorize, core)
+    const closingRequests = watchClosingRequests()
+    this.closingRequests = closingRequests
     const run = createRouteRunner({
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
       bodyBudget: createSharedBodyBudget(bodyBudget, limits.maxBodyBytesInFlight, MAIN_THREAD_GATE_SLOT),
       corsHeaders: cors ? corsHeaderReader(cors) : undefined,
+      track: (res, abort) => closingRequests.track(res, abort),
     })
 
-    registerServerRoutes(app, run, handlers, limits, cors)
+    registerServerRoutes(app, run, closingRequests.refuseOnceClosing(handlers), limits, cors)
 
     if (core === undefined || threadCount === 0 || !detectRuntime().supportsWorkerThreads) return
     try {

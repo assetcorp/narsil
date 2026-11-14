@@ -117,6 +117,8 @@ process.once('SIGINT', () => void stop())
 
 `server.close()` stops the server taking requests and leaves the engine running, which is what a process that fronts one engine with two servers calls. That process shuts the engine down itself once its last server closes.
 
+Once you call `server.close()`, the server accepts no new connection, and it answers a new request on a connection that is already open with a 503 that closes that connection, so that the client can retry it on another server. A request that is already running gets up to 30 seconds to finish, and the promise resolves once the server has closed every connection, including an idle one that a client keeps alive.
+
 Shutting the engine down is what ends the request threads, which is why a process that closes the server alone still holds them. Where such a process exits while a request thread holds a client connection, Node terminates that thread and then fails to close its event loop. Node prints an assertion of its own and ends the process with code 134 in place of the code that you passed, so a supervisor reading the exit code records a crash. A process that installs no signal handler takes Node's default, under which `SIGTERM` ends it with code 143 and no assertion.
 
 An uncaught error on the main thread ends the process the same way, because nothing shuts the engine down on that path. Node prints your own error and its stack first, so you still see what failed. Handle the error yourself where you want a clean exit code:

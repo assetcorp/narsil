@@ -2,7 +2,20 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { MAX_RERANK_WINDOW } from '../rerank/constants'
 import type { Narsil } from '../types/engine'
 import { MAX_BODY_BYTES_IN_FLIGHT_FRACTION, MIN_COUNTED_SERVER_LIMIT, MIN_UNBOUNDED_SERVER_LIMIT } from './constants'
-import type { ServerLimits } from './types'
+import type { ServerLimits, ServerOptions } from './types'
+
+function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
+}
+
+export function assertSecureBinding(host: string, options: ServerOptions): void {
+  if (isLoopback(host) || options.onRequest || options.allowInsecure) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `Refusing to start: bound to a non-loopback address ("${host}") with no onRequest auth hook. The server exposes destructive admin endpoints (restore, drop, clear, rebalance, optimize). Resolve one of: (1) set options.onRequest to authenticate requests, (2) bind to 127.0.0.1, or (3) set options.allowInsecure: true if this address is on a trusted private network.`,
+    { host },
+  )
+}
 
 const ENGINE_METHOD_SAMPLE = ['createIndex', 'listIndexes', 'insert', 'query', 'get', 'shutdown'] as const
 
