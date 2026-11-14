@@ -1,6 +1,6 @@
 const { spawnSync } = require('node:child_process')
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
-const { join, relative } = require('node:path')
+const { join, relative, sep } = require('node:path')
 const { describe } = require('./readme-code-blocks.js')
 
 const EXAMPLE_RUN_TIMEOUT_MS = 120_000
@@ -21,6 +21,17 @@ function run(command, args, options) {
   if (result.status !== 0) throw new Error(`${options.label} exited with status ${result.status}`)
 }
 
+function requireDistinctNames(blocks) {
+  const seen = new Map()
+  for (const block of blocks) {
+    const earlier = seen.get(block.name)
+    if (earlier !== undefined) {
+      throw new Error(`${describe(earlier)} and ${describe(block)} both write the example file ${block.name}`)
+    }
+    seen.set(block.name, block)
+  }
+}
+
 function compileLabel(tool, blocks, fileOf) {
   const lines = blocks.map(block => {
     const setup = block.setupLineCount > 0 ? `, after ${block.setupLineCount} hidden setup lines` : ''
@@ -36,6 +47,7 @@ function goVersionOf(moduleRoot) {
 }
 
 function checkGo(blocks, moduleRoot, workspace, dependentModuleRoots = []) {
+  requireDistinctNames(blocks)
   const goVersion = goVersionOf(moduleRoot)
   for (const block of blocks) {
     const directory = join(workspace, block.name)
@@ -47,32 +59,45 @@ function checkGo(blocks, moduleRoot, workspace, dependentModuleRoots = []) {
     ...blocks.map(block => `./${block.name}`),
     ...[moduleRoot, ...dependentModuleRoots].map(root => root.replaceAll('\\', '/')),
   ]
-  writeFileSync(join(workspace, 'go.work'), `go ${goVersion}\n\nuse (\n${uses.map(use => `\t${use}\n`).join('')})\n`)
+  const useLines = uses.map(use => `\t${JSON.stringify(use)}\n`).join('')
+  writeFileSync(join(workspace, 'go.work'), `go ${goVersion}\n\nuse (\n${useLines})\n`)
   const env = { GOWORK: join(workspace, 'go.work'), GOFLAGS: '', GOPROXY: 'off' }
-  run('go', ['vet', ...blocks.map(block => `./${block.name}`)], {
+  const packages = blocks.map(block => `./${block.name}`)
+  const binaries = join(workspace, 'bin')
+  mkdirSync(binaries)
+  run('go', ['build', '-buildvcs=false', '-o', `${binaries}${sep}`, ...packages], {
+    cwd: workspace,
+    env,
+    timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
+    label: compileLabel('go build', blocks, block => `${block.name}/main.go`),
+  })
+  run('go', ['vet', ...packages], {
     cwd: workspace,
     env,
     timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
     label: compileLabel('go vet', blocks, block => `${block.name}/main.go`),
   })
   for (const block of blocks.filter(candidate => candidate.runs)) {
-    run('go', ['run', `./${block.name}`], {
-      cwd: workspace,
-      env,
-      timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
-      label: `go run of ${describe(block)}`,
+    run(join(binaries, ON_WINDOWS ? `${block.name}.exe` : block.name), [], {
+      cwd: join(workspace, block.name),
+      timeoutMs: EXAMPLE_RUN_TIMEOUT_MS,
+      label: `the program of ${describe(block)}`,
     })
   }
 }
 
-function checkPython(blocks, packageRoot, workspace) {
+function checkPython(blocks, packageRoot, workspace, { typeCheck = true, execute = true } = {}) {
+  requireDistinctNames(blocks)
   const fileOf = block => join(workspace, `${block.name}.py`)
   for (const block of blocks) writeFileSync(fileOf(block), block.code)
-  run('python3', [join('scripts', 'tools.py'), 'mypy', ...blocks.map(fileOf)], {
-    cwd: packageRoot,
-    timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
-    label: compileLabel('mypy', blocks, block => `${block.name}.py`),
-  })
+  if (typeCheck) {
+    run('python3', [join('scripts', 'tools.py'), 'mypy', ...blocks.map(fileOf)], {
+      cwd: packageRoot,
+      timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
+      label: compileLabel('mypy', blocks, block => `${block.name}.py`),
+    })
+  }
+  if (!execute) return
   const environmentPython = join(
     packageRoot,
     '.venv',
@@ -108,7 +133,27 @@ const COMPILER_OPTIONS_BY_PACKAGE = {
   },
 }
 
+function transpiled(typescript, block, fileName) {
+  const { outputText, diagnostics = [] } = typescript.transpileModule(block.code, {
+    fileName,
+    reportDiagnostics: true,
+    compilerOptions: {
+      module: typescript.ModuleKind.ESNext,
+      target: typescript.ScriptTarget.ES2022,
+      jsx: typescript.JsxEmit.ReactJSX,
+    },
+  })
+  if (diagnostics.length > 0) {
+    const messages = diagnostics.map(diagnostic =>
+      typescript.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+    )
+    throw new Error(`${describe(block)} does not transpile: ${messages.join('; ')}`)
+  }
+  return outputText
+}
+
 function checkTypescript(blocks, packageRoot) {
+  requireDistinctNames(blocks)
   const packageName = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).name
   const workspace = mkdtempSync(join(packageRoot, '.readme-examples-'))
   try {
@@ -139,8 +184,12 @@ function checkTypescript(blocks, packageRoot) {
       timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
       label: compileLabel('tsc', blocks, block => join(relative(process.cwd(), workspace), fileOf(block))),
     })
-    for (const block of blocks.filter(candidate => candidate.runs)) {
-      run(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', fileOf(block)], {
+    const runnable = blocks.filter(candidate => candidate.runs)
+    const typescript = runnable.length > 0 ? require(require.resolve('typescript', { paths: [packageRoot] })) : null
+    for (const block of runnable) {
+      const program = `${block.name}.mjs`
+      writeFileSync(join(workspace, program), transpiled(typescript, block, fileOf(block)))
+      run(process.execPath, [program], {
         cwd: workspace,
         timeoutMs: EXAMPLE_RUN_TIMEOUT_MS,
         label: `node of ${describe(block)}`,
@@ -160,9 +209,15 @@ function withWorkspace(check) {
   }
 }
 
-function report(blocks) {
+function verdictOf(block, { typeCheck = true, execute = true }) {
+  if (block.skipped) return 'carries skip'
+  if (!typeCheck) return block.runs ? 'runs' : 'waits for the type-check step'
+  return block.runs && execute ? 'compiles and runs' : 'compiles'
+}
+
+function report(blocks, stages = {}) {
   for (const block of blocks) {
-    const verdict = block.skipped ? 'carries skip' : block.runs ? 'compiles and runs' : 'compiles'
+    const verdict = verdictOf(block, stages)
     console.log(`${describe(block)} ${verdict}`)
   }
 }

@@ -4,7 +4,7 @@
 
 ## Install
 
-```sh
+```sh skip
 pip install delali-narsil
 ```
 

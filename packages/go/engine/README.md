@@ -4,7 +4,7 @@
 
 The module needs Go 1.26 or later and a C compiler, because it calls the core through cgo.
 
-```bash
+```bash skip
 go get github.com/assetcorp/narsil/packages/go/engine
 ```
 
@@ -101,7 +101,7 @@ The module holds a copy of the core's C sources, so `go build` compiles them alo
 
 Cgo can't use the Microsoft Visual C++ compiler, so a Windows build needs one of the GNU-compatible compilers above. Zig 0.16.0 builds the Windows arm64 job in this repository's continuous integration, and it cross-compiles the Linux and Windows targets from a Linux machine:
 
-```bash
+```bash skip
 CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC="zig cc -target aarch64-windows-gnu" go build ./...
 ```
 
