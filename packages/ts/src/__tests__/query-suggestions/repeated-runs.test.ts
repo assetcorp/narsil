@@ -13,11 +13,13 @@ const FIRST_PEOPLE = ['person-1', 'person-2', 'person-3']
 const RUNS = 4
 const STEADY_PEOPLE = 10
 
-function adapterThatLendsItsBytes(): PersistenceAdapter {
+function adapterThatLendsItsBytes(buffer = false): PersistenceAdapter {
   const stored = new Map<string, Uint8Array>()
   return {
     async save(key, data) {
-      stored.set(key, data.slice())
+      const copy = buffer ? Buffer.alloc(data.byteLength) : new Uint8Array(data.byteLength)
+      copy.set(data)
+      stored.set(key, copy)
     },
     async load(key) {
       return stored.get(key) ?? null
@@ -37,6 +39,14 @@ const ENGINES: Array<{ label: string; config: () => NarsilConfig }> = [
     label: 'an engine that saves to an adapter whose load returns the bytes that it holds',
     config: () => ({
       persistence: adapterThatLendsItsBytes(),
+      durability: { tier: 'snapshot' },
+      querySuggestions: { key: KEY },
+    }),
+  },
+  {
+    label: 'an adapter that returns a Buffer backed by its stored history',
+    config: () => ({
+      persistence: adapterThatLendsItsBytes(true),
       durability: { tier: 'snapshot' },
       querySuggestions: { key: KEY },
     }),
@@ -78,6 +88,26 @@ describe('popular query suggestions over repeated previews and builds', () => {
   }
 
   for (const { label, config } of ENGINES) {
+    it(`keeps history readable during concurrent previews, builds, and writes on ${label}`, async () => {
+      const { suggestions, recordPerson } = await openSource(config())
+      for (const person of FIRST_PEOPLE) await recordPerson(person)
+      const [first, second, built] = await Promise.all([
+        suggestions.preview(SOURCE),
+        suggestions.preview(SOURCE),
+        suggestions.build(SOURCE),
+        recordPerson('concurrent-person'),
+      ])
+      for (const preview of [first, second]) {
+        expect(preview.entries).toHaveLength(1)
+        expect(preview.entries[0]).toMatchObject({ group: GROUP, query: PHRASE })
+        expect([FIRST_PEOPLE.length, FIRST_PEOPLE.length + 1]).toContain(preview.entries[0].count)
+      }
+      expect(built.errorCode).toBeNull()
+      expect((await suggestions.preview(SOURCE)).entries).toEqual([
+        { group: GROUP, query: PHRASE, count: FIRST_PEOPLE.length + 1 },
+      ])
+    })
+
     it(`answers previews and builds in a row with no new history between them on ${label}`, async () => {
       const { suggestions, recordPerson } = await openSource(config())
       for (let person = 1; person <= STEADY_PEOPLE; person++) await recordPerson(`steady-person-${person}`)
