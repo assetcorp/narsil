@@ -28,7 +28,9 @@ const (
 // minutes, and a CheckpointInterval of 0 turns that timer off, so that only
 // CheckpointMutationThreshold and Narsil.Checkpoint start a checkpoint. In
 // the async mode an unset FlushInterval flushes the log every second, and a
-// FlushInterval of 0 turns that timer off.
+// FlushInterval of 0 turns that timer off, so that a hard crash may lose
+// every write since the last checkpoint. Both intervals are time.Duration
+// values, which encoding/json reads and writes as nanoseconds.
 type DurabilityConfig = model.DurabilityConfig
 
 // DurabilityTier picks the write-ahead log tier or the snapshot tier.
