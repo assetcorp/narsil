@@ -1,71 +1,95 @@
 const { execFileSync } = require('node:child_process')
-const { escapedForPattern } = require('./toml-table.js')
+const { createRequire } = require('node:module')
+const { posix } = require('node:path')
 
-const PACKAGE_HEADER = '[[package]]'
-const ENTRY_KEY = /^(name|version|source) = "([^"]*)"$/
+const requireFromNx = createRequire(require.resolve('nx/package.json'))
+const { parse, stringify } = requireFromNx('smol-toml')
+const { valid } = requireFromNx('semver')
 
 function trackedLockfiles(repositoryRoot) {
   const listed = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/Cargo.lock'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
   })
-  return listed.split('\0').filter(path => path.length > 0)
+  return [...new Set(listed.split('\0').filter(path => path.length > 0))]
 }
 
-function entriesWithoutSource(lines, packageName) {
-  const entries = []
-  let entry = null
-  lines.forEach((line, index) => {
-    if (line.startsWith('[')) {
-      entry = line === PACKAGE_HEADER ? { name: null, version: null, versionLine: null, sourced: false } : null
-      if (entry !== null) entries.push(entry)
-      return
-    }
-    if (entry === null) return
-    const key = ENTRY_KEY.exec(line)
-    if (key === null) return
-    if (key[1] === 'name') entry.name = key[2]
-    else if (key[1] === 'version') {
-      entry.version = key[2]
-      entry.versionLine = index
-    } else entry.sourced = true
-  })
-  return entries.filter(
-    candidate => candidate.name === packageName && !candidate.sourced && candidate.versionLine !== null,
-  )
-}
-
-function rewrittenLockfile(text, packageName, newVersion) {
-  const lines = text.split('\n')
-  const entries = entriesWithoutSource(lines, packageName)
-  if (entries.length === 0) return null
-  const name = escapedForPattern(packageName)
-  for (const entry of entries) {
-    lines[entry.versionLine] = `version = "${newVersion}"`
-    const reference = new RegExp(`^(\\s*"${name} )${escapedForPattern(entry.version)}(",?)$`)
-    lines.forEach((line, index) => {
-      lines[index] = line.replace(reference, `$1${newVersion}$2`)
-    })
+function parsedLockfile(path, text) {
+  const document = parse(text)
+  if (![3, 4].includes(document.version) || !Array.isArray(document.package)) {
+    throw new Error(`${path} must hold a Cargo lockfile with format version 3 or 4 and a package array`)
   }
-  return lines.join('\n')
+  const identities = new Set()
+  const pathNames = new Set()
+  for (const entry of document.package) {
+    if (
+      typeof entry.name !== 'string' ||
+      entry.name.length === 0 ||
+      typeof entry.version !== 'string' ||
+      valid(entry.version) === null ||
+      !/^\d/.test(entry.version) ||
+      entry.version.trim() !== entry.version ||
+      (entry.source !== undefined && (typeof entry.source !== 'string' || entry.source.length === 0)) ||
+      (entry.dependencies !== undefined &&
+        (!Array.isArray(entry.dependencies) || entry.dependencies.some(value => typeof value !== 'string'))) ||
+      (entry.replace !== undefined && typeof entry.replace !== 'string')
+    ) {
+      throw new Error(`${path} holds an invalid Cargo package entry`)
+    }
+    const identity = JSON.stringify([entry.name, entry.version, entry.source])
+    if (identities.has(identity) || (entry.source === undefined && pathNames.has(entry.name))) {
+      throw new Error(`${path} holds duplicate Cargo package entries for ${entry.name}`)
+    }
+    identities.add(identity)
+    if (entry.source === undefined) pathNames.add(entry.name)
+  }
+  return document
 }
 
-function rewritePathPinnedVersions(tree, packageName, newVersion, requiredLockfile) {
-  const messages = []
-  let requiredLockfileRewritten = false
+function lockfileText(document, original) {
+  const prefix = original.match(/^(?:[ \t]*#[^\r\n]*(?:\r?\n|$))*/)[0].replace(/\r\n/g, '\n')
+  const text = stringify(document).replace(/^dependencies = (\[.*\])$/gm, (line, array) => {
+    const values = parse(`dependencies = ${array}`).dependencies
+    if (values.length === 0 || values.some(value => typeof value !== 'string')) return line
+    return `dependencies = [\n${values.map(value => ` ${JSON.stringify(value)},`).join('\n')}\n]`
+  })
+  const rewritten = prefix + text
+  return original.includes('\r\n') ? rewritten.replace(/\n/g, '\r\n') : rewritten
+}
+
+function rewrittenLockfile(path, text, packageName, newVersion) {
+  let document
+  try {
+    document = parsedLockfile(path, text)
+  } catch (error) {
+    throw new Error(`Cannot version ${path}: ${error.message}`, { cause: error })
+  }
+  const entry = document.package.find(candidate => candidate.name === packageName && candidate.source === undefined)
+  if (entry === undefined) return null
+  const previousVersion = entry.version
+  entry.version = newVersion
+  for (const candidate of document.package) {
+    if (candidate.dependencies === undefined) continue
+    candidate.dependencies = candidate.dependencies.map(reference =>
+      reference === `${packageName} ${previousVersion}` ? `${packageName} ${newVersion}` : reference,
+    )
+  }
+  return lockfileText(document, text)
+}
+
+function pathPinnedVersionChanges(tree, packageName, newVersion, requiredLockfile) {
+  const changes = []
+  const requiredPath = posix.normalize(requiredLockfile.replace(/\\/g, '/'))
   for (const path of trackedLockfiles(tree.root)) {
     const text = tree.read(path, 'utf-8')
-    if (text === null) continue
-    const rewritten = rewrittenLockfile(text, packageName, newVersion)
-    if (rewritten === null) continue
-    if (path === requiredLockfile) requiredLockfileRewritten = true
-    tree.write(path, rewritten)
-    messages.push(`✍️  New version ${newVersion} written to lockfile: ${path}`)
+    if (text === null) throw new Error(`${path} is tracked by git but cannot be read`)
+    const rewritten = rewrittenLockfile(path, text, packageName, newVersion)
+    if (rewritten !== null) changes.push({ path, text: rewritten })
   }
-  if (!requiredLockfileRewritten) {
-    throw new Error(`${requiredLockfile} holds no entry for ${packageName} that Cargo resolves by path`)
+  if (!changes.some(change => change.path === requiredPath)) {
+    throw new Error(`${requiredLockfile} holds no tracked entry for ${packageName} that Cargo resolves by path`)
   }
-  return messages
+  return changes
 }
 
-module.exports = { rewritePathPinnedVersions }
+module.exports = { pathPinnedVersionChanges }

@@ -1,7 +1,7 @@
 const { join } = require('node:path')
 const { VersionActions } = require('nx/src/command-line/release/version/version-actions')
 const { rewritingMarkedVersions } = require('./release-versions.js')
-const { rewritePathPinnedVersions } = require('./cargo-lockfiles.js')
+const { pathPinnedVersionChanges } = require('./cargo-lockfiles.js')
 const { tableKeyPattern } = require('./toml-table.js')
 
 class TomlVersionActions extends VersionActions {
@@ -44,13 +44,17 @@ class TomlVersionActions extends VersionActions {
     const manifest = tree.read(manifestPath, 'utf-8') ?? ''
     const versionKey = tableKeyPattern(table, 'version')
     if (!versionKey.test(manifest)) throw new Error(`${manifestPath} holds no [${table}] version`)
-    tree.write(manifestPath, manifest.replace(versionKey, `$1${newVersion}$3`))
+    const changes = [{ path: manifestPath, text: manifest.replace(versionKey, `$1${newVersion}$3`) }]
     const logMessages = [`✍️  New version ${newVersion} written to manifest: ${manifestPath}`]
-    if (lockfilePath === null) return logMessages
-
-    const nameMatch = tableKeyPattern(table, 'name').exec(manifest)
-    if (nameMatch === null) throw new Error(`${manifestPath} holds no [${table}] name`)
-    return [...logMessages, ...rewritePathPinnedVersions(tree, nameMatch[2], newVersion, lockfilePath)]
+    if (lockfilePath !== null) {
+      const nameMatch = tableKeyPattern(table, 'name').exec(manifest)
+      if (nameMatch === null) throw new Error(`${manifestPath} holds no [${table}] name`)
+      const lockfiles = pathPinnedVersionChanges(tree, nameMatch[2], newVersion, lockfilePath)
+      changes.push(...lockfiles)
+      logMessages.push(...lockfiles.map(({ path }) => `✍️  New version ${newVersion} written to lockfile: ${path}`))
+    }
+    for (const change of changes) tree.write(change.path, change.text)
+    return logMessages
   }
 
   async updateProjectDependencies() {
