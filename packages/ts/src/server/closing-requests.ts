@@ -1,8 +1,7 @@
 import { ErrorCodes } from '../errors'
-import type { ResponseAbort, RouteHandler } from './request'
-import { refuseAndClose } from './request-threads/leaving-response'
+import type { ResponseAbort } from './request'
+import { LeavingResponse, refuseAndClose } from './request-threads/leaving-response'
 import type { ResponseSink } from './response'
-import type { ServerHandlers } from './routes'
 import type { ErrorEnvelope } from './types'
 
 const CLOSING_REFUSAL: ErrorEnvelope = {
@@ -13,8 +12,9 @@ const CLOSING_REFUSAL: ErrorEnvelope = {
 }
 
 export interface ClosingRequests {
+  accept(res: ResponseSink): boolean
+  respondThrough(res: ResponseSink): ResponseSink
   track(res: ResponseSink, abort: ResponseAbort): () => void
-  refuseOnceClosing(handlers: ServerHandlers): ServerHandlers
   close(deadlineMs: number): Promise<void>
 }
 
@@ -28,26 +28,28 @@ export function watchClosingRequests(): ClosingRequests {
     for (const resume of waitingForIdle.splice(0)) resume()
   }
 
-  function refusing(handler: RouteHandler): RouteHandler {
-    return ctx => {
-      if (!closing) return handler(ctx)
-      refuseAndClose(ctx.res, 503, CLOSING_REFUSAL)
-    }
-  }
-
   return {
-    track(_res, abort) {
+    accept(res) {
+      if (!closing) return true
+      refuseAndClose(res, 503, CLOSING_REFUSAL)
+      return false
+    },
+    respondThrough(res) {
+      return new LeavingResponse(res, () => closing)
+    },
+    track(res, abort) {
       const request = {}
       running.add(request)
-      abort.onAbort(() => settle(request))
-      return () => settle(request)
-    },
-    refuseOnceClosing(handlers) {
-      const guarded = { ...handlers }
-      for (const route of Object.keys(guarded) as Array<keyof ServerHandlers>) {
-        guarded[route] = refusing(handlers[route])
+      let handled = false
+      const finish = (): void => {
+        if (abort.aborted || (handled && (!(res instanceof LeavingResponse) || res.isFinished))) settle(request)
       }
-      return guarded
+      if (res instanceof LeavingResponse) res.whenFinished(finish)
+      abort.onAbort(finish)
+      return () => {
+        handled = true
+        finish()
+      }
     },
     async close(deadlineMs) {
       closing = true

@@ -5,7 +5,7 @@ import type { FeedSocket } from '../../sync/feed/session'
 import { SYNC_CLOSE_SERVER_ERROR, SYNC_SUBPROTOCOL } from '../../sync/protocol'
 import { ServerErrorCodes, toHttpError } from '../errors'
 import { type Authorization, initAbortHandler } from '../request'
-import { sendError } from '../response'
+import { type ResponseSink, sendError } from '../response'
 import type { RequestContext } from '../types'
 
 export interface FeedRoute {
@@ -117,12 +117,18 @@ async function upgradeFeed(
   })
 }
 
-export function registerFeedRoute(app: TemplatedApp, gateway: FeedGateway, route: FeedRoute): void {
+export function registerFeedRoute(
+  app: TemplatedApp,
+  gateway: FeedGateway,
+  route: FeedRoute,
+  accept?: (res: ResponseSink) => boolean,
+): void {
   const { path, subprotocol } = route
   app.ws<FeedUserData>(path, {
     maxPayloadLength: FEED_SOCKET_MAX_PAYLOAD_BYTES,
     maxBackpressure: FEED_SOCKET_MAX_BACKPRESSURE_BYTES,
     upgrade(res: HttpResponse, req: HttpRequest, socketContext: us_socket_context_t) {
+      if (accept?.(res) === false) return
       const rawName = req.getParameter(0) ?? ''
       const protocols = req.getHeader('sec-websocket-protocol')
       const handshake = {

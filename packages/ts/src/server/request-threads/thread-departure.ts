@@ -44,6 +44,7 @@ interface Departure {
 type ThreadExit = (code: unknown) => void
 
 export interface ThreadDeparture {
+  accept(res: ResponseSink): boolean
   respondThrough(res: ResponseSink): ResponseSink
   track(res: ResponseSink, abort: ResponseAbort): () => void
   guardRoute(handler: RouteHandler, onMainThread?: RouteHandler): RouteHandler
@@ -242,6 +243,11 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
   }
 
   return {
+    accept(res) {
+      if (!leaving()) return true
+      refuseAndClose(res, 503, departing ? DEPARTURE_REFUSAL : CLOSING_REFUSAL)
+      return false
+    },
     respondThrough(res) {
       return new LeavingResponse(res, leaving)
     },

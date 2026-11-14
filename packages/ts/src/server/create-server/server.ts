@@ -1,20 +1,19 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
-import type { EngineCore } from '../engine/core'
-import { readMemoryFigures } from '../engine/memory/measure'
-import type { Narsil } from '../narsil'
-import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
-import { detectRuntime } from '../runtime/detect'
-import { createBodyBudgetBuffer, createSharedBodyBudget } from './body-budget'
-import { createChangesSettingHandlers } from './changes/setting-handlers'
-import { type ClosingRequests, watchClosingRequests } from './closing-requests'
+import type { EngineCore } from '../../engine/core'
+import { readMemoryFigures } from '../../engine/memory/measure'
+import type { Narsil } from '../../narsil'
+import { engineCoreOf, rerankWindowCapOf } from '../../narsil/internals'
+import { detectRuntime } from '../../runtime/detect'
+import { createBodyBudgetBuffer, createSharedBodyBudget } from '../body-budget'
+import { type ClosingRequests, watchClosingRequests } from '../closing-requests'
 import {
   createSharedGateBuffer,
   createSharedRequestGate,
   gateSlotOfWorker,
   MAIN_THREAD_GATE_SLOT,
-} from './concurrency-gate'
+} from '../concurrency-gate'
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
   DEFAULT_MAX_BODY_BYTES,
@@ -30,44 +29,30 @@ import {
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
   SERVER_CLOSE_DRAIN_DEADLINE_MS,
-} from './constants'
-import { corsHeaderReader, resolveCors } from './cors'
-import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
-import { startFeeds } from './feeds'
-import { createAdminHandlers } from './handlers/admin'
-import { createBackupHandlers } from './handlers/backups'
-import { createCapabilitiesHandler } from './handlers/capabilities'
-import { createClusterHandlers } from './handlers/cluster'
-import { createDocumentExportHandlers } from './handlers/document-export'
-import { createDocumentHandlers } from './handlers/documents'
-import { createHealthHandlers } from './handlers/health'
-import { createImportHandler } from './handlers/import'
-import { createIndexHandlers } from './handlers/indexes'
-import { createMetricsHandler } from './handlers/metrics'
-import { createQuerySuggestionHandlers } from './handlers/query-suggestions'
-import { createSearchHandlers } from './handlers/search'
-import { createVersionHandler } from './handlers/version'
+} from '../constants'
+import { corsHeaderReader, resolveCors } from '../cors'
+import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from '../deps'
+import { startFeeds } from '../feeds'
 import {
   assertAllowRegex,
   assertQuerySuggestionsOptions,
   assertSecureBinding,
   assertServerEngine,
   assertServerLimits,
-} from './options-validation'
-import { publishedPackageVersion } from './package-version'
-import { type Authorizer, authorizerFor, createRouteRunner } from './request'
-import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
-import { registerServerRoutes, type ServerHandlers } from './routes'
-import { loadUWebSockets, type UWebSockets } from './runtime'
-import type { FeedHost } from './sync/feed-host'
-import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from './sync/feed-route'
-import { assertFeedHasAuthentication, type ResolvedFeedOptions, resolveFeedOptions } from './sync/options'
-import type { SyncServing } from './sync/serving'
-import { createSyncSettingHandlers } from './sync/setting-handlers'
-import { createSyncSnapshotHandler } from './sync/snapshot-handler'
-import { InMemoryTaskStore } from './task-store'
-import { TaskRegistry } from './tasks'
-import type { NarsilServer, ServerLimits, ServerOptions } from './types'
+} from '../options-validation'
+import { publishedPackageVersion } from '../package-version'
+import { type Authorizer, authorizerFor, createRouteRunner } from '../request'
+import { type RequestThreadHost, startRequestThreads } from '../request-threads/host'
+import { registerServerRoutes } from '../routes'
+import { loadUWebSockets, type UWebSockets } from '../runtime'
+import type { FeedHost } from '../sync/feed-host'
+import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
+import { assertFeedHasAuthentication, type ResolvedFeedOptions, resolveFeedOptions } from '../sync/options'
+import type { SyncServing } from '../sync/serving'
+import { InMemoryTaskStore } from '../task-store'
+import { TaskRegistry } from '../tasks'
+import type { NarsilServer, ServerLimits, ServerOptions } from '../types'
+import { mainThreadHandlers } from './handlers'
 
 function bodyBytesInFlightOf(fraction: number): number {
   const processLimitBytes = readMemoryFigures()?.processLimitBytes
@@ -104,94 +89,6 @@ function resolveBuild(build: ServerOptions['build']): ResolvedBuild {
   }
 }
 
-function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | null): ServerHandlers {
-  const idx = createIndexHandlers(deps)
-  const doc = createDocumentHandlers(deps)
-  const search = createSearchHandlers(deps)
-  const admin = createAdminHandlers(deps)
-  const documentExport = createDocumentExportHandlers(deps)
-  const health = createHealthHandlers(deps)
-  const cluster = createClusterHandlers(deps)
-  const backups = createBackupHandlers(deps)
-  const version = createVersionHandler(deps)
-  const capabilities = createCapabilitiesHandler()
-  const syncSetting = createSyncSettingHandlers(deps.engine)
-  const changesSetting = createChangesSettingHandlers(deps.engine)
-  const suggestions = createQuerySuggestionHandlers(deps, deps.querySuggestions)
-
-  return {
-    livez: health.livez,
-    readyz: health.readyz,
-    version: version.report,
-    capabilities: capabilities.report,
-    clusterTopology: cluster.topology,
-    clusterAllocation: cluster.allocation,
-    clusterReplicationFactor: cluster.replicationFactor,
-    clusterHealth: cluster.health,
-    createBackup: backups.create,
-    listBackups: backups.list,
-    restoreBackup: backups.restore,
-    deleteBackup: backups.remove,
-    metrics: createMetricsHandler(deps),
-    memory: admin.memory,
-    listTasks: admin.listTasks,
-    getTask: admin.getTask,
-    cancelTask: admin.cancelTask,
-    createIndex: idx.create,
-    listIndexes: idx.list,
-    dropIndex: idx.drop,
-    indexStats: idx.stats,
-    indexPartitions: idx.partitions,
-    clearIndex: idx.clear,
-    openIndex: idx.open,
-    closeIndex: idx.close,
-    insert: doc.insert,
-    batch: doc.batch,
-    importNdjson: createImportHandler(deps),
-    put: doc.put,
-    patch: doc.patch,
-    remove: doc.remove,
-    waitForWrites: doc.waitForWrites,
-    search: search.search,
-    preflight: search.preflight,
-    suggest: search.suggest,
-    get: doc.get,
-    exists: doc.exists,
-    count: doc.count,
-    list: doc.list,
-    multiGet: doc.multiGet,
-    checkpoint: admin.checkpoint,
-    rebuildAnalysis: admin.rebuildAnalysis,
-    changeAnalysis: admin.changeAnalysis,
-    snapshot: admin.snapshot,
-    vectorMaintenance: admin.vectorMaintenance,
-    compact: admin.compact,
-    optimize: admin.optimize,
-    rebalance: admin.rebalance,
-    partitionConfig: admin.partitionConfig,
-    readSynonyms: admin.readSynonyms,
-    replaceSynonyms: admin.replaceSynonyms,
-    updateBm25: admin.updateBm25,
-    restore: admin.restore,
-    exportDocuments: documentExport.exportDocuments,
-    importExport: documentExport.importExport,
-    getSync: syncSetting.getSync,
-    updateSync: syncSetting.updateSync,
-    syncSnapshot: createSyncSnapshotHandler(syncServing),
-    getChanges: changesSetting.getChanges,
-    updateChanges: changesSetting.updateChanges,
-    updateQuerySuggestions: suggestions.update,
-    querySuggestionsStatus: suggestions.status,
-    recordQuery: suggestions.record,
-    buildQuerySuggestions: suggestions.build,
-    previewQuerySuggestions: suggestions.preview,
-    readQueryBans: suggestions.readBans,
-    replaceQueryBans: suggestions.replaceBans,
-    removeQuery: suggestions.remove,
-    addManualSuggestion: suggestions.manual,
-  }
-}
-
 class NarsilHttpServer implements NarsilServer {
   private readonly host: string
   private readonly port: number
@@ -209,6 +106,8 @@ class NarsilHttpServer implements NarsilServer {
   private syncServing: SyncServing | null = null
   private feeds: FeedHost | null = null
   private stopIdleHeapCleanup: () => void = () => undefined
+  private listening: Promise<void> | null = null
+  private closing: Promise<void> | null = null
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
     assertServerEngine(engine)
@@ -245,7 +144,20 @@ class NarsilHttpServer implements NarsilServer {
     }
   }
 
-  async listen(): Promise<void> {
+  listen(): Promise<void> {
+    if (this.listening !== null) return this.listening
+    const closing = this.closing
+    this.listening = (async () => {
+      if (closing !== null) await closing
+      if (this.listenSocket !== null) return
+      await this.startListening()
+    })().finally(() => {
+      this.listening = null
+    })
+    return this.listening
+  }
+
+  private async startListening(): Promise<void> {
     assertFeedHasAuthentication('sync', this.sync, this.options)
     assertFeedHasAuthentication('changes', this.changes, this.options)
     assertSecureBinding(this.host, this.options)
@@ -269,7 +181,19 @@ class NarsilHttpServer implements NarsilServer {
     this.ready = true
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closing !== null) return this.closing
+    const listening = this.listening
+    this.closing = (async () => {
+      if (listening !== null) await listening.catch(() => undefined)
+      await this.stopListening()
+    })().finally(() => {
+      this.closing = null
+    })
+    return this.closing
+  }
+
+  private async stopListening(): Promise<void> {
     this.ready = false
     this.stopIdleHeapCleanup()
     this.stopIdleHeapCleanup = () => undefined
@@ -286,8 +210,12 @@ class NarsilHttpServer implements NarsilServer {
     this.app = null
     this.closingRequests = null
     this.threads = null
-    await Promise.all([closingRequests?.close(SERVER_CLOSE_DRAIN_DEADLINE_MS), threads?.stop()])
-    app?.close()
+    try {
+      await Promise.all([closingRequests?.close(SERVER_CLOSE_DRAIN_DEADLINE_MS), threads?.stop()])
+    } finally {
+      await new Promise<void>(resolve => setImmediate(resolve))
+      app?.close()
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -315,8 +243,9 @@ class NarsilHttpServer implements NarsilServer {
     this.syncServing = started.syncServing
     this.feeds = started.host
     const { sync, changes } = started.host.gateways
-    if (sync !== undefined) registerFeedRoute(app, sync, SYNC_FEED_ROUTE)
-    if (changes !== undefined) registerFeedRoute(app, changes, CHANGES_FEED_ROUTE)
+    const accept = this.closingRequests?.accept
+    if (sync !== undefined) registerFeedRoute(app, sync, SYNC_FEED_ROUTE, accept)
+    if (changes !== undefined) registerFeedRoute(app, changes, CHANGES_FEED_ROUTE, accept)
   }
 
   private async registerRoutes(app: TemplatedApp): Promise<void> {
@@ -328,18 +257,20 @@ class NarsilHttpServer implements NarsilServer {
     const bodyBudget = createBodyBudgetBuffer(gateSlotOfWorker(threadCount))
     const { limits, build, allowRegex } = this.deps
     const handlers = mainThreadHandlers(this.deps, () => this.syncServing)
-    this.startFeeds(app, authorize, core)
     const closingRequests = watchClosingRequests()
     this.closingRequests = closingRequests
+    this.startFeeds(app, authorize, core)
     const run = createRouteRunner({
+      accept: closingRequests.accept,
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
       bodyBudget: createSharedBodyBudget(bodyBudget, limits.maxBodyBytesInFlight, MAIN_THREAD_GATE_SLOT),
       corsHeaders: cors ? corsHeaderReader(cors) : undefined,
-      track: (res, abort) => closingRequests.track(res, abort),
+      respondThrough: closingRequests.respondThrough,
+      track: closingRequests.track,
     })
 
-    registerServerRoutes(app, run, closingRequests.refuseOnceClosing(handlers), limits, cors)
+    registerServerRoutes(app, run, handlers, limits, cors, closingRequests.accept)
 
     if (core === undefined || threadCount === 0 || !detectRuntime().supportsWorkerThreads) return
     try {

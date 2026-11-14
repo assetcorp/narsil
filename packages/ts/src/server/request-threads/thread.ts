@@ -230,6 +230,7 @@ export async function serveRequests(
     moveAfterMs: () => longQueries.moveAfterMs(),
   })
   const run = createRouteRunner({
+    accept: departure.accept,
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
     bodyBudget: createSharedBodyBudget(settings.bodyBudget, settings.limits.maxBodyBytesInFlight, settings.gateSlot),
@@ -241,10 +242,10 @@ export async function serveRequests(
   const handlers = guardEveryRoute(threadHandlers(local, forwarded, longQueries, settings), forwarded, departure)
   const feeds = settings.feeds.map(feed => {
     const gateway = threadFeedGateway(settings.port, relay, feed)
-    registerFeedRoute(app, gateway, feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE)
+    registerFeedRoute(app, gateway, feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE, departure.accept)
     return gateway
   })
-  registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
+  registerServerRoutes(app, run, handlers, settings.limits, settings.cors, departure.accept)
 
   servingApp = { app: child, relay, longQueries, feeds, departure }
   void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
