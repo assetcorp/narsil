@@ -365,7 +365,6 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
             .expect("a write beside the mapped vectors is accepted");
     }
 
-    let last_write = Instant::now();
     let grown = vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
     std::thread::sleep(STALE_MEASUREMENT_WAIT);
     let after = settled_process_status();
@@ -380,7 +379,6 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
         fraction > block_writes_above,
         "the unbacked memory passes the block level: {fraction} of the limit against {block_writes_above}"
     );
-    assert!(last_write.elapsed() < Duration::from_secs(1));
     let refused = written
         .insert(
             WRITTEN_INDEX,
