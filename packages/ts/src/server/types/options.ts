@@ -366,7 +366,12 @@ export interface NarsilServer {
    * address is configured without an authentication hook.
    */
   listen(): Promise<void>
-  /** Closes the socket and ends the server. The engine keeps running. */
+  /**
+   * Stops accepting connections and resolves once the server holds none. A new
+   * request on a connection that is already open gets a 503 that closes the
+   * connection, and a running request gets up to 30 seconds to finish before
+   * the server drops every connection. The engine keeps running.
+   */
   close(): Promise<void>
   /**
    * Closes the server and then shuts the engine down, which is what a process
