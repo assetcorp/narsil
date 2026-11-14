@@ -170,7 +170,7 @@ export interface FacetResult {
  * @public
  */
 export interface GroupResult {
-  /** Each grouping field holds this value for the group, keyed by field. */
+  /** Each grouping field holds this value for the group, keyed by field, and a field that the group's documents lack holds `null`. */
   values: Record<string, unknown>
   /** These hits fall in the group, cut to the query's `maxPerGroup`. */
   hits: Array<Hit>

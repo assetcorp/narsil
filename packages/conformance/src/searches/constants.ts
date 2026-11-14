@@ -5,6 +5,10 @@ export const INDEX_SCHEMA = { title: 'string', summary: 'string', embedding: 've
 export const INSERT_BATCH_DOCUMENTS = 500
 
 export const TEXT_RESULT_LIMIT = 10
+export const FIELD_THAT_NO_DOCUMENT_HOLDS = 'sponsor'
+export const GROUP_FIELDS = ['title', FIELD_THAT_NO_DOCUMENT_HOLDS] as const
+export const GROUP_LIMIT = 3
+export const GROUP_MAX_PER_GROUP = 2
 export const EXACT_NEIGHBOURS = 100
 export const RECALL_FLOORS = [
   { k: 10, floor: 0.95 },

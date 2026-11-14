@@ -223,7 +223,7 @@ const results = await narsil.query('sales', {
 
 ## Grouping
 
-When you set `group`, the engine collapses the hits that share field values into one group for each set of values. It returns up to `maxPerGroup` hits from each group, or one hit where you leave that out, while it returns up to `limit` groups, best first. An optional reducer folds every hit of each group into one value, including the hits beyond `maxPerGroup`, so a reducer that sums a field adds up the whole group. In cluster mode the coordinator fetches up to 10,000 hits of each group for the reducer to fold.
+When you set `group`, the engine collapses the hits that share field values into one group for each set of values. It returns up to `maxPerGroup` hits from each group, or one hit where you leave that out, while it returns up to `limit` groups, best first. An optional reducer folds every hit of each group into one value, including the hits beyond `maxPerGroup`, so a reducer that sums a field adds up the whole group. Each group's `values` holds one entry for every field in `fields`, and the entry is `null` where the group's documents hold no value for that field. In cluster mode the coordinator fetches up to 10,000 hits of each group for the reducer to fold.
 
 ```ts
 const results = await narsil.query('products', {

@@ -1198,7 +1198,9 @@ class HttpGroupResult(ApiModel):
     """
 
     values: dict[str, Any]
-    """Each grouping field holds this value for the group, keyed by field."""
+    """Each grouping field holds this value for the group, keyed by field, and a field that the
+    group's documents lack holds `null`.
+    """
     hits: list[Hit]
     """These hits retain the scores of the group's ranking."""
 
@@ -2520,7 +2522,9 @@ class VersionResponse(ApiModel):
     name: Annotated[Literal["narsil"], OPEN_ENUM]
     """This is always `narsil`."""
     version: str | None
-    """The build came from this package version, or this is null where the build stamped none."""
+    """This holds the `build.version` that the server was given, or else the installed
+    `@delali/narsil` version, and it is null when the server can read neither.
+    """
     git_sha: str | None = Field(alias="gitSha")
     """The build came from this git commit, or this is null where the build stamped none."""
     dirty: bool

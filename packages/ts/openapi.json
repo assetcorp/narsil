@@ -4096,7 +4096,7 @@
           "values": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Each grouping field holds this value for the group, keyed by field."
+            "description": "Each grouping field holds this value for the group, keyed by field, and a field that the group's documents lack holds `null`."
           },
           "hits": {
             "type": "array",
@@ -6755,7 +6755,7 @@
                 "type": "string"
               }
             ],
-            "description": "The build came from this package version, or this is null where the build stamped none."
+            "description": "This holds the `build.version` that the server was given, or else the installed `@delali/narsil` version, and it is null when the server can read neither."
           },
           "gitSha": {
             "anyOf": [
