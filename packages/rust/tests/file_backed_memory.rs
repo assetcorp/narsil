@@ -187,6 +187,23 @@ fn block_level_one_margin_above(before: &ProcessStatus) -> f64 {
         / process_limit_bytes(before.unbacked_bytes) as f64
 }
 
+fn assert_at_or_below_block_level(block: f64) {
+    let fraction = unbacked_fraction(&settled_process_status());
+    assert!(
+        fraction <= block,
+        "the unbacked memory stays at or below the block level: {fraction} of the limit against {block}"
+    );
+}
+
+fn assert_above_block_level(block: f64) -> f64 {
+    let fraction = unbacked_fraction(&settled_process_status());
+    assert!(
+        fraction > block,
+        "the unbacked memory passes the block level: {fraction} of the limit against {block}"
+    );
+    fraction
+}
+
 fn vector_of(serial: u64) -> Vec<f64> {
     let mut state = serial.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
     (0..DIMENSION)
@@ -356,11 +373,7 @@ fn writes_beside_vector_files_mapped_from_disk_pass_until_anonymous_memory_passe
     for serial in 1..=WRITES_BESIDE_MAPPED_VECTORS {
         fault_every_mapped_page(&mapped);
         std::thread::sleep(STALE_MEASUREMENT_WAIT);
-        let fraction = unbacked_fraction(&settled_process_status());
-        assert!(
-            fraction <= block_writes_above,
-            "the unbacked memory stays at or below the block level: {fraction} of the limit against {block_writes_above}"
-        );
+        assert_at_or_below_block_level(block_writes_above);
         written
             .insert(WRITTEN_INDEX, ledger_entry(serial), None)
             .expect("a write beside the mapped vectors is accepted");
@@ -432,18 +445,19 @@ fn refuse_after_embedding(operation: &str) {
                 dimensions: 2,
                 embed: move |_: &str| {
                     let engine = target.upgrade().unwrap();
+                    assert_at_or_below_block_level(block);
                     engine
                         .insert(WRITTEN_INDEX, ledger_entry(0), Some("nested"))
                         .unwrap();
                     *ballast.lock().unwrap() =
                         vec![1_u8; (ANONYMOUS_GROWTH_MARGINS * ANONYMOUS_MARGIN_BYTES) as usize];
                     std::thread::sleep(STALE_MEASUREMENT_WAIT);
-                    *measurement.lock().unwrap() =
-                        Some(unbacked_fraction(&settled_process_status()));
+                    assert_above_block_level(block);
                     let error = engine
                         .insert(WRITTEN_INDEX, ledger_entry(1), Some("refused"))
                         .unwrap_err();
                     assert_eq!(error.code(), ErrorCode::MEMORY_WRITE_BLOCKED);
+                    *measurement.lock().unwrap() = Some(assert_above_block_level(block));
                     Ok(vec![1.0, 0.0])
                 },
             }),
@@ -467,9 +481,11 @@ fn refuse_after_embedding(operation: &str) {
         "embedding",
         Value::Array(vec![Value::Number(0.0), Value::Number(1.0)]),
     );
+    assert_at_or_below_block_level(block);
     engine
         .insert("embedded", original.clone(), Some("original"))
         .unwrap();
+    assert_at_or_below_block_level(block);
     let failure = match operation {
         "insert" => engine
             .insert("embedded", ledger_entry(1), Some("outer"))
