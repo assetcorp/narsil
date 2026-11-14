@@ -1,7 +1,7 @@
 import { connect, type Socket } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { EmbeddingAdapter } from '../../types/adapters'
-import { postJson, startTestServer, type TestServer } from './helpers'
+import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from './helpers'
 
 const DIMENSIONS = 4
 const ANSWER_TIMEOUT_MS = 3_000
@@ -135,9 +135,31 @@ describe('closing the server while clients hold connections', () => {
     expect(lateAnswer).toBe('')
   })
 
-  it('lets a running write answer and refuses a new request on another open connection', async () => {
+  it.each([false, true])('drains a write and refuses every later request with workers %s', async workers => {
     const held = heldAdapter()
-    server = await startTestServer({ embeddingAdapters: { held: held.adapter } }, { workers: { enabled: false } })
+    let lateHooks = 0
+    server = await startTestServer(
+      {
+        embeddingAdapters: { held: held.adapter },
+        cors: true,
+        onRequest(ctx) {
+          if (ctx.headers['x-late-request']) lateHooks++
+          return undefined
+        },
+      },
+      { workers: { enabled: workers, count: 2 } },
+      async engine => {
+        if (!workers) return
+        await engine.createIndex('copies', { schema: { title: 'string' } })
+        await engine.insertBatch(
+          'copies',
+          Array.from({ length: 1_000 }, (_, i) => ({ id: `copy-${i}`, title: 'report' })),
+        )
+        await waitFor(() => scaledOut(engine, 'copies'))
+        await engine.waitForWrites('copies')
+      },
+    )
+    if (workers) expect(server.server.requestThreadCount).toBeGreaterThan(0)
     const created = await postJson(server.base, '/indexes', {
       name: 'articles',
       config: {
@@ -149,8 +171,15 @@ describe('closing the server while clients hold connections', () => {
     const port = server.server.listeningPort
 
     const writing = await openConnection(port)
-    const idle = await idleKeptAliveConnection(port)
-    sockets.push(writing, idle)
+    const lateRequests = [
+      LIVENESS_REQUEST,
+      'GET /missing HTTP/1.1\r\nHost: narsil.test\r\n\r\n',
+      'OPTIONS /indexes HTTP/1.1\r\nHost: narsil.test\r\nOrigin: https://narsil.test\r\n\r\n',
+      'GET /indexes/%zz/stats HTTP/1.1\r\nHost: narsil.test\r\n\r\n',
+      'POST /indexes HTTP/1.1\r\nHost: narsil.test\r\nContent-Type: application/json\r\nContent-Length: 100\r\nX-Late-Request: yes\r\n\r\n{',
+    ]
+    const idle = await Promise.all(lateRequests.map(() => idleKeptAliveConnection(port)))
+    sockets.push(writing, ...idle)
     const body = JSON.stringify({ documents: [{ id: 'held-write', title: 'tidal power along the coast' }] })
     const written = nextAnswer(writing)
     writing.write(
@@ -162,15 +191,20 @@ describe('closing the server while clients hold connections', () => {
     const closing = server.server.close().then(() => {
       closed = true
     })
-    const refused = nextAnswer(idle)
-    idle.write(LIVENESS_REQUEST)
-    const refusal = await refused
-    expect(refusal.status).toBe(503)
-    expect(refusal.headers.get('connection')?.toLowerCase()).toBe('close')
-    expect(await dropped(idle)).toBe('dropped')
-    expect(closed).toBe(false)
-
-    held.release()
+    try {
+      for (const [i, socket] of idle.entries()) {
+        const refused = nextAnswer(socket)
+        socket.write(lateRequests[i])
+        const refusal = await refused
+        expect(refusal.status).toBe(503)
+        expect(refusal.headers.get('connection')?.toLowerCase()).toBe('close')
+        expect(await dropped(socket)).toBe('dropped')
+      }
+      expect(closed).toBe(false)
+      expect(lateHooks).toBe(0)
+    } finally {
+      held.release()
+    }
     const answer = await written
     expect(answer.status).toBe(200)
     expect(JSON.parse(answer.body)).toMatchObject({ succeeded: ['held-write'], failed: [] })
