@@ -57,7 +57,7 @@ function checkGo(blocks, moduleRoot, workspace, dependentModuleRoots = []) {
   })
   for (const block of blocks.filter(candidate => candidate.runs)) {
     run('go', ['run', `./${block.name}`], {
-      cwd: join(workspace, block.name),
+      cwd: workspace,
       env,
       timeoutMs: EXAMPLE_COMPILE_TIMEOUT_MS,
       label: `go run of ${describe(block)}`,
