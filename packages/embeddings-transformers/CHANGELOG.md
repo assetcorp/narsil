@@ -1,3 +1,7 @@
+## 0.3.0 (2026-11-14)
+
+This was a version bump only for narsil-embeddings-transformers to align it with other projects, there were no code changes.
+
 ## 0.2.0 (2026-09-27)
 
 ### 🚀 Features
