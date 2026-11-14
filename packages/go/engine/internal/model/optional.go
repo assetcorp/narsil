@@ -1,16 +1,13 @@
 package model
 
-import (
-	"bytes"
-	"encoding/json"
-)
+import "encoding/json"
 
 type Optional[T any] struct {
 	value T
 	set   bool
 }
 
-var jsonNull = []byte("null")
+const jsonNull = "null"
 
 func Some[T any](value T) Optional[T] {
 	return Optional[T]{value: value, set: true}
@@ -33,13 +30,13 @@ func (o Optional[T]) Or(fallback T) T {
 
 func (o Optional[T]) MarshalJSON() ([]byte, error) {
 	if !o.set {
-		return jsonNull, nil
+		return []byte(jsonNull), nil
 	}
 	return json.Marshal(o.value)
 }
 
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
-	if bytes.Equal(data, jsonNull) {
+	if string(data) == jsonNull {
 		*o = Optional[T]{}
 		return nil
 	}

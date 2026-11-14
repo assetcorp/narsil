@@ -129,10 +129,6 @@ func durabilityFromJSON(t *testing.T, directory string) engine.DurabilityConfig 
 	requireIntegerAt(t, "the durability config", encoded, "CheckpointMutationThreshold", statsJSONMutationThreshold)
 	requireNullAt(t, "the durability config", encoded, "FlushInterval")
 	requireNullAt(t, "the durability config", encoded, "SegmentMaxBytes")
-	var refused engine.DurabilityConfig
-	if err := json.Unmarshal([]byte(`{"CheckpointInterval":"soon"}`), &refused); err == nil {
-		t.Fatalf("a text checkpoint interval decoded without an error into %v", refused.CheckpointInterval)
-	}
 	return durability
 }
 
@@ -180,12 +176,21 @@ func TestStatsAndDurabilityConfigEncodeToJSON(t *testing.T) {
 		for {
 			matched, mismatch := statsMatchTheFiles(t, narsil, directory)
 			if matched {
+				requireFiguresMatchTheFiles(t, narsil, directory, statsJSONIndex)
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("with the checkpoint timer off, %s after %s", mismatch, statsJSONCheckpointDeadline)
+				t.Fatalf("with a checkpoint interval of 0 and a mutation threshold of %d, %s after %s",
+					statsJSONMutationThreshold, mismatch, statsJSONCheckpointDeadline)
 			}
 			time.Sleep(statsJSONPoll)
+		}
+	})
+
+	t.Run("a text checkpoint interval fails to decode", func(t *testing.T) {
+		var refused engine.DurabilityConfig
+		if err := json.Unmarshal([]byte(`{"CheckpointInterval":"soon"}`), &refused); err == nil {
+			t.Fatalf("a text checkpoint interval decoded without an error into %v", refused.CheckpointInterval)
 		}
 	})
 
