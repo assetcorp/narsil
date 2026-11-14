@@ -28,7 +28,7 @@ In a production cluster, you will swap both adapters and keep the rest of the co
 
 The etcd coordinator and the gRPC transport each load a package that Narsil declares as an optional peer dependency, so install the one you use:
 
-```bash
+```bash skip
 pnpm add etcd3
 pnpm add @grpc/grpc-js
 ```
@@ -85,6 +85,16 @@ When a data node leaves the cluster, whether it shut down or lost its coordinato
 
 `node.decommission()` moves every copy off a node before the node leaves. The node marks its registration as draining, so the controller places nothing new on it. The controller then hands each partition that the node leads to an in-sync replica on another node. It moves each replica that the node holds by adding the new copy first, and it drops the old copy only once enough in-sync copies outside the move remain to meet the replication factor. The call returns once no allocation table holds the node and the node has shut down.
 
+<!-- example setup
+import { createClusterNode } from '@delali/narsil/distribution'
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const node = await createClusterNode({
+  coordinator: createInMemoryCoordinator(),
+  transport: createInMemoryTransport('node-a', createInMemoryNetwork()),
+  address: 'node-a:9200',
+})
+-->
 ```ts
 await node.decommission({ signal: AbortSignal.timeout(600_000) })
 ```
@@ -95,6 +105,16 @@ The drain waits for as long as the cluster has no other node that can take a cop
 
 `createIndex` publishes the schema through the coordinator, after which the controller assigns the partitions to nodes. The call returns once every partition is in service, so a primary that holds the index receives a write that you send straight afterwards. The options set how the engine spreads the index and how long the call waits:
 
+<!-- example setup
+import { createClusterNode } from '@delali/narsil/distribution'
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const node = await createClusterNode({
+  coordinator: createInMemoryCoordinator(),
+  transport: createInMemoryTransport('node-a', createInMemoryNetwork()),
+  address: 'node-a:9200',
+})
+-->
 ```ts
 await node.createIndex(
   'products',
@@ -127,6 +147,12 @@ In a cluster, `partitions.maxDocsPerPartition` caps each partition on its own, b
 
 A cluster can back up an index to a store outside the cluster, and any cluster that reads the same store can restore that backup later as a new index, whatever number of nodes it has. Give every node the same `backups` setting, which names a [PersistenceAdapter](persistence-and-durability.md#persistence) for the store and the key prefix that this cluster writes under:
 
+<!-- example setup
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const coordinator = createInMemoryCoordinator()
+const transport = createInMemoryTransport('node-a', createInMemoryNetwork())
+-->
 ```ts
 import { createS3Persistence } from '@delali/narsil/adapters/s3'
 import { createClusterNode } from '@delali/narsil/distribution'
@@ -218,6 +244,13 @@ To lift the block, free memory on the node that reports full, or give it more:
 
 The cluster accepts writes again once every node that holds a copy reports clear. Set `memory` on a node's configuration to move its two levels, each a fraction above 0 and at most 1. For the heap, the node uses the lower of each setting and its V8 cap of 75% or 65%, so this example moves only the levels for the process memory. `createClusterNode` raises `CONFIG_INVALID` where `resumeWritesBelow` is not below `blockWritesAbove`:
 
+<!-- example setup
+import { createClusterNode } from '@delali/narsil/distribution'
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const coordinator = createInMemoryCoordinator()
+const network = createInMemoryNetwork()
+-->
 ```ts
 await createClusterNode({
   coordinator,
@@ -262,6 +295,13 @@ A query that carries `rerank` reranks on the coordinator that receives it. That 
 
 Set `query` on a node's configuration to change how it treats a partition that it cannot reach. `allowPartialResults` is true by default. With `allowPartialResults: false`, the cluster fails the whole search with `QUERY_PARTIAL_FAILURE` as soon as one partition times out or errors on every copy, or holds no active copy. When one node stops a search with `SEARCH_WORK_CAP_EXCEEDED`, the cluster fails the whole search with that error, whatever value `allowPartialResults` holds, because the results of the other nodes would leave out every match that the stopped node had yet to find. `partitionTimeout` sets how many milliseconds the coordinator waits for each copy before it asks the next one, and it defaults to 5000. A search that meets a paused copy can therefore take up to that long again for each further copy that it asks.
 
+<!-- example setup
+import { createClusterNode } from '@delali/narsil/distribution'
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const coordinator = createInMemoryCoordinator()
+const network = createInMemoryNetwork()
+-->
 ```ts
 await createClusterNode({
   coordinator,
@@ -312,6 +352,16 @@ A node opens its replication listener before it registers, so a peer that reache
 
 `clusterNodeEngine` adapts a node to the same interface that a single engine offers, so `createServer` from `@delali/narsil/server` serves it unchanged. Pass `node.cluster` as the `cluster` option so that the server reports the node's readiness and its view of the cluster:
 
+<!-- example setup
+import { createClusterNode } from '@delali/narsil/distribution'
+import { createInMemoryCoordinator } from '@delali/narsil/distribution/coordinator/in-memory'
+import { createInMemoryNetwork, createInMemoryTransport } from '@delali/narsil/distribution/transport/in-memory'
+const node = await createClusterNode({
+  coordinator: createInMemoryCoordinator(),
+  transport: createInMemoryTransport('node-a', createInMemoryNetwork()),
+  address: 'node-a:9200',
+})
+-->
 ```ts
 import { clusterNodeEngine } from '@delali/narsil/distribution'
 import { createServer } from '@delali/narsil/server'

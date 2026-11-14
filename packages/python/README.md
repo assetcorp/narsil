@@ -4,7 +4,7 @@
 
 This package sends HTTP requests to a server that the TypeScript package serves. To search an index inside the Python process with no server, install [`delali-narsil`](https://github.com/assetcorp/narsil/tree/main/packages/python-engine), which wraps [the Rust crate](https://github.com/assetcorp/narsil/tree/main/packages/rust).
 
-```bash
+```bash skip
 pip install narsil-client
 ```
 

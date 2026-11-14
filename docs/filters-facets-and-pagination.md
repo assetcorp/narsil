@@ -6,6 +6,10 @@ The engine narrows and orders the results of a query by its filters, facet count
 
 You can filter on any field that the schema declares. The comparison operators are `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, and `between`. The string operators are `in`, `nin`, `startsWith`, and `endsWith`, together with `contains`, `wildcard`, and `regex` on a [pattern field](#pattern-tests). The array operators are `containsAll`, `matchesAny`, and `size`, and the presence checks are `exists`, `notExists`, `isEmpty`, and `isNotEmpty`. Combine filter expressions with `and`, `or`, and `not`. On a list field, the engine tests each element with `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`. However, `ne` and `nin` match a document only when the document holds the field and every element of its list differs from the values, which an empty list does. They leave out a document that lacks the field.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'wireless',
@@ -38,6 +42,10 @@ The engine throws `SEARCH_INVALID_FILTER` for a filter that holds more than 1,02
 
 On a single `string` or `verbatim` field whose type includes `sortable`, the engine can also test `gt`, `gte`, `lt`, `lte`, and `between` against text bounds. In the query below, `between: ['INV-2024', 'INV-2025']` matches every code from `INV-2024` to `INV-2025`, with both bounds included.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const invoices = await narsil.query('invoices', {
   term: 'invoice',
@@ -51,6 +59,10 @@ The engine orders the values as a [sort](#sort) on the field does, comparing the
 
 A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. The engine keeps a pattern index for each pattern field. It uses that index to find the documents whose value holds the text of a `contains` test, matches a [wildcard pattern](#wildcard-patterns), or holds a match of a [regular expression](#regular-expressions). In the query below, the engine returns the `checkout` matches whose message holds `connection refused` in any mix of upper and lower case.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const failures = await narsil.query('logs', {
   term: 'checkout',
@@ -86,6 +98,10 @@ Without that registration, the engine throws `CONFIG_INVALID` for an index with 
 
 A `tolerance` on an `eq` test of a pattern field lets the test match a value within that many edits of the text as well. An edit inserts, deletes, or replaces one code point, so a swap of two neighbouring code points counts as two edits. In the query below, the text holds the letter O where the order code holds a zero, so the engine returns the order `INV-2024-0042`, which is one edit away from the text.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const orders = await narsil.listDocuments('orders', {
   filters: { fields: { code: { eq: 'INV-2O24-0042', tolerance: 1 } } },
@@ -102,6 +118,10 @@ The engine therefore needs `k × (2 + f) + 1` distinct runs in the text for a to
 
 A `wildcard` test matches a value when the whole value matches the pattern. In the pattern, `*` matches any sequence of code points, including an empty one. A `?` matches exactly one code point. Every other code point matches itself. Write `\` before a code point to match that code point itself, so `\*` matches an asterisk and `\\` matches a backslash. In the query below, `INV-*-2024` matches `INV-0042-2024` and `INV--2024`. It doesn't match `INV-2024`, because that value has only one hyphen.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const invoices = await narsil.listDocuments('orders', {
   filters: { fields: { code: { wildcard: 'INV-*-2024' } } },
@@ -162,6 +182,10 @@ The matcher holds at most 1 MB of state for one search. When its cache of states
 
 When you set `facets`, the engine returns the number of matching documents for each value of each field that you name, which you can show beside each option of a filter panel. It counts every document that the query matches, so the counts are the same whatever page `limit` the query sets. Set a `limit` and a `sort` direction on a string or enum facet, and explicit `ranges` on a numeric facet. For a field outside the schema, the engine counts the values that the documents store, and it returns an empty facet where no matching document stores one. It throws `SEARCH_INVALID_FIELD` for a facet on a `geopoint` or a vector field.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'laptop',
@@ -184,6 +208,10 @@ The engine computes no relevance scores for a sorted query, so it returns each h
 
 The engine sorts by a `number`, `boolean`, or `enum` field with no preparation. It sorts by a `string`, `verbatim`, `string[]`, or `verbatim[]` field only where the field's type includes `sortable`, as in `string:sortable` or `string[]:sortable`, while it throws `SEARCH_INVALID_FIELD` for a sort on any other field of those types. It throws the same error for a sort on a `geopoint` or a vector field, because neither type has an order. For a list field, the engine sorts each document by one value from its list, which is the smallest for an ascending sort and the largest for a descending one. Set `mode` on a sort entry to choose `'min'`, `'max'`, `'avg'`, or `'median'` yourself. Under the last two, the engine sorts by the mean or the median of a list of numbers, so it throws `SEARCH_INVALID_FIELD` for either of them on a field other than `number` or `number[]`. The engine orders a document whose list is empty after every document that has a value.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const cheapestFirst = await narsil.query('products', {
   term: 'desk',
@@ -202,6 +230,10 @@ The engine orders a missing value after every present value, in either direction
 
 For the first sorted query on a field, the engine builds a column of that field's values. For every later page, it then selects from that column the documents that follow the cursor anchor. Once the engine has built a column, it updates that column on every write, so each column that it keeps adds work to every insert.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
@@ -211,6 +243,10 @@ const results = await narsil.query('products', {
 
 Pass a sort as a list where the order of the fields matters, because JavaScript moves an all-digit key such as `2024` to the front of an object.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('sales', {
   term: 'keyboard',
@@ -225,6 +261,10 @@ const results = await narsil.query('sales', {
 
 When you set `group`, the engine collapses the hits that share field values into one group for each set of values. It returns up to `maxPerGroup` hits from each group, or one hit where you leave that out, while it returns up to `limit` groups, best first. An optional reducer folds every hit of each group into one value, including the hits beyond `maxPerGroup`, so a reducer that sums a field adds up the whole group. In cluster mode the coordinator fetches up to 10,000 hits of each group for the reducer to fold.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
@@ -252,6 +292,10 @@ const withTotals = await narsil.query('products', {
 
 For shallow pages, set `limit` and `offset`. For deep pages, pass a `searchAfter` cursor, since the engine then does the same work for each page at any depth. The engine anchors a cursor on the last result of the page, using its score for a relevance-ranked query and its sort values for a sorted one. It returns a `cursor` string with every page, which you pass back as `searchAfter` to fetch the next page.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const firstPage = await narsil.query('products', { term: 'keyboard', limit: 20 })
 
@@ -278,6 +322,11 @@ For a keyword search the engine counts every match, so `countExact` is true. For
 
 Where the field holds a graph and the query sets a `similarity` floor, the engine compares the query with only a fraction of the field's vectors. `count` then holds the number of vectors that the engine fetches, which is why `countExact` is false. The engine fuses two rankings for a hybrid search, so `countExact` is true there only where each of the two rankings contains every matching document.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+declare const myQueryVector: number[]
+-->
 ```ts
 const result = await narsil.query('products', {
   vector: { field: 'embedding', value: myQueryVector, similarity: 0.8 },
@@ -293,6 +342,10 @@ The engine places each `pinned` document at a fixed position in the ranked resul
 
 The engine also counts in `count` each pinned document that the query does not match, since that document appears among the hits. Where the engine fetches only a fraction of the matches, as it does for a vector search over a field that holds a graph, a pinned document from outside those hits may or may not be a match. The engine then excludes that document from `count` and sets `countExact` to false.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
