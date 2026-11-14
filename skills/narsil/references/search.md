@@ -2,6 +2,10 @@
 
 ## A catalogue search
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+declare const narsil: Narsil
+-->
 ```ts
 await narsil.createIndex('products', {
   schema: {
@@ -67,6 +71,10 @@ With `highlight: { fields }`, each hit carries `highlights[field]`, which holds 
 
 Declare a `geopoint` field and store `{ lat, lon }` in degrees. Filter it inside a query that carries a `term`, or through `listDocuments`:
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+declare const narsil: Narsil
+-->
 ```ts
 const withinRadius = await narsil.listDocuments('stores', {
   filters: { fields: { location: { radius: { lat: 5.5502, lon: -0.2174, distance: 50, unit: 'km' } } } },

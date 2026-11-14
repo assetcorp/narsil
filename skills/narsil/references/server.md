@@ -2,7 +2,7 @@
 
 ## 1. Install the server's peer package
 
-```bash
+```bash skip
 pnpm add -E "uWebSockets.js@$(node -p "require('./node_modules/@delali/narsil/package.json').devDependencies['uWebSockets.js']")"
 ```
 
@@ -82,7 +82,7 @@ Call the server from Python through the `narsil-client` package on PyPI, or from
 
 From any other language, send JSON with the caller's key:
 
-```http
+```http skip
 POST /indexes/products/search
 Authorization: Bearer <key>
 Content-Type: application/json
@@ -100,6 +100,11 @@ Content-Type: application/json
 
 The embedded engine and the server restore the same snapshot archive, so stream the built index across whole:
 
+<!-- example setup
+import type { Narsil } from '@delali/narsil'
+import { createNarsilClient } from '@delali/narsil/client'
+declare const narsil: Narsil
+-->
 ```ts
 const admin = createNarsilClient({ url: 'https://search.example.com', apiKey: process.env.NARSIL_ADMIN_KEY })
 const archive = await narsil.snapshot('products')
