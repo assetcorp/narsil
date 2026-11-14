@@ -9,6 +9,7 @@ const TYPESCRIPT_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'ts')
 const REACT_NATIVE_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'react-native')
 const PYTHON_CLIENT_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'python')
 const GO_CLIENT_MODULE = join(REPOSITORY_ROOT, 'packages', 'go')
+const GO_CHANGES_MODULE = join(GO_CLIENT_MODULE, 'changes')
 const REACT_NATIVE_IMPORT = /from\s+['"]@delali\/narsil-react-native(?:\/[^'"]*)?['"]/
 const TYPESCRIPT_FENCES = new Set(['ts', 'typescript', 'tsx'])
 const PYTHON_FENCES = new Set(['python', 'py'])
@@ -54,7 +55,7 @@ function main() {
   if (engine.length > 0) checkTypescript(engine, TYPESCRIPT_PACKAGE)
   if (reactNative.length > 0) checkTypescript(reactNative, REACT_NATIVE_PACKAGE)
   if (python.length > 0) withWorkspace(workspace => checkPython(python, PYTHON_CLIENT_PACKAGE, workspace))
-  if (go.length > 0) withWorkspace(workspace => checkGo(go, GO_CLIENT_MODULE, workspace))
+  if (go.length > 0) withWorkspace(workspace => checkGo(go, GO_CLIENT_MODULE, workspace, [GO_CHANGES_MODULE]))
   report(blocks)
 }
 

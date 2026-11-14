@@ -34,7 +34,7 @@ func main() {
 }
 ```
 
-The program needs a running server, such as the [HTTP server example](https://github.com/assetcorp/narsil/tree/main/packages/ts/examples/http-server) on its default port, and it prints the ID of every hit for `matrix` in the `movies` index.
+The program needs a Narsil server that listens on port 9876, such as the [HTTP server example](https://github.com/assetcorp/narsil/tree/main/packages/ts/examples/http-server) started with `NARSIL_PORT=9876`, and it prints the ID of every hit for `matrix` in the `movies` index.
 
 When you list several addresses, the client moves a read to the next node after a refused connection, a timeout, or an answer of 502, 503, or 504. It moves a write only when the request never left the client or when the node answers `NODE_NOT_READY`, so the client never sends a second copy of a write that a node may have applied. Every failure comes back as a `*narsil.Error`, under the code that the server sent or under a `CLIENT_` code for a failure on this side.
 

@@ -8,6 +8,10 @@ Every search goes through `query(indexName, params)`. Set its `mode` parameter t
 
 The engine scores a full-text search with BM25. With `fields`, the engine searches the named fields alone. With `boost`, it multiplies the score from each named field by that field's weight. A boost works only on a text field that the schema declares, so the engine throws `SEARCH_INVALID_FIELD` for a boost on any other field. A weight has to be a finite number, so the engine throws `CONFIG_INVALID` for any other value. To change how the score itself responds to repeated words and long fields, see [BM25 parameters](#bm25-parameters).
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'wireless keyboard',
@@ -24,6 +28,10 @@ The default `limit` is 10. Each hit has the shape `{ id, score, document, highli
 
 By default, each hit contains the whole stored document. Set `document` to return part of it or none of it. Pass `false` where the ids and scores are all you need; every hit's `document` is then an empty object. Pass `include` to keep the named fields alone, or `exclude` to drop the named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine applies only the names that match a field.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'wireless keyboard',
@@ -37,6 +45,10 @@ Exclude a vector field on a similarity search. The engine copies out of the stor
 
 With `tolerance`, the engine matches an indexed term that is within that many edits of a query term, counting each Unicode code point as one character. Set it to a whole number from 0 to 10. At the default of 0, the engine matches exact terms alone. With `prefixLength`, the engine checks only the indexed terms that share that many leading characters with the query term, or the terms that start with the whole query term when the query term is shorter. Set it to a whole number from 0 to 1,024; the default is 2. With a larger value, the engine checks fewer terms, so a fuzzy lookup finishes sooner and matches fewer terms. The engine throws `CONFIG_INVALID` for a value outside either range. With `exact: true`, the engine turns fuzzy expansion off for the whole query.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'keybaord',
@@ -51,6 +63,10 @@ With `prefix: true`, the engine treats the last word of the query as unfinished,
 
 The engine matches completions against the original spellings that the index records, so it completes `securi` to `security` although the term dictionary stores the stem `secur`. Create the index with `surfaceForms: false` to match completions against the stemmed tokens. That setting speeds up inserts, because the engine skips recording the original spellings. However, a typed word that goes past the end of a stem, such as `securi`, then matches nothing.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'mechanical keyb',
@@ -62,6 +78,10 @@ const results = await narsil.query('products', {
 
 Put words in double quotes to match them side by side and in that order. A search for `"olive oil"` matches a document that holds `olive oil` in one field, and it skips a document that holds `oil olive`, as well as one that holds `olive` in its title and `oil` in its description.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: '"olive oil" pasta',
@@ -90,6 +110,10 @@ The engine adds at most 50 such words to a query, which it divides as evenly as 
 
 With `highlight`, the engine tags each whole word that contains a query word of three or more characters in a searched `partial` field, so it tags `waterproof` in a search for `proof`. It leaves every stop word untagged, because it leaves stop words out of the index. It also leaves a word untagged where the engine matched the document only through a shared stem, such as `waterproof` in a search for `proofs`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('products', {
   schema: { title: 'string:partial', description: 'string' },
@@ -118,6 +142,10 @@ Without that registration, the engine throws `CONFIG_INVALID` for an index with 
 
 When an index has a synonym set, a search for a word also matches every synonym that the set lists for that word. A set is a list of rules in two shapes. A two-way rule lists from 2 to 100 `words`, each of which becomes a synonym of every other. A one-way rule holds one `word` and from 1 to 99 `synonyms`, so a search for `word` also matches its synonyms, while the rule adds nothing to a search for one of those synonyms.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('products', {
   schema: { title: 'string', description: 'string' },
@@ -136,6 +164,10 @@ The engine expands each query word by one level, so it adds no synonym of a syno
 
 Replace the set with `updateSynonyms`. `getSynonyms` returns the set with each word as you wrote it. The engine applies a new set from the next query without rebuilding the index, because a synonym set changes no stored token. It saves the set with the index, so the set stays in place after a restart and every snapshot includes it. Where the index has copies on worker threads, the promise resolves only once every copy uses the new set. Pass an empty list to remove the set. When `updateSynonyms` throws, the index keeps the set that it held before the call.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.updateSynonyms('products', [{ words: ['sofa', 'couch', 'settee', 'divan'] }])
 
@@ -159,6 +191,10 @@ Without that registration, the engine throws `CONFIG_INVALID` for an index with 
 
 Two parameters shape a BM25 score. `k1` sets how much a repeated word adds to a score, from 0, where a repeat adds nothing, to 1,000. `b` sets how much a long field lowers a score, from 0, where length has no effect, to 1. You can set a pair at three levels, without a rebuild, because the engine computes every score during the search from the term frequencies and field lengths that it already stores.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('articles', {
   schema: { title: 'string', body: 'string' },
@@ -183,6 +219,10 @@ In the search above, `title` scores under a `k1` of 1.4 and a `b` of 0.5, while 
 
 Replace the index's setting on a live index with `updateBM25`. The call replaces the whole setting, so a value that the call leaves out returns to its default, and `{}` clears the setting. The engine saves the setting with the index, so the setting stays in place after a restart and every snapshot includes it. Where the index has copies on worker threads, the promise resolves only once every copy uses the new setting. When `updateBM25` throws, the index keeps the setting that it held before the call.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.updateBM25('articles', { k1: 0.8, fields: { title: { k1: 2 } } })
 ```
@@ -201,6 +241,10 @@ A node on a specification version below 1.1 can't use these settings, so a clust
 
 The language, the tokeniser, and the stop words set the terms that an index holds, so the engine has to analyse every document again when any of them changes. Call `changeAnalysis` to give a live index new settings, since the index keeps answering searches and accepting writes during the rebuild. A setting that you leave out keeps its value, while `null` on `tokenizer` or `stopWords` returns that setting to its default.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 import { registerStopWords, registerTokenizer } from '@delali/narsil'
 
@@ -246,6 +290,10 @@ A cluster answers `ANALYSIS_CHANGE_NOT_READY` while any registered node has a sp
 
 With `minScore`, the engine drops every hit whose score is below that floor. BM25 scores have no fixed upper bound, so under a floor that works for one index and query, the engine can drop every hit of another. Choose the floor from scores that you have seen on your own corpus. With `termMatch`, you set how many query terms a document has to match. Under the default, `'any'`, a document has to match one term, under `'all'` every term, and under a number at least that many terms. The engine counts a query term as matched under the same `tolerance` and `prefixLength` that the search uses.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'mechanical gaming keyboard',
@@ -258,6 +306,10 @@ const results = await narsil.query('products', {
 
 With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. Under `partialWords: true`, it also tags a word in a `partial` field that contains a query word; see [Matching inside words](#matching-inside-words) for the rules. It also tags a word whose stem is a synonym that the query added; see [Synonyms](#synonyms). The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'mechanical',
@@ -282,6 +334,10 @@ When an index spans partitions or instances, each one holds its own term statist
 
 Set a per-index default with `defaultScoring` in the index config, or set `scoring` per query:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
@@ -293,6 +349,10 @@ const results = await narsil.query('products', {
 
 The engine answers `preflight(indexName, params)` with the match count alone, so it skips building, ranking, and paging hits. Use it to size a result set before you send an expensive query.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard' })
 ```
@@ -301,6 +361,10 @@ const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard'
 
 `suggest(indexName, params)` returns autocomplete candidates. The engine splits the input into words, then treats the last word as the prefix. It ranks the completions by the number of documents that each one matches. The engine suggests each word as your documents spell it, so for a catalogue that contains 'mechanical' it suggests `mechanical`, while the index stores the stem `mechan`. To do this, the engine records the original spelling of every word that the stemmer changes. Create the index with `surfaceForms: false` to have the engine suggest the stored stems.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('products', {
   schema: { title: 'string', description: 'string' },

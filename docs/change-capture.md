@@ -41,6 +41,15 @@ History keeps every write to the index, including the writes of a document that 
 
 `followChanges` returns the changes of an index as an async iterable, so a program that embeds the engine needs no server:
 
+<!-- example setup
+import { type Change, type ChangePosition, createNarsil } from '@delali/narsil'
+const engine = await createNarsil({ durability: { directory: './narsil-data' } })
+declare function loadPositions(): Promise<{ epoch: string; positions: ChangePosition[] } | null>
+declare function savePositions(saved: { epoch: string; positions: ChangePosition[] }): Promise<void>
+declare function applyToCache(changes: Change[]): Promise<void>
+declare function savePosition(partitionId: number, seqNo: number): Promise<void>
+declare function rebuildFromExport(indexName: string): Promise<void>
+-->
 ```ts
 const saved = await loadPositions()
 for await (const event of engine.followChanges('orders', saved ?? {})) {
@@ -72,6 +81,10 @@ A document holds every field and every computed vector. The engine delivers each
 
 With `previousDocument` on, a subscription can hold a filter in the syntax of a query's filters:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const engine = await createNarsil({ durability: { directory: './narsil-data' } })
+-->
 ```ts
 const events = engine.followChanges('orders', { filter: { fields: { status: { eq: 'open' } } } })
 ```
@@ -88,6 +101,15 @@ Where the positions no longer lead to the index's changes, the last event is `re
 
 After a resync, take a document export of the index, replace your copy with its documents, and follow again from the epoch and the positions in the export's header:
 
+<!-- example setup
+import { type AnyDocument, type ChangePosition, createNarsil } from '@delali/narsil'
+const engine = await createNarsil({ durability: { directory: './narsil-data' } })
+declare function readExportLines(
+  stream: ReadableStream<Uint8Array>,
+): Promise<{ header: { epoch: string; positions: ChangePosition[] }; documents: AnyDocument[] }>
+declare function replaceCacheWith(documents: AnyDocument[]): Promise<void>
+declare function savePositions(saved: { epoch: string; positions: ChangePosition[] }): Promise<void>
+-->
 ```ts
 const { header, documents } = await readExportLines(await engine.exportDocuments('orders'))
 await replaceCacheWith(documents)
@@ -100,6 +122,13 @@ The export is JSON Lines, and its first line is the header. The export of an ind
 
 The server keeps the change feed off until you turn it on with the `changes` option. It refuses to start with the feed on and no `onRequest` hook, because the hook decides which credential may follow which index.
 
+<!-- example setup
+import type { RequestContext } from '@delali/narsil/server'
+declare function serviceOfCredential(
+  ctx: RequestContext,
+): { mayFollow(path: string): boolean; credentialExpiresAt: number } | null
+{example}
+-->
 ```ts
 import { createNarsil } from '@delali/narsil'
 import { createServer } from '@delali/narsil/server'
@@ -134,6 +163,14 @@ The `changes` option also takes an object with `windowBytes`, the unacknowledged
 
 The client's `followChanges` opens the feed and returns the same events as the engine:
 
+<!-- example setup
+import type { Change, ChangePosition } from '@delali/narsil/client'
+declare const token: string
+declare function loadPositions(): Promise<{ epoch: string; positions: ChangePosition[] } | null>
+declare function applyToCache(changes: Change[]): Promise<void>
+declare function savePosition(partitionId: number, seqNo: number): Promise<void>
+{example}
+-->
 ```ts
 import { createNarsilClient } from '@delali/narsil/client'
 
@@ -154,7 +191,7 @@ The server stops sending once the changes that the subscriber has not acknowledg
 
 A subscriber in any language can follow the feed. Each message is a MessagePack map in one binary WebSocket frame. The subscriber's first message is a `subscribe`:
 
-```text
+```text skip
 { type: 'subscribe', epoch: string or absent, positions: [{ partitionId, seqNo }] or absent, filter: FilterExpression or absent }
 ```
 

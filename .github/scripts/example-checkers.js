@@ -35,7 +35,7 @@ function goVersionOf(moduleRoot) {
   return match[1]
 }
 
-function checkGo(blocks, moduleRoot, workspace) {
+function checkGo(blocks, moduleRoot, workspace, dependentModuleRoots = []) {
   const goVersion = goVersionOf(moduleRoot)
   for (const block of blocks) {
     const directory = join(workspace, block.name)
@@ -43,7 +43,10 @@ function checkGo(blocks, moduleRoot, workspace) {
     writeFileSync(join(directory, 'go.mod'), `module readme.example/${block.name}\n\ngo ${goVersion}\n`)
     writeFileSync(join(directory, 'main.go'), block.code)
   }
-  const uses = [...blocks.map(block => `./${block.name}`), moduleRoot.replaceAll('\\', '/')]
+  const uses = [
+    ...blocks.map(block => `./${block.name}`),
+    ...[moduleRoot, ...dependentModuleRoots].map(root => root.replaceAll('\\', '/')),
+  ]
   writeFileSync(join(workspace, 'go.work'), `go ${goVersion}\n\nuse (\n${uses.map(use => `\t${use}\n`).join('')})\n`)
   const env = { GOWORK: join(workspace, 'go.work'), GOFLAGS: '', GOPROXY: 'off' }
   run('go', ['vet', ...blocks.map(block => `./${block.name}`)], {
