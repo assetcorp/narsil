@@ -2523,8 +2523,8 @@ class VersionResponse(ApiModel):
     """This is always `narsil`."""
     version: str | None
     """This holds the `build.version` that the caller passed to `createServer`, or else the version
-    of the installed `@delali/narsil` package, while it holds null where the server can read
-    neither.
+    of the installed `@delali/narsil` package, although a server from an older release can
+    report null here.
     """
     git_sha: str | None = Field(alias="gitSha")
     """The build came from this git commit, or this is null where the build stamped none."""
