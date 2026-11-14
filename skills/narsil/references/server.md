@@ -78,6 +78,8 @@ const results = await search.query('products', { term: 'folding bicycle', limit:
 - The admin methods that take a while, which are `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, `rebuildAnalysis`, and `changeAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
 - For a React app, install `react`, wrap the tree in `<NarsilProvider client={client}>`, and call `useQuery(indexName, params, { keepPreviousData: true })` from `@delali/narsil/react`. Build the client outside every component.
 
+Call the server from Python through the `narsil-client` package on PyPI, or from Go through the `github.com/assetcorp/narsil/packages/go` module. Each client holds a typed method for every route that the server documents in its OpenAPI file. When you give a client the addresses of several cluster nodes, it moves a read to the next node after a refused connection, a timeout, or an answer of 502, 503, or 504.
+
 From any other language, send JSON with the caller's key:
 
 ```http

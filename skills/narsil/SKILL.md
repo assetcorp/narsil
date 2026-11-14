@@ -18,9 +18,9 @@ Copy this checklist and tick each item as you finish it:
 
 ## 1. Choose embedded or served
 
-Embed Narsil when the app is JavaScript or TypeScript and one process owns the index, including a browser page that holds its own index. `@delali/narsil` is the only embeddable package, and every Narsil implementation has to read and write the same `.nrsl` index format.
+Embed Narsil when a single process writes and searches the index, as a browser page does when it keeps an index for itself. In JavaScript or TypeScript, embed `@delali/narsil`, which is the package that this skill describes. In another language, embed the `delali-narsil` crate in Rust, the `delali-narsil` package from PyPI in Python, or the `github.com/assetcorp/narsil/packages/go/engine` module in Go. Take the API of each of those packages from its README, because this skill describes `@delali/narsil` alone. Each of these packages reads and writes the same `.nrsl` index format, so the TypeScript package can open an index that any of the others saves.
 
-Serve it in every other case: an app in another language, several services that share one index, or an index that has to outlive the app's deploys. The server is a small Node.js service built on `@delali/narsil/server`, and apps call it over HTTP. Read [references/server.md](references/server.md) before you write it.
+Serve it in every other case, such as when several services share one index, when an index has to outlive the app's deploys, or when the app's language has no Narsil package. The server is a small Node.js service built on `@delali/narsil/server`, and apps call it over HTTP. Read [references/server.md](references/server.md) before you write it.
 
 ## 2. Find the installed version and its API
 
@@ -62,6 +62,15 @@ Read the reference file for each capability that the task needs:
 | An index that survives a restart, a snapshot, or closing idle indexes | [references/storage.md](references/storage.md) |
 | A server, the client SDK, React hooks, access from another language, or moving an embedded index behind a server | [references/server.md](references/server.md) |
 | Several nodes, replication, or failover | [references/cluster.md](references/cluster.md) |
+| Suggestions of the searches that many people run | The installed types of `@delali/narsil/query-suggestions` |
+| A copy of an index on a phone, a laptop, or a browser tab that stays in step with a server | The installed types of `@delali/narsil/sync` |
+| Reordering the top hits through a reranking model | The installed types of `@delali/narsil/rerankers/http` |
+| A feed of every change to an index | The installed types of `updateChanges` and `followChanges` on the engine |
+| Search inside an iOS or Android app | The README of `@delali/narsil-react-native` |
+
+Where the table lists no reference file for a capability, also read the page about it through `llms.txt`.
+
+Turn device sync on only for an index whose documents all belong to one user, because every device that syncs an index receives the whole index.
 
 ## 5. Verify and report
 
@@ -80,4 +89,5 @@ Read the reference file for each capability that the task needs:
 - A stored vector comes back as a `Float32Array`, which `JSON.stringify` writes as an object keyed by position. Leave vector fields out of each hit with `document: { exclude: ['embedding'] }` before you serialise it.
 - The engine sorts by a `number`, `boolean`, or `enum` field, and by a text field only where its type includes `sortable`, so it throws `SEARCH_INVALID_FIELD` for a sort on a plain `string`, `string[]`, `verbatim`, or `verbatim[]` field. Declare a text field that the app sorts by as `string:sortable` or `string[]:sortable`. The engine can also test a single sortable `string` or `verbatim` field against text bounds in `gt`, `gte`, `lt`, `lte`, and `between`.
 - The engine registers English on its own. For another language, import its module, as in `import { french } from '@delali/narsil/languages/french'`, and pass it to `registerLanguage` before the first `createIndex` that names it.
+- From version 0.4, the engine refuses a `rebalance` to more partitions than the index's `maxPartitions`, which defaults to 1, with `PARTITION_CAPACITY_EXCEEDED`, although 0.3 placed no limit on an index that left `maxPartitions` unset. Before code written for 0.3 calls `rebalance` on such an index, have it raise the limit first with `await narsil.updatePartitionConfig(indexName, { maxPartitions: count })`.
 - Version 0.2 lacks `isNarsilError`, `waitForWrites`, the `wait` option, `open`, `close`, and `server.shutdown()`. It keeps every index on the main thread unless `workers.enabled` is `true`, and it calls its quantisation mode `sq8`. On 0.2, read `error.code`, and stop a server with `server.close()` followed by `narsil.shutdown()`. A newer release can't open indexes or snapshots that 0.2 saved, so an upgrade means indexing the source data again into a new directory.
