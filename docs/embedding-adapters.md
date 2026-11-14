@@ -45,6 +45,10 @@ const results = await narsil.query('articles', {
 
 An adapter holds functions, which no format serializes, so an index that names its adapter comes back intact from durability recovery: the engine persists the name in index metadata and rebinds it at the next start. Register names through the config or at runtime, and reference them from the index config:
 
+<!-- example setup
+import type { EmbeddingAdapter } from '@delali/narsil'
+declare const myReplacementAdapter: EmbeddingAdapter
+-->
 ```ts
 import { createNarsil } from '@delali/narsil'
 import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'

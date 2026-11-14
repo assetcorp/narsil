@@ -53,6 +53,10 @@ A hook may be async, and the engine waits for every `before*` hook to finish bef
 | `layoutUpgrade` | `{ indexName, status, layout, error? }` | The engine started, completed, or failed the rewrite of an index that you saved with release 0.3. `layout` is `manifest` where the earlier index is a segment manifest with its files, and `bundle` where it is a single snapshot bundle. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release). |
 | `checkpointHeld` | `{ indexName, partitionIds, recordsSinceCheckpoint, documentBytesSinceCheckpoint }` | A partition of an index with a vector field failed, so the engine holds back every checkpoint of that index while its write-ahead log grows, and `getMemoryStats()` reports the same figures under `heldCheckpoints`. Restart the process so that recovery reloads the index from disk, and where that recovery fails, restore the index from a snapshot with `restore`, or drop it with `dropIndex` and create it again. |
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
+-->
 ```ts
 narsil.on('durabilityError', payload => {
   console.error('durability write failed:', payload.error)
@@ -65,6 +69,10 @@ Subscribe to `durabilityError` in any deployment that persists data, and to `inv
 
 Narsil reports memory at three levels: per index, per partition, and per runtime. `getStats(indexName)` returns `estimatedMemoryBytes`, a formula-based estimate for the index's main-thread partitions and vector structures.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const indexStats = narsil.getStats('products')
 
@@ -75,6 +83,10 @@ The estimate comes from document counts, posting lists, field indexes, and vecto
 
 `getPartitionStats(indexName)` returns the same estimate for each partition. The partition values sum to `getStats(indexName).estimatedMemoryBytes`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const partitions = narsil.getPartitionStats('products')
 
@@ -87,6 +99,10 @@ An index that saves to disk also reports `savedBytes` and `logBytes` in both cal
 
 `getMemoryStats()` returns a runtime snapshot and worker reports. It is async because workers report their heap usage through the worker message channel.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const memory = await narsil.getMemoryStats()
 
@@ -109,6 +125,10 @@ Which limit it measures against follows your own configuration. Where you set `-
 
 The event names the index, the heap in use, the limit, and the index's `estimatedMemoryBytes`. It fires once per crossing and arms again once the headroom recovers to two tenths, so a listener can raise an alert per crossing without debouncing. Where no listener is subscribed, as at start-up, the engine writes the same warning to the console.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 narsil.on('heapPressure', payload => {
   console.warn(`heap at ${payload.heapUsed} of ${payload.heapLimit} bytes after writing ${payload.indexName}`)
@@ -121,6 +141,9 @@ The engine refuses an insert or an update before the write can take the process 
 
 Once either figure passes `memory.blockWritesAbove` of its limit, which is 0.9 by default, the engine refuses every insert and update with `MEMORY_WRITE_BLOCKED` and the reason `memory_full`. It accepts them again once both figures fall below `memory.resumeWritesBelow`, which is 0.8 by default, so that an engine near the line does not switch writes on and off. A batch that arrives while the engine is full fails whole. Removes, searches, and reads go through the whole time, so remove documents to bring the engine back under the resume level. On Node.js, the engine compares its heap with at most 0.75 of the heap limit to block writes and 0.65 to resume them, whatever the settings say, because V8 ends a process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit. The engine compares the process's memory with the settings as you give them.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({ memory: { blockWritesAbove: 0.85, resumeWritesBelow: 0.75 } })
 ```
@@ -145,4 +168,4 @@ A server built with `createServer` answers the routes below without a body, so a
 | `GET /indexes/{name}/cluster` | The answer gives the allocation table for one index. |
 | `GET /indexes/{name}/vector-maintenance` | The answer gives the tombstone share, the graph count, and the compaction estimates for each vector field. |
 
-Export these figures to a collector of your own, because the server answers no `/metrics` route.
+A server that fronts a cluster node also answers `GET /metrics` in the Prometheus text format with the node's cluster figures, such as the replication lag and the commit point of each partition, so a Prometheus server can scrape each node. However, a server that fronts a single engine answers that route with 501. The [HTTP server guide](http-server.md#metrics) describes every series that the route reports. Send the figures that the routes above report to a separate collector, because the answer to `/metrics` holds none of them.

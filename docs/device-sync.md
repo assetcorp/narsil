@@ -8,6 +8,11 @@ Turn sync on only for an index whose documents all belong to one user, because e
 
 The server keeps the sync routes off until you turn them on with the `sync` option, and it refuses to start with them on and no `onRequest` hook, because the hook decides which credential may read which index. The engine also needs write-ahead log durability, since the feed reads the log.
 
+<!-- example setup
+import type { RequestContext } from '@delali/narsil/server'
+declare function userOfCredential(ctx: RequestContext): { id: string; credentialExpiresAt: number } | null
+{example}
+-->
 ```ts
 import { createNarsil } from '@delali/narsil'
 import { createServer } from '@delali/narsil/server'
@@ -48,6 +53,10 @@ In a cluster, any node serves the routes. The cluster needs a backup store, beca
 
 `@delali/narsil/sync` exports `createDeviceSync`, which works with an engine on the device and a store for the device's own state. `@delali/narsil/sync/filesystem` provides a store for Node.js and Electron, and `@delali/narsil/sync/indexeddb` provides one for a browser.
 
+<!-- example setup
+declare function currentAccessToken(): string | null
+{example}
+-->
 ```ts
 import { createNarsil } from '@delali/narsil'
 import { createDeviceSync } from '@delali/narsil/sync'
@@ -71,6 +80,10 @@ const results = await engine.query('user-41', { term: 'ferry' })
 
 In a browser, give the engine the IndexedDB persistence adapter and use the IndexedDB store:
 
+<!-- example setup
+declare function getToken(): Promise<string | null>
+{example}
+-->
 ```ts
 import { createNarsil } from '@delali/narsil'
 import { createIndexedDBPersistence } from '@delali/narsil/adapters/indexeddb'
@@ -91,6 +104,15 @@ Write through `sync.put` and `sync.remove`, because a write that goes straight t
 
 The server keeps the last write that it receives, so a device that uploads after a long time offline replaces any change that reached the server in the meantime. To decide each conflict yourself, pass `upload`, which receives the queued writes and returns one outcome for each:
 
+<!-- example setup
+import { type AnyDocument, createNarsil, type NarsilError } from '@delali/narsil'
+import { createDeviceSync, type QueuedWrite, type UploadOutcome } from '@delali/narsil/sync'
+import { createFilesystemDeviceStore } from '@delali/narsil/sync/filesystem'
+const engine = await createNarsil({ durability: { directory: './device/engine' } })
+const store = await createFilesystemDeviceStore({ directory: './device/sync' })
+declare const api: { applyNoteWrites(writes: readonly QueuedWrite[]): Promise<UploadOutcome[]> }
+declare function showConflict(documentId: string, error: NarsilError, serverDocument: AnyDocument | null): void
+-->
 ```ts
 const sync = createDeviceSync({
   engine,

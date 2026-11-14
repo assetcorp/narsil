@@ -4,6 +4,12 @@ A vector field holds one dense embedding per document so that the engine can fin
 
 Declare a `vector[N]` field in the schema, and insert documents that hold arrays of exactly that length. The engine searches a small field exactly, by comparing the query with every vector in the field. Once a field holds 1,024 vectors, the engine builds an HNSW graph for it in the background, after which it searches that graph approximately for each query. The engine adds every later vector to that same graph one vector at a time, so it builds one graph however large the import is. Set the cutoff and the graph parameters for each index through `vectorPromotion`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+declare const myPrecomputedVector: number[]
+declare const myQueryVector: number[]
+-->
 ```ts
 await narsil.createIndex('docs', {
   schema: {
@@ -99,6 +105,10 @@ For a `disk` field, the core maps each checkpoint file that holds the field's ve
 
 When you remove or update a vector, the engine leaves a tombstone in the HNSW graph, so each query takes longer as those tombstones accumulate. Two maintenance calls clean up the graph. To decide whether either is worth making, call `vectorMaintenanceStatus`, which reports each field's tombstone ratio and the time that each maintenance call would take:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const status = narsil.vectorMaintenanceStatus('docs')
 // [{ fieldName, tombstoneRatio, graphCount, bufferSize, building, estimatedCompactMs, estimatedOptimizeMs }]

@@ -6,6 +6,10 @@ A large index splits across partitions, and its search moves onto worker threads
 
 An index starts with the partition count set by `partitions.maxPartitions`, which defaults to 1. Documents route to partitions by FNV-1a hash of their id, which keeps routing deterministic across processes and languages. `partitions.maxDocsPerPartition` caps capacity: when an index holds `maxDocsPerPartition * partitionCount` documents, further inserts fail with `PARTITION_CAPACITY_EXCEEDED`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('logs', {
   schema: { message: 'string' },
@@ -34,6 +38,9 @@ Two costs are worth knowing before you raise partition counts:
 
 On Node.js, Bun, and Deno an embedded engine divides `workers.count` between a keyword pool of `Math.ceil(count / 2)` threads and a vector search pool of the rest. Where you name no count, the engine takes one thread fewer than the cores the runtime reports and keeps that total between 2 and 8, which leaves the keyword pool between 1 and 4 threads. Every thread of the keyword pool holds a copy of each large index, so keyword search answers on those threads without a setting. The HTTP server holds a copy on every thread of the budget and receives requests on those threads, and they search a vector copy the engine shares with them; see [Request threads](#request-threads). An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies. In a browser page and in a React Native app, the engine works on the thread that draws the screen, so during a write batch or a search it hands that thread back after every 20 milliseconds of its own work. A browser page gets the thread back through `scheduler.yield()` where the browser offers it, and through a `MessageChannel` message otherwise, which no browser delays the way it delays nested `setTimeout` calls.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   workers: {
@@ -66,6 +73,9 @@ When a worker dies, the survivors keep answering, and after a delay the engine s
 
 A worker thread receives an index's config by copy, so three conditions gate whether an index can gain copies. An inline `tokenizer` instance cannot cross the thread boundary, a `stopWords` function cannot either, and a worker holds no language other than English, and no named tokenizer or stop word set, until a module registers it inside that worker. Register tokenizers and stop word sets by name (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)), and point `workers.bootstrapModule` at a module that registers the languages and named analysis your indexes use; every worker imports it at startup.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   workers: {

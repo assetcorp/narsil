@@ -2,6 +2,10 @@
 
 The engine throws a `NarsilError` for every failure, which carries a stable string `code`, a message written for a person to read, and a `details` object holding the values that produced the failure. The package exports the engine's codes as `ErrorCodes`. Match on the code, because the message can change between releases.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 import { ErrorCodes, NarsilError } from '@delali/narsil'
 

@@ -6,6 +6,10 @@ An index holds documents under a schema that fixes the type of every field. This
 
 `createIndex(name, config)` creates an index from a schema. Each field of the schema has one of the types `string`, `verbatim`, `number`, `boolean`, `enum`, `geopoint`, or `vector[N]`, or one of the list types `string[]`, `verbatim[]`, `number[]`, `boolean[]`, or `enum[]`. A developer can nest objects up to 4 levels deep in a schema. Narsil validates every document against the schema as it inserts the document. A `number`, `number[]`, or vector field holds finite numbers alone, so the engine raises `DOC_VALIDATION_FAILED` for `Infinity`, which a JSON parser produces from a number such as `1e400`, and for `NaN`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.createIndex('articles', {
   schema: {
@@ -81,6 +85,10 @@ The engine applies the first two limits and the configuration limit only to new 
 
 ### Index management
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const indexes = narsil.listIndexes()
 // [{ name: 'articles', documentCount: 1204, partitionCount: 1, language: 'english', state: 'open', reopenCount: 0 }]
@@ -103,6 +111,10 @@ With durability configured, `close(indexName)` releases an index's memory and ke
 
 `insert(indexName, document, docId?, options?)` takes the document id from the `docId` argument, or else from a string `id` field on the document itself. Where neither holds an id, Narsil generates a UUID v7. In every case, the method returns the id that it stored the document under. Where the call passes a `docId` and the document holds a different `id`, `insert` throws `DOC_VALIDATION_FAILED`, because the document would then contradict the id that the engine stores it under. `update` throws the same error for the same reason. For that reason too, a document's own `id` field must hold a non-empty string, so the engine raises `DOC_VALIDATION_FAILED` for an `id` that holds a number, an empty string, or `null`.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const generatedId = await narsil.insert('products', { title: 'Trackball Mouse' })
 
@@ -117,6 +129,10 @@ The engine stores text as UTF-8, so it raises `DOC_VALIDATION_FAILED` for a docu
 
 ### Read
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const doc = await narsil.get('products', 'kb-042')
 // the document, or undefined when the id is unknown
@@ -133,6 +149,10 @@ const count = await narsil.countDocuments('products')
 
 `listDocuments` reads the stored documents in document-id order without searching, which is how you page through a whole index. Leave the cursor out for the first page, pass back the cursor each page carries, and stop when it comes back null.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 let cursor: string | undefined
 
@@ -153,6 +173,10 @@ The engine compares ids by their Unicode code points, so `'10'` sorts ahead of `
 
 `filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because a field the projection keeps is copied out of the store for every listed document, and the engine reads its vector back out of the index as well.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const page = await narsil.listDocuments('products', {
   limit: 100,
@@ -163,6 +187,10 @@ const page = await narsil.listDocuments('products', {
 
 `sort` orders the listing by field value rather than by id. Name each field with its direction, either as an object or as a list of `{ field, direction }` entries. The engine applies the fields in the order they are listed, and it breaks a tie on document id, so a full walk still returns every document exactly once. The engine sorts by at most eight fields, because the cursor carries one value for each of them.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const page = await narsil.listDocuments('products', {
   limit: 100,
@@ -178,6 +206,10 @@ The engine ties each cursor to the sort and the filters that produced it. Sendin
 
 `update` replaces the whole document under an id. Internally it removes the old document and inserts the new one, with a fast path when the change touches nothing the index depends on.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.update('products', 'kb-042', { title: 'Split Ergonomic Keyboard' })
 
@@ -190,6 +222,10 @@ Both methods throw `DOC_NOT_FOUND` for an unknown id.
 
 Once an index holds worker copies, a write returns as soon as the main copy holds it, and the copies apply it afterwards, so a query that a copy answers can come back without a write that returned before it. Pass `wait: true` in the options of `insert`, `update`, `remove`, or a batch call to make that write return only once every copy has applied it, or call `waitForWrites(indexName)` after a run of writes.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 await narsil.insert('products', { id: 'kb-044', title: 'Compact Keyboard' }, undefined, { wait: true })
 
@@ -203,6 +239,10 @@ See [Writes and the copies](partitions-and-workers.md#writes-and-the-copies) for
 
 `insertBatch`, `updateBatch`, and `removeBatch` process many documents in one call and return partial results. One bad document never aborts the batch, because the engine records every failure with its id and error, and applies every success.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 const result = await narsil.insertBatch('products', [
   { id: 'p1', title: 'USB-C Hub', price: 49 },

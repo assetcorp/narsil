@@ -58,6 +58,22 @@ jobs:
           WORKFLOW_FILE: .github/workflows/publish.yml
         run: node .github/scripts/changed-areas.js
 
+  release-status:
+    name: Packages with commits since their last release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Write each package with commits since its last release tag to the job summary
+        run: node .github/scripts/release-status.js
+
   engine:
     name: Engine
     needs: changes

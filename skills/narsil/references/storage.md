@@ -17,6 +17,7 @@ if (!narsil.listIndexes().some(index => index.name === 'orders')) {
 - The engine locks its directory, so `createNarsil` fails with `CONFIG_INVALID` for a second engine on the same directory until the first one shuts down. Give each process its own directory.
 - To share one store between processes, pass `durability: { tier: 'snapshot' }` and an invalidation adapter from `@delali/narsil/invalidation/filesystem` to every process. `createNarsil` refuses an invalidation adapter on the write-ahead log with `CONFIG_INVALID`.
 - Subscribe with `narsil.on('durabilityError', handler)`, because the engine reports a failed background save there and rejects no promise that the app holds.
+- For an index whose keyword index and documents can outgrow memory, pass `textStorage: 'disk'` to `createIndex`, so that the engine answers queries from segment files on disk once a checkpoint saves them. The setting needs filesystem durability, so `createIndex` throws `CONFIG_INVALID` for it on any other engine.
 
 ## Close the indexes that nobody is using
 
