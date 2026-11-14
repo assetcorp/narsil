@@ -1,3 +1,15 @@
+## 0.4.1 (2026-11-14)
+
+### 🩹 Fixes
+
+- **server:** preserve the published version in application bundles ([5ddc72fa](https://github.com/assetcorp/narsil/commit/5ddc72fa))
+- **suggestions:** copy adapter buffers before transferring history ([a677a99f](https://github.com/assetcorp/narsil/commit/a677a99f))
+- answer query suggestions, cluster health, grouping, and /version correctly ([7511228b](https://github.com/assetcorp/narsil/commit/7511228b))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.4.0 (2026-11-13)
 
 ### 🚀 Features
