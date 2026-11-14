@@ -20,6 +20,9 @@ The client sends through `fetch` and imports no Node built-in, so it runs in a b
 
 ## Building one
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+-->
 ```ts
 const client = createNarsilClient({
   url: 'https://search.example.com',
@@ -53,6 +56,10 @@ The client takes no extra try for a write, because the first request can have ta
 
 Every method takes `signal`, `timeoutMs`, `headers`, and `maxResponseBytes` last. Aborting the signal fails the call with `CLIENT_REQUEST_ABORTED`, and it stops the HTTP request as well.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+-->
 ```ts
 const controller = new AbortController()
 const results = await client.query('movies', { term: 'matrix' }, { signal: controller.signal, timeoutMs: 2000 })
@@ -66,6 +73,10 @@ Six methods send or receive a corpus or a whole index, so `importDocuments`, `st
 
 The client throws a `NarsilError` for every failure, under the code the server sent, so a branch written against an embedded engine works here unchanged. `details.status` holds the HTTP status alongside whatever details the server sent.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+-->
 ```ts
 import { ErrorCodes, NarsilError } from '@delali/narsil/client'
 
@@ -100,6 +111,11 @@ The client writes `details.url`, the full address that it sent to, where a reque
 
 `importDocuments` encodes the documents as NDJSON, sends them in one request, and answers once the whole load has finished. It takes a string or a byte array as well, so NDJSON you read from a file needs no re-encoding.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+declare const documents: Record<string, unknown>[]
+-->
 ```ts
 const result = await client.importDocuments('movies', documents)
 console.log(result.indexed, result.failed, result.errors)
@@ -109,6 +125,11 @@ One bad record never abandons the rest, because the server notes each failure an
 
 Where a load would outlast a proxy's response timeout, start a task instead and follow it.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+declare const documents: Record<string, unknown>[]
+-->
 ```ts
 const task = await client.startImport('movies', documents)
 const finished = await client.waitForTask(task.id, {
@@ -120,14 +141,19 @@ const finished = await client.waitForTask(task.id, {
 
 `snapshot` and `exportDocuments` return the server's answer as a stream of bytes, so you can write a whole index to a file without holding it in memory. `restore` and `importDocumentExport` each take a byte array or a stream. Once the server holds the whole upload, each of them resolves with a task record to follow.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+-->
 ```ts
-import { createReadStream, createWriteStream } from 'node:fs'
-import { Readable, Writable } from 'node:stream'
+import { createWriteStream, openAsBlob } from 'node:fs'
+import { Writable } from 'node:stream'
 
 const archive = await client.snapshot('movies')
 await archive.pipeTo(Writable.toWeb(createWriteStream('./movies.tar')))
 
-const task = await client.restore('movies', Readable.toWeb(createReadStream('./movies.tar')))
+const saved = await openAsBlob('./movies.tar')
+const task = await client.restore('movies', saved.stream())
 await client.waitForTask(task.id)
 ```
 
@@ -149,6 +175,10 @@ Seven operations execute as tasks: an import started through `startImport`, `res
 
 `listTasks` pages through the records the server still holds, newest first, and filters them by index, type, and status.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+-->
 ```ts
 const page = await client.listTasks({ indexName: 'movies', status: ['running'], limit: 50 })
 ```
@@ -161,6 +191,11 @@ A page holds 20 records unless `limit` sets another size. `next` holds the offse
 
 `supports` reports whether the server serves an optional route. Check it before calling a route an older server would refuse with 404.
 
+<!-- example setup
+import { createNarsilClient } from '@delali/narsil/client'
+const client = createNarsilClient({ url: 'http://localhost:9876' })
+declare const documents: Record<string, unknown>[]
+-->
 ```ts
 import { ASYNC_IMPORT_CAPABILITY } from '@delali/narsil/client'
 

@@ -4,7 +4,7 @@ The server subpath turns an engine into a REST service, and this guide covers ev
 
 `@delali/narsil/server` puts a REST API in front of an engine that the application builds. The application creates the engine and sets its configuration, such as durability, embedding adapters, and workers, and the server shares that engine across requests. On Node.js the server receives requests on the workers that hold the worker copies, which the engine calls request threads, and it starts one for every thread in `workers.count`, or one alone on a machine with fewer than three cores. A request thread answers a query on an index whose copy it holds from that copy and from the vector copy the threads share, while it sends every write, every admin request, and every query on an index without a copy to the main thread, which answers as it does for its own callers. See [Request threads](partitions-and-workers.md#request-threads). `NarsilServer.requestThreadCount` reports how many threads took requests, and it reads zero where the main thread answers everything itself, which happens with `workers.enabled: false`, on a runtime without worker threads, and on a cluster node's engine. A write returns before it reaches every copy, so pass `wait: true` on a write, or call `POST /indexes/{name}/_wait-for-writes`, before a search that has to see it; see [Writes and the copies](partitions-and-workers.md#writes-and-the-copies). The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
 
-```bash
+```bash skip
 pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.70.0
 ```
 
@@ -85,6 +85,11 @@ Where one method of the TypeScript client covers a route, the operation ID is th
 
 By default, the server accepts a `regex` test on a pattern field from any client. Because the matcher never backtracks and the engine limits every pattern test through its `patternWorkCap` setting, a regular expression can cost no more work than that cap allows. Set `allowRegex: false` on a public endpoint that should accept no regular expressions at all.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { createServer } from '@delali/narsil/server'
+const engine = await createNarsil()
+-->
 ```ts
 const server = createServer(engine, { host: '127.0.0.1', port: 7700, allowRegex: false })
 ```
@@ -95,6 +100,11 @@ While `allowRegex` is false, the server answers 400 with `SEARCH_INVALID_FILTER`
 
 `server.shutdown()` closes the server and then shuts the engine down, which is the one call that a process whose work is this server makes on its way out:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { createServer } from '@delali/narsil/server'
+const server = createServer(await createNarsil(), { host: '127.0.0.1', port: 7700 })
+-->
 ```ts
 const stop = async (): Promise<void> => {
   await server.shutdown()
@@ -111,6 +121,11 @@ Shutting the engine down is what ends the request threads, which is why a proces
 
 An uncaught error on the main thread ends the process the same way, because nothing shuts the engine down on that path. Node prints your own error and its stack first, so you still see what failed. Handle the error yourself where you want a clean exit code:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { createServer } from '@delali/narsil/server'
+const server = createServer(await createNarsil(), { host: '127.0.0.1', port: 7700 })
+-->
 ```ts
 process.on('uncaughtException', async error => {
   console.error(error)
@@ -123,7 +138,7 @@ process.on('uncaughtException', async error => {
 
 Ten operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, `_rebuild-analysis`, `_change-analysis`, and the backup, restore, and deletion of a cluster backup. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
 
-```json
+```json skip
 {
   "id": "0f0d9d3a-6d1e-4a1a-9a9f-2f0d0a1b2c3d",
   "type": "import",
@@ -150,7 +165,7 @@ Each running task holds its own working set, and an async import holds the whole
 
 `GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
 
-```json
+```json skip
 {
   "capabilities": [
     "documents.import.async",
@@ -190,7 +205,7 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
 
 `GET /readyz` answers 200 only while the node reports `SERVING`, and 503 otherwise, so a load balancer can send traffic to a node once it serves every partition the controller gave it. The body names the node either way:
 
-```json
+```json skip
 {
   "status": "ready",
   "cluster": { "nodeId": "node-a", "roles": ["data", "coordinator", "controller"], "status": "active", "readiness": "SERVING", "isController": true }
@@ -201,7 +216,7 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
 
 `GET /cluster` reports the node itself under `node`, the id of the node holding the controller lease, and every registration the coordinator holds:
 
-```json
+```json skip
 {
   "node": { "nodeId": "node-a", "roles": ["data", "coordinator", "controller"], "status": "active", "readiness": "SERVING", "isController": true },
   "controllerNodeId": "node-a",
@@ -220,7 +235,7 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
 
 `GET /indexes/{name}/cluster` reports one index's allocation partition by partition, in partition order. An index the controller has yet to allocate answers with `allocated` false and no partitions. A name the cluster would never accept answers 400 `INVALID_REQUEST`.
 
-```json
+```json skip
 {
   "indexName": "movies",
   "allocated": true,
@@ -239,7 +254,7 @@ A cluster node with the `backups` setting backs up an index to a store outside t
 
 Each of the three answers 202 with a task of type `backup`, `backupRestore`, or `backupDelete`, whose `backupName` holds the name of the backup. A restore task's `indexName` holds the index that it creates, and a deletion task's holds an empty string. While the work proceeds, `steps` counts the partitions done, or the files deleted for a deletion:
 
-```json
+```json skip
 {
   "id": "6b3f8f2e-58a4-4c3e-9d1f-0b8a2e4c7d10",
   "type": "backup",
@@ -261,7 +276,7 @@ A task that fails holds the code in `error`, such as `BACKUP_DAMAGED` for a rest
 
 `GET /cluster/health` reports a status for the cluster and for each index, and it answers 200 whatever the status, so a monitor reads the status from the body:
 
-```json
+```json skip
 {
   "status": "yellow",
   "indexes": [
@@ -290,13 +305,13 @@ Scrape every node, because each one reports the lag and the commit point only fo
 
 `POST /indexes/{name}/documents/_list` pages through the stored documents without searching, in document-id order until the body names a `sort`. The body takes `cursor`, `limit`, `filters`, `sort`, and `document`, which are the parameters [`listDocuments`](indexes-and-documents.md#list) takes. It takes a body because `filters`, `sort`, and `document` are nested objects.
 
-```bash
+```bash skip
 curl -X POST localhost:9876/indexes/movies/documents/_list \
   -H 'content-type: application/json' \
   -d '{"limit":100}'
 ```
 
-```json
+```json skip
 {
   "documents": [{ "id": "m1", "document": { "title": "The Matrix" } }],
   "cursor": "eyJ2IjozLCJhIjoibTEiLCJxIjoiMDU1MzdhMDcifQ==",

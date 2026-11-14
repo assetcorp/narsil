@@ -47,6 +47,10 @@ A page that holds no hits, such as a page past the last hit or a query with `lim
 
 Register an adapter under a name in the `rerankAdapters` setting, or later with `registerRerankAdapter`. A registration under a name that you already used replaces the adapter for every later query. Each query gives the name of its adapter, so an index stores nothing about reranking and needs no rebuild when you change the model.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 import { createTransformersReranker } from '@delali/narsil-embeddings-transformers/reranker'
 

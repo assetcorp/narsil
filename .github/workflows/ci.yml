@@ -149,6 +149,7 @@ jobs:
           (cd packages/ts && node ../../.github/scripts/check-readme-examples.js typescript README.md examples/http-server/README.md ../embeddings-transformers/README.md)
           (cd packages/certutil && node ../../.github/scripts/check-readme-examples.js typescript README.md)
           (cd packages/react-native && node ../../.github/scripts/check-readme-examples.js typescript README.md)
+          (cd packages/go/changes && go mod download github.com/coder/websocket)
           node .github/scripts/check-guide-examples.js
 
   tests:
