@@ -1,5 +1,6 @@
 const { join } = require('node:path')
 const jsVersionActions = require('@nx/js/src/release/version-actions')
+const { rewritingMarkedVersions } = require('./release-versions.js')
 
 const PLATFORM_PACKAGES_DIRECTORY = join('packages', 'native', 'npm')
 
@@ -19,6 +20,6 @@ class NativePlatformVersionActions extends jsVersionActions.default {
 }
 
 module.exports = {
-  default: NativePlatformVersionActions,
+  default: rewritingMarkedVersions(NativePlatformVersionActions),
   afterAllProjectsVersioned: jsVersionActions.afterAllProjectsVersioned,
 }

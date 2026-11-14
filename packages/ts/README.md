@@ -58,7 +58,7 @@ The skill has the agent read the Narsil version that your project installs, and 
 
 ## Quick start
 
-```ts
+```ts run
 import { createNarsil } from '@delali/narsil'
 
 const narsil = await createNarsil()

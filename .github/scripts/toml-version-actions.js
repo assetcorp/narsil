@@ -1,14 +1,7 @@
 const { join } = require('node:path')
 const { VersionActions } = require('nx/src/command-line/release/version/version-actions')
-
-function escapedForPattern(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function tableKeyPattern(table, key) {
-  const header = escapedForPattern(`[${table}]`)
-  return new RegExp(`(^${header}\\s*$(?:(?!^\\[)[\\s\\S])*?^${key}\\s*=\\s*")([^"]+)(")`, 'm')
-}
+const { rewritingMarkedVersions } = require('./release-versions.js')
+const { escapedForPattern, tableKeyPattern } = require('./toml-table.js')
 
 function lockedPackageVersion(packageName) {
   const name = escapedForPattern(packageName)
@@ -75,6 +68,6 @@ class TomlVersionActions extends VersionActions {
 }
 
 module.exports = {
-  default: TomlVersionActions,
+  default: rewritingMarkedVersions(TomlVersionActions),
   afterAllProjectsVersioned: async () => ({ changedFiles: [], deletedFiles: [] }),
 }

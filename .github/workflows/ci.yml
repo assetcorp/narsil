@@ -49,6 +49,18 @@ jobs:
           WORKFLOW_FILE: .github/workflows/ci.yml
         run: node .github/scripts/changed-areas.js
 
+  release-versions:
+    name: Released versions in the READMEs and guides
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check that every line naming a Narsil version carries a marker and the manifest version
+        run: node .github/scripts/check-release-versions.js
+
   engine:
     name: Engine
     needs: changes
@@ -130,6 +142,14 @@ jobs:
 
       - name: Test (certutil)
         run: pnpm nx run narsil-certutil:test
+
+      - name: Compile the code in the TypeScript READMEs and the guides, and run each block marked run
+        run: |
+          pnpm nx run narsil-embeddings-transformers:build
+          (cd packages/ts && node ../../.github/scripts/check-readme-examples.js typescript README.md examples/http-server/README.md ../embeddings-transformers/README.md)
+          (cd packages/certutil && node ../../.github/scripts/check-readme-examples.js typescript README.md)
+          (cd packages/react-native && node ../../.github/scripts/check-readme-examples.js typescript README.md)
+          node .github/scripts/check-guide-examples.js
 
   tests:
     name: Tests ${{ matrix.shard }} of 4

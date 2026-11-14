@@ -244,6 +244,13 @@ jobs:
           python -m pip install --disable-pip-version-check --no-index --find-links ../../wheelhouse delali-narsil
           python -m pytest
 
+      - name: Type-check the README examples and run them on the installed wheel
+        if: ${{ matrix.platform.label == 'linux-x64-gnu' && matrix.python == '3.11' }}
+        working-directory: packages/python-engine
+        env:
+          NARSIL_EXAMPLE_PYTHON: python
+        run: node ../../.github/scripts/check-readme-examples.js python README.md
+
       - name: Install the wheel and test it in Alpine Linux
         if: ${{ matrix.platform.musl }}
         env:

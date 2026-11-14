@@ -33,8 +33,26 @@ const AREAS_BY_PREFIX = [
   ['packages/python/', ['check']],
   ['packages/go/', ['check']],
   ['.github/workflows/', []],
+  ['.github/scripts/check-guide-examples.js', ['check']],
+  ['.github/scripts/check-readme-examples.js', ['check']],
+  ['.github/scripts/example-checkers.js', ['check']],
+  ['.github/scripts/readme-code-blocks.js', ['check']],
   ['.github/scripts/', []],
   ['.github/ISSUE_TEMPLATE/', []],
+]
+
+const README_EXAMPLE_SCRIPTS = [
+  '.github/scripts/check-readme-examples.js',
+  '.github/scripts/example-checkers.js',
+  '.github/scripts/readme-code-blocks.js',
+]
+
+const MARKDOWN_THAT_THE_CHECK_JOB_COMPILES = [
+  'packages/ts/README.md',
+  'packages/ts/examples/http-server/README.md',
+  'packages/embeddings-transformers/README.md',
+  'packages/certutil/README.md',
+  'packages/react-native/README.md',
 ]
 
 const FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE = [
@@ -69,8 +87,10 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/conformance/',
       'packages/ts/src/',
       '.github/workflows/python-engine.yml',
+      ...README_EXAMPLE_SCRIPTS,
     ],
     except: ['packages/rust/tests/', ...FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE],
+    compiledMarkdown: ['packages/python-engine/README.md'],
   },
   go_engine: {
     paths: [
@@ -81,8 +101,10 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/spec/',
       'packages/ts/src/',
       '.github/workflows/go-engine.yml',
+      ...README_EXAMPLE_SCRIPTS,
     ],
     except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
+    compiledMarkdown: ['packages/go/engine/README.md'],
   },
   native_core: {
     paths: [
@@ -119,8 +141,10 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/src/changes/',
       'packages/ts/scripts/client-test-server.mjs',
       '.github/workflows/clients.yml',
+      ...README_EXAMPLE_SCRIPTS,
     ],
     except: ['packages/go/engine/'],
+    compiledMarkdown: ['packages/python/README.md', 'packages/go/README.md'],
   },
   react_native: {
     paths: [
@@ -179,8 +203,11 @@ const changedFiles = () => {
   return namesBetween(before, after)
 }
 
+const compilesInTheCheckJob = path =>
+  MARKDOWN_THAT_THE_CHECK_JOB_COMPILES.includes(path) || (path.startsWith('docs/') && !path.slice(5).includes('/'))
+
 const typescriptAreasOf = path => {
-  if (path.endsWith('.md')) return []
+  if (path.endsWith('.md')) return compilesInTheCheckJob(path) ? ['check'] : []
   const rule = AREAS_BY_PREFIX.find(([prefix]) => path.startsWith(prefix))
   return rule === undefined ? TYPESCRIPT_AREAS : rule[1]
 }
