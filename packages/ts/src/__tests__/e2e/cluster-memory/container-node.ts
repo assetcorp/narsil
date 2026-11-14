@@ -18,6 +18,9 @@ const STOP_TIMEOUT_SECONDS = 10
 const MEGABYTE_BYTES = 1024 * 1024
 const KILOBYTE_BYTES = 1024
 const MEMINFO_FIGURE_WIDTH = 16
+const PEAK_REPORT_TIMEOUT_MS = 10_000
+const PEAK_REPORT_POLL_MS = 50
+const PEAK_UNBACKED_LINE = /PEAK_UNBACKED (\d+) (\d+)\n/
 
 export interface ContainerNode {
   base: string
@@ -26,6 +29,7 @@ export interface ContainerNode {
   output(): string
   oomKilled(): Promise<boolean>
   peakResidentBytes(): Promise<number>
+  peakUnbacked(): Promise<{ bytes: number; samples: number }>
   stop(): Promise<void>
 }
 
@@ -144,6 +148,17 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
       const peak = /^VmHWM:\s+(\d+) kB$/m.exec(status)
       if (peak === null) throw new Error(`the container reported no peak resident memory: ${status}`)
       return Number(peak[1]) * KILOBYTE_BYTES
+    },
+    async peakUnbacked() {
+      const reported = output.length
+      await docker(['kill', '--signal', 'SIGUSR2', name])
+      const deadline = Date.now() + PEAK_REPORT_TIMEOUT_MS
+      while (Date.now() < deadline && !hasExited) {
+        const match = PEAK_UNBACKED_LINE.exec(output.slice(reported))
+        if (match !== null) return { bytes: Number(match[1]), samples: Number(match[2]) }
+        await sleep(PEAK_REPORT_POLL_MS)
+      }
+      throw new Error(`the node reported no unbacked memory peak: ${output.slice(-2_000)}`)
     },
     async stop() {
       if (!hasExited) await docker(['stop', '--time', String(STOP_TIMEOUT_SECONDS), name]).catch(() => '')

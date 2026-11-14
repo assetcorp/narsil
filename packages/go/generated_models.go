@@ -629,7 +629,8 @@ type HTTPCreateIndexBody struct {
 // HTTPGroupResult: One group of hits as the server sends it, which is GroupResult with no reducer
 // output, because the server refuses a query with a reducer.
 type HTTPGroupResult struct {
-	// Each grouping field holds this value for the group, keyed by field.
+	// This holds one value for each grouping field, keyed by field, with `null` for a field where the
+	// group's documents hold no value.
 	Values map[string]any `json:"values"`
 	// These hits retain the scores of the group's ranking.
 	Hits []Hit `json:"hits"`
@@ -2094,7 +2095,8 @@ type VectorQueryConfig struct {
 type VersionResponse struct {
 	// This is always `narsil`.
 	Name string `json:"name"`
-	// The build came from this package version, or this is null where the build stamped none.
+	// This holds the `build.version` that the caller passed to `createServer`, or else the version of the
+	// installed `@delali/narsil` package, although a server from an older release can report null here.
 	Version *string `json:"version"`
 	// The build came from this git commit, or this is null where the build stamped none.
 	GitSha *string `json:"gitSha"`

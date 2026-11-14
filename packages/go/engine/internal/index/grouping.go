@@ -104,6 +104,8 @@ func groupValuesOf(document *codec.Document, fields []string) map[string]any {
 	for _, field := range fields {
 		if value, present := partition.NestedValue(document, field); present {
 			values[field] = codec.SnapshotValue(value)
+		} else {
+			values[field] = nil
 		}
 	}
 	return values

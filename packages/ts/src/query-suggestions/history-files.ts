@@ -73,8 +73,9 @@ function adapterFiles(storage: Extract<HistoryStorage, { kind: 'adapter' }>): Hi
     listUnder: prefix => adapter.list(prefix),
     async read(key) {
       const bytes = await adapter.load(key)
-      if (bytes !== null && bytes.byteLength > MAX_HISTORY_FILE_BYTES) return 'too-long'
-      return bytes
+      if (bytes === null) return null
+      if (bytes.byteLength > MAX_HISTORY_FILE_BYTES) return 'too-long'
+      return new Uint8Array(bytes)
     },
     write: (key, bytes) => adapter.save(key, bytes),
     remove: key => adapter.delete(key),
@@ -88,10 +89,10 @@ function memoryFiles(): HistoryFiles {
       return [...files.keys()].filter(key => key.startsWith(prefix)).sort()
     },
     async read(key) {
-      return files.get(key) ?? null
+      return files.get(key)?.slice() ?? null
     },
     async write(key, bytes) {
-      files.set(key, bytes)
+      files.set(key, bytes.slice())
     },
     async remove(key) {
       files.delete(key)

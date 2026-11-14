@@ -231,7 +231,7 @@ export interface ReadinessResponse {
 export interface VersionResponse {
   /** This is always `narsil`. */
   name: 'narsil'
-  /** The build came from this package version, or this is null where the build stamped none. */
+  /** This holds the `build.version` that the caller passed to `createServer`, or else the version of the installed `@delali/narsil` package, although a server from an older release can report null here. */
   version: string | null
   /** The build came from this git commit, or this is null where the build stamped none. */
   gitSha: string | null

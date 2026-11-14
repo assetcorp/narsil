@@ -10,7 +10,7 @@ import type {
   ReplicaLagFigure,
 } from '../types/observability'
 import type { CoordinatorTiming } from './coordinator-timing'
-import { inSyncReplicasOf, servedIndexes } from './tables'
+import { inSyncReplicasOf, type ServedIndex, servedIndexes } from './tables'
 
 export interface ClusterMetricsDeps {
   nodeId: string
@@ -22,15 +22,16 @@ export interface ClusterMetricsDeps {
 
 function lagOf(
   deps: ClusterMetricsDeps,
-  indexName: string,
+  index: ServedIndex,
   partitionId: number,
   assignment: PartitionAssignment,
   log: ReplicationLog,
 ): ReplicaLagFigure[] {
+  const { indexName, servingName } = index
   const figures: ReplicaLagFigure[] = []
   for (const replica of assignment.replicas) {
     if (replica === deps.nodeId) continue
-    const acknowledged = acknowledgedSeqNoOf(deps.catchUp, indexName, partitionId, replica) ?? 0
+    const acknowledged = acknowledgedSeqNoOf(deps.catchUp, servingName, partitionId, replica) ?? 0
     const floor = assignment.inSyncSet.includes(replica) ? log.commitPoint : 0
     const lag = Math.max(0, log.localLogEnd - Math.max(acknowledged, floor))
     figures.push({ indexName, partitionId, replica, lag })
@@ -54,11 +55,11 @@ export async function readClusterMetrics(deps: ClusterMetricsDeps): Promise<Clus
         inSyncReplicas: inSyncReplicasOf(assignment).length,
       })
       if (assignment.primary !== deps.nodeId) continue
-      ledPartitionKeys.add(partitionKey(index.indexName, partitionId))
-      const log = deps.replicationLogOf(index.indexName, partitionId)
+      ledPartitionKeys.add(partitionKey(index.servingName, partitionId))
+      const log = deps.replicationLogOf(index.servingName, partitionId)
       if (log === undefined) continue
       commitPoints.push({ indexName: index.indexName, partitionId, commitPoint: log.commitPoint })
-      replicationLag.push(...lagOf(deps, index.indexName, partitionId, assignment, log))
+      replicationLag.push(...lagOf(deps, index, partitionId, assignment, log))
     }
   }
   keepAcknowledgementsOf(deps.catchUp, ledPartitionKeys)

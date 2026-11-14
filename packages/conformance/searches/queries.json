@@ -1616,6 +1616,3371 @@
    }
   ]
  },
+ "grouped": {
+  "group": {
+   "fields": [
+    "title",
+    "sponsor"
+   ],
+   "limit": 3,
+   "maxPerGroup": 2
+  },
+  "queries": [
+   {
+    "id": "test-00000",
+    "text": "To make technical corrections to the Water Resources Development Act of 1999.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to make certain technical corrections.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07961"
+      ]
+     },
+     {
+      "values": {
+       "title": "To make technical corrections to title 17, United States Code.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04170"
+      ]
+     },
+     {
+      "values": {
+       "title": "To provide the Secretary of the Army with additional and enhanced authority with respect to water resources projects, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08546"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00001",
+    "text": "Federal Forage Fee Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Advance Fee Loan Scam Prevention Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02043",
+       "train-01374"
+      ]
+     },
+     {
+      "values": {
+       "title": "Aviation Industry Revitalization Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06827"
+      ]
+     },
+     {
+      "values": {
+       "title": "Police Accountability Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08201"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00002",
+    "text": "Merchant Marine of World War II Congressional Gold Medal Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Merchant Mariners of World War II Congressional Gold Medal Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08166"
+      ]
+     },
+     {
+      "values": {
+       "title": "Filipino Veterans of World War II Congressional Gold Medal Act of 2015",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02047",
+       "train-02334"
+      ]
+     },
+     {
+      "values": {
+       "title": "Filipino Veterans of World War II Congressional Gold Medal Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06663"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00003",
+    "text": "To amend the Internal Revenue Code of 1986 to provide for unified income taxation with respect to pass-thru entities.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to terminate the Internal Revenue Code of 1986, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06892"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to allow individuals to exclude dividend income.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02182",
+       "train-00837"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to provide for S corporation reform, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09930"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00004",
+    "text": "Fair Access to Investment Research Act of 2016",
+    "groups": [
+     {
+      "values": {
+       "title": "Fair Access to Investment Research Act of 2015",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08567"
+      ]
+     },
+     {
+      "values": {
+       "title": "Nicaraguan Investment Conditionality Act (NICA) of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06119"
+      ]
+     },
+     {
+      "values": {
+       "title": "Fair Salary History Alternatives for Responsible Employment Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05772"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00005",
+    "text": "Prescription Drug Monitoring Act of 2016",
+    "groups": [
+     {
+      "values": {
+       "title": "Prescription Drug Monitoring Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08013"
+      ]
+     },
+     {
+      "values": {
+       "title": "Combating Prescription Drug Abuse Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05386"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to reduce the costs of prescription drugs for medicare beneficiaries, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00025",
+       "train-03097"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00006",
+    "text": "A bill to establish a Strategic Gasoline and Fuel Reserve.",
+    "groups": [
+     {
+      "values": {
+       "title": "To establish a Strategic Transformer Reserve program, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05695"
+      ]
+     },
+     {
+      "values": {
+       "title": "To authorize the construction and operation of regional reserves of gasoline, for use as a response to acute gasoline price increases resulting from accidents or other physical disruptions to regional supplies of gasoline.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08336"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to prohibit price gouging relating to gasoline and diesel fuels in areas affected by major disasters.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00713",
+       "train-01383"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00007",
+    "text": "To provide increased benefits for public safety officers disabled in the line of duty, and for the spouses and children of public safety officers killed or disabled in the line of duty, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "Public Safety Officers' Benefits Improvement Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06975"
+      ]
+     },
+     {
+      "values": {
+       "title": "To improve the Public Safety Officers' Benefits Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07974"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to provide educational assistance to the dependents of Federal law enforcement officials who are killed or disabled in the performance of their duties.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07651"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00008",
+    "text": "Promoting Financial Literacy and Economic Opportunity Act of 2015",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to provide grants to promote financial literacy.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07472"
+      ]
+     },
+     {
+      "values": {
+       "title": "To establish a Commission to Educate our Nation's Teachers and Students on Financial Literacy Skills.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06407"
+      ]
+     },
+     {
+      "values": {
+       "title": "Young Americans Financial Literacy Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01181",
+       "train-00910"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00009",
+    "text": "To amend the Tariff Act of 1930 and the Internal Revenue Code of 1986 relating to importation of tobacco products.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to deter the smuggling of tobacco products into the United States, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04687"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to increase the excise taxes on tobacco products for the purpose of offsetting the Federal budgetary costs associated with the Child Health Insurance and Lower Deficit Act.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04553"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Tariff Act of 1930 relating to drawback.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09970"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00010",
+    "text": "A bill to amend the Outer Continental Shelf Lands Act to allow certain coastal States to share in qualified outer Continental Shelf revenues.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Outer Continental Shelf Lands Act to provide for payments for producing coastal States.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03617"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Outer Continental Shelf Lands Act and the Gulf of Mexico Energy Security Act of 2006 to increase the percentage of revenues from new offshore leases that will be shared with coastal States to 50 percent.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06078"
+      ]
+     },
+     {
+      "values": {
+       "title": "To provide for the distribution to coastal States and counties of revenues collected under the Outer Continental Shelf Lands Act.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01913",
+       "train-00223"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00011",
+    "text": "Developmental Disabilities Assistance and Bill of Rights Act Amendments of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Developmental Disabilities Assistance and Bill of Rights Act of 2000 to provide assistance to States for development and implementation of an individual transition plan for each individual with a developmental disability in the State who is making the transition from the secondary school system into adulthood, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07680"
+      ]
+     },
+     {
+      "values": {
+       "title": "Caring for Military Children with Developmental Disabilities Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09273"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to revise and extend the Birth Defects Prevention Act of 1998.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00810",
+       "train-00064"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00012",
+    "text": "To amend the Higher Education Act of 1965 to require accrediting agencies and associations to comply with due process throughout the accreditation process, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Higher Education Act of 1965 regarding distance education, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03631"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Higher Education Act of 1965 to authorize grant programs to enhance the access of low-income Black students to higher education.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04961"
+      ]
+     },
+     {
+      "values": {
+       "title": "Higher Education Reform and Opportunity Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04509"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00013",
+    "text": "To reauthorize and amend the Spark M. Matsunaga Hydrogen Research, Development, and Demonstration Act of 1990, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "Hydrogen Future Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07600"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to authorize the Secretary of Energy to establish monetary prizes for achievements in overcoming scientific and technical barriers associated with hydrogen energy.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00762",
+       "train-00339"
+      ]
+     },
+     {
+      "values": {
+       "title": "George E. Brown, Jr. Hydrogen Future Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06429"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00014",
+    "text": "A bill to require the Secretary of Health and Human Services to ensure that the public is provided adequate notice and education on the effects of exposure to mercury through the development of health advisories and by requiring that such appropriate advisories be posted, or made readily available, at all businesses that sell fresh, frozen, and canned fish and seafood where the potential for mercury exposure exists.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Federal Food, Drug, and Cosmetic Act to reduce human exposure to mercury through vaccines.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07976"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Federal Food, Drug, and Cosmetic Act to provide restrictions on the use of carbon monoxide in meat, poultry, and seafood, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06914"
+      ]
+     },
+     {
+      "values": {
+       "title": "To improve the protections afforded under Federal law to consumers from contaminated seafood by directing the Secretary of Commerce to establish a program, in coordination with other appropriate Federal agencies, to strengthen activities for ensuring that seafood sold or offered for sale to the public in or affecting interstate commerce is fit for human consumption.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00582",
+       "train-01944"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00015",
+    "text": "A bill to authorize the Secretary of Energy to enter into privatization arrangements for activities carried out in connection with defense nuclear facilities, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "Nuclear Energy Innovation Capabilities Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03303",
+       "train-00923"
+      ]
+     },
+     {
+      "values": {
+       "title": "Defense Nuclear Workers' Health Insurance Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08251"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Energy Policy Act of 2005 to create the right business environment for doubling production of clean nuclear energy and other clean energy and to create mini-Manhattan projects for clean energy research and development.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05483"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00016",
+    "text": "Health Care Fraud Prevention and Paperwork Reduction Act of 2000",
+    "groups": [
+     {
+      "values": {
+       "title": "To reduce the amount of paperwork and improve payment policies for health care services, to prevent fraud and abuse through health care provider education, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01533",
+       "train-02226"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Paperwork Reduction Act and titles 5 and 31, United States Code, to reform Federal paperwork and regulatory processes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01167",
+       "train-02353"
+      ]
+     },
+     {
+      "values": {
+       "title": "Ted Weiss Memorial Health Care Fraud and Abuse Commission Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06073"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00017",
+    "text": "A bill to amend section 9401 of the Elementary and Secondary Education Act of 1965 with regard to waivers of statutory and regulatory requirements.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title X of the Elementary and Secondary Education Act of 1965 to provide for elementary and secondary school counseling programs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04258"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend part A of title I of the Elementary and Secondary Education Act of 1965 regarding adequate yearly progress and assessments.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02747",
+       "train-02751"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Elementary and Secondary Education Act of 1965 to permit States and local educational agencies to decide the frequency of using high quality assessments to measure and increase student academic achievement, to permit States and local educational agencies to obtain a waiver of certain testing requirements, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07031"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00018",
+    "text": "No Second Chances for Murderers, Rapists, or Child Molesters Act of 1998",
+    "groups": [
+     {
+      "values": {
+       "title": "Second Chance for Ex-Offenders Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05061"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to support community-based group homes for young mothers and their children.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09095"
+      ]
+     },
+     {
+      "values": {
+       "title": "Small Business Pension Start-Up Credit Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06413"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00019",
+    "text": "A bill to amend the Internal Revenue Code of 1986 to provide that the value of qualified historic property shall not be included in determining the taxable estate of a decedent.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to provide that the value of certain historic property shall be determined using an income approach in determining the taxable estate of a decedent.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03767"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to allow a deduction from the gross estate of a decedent in an amount equal to the value of real property subject to an endangered species conservation agreement.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06346"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to exclude certain farmland and family-owned business interests from the value of the gross estate of decedents.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06564"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00020",
+    "text": "CLINTON Act of 2016",
+    "groups": [
+     {
+      "values": {
+       "title": "PROS Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07363"
+      ]
+     },
+     {
+      "values": {
+       "title": "RISE Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04218"
+      ]
+     },
+     {
+      "values": {
+       "title": "Advancing Hope Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07380"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00021",
+    "text": "REIN-IN Act",
+    "groups": [
+     {
+      "values": {
+       "title": "To enforce discretionary spending limits to rein in spending, reduce the deficit, and regain control of the Federal budget process.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03694"
+      ]
+     },
+     {
+      "values": {
+       "title": "STOP Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04112"
+      ]
+     },
+     {
+      "values": {
+       "title": "Equity for Congress Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01484",
+       "train-03076"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00022",
+    "text": "To deny certain benefits to candidates for election to the House of Representatives who accept contributions in excess of certain limitations, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Federal Election Campaign Act of 1971 to limit the amount of nonconstituent contributions that a candidate may accept, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08493"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Federal Election Campaign Act of 1971 to provide for public funding for House of Representatives elections, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02716",
+       "train-01391"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Federal Election Campaign Act of 1971 to lower the maximum amount of contributions a multicandidate political committee may make to a House of Representatives candidate, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06734"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00023",
+    "text": "To amend title XVIII of the Social Security Act to provide whistleblower protection to employees of clinical laboratories who furnish services under the Medicare Program, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to clarify the scope of chiropractic services that may be furnished under the Medicare Program and that chiropractors are the only health care professionals qualified under that program to furnish those services.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08264"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to provide for the treatment of certain physician pathology services under the Medicare Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05482"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to establish procedures for determining payment amounts for new clinical diagnostic laboratory tests for which payment is made under the Medicare Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01767",
+       "train-00249"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00024",
+    "text": "To amend the Internal Revenue Code of 1986 to provide for the treatment of bonds issued to finance electric output facilities, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to provide tax-exempt bond financing of certain electric facilities.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04613"
+      ]
+     },
+     {
+      "values": {
+       "title": "Bond Fairness and Protection Act of 1999",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04324"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to provide for the treatment of bonds issued to finance renewable energy resource facilities, conservation and efficiency facilities, and other specified greenhouse gas emission technologies.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08901"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00025",
+    "text": "To require the President to seek to negotiate and enter into a bilateral status of forces agreement with the Government of the Islamic Republic of Afghanistan.",
+    "groups": [
+     {
+      "values": {
+       "title": "To provide for the establishment of a trust fund at the International Bank for Reconstruction and Development to address long-term food production and rural development needs in Afghanistan and the Central Asian Republics.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08790"
+      ]
+     },
+     {
+      "values": {
+       "title": "Authority for the Use of Military Force Against the Islamic State of Iraq and the Levant Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07776"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to authorize the President to enter into a trade agreement concerning Northern Ireland and certain border counties of the Republic of Ireland, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09507"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00026",
+    "text": "To require the Department of Veterans Affairs to provide mental health services in languages other than English, as needed, for veterans and family members with limited English proficiency, to expand the scope of mental health services provided to family members of veterans, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Robert T. Stafford Disaster Relief and Emergency Assistance Act to improve the provision of disaster relief and preparedness services with respect to persons with limited English proficiency, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08178"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to improve mental health services at all facilities of the Department of Veterans Affairs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08438"
+      ]
+     },
+     {
+      "values": {
+       "title": "To improve the literacy and English skills of limited English proficient individuals, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03325",
+       "train-00748"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00027",
+    "text": "A bill to amend title 10, United States Code, to establish the responsibility of the Department of Defense to plan for and respond to catastrophic incidents in the United States, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Homeland Security Act of 2002 to establish the United States Emergency Management Authority, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07923"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Homeland Security Act of 2002 to establish a program to provide assistance to enhance the ability of first responders to respond to incidents of terrorism, including incidents involving weapons of mass destruction, and to improve security of infrastructure, and for other purposes including emergency preparedness.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08813"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to provide for the establishment of a scientific basis for new firefighting technology standards, improve coordination among Federal, State, and local fire officials in training for and responding to terrorist attacks and other national emergencies, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08754"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00028",
+    "text": "A bill to promote the oil independence of the United States, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to reduce the dependence of the United States on foreign oil, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08475"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Energy Independence and Security Act of 2007 to improve United States-Israel energy cooperation, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03774"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to promote the energy independence of the United States, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05334"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00029",
+    "text": "A bill to establish The Return of Talent Program to allow aliens who are legally present in the United States to return temporarily to the country of citizenship of the alien if that country is engaged in post-conflict reconstruction, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to increase the capabilities of the United States to provide reconstruction assistance to countries or regions impacted by armed conflict, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04531"
+      ]
+     },
+     {
+      "values": {
+       "title": "American Promise Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07559"
+      ]
+     },
+     {
+      "values": {
+       "title": "To extend certain trade benefits to countries emerging from political instability, civil strife, or armed conflict.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03669"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00030",
+    "text": "To amend title 38, United States Code, to expand and enhance educational assistance for survivors and dependents of veterans.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend title 38, United States Code, to expand and enhance educational assistance for survivors and dependents of veterans.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09379"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title 38, United States Code, to extend the authority of the Secretary of Veterans Affairs to enter into enhanced-use leases for Department of Veterans Affairs property, to rename the United States Court of Veterans Appeals and the National Cemetery System, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09935"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend titles 10 and 38, United States Code, to improve the benefits provided for survivors of deceased members of the Armed Forces, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05318"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00031",
+    "text": "Strategic Withdrawal of Agencies for Meaningful Placement Act of 2018",
+    "groups": [
+     {
+      "values": {
+       "title": "Student, Teachers, and Officers Preventing School Violence Act of 2018",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03168",
+       "train-01440"
+      ]
+     },
+     {
+      "values": {
+       "title": "Communications Facilities Deployment on Federal Property Act of 2018",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07388"
+      ]
+     },
+     {
+      "values": {
+       "title": "Modern Employment, Reform, Improvement, and Transformation Act of 2018",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06344"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00032",
+    "text": "A bill to establish in the Department of Commerce the Minority Business Development Program to provide qualified minority businesses with technical assistance and contracting opportunities, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to foster development of minority-owned small businesses.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08680"
+      ]
+     },
+     {
+      "values": {
+       "title": "To create Federal advertising procurement opportunities for minority business concerns, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04354"
+      ]
+     },
+     {
+      "values": {
+       "title": "To establish the National Minority Business Enterprise Incubator Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06285"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00033",
+    "text": "To enhance the ability of drinking water utilities in the United States to develop and implement climate change adaptation programs and policies, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Coastal Zone Management Act of 1972 to authorize assistance to coastal states to develop coastal climate change adaptation plans pursuant to approved management programs approved under section 306, to minimize contributions to climate change, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08555"
+      ]
+     },
+     {
+      "values": {
+       "title": "Coastal State Climate Change Planning Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05245"
+      ]
+     },
+     {
+      "values": {
+       "title": "Climate Change Education Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01117",
+       "train-03427"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00034",
+    "text": "A bill to amend the Internal Revenue Code of 1986 to limit the interest deduction allowed corporations and to allow a deduction for dividends paid by corporations.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to give a deduction to corporations for dividends paid and to exclude dividends from gross income.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01839",
+       "train-01736"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to allow a credit or deduction for interest paid on education loans.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05002"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to allow a credit for interest paid on education loans.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04851"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00035",
+    "text": "To direct the Secretary of Labor to make a grant to a public university to establish the Center for the Study of Women and Workplace Policy.",
+    "groups": [
+     {
+      "values": {
+       "title": "To establish an Advisory Committee on Opioids and the Workplace to advise the Secretary of Labor on actions the Department of Labor can take to address the impact of opioid abuse on the workplace.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03593"
+      ]
+     },
+     {
+      "values": {
+       "title": "To provide for the preservation and restoration of historic buildings at historically women's public colleges or universities.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09469"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Public Health Service Act to provide for the establishment of a Drug-Free Workplace Information Clearinghouse, to authorize programs to prevent and improve treatment of methamphetamine addiction, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04766"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00036",
+    "text": "A bill to increase loan limits for small business concerns, provide for low interest refinancing for small business concerns, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To increase loan limits for small business concerns, to provide for low interest refinancing for small business concerns, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09989"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Small Business Act to provide for loan guarantees for certain private disaster loans.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04621"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to stabilize the small business lending market, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08124"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00037",
+    "text": "National Commission on Fairness in the Workplace Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Harassment-Free Workplace Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04463"
+      ]
+     },
+     {
+      "values": {
+       "title": "Workplace Education and High Performance Workforce Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07743"
+      ]
+     },
+     {
+      "values": {
+       "title": "Drug-free Workplace Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05115"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00038",
+    "text": "Propane Education and Research Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Contraception and Infertility Research Centers Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08327"
+      ]
+     },
+     {
+      "values": {
+       "title": "Center for Rare Disease Research Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04382"
+      ]
+     },
+     {
+      "values": {
+       "title": "Maritime Navigation Technology and Research Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04967"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00039",
+    "text": "To amend the Internal Revenue Code of 1986 to allow a refundable credit for expenditures for renewable energy property.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to treat certain solar energy credits as refundable credits, to allow a new refundable credit for equipment used to manufacture solar energy property, to waive the application of the subsidized financing rules to such property, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08511"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to provide and extend tax incentives for renewable energy and conservation.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06531"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to allow a credit for residential solar energy property.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07438"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00040",
+    "text": "To make organizations which have been indicted for violations of Federal or State law relating to elections for public office ineligible to participate in the Planning Partnership Program for the 2010 census of population, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "Decennial Census Improvement Act of 1996",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05101"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to provide for a test census of Americans residing abroad, and to require that such individuals be included in the 2010 decennial census.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05200"
+      ]
+     },
+     {
+      "values": {
+       "title": "To allow States to elect to receive contributions to the Highway Trust Fund in lieu of participating in the Federal-aid highway program or certain public transportation programs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06376"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00041",
+    "text": "Electronic Campaign Disclosure Act of 1998",
+    "groups": [
+     {
+      "values": {
+       "title": "Campaign Advertising and Disclosure Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04443"
+      ]
+     },
+     {
+      "values": {
+       "title": "To make improvements with respect to the Drug-Free Media Campaign Act of 1998 and to authorize such Campaign through fiscal year 2008.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07687"
+      ]
+     },
+     {
+      "values": {
+       "title": "Campus Crime Disclosure Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04055"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00042",
+    "text": "To provide for prices of pharmaceutical products that are fair to the producer and the consumer, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To provide for substantial reductions in the price of prescription drugs purchased by States for its employees, retirees, and pharmaceutical assistance beneficiaries.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04167"
+      ]
+     },
+     {
+      "values": {
+       "title": "Fair Accountability and Innovative Research Drug Pricing Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07460"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Food, Drug, and Cosmetic Act and the egg, meat, and poultry inspection laws to ensure that consumers receive notification regarding food products produced from crops, livestock, or poultry raised on land on which sewage sludge was applied.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02130",
+       "train-00675"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00043",
+    "text": "A bill to amend the Electronic Fund Transfer Act to provide protection for consumers who have prepaid cards, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "Consumer Debit Card Protection Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03195",
+       "train-02813"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Electronic Fund Transfer Act to provide protection for consumers who have government benefit cards.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03963"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to study the market and appropriate regulatory structure for electronic debit card transactions, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09667"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00044",
+    "text": "A bill to reauthorize the Appalachian Regional Development Act of 1965, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To reauthorize the Appalachian Regional Development Act of 1965.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07775"
+      ]
+     },
+     {
+      "values": {
+       "title": "To reauthorize and improve the program authorized by the Appalachian Regional Development Act of 1965.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02593",
+       "train-02756"
+      ]
+     },
+     {
+      "values": {
+       "title": "Appalachian Regional Development Act Amendments of 1997",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08695"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00045",
+    "text": "To amend title 10, United States Code, to improve the administration of the volunteer civilian auxiliary of the Air Force known as the Civil Air Patrol.",
+    "groups": [
+     {
+      "values": {
+       "title": "To award a Congressional Gold Medal to the World War II members of the Civil Air Patrol.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09245"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title 10, United States Code, to enhance science and technology planning and budgeting by the Air Force, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04152"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend title 10, United States Code, to provide for jurisdiction, apprehension, and detention of members of the Armed Forces and certain civilians accompanying the Armed Forces outside the United States, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07218"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00046",
+    "text": "To strengthen the law enabling the United States to expeditiously remove terrorist criminals, to add flexibility with respect to the places to which aliens may be removed, to give sufficient authority to the Secretary of Homeland Security and the Attorney General to remove aliens who pose a danger to national security, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to identify and remove criminal aliens incarcerated in correctional facilities in the United States and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09625"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend title 18, United States Code, to strengthen penalties for child pornography offenses, child sex trafficking offenses, and other sexual offenses committed against children.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05589"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Immigration and Nationality Act to ensure that no permanent resident alien or alien in the United States with an unexpired visa is removed or otherwise deprived of liberty, based on evidence that is kept secret from the alien.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05391"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00047",
+    "text": "Teenage Pregnancy Reduction Act of 1996",
+    "groups": [
+     {
+      "values": {
+       "title": "Teenage Pregnancy Reduction Act of 1999",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08742"
+      ]
+     },
+     {
+      "values": {
+       "title": "Welfare and Teenage Pregnancy Reduction Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00631",
+       "train-01814"
+      ]
+     },
+     {
+      "values": {
+       "title": "To authorize the Secretary of Health and Human Services to carry out programs to provide youth in racial or ethnic minority or immigrant communities the information and skills needed to reduce teenage pregnancies.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05096"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00048",
+    "text": "Children's Bicycle Helmet Safety Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Christen O'Donnell Equestrian Helmet Safety Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09002"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to encourage and ensure the use of safe equestrian helmets, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04773"
+      ]
+     },
+     {
+      "values": {
+       "title": "Congressional Safety and Health Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09452"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00049",
+    "text": "A bill to extend and improve the effectiveness of the employment eligibility confirmation program.",
+    "groups": [
+     {
+      "values": {
+       "title": "To evaluate and extend the basic pilot program for employment eligibility confirmation and to ensure the protection of Social Security beneficiaries.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07316"
+      ]
+     },
+     {
+      "values": {
+       "title": "To extend certain immigration programs, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03751"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to clarify that wages paid to unauthorized aliens may not be deducted from gross income, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00552",
+       "train-00019"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00050",
+    "text": "Stopping Abuse and Fraud in Electronic Lending Act of 2018",
+    "groups": [
+     {
+      "values": {
+       "title": "SAFE Lending Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04924"
+      ]
+     },
+     {
+      "values": {
+       "title": "Strengthening Partnerships to Prevent Opioid Abuse Act of 2018",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09674"
+      ]
+     },
+     {
+      "values": {
+       "title": "Health Care Fraud and Abuse Act of 1994",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06171"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00051",
+    "text": "To provide for the establishment of a commission to review and make recommendations to Congress on the reform and simplification of the Internal Revenue Code of 1986.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to terminate the Internal Revenue Code of 1986, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06892"
+      ]
+     },
+     {
+      "values": {
+       "title": "To establish the Comprehensive Entitlement Reform Commission.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04988"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to establish a commission to review the Federal Bureau of Investigation.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08887"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00052",
+    "text": "A bill to amend the Foreign Assistance Act of 1961 to modify for fiscal years 2002 through 2004 the procedures relating to assistance for countries not cooperating in United States counterdrug efforts, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to provide that the annual drug certification procedures under the Foreign Assistance Act of 1961 not apply to certain countries with which the United States has bilateral agreements and other plans relating to counterdrug activities, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00954",
+       "train-01145"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend section 490 of the Foreign Assistance Act of 1961 to establish an additional certification with respect to major drug-producing and drug-transit countries, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06116"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to authorize assistance for individuals with disabilities in foreign countries, including victims of landmines and other victims of civil strife and warfare, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06546"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00053",
+    "text": "To authorize certain Department of Veterans Affairs major medical facility projects and leases, to extend certain expiring provisions of law, and to modify certain authorities of the Secretary of Veterans Affairs, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To authorize major medical facility projects and major medical facility leases for the Department of Veterans Affairs for fiscal year 2009, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06654"
+      ]
+     },
+     {
+      "values": {
+       "title": "An original bill to authorize major medical facility construction projects for the Department of Veterans Affairs for fiscal year 1995, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03781"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title 38, United States Code, to extend certain expiring authorities of the Department of Veterans Affairs, to authorize medical construction projects for that Department for fiscal year 1996, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07539"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00054",
+    "text": "Sportsmen's Bill of Rights Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Labor, Human, and Civil Rights Trade Policy Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05206"
+      ]
+     },
+     {
+      "values": {
+       "title": "Rights for Transportation Security Officers Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05711"
+      ]
+     },
+     {
+      "values": {
+       "title": "Managed Care Bill of Rights for Consumers Act of 1996",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03864"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00055",
+    "text": "To authorize certain Department of Veterans Affairs major medical facility projects, to amend title 38, United States Code, to extend certain authorities of the Secretary of Veterans Affairs, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title 38, United States Code, to extend certain expiring authorities of the Department of Veterans Affairs, to authorize medical construction projects for that Department for fiscal year 1996, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07539"
+      ]
+     },
+     {
+      "values": {
+       "title": "To authorize major medical facility projects and major medical facility leases for the Department of Veterans Affairs for fiscal year 2009, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06654"
+      ]
+     },
+     {
+      "values": {
+       "title": "An original bill to authorize major medical facility construction projects for the Department of Veterans Affairs for fiscal year 1995, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03781"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00056",
+    "text": "To amend title 38, United States Code, to make permanent the authority for qualifying members of the Selected Reserve to have access to home loans guaranteed by the Secretary of Veterans Affairs and to provide for uniformity in fees charged qualifying members of the Selected Reserve and active duty veterans for such home loans.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title 38, United States Code, to provide mortgage payment assistance to avoid foreclosure of home loans guaranteed under title 38, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08104"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend title 38, United States Code, to authorize a cost-of-living adjustment in the rates of disability compensation for veterans with service-connected disabilities and dependency and indemnity compensation for the survivors of certain disabled veterans, to make modifications in the veterans home loan guaranty program, to make permanent certain temporary authorities, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04458"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend title 38, United States Code, to make certain improvements in the benefits provided to veterans under laws administered by the Secretary of Veterans Affairs, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09587"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00057",
+    "text": "A bill to require the Secretary of the Treasury to mint and issue coins in commemoration of Native Americans and the important contributions made by Indian tribes and individual Native Americans to the development of the United States and the history of the United States, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to require the Secretary of the Treasury to mint coins in commemoration of the San Francisco Old Mint.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08955"
+      ]
+     },
+     {
+      "values": {
+       "title": "American Innovation $1 Coin Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00517",
+       "train-01923"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to require the Secretary of the Treasury to mint coins in commemoration of Chief Justice John Marshall.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08761"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00058",
+    "text": "SECURE Act",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Homeland Security Act of 2002 to enhance the information security of the Department of Homeland Security, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09706"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the securities laws to provide for registration exemptions for certain crowdfunded securities, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00216",
+       "train-02606"
+      ]
+     },
+     {
+      "values": {
+       "title": "Securing Aviation from Foreign Entry Points and Guarding Airports Through Enhanced Security Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09704"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00059",
+    "text": "To promote the development of affordable, quality rental housing in rural areas for low-income households.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to promote the development of affordable, quality rental housing in rural areas for low-income households.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04271"
+      ]
+     },
+     {
+      "values": {
+       "title": "Rural Multifamily Rental Housing Loan Guarantee Demonstration Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01998",
+       "train-00533"
+      ]
+     },
+     {
+      "values": {
+       "title": "Affordable Housing Preservation Act of 1999",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07475"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00060",
+    "text": "Telecommunications Economic Opportunity Act of 1995",
+    "groups": [
+     {
+      "values": {
+       "title": "Telecommunications Policy Coordination Act of 1995",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07549"
+      ]
+     },
+     {
+      "values": {
+       "title": "Veterans Economic Opportunity Administration Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06037"
+      ]
+     },
+     {
+      "values": {
+       "title": "Economic Espionage and Protection of Proprietary Economic Information Act of 1995",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08619"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00061",
+    "text": "RCAF/RAF-Americans Congressional Gold Medal Act",
+    "groups": [
+     {
+      "values": {
+       "title": "American Fighter Aces Congressional Gold Medal Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00880",
+       "train-01396"
+      ]
+     },
+     {
+      "values": {
+       "title": "To grant the congressional gold medal to the Montford Point Marines.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06277"
+      ]
+     },
+     {
+      "values": {
+       "title": "Merchant Mariners of World War II Congressional Gold Medal Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08166"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00062",
+    "text": "Appalachian Regional Commission Reform Act",
+    "groups": [
+     {
+      "values": {
+       "title": "To reauthorize and improve the program authorized by the Appalachian Regional Development Act of 1965.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02593",
+       "train-02756"
+      ]
+     },
+     {
+      "values": {
+       "title": "To reauthorize the Appalachian Regional Development Act of 1965.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07775"
+      ]
+     },
+     {
+      "values": {
+       "title": "Appalachian Regional Development Act Amendments of 1997",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08695"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00063",
+    "text": "To provide for the importation of drugs into the United States from Canada and Mexico, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To permit commercial importation of prescription drugs from Canada, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08406"
+      ]
+     },
+     {
+      "values": {
+       "title": "Safe and Affordable Drugs from Canada Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05655"
+      ]
+     },
+     {
+      "values": {
+       "title": "United States-Canada Fair Grain Trade Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07353"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00064",
+    "text": "Imperial Valley Desert Conservation and Recreation Act",
+    "groups": [
+     {
+      "values": {
+       "title": "To establish the Food Desert Oasis Pilot Program, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06467"
+      ]
+     },
+     {
+      "values": {
+       "title": "Rim of the Valley Corridor Preservation Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01249",
+       "train-02400"
+      ]
+     },
+     {
+      "values": {
+       "title": "To direct the Secretary of the Interior, acting through the Bureau of Land Management, to conduct a study of the legal and administrative steps necessary to carry out the goals of H.R. 4332, the Soledad Canyon High Desert, California Public Lands Conservation and Management Act of 2009 of the 111th Congress.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04506"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00065",
+    "text": "To amend the Internal Revenue Code of 1986 to encourage the granting of employee stock options.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to ensure that stock options of public companies are granted to rank and file employees as wall as officers and directors, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04228"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to provide that corporate tax benefits based upon stock option compensation expenses be consistent with accounting expenses shown in corporate financial statements for such compensation.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07710"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to exclude from gross income compensation received by employees consisting of qualified distributions of employer stock.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00320",
+       "train-02502"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00066",
+    "text": "To repeal tax subsidies enacted by the Energy Policy Act of 2005 for oil and gas and certain other oil and gas subsidies in the Internal Revenue Code of 1986, and to establish a greenhouse gas intensity reduction investment tax credit.",
+    "groups": [
+     {
+      "values": {
+       "title": "To repeal certain tax subsidies enacted by the Energy Policy Act of 2005 for oil and gas, to allow a credit against income tax for farm diesel expenses, and to allow a credit to farmers who produce biodiesel and agri-biodiesel.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08829"
+      ]
+     },
+     {
+      "values": {
+       "title": "To repeal provisions of the Energy Policy Act of 2005, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08434"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to provide incentives for the voluntary reduction, avoidance, and sequestration of greenhouse gas emissions and to advance global climate science and technology development and deployment.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06460"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00067",
+    "text": "A bill to amend the Workforce Investment Act of 1998 to increase the hiring of firefighters, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Workforce Investment Act of 1998 to provide for integrated workforce training programs for adults with limited English proficiency, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09696"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Workforce Investment Act of 1998 to establish a national emergency grant program to respond to the terrorist attacks of September 11, 2001, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08577"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Workforce Investment Act of 1998 to increase business engagement and improve training opportunities for occupations that are in-demand in order to get Americans back to work.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03826"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00068",
+    "text": "Competitiveness Tax Credit Act",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to provide a tax credit to employers for employee catastrophic health care costs and to health insurance companies for insurer catastrophic health care costs, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08437"
+      ]
+     },
+     {
+      "values": {
+       "title": "Credit Score Competition Act of 2015",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09742"
+      ]
+     },
+     {
+      "values": {
+       "title": "Child Tax Credit Improvement Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00445",
+       "train-01046"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00069",
+    "text": "A bill to keep Americans working by strengthening and expanding short-time compensation programs that provide employers with an alternative to layoffs.",
+    "groups": [
+     {
+      "values": {
+       "title": "Layoff Prevention Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07724"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Workforce Investment Act of 1998 to establish a national emergency grant program to respond to the terrorist attacks of September 11, 2001, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08577"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to keep Americans working by creating a refundable work-sharing tax credit that stimulates demand in the private sector labor market and provides employers with an alternative to layoffs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07142"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00070",
+    "text": "Prescription Drug Fairness for Seniors Act of 1998",
+    "groups": [
+     {
+      "values": {
+       "title": "To provide for substantial reductions in the price of prescription drugs for Medicare beneficiaries.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04085"
+      ]
+     },
+     {
+      "values": {
+       "title": "Fairness in Prescription Drug Prices Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03652"
+      ]
+     },
+     {
+      "values": {
+       "title": "Making Affordable Prescriptions Available for Seniors Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05742"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00071",
+    "text": "Energy Freedom and Economic Prosperity Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Energy Freedom and Economic Prosperity Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08464"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to establish a Global Service Fellowship Program and to authorize Volunteers for Prosperity, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09347"
+      ]
+     },
+     {
+      "values": {
+       "title": "Federal Land Freedom Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08126"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00072",
+    "text": "Treatment of Children's Deformities Act of 1998",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Public Health Service Act, the Employee Retirement Income Security Act of 1974, and the Internal Revenue Code of 1986 to require that group and individual health insurance coverage and group health plans provide coverage for treatment of a minor child's congenital or developmental deformity or disorder due to trauma, infection, tumor, or disease.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08550"
+      ]
+     },
+     {
+      "values": {
+       "title": "Children's Hospitals Education and Research Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02055",
+       "train-01551"
+      ]
+     },
+     {
+      "values": {
+       "title": "Health Care for America's Children Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07919"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00073",
+    "text": "Biennial Appropriations Act",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to provide for a biennial appropriations process with the exception of defense spending and to enhance oversight and the performance of the Federal Government.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07582"
+      ]
+     },
+     {
+      "values": {
+       "title": "Biennial Commission on Energy Policy Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04602"
+      ]
+     },
+     {
+      "values": {
+       "title": "To reduce the costs of producing 1-cent and 5-cent coins, provide authority to the Secretary of the Treasury to perform research and development on new metallic content for circulating coins, and to require biennial reports to Congress on circulating coin production costs and possible alternative metallic content.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07235"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00074",
+    "text": "To authorize and support psoriasis and psoriatic arthritis data collection, to express the sense of the Congress to encourage and leverage public and private investment in psoriasis research with a particular focus on interdisciplinary collaborative research on the relationship between psoriasis and its comorbid conditions, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Public Health Service Act to provide for arthritis research and public health, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00827",
+       "train-02444"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Public Health Service Act to create a National Neuromyelitis Optica Consortium to provide grants and coordinate research with respect to the causes of, and risk factors associated with, neuromyelitis optica, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05257"
+      ]
+     },
+     {
+      "values": {
+       "title": "Enhancing Minority and Women Representation in NIH Medical Research Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04513"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00075",
+    "text": "National Commission for the New National Goal: The Advancement of Global Health Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Global Development Lab Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00432",
+       "train-03081"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to promote the use of clean cookstoves and fuels to save lives, improve livelihoods, empower women, and combat harmful pollution by creating a thriving global market for clean and efficient household cooking solutions.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04533"
+      ]
+     },
+     {
+      "values": {
+       "title": "Clean Cookstoves and Fuels Support Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01604",
+       "train-02421"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00076",
+    "text": "Veterans Mobility Safety Act of 2016",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to require a pilot program on the mobile provision of care and services for veterans in rural areas by the Department of Veterans Affairs, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03479"
+      ]
+     },
+     {
+      "values": {
+       "title": "Faster Care for Veterans Act of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00166",
+       "train-01637"
+      ]
+     },
+     {
+      "values": {
+       "title": "Fiscal Year 2016 Department of Veterans Affairs Seismic Safety and Construction Authorization Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02160",
+       "train-02556"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00077",
+    "text": "Older and Disabled Americans Criminal Protection Act of 1998",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend the Older Americans Act of 1965 to provide equal treatment of LGBT older individuals.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07115"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Older Americans Act of 1965 to extend the authorizations of appropriations for that Act, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09056"
+      ]
+     },
+     {
+      "values": {
+       "title": "American Missile Protection Act of 1998",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06036"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00078",
+    "text": "A bill to amend chapters 83 and 84 of title 5, United States Code, to extend the civil service retirement provisions of such chapter which are applicable to law enforcement officers.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend chapters 83 and 84 of title 5, United States Code, to include inspectors of the Immigration and Naturalization Service, inspectors and canine enforcement officers of the United States Customs Service, and revenue officers of the Internal Revenue Service as law enforcement officers.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09609"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend chapters 83 and 84 of title 5, United States Code, to limit certain retirement benefits of Members of Congress, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06888"
+      ]
+     },
+     {
+      "values": {
+       "title": "Law Enforcement Officers Retirement Equity Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08857"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00079",
+    "text": "Assault Weapons Prohibition Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Semiautomatic Assault Weapon Violence Prevention Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01730",
+       "train-00629"
+      ]
+     },
+     {
+      "values": {
+       "title": "To reauthorize the assault weapons ban, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02702",
+       "train-00663"
+      ]
+     },
+     {
+      "values": {
+       "title": "Imported Assault Weapons Ban of 2016",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07798"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00080",
+    "text": "Women's Business Procurement Assistance Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Women's Business Centers Sustainability Act of 1999",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02655",
+       "train-01984"
+      ]
+     },
+     {
+      "values": {
+       "title": "To provide for a Small and Disadvantaged Business Ombudsman for Procurement in the Small Business Administration, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05143"
+      ]
+     },
+     {
+      "values": {
+       "title": "Women's Business Centers Act of 1997",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04406"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00081",
+    "text": "Open Our Democracy Act of 2014",
+    "groups": [
+     {
+      "values": {
+       "title": "Democracy Restoration Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07933"
+      ]
+     },
+     {
+      "values": {
+       "title": "United States Commission on an Open Society with Security Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04448"
+      ]
+     },
+     {
+      "values": {
+       "title": "Learning Opportunities With Creation of Open Source Textbooks (LOW COST) Act of 2014",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06696"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00082",
+    "text": "Twenty-First Amendment Enforcement Act",
+    "groups": [
+     {
+      "values": {
+       "title": "To establish the Twenty-First Century Water Commission to study and develop recommendations for a comprehensive water strategy to address future water needs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01321",
+       "train-00371"
+      ]
+     },
+     {
+      "values": {
+       "title": "To establish the \"Twenty-First Century Water Commission\" to study and develop recommendations for a comprehensive water strategy to address future water needs.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02206",
+       "train-00395"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to allocate H-1B visas for demonstration projects in rural America.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05974"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00083",
+    "text": "To provide for the establishment of a Natural Gas Reserve.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Naval Petroleum Reserves Production Act of 1976 to direct the Secretary of the Interior to conduct an expeditious program of competitive leasing of oil and gas in the National Petroleum Reserve in Alaska, including at least one lease sale in the Reserve each year in the period 2011 through 2021, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06299"
+      ]
+     },
+     {
+      "values": {
+       "title": "Natural Gas Gathering Enhancement Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06528"
+      ]
+     },
+     {
+      "values": {
+       "title": "American Natural Gas Security and Consumer Protection Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01164",
+       "train-01416"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00084",
+    "text": "Technology for the Classroom Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "21st Century Classrooms Act for Private Technology Investment",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04261"
+      ]
+     },
+     {
+      "values": {
+       "title": "Civilian Technology Corporation Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08644"
+      ]
+     },
+     {
+      "values": {
+       "title": "Green Technology Promotion Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06111"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00085",
+    "text": "Frontline Medical Education Act",
+    "groups": [
+     {
+      "values": {
+       "title": "Access to Frontline Health Care Act of 2015",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07022"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Public Health Service Act to direct the Secretary of Health and Human Services to establish a Frontline Providers Loan Repayment Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-00535",
+       "train-01727"
+      ]
+     },
+     {
+      "values": {
+       "title": "Graduate Medical Education Equity Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08081"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00086",
+    "text": "A bill to achieve cost savings through the reform of Federal acquisition practices and procedures.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to achieve emission reductions and cost savings through accelerated use of cost-effective lighting technologies in public buildings, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05432"
+      ]
+     },
+     {
+      "values": {
+       "title": "Federal Acquisition Reform Act of 1995",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08425"
+      ]
+     },
+     {
+      "values": {
+       "title": "Saving Lives, Saving Costs Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04442"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00087",
+    "text": "Biodiesel Energy Development Act of 1997",
+    "groups": [
+     {
+      "values": {
+       "title": "To repeal certain tax subsidies enacted by the Energy Policy Act of 2005 for oil and gas, to allow a credit against income tax for farm diesel expenses, and to allow a credit to farmers who produce biodiesel and agri-biodiesel.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08829"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to modify the incentives for the production of biodiesel.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06417"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to allow a credit for biodiesel fuel.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04722"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00088",
+    "text": "A bill to establish a national policy of basic consumer fair treatment for airline passengers, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to amend title 49, United States Code, to improve the disclosure of information to airline passengers and the enforceability of airline passengers and the enforceability of airline passengers' rights under airline customer service agreements, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09140"
+      ]
+     },
+     {
+      "values": {
+       "title": "Airline Passenger Protection Act of 2017",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09456"
+      ]
+     },
+     {
+      "values": {
+       "title": "Air Travelers Fair Treatment Act of 2000",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09771"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00089",
+    "text": "Medicare Fraud Enforcement and Prevention Act of 2013",
+    "groups": [
+     {
+      "values": {
+       "title": "Medicare Part D Patient Safety and Drug Abuse Prevention Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09068"
+      ]
+     },
+     {
+      "values": {
+       "title": "Medicare Diabetes Prevention Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08150"
+      ]
+     },
+     {
+      "values": {
+       "title": "Medicare Prescription Drug Integrity Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03794"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00090",
+    "text": "To amend the Internal Revenue Code of 1986 to combine the Hope and Lifetime Learning credits and to provide a uniform definition of qualifying higher education expenses.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend the Internal Revenue Code of 1986 to increase and enhance the Hope Scholarship Credit and to repeal the Lifetime Learning Credit.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09566"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to expand expenses which qualify for the Hope Scholarship Credit and to make the Hope Scholarship Credit and the Lifetime Learning Credit refundable.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04245"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend the Internal Revenue Code of 1986 to expand the Hope Scholarship and Lifetime Learning Credits.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05767"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00091",
+    "text": "Department of the Interior Reform and Savings Act of 1993",
+    "groups": [
+     {
+      "values": {
+       "title": "Military Land Reform and Reassessment Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07983"
+      ]
+     },
+     {
+      "values": {
+       "title": "Ethics in Government Reform Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03083",
+       "train-01486"
+      ]
+     },
+     {
+      "values": {
+       "title": "Cabinet-Level Interagency Task Force on Welfare Reform Act of 1993",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08783"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00092",
+    "text": "Recruit and Reward Future Math and Science Teachers of America Act of 2000",
+    "groups": [
+     {
+      "values": {
+       "title": "To ensure excellent recruitment and training of math and science teachers at institutions of higher education.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04835"
+      ]
+     },
+     {
+      "values": {
+       "title": "America's Math and Science Excellence Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04278"
+      ]
+     },
+     {
+      "values": {
+       "title": "To establish expanded teacher loan forgiveness programs under the guaranteed and direct student loan programs for teachers of mathematics and science, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07868"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00093",
+    "text": "Irrigation Subsidy Reduction Act of 1996",
+    "groups": [
+     {
+      "values": {
+       "title": "Carlsbad Irrigation Project Acquired Land Transfer Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02729",
+       "train-00637"
+      ]
+     },
+     {
+      "values": {
+       "title": "To direct the Secretary of the Interior to assess the irrigation infrastructure of the Pine River Indian Irrigation Project in the State of Colorado, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06359"
+      ]
+     },
+     {
+      "values": {
+       "title": "To convey the Lower Yellowstone Irrigation Project, the Savage Unit of the Pick-Sloan Missouri Basin Program, and the Intake Irrigation Project to the pertinent irrigation districts.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06529"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00094",
+    "text": "To amend title XVIII of the Social Security Act to provide for the public disclosure of prices for hospital and ambulatory surgical center procedures and drugs.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to modernize payments for ambulatory surgical centers under the Medicare Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-01501",
+       "train-03091"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to require public reporting of health care-associated infections data by hospitals and ambulatory surgical centers and to permit the Secretary of Health and Human Services to establish a pilot program to provide incentives to hospitals and ambulatory surgical centers to eliminate the rate of occurrence of such infections.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-08526"
+      ]
+     },
+     {
+      "values": {
+       "title": "Ambulatory Surgical Center Quality and Access Act of 2013",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09850"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00095",
+    "text": "To amend title XVIII of the Social Security Act to ensure access to quality home health services for all Americans, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to protect Medicare beneficiaries' access to home health services under the Medicare Program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03179",
+       "train-01960"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend title XVIII of the Social Security Act to protect Medicare beneficiaries' access to home health services under the Medicare program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09726"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title XVIII of the Social Security Act to provide for access to telehealth services in the home.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09132"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00096",
+    "text": "A bill to establish the Long Island Sound Stewardship System.",
+    "groups": [
+     {
+      "values": {
+       "title": "Long Island Sound Restoration and Stewardship Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-02804",
+       "train-02773"
+      ]
+     },
+     {
+      "values": {
+       "title": "Forest Ecosystem Stewardship Demonstration Act of 1995",
+       "sponsor": null
+      },
+      "ids": [
+       "train-03845"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to establish a program to be managed by the Department of Energy to ensure prompt and orderly compensation for potential damages relating to the storage of carbon dioxide in geological storage units.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06451"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00097",
+    "text": "To improve certain compensation, health care, and education benefits for individuals who serve in a reserve component of the uniformed services, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title 10, United States Code, to provide for a new program of educational assistance for certain reserve component members of the Armed Forces who perform active service.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09721"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title 10, United States Code, to revise the age and service requirements for eligibility to receive retired pay for non-regular service; to expand certain authorities to provide health care benefits for Reserves and their families, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-07425"
+      ]
+     },
+     {
+      "values": {
+       "title": "Rural Veterans Mental Health Care Improvement Act",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05139"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00098",
+    "text": "To amend title XIX of the Social Security Act to permit Medicaid beneficiaries the choice of self-directed personal assistance services through a cash and counseling program under the Medicaid Program.",
+    "groups": [
+     {
+      "values": {
+       "title": "To amend title XIX of the Social Security Act to require health maintenance organizations and other managed care plans providing medical assistance to medicaid beneficiaries to make payments for assistance provided to such beneficiaries by school-based health centers, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09398"
+      ]
+     },
+     {
+      "values": {
+       "title": "To amend title XIX of the Social Security Act to include primary and secondary preventative medical strategies for children and adults with Sickle Cell Disease as medical assistance under the Medicaid Program, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04865"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to amend titles V, XVIII, and XIX of the Social Security Act to promote tobacco cessation under the medicare program, the medicaid program, and maternal and child health services block grant program.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-05397"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00099",
+    "text": "To establish the Manhattan Project National Historical Park in Oak Ridge, Tennessee, Los Alamos, New Mexico, and Hanford, Washington, and for other purposes.",
+    "groups": [
+     {
+      "values": {
+       "title": "A bill to establish the Lewis and Clark National Historical Park in the States of Washington and Oregon, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-06964"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to establish the Harriet Tubman National Historical Park in Auburn, New York, and the Harriet Tubman Underground Railroad National Historical Park in Caroline, Dorchester, and Talbot Counties, Maryland, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-09508"
+      ]
+     },
+     {
+      "values": {
+       "title": "A bill to establish the Paterson Great Falls National Historical Park, and for other purposes.",
+       "sponsor": null
+      },
+      "ids": [
+       "train-04577"
+      ]
+     }
+    ]
+   }
+  ]
+ },
  "vector": {
   "field": "embedding",
   "metric": "cosine",

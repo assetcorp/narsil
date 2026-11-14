@@ -56,7 +56,10 @@ async function checkGroups(engine: Narsil, rows: ReadonlyMap<string, Row>): Prom
     const members = expected[at].slice(0, 1)
     expect(found?.hits.map(hit => hit.id)).toEqual(members.map(row => row.id))
     expect(found?.reduced).toEqual(expected[at].map(row => row.id))
-    expect(binaryValues(found?.values)).toEqual({ value: expected[at][0].value, other: expected[at][0].other })
+    expect(binaryValues(found?.values)).toEqual({
+      value: expected[at][0].value ?? null,
+      other: expected[at][0].other ?? null,
+    })
     expect(found?.hits.map(hit => binaryValues(hit.document))).toEqual(members.map(() => ({})))
   }
 }

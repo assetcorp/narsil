@@ -52,6 +52,7 @@ import {
   assertServerEngine,
   assertServerLimits,
 } from './options-validation'
+import { publishedPackageVersion } from './package-version'
 import { type Authorizer, authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
@@ -95,7 +96,7 @@ function resolveLimits(limits: ServerLimits | undefined, engineRerankWindow: num
 
 function resolveBuild(build: ServerOptions['build']): ResolvedBuild {
   return {
-    version: build?.version ?? null,
+    version: build?.version ?? publishedPackageVersion(),
     gitSha: build?.gitSha ?? null,
     dirty: build?.dirty ?? false,
   }

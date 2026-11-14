@@ -253,7 +253,7 @@ async function expectOracle(narsil: Narsil, held: ReadonlyMap<string, AnyDocumen
     ])
     const expectedGroups = new Map<string, string[]>()
     for (const document of documents) {
-      const values = Object.fromEntries(GROUP_FIELDS.map(field => [field, valueAt(document, field)]))
+      const values = Object.fromEntries(GROUP_FIELDS.map(field => [field, valueAt(document, field) ?? null]))
       const key = JSON.stringify(values)
       expectedGroups.set(key, [...(expectedGroups.get(key) ?? []), String(document.id)])
     }

@@ -274,9 +274,7 @@ fn facet_value(facet: &FacetResult) -> Value {
 fn group_value(group: &GroupResult) -> Value {
     let mut values = Map::new();
     for (field, value) in &group.values {
-        if let Some(value) = value {
-            values.insert(field.clone(), value.clone());
-        }
+        values.insert(field.clone(), value.clone().unwrap_or(Value::Null));
     }
     object(vec![
         ("values", Value::Object(values)),
