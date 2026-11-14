@@ -297,6 +297,7 @@ An index is `green` when every partition is `ACTIVE` with a primary and `replica
 | `narsil_commit_point` | `index`, `partition` | The partition's leader | The highest sequence number that the leader has acknowledged to a client. |
 | `narsil_commit_point_floor` | `index`, `partition` | Every node | The floor on the commit point that the allocation table stores. The controller raises it only when it admits a replica, so it can trail `narsil_commit_point` by many writes. |
 | `narsil_in_sync_replicas` | `index`, `partition` | Every node | The replicas besides the primary that the allocation table holds in the in-sync set. |
+| `narsil_vector_rebuild_waiting_for_memory` | `index`, `field` | The node that holds the field | The value 1 for each vector field whose rebuild, which keeps recall up, waits until the node has the memory for a second graph beside the one that it serves. |
 | `narsil_coordinator_request_seconds` | `operation` | Every node | A histogram of how long this node's calls to the coordinator took, such as `getAllocation`, with buckets from 1 ms to 10 s. |
 
 Scrape every node, because each one reports the lag and the commit point only for the partitions that it leads. An alert on `narsil_replication_lag` that stays above zero for a few scrapes catches a replica that has stopped applying entries.

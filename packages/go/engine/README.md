@@ -8,7 +8,7 @@ The module needs Go 1.26 or later and a C compiler, because it calls the core th
 go get github.com/assetcorp/narsil/packages/go/engine
 ```
 
-Releases of the module carry tags of the form `packages/go/engine/vX.Y.Z`, which is how the go tool finds a module that lives in a subdirectory of a repository, so `go get github.com/assetcorp/narsil/packages/go/engine@vX.Y.Z` fetches the release tagged `packages/go/engine/vX.Y.Z`.
+Each release of the module has a tag of the form `packages/go/engine/vX.Y.Z`, because the go tool finds the versions of a module in a subdirectory of a repository through tags that start with that subdirectory. For that reason, `go get github.com/assetcorp/narsil/packages/go/engine@vX.Y.Z` fetches the release tagged `packages/go/engine/vX.Y.Z`.
 
 ## Create, fill, and search an index
 
