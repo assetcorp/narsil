@@ -3,7 +3,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { MAX_EF_SEARCH } from '../../../vector/search-depth/constants'
 import {
   type EtcdContainerHandle,
   MANAGED_ETCD_ENDPOINT,
@@ -35,10 +34,13 @@ const PARSE_BYTES_PER_BODY_BYTE = 3
 const ALLOCATOR_SLACK_FRACTION = 0.01
 const MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL = 0.5
 const PROPAGATION_TIMEOUT_MS = 30_000
+const SELF_SIMILARITY_TOLERANCE = 1e-4
+const MIN_UNBACKED_SAMPLES = 1_000
 
 interface Lamp {
   id: string
   title: string
+  number: number
   embedding: number[]
 }
 
@@ -65,6 +67,7 @@ function lampsFrom(first: number, count: number, random: () => number): Lamp[] {
   return Array.from({ length: count }, (_, offset) => ({
     id: `lamp-${first + offset}`,
     title: `Brass lamp ${first + offset}`,
+    number: first + offset,
     embedding: Array.from({ length: DIMENSION }, () => random() * 2 - 1),
   }))
 }
@@ -81,7 +84,7 @@ async function processFigures(node: ContainerNode): Promise<{ heapUsed: number; 
 async function createLampIndex(node: ContainerNode): Promise<void> {
   const created = await request(node.base, 'POST', '/indexes', {
     name: INDEX_NAME,
-    config: { schema: { title: 'string', embedding: `vector[${DIMENSION}]` } },
+    config: { schema: { title: 'string', number: 'number', embedding: `vector[${DIMENSION}]` } },
   })
   expect(created.status, JSON.stringify(created.body)).toBe(201)
   await waitFor(`${INDEX_NAME} to have an active primary`, PROPAGATION_TIMEOUT_MS, async () => {
@@ -158,12 +161,20 @@ async function expectKeptLampsServed(node: ContainerNode, outcome: FeedOutcome):
   expect(outcome.probes.size).toBeGreaterThan(0)
   for (const [docId, embedding] of outcome.probes) {
     const reply = await request(node.base, 'POST', `/indexes/${INDEX_NAME}/search`, {
-      vector: { field: 'embedding', value: embedding, efSearch: MAX_EF_SEARCH },
+      vector: { field: 'embedding', value: embedding },
+      filters: { fields: { number: { eq: Number(docId.slice('lamp-'.length)) } } },
       limit: 1,
     })
     expect(reply.status, JSON.stringify(reply.body).slice(0, 500)).toBe(200)
-    const hits = reply.body.hits as Array<{ id: string }>
-    expect(hits[0]?.id, `the nearest lamp to ${docId}'s own vector`).toBe(docId)
+    const hits = reply.body.hits as Array<{ id: string; score?: number }>
+    expect(
+      hits.map(hit => hit.id),
+      `the lamp that ${docId}'s own vector finds`,
+    ).toEqual([docId])
+    expect(hits[0]?.score, `the similarity of ${docId}'s stored vector to the one sent`).toBeCloseTo(
+      1,
+      -Math.log10(SELF_SIMILARITY_TOLERANCE),
+    )
   }
 }
 
@@ -236,12 +247,13 @@ describe('a cluster node whose vectors fill memory outside its heap', () => {
     await createLampIndex(started)
     const outcome = await feedUntilRefused(started)
     const highestResident = await started.peakResidentBytes()
-    const mostUnbacked = await started.mostUnbackedBytes()
+    const unbacked = await started.peakUnbacked()
     console.log(
-      `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} with at most ${mostUnbacked} that no file backs, of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
+      `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} with a peak of ${unbacked.bytes} that no file backs over ${unbacked.samples} samples, of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
     )
     expect(outcome.firstRefusal, `the node refused nothing after ${SEND_BUDGET_DOCUMENTS} lamps`).not.toBeNull()
-    expect(mostUnbacked, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
+    expect(unbacked.samples).toBeGreaterThanOrEqual(MIN_UNBACKED_SAMPLES)
+    expect(unbacked.bytes, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
     expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL * NODE_SHARE_BYTES)
     expect(started.exited(), started.output().slice(-3_000)).toBe(false)
     await expectKeptLampsServed(started, outcome)

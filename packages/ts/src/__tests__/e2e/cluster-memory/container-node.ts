@@ -18,6 +18,9 @@ const STOP_TIMEOUT_SECONDS = 10
 const MEGABYTE_BYTES = 1024 * 1024
 const KILOBYTE_BYTES = 1024
 const MEMINFO_FIGURE_WIDTH = 16
+const PEAK_REPORT_TIMEOUT_MS = 10_000
+const PEAK_REPORT_POLL_MS = 50
+const PEAK_UNBACKED_LINE = /PEAK_UNBACKED (\d+) (\d+)\n/
 
 export interface ContainerNode {
   base: string
@@ -26,7 +29,7 @@ export interface ContainerNode {
   output(): string
   oomKilled(): Promise<boolean>
   peakResidentBytes(): Promise<number>
-  mostUnbackedBytes(): Promise<number>
+  peakUnbacked(): Promise<{ bytes: number; samples: number }>
   stop(): Promise<void>
 }
 
@@ -132,14 +135,6 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
   const published = await docker(['port', name, String(CONTAINER_HTTP_PORT)])
   const port = published.split('\n')[0]?.split(':').pop() ?? ''
 
-  async function statusBytes(field: string): Promise<number> {
-    const status = await docker(['exec', name, 'cat', '/proc/1/status'])
-    const figure = new RegExp(`^${field}:\\s+(\\d+) kB$`, 'm').exec(status)
-    if (figure === null) throw new Error(`the container reported no ${field} figure: ${status}`)
-    return Number(figure[1]) * KILOBYTE_BYTES
-  }
-  const fileBackedBytesWhenReady = await statusBytes('RssFile')
-
   return {
     base: `http://127.0.0.1:${port}`,
     heapLimitBytes: options.heapMegabytes * MEGABYTE_BYTES,
@@ -148,16 +143,22 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
     async oomKilled() {
       return (await docker(['inspect', '--format', '{{.State.OOMKilled}}', name]).catch(() => 'false')) === 'true'
     },
-    peakResidentBytes: () => statusBytes('VmHWM'),
-    async mostUnbackedBytes() {
-      const peakResident = await statusBytes('VmHWM')
-      const fileBacked = await statusBytes('RssFile')
-      if (fileBacked < fileBackedBytesWhenReady) {
-        throw new Error(
-          `the kernel reclaimed file-backed pages, from ${fileBackedBytesWhenReady} to ${fileBacked} bytes, so the peak resident figure no longer bounds the unbacked memory`,
-        )
+    async peakResidentBytes() {
+      const status = await docker(['exec', name, 'cat', '/proc/1/status'])
+      const peak = /^VmHWM:\s+(\d+) kB$/m.exec(status)
+      if (peak === null) throw new Error(`the container reported no peak resident memory: ${status}`)
+      return Number(peak[1]) * KILOBYTE_BYTES
+    },
+    async peakUnbacked() {
+      const reported = output.length
+      await docker(['kill', '--signal', 'SIGUSR2', name])
+      const deadline = Date.now() + PEAK_REPORT_TIMEOUT_MS
+      while (Date.now() < deadline && !hasExited) {
+        const match = PEAK_UNBACKED_LINE.exec(output.slice(reported))
+        if (match !== null) return { bytes: Number(match[1]), samples: Number(match[2]) }
+        await sleep(PEAK_REPORT_POLL_MS)
       }
-      return peakResident - fileBackedBytesWhenReady
+      throw new Error(`the node reported no unbacked memory peak: ${output.slice(-2_000)}`)
     },
     async stop() {
       if (!hasExited) await docker(['stop', '--time', String(STOP_TIMEOUT_SECONDS), name]).catch(() => '')
