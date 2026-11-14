@@ -29,6 +29,11 @@ Turning the feature off deletes the index's search history and leaves its sugges
 
 Call `recordQuery` when a person clicks a result. The search path stays as it is, because the engine counts nothing that a search alone reports.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { querySuggestions } from '@delali/narsil/query-suggestions'
+const suggestions = querySuggestions(await createNarsil())
+-->
 ```ts
 await suggestions.recordQuery('catalogue', { query: 'Trail shoes', person: 'person-1', group: 'shoppers' })
 ```
@@ -39,6 +44,11 @@ A group is an audience that gets separate suggestions, such as `shoppers` and `s
 
 Over HTTP, pass `querySuggestions.identify` to `createServer`. The server takes the person and the group from that function and never from the request body, because a caller who could choose the person could count one search as many people.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const engine = await createNarsil()
+declare function sessionOf(ctx: unknown): { userId: string; audience: string } | null
+-->
 ```ts
 import { createServer } from '@delali/narsil/server'
 
@@ -58,6 +68,12 @@ const server = createServer(engine, {
 
 A build runs at 03:00 UTC each day by default, and `schedule` takes any five-field cron expression, or `off`. Call `build` to run one now, and `preview` to see what the next build would publish without writing anything. The preview runs the same result checks as a build, so it lists a phrase only where it matches enough documents.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { querySuggestions } from '@delali/narsil/query-suggestions'
+const engine = await createNarsil()
+const suggestions = querySuggestions(engine)
+-->
 ```ts
 const build = await suggestions.build('catalogue')
 const index = suggestions.suggestionsIndexName('catalogue', 'shoppers')

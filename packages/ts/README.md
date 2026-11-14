@@ -38,7 +38,7 @@ Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.c
 
 ## Install
 
-```bash
+```bash skip
 pnpm add @delali/narsil
 ```
 
@@ -50,7 +50,7 @@ On an arm64 or x64 machine under macOS, Linux, or Windows, the package manager a
 
 The [Narsil skill](https://github.com/assetcorp/narsil/tree/main/skills/narsil) tells a coding agent whether to embed Narsil or serve it, which packages to install alongside it, and which server settings keep a public address safe. Install the skill into the coding agents on your machine with the skills CLI:
 
-```bash
+```bash skip
 npx skills add assetcorp/narsil
 ```
 
@@ -58,7 +58,7 @@ The skill has the agent read the Narsil version that your project installs, and 
 
 ## Quick start
 
-```ts
+```ts run
 import { createNarsil } from '@delali/narsil'
 
 const narsil = await createNarsil()

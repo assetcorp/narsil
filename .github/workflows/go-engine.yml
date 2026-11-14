@@ -34,6 +34,10 @@ jobs:
         working-directory: packages/go/engine
         run: go vet ./...
 
+      - name: Compile and run the README example
+        working-directory: packages/go/engine
+        run: node ../../../.github/scripts/check-readme-examples.js go README.md
+
   test:
     name: Test on ${{ matrix.target.platform }} with Go ${{ matrix.target.go }}, part ${{ matrix.shard }} of ${{ matrix.parts }}
     runs-on: ${{ matrix.target.runner }}

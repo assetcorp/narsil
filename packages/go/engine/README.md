@@ -4,15 +4,15 @@
 
 The module needs Go 1.26 or later and a C compiler, because it calls the core through cgo.
 
-```bash
+```bash skip
 go get github.com/assetcorp/narsil/packages/go/engine
 ```
 
-Releases of the module carry tags of the form `packages/go/engine/vX.Y.Z`, which is how the go tool finds a module that lives in a subdirectory of a repository, so `go get github.com/assetcorp/narsil/packages/go/engine@v0.1.0` fetches the release tagged `packages/go/engine/v0.1.0`.
+Each release of the module has a tag of the form `packages/go/engine/vX.Y.Z`, because the go tool finds the versions of a module in a subdirectory of a repository through tags that start with that subdirectory. For that reason, `go get github.com/assetcorp/narsil/packages/go/engine@vX.Y.Z` fetches the release tagged `packages/go/engine/vX.Y.Z`.
 
 ## Create, fill, and search an index
 
-```go
+```go run
 package main
 
 import (
@@ -49,10 +49,10 @@ func run(ctx context.Context, directory string) error {
 		return err
 	}
 
-	_, err = narsil.InsertBatch(ctx, "films", []engine.Document{
-		{"id": "heat", "title": "Heat", "year": 1995, "embedding": []float32{0.9, 0.1, 0.2}},
-		{"id": "ronin", "title": "Ronin", "year": 1998, "embedding": []float32{0.8, 0.3, 0.1}},
-		{"id": "solaris", "title": "Solaris", "year": 1972, "embedding": []float32{0.1, 0.9, 0.7}},
+	_, err = narsil.InsertBatch(ctx, "films", []*engine.Document{
+		engine.DocumentFromMap(map[string]any{"id": "heat", "title": "Heat", "year": 1995, "embedding": []float32{0.9, 0.1, 0.2}}),
+		engine.DocumentFromMap(map[string]any{"id": "ronin", "title": "Ronin", "year": 1998, "embedding": []float32{0.8, 0.3, 0.1}}),
+		engine.DocumentFromMap(map[string]any{"id": "solaris", "title": "Solaris", "year": 1972, "embedding": []float32{0.1, 0.9, 0.7}}),
 	}, engine.InsertOptions{})
 	if err != nil {
 		return err
@@ -101,7 +101,7 @@ The module holds a copy of the core's C sources, so `go build` compiles them alo
 
 Cgo can't use the Microsoft Visual C++ compiler, so a Windows build needs one of the GNU-compatible compilers above. Zig 0.16.0 builds the Windows arm64 job in this repository's continuous integration, and it cross-compiles the Linux and Windows targets from a Linux machine:
 
-```bash
+```bash skip
 CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC="zig cc -target aarch64-windows-gnu" go build ./...
 ```
 

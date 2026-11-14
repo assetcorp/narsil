@@ -4,7 +4,7 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 
 ## Installation
 
-```bash
+```bash skip
 pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
 ```
 
@@ -39,6 +39,9 @@ The default model is `Xenova/all-MiniLM-L6-v2`, a 384-dimensional sentence embed
 
 Set the `dimensions` config value to match the output dimensionality of your chosen model. If you set it incorrectly, the adapter will throw an error on the first embedding call.
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
 ```typescript
 const embedding = createTransformersEmbedding({
   model: 'Xenova/bge-base-en-v1.5',
@@ -54,6 +57,9 @@ All models work in both environments. In the browser, models are downloaded from
 
 Some models (BGE, E5, and instruction-tuned models) require specific text prefixes for documents and queries. Configure these with `documentPrefix` and `queryPrefix`:
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
 ```typescript
 const embedding = createTransformersEmbedding({
   model: 'Xenova/bge-base-en-v1.5',
@@ -65,6 +71,9 @@ const embedding = createTransformersEmbedding({
 
 For E5 models:
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
 ```typescript
 const embedding = createTransformersEmbedding({
   model: 'Xenova/multilingual-e5-small',
@@ -80,6 +89,9 @@ The adapter prepends the appropriate prefix based on the `purpose` argument (`'d
 
 Control where inference runs and at what precision:
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
 ```typescript
 const embedding = createTransformersEmbedding({
   dimensions: 384,
@@ -95,6 +107,9 @@ const embedding = createTransformersEmbedding({
 
 Track model download progress for a better loading experience:
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
 ```typescript
 const embedding = createTransformersEmbedding({
   dimensions: 384,
@@ -118,12 +133,11 @@ const embeddingAdapter = createTransformersEmbedding({
   dimensions: 384,
 })
 
-const narsil = createNarsil({
+const narsil = await createNarsil({
   embedding: embeddingAdapter,
 })
 
-const index = await narsil.createIndex({
-  name: 'articles',
+await narsil.createIndex('articles', {
   schema: {
     title: 'string',
     body: 'string',
@@ -136,17 +150,15 @@ const index = await narsil.createIndex({
   },
 })
 
-await index.insert({
+await narsil.insert('articles', {
   title: 'Introduction to Vector Search',
   body: 'Vector search finds similar items by comparing numerical representations...',
 })
 
-const results = await index.query({
-  vector: {
-    field: 'titleVector',
-    text: 'how does semantic search work',
-    limit: 10,
-  },
+const results = await narsil.query('articles', {
+  mode: 'vector',
+  vector: { field: 'titleVector', text: 'how does semantic search work' },
+  limit: 10,
 })
 ```
 
@@ -156,6 +168,10 @@ When you insert a document, Narsil automatically generates embeddings for the `t
 
 Release the ONNX session and free memory by calling `shutdown()`:
 
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+const embeddingAdapter = createTransformersEmbedding({ dimensions: 384 })
+-->
 ```typescript
 await embeddingAdapter.shutdown()
 ```

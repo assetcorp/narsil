@@ -2,6 +2,10 @@
 
 `@delali/narsil/react` turns Narsil's read methods into React hooks, which call either a client of a server or an engine in the same page. Each hook sends one request and reports where that request stands. Whenever its arguments change, the hook sends the request again.
 
+<!-- example setup
+import type { ReactElement } from 'react'
+declare function Spinner(): ReactElement
+-->
 ```tsx
 import { createNarsilClient } from '@delali/narsil/client'
 import { NarsilProvider, useQuery } from '@delali/narsil/react'
@@ -9,7 +13,7 @@ import { NarsilProvider, useQuery } from '@delali/narsil/react'
 const client = createNarsilClient({ url: '/search-api' })
 
 function Results({ term }: { term: string }) {
-  const { data, isLoading } = useQuery('movies', { term, fields: ['title'] })
+  const { data, isLoading } = useQuery<{ title: string }>('movies', { term, fields: ['title'] })
   if (isLoading) return <Spinner />
   return <ol>{data?.hits.map(hit => <li key={hit.id}>{hit.document.title}</li>)}</ol>
 }
@@ -31,6 +35,10 @@ Build the client outside the component tree, because a render that builds a clie
 
 Pass an engine to the provider in place of a client, so that every read hook calls the engine method of the same name, with no server in between.
 
+<!-- example setup
+import type { ReactElement } from 'react'
+declare function Results(props: { term: string }): ReactElement
+-->
 ```tsx
 import { createNarsil } from '@delali/narsil'
 import { NarsilProvider } from '@delali/narsil/react'
@@ -104,6 +112,13 @@ The last argument of every read hook holds the same settings, apart from `useTas
 
 `useNarsilClient` returns the client that the provider holds, for every method that has no hook of its own, such as a write.
 
+<!-- example setup
+import { useCallback } from 'react'
+import type { AnyDocument } from '@delali/narsil'
+import { useNarsilClient } from '@delali/narsil/react'
+declare const id: string
+declare const document: AnyDocument
+-->
 ```tsx
 const client = useNarsilClient()
 const onSave = useCallback(() => client.put('movies', id, document), [client, id, document])
@@ -123,6 +138,12 @@ Once the wait passes with no component reading the key, the provider drops the a
 
 Pass the term straight in, and set `keepPreviousData` so that the list stays in place between answers.
 
+<!-- example setup
+import { type ChangeEvent, type ReactElement, useCallback, useDeferredValue, useState } from 'react'
+import type { Hit as SearchHit } from '@delali/narsil'
+import { useQuery } from '@delali/narsil/react'
+declare function Hit(props: { hit: SearchHit }): ReactElement
+-->
 ```tsx
 function Search() {
   const [term, setTerm] = useState('')
@@ -152,6 +173,11 @@ function Search() {
 
 `useImport` sends the documents and asks the server to load them as a task. The hook then polls that task until the task ends.
 
+<!-- example setup
+import { useCallback } from 'react'
+import type { AnyDocument } from '@delali/narsil'
+import { useImport } from '@delali/narsil/react'
+-->
 ```tsx
 function Importer({ documents }: { documents: AnyDocument[] }) {
   const { start, cancel, progress, result, error, isImporting } = useImport('movies')
@@ -184,6 +210,10 @@ The server refuses a body over its `maxImportBytes` limit, 100 MB by default, wi
 
 `useTask` polls a task until the task reaches a final status, then stops polling.
 
+<!-- example setup
+import { useTask } from '@delali/narsil/react'
+declare const taskId: string
+-->
 ```tsx
 const { data: task } = useTask(taskId)
 ```
@@ -204,6 +234,17 @@ A hook that receives the same object between renders, through `useMemo` or a con
 
 A hook reports every failure as a `NarsilError`, under the code that the server sent or that the engine threw, so a branch written against one source works unchanged against the other.
 
+<!-- example setup
+import type { ReactElement } from 'react'
+import type { QueryParams } from '@delali/narsil'
+import { ErrorCodes, useQuery } from '@delali/narsil/react'
+declare const params: QueryParams
+declare function CreateIndexPrompt(): ReactElement
+function MoviesPanel() {
+{example}
+return null
+}
+-->
 ```tsx
 const { error } = useQuery('movies', params)
 if (error?.code === ErrorCodes.INDEX_NOT_FOUND) return <CreateIndexPrompt />

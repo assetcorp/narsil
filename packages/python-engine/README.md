@@ -4,7 +4,7 @@
 
 ## Install
 
-```sh
+```sh skip
 pip install delali-narsil
 ```
 
@@ -12,7 +12,7 @@ The package needs Python 3.11 or later. PyPI holds wheels for Linux with glibc o
 
 ## Create, fill, and search an index
 
-```python
+```python run
 from narsil import Narsil
 
 with Narsil() as engine:
@@ -40,7 +40,7 @@ Every setting, query, and result is a plain dict whose keys are the field names 
 
 ## Use it from asyncio
 
-```python
+```python run
 import asyncio
 
 from narsil import AsyncNarsil
@@ -71,7 +71,7 @@ Every method releases the interpreter lock while the engine works, so several Py
 
 ## Keep the index on disk
 
-```python
+```python run
 from narsil import Narsil
 
 engine = Narsil({"durability": {"directory": "./search-data"}})
@@ -87,7 +87,7 @@ A failure inside the engine raises `narsil.NarsilError`, whose `message` describ
 
 An embedding adapter is an object with a `dimensions` attribute and an `embed(text, purpose)` method, and the engine calls it to fill the vector fields that an index embeds. A rerank adapter has `score(query, documents)`, a tokenizer has `tokenize(text)`, and a plugin has a `name` and any of the hooks `before_insert`, `after_insert`, `before_update`, `after_update`, `before_remove`, `after_remove`, `before_search`, `after_search`, `on_index_create`, `on_index_drop`, and `on_partition_split`. `narsil.EmbeddingAdapter`, `narsil.RerankAdapter`, and `narsil.Tokenizer` describe each shape for a type checker.
 
-```python
+```python run
 from narsil import Narsil, NarsilError
 
 

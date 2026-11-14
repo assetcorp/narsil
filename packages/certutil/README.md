@@ -4,13 +4,13 @@ CLI tool for generating and managing TLS certificates for Narsil clusters. Handl
 
 ## Installation
 
-```bash
+```bash skip
 npm install -g @delali/narsil-certutil
 ```
 
 Or use directly in a project:
 
-```bash
+```bash skip
 pnpm add -E @delali/narsil-certutil
 ```
 
@@ -18,7 +18,7 @@ pnpm add -E @delali/narsil-certutil
 
 Generate certificates for a three-node Narsil cluster in four commands:
 
-```bash
+```bash skip
 # 1. Create a Certificate Authority
 narsil-certutil ca --name "My Narsil CA" --out-dir ./certs
 
@@ -55,7 +55,7 @@ narsil-certutil verify \
 
 This produces:
 
-```
+```text skip
 certs/
   ca.crt
   ca.key
@@ -77,7 +77,7 @@ certs/
 
 Generate a self-signed Certificate Authority.
 
-```bash
+```bash skip
 narsil-certutil ca --name "Narsil CA" --out-dir ./certs
 ```
 
@@ -99,7 +99,7 @@ Generate a node certificate signed by an existing CA. Supports single-node and b
 
 **Single node:**
 
-```bash
+```bash skip
 narsil-certutil cert \
   --cn node1 \
   --ca-cert ca.crt \
@@ -111,7 +111,7 @@ narsil-certutil cert \
 
 **Batch mode:**
 
-```bash
+```bash skip
 narsil-certutil cert \
   --ca-cert ca.crt \
   --ca-key ca.key \
@@ -144,7 +144,7 @@ Generate a Certificate Signing Request for organizations that require an externa
 
 **Single node:**
 
-```bash
+```bash skip
 narsil-certutil csr \
   --cn node1 \
   --ip 10.0.0.1 \
@@ -154,7 +154,7 @@ narsil-certutil csr \
 
 **Batch mode:**
 
-```bash
+```bash skip
 narsil-certutil csr --nodes cluster.yaml --out-dir ./certs/csrs
 ```
 
@@ -184,11 +184,11 @@ narsil-certutil csr --nodes cluster.yaml --out-dir ./certs/csrs
 
 Display details of a PEM-encoded certificate, CSR, or private key.
 
-```bash
+```bash skip
 narsil-certutil inspect ./certs/node1.crt
 ```
 
-```
+```text skip
 Type:           certificate
 Subject:        CN=node1
 Issuer:         CN=Narsil CA
@@ -213,14 +213,14 @@ Key size:       2048-bit RSA
 
 Verify a certificate's chain, key match, expiry, and mTLS readiness.
 
-```bash
+```bash skip
 narsil-certutil verify \
   --cert node1.crt \
   --key node1.key \
   --ca-cert ca.crt
 ```
 
-```
+```text skip
   pass  Certificate matches private key
   pass  Certificate chain validates against CA
   pass  Certificate not expired
@@ -230,7 +230,7 @@ narsil-certutil verify \
 
 You can run partial verification by omitting `--key` or `--ca-cert`:
 
-```bash
+```bash skip
 # Chain only (no key match check)
 narsil-certutil verify --cert node1.crt --ca-cert ca.crt
 
@@ -253,7 +253,7 @@ Convert between PEM and PKCS#12 (.p12/.pfx) formats. Useful for interoperability
 
 **PEM to PKCS#12:**
 
-```bash
+```bash skip
 narsil-certutil convert \
   --cert node1.crt \
   --key node1.key \
@@ -265,7 +265,7 @@ narsil-certutil convert \
 
 **PKCS#12 to PEM:**
 
-```bash
+```bash skip
 narsil-certutil convert \
   --p12 node1.p12 \
   --to pem \
@@ -291,7 +291,7 @@ The `--nodes` flag accepts YAML or JSON files. YAML is recommended because it su
 
 **YAML:**
 
-```yaml
+```yaml skip
 # Production cluster certificate config
 nodes:
   - cn: node1
@@ -311,7 +311,7 @@ defaults:
 
 **JSON equivalent:**
 
-```json
+```json skip
 {
   "nodes": [
     { "cn": "node1", "ip": ["10.0.0.1"], "dns": ["node1.cluster.local"] },
@@ -342,7 +342,7 @@ All commands support `--output json` for machine-readable output. The response u
 
 **Success:**
 
-```json
+```json skip
 {
   "status": "success",
   "data": { ... },
@@ -353,7 +353,7 @@ All commands support `--output json` for machine-readable output. The response u
 
 **Error:**
 
-```json
+```json skip
 {
   "status": "error",
   "data": null,
@@ -393,7 +393,7 @@ Flags take precedence over environment variables.
 
 Certificates expire. Here's how to rotate them without cluster downtime:
 
-```bash
+```bash skip
 # 1. Check current cert expiry
 narsil-certutil inspect /etc/narsil/tls/node1.crt --output json
 
@@ -428,7 +428,7 @@ cp /tmp/rotation/node1.key /etc/narsil/tls/node1.key
 
 The crypto functions are available as a library for use in scripts or other tools:
 
-```typescript
+```typescript run
 import {
   generateCaCertificate,
   generateNodeCertificate,

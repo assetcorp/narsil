@@ -2,7 +2,7 @@
 
 `narsil-client` reaches a Narsil server, or every node of a Narsil cluster, from Python 3.11 or later. It holds one typed method for every route in the server's OpenAPI file, under the route's name in snake case, so `createIndex` becomes `create_index`. `NarsilClient` blocks on each call, while `AsyncNarsilClient` offers the same methods as coroutines that you can await under asyncio or trio.
 
-```bash
+```bash skip
 pip install narsil-client
 ```
 
@@ -63,6 +63,10 @@ A write moves to the next address in two cases alone: when the connection failed
 
 Every failure raises `NarsilError`, under the code that the server sent, so a branch that you write against a code works whichever node answered. `details` holds the values that the server sent, and `status` holds the HTTP status.
 
+<!-- example setup
+from narsil_client import NarsilClient
+client = NarsilClient("http://localhost:9876")
+-->
 ```python
 from narsil_client import NarsilError
 
@@ -88,6 +92,11 @@ The client raises `CONFIG_INVALID` before it sends anything when a setting is ou
 
 `import_documents` encodes a list of documents as NDJSON, sends them in one request, and returns once the whole load has finished. It also takes a string or bytes of NDJSON, which it sends unchanged.
 
+<!-- example setup
+from narsil_client import NarsilClient
+client = NarsilClient("http://localhost:9876")
+documents: list[dict[str, object]]
+-->
 ```python
 result = client.import_documents("movies", documents)
 print(result.indexed, result.failed, result.errors)
@@ -95,6 +104,11 @@ print(result.indexed, result.failed, result.errors)
 
 One bad record never abandons the rest, because the server notes each failure and carries on. Where a load would outlast the response timeout of a proxy, start a task and follow it instead.
 
+<!-- example setup
+from narsil_client import NarsilClient
+client = NarsilClient("http://localhost:9876")
+documents: list[dict[str, object]]
+-->
 ```python
 task = client.start_import("movies", documents)
 finished = client.wait_for_task(task.id, on_progress=lambda record: print(record.progress))
@@ -119,6 +133,10 @@ The wait raises `TASK_NOT_FOUND` when the server drops the record before the tas
 
 `snapshot` and `export_documents` return a `ResponseStream`, or an `AsyncResponseStream` under the async client, that yields the body in chunks as it arrives. The client never holds the whole body in memory, so you can write an index of any size to a file. Use the stream as a context manager, so that the connection closes when you stop reading early.
 
+<!-- example setup
+from narsil_client import NarsilClient
+client = NarsilClient("http://localhost:9876")
+-->
 ```python
 with client.snapshot("movies") as archive, open("movies.tar", "wb") as sink:
     for chunk in archive:
@@ -135,10 +153,25 @@ client.wait_for_task(task.id)
 
 `update_changes` and `get_changes` turn [change capture](change-capture.md) on for an index and report its epoch. `follow_changes` follows the server's change feed, and it needs the `changes` extra, which adds the WebSocket and MessagePack libraries. The client imports them only when you call `follow_changes`, so a program that never follows a feed can leave the extra out, and a call without it raises `CONFIG_INVALID` with the install command.
 
-```bash
+```bash skip
 pip install "narsil-client[changes]"
 ```
 
+<!-- example setup
+from collections.abc import Sequence
+from dataclasses import dataclass
+from narsil_client import Change, ChangePosition, NarsilClient
+@dataclass
+class SavedFeed:
+    epoch: str
+    positions: list[ChangePosition]
+client = NarsilClient("http://localhost:9876")
+saved: SavedFeed
+token: str
+def apply(changes: Sequence[Change]) -> None: ...
+def save(position: ChangePosition) -> None: ...
+def rebuild_from_export() -> None: ...
+-->
 ```python
 from narsil_client import ChangesBatch, ChangesResync
 
@@ -162,6 +195,10 @@ A vector in a change arrives as a list of floats, whichever form the engine stor
 
 `is_alive` and `is_ready` return `True` for an answer of 200 and `False` for any other answer, so `is_ready` returns `False` while a server starts up and once it starts draining, because the server answers 503 then. Both raise when no server answers at all. `supports` reports whether the server serves an optional route, and the client reads the list once and keeps it.
 
+<!-- example setup
+from narsil_client import NarsilClient
+client = NarsilClient("http://localhost:9876")
+-->
 ```python
 from narsil_client import DOCUMENT_EXPORT_CAPABILITY
 

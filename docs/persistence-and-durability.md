@@ -31,7 +31,7 @@ A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`
 
 `createS3Persistence` and `createGcsPersistence` each return a promise, because each one loads its SDK when you call it. Narsil declares both SDKs as optional peer dependencies, so the engine loads without them, and you install the one that you use:
 
-```bash
+```bash skip
 pnpm add @aws-sdk/client-s3
 pnpm add @google-cloud/storage
 ```
@@ -42,6 +42,9 @@ Where the SDK is missing, the adapter raises `PERSISTENCE_DEPENDENCY_MISSING` wi
 
 Snapshot-only persistence may lose the writes made after the last checkpoint. Durability closes that window with a write-ahead log. The engine appends every mutation to the log before it acknowledges the write, and it captures the index state in a checkpoint on a schedule, so recovery replays the log over the newest checkpoint. Enable it with a directory:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   durability: {
@@ -53,6 +56,10 @@ const narsil = await createNarsil({
 
 `createNarsil` runs recovery before it resolves, so every index is in place before your first call, holding its documents and its full config: partition limits, the scoring default, position tracking, strictness, required fields, vector promotion settings, named embedding adapter bindings, and its stop words and tokenizer. A stop word `Set` persists as an explicit word list, and a named tokenizer or stop word set persists by name, so register the names before calling `createNarsil` (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)). An inline tokenizer instance and a stop word function cannot persist, so use the named forms for any index that must survive recovery unchanged. `checkpoint(indexName)` forces a checkpoint outside the automatic schedule:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
+-->
 ```ts
 await narsil.checkpoint('products')
 ```
@@ -87,6 +94,10 @@ The engine opens a new log segment as a checkpoint starts, and once the checkpoi
 
 `getStats` and `getPartitionStats` report two sizes for an index that saves to disk, which a host can bill on or alert on:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
+-->
 ```ts
 const stats = narsil.getStats('products')
 console.log(stats.savedBytes, stats.logBytes)
@@ -116,6 +127,9 @@ A rewrite needs free disk space while the old files and the new files exist toge
 
 An index can hold more text than its node has memory for. Set `textStorage` to `'disk'` when you create the index, and set `vectorPromotion.storage` to `'disk'` for any vector field:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
 
@@ -138,6 +152,9 @@ A merge, a partition copy, a rebalance, a text reanalysis, and an export each re
 
 An engine that holds many indexes can keep only the ones in use in memory. When you set an idle timeout or a limit on open indexes, the engine closes an index that nobody is using and keeps its files on disk. The engine reopens the index the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it reopens the index.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   durability: { directory: './narsil-data' },
@@ -166,6 +183,10 @@ Pass an empty object, `lifecycle: {}`, when you want the closed startup state wi
 
 `close(indexName)` waits for the index's active operations to finish, and then it writes a checkpoint and releases the index's memory and worker copies. The engine keeps the index's files on disk. `open(indexName)` loads a closed index before any caller needs it, and it clears a parked recovery failure. `dropIndex` is the only way to delete an index, and it deletes a closed one without loading it.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil({ durability: { directory: './narsil-data' }, lifecycle: {} })
+-->
 ```ts
 await narsil.close('archive-2024')
 await narsil.open('archive-2024')
@@ -189,6 +210,10 @@ In a cluster, `close` closes the copy on the node you call. The controller leave
 
 `snapshot(indexName)` returns a stream of the index's snapshot archive. The archive is a pax file containing the index's configuration, the manifest of one checkpoint, and every file that the manifest lists. `restore(indexName, data)` creates an index from that archive under the name that you pass. Where an index of that name already exists, the engine replaces it. The `data` argument can be a `Uint8Array`, a `ReadableStream` of bytes, or an async iterable of byte chunks, such as a Node.js file stream.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
+-->
 ```ts
 import { createReadStream, createWriteStream } from 'node:fs'
 import { Writable } from 'node:stream'
@@ -223,6 +248,10 @@ A cluster backs up an index through a `PersistenceAdapter` as well, as the [clus
 
 A document export is a JSON Lines file containing an index's configuration and its documents. Its format stays the same in every release of the engine, so you can use an export to move an index across several releases or between implementations. The export is text, which means you can also edit its header and its documents to move them into a new schema.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
 ```ts
 import { createReadStream, createWriteStream } from 'node:fs'
 import { Writable } from 'node:stream'

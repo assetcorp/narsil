@@ -66,6 +66,9 @@ By default the engine rebuilds the terms in the background from the documents th
 
 Control the rebuild yourself when the timing matters. `rebuild: 'manual'` leaves every stale index alone, `listIndexes()` reports which ones they are, and `rebuildAnalysis(indexName)` resolves once every partition of one index carries current terms:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   durability: { directory: './narsil-data' },
@@ -85,6 +88,9 @@ Calling `rebuildAnalysis` for an index that is already current does nothing. A f
 
 `onStaleAnalysis` covers the case the loop above cannot: it runs once for each stale index at startup, before an automatic rebuild begins, and it is the only place the stored and the current revision appear together.
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+-->
 ```ts
 const narsil = await createNarsil({
   durability: { directory: './narsil-data' },

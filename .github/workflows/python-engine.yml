@@ -70,6 +70,10 @@ jobs:
         with:
           node-version: 24
 
+      - name: Type-check the README examples with the environment that the Python type-check set up
+        working-directory: packages/python-engine
+        run: node ../../.github/scripts/check-readme-examples.js python --type-check-only README.md
+
       - name: Install the TypeScript engine's runtime dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts --prod --filter @delali/narsil
 
@@ -243,6 +247,13 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: --requirement requirements-test.txt
           python -m pip install --disable-pip-version-check --no-index --find-links ../../wheelhouse delali-narsil
           python -m pytest
+
+      - name: Run the README examples on the installed wheel
+        if: ${{ matrix.platform.label == 'linux-x64-gnu' && matrix.python == '3.11' }}
+        working-directory: packages/python-engine
+        env:
+          NARSIL_EXAMPLE_PYTHON: python
+        run: node ../../.github/scripts/check-readme-examples.js python --execute-only README.md
 
       - name: Install the wheel and test it in Alpine Linux
         if: ${{ matrix.platform.musl }}
