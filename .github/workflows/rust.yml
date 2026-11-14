@@ -147,8 +147,8 @@ jobs:
             5/3) selection=listed names="$PART_3_TESTS" ;;
             5/4) selection=listed names="$PART_4_TESTS" ;;
             5/5) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS" ;;
-            3/1) selection=listed names="$PART_1_TESTS $PART_2_TESTS" ;;
-            3/2) selection=listed names="$PART_3_TESTS $PART_4_TESTS" ;;
+            3/1) selection=listed names="$PART_1_TESTS $PART_3_TESTS" ;;
+            3/2) selection=listed names="$PART_2_TESTS $PART_4_TESTS" ;;
             3/3) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS" ;;
             2/1) selection=listed names="$PART_3_TESTS $PART_4_TESTS" ;;
             2/2) selection=unlisted names="$PART_3_TESTS $PART_4_TESTS" ;;
