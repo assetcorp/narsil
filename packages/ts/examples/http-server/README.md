@@ -66,6 +66,10 @@ The server keeps everything in memory by default, so it comes back empty after a
 
 In the default `sync` mode the engine flushes before a write resolves, so a crash never loses a write that your client already saw succeed. `mode: 'async'` flushes once a second, which is faster and can lose that last second in a hard crash. Set either one on the engine that you hand to `createServer`, which [the durability guide](../../../../docs/persistence-and-durability.md) covers:
 
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+import { createServer } from '@delali/narsil/server'
+-->
 ```ts
 const engine = await createNarsil({ durability: { directory: '/var/lib/narsil' } })
 const server = createServer(engine)

@@ -8,11 +8,11 @@ The module needs Go 1.26 or later and a C compiler, because it calls the core th
 go get github.com/assetcorp/narsil/packages/go/engine
 ```
 
-Releases of the module carry tags of the form `packages/go/engine/vX.Y.Z`, which is how the go tool finds a module that lives in a subdirectory of a repository, so `go get github.com/assetcorp/narsil/packages/go/engine@v0.1.0` fetches the release tagged `packages/go/engine/v0.1.0`.
+Releases of the module carry tags of the form `packages/go/engine/vX.Y.Z`, which is how the go tool finds a module that lives in a subdirectory of a repository, so `go get github.com/assetcorp/narsil/packages/go/engine@vX.Y.Z` fetches the release tagged `packages/go/engine/vX.Y.Z`.
 
 ## Create, fill, and search an index
 
-```go
+```go run
 package main
 
 import (
@@ -49,10 +49,10 @@ func run(ctx context.Context, directory string) error {
 		return err
 	}
 
-	_, err = narsil.InsertBatch(ctx, "films", []engine.Document{
-		{"id": "heat", "title": "Heat", "year": 1995, "embedding": []float32{0.9, 0.1, 0.2}},
-		{"id": "ronin", "title": "Ronin", "year": 1998, "embedding": []float32{0.8, 0.3, 0.1}},
-		{"id": "solaris", "title": "Solaris", "year": 1972, "embedding": []float32{0.1, 0.9, 0.7}},
+	_, err = narsil.InsertBatch(ctx, "films", []*engine.Document{
+		engine.DocumentFromMap(map[string]any{"id": "heat", "title": "Heat", "year": 1995, "embedding": []float32{0.9, 0.1, 0.2}}),
+		engine.DocumentFromMap(map[string]any{"id": "ronin", "title": "Ronin", "year": 1998, "embedding": []float32{0.8, 0.3, 0.1}}),
+		engine.DocumentFromMap(map[string]any{"id": "solaris", "title": "Solaris", "year": 1972, "embedding": []float32{0.1, 0.9, 0.7}}),
 	}, engine.InsertOptions{})
 	if err != nil {
 		return err

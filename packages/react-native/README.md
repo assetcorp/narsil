@@ -12,6 +12,9 @@ The package carries native code, so it needs a development build with React Nati
 
 ## Use it
 
+<!-- example setup
+declare const tentVector: number[]
+-->
 ```ts
 import { createNarsil } from '@delali/narsil-react-native'
 

@@ -428,7 +428,7 @@ cp /tmp/rotation/node1.key /etc/narsil/tls/node1.key
 
 The crypto functions are available as a library for use in scripts or other tools:
 
-```typescript
+```typescript run
 import {
   generateCaCertificate,
   generateNodeCertificate,
