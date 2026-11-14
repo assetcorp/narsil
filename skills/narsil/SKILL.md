@@ -62,7 +62,7 @@ Read the reference file for each capability that the task needs:
 | An index that survives a restart, a snapshot, or closing idle indexes | [references/storage.md](references/storage.md) |
 | A server, the client SDK, React hooks, access from another language, or moving an embedded index behind a server | [references/server.md](references/server.md) |
 | Several nodes, replication, or failover | [references/cluster.md](references/cluster.md) |
-| Suggestions of the searches that many people run | The installed types of `@delali/narsil/query-suggestions` |
+| Suggestions of the searches that many people make | The installed types of `@delali/narsil/query-suggestions` |
 | A copy of an index on a phone, a laptop, or a browser tab that stays in step with a server | The installed types of `@delali/narsil/sync` |
 | Reordering the top hits through a reranking model | The installed types of `@delali/narsil/rerankers/http` |
 | A feed of every change to an index | The installed types of `updateChanges` and `followChanges` on the engine |
