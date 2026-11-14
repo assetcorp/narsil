@@ -10,7 +10,7 @@ const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
 const AREAS_BY_PREFIX = [
   ['docs/', []],
   ['assets/', []],
-  ['skills/', []],
+  ['skills/', ['check']],
   ['benchmarks/server/', ['benchmark_harness']],
   ['benchmarks/writeup/', ['benchmark_harness']],
   ['benchmarks/engine-languages/', ['benchmark_languages']],
@@ -204,7 +204,9 @@ const changedFiles = () => {
 }
 
 const compilesInTheCheckJob = path =>
-  MARKDOWN_THAT_THE_CHECK_JOB_COMPILES.includes(path) || (path.startsWith('docs/') && !path.slice(5).includes('/'))
+  MARKDOWN_THAT_THE_CHECK_JOB_COMPILES.includes(path) ||
+  (path.startsWith('docs/') && !path.slice(5).includes('/')) ||
+  path.startsWith('skills/')
 
 const typescriptAreasOf = path => {
   if (path.endsWith('.md')) return compilesInTheCheckJob(path) ? ['check'] : []

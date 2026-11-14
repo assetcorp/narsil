@@ -5,6 +5,7 @@ const { checkGo, checkPython, checkTypescript, report, withWorkspace } = require
 
 const REPOSITORY_ROOT = resolve(__dirname, '..', '..')
 const GUIDES_DIRECTORY = join(REPOSITORY_ROOT, 'docs')
+const SKILLS_DIRECTORY = join(REPOSITORY_ROOT, 'skills')
 const TYPESCRIPT_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'ts')
 const REACT_NATIVE_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'react-native')
 const PYTHON_CLIENT_PACKAGE = join(REPOSITORY_ROOT, 'packages', 'python')
@@ -15,11 +16,14 @@ const TYPESCRIPT_FENCES = new Set(['ts', 'typescript', 'tsx'])
 const PYTHON_FENCES = new Set(['python', 'py'])
 const GO_FENCES = new Set(['go'])
 
-function guidePaths() {
-  return readdirSync(GUIDES_DIRECTORY, { withFileTypes: true })
+function markdownIn(directory, recursive) {
+  return readdirSync(directory, { withFileTypes: true, recursive })
     .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-    .map(entry => join(GUIDES_DIRECTORY, entry.name))
-    .sort()
+    .map(entry => join(entry.parentPath, entry.name))
+}
+
+function guidePaths() {
+  return [...markdownIn(GUIDES_DIRECTORY, false), ...markdownIn(SKILLS_DIRECTORY, true)].sort()
 }
 
 function selectedGuides(requested) {
@@ -27,7 +31,9 @@ function selectedGuides(requested) {
   if (requested.length === 0) return guides
   return requested.map(path => {
     const absolute = resolve(path)
-    if (!guides.includes(absolute)) throw new Error(`${path} is not a guide directly under docs/`)
+    if (!guides.includes(absolute)) {
+      throw new Error(`${path} is neither a guide directly under docs/ nor a Markdown file under skills/`)
+    }
     return absolute
   })
 }

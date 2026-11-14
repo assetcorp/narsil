@@ -8,7 +8,7 @@ license: Apache-2.0
 
 Copy this checklist and tick each item as you finish it:
 
-```text
+```text skip
 - [ ] 1. Choose embedded or served
 - [ ] 2. Find the installed version and its API
 - [ ] 3. Install the package and its peers
