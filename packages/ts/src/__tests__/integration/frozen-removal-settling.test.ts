@@ -13,6 +13,7 @@ import { backends, searchWithTheHostBinary } from './removed-vectors/fixtures'
 import { createSearchHold, type SearchHold } from './search-hold'
 
 const DOCUMENTS = 1_600
+const BATCH_REMOVAL_DOCUMENTS = 1_000
 const SCORE_TOLERANCE = 1e-9
 const SEARCHES_PER_REMOVAL = 8
 const STREAMED_REMOVAL_EVERY = 80
@@ -150,7 +151,7 @@ describe.each(backends)('frozen removals settle before every read through $name'
   it.skipIf(!available).each(STORAGES)(
     'a removal batch that fills the pending regions of a %s segment settles and keeps every score',
     async storage => {
-      const documents = workshopCorpus(DOCUMENTS, 59)
+      const documents = workshopCorpus(BATCH_REMOVAL_DOCUMENTS, 59)
       const narsil = await openFrozen(storage, documents)
       const leaving = documents.filter((_, at) => at % 2 === 0).map(document => String(document.id))
       expect((await narsil.removeBatch(INDEX, leaving)).failed).toEqual([])

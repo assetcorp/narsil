@@ -1,10 +1,10 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import { waitFor } from '../../server/helpers'
@@ -54,28 +54,17 @@ async function kill(child: ChildProcess): Promise<void> {
 }
 
 describe.skipIf(!built)('a process killed during an analysis change', () => {
+  let prepared: string
   let dir: string
   let engine: Narsil | null = null
+  const oracle = new ChangeOracle()
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     registerFixtures()
-    dir = await mkdtemp(join(tmpdir(), 'narsil-change-kill-'))
     resetCheckpointWorkerLatch()
-  })
-
-  afterEach(async () => {
-    await engine?.shutdown()
-    engine = null
-    await rm(dir, { recursive: true, force: true })
-  })
-
-  it.each([
-    'during-build',
-    'after-checkpoint',
-  ])('finishes the change and keeps every write after a kill at %s', async killAt => {
-    const oracle = new ChangeOracle()
+    prepared = await mkdtemp(join(tmpdir(), 'narsil-change-kill-prepared-'))
     const random = seededRandom(23)
-    const writer = await createNarsil({ durability: { directory: dir }, workers: { enabled: false } })
+    const writer = await createNarsil({ durability: { directory: prepared }, workers: { enabled: false } })
     await writer.createIndex('prose', {
       schema: { title: 'string' },
       language: PLAIN_LANGUAGE,
@@ -89,7 +78,29 @@ describe.skipIf(!built)('a process killed during an analysis change', () => {
     await writer.shutdown()
     for (let i = 0; i < CHILD_WRITES; i++) oracle.write(`child-${i}`, 'sea-wall stone')
     oracle.remove('doc-1')
+  }, 120_000)
 
+  beforeEach(async () => {
+    registerFixtures()
+    dir = await mkdtemp(join(tmpdir(), 'narsil-change-kill-'))
+    await cp(prepared, dir, { recursive: true })
+    resetCheckpointWorkerLatch()
+  })
+
+  afterEach(async () => {
+    await engine?.shutdown()
+    engine = null
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  afterAll(async () => {
+    await rm(prepared, { recursive: true, force: true })
+  })
+
+  it.each([
+    'during-build',
+    'after-checkpoint',
+  ])('finishes the change and keeps every write after a kill at %s', async killAt => {
     const { child, line } = await childUntilReady(dir, killAt)
     await kill(child)
     expect(line).toBe('READY')

@@ -179,16 +179,20 @@ export function createOracle(documents: readonly AnyDocument[], rules: readonly 
         return score
       }
 
+      const scoredTerms = terms.map(term => {
+        const synonyms = expanded.get(term) ?? []
+        const members = [term, ...synonyms]
+        const typos = typoMatchesOf(term, tolerance, new Set(synonyms))
+        return { members, idf: idfOf(Math.max(...members.map(frequencyOf))), typos }
+      })
+
       const hits: OracleHit[] = []
       for (const document of indexed) {
         let score = 0
         let satisfied = 0
-        for (const term of terms) {
-          const synonyms = expanded.get(term) ?? []
-          const members = [term, ...synonyms]
-          const idf = idfOf(Math.max(...members.map(frequencyOf)))
+        for (const { members, idf, typos } of scoredTerms) {
           let termScore = scoreOf(document, members, idf)
-          for (const typo of typoMatchesOf(term, tolerance, new Set(synonyms))) {
+          for (const typo of typos) {
             termScore += scoreOf(document, [typo], idfOf(frequencyOf(typo)))
           }
           if (termScore > 0) satisfied++

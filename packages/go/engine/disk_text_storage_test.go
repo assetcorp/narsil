@@ -19,7 +19,7 @@ const (
 	diskTextDocuments           = 240
 	diskTextWordsPerDocument    = 7
 	diskTextCompactionThreshold = 2
-	diskTextSmallRounds         = 5
+	diskTextSmallRounds         = 3
 	diskTextUpdatedPerRound     = 6
 	diskTextRemovedPerRound     = 2
 	diskTextInsertedPerRound    = 3

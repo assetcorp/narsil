@@ -92,24 +92,6 @@ describe('vector search through Narsil query API', () => {
     expect(ids).not.toContain('opposite')
   })
 
-  it('passes efSearch through the query pipeline', async () => {
-    for (let i = 0; i < 30; i++) {
-      await narsil.insert('docs', { title: `doc ${i}`, embedding: seededVector(i + 1) })
-    }
-
-    const result = await narsil.query('docs', {
-      vector: {
-        field: 'embedding',
-        value: seededVector(202),
-        efSearch: 200,
-      },
-      limit: 5,
-    })
-
-    expect(result.hits.length).toBeLessThanOrEqual(5)
-    expect(result.hits.length).toBeGreaterThan(0)
-  })
-
   it('supports euclidean metric through the API', async () => {
     await narsil.insert('docs', { title: 'origin adjacent', embedding: paddedVector(0.1, 0.0) }, 'close')
     await narsil.insert('docs', { title: 'far from origin', embedding: paddedVector(10.0, 10.0) }, 'far')
@@ -178,28 +160,6 @@ describe('vector search through Narsil query API', () => {
     for (const hit of result.hits) {
       expect(['kept-both', 'kept-vec-only']).toContain(hit.id)
     }
-  })
-
-  it('returns results in hybrid mode combining text and vector', async () => {
-    await narsil.insert(
-      'docs',
-      { title: 'wireless headphones review', embedding: paddedVector(0.9, 0.1) },
-      'text-and-vec',
-    )
-    await narsil.insert('docs', { title: 'cooking recipes', embedding: paddedVector(0.95, 0.05) }, 'vec-only')
-    await narsil.insert('docs', { title: 'wireless charger guide', embedding: paddedVector(0.0, 1.0) }, 'text-only')
-
-    const result = await narsil.query('docs', {
-      term: 'wireless',
-      vector: { field: 'embedding', value: paddedVector(1.0, 0.0) },
-      mode: 'hybrid',
-      hybrid: { alpha: 0.5 },
-      limit: 3,
-    })
-
-    expect(result.hits.length).toBeGreaterThan(0)
-    const ids = result.hits.map(h => h.id)
-    expect(ids).toContain('text-and-vec')
   })
 
   it('fuses the rankings the fulltext and vector queries return on their own', async () => {

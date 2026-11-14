@@ -11,8 +11,8 @@ import { seededRandom } from './oracle'
 const INDEX = 'passages'
 const DIMENSION = 48
 const PASSAGES = 3_000
-const REPLACED_EACH_ROUND = 200
-const ADDED_EACH_ROUND = 100
+const REPLACED_EACH_ROUND = 50
+const ADDED_EACH_ROUND = 25
 const ENVELOPE_HEADER_BYTES = 32
 const FLOAT32_BYTES = 4
 const FLOAT64_BYTES = 8

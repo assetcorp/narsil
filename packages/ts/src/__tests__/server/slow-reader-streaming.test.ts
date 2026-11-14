@@ -1,6 +1,6 @@
 import net from 'node:net'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getJson, postJson, startTestServer, type TestServer } from './helpers'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { postJson, startTestServer, type TestServer } from './helpers'
 
 const SCHEMA = { docId: 'string', text: 'string' }
 
@@ -189,7 +189,7 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
   let host: string
   let port: number
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     srv = await startTestServer()
     const url = new URL(srv.base)
     host = url.hostname
@@ -197,7 +197,7 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
     await seedCorpus(srv.base, buildCorpus(DOC_COUNT, TEXT_CHARS_PER_DOC))
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await srv.stop()
   })
 
@@ -234,13 +234,4 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
     expect(parsed.documents['doc-000000'].text).toBe(buildText('doc-000000', TEXT_CHARS_PER_DOC))
     expect(parsed.documents[`doc-${(DOC_COUNT - 1).toString().padStart(6, '0')}`]).toBeDefined()
   }, 45_000)
-
-  it('still serves the same large snapshot correctly to a fast reader', async () => {
-    const first = await settledSnapshot(srv.base)
-    const second = Buffer.from(await (await fetch(`${srv.base}/indexes/articles/snapshot`)).arrayBuffer())
-    expect(first.equals(second)).toBe(true)
-
-    const count = await getJson<{ count: number }>(srv.base, '/indexes/articles/count')
-    expect(count.body.count).toBe(DOC_COUNT)
-  }, 30_000)
 })

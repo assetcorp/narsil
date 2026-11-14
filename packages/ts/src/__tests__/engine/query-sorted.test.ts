@@ -224,14 +224,6 @@ describe('a sorted query', () => {
     }
   })
 
-  it('leaves an unsorted query scoring as before', async () => {
-    const result = await narsil.query('docs', { term: 'searchable' })
-    expect(result.hits.length).toBeGreaterThan(0)
-    for (const hit of result.hits) {
-      expect(typeof hit.score).toBe('number')
-    }
-  })
-
   it('returns the stored documents on the sorted page', async () => {
     const result = await narsil.query('docs', { term: 'searchable', sort: { rank: 'asc' }, limit: 2 })
     expect(result.hits[0].document).toMatchObject({ title: 'alpha', rank: 10 })

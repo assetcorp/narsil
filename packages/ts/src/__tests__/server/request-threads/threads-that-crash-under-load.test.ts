@@ -4,13 +4,16 @@ import { BroadcastChannel, Worker } from 'node:worker_threads'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
-const DOCUMENTS = 1_200
+const COPY_THRESHOLD = 100
+const DOCUMENTS = 150
 const TAXI_EVERY = 3
 const READERS = 6
 const ROUNDS_PER_MEANS = 3
 const LOAD_BEFORE_THE_CRASH_MS = 300
 const LOAD_AFTER_THE_CRASH_MS = 700
-const MAIN_BUSY_WHILE_A_THREAD_DIES_MS = 12_000
+const SILENCE_BEFORE_PROBE_MS = 1_000
+const PROBE_INTERVALS_WHILE_MAIN_IS_BUSY = 2
+const MAIN_BUSY_WHILE_A_THREAD_DIES_MS = SILENCE_BEFORE_PROBE_MS * PROBE_INTERVALS_WHILE_MAIN_IS_BUSY
 const REQUEST_TIMEOUT_MS = 30_000
 const RECOVERY_TIMEOUT_MS = 60_000
 const ROUTING_PROBES = 8
@@ -189,7 +192,14 @@ describe.skipIf(!built)('request threads that crash under HTTP load', () => {
     }
     srv = await startTestServer(
       undefined,
-      { workers: { count: REQUEST_THREADS, bootstrapModule: crashingBootstrapModule() } },
+      {
+        workers: {
+          count: REQUEST_THREADS,
+          promotionThreshold: COPY_THRESHOLD,
+          silenceBeforeProbeMs: SILENCE_BEFORE_PROBE_MS,
+          bootstrapModule: crashingBootstrapModule(),
+        },
+      },
       async engine => {
         engine.on('workerCrash', ({ error }) => crashes.push(error))
       },
@@ -341,7 +351,7 @@ describe.skipIf(!built)('request threads that crash under HTTP load', () => {
 
   it.each(
     MEANS_WHILE_MAIN_IS_BUSY,
-  )('keeps the process serving when a thread crashes by %s while the main thread is busy for 12 seconds', async (means: CrashMeans) => {
+  )('keeps the process serving when a thread crashes by %s while the main thread stays busy past the probe interval', async (means: CrashMeans) => {
     const fares = await loadFares()
     const tally: Tally = { answered: 0, dropped: 0, refused: 0, hung: 0 }
     const read = readersOf(fares, tally)

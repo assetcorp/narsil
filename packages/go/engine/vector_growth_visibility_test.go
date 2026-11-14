@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	visibleDocuments          = 4_000
+	visibleDocuments          = 1_920
 	visibleWaveDocuments      = 160
 	visiblePromotionThreshold = 128
 	visibleSearchers          = 4

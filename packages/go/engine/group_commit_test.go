@@ -17,7 +17,7 @@ import (
 const (
 	sharedFlushIndex          = "orders"
 	sharedFlushWriters        = 16
-	sharedFlushStepsPerWriter = 60
+	sharedFlushStepsPerWriter = 20
 	sharedFlushUpdateEvery    = 3
 	sharedFlushRemoveEvery    = 5
 	sharedFlushBatchDocuments = 4

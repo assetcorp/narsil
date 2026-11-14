@@ -48,7 +48,15 @@ describe('every score matches an oracle that reads the documents', () => {
 
     for (const setting of SETTINGS) {
       await server.client.updateBM25(INDEX, setting.index ?? {})
-      await expectOracleScores(searchWith(server.engine), oracle, setting.index, setting.search, `API ${setting.label}`)
+      if (setting.search !== undefined) {
+        await expectOracleScores(
+          searchWith(server.engine),
+          oracle,
+          setting.index,
+          setting.search,
+          `API ${setting.label}`,
+        )
+      }
       await expectOracleScores(
         searchWith(server.client),
         oracle,

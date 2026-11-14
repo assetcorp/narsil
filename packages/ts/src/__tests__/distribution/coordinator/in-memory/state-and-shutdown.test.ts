@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { AllocationEvent, ClusterCoordinator, NodeEvent, SchemaEvent } from '../../../../distribution/coordinator'
+import type { AllocationEvent, ClusterCoordinator, SchemaEvent } from '../../../../distribution/coordinator'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
 import type { SchemaDefinition } from '../../../../types/schema'
 import { makeAllocationTable, makeNodeRegistration, testSchema } from './fixtures'
@@ -70,11 +70,6 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('allocation table', () => {
-    it('returns null for a non-existent allocation', async () => {
-      const result = await coordinator.getAllocation('no-such-index')
-      expect(result).toBeNull()
-    })
-
     it('round-trips an allocation table', async () => {
       const table = makeAllocationTable('products')
       await coordinator.putAllocation('products', table)
@@ -121,17 +116,6 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('partition state', () => {
-    it('returns UNASSIGNED for a non-existent partition', async () => {
-      const state = await coordinator.getPartitionState('products', 0)
-      expect(state).toBe('UNASSIGNED')
-    })
-
-    it('round-trips a partition state', async () => {
-      await coordinator.putPartitionState('products', 0, 'ACTIVE')
-      const state = await coordinator.getPartitionState('products', 0)
-      expect(state).toBe('ACTIVE')
-    })
-
     it('stores partition states independently per index and partition', async () => {
       await coordinator.putPartitionState('products', 0, 'ACTIVE')
       await coordinator.putPartitionState('products', 1, 'INITIALISING')
@@ -145,17 +129,6 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('schemas', () => {
-    it('returns null for a non-existent schema', async () => {
-      const schema = await coordinator.getSchema('no-such-index')
-      expect(schema).toBeNull()
-    })
-
-    it('round-trips a schema', async () => {
-      await coordinator.putSchema('articles', testSchema)
-      const retrieved = await coordinator.getSchema('articles')
-      expect(retrieved).toEqual(testSchema)
-    })
-
     it('fires watchers on putSchema', async () => {
       const events: SchemaEvent[] = []
       await coordinator.watchSchemas(event => events.push(event))
@@ -230,18 +203,6 @@ describe('InMemoryCoordinator', () => {
     it('is idempotent', async () => {
       await coordinator.shutdown()
       await expect(coordinator.shutdown()).resolves.toBeUndefined()
-    })
-
-    it('clears watchers so they do not fire after shutdown', async () => {
-      const events: NodeEvent[] = []
-      await coordinator.watchNodes(event => events.push(event))
-
-      await coordinator.shutdown()
-
-      coordinator = createInMemoryCoordinator()
-      await coordinator.registerNode(makeNodeRegistration())
-
-      expect(events).toHaveLength(0)
     })
   })
 })

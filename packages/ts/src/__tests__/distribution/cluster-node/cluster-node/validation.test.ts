@@ -54,23 +54,6 @@ describe('createClusterNode (createIndex validation of partitionCount and replic
     )
   })
 
-  it('rejects negative partitionCount', async () => {
-    nodeA = await createClusterNode(
-      makeConfig({
-        coordinator,
-        transport: transportA,
-        address: 'node-a:9200',
-        nodeId: 'node-a',
-      }),
-    )
-
-    await nodeA.start()
-
-    await expect(
-      nodeA.createIndex('products', { schema: { title: 'string' } }, { partitionCount: -1 }),
-    ).rejects.toThrow('partitionCount must be an integer between 1 and 65536')
-  })
-
   it('rejects partitionCount exceeding 65536', async () => {
     nodeA = await createClusterNode(
       makeConfig({

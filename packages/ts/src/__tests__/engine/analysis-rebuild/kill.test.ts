@@ -24,6 +24,7 @@ const built = existsSync(new URL('../../../../dist/index.mjs', import.meta.url))
 
 const SCHEMA = { title: 'string' as const }
 const DOCUMENTS = 30_000
+const DOCUMENTS_WHEN_THE_CHILD_RUNS_NO_REBUILD = 2_000
 const PARTITIONS = 4
 const CHILD_WRITES = 10
 
@@ -71,13 +72,13 @@ describe.skipIf(!built)('a process killed while its index is due a rebuild', () 
     await rm(dir, { recursive: true, force: true })
   })
 
-  async function writeUnderFirstRevision(): Promise<OracleCorpus> {
+  async function writeUnderFirstRevision(count: number): Promise<OracleCorpus> {
     const corpus = new OracleCorpus()
     registerRevision(FIRST_REVISION)
     const random = seededRandom(53)
     const writer = await createNarsil({ durability: { directory: dir }, workers: { enabled: false } })
     await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE, partitions: { maxPartitions: PARTITIONS } })
-    const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
+    const documents = Array.from({ length: count }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
     await writer.insertBatch('prose', documents)
     for (const document of documents) corpus.write(document.id, document.title, FIRST_REVISION)
     await writer.rebalance('prose', PARTITIONS)
@@ -90,7 +91,7 @@ describe.skipIf(!built)('a process killed while its index is due a rebuild', () 
   }
 
   it('finishes the rebuild on its own after a kill in the middle of one', async () => {
-    const corpus = await writeUnderFirstRevision()
+    const corpus = await writeUnderFirstRevision(DOCUMENTS)
     const { child, line } = await runChildUntilReady(dir, 'during-rebuild')
     await kill(child)
     expect(line).toBe('READY')
@@ -116,7 +117,7 @@ describe.skipIf(!built)('a process killed while its index is due a rebuild', () 
   }, 120_000)
 
   it('announces the rebuild again after a kill that follows a checkpoint taken while it was due', async () => {
-    const corpus = await writeUnderFirstRevision()
+    const corpus = await writeUnderFirstRevision(DOCUMENTS_WHEN_THE_CHILD_RUNS_NO_REBUILD)
     const { child, line } = await runChildUntilReady(dir, 'after-checkpoint')
     await kill(child)
     expect(line).toBe('READY')

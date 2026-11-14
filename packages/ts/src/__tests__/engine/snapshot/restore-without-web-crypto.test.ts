@@ -7,14 +7,15 @@ import {
   archiveBytes,
   configFor,
   fill,
+  GENERATIONS_ABOVE_THRESHOLDS,
   holdsGeneration,
   LIVE,
-  NEW,
   newDirectory,
-  OLD,
   openEngine,
   SOURCE,
 } from './restore-fixtures'
+
+const { old: OLD, new: NEW } = GENERATIONS_ABOVE_THRESHOLDS
 
 const roots: string[] = []
 const engines: Narsil[] = []

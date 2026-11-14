@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createNarsilClient, type NarsilClient } from '../../client'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createNarsilClient, type HttpIndexConfig, type NarsilClient } from '../../client'
 import { NarsilError } from '../../errors'
 import { startTestServer, type TestServer } from '../server/helpers'
 
@@ -16,27 +16,40 @@ function movies(count: number, from = 0): Array<Record<string, unknown>> {
 describe('client against a live server', () => {
   let server: TestServer
   let client: NarsilClient
+  const created = new Set<string>()
+  let indexesCreated = 0
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
     client = createNarsilClient({ url: server.base })
-    await client.createIndex('movies', { schema: SCHEMA, language: 'english' })
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
-  it('sends a vector as numbers, whether it arrives as an array or a Float32Array', async () => {
-    await client.createIndex('vectors', { schema: { title: 'string', embedding: 'vector[3]' }, language: 'english' })
-    await client.insert('vectors', { id: 'v1', title: 'typed', embedding: new Float32Array([1, 0, 0]) })
-    await client.insert('vectors', { id: 'v2', title: 'plain', embedding: [0, 1, 0] })
+  async function createUniqueIndex(config: HttpIndexConfig = { schema: SCHEMA, language: 'english' }): Promise<string> {
+    indexesCreated += 1
+    const name = `movies-${indexesCreated}`
+    await client.createIndex(name, config)
+    created.add(name)
+    return name
+  }
 
-    const typed = await client.get('vectors', 'v1')
-    const plain = await client.get('vectors', 'v2')
+  async function listedNames(): Promise<string[]> {
+    return (await client.listIndexes()).map(entry => entry.name).sort()
+  }
+
+  it('sends a vector as numbers, whether it arrives as an array or a Float32Array', async () => {
+    const index = await createUniqueIndex({ schema: { title: 'string', embedding: 'vector[3]' }, language: 'english' })
+    await client.insert(index, { id: 'v1', title: 'typed', embedding: new Float32Array([1, 0, 0]) })
+    await client.insert(index, { id: 'v2', title: 'plain', embedding: [0, 1, 0] })
+
+    const typed = await client.get(index, 'v1')
+    const plain = await client.get(index, 'v2')
     expect({ typed: typed?.embedding, plain: plain?.embedding }).toEqual({ typed: [1, 0, 0], plain: [0, 1, 0] })
 
-    const found = await client.query('vectors', {
+    const found = await client.query(index, {
       mode: 'vector',
       vector: { field: 'embedding', value: new Float32Array([1, 0, 0]) },
       limit: 1,
@@ -45,23 +58,25 @@ describe('client against a live server', () => {
   })
 
   it('creates, describes, and drops an index', async () => {
-    const listed = await client.listIndexes()
-    expect(listed.map(entry => entry.name)).toEqual(['movies'])
+    const index = await createUniqueIndex()
+    expect(await listedNames()).toEqual([...created].sort())
 
-    const stats = await client.getStats('movies')
+    const stats = await client.getStats(index)
     expect(stats.documentCount).toBe(0)
     expect(stats.language).toBe('english')
     expect(stats.schema).toEqual(SCHEMA)
 
-    expect(await client.getPartitionStats('movies')).toHaveLength(1)
+    expect(await client.getPartitionStats(index)).toHaveLength(1)
 
-    await client.dropIndex('movies')
-    expect(await client.listIndexes()).toEqual([])
+    await client.dropIndex(index)
+    created.delete(index)
+    expect(await listedNames()).toEqual([...created].sort())
   })
 
   it('refuses a second index of the same name with the code the server sent', async () => {
+    const index = await createUniqueIndex()
     const failure = await client
-      .createIndex('movies', { schema: SCHEMA, language: 'english' })
+      .createIndex(index, { schema: SCHEMA, language: 'english' })
       .catch((err: unknown) => err)
     expect(failure).toBeInstanceOf(NarsilError)
     expect((failure as NarsilError).code).toBe('INDEX_ALREADY_EXISTS')
@@ -69,34 +84,38 @@ describe('client against a live server', () => {
   })
 
   it('writes and reads one document at a time', async () => {
-    const id = await client.insert('movies', { title: 'The Matrix', year: 1999 }, 'm-matrix')
+    const index = await createUniqueIndex()
+    const id = await client.insert(index, { title: 'The Matrix', year: 1999 }, 'm-matrix')
     expect(id).toBe('m-matrix')
-    expect(await client.has('movies', 'm-matrix')).toBe(true)
-    expect(await client.get('movies', 'm-matrix')).toMatchObject({ title: 'The Matrix' })
-    expect(await client.countDocuments('movies')).toBe(1)
+    expect(await client.has(index, 'm-matrix')).toBe(true)
+    expect(await client.get(index, 'm-matrix')).toMatchObject({ title: 'The Matrix' })
+    expect(await client.countDocuments(index)).toBe(1)
 
-    await client.update('movies', 'm-matrix', { title: 'The Matrix Reloaded', year: 2003 })
-    expect(await client.get('movies', 'm-matrix')).toMatchObject({ title: 'The Matrix Reloaded' })
+    await client.update(index, 'm-matrix', { title: 'The Matrix Reloaded', year: 2003 })
+    expect(await client.get(index, 'm-matrix')).toMatchObject({ title: 'The Matrix Reloaded' })
 
-    await client.remove('movies', 'm-matrix')
-    expect(await client.has('movies', 'm-matrix')).toBe(false)
+    await client.remove(index, 'm-matrix')
+    expect(await client.has(index, 'm-matrix')).toBe(false)
   })
 
   it('reports a missing document as undefined and a missing index as an error', async () => {
-    expect(await client.get('movies', 'absent')).toBeUndefined()
+    const index = await createUniqueIndex()
+    expect(await client.get(index, 'absent')).toBeUndefined()
     const failure = await client.get('nothing', 'absent').catch((err: unknown) => err)
     expect(failure).toBeInstanceOf(NarsilError)
     expect((failure as NarsilError).code).toBe('INDEX_NOT_FOUND')
   })
 
   it('says whether an upsert created the document or replaced one', async () => {
-    expect(await client.put('movies', 'm1', { title: 'First', year: 2001 })).toEqual({ id: 'm1', created: true })
-    expect(await client.put('movies', 'm1', { title: 'Second', year: 2002 })).toEqual({ id: 'm1', created: false })
-    expect(await client.get('movies', 'm1')).toMatchObject({ title: 'Second' })
+    const index = await createUniqueIndex()
+    expect(await client.put(index, 'm1', { title: 'First', year: 2001 })).toEqual({ id: 'm1', created: true })
+    expect(await client.put(index, 'm1', { title: 'Second', year: 2002 })).toEqual({ id: 'm1', created: false })
+    expect(await client.get(index, 'm1')).toMatchObject({ title: 'Second' })
   })
 
   it('writes a batch and reports each refusal as an error carrying its code', async () => {
-    const written = await client.insertBatch('movies', [...movies(3), { id: 'bad', title: 'Wrong', year: 'text' }])
+    const index = await createUniqueIndex()
+    const written = await client.insertBatch(index, [...movies(3), { id: 'bad', title: 'Wrong', year: 'text' }])
     expect(written.succeeded).toEqual(['m0', 'm1', 'm2'])
     expect(written.failed).toHaveLength(1)
     expect(written.failed[0].docId).toBe('bad')
@@ -105,64 +124,70 @@ describe('client against a live server', () => {
   })
 
   it('updates and removes documents in batches', async () => {
-    await client.insertBatch('movies', movies(3))
-    const updated = await client.updateBatch('movies', [{ docId: 'm0', document: { title: 'Changed', year: 2020 } }])
+    const index = await createUniqueIndex()
+    await client.insertBatch(index, movies(3))
+    const updated = await client.updateBatch(index, [{ docId: 'm0', document: { title: 'Changed', year: 2020 } }])
     expect(updated.succeeded).toEqual(['m0'])
-    expect(await client.get('movies', 'm0')).toMatchObject({ title: 'Changed' })
+    expect(await client.get(index, 'm0')).toMatchObject({ title: 'Changed' })
 
-    const removed = await client.removeBatch('movies', ['m1', 'm2'])
+    const removed = await client.removeBatch(index, ['m1', 'm2'])
     expect(removed.succeeded).toEqual(['m1', 'm2'])
-    expect(await client.countDocuments('movies')).toBe(1)
+    expect(await client.countDocuments(index)).toBe(1)
   })
 
   it('reads many documents by id and leaves out the ones the index does not hold', async () => {
-    await client.insertBatch('movies', movies(3))
-    const found = await client.getMultiple('movies', ['m0', 'm2', 'absent'])
+    const index = await createUniqueIndex()
+    await client.insertBatch(index, movies(3))
+    const found = await client.getMultiple(index, ['m0', 'm2', 'absent'])
     expect([...found.keys()]).toEqual(['m0', 'm2'])
     expect(found.get('m0')).toMatchObject({ title: 'Movie 0' })
   })
 
   it('pages through stored documents with the cursor the server returns', async () => {
-    await client.insertBatch('movies', movies(5))
-    const first = await client.listDocuments('movies', { limit: 2 })
+    const index = await createUniqueIndex()
+    await client.insertBatch(index, movies(5))
+    const first = await client.listDocuments(index, { limit: 2 })
     expect(first.documents).toHaveLength(2)
     expect(first.total).toBe(5)
     expect(first.cursor).not.toBeNull()
 
-    const second = await client.listDocuments('movies', { limit: 2, cursor: first.cursor ?? undefined })
+    const second = await client.listDocuments(index, { limit: 2, cursor: first.cursor ?? undefined })
     expect(second.documents.map(entry => entry.id)).not.toEqual(first.documents.map(entry => entry.id))
   })
 
   it('searches, counts, and completes a prefix', async () => {
-    await client.insertBatch('movies', [
+    const index = await createUniqueIndex()
+    await client.insertBatch(index, [
       { id: 'a', title: 'The Matrix', year: 1999 },
       { id: 'b', title: 'Matrix Reloaded', year: 2003 },
       { id: 'c', title: 'Casablanca', year: 1942 },
     ])
 
-    const results = await client.query('movies', { term: 'matrix', fields: ['title'] })
+    const results = await client.query(index, { term: 'matrix', fields: ['title'] })
     expect(results.count).toBe(2)
     expect(results.hits.map(hit => hit.id).sort()).toEqual(['a', 'b'])
 
-    expect((await client.preflight('movies', { term: 'matrix', fields: ['title'] })).count).toBe(2)
-    expect((await client.suggest('movies', { prefix: 'matr' })).terms[0].term).toBe('matrix')
+    expect((await client.preflight(index, { term: 'matrix', fields: ['title'] })).count).toBe(2)
+    expect((await client.suggest(index, { prefix: 'matr' })).terms[0].term).toBe('matrix')
   })
 
   it('empties an index and keeps its schema', async () => {
-    await client.insertBatch('movies', movies(3))
-    await client.clear('movies')
-    expect(await client.countDocuments('movies')).toBe(0)
-    expect((await client.getStats('movies')).schema).toEqual(SCHEMA)
+    const index = await createUniqueIndex()
+    await client.insertBatch(index, movies(3))
+    await client.clear(index)
+    expect(await client.countDocuments(index)).toBe(0)
+    expect((await client.getStats(index)).schema).toEqual(SCHEMA)
   })
 
   it('round-trips a document id that holds a slash, a space, and an accent', async () => {
+    const index = await createUniqueIndex()
     const docId = 'tt/0133093 Amélie'
-    await client.put('movies', docId, { title: 'The Matrix', year: 1999 })
+    await client.put(index, docId, { title: 'The Matrix', year: 1999 })
 
-    expect(await client.has('movies', docId)).toBe(true)
-    expect(await client.get('movies', docId)).toMatchObject({ title: 'The Matrix' })
+    expect(await client.has(index, docId)).toBe(true)
+    expect(await client.get(index, docId)).toMatchObject({ title: 'The Matrix' })
 
-    await client.remove('movies', docId)
-    expect(await client.has('movies', docId)).toBe(false)
+    await client.remove(index, docId)
+    expect(await client.has(index, docId)).toBe(false)
   })
 })

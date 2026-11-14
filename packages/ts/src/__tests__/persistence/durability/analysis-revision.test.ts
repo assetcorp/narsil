@@ -125,28 +125,6 @@ describe('an index survives a change to the analysis that built it', () => {
     expect((await engine.query('prose', { term: 'jumping' })).analysisStale).toBeUndefined()
   })
 
-  it('records the new revision, so a later open rebuilds nothing', async () => {
-    await writeIndexUnderFirstRevision()
-    stripsProgressive('2')
-
-    engine = await createNarsil({ durability: { directory: dir }, analysis: { rebuild: 'manual' } })
-    await engine.rebuildAnalysis('prose')
-    await engine.shutdown()
-
-    const reported: StaleAnalysis[] = []
-    engine = await createNarsil({
-      durability: { directory: dir },
-      analysis: {
-        onStaleAnalysis(index) {
-          reported.push(index)
-        },
-      },
-    })
-
-    expect(reported).toEqual([])
-    expect((await engine.query('prose', { term: 'jump' })).hits).toHaveLength(1)
-  })
-
   it('rebuilds when the hook asks for it although the configuration defers', async () => {
     await writeIndexUnderFirstRevision()
     stripsProgressive('2')

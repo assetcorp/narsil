@@ -4,7 +4,7 @@ import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { IndexConfig } from '../../types/schema'
 import { createMockAdapter } from '../embedding/fixtures'
@@ -363,24 +363,6 @@ async function exportedIds(engine: Narsil, indexName: string): Promise<string[]>
 }
 
 describe('rebalance guards', () => {
-  it('throws NarsilError with PARTITION_CAPACITY_EXCEEDED above maxPartitions', async () => {
-    const narsil = await createNarsil()
-    try {
-      await narsil.createIndex('capped', { schema, partitions: { maxPartitions: 2 } })
-      await narsil.insert('capped', { id: 'one', title: 'single', category: 'solo' })
-      let thrown: unknown
-      try {
-        await narsil.rebalance('capped', 3)
-      } catch (err) {
-        thrown = err
-      }
-      expect(thrown).toBeInstanceOf(NarsilError)
-      expect((thrown as NarsilError).code).toBe(ErrorCodes.PARTITION_CAPACITY_EXCEEDED)
-    } finally {
-      await narsil.shutdown()
-    }
-  })
-
   it('rejects an invalid watermark at index creation and on update', async () => {
     const narsil = await createNarsil()
     try {

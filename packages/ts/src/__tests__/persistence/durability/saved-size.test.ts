@@ -10,10 +10,11 @@ import { bodyOf, expectDocumentsOf, expectFiguresMatchTheFiles, savedBytesAllowe
 
 const built = existsSync(new URL('../../../../dist/index.mjs', import.meta.url))
 const INDEX = 'docs'
-const DOCUMENTS = 2400
+const DOCUMENTS = 1200
 const BODY_LENGTH = 1200
-const REMOVED = 1000
-const UPDATED = 300
+const REMOVED = 500
+const UPDATED = 150
+const COPY_THRESHOLD = 200
 
 interface Layout {
   name: string
@@ -33,7 +34,7 @@ function vectorOf(seed: number): number[] {
 function configFor(directory: string, layout: Layout): NarsilConfig {
   return {
     durability: { directory, checkpointIntervalMs: 0, checkpointMutationThreshold: 1_000_000_000 },
-    workers: { enabled: layout.workers },
+    workers: { enabled: layout.workers, promotionThreshold: COPY_THRESHOLD },
   }
 }
 

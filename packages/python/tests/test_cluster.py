@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import Counter
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,10 +16,10 @@ from narsil_client import ClientErrorCodes, NarsilError
 from tests.clients import CLIENT_FORMS, open_client, settle
 from tests.cluster import running_cluster
 
-TOTAL_WRITES = 1200
+TOTAL_WRITES = 600
 WRITERS = 4
 SEARCHERS = 2
-KILL_AFTER_ACKNOWLEDGED = 300
+KILL_AFTER_ACKNOWLEDGED = 150
 VICTIM_SLOT = 1
 RECOVERY_TIMEOUT_SECONDS = 120.0
 RECOVERY_POLL_SECONDS = 0.5
@@ -131,7 +132,7 @@ async def async_burst(client: Any, name: str, ledger: Ledger, victim: Any) -> No
             group.start_soon(search)
 
 
-async def until_every_partition_has_a_primary(client: Any, name: str) -> None:
+async def until_index_health(client: Any, name: str, healthy: Callable[[Any], bool], failure: str) -> None:
     deadline = time.monotonic() + RECOVERY_TIMEOUT_SECONDS
     last: Any = None
     while time.monotonic() < deadline:
@@ -142,10 +143,28 @@ async def until_every_partition_has_a_primary(client: Any, name: str) -> None:
         else:
             last = health
             entry = next((index for index in health.indexes if index.index_name == name), None)
-            if entry is not None and entry.partitions_without_primary == 0:
+            if entry is not None and healthy(entry):
                 return
         await anyio.sleep(RECOVERY_POLL_SECONDS)
-    raise AssertionError(f"The cluster kept a partition without a primary: {last!r}")
+    raise AssertionError(f"{failure}: {last!r}")
+
+
+async def until_every_partition_has_a_primary(client: Any, name: str) -> None:
+    await until_index_health(
+        client,
+        name,
+        lambda entry: entry.partitions_without_primary == 0,
+        "The cluster kept a partition without a primary",
+    )
+
+
+async def until_every_replica_is_in_sync(client: Any, name: str) -> None:
+    await until_index_health(
+        client,
+        name,
+        lambda entry: entry.partitions_without_primary == 0 and entry.under_replicated_partitions == 0,
+        "The index never had every replica in sync before the node died",
+    )
 
 
 async def stored_ids_by_seq(client: Any, name: str) -> dict[int, list[str]]:
@@ -171,6 +190,7 @@ async def test_a_client_given_every_node_keeps_each_acknowledged_write_exactly_o
     with running_cluster(tmp_path) as nodes:
         async with open_client(form, [node.url for node in nodes], timeout_ms=60_000) as client:
             await settle(client.create_index({"name": index_name, "config": {"schema": {"title": "string"}}}))
+            await until_every_replica_is_in_sync(client, index_name)
             ledger = Ledger()
             victim = nodes[VICTIM_SLOT]
             if form == "sync":

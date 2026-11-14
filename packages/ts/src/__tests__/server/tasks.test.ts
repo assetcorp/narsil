@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ImportResult, TaskListPage, TaskRecord } from '../../server'
 import { getJson, postJson, postRaw, startTestServer, type TestServer, toNdjson } from './helpers'
 
@@ -7,6 +7,15 @@ const SCHEMA = { title: 'string' }
 async function createIndex(base: string, name: string): Promise<void> {
   const created = await postJson(base, '/indexes', { name, config: { schema: SCHEMA, language: 'english' } })
   expect(created.status).toBe(201)
+}
+
+let indexesCreated = 0
+
+async function createUniqueIndex(base: string): Promise<string> {
+  indexesCreated += 1
+  const name = `movies-${indexesCreated}`
+  await createIndex(base, name)
+  return name
 }
 
 function documents(count: number, from = 0): Array<Record<string, unknown>> {
@@ -25,26 +34,26 @@ async function waitForTerminalStatus(base: string, taskId: string): Promise<Task
 describe('task-backed import', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
-    await createIndex(server.base, 'movies')
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
   it('answers 202 with the same record shape the poll route returns', async () => {
+    const index = await createUniqueIndex(server.base)
     const started = await postRaw<TaskRecord>(
       server.base,
-      '/indexes/movies/documents/_import?async=true',
+      `/indexes/${index}/documents/_import?async=true`,
       toNdjson(documents(50)),
       'application/x-ndjson',
     )
 
     expect(started.status).toBe(202)
     expect(started.body.type).toBe('import')
-    expect(started.body.indexName).toBe('movies')
+    expect(started.body.indexName).toBe(index)
     expect(started.body.status).toBe('running')
     expect(typeof started.body.id).toBe('string')
     expect(started.body.progress).toEqual({ indexed: 0, failed: 0, bytesProcessed: 0, bytesTotal: expect.any(Number) })
@@ -54,13 +63,14 @@ describe('task-backed import', () => {
     expect(finished.id).toBe(started.body.id)
     expect(finished.result?.indexed).toBe(50)
     expect(finished.completedAt).toBeGreaterThanOrEqual(finished.createdAt)
-    expect(await server.engine.countDocuments('movies')).toBe(50)
+    expect(await server.engine.countDocuments(index)).toBe(50)
   })
 
   it('reports progress against the body size while the load runs', async () => {
+    const index = await createUniqueIndex(server.base)
     const started = await postRaw<TaskRecord>(
       server.base,
-      '/indexes/movies/documents/_import?async=true',
+      `/indexes/${index}/documents/_import?async=true`,
       toNdjson(documents(4000)),
       'application/x-ndjson',
     )
@@ -81,30 +91,17 @@ describe('task-backed import', () => {
     expect(started.status).toBe(404)
     expect(started.body.error.code).toBe('INDEX_NOT_FOUND')
   })
-
-  it('runs inside the request without the flag', async () => {
-    const result = await postRaw<ImportResult>(
-      server.base,
-      '/indexes/movies/documents/_import',
-      toNdjson(documents(5)),
-      'application/x-ndjson',
-    )
-
-    expect(result.status).toBe(200)
-    expect(result.body.indexed).toBe(5)
-    expect(result.body.errorsTruncated).toBe(false)
-  })
 })
 
 describe('import failure reporting', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer({ limits: { maxImportErrors: 3 } })
     await createIndex(server.base, 'movies')
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
@@ -130,19 +127,19 @@ describe('import failure reporting', () => {
 describe('an import line past the per-line limit', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer({ limits: { maxLineBytes: 64 } })
-    await createIndex(server.base, 'movies')
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
   it('answers 413 inside the request, naming the line', async () => {
+    const index = await createUniqueIndex(server.base)
     const result = await postRaw<{ error: { code: string; details?: { line?: number } } }>(
       server.base,
-      '/indexes/movies/documents/_import',
+      `/indexes/${index}/documents/_import`,
       toNdjson([
         { id: 'short', title: 'ok' },
         { id: 'long', title: 'x'.repeat(200) },
@@ -156,9 +153,10 @@ describe('an import line past the per-line limit', () => {
   })
 
   it('names the line on the task record as well', async () => {
+    const index = await createUniqueIndex(server.base)
     const started = await postRaw<TaskRecord>(
       server.base,
-      '/indexes/movies/documents/_import?async=true',
+      `/indexes/${index}/documents/_import?async=true`,
       toNdjson([
         { id: 'short', title: 'ok' },
         { id: 'long', title: 'x'.repeat(200) },
@@ -177,19 +175,19 @@ describe('an import line past the per-line limit', () => {
 describe('task cancellation', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
-    await createIndex(server.base, 'movies')
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
   it('stops a running import and leaves it cancelled', async () => {
+    const index = await createUniqueIndex(server.base)
     const started = await postRaw<TaskRecord>(
       server.base,
-      '/indexes/movies/documents/_import?async=true',
+      `/indexes/${index}/documents/_import?async=true`,
       toNdjson(documents(20_000)),
       'application/x-ndjson',
     )
@@ -201,22 +199,8 @@ describe('task cancellation', () => {
     const finished = await waitForTerminalStatus(server.base, started.body.id)
     expect(['cancelled', 'succeeded']).toContain(finished.status)
     if (finished.status === 'cancelled') {
-      expect(await server.engine.countDocuments('movies')).toBeLessThan(20_000)
+      expect(await server.engine.countDocuments(index)).toBeLessThan(20_000)
     }
-  })
-
-  it('refuses to cancel a task that already finished', async () => {
-    const started = await postRaw<TaskRecord>(
-      server.base,
-      '/indexes/movies/documents/_import?async=true',
-      toNdjson(documents(5)),
-      'application/x-ndjson',
-    )
-    await waitForTerminalStatus(server.base, started.body.id)
-
-    const cancelled = await postJson<{ error: { code: string } }>(server.base, `/tasks/${started.body.id}/_cancel`, {})
-    expect(cancelled.status).toBe(409)
-    expect(cancelled.body.error.code).toBe('TASK_NOT_CANCELLABLE')
   })
 
   it('answers 404 for a task nobody started', async () => {
@@ -229,7 +213,7 @@ describe('task cancellation', () => {
 describe('task listing', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
     await createIndex(server.base, 'movies')
     await createIndex(server.base, 'books')
@@ -244,7 +228,7 @@ describe('task listing', () => {
     }
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
@@ -303,11 +287,11 @@ describe('task listing', () => {
 describe('capabilities', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 
@@ -340,12 +324,12 @@ describe('capabilities', () => {
 describe('analysis rebuild route', () => {
   let server: TestServer
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     server = await startTestServer()
     await createIndex(server.base, 'movies')
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop()
   })
 

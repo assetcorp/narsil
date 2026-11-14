@@ -23,6 +23,7 @@ const WATCHES_OPENING_AT_SHUTDOWN = 16
 const WATCH_OPENING_STAGGER_MS = 2
 const QUIET_AFTER_SHUTDOWN_MS = 1_500
 const RECOVERY_BUDGET_MS = 30_000
+const CHURN_POLL_INTERVAL_MS = 20
 const UNREADABLE_REGISTRATION_WRITES = 3
 
 interface EscapeRecorder {
@@ -118,6 +119,7 @@ describe('an etcd coordinator whose watches open, stop, reconnect, and shut down
           async () => expect(open.filter(joined => !joined.has(nodeId)).length).toBe(0),
           RECOVERY_BUDGET_MS,
           `a watch that opened in round ${round} never reported the node that joined after it`,
+          CHURN_POLL_INTERVAL_MS,
         )
       }
       for (const stop of held) stop()

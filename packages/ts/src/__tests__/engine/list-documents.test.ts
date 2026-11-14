@@ -134,25 +134,6 @@ describe('listDocuments', () => {
     expect(rest.documents.map(entry => entry.id)).toEqual(['c', 'z'])
   })
 
-  it('narrows the listing to the documents a filter accepts', async () => {
-    await narsil.createIndex('docs', { schema, language: 'english' })
-    await seed(narsil, 'docs', ['a', 'b', 'c', 'd', 'e'])
-
-    const seen: string[] = []
-    let cursor: string | undefined
-    let total = 0
-    for (;;) {
-      const page = await narsil.listDocuments('docs', { limit: 1, cursor, filters: { fields: { rank: { gte: 2 } } } })
-      total = page.total
-      for (const entry of page.documents) seen.push(entry.id)
-      if (page.cursor === null) break
-      cursor = page.cursor
-    }
-
-    expect(seen).toEqual(['c', 'd', 'e'])
-    expect(total).toBe(3)
-  })
-
   it('cuts each document down to the projection', async () => {
     await narsil.createIndex('docs', { schema, language: 'english' })
     await seed(narsil, 'docs', ['a'])

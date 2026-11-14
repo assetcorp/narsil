@@ -8,6 +8,8 @@ const WORKERS_BUILT = existsSync(new URL('../../../../dist/workers/entry.mjs', i
 const INDEX = 'shore'
 const OTHER_INDEX = 'harbor'
 const DOCUMENTS = 6_000
+const COPY_THRESHOLD = 100
+const OTHER_INDEX_DOCUMENTS = 150
 const HITS_PAGE = 10_000
 const WORDS = ['sea', 'wall', 'river', 'harbor', 'cliff']
 const REMOVED_WORD = 'river'
@@ -46,7 +48,12 @@ describe('worker copies during an analysis change', () => {
 
   async function loaded(titles: Map<string, string>, mainCopyQueries: 'none' | undefined): Promise<Narsil> {
     const running = await createNarsil({
-      workers: { enabled: true, count: 2, promotionThreshold: 100, ...(mainCopyQueries ? { mainCopyQueries } : {}) },
+      workers: {
+        enabled: true,
+        count: 2,
+        promotionThreshold: COPY_THRESHOLD,
+        ...(mainCopyQueries ? { mainCopyQueries } : {}),
+      },
     })
     engine = running
     await running.createIndex(INDEX, { schema: { title: 'string' }, language: 'english' })
@@ -118,7 +125,7 @@ describe('worker copies during an analysis change', () => {
       }
 
       await running.createIndex(OTHER_INDEX, { schema: { title: 'string' }, language: 'english' })
-      const otherBatch = [...titles].map(([id, title]) => ({ id, title }))
+      const otherBatch = [...titles].slice(0, OTHER_INDEX_DOCUMENTS).map(([id, title]) => ({ id, title }))
       expect((await running.insertBatch(OTHER_INDEX, otherBatch)).failed).toEqual([])
       await waitFor(() => scaledOut(running, OTHER_INDEX), 30_000)
     },

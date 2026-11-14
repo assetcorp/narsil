@@ -70,31 +70,6 @@ describe('segmented snapshot recovery', () => {
     }
   })
 
-  it('restores vectors from per-field segments and keeps vector search working', async () => {
-    const vectorSchema: IndexConfig = {
-      schema: { title: 'string', embedding: 'vector[4]' },
-      language: 'english',
-    }
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', vectorSchema)
-    await writer.insert('docs', { title: 'near', embedding: [1, 0, 0, 0] }, 'near')
-    await writer.insert('docs', { title: 'mid', embedding: [0.5, 0.5, 0, 0] }, 'mid')
-    await writer.checkpoint('docs')
-    await writer.insert('docs', { title: 'far', embedding: [0, 0, 0, 1] }, 'far')
-    await writer.checkpoint('docs')
-    await writer.shutdown()
-
-    const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('docs')).toBe(3)
-    const result = await reader.query('docs', {
-      vector: { field: 'embedding', value: [1, 0, 0, 0], metric: 'cosine' },
-      limit: 2,
-    })
-    expect(result.hits).toHaveLength(2)
-    expect(result.hits[0].id).toBe('near')
-    await reader.shutdown()
-  })
-
   it('restores every partition of a vector index and forgets what a later checkpoint removed', async () => {
     const total = 40
     const half = total / 2

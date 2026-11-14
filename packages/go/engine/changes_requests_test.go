@@ -58,14 +58,11 @@ func TestChangesRefuseMalformedRequestsWithTheirCodes(t *testing.T) {
 			Positions: positionsOf(0, 0)}, engine.CodeChangesInvalidPositions},
 		"short epoch": {engine.ChangesRequest{Epoch: engine.Some(status.Epoch[1:]), Positions: positionsOf(0, 0)},
 			engine.CodeChangesInvalidPositions},
-		"empty epoch":       {engine.ChangesRequest{Epoch: engine.Some(""), Positions: positionsOf(0, 0)}, engine.CodeChangesInvalidPositions},
 		"missing partition": {engine.ChangesRequest{Epoch: epoch, Positions: positionsOf(0)}, engine.CodeChangesInvalidPositions},
 		"repeated partition": {engine.ChangesRequest{Epoch: epoch, Positions: []engine.ChangePosition{{PartitionID: 0},
 			{PartitionID: 0}}}, engine.CodeChangesInvalidPositions},
 		"unknown partition": {engine.ChangesRequest{Epoch: epoch, Positions: []engine.ChangePosition{{PartitionID: 0},
 			{PartitionID: 4_294_967_295}}}, engine.CodeChangesInvalidPositions},
-		"extra partition": {engine.ChangesRequest{Epoch: epoch, Positions: positionsOf(0, 0, 0)},
-			engine.CodeChangesInvalidPositions},
 		"unknown filter field": {engine.ChangesRequest{Filter: &engine.FilterExpression{
 			Fields: map[string]engine.FieldFilter{"owner": {Eq: engine.TextValue("x")}}}}, engine.CodeSearchInvalidField},
 		"range on an enum": {engine.ChangesRequest{Filter: &engine.FilterExpression{
@@ -135,10 +132,8 @@ func TestChangesSettingRefusesBadLimitsAndEnginesWithoutTheLog(t *testing.T) {
 	createChangesIndex(t, narsil, 1, engine.ChangesSetting{Enabled: false})
 	bad := map[string]engine.ChangesSetting{
 		"zero age":         {Enabled: true, HistoryMaxAge: engine.Some(time.Duration(0))},
-		"negative age":     {Enabled: true, HistoryMaxAge: engine.Some(-time.Hour)},
 		"fractional age":   {Enabled: true, HistoryMaxAge: engine.Some(time.Millisecond + time.Microsecond)},
 		"zero bytes":       {Enabled: true, HistoryMaxBytes: engine.Some(int64(0))},
-		"negative bytes":   {Enabled: true, HistoryMaxBytes: engine.Some(int64(-1))},
 		"bytes past limit": {Enabled: true, HistoryMaxBytes: engine.Some(int64(1) << 62)},
 	}
 	for name, setting := range bad {

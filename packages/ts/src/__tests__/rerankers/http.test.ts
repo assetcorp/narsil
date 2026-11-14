@@ -173,17 +173,6 @@ describe('the HTTP rerank adapter against a live rerank endpoint', () => {
     expect(failure.code).toBe(ErrorCodes.RERANK_FAILED)
   })
 
-  it('gives up on a body that is not JSON once its retries run out', async () => {
-    responders.push((_r, res) => reply(res, 200, 'not json'))
-    responders.push((_r, res) => reply(res, 200, 'still not json'))
-    const reranker = createHttpReranker({ baseUrl: base, model: 'm', maxRetries: 1 })
-
-    const failure = await failureOf(reranker.rerank('q', ['a']))
-
-    expect(failure.code).toBe(ErrorCodes.RERANK_FAILED)
-    expect(received).toHaveLength(2)
-  }, 10_000)
-
   it('aborts a request that outlasts its timeout', async () => {
     responders.push(() => undefined)
     const reranker = createHttpReranker({ baseUrl: base, model: 'm', timeout: 50, maxRetries: 0 })

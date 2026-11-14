@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use narsil::{
     DurabilityConfig, DurabilityMode, IndexConfig, Map, Narsil, NarsilConfig, QueryParams,
-    SearchMode, Value, VectorQuery,
+    SearchMode, Value, VectorPromotion, VectorQuery,
 };
 use support::ScratchDirectory;
 
@@ -18,6 +18,7 @@ const INDEX: &str = "events";
 const WORDS: [&str; 6] = ["alpha", "bravo", "cedar", "delta", "ember", "fjord"];
 const ROUNDS: u64 = 12;
 const DIMENSION: usize = 4;
+const GRAPH_THRESHOLD: u64 = 64;
 
 #[derive(Clone, Copy)]
 enum Plan {
@@ -109,6 +110,10 @@ fn index_config() -> IndexConfig {
     schema.insert("embedding", Value::String(format!("vector[{DIMENSION}]")));
     IndexConfig {
         schema: Value::Object(schema),
+        vector_promotion: Some(VectorPromotion {
+            threshold: Some(GRAPH_THRESHOLD),
+            ..VectorPromotion::default()
+        }),
         ..IndexConfig::default()
     }
 }
@@ -284,7 +289,7 @@ fn crash_rounds(plan: Plan) {
     let mut model = BTreeMap::new();
     let mut next = 0;
     for round in 0..ROUNDS {
-        let wanted = 30 + round * 41;
+        let wanted = 30 + round;
         let Some(last) = killed_after(root.path(), plan, next, wanted) else {
             panic!("round {round} of {} acknowledged no write", plan.name());
         };

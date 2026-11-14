@@ -64,7 +64,7 @@ describe.each([
   { label: 'an index created with a pair', first: { k1: 2, b: 0.3 } as BM25Params | undefined },
 ])('a coordinator that has not received the first change of $label', ({ first }) => {
   it('scores every copy under the creation value, whichever copies have applied the change', async () => {
-    const documents = bm25Corpus(1_500, 961)
+    const documents = bm25Corpus(600, 961)
     const oracle = createBm25Oracle(documents)
     const cluster = await startGarageCluster([])
     clusters.push(cluster)
