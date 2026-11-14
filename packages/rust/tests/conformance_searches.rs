@@ -4,7 +4,7 @@ use std::io::Read;
 use std::process::Command;
 
 use flate2::read::GzDecoder;
-use narsil::{IndexConfig, Map, Narsil, QueryParams, Value, parse_json};
+use narsil::{GroupConfig, IndexConfig, Map, Narsil, QueryParams, Value, parse_json};
 use support::{conformance_root, repository_root};
 
 const INDEX_NAME: &str = "bills";
@@ -200,6 +200,86 @@ fn differences(
 
 fn within_suite_tolerance(found: f64, wanted: f64) -> bool {
     (found - wanted).abs() <= SCORE_RELATIVE_TOLERANCE * wanted.abs().max(1.0)
+}
+
+fn whole_number(value: &Value, path: &str) -> usize {
+    value
+        .pointer(path)
+        .and_then(Value::as_f64)
+        .unwrap_or_else(|| panic!("the JSON holds a number at {path}")) as usize
+}
+
+fn committed_group_config(searches: &Value) -> GroupConfig {
+    GroupConfig {
+        fields: listed(searches, "grouped.group.fields")
+            .iter()
+            .map(|field| field.as_str().expect("each field is a string").to_string())
+            .collect(),
+        max_per_group: Some(whole_number(searches, "grouped.group.maxPerGroup")),
+        limit: Some(whole_number(searches, "grouped.group.limit")),
+        reduce: None,
+    }
+}
+
+fn group_differences(engine: &Narsil, searches: &Value) -> Vec<String> {
+    let limit = whole_number(searches, "text.limit");
+    let config = committed_group_config(searches);
+    let mut problems = Vec::new();
+    for query in listed(searches, "grouped.queries") {
+        let id = text_of(query, "id");
+        let params = QueryParams {
+            term: Some(text_of(query, "text").to_string()),
+            limit: Some(limit),
+            group: Some(config.clone()),
+            ..QueryParams::default()
+        };
+        let result = engine
+            .query(INDEX_NAME, &params)
+            .expect("the grouped query runs");
+        let found: Vec<(Map, Vec<String>)> = result
+            .groups
+            .unwrap_or_default()
+            .into_iter()
+            .map(|group| {
+                let mut values = Map::new();
+                for (field, value) in group.values {
+                    values.insert(field, value.unwrap_or(Value::Null));
+                }
+                (values, group.hits.into_iter().map(|hit| hit.id).collect())
+            })
+            .collect();
+        let wanted: Vec<(Map, Vec<String>)> = listed(query, "groups")
+            .iter()
+            .map(|group| {
+                let values = group
+                    .pointer("values")
+                    .and_then(Value::as_object)
+                    .expect("each group holds its values")
+                    .clone();
+                let ids = listed(group, "ids")
+                    .iter()
+                    .map(|hit| hit.as_str().expect("each ID is a string").to_string())
+                    .collect();
+                (values, ids)
+            })
+            .collect();
+        if found != wanted {
+            problems.push(format!("{id}: found {found:?}, wanted {wanted:?}"));
+        }
+    }
+    problems
+}
+
+#[test]
+fn every_grouped_query_reports_each_grouping_field_as_the_reference_does() {
+    let searches = committed_searches();
+    let engine = filled_engine(&searches);
+    let problems = group_differences(&engine, &searches);
+    assert!(
+        problems.is_empty(),
+        "against the committed groups:\n{}",
+        problems.join("\n")
+    );
 }
 
 #[test]

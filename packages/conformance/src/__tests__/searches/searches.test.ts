@@ -6,13 +6,17 @@ import { readPin } from '../../dataset/pin'
 import { type CosineScan, cosineScan, recallAgainst } from '../../independent/neighbours'
 import {
   EXACT_NEIGHBOURS,
+  FIELD_THAT_NO_DOCUMENT_HOLDS,
+  GROUP_FIELDS,
+  GROUP_LIMIT,
+  GROUP_MAX_PER_GROUP,
   RECALL_FLOORS,
   SCORE_RELATIVE_TOLERANCE,
   SIMILARITY_TOLERANCE,
   TEXT_RESULT_LIMIT,
 } from '../../searches/constants'
 import { type ExpectedSearches, readExpectedSearches } from '../../searches/expected'
-import { openReferenceIndex, textHits, vectorHitIds } from '../../searches/reference-index'
+import { groupedHits, openReferenceIndex, textHits, vectorHitIds } from '../../searches/reference-index'
 
 const SETUP_TIMEOUT_MS = 900_000
 
@@ -86,6 +90,25 @@ describe('the reference over the pinned dataset', () => {
       hits.forEach((hit, rank) => {
         expect(closeTo(hit.score, query.hits[rank].score), `query ${query.id} at rank ${rank + 1}`).toBe(true)
       })
+    }
+  })
+
+  it('returns the committed groups, with null for the grouping field that no document holds', async () => {
+    const titleOf = new Map(dataset.documents.map(document => [document.id, document.title]))
+    expect(expected.grouped.queries.map(query => [query.id, query.text])).toEqual(
+      dataset.queries.textQueries.map(query => [query.id, query.text]),
+    )
+    for (const query of expected.grouped.queries) {
+      expect(query.groups.length, `query ${query.id}`).toBeGreaterThan(0)
+      expect(query.groups.length, `query ${query.id}`).toBeLessThanOrEqual(GROUP_LIMIT)
+      for (const group of query.groups) {
+        expect(Object.keys(group.values).sort(), `query ${query.id}`).toEqual([...GROUP_FIELDS].sort())
+        expect(group.values[FIELD_THAT_NO_DOCUMENT_HOLDS], `query ${query.id}`).toBeNull()
+        expect(group.ids.length, `query ${query.id}`).toBeGreaterThan(0)
+        expect(group.ids.length, `query ${query.id}`).toBeLessThanOrEqual(GROUP_MAX_PER_GROUP)
+        for (const id of group.ids) expect(titleOf.get(id), `query ${query.id} hit ${id}`).toBe(group.values.title)
+      }
+      expect(await groupedHits(referenceIndex(), query.text), `query ${query.id}`).toEqual(query.groups)
     }
   })
 

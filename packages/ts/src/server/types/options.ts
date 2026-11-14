@@ -227,10 +227,12 @@ export interface ServerOptions {
   /** Authentication or admission gate run before every routed request. */
   onRequest?: OnRequestHook
   /**
-   * Build identity reported verbatim at `/version`: the package version and the
-   * git commit the server was built from, with a dirty-tree flag. Supply it from
-   * the build (a stamped env var or build arg); omit it and `/version` reports
-   * nulls. The values are descriptive only and never gate a request.
+   * The build identity that `/version` reports, which is a version, the git commit
+   * that the server was built from, and a flag for a dirty working tree. A field that
+   * you leave out takes its default: `version` takes the version of the installed
+   * `@delali/narsil` package, `gitSha` takes null, and `dirty` takes false. Set
+   * `version` when your deployment carries a version of its own. The server reports
+   * these values and never checks a request against them.
    */
   build?: { version?: string; gitSha?: string; dirty?: boolean }
   /**

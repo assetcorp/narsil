@@ -2,7 +2,17 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { createNarsil } from '../../../ts/src/narsil'
 import type { Narsil } from '../../../ts/src/types/engine'
 import type { ConformanceDataset } from '../dataset/load'
-import { INDEX_LANGUAGE, INDEX_NAME, INDEX_SCHEMA, INSERT_BATCH_DOCUMENTS, VECTOR_FIELD } from './constants'
+import {
+  GROUP_FIELDS,
+  GROUP_LIMIT,
+  GROUP_MAX_PER_GROUP,
+  INDEX_LANGUAGE,
+  INDEX_NAME,
+  INDEX_SCHEMA,
+  INSERT_BATCH_DOCUMENTS,
+  TEXT_RESULT_LIMIT,
+  VECTOR_FIELD,
+} from './constants'
 
 const GRAPH_SETTLE_DEADLINE_MS = 600_000
 const GRAPH_SETTLE_POLL_MS = 50
@@ -53,6 +63,21 @@ export async function textHits(narsil: Narsil, text: string, limit: number): Pro
     if (hit.score === undefined) throw new Error(`the reference returned no score for ${hit.id}`)
     return { id: hit.id, score: hit.score }
   })
+}
+
+export interface ReferenceGroup {
+  values: Record<string, unknown>
+  ids: string[]
+}
+
+export async function groupedHits(narsil: Narsil, text: string): Promise<ReferenceGroup[]> {
+  const result = await narsil.query(INDEX_NAME, {
+    term: text,
+    limit: TEXT_RESULT_LIMIT,
+    group: { fields: [...GROUP_FIELDS], limit: GROUP_LIMIT, maxPerGroup: GROUP_MAX_PER_GROUP },
+  })
+  if (result.groups === undefined) throw new Error('the reference returned no groups for a grouped query')
+  return result.groups.map(group => ({ values: { ...group.values }, ids: group.hits.map(hit => hit.id) }))
 }
 
 export async function vectorHitIds(narsil: Narsil, vector: readonly number[], limit: number): Promise<string[]> {

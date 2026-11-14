@@ -14,10 +14,11 @@ export function versionReport(build: ResolvedBuild): VersionResponse {
 }
 
 /**
- * Reports the build identity of the running server: its package version and the
- * git commit it was built from, with a flag for a dirty working tree. The values
- * are whatever the build stamped into the server; an unstamped build reports nulls
- * rather than guessing. The report also names the path through which the answering
+ * Reports the build identity of the running server, which is its version, the git
+ * commit that it was built from, and a flag for a dirty working tree. The version is
+ * the `build.version` that the caller passed, or else the version of the installed
+ * `@delali/narsil` package, and the commit is null unless the caller passed one. The
+ * report also names the path through which the answering
  * thread searches vector graphs. That path is the native search core where the
  * thread holds one, and WebAssembly elsewhere. A benchmark or operator reads this
  * to tie a result to the exact code under test. It needs no API key, which is what

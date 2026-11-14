@@ -1,5 +1,9 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { createNarsil } from '../../narsil'
+import type { createServer } from '../../server'
 import type { QueryCoverage } from '../../types/results'
 import { vectorSearchPath } from '../../vector/native/search-path'
 import {
@@ -15,6 +19,10 @@ import {
   toNdjson,
   waitFor,
 } from './helpers'
+
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const INSTALLED_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string })
+  .version
 
 const SCHEMA = { title: 'string', overview: 'string', embedding: 'vector[4]' }
 
@@ -50,16 +58,35 @@ describe('Narsil HTTP server', () => {
     expect(ready.body.status).toBe('ready')
   })
 
-  it('reports build identity at /version, defaulting to nulls when unstamped', async () => {
+  it('reports the installed package version at /version when the caller passes no build', async () => {
     const res = await getJson<{ name: string; version: string | null; gitSha: string | null; dirty: boolean }>(
       srv.base,
       '/version',
     )
     expect(res.status).toBe(200)
-    expect(res.body.name).toBe('narsil')
-    expect(res.body.version).toBeNull()
-    expect(res.body.gitSha).toBeNull()
-    expect(res.body.dirty).toBe(false)
+    expect(res.body).toMatchObject({ name: 'narsil', version: INSTALLED_VERSION, gitSha: null, dirty: false })
+  })
+
+  it('reports the installed package version at /version from the built server bundle', async () => {
+    const builtServer = (await import(pathToFileURL(join(PACKAGE_ROOT, 'dist', 'server.mjs')).href)) as {
+      createServer: typeof createServer
+    }
+    const builtEngine = (await import(pathToFileURL(join(PACKAGE_ROOT, 'dist', 'index.mjs')).href)) as {
+      createNarsil: typeof createNarsil
+    }
+    const engine = await builtEngine.createNarsil({ workers: { enabled: false } })
+    const built = builtServer.createServer(engine, { host: '127.0.0.1', port: 0, build: { gitSha: 'f00dfeed' } })
+    await built.listen()
+    try {
+      const res = await getJson<{ version: string | null; gitSha: string | null }>(
+        `http://127.0.0.1:${built.listeningPort}`,
+        '/version',
+      )
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ version: INSTALLED_VERSION, gitSha: 'f00dfeed' })
+    } finally {
+      await built.shutdown()
+    }
   })
 
   it('reports at /version the path through which this process searches vector graphs', async () => {

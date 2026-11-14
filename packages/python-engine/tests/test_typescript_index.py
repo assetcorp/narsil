@@ -83,6 +83,24 @@ def text_differences(engine: Narsil, searches: dict[str, Any], reference: list[d
     return problems
 
 
+def group_differences(engine: Narsil, searches: dict[str, Any]) -> list[str]:
+    grouped = searches["grouped"]
+    problems: list[str] = []
+    for query in grouped["queries"]:
+        found = engine.query(
+            INDEX_NAME,
+            {"term": query["text"], "limit": searches["text"]["limit"], "group": grouped["group"]},
+        )
+        answered = found["groups"]
+        if answered is None:
+            problems.append(f"{query['id']}: the engine returned no groups")
+            continue
+        groups = [{"values": group["values"], "ids": [hit["id"] for hit in group["hits"]]} for group in answered]
+        if groups != query["groups"]:
+            problems.append(f"{query['id']}: found {groups}, the committed answer is {query['groups']}")
+    return problems
+
+
 def recall(found: list[str], wanted: list[str]) -> float:
     return len(set(found) & set(wanted)) / len(wanted)
 
@@ -120,6 +138,9 @@ def test_an_index_that_typescript_saved_answers_the_conformance_queries_as_types
         assert engine.count_documents(INDEX_NAME) == DATASET_DOCUMENTS
 
         problems = text_differences(engine, searches, reference["text"])
+        assert problems == [], "\n".join(problems)
+
+        problems = group_differences(engine, searches)
         assert problems == [], "\n".join(problems)
 
         recalls = vector_recalls(engine, searches)
