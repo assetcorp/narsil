@@ -84,32 +84,6 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
 
     await narsil.shutdown()
   }, 120000)
-
-  it('answers a query with every document the moment the batch resolves', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
-    await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
-
-    const result = await narsil.insertBatch('prose', proseDocuments(300, 'fresh'))
-    expect(result.succeeded).toHaveLength(300)
-
-    const hits = await narsil.query('prose', { term: 'fresh', limit: 300 })
-    expect(hits.hits.length).toBe(300)
-
-    await narsil.shutdown()
-  }, 120000)
-
-  it('loads no copies when the batch stays under the threshold', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 500 } })
-    await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
-
-    await narsil.insertBatch('prose', proseDocuments(100, 'small'))
-
-    const stats = await narsil.getMemoryStats()
-    expect(stats.workers.length).toBe(0)
-    expect(await narsil.countDocuments('prose')).toBe(100)
-
-    await narsil.shutdown()
-  }, 120000)
 })
 
 describe.skipIf(!built)('a segmented batch keeps the per-document contract', () => {

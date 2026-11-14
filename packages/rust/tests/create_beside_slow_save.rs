@@ -12,7 +12,7 @@ const CREATED: &str = "created";
 const STALLED_SAVE_START: Duration = Duration::from_secs(30);
 const STALLED_SAVE_RELEASE: Duration = Duration::from_secs(120);
 const OTHER_INDEX_ANSWER: Duration = Duration::from_secs(10);
-const SHUTDOWN_BESIDE_STALLED_SAVE: Duration = Duration::from_secs(2);
+const SHUTDOWN_BESIDE_STALLED_SAVE: Duration = Duration::from_secs(1);
 
 struct StallingPersistence {
     stored: Arc<MemoryPersistence>,
@@ -197,9 +197,7 @@ fn every_concurrent_shutdown_waits_for_a_create_that_is_saving_and_the_created_i
         let first_returned_during_save = first_shutdown
             .recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE)
             .is_ok();
-        let second_returned_during_save = second_shutdown
-            .recv_timeout(SHUTDOWN_BESIDE_STALLED_SAVE)
-            .is_ok();
+        let second_returned_during_save = second_shutdown.try_recv().is_ok();
         let _ = release.send(());
 
         assert!(

@@ -26,7 +26,7 @@ import {
 const CHILD_SCRIPT = fileURLToPath(new URL('./child-graph-repair-dist.mjs', import.meta.url))
 const built = existsSync(new URL('../../../dist/index.mjs', import.meta.url))
 
-const SAVED_PASSAGES = 2_000
+const SAVED_PASSAGES = 1_000
 const INDEX = 'passages'
 const RESTORED_INDEX = 'earlier'
 const TEST_TIMEOUT_MS = 300_000

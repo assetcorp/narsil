@@ -6,6 +6,7 @@ import { EARTH_RADIUS_METRES, haversineMetres, type Point, travel, vincentyMetre
 const BISECTION_STEPS = 80
 const TEST_TIMEOUT_MS = 300_000
 const HALF_CIRCUMFERENCE_METRES = Math.PI * EARTH_RADIUS_METRES
+const SPHERE_DECIDES_BEYOND_RADIUS_SHARE = 0.01
 
 const CENTRES = [
   { lat: 0, lon: 0 },
@@ -57,6 +58,16 @@ function vincentyEdgeAngle(centre: Point, bearing: number, radius: number): numb
   return near
 }
 
+function withinVincenty(centre: Point, point: Point, radius: number): boolean {
+  const sphere = haversineMetres(centre, point)
+  if (Math.abs(sphere - radius) > radius * SPHERE_DECIDES_BEYOND_RADIUS_SHARE) return sphere <= radius
+  return vincentyMetres(centre, point) <= radius
+}
+
+function withinHaversine(centre: Point, point: Point, radius: number): boolean {
+  return haversineMetres(centre, point) <= radius
+}
+
 function edgePoints(): Point[] {
   const points: Point[] = []
   for (const centre of CENTRES) {
@@ -96,14 +107,14 @@ describe('a radius filter decides points at the edge of its circle', () => {
 
   for (const highPrecision of [false, true]) {
     const formula = highPrecision ? 'Vincenty' : 'Haversine'
-    const distance = highPrecision ? vincentyMetres : haversineMetres
+    const within = highPrecision ? withinVincenty : withinHaversine
     it(
       `matches exactly the points within the radius under ${formula}`,
       async () => {
         for (const centre of CENTRES) {
           for (const radius of RADII_METRES) {
             const found = await matchedIds(narsil, centre, radius, highPrecision)
-            const wrong = wronglyDecided(points, found, point => distance(centre, point) <= radius)
+            const wrong = wronglyDecided(points, found, point => within(centre, point, radius))
             expect(wrong, `${formula} ${JSON.stringify(centre)} ${radius} m`).toEqual([])
           }
         }

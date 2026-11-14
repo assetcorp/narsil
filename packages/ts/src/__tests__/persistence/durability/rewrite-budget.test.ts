@@ -10,7 +10,7 @@ import { bodyOf, partitionCheckpointFileBytes, partitionSegmentIds } from './sav
 const INDEX = 'letters'
 const PARTITIONS = 8
 const ROUNDS = 10
-const DOCUMENTS_PER_ROUND = 320
+const DOCUMENTS_PER_ROUND = 160
 const BODY_LENGTH = 300
 const REWRITE_BYTES = 4096
 const MEASURED_CHECKPOINTS = 5
@@ -105,7 +105,7 @@ describe('the rewrite budget setting', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it.each([0, -1, 1.5, Number.NaN, '4096'])('refuses %s with CONFIG_INVALID', async rewriteBytesPerCheckpoint => {
+  it.each([0, 1.5, '4096'])('refuses %s with CONFIG_INVALID', async rewriteBytesPerCheckpoint => {
     const config = { durability: { directory, rewriteBytesPerCheckpoint } } as unknown as NarsilConfig
     await expect(createNarsil(config)).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
   })

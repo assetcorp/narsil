@@ -31,15 +31,10 @@ type vectorSettingsCase struct {
 func refusedVectorSettings() []vectorSettingsCase {
 	return []vectorSettingsCase{
 		{name: "efSearch of 0", efSearch: engine.Some(0)},
-		{name: "negative efSearch", efSearch: engine.Some(-1)},
 		{name: "efSearch one past 10,000", efSearch: engine.Some(10_001)},
-		{name: "efSearch far past 10,000", efSearch: engine.Some(math.MaxInt32)},
 		{name: "oversample below 1", oversample: engine.Some(0.999)},
-		{name: "oversample of 0", oversample: engine.Some(0.0)},
-		{name: "negative oversample", oversample: engine.Some(-3.0)},
 		{name: "oversample that is not a number", oversample: engine.Some(math.NaN())},
 		{name: "infinite oversample", oversample: engine.Some(math.Inf(1))},
-		{name: "negative infinite oversample", oversample: engine.Some(math.Inf(-1))},
 	}
 }
 

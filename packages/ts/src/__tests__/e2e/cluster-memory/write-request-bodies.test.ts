@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { connect, type Socket } from 'node:net'
 import { totalmem } from 'node:os'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerLimits } from '../../../server/types'
 import {
@@ -24,7 +23,9 @@ const SLOW_BODY_BYTES = 8 * MEBIBYTE
 const SLOW_BODIES_ALLOWED = 4.5
 const SLOW_CONNECTIONS = 10
 const SLOW_FIRST_CHUNK_BYTES = 64 * 1024
-const SLOW_REFUSAL_WAIT_MS = 3_000
+const SLOW_REFUSAL_TIMEOUT_MS = 10_000
+const SLOW_REFUSAL_POLL_MS = 25
+const REPORTED_LIMIT_LINE = /"limitBytes":(\d+)[,}]/
 const SLOW_RELEASE_WAIT_MS = 10_000
 const IMPORT_LINE_BYTES_LIMIT = 16 * MEBIBYTE
 const GIANT_LINE_BYTES = 8 * MEBIBYTE
@@ -298,11 +299,21 @@ describe('a cluster node with a small heap, sent request bodies that it cannot a
 
     const connections: SlowConnection[] = []
     for (let opened = 0; opened < SLOW_CONNECTIONS; opened++) connections.push(await openSlowConnection(started.base))
-    await sleep(SLOW_REFUSAL_WAIT_MS)
+    await waitFor(
+      'the node to refuse every slow body past the bound that it reports',
+      SLOW_REFUSAL_TIMEOUT_MS,
+      async () => {
+        const answers = connections.map(connection => connection.answer()).filter(answer => answer.length > 0)
+        const limit = answers.map(answer => REPORTED_LIMIT_LINE.exec(answer)).find(match => match !== null)
+        if (limit === undefined || limit === null) return false
+        return answers.length >= SLOW_CONNECTIONS - Math.floor(Number(limit[1]) / SLOW_BODY_BYTES)
+      },
+      SLOW_REFUSAL_POLL_MS,
+    )
     const refused = connections.filter(connection => connection.answer().startsWith('HTTP/1.1 429'))
     const waiting = connections.filter(connection => connection.answer().length === 0)
     console.log(`slow bodies: ${refused.length} refused, ${waiting.length} still sending of ${SLOW_CONNECTIONS}`)
-    const reportedLimit = /"limitBytes":(\d+)/.exec(refused[0]?.answer() ?? '')
+    const reportedLimit = REPORTED_LIMIT_LINE.exec(refused[0]?.answer() ?? '')
     expect(reportedLimit, refused[0]?.answer()).not.toBeNull()
     expect(waiting.length).toBe(Math.floor(Number(reportedLimit?.[1]) / SLOW_BODY_BYTES))
     expect(waiting.length).toBeGreaterThan(0)

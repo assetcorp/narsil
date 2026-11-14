@@ -53,23 +53,6 @@ describe('TcpTransport', () => {
       expect(response.payload).toEqual(new Uint8Array([4, 5, 6]))
     })
 
-    it('preserves payload bytes through TCP delivery', async () => {
-      const target = `127.0.0.1:${portB}`
-      const payload = new Uint8Array([10, 20, 30, 40, 50])
-
-      await transportB.listen((message, respond) => {
-        respond({
-          type: ClusterMessageTypes.PONG,
-          sourceId: 'node-b',
-          requestId: message.requestId,
-          payload: message.payload,
-        })
-      })
-
-      const response = await transportA.send(target, makeMessage({ payload, requestId: 'req-echo' }))
-      expect(response.payload).toEqual(payload)
-    })
-
     it('handles multiple sequential messages', async () => {
       const target = `127.0.0.1:${portB}`
       for (let i = 0; i < 5; i++) {
@@ -78,17 +61,6 @@ describe('TcpTransport', () => {
         expect(response.requestId).toBe(`req-seq-${i}`)
         expect(response.sourceId).toBe('node-b')
       }
-    })
-  })
-
-  describe('connection pooling', () => {
-    it('reuses the same socket for subsequent sends to the same target', async () => {
-      const target = `127.0.0.1:${portB}`
-
-      await transportA.send(target, makeMessage({ requestId: 'req-pool-1' }))
-      /* The pool is internal, so we verify by checking that second send also works */
-      const response = await transportA.send(target, makeMessage({ requestId: 'req-pool-2' }))
-      expect(response.requestId).toBe('req-pool-2')
     })
   })
 

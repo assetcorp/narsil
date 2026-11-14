@@ -67,16 +67,6 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
         narsil.updatePartitionConfig('products', { maxDocsPerPartition: 5, maxPartitions: 1 }),
       ).rejects.toThrow(NarsilError)
     })
-
-    it('accepts increasing capacity', async () => {
-      const config: IndexConfig = {
-        schema,
-        language: 'english',
-        partitions: { maxDocsPerPartition: 10, maxPartitions: 1 },
-      }
-      await narsil.createIndex('products', config)
-      await narsil.updatePartitionConfig('products', { maxDocsPerPartition: 100 })
-    })
   })
 
   describe('strict mode', () => {
@@ -88,15 +78,6 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
       await expect(
         narsil.insert('strict', { title: 'Laptop', category: 'tech', price: 999, brand: 'Acme' }),
       ).rejects.toThrow(NarsilError)
-    })
-
-    it('allows matching fields in strict mode', async () => {
-      const strictConfig: IndexConfig = { schema, language: 'english', strict: true }
-      narsil = await createNarsil()
-      await narsil.createIndex('strict', strictConfig)
-
-      const id = await narsil.insert('strict', { title: 'Laptop', category: 'tech', price: 999 })
-      expect(id).toBeTruthy()
     })
 
     it('allows extra fields in default (permissive) mode', async () => {

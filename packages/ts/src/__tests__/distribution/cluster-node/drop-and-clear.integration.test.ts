@@ -6,7 +6,7 @@ import type { ClusterCoordinator } from '../../../distribution/coordinator/types
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
-import { waitForSettledReplica } from './cluster-harness'
+import { startSingleNodeCluster, waitForSettledReplica } from './cluster-harness'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -154,11 +154,17 @@ describe('cluster-node drop and clear', () => {
       ])
     }
   }, 30_000)
+})
 
+describe('cluster-node drop of an index the cluster never allocated', () => {
   it('drops an index that only exists locally when the cluster never allocated it', async () => {
-    if (nodeA === undefined) throw new Error('node missing')
-    await expect(nodeA.dropIndex('never-created')).rejects.toThrow(
-      expect.objectContaining({ code: 'INDEX_NOT_FOUND' }) as unknown as Error,
-    )
+    const cluster = await startSingleNodeCluster()
+    try {
+      await expect(cluster.node.dropIndex('never-created')).rejects.toThrow(
+        expect.objectContaining({ code: 'INDEX_NOT_FOUND' }) as unknown as Error,
+      )
+    } finally {
+      await cluster.shutdown()
+    }
   }, 30_000)
 })

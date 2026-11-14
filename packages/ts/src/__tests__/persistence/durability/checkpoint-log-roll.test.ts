@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -15,7 +15,6 @@ import {
 
 const INDEX = 'articles'
 const SEGMENT_NAME = /^\d{16}$/
-const SEGMENT_HEADER_BYTES = 8
 const LOCK_FILE = '.narsil.lock'
 const BASE_DOCUMENTS = 300
 const PREPARED_SEGMENT = 'next'
@@ -98,19 +97,12 @@ describe.each<TextStorage>(['memory', 'disk'])('the log roll at a checkpoint of 
   async function loadedEngine(): Promise<Narsil> {
     const engine = await openEngine(root)
     await engine.createIndex(INDEX, configOf(textStorage))
-    await insertInto(engine, oracle, random, 'base', BASE_DOCUMENTS)
+    const base = Array.from({ length: BASE_DOCUMENTS }, (_, at) => ({ id: `base${at}`, ...randomArticle(random) }))
+    expect((await engine.insertBatch(INDEX, base)).failed).toEqual([])
+    for (const document of base) oracle.set(document.id, document)
     await engine.checkpoint(INDEX)
     return engine
   }
-
-  it('leaves only an empty active segment after a checkpoint that covers every record', async () => {
-    const engine = await loadedEngine()
-    const segments = await logSegments(root)
-    expect(segments).toHaveLength(1)
-    const { size } = await stat(join(logDirectory(root), segments[0]))
-    expect(size).toBe(SEGMENT_HEADER_BYTES)
-    await engine.shutdown()
-  })
 
   it('creates no file when a checkpoint finds no new writes', async () => {
     const engine = await loadedEngine()

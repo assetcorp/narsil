@@ -1,7 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { indexConfigKey, readIndexMetadataSnapshot } from '../../../distribution/cluster/index-metadata'
+import { createClusterNode } from '../../../distribution/cluster-node'
+import type { ClusterControllerConfig } from '../../../distribution/cluster-node/types'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/coordinator/constants'
-import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
+import type { ClusterCoordinator, NodeRole } from '../../../distribution/coordinator/types'
+import { createInMemoryTransport } from '../../../distribution/transport'
 import { type GarageCluster, startGarageCluster, waitForPrimaries } from '../../e2e/synonyms/cluster-harness'
 import { INDEX } from '../../e2e/synonyms/corpus'
 import {
@@ -23,6 +26,7 @@ const DOCUMENTS = 3_000
 const RESULT_LIMIT = 10_000
 const LEASE_HANDOVER_TIMEOUT_MS = 60_000
 const SEARCH_PAUSE_MS = 50
+const QUICK_HANDOVER_CONTROLLER: ClusterControllerConfig = { leaseTtlMs: 2_000, standbyRetryMs: 500 }
 
 interface SeveredCoordinator {
   readonly coordinator: ClusterCoordinator
@@ -65,6 +69,27 @@ afterEach(async () => {
   for (const cluster of clusters.splice(0)) await cluster.shutdown()
 })
 
+async function startQuickHandoverNode(
+  cluster: GarageCluster,
+  nodeId: string,
+  roles: NodeRole[],
+  coordinator: ClusterCoordinator,
+): Promise<void> {
+  const transport = createInMemoryTransport(nodeId, cluster.network)
+  const node = await createClusterNode({
+    coordinator,
+    transport,
+    address: `${nodeId}:9200`,
+    nodeId,
+    roles,
+    engine: { workers: { enabled: false } },
+    controller: QUICK_HANDOVER_CONTROLLER,
+  })
+  await node.start()
+  cluster.nodes.set(nodeId, node)
+  cluster.transports.set(nodeId, transport)
+}
+
 async function hitsOf(cluster: GarageCluster, nodeId: string, term: string): Promise<string[]> {
   const page = await cluster.node(nodeId).query(INDEX, { term, limit: RESULT_LIMIT })
   return page.hits.map(hit => hit.id).sort()
@@ -77,9 +102,11 @@ describe('the controller dying during an analysis change', () => {
     const coordinator = cluster.watched.coordinator
     const doomed = severable(coordinator)
     severed.push(doomed)
-    await cluster.startNode(DOOMED_CONTROLLER, ['controller', 'coordinator'], undefined, doomed.coordinator)
+    await startQuickHandoverNode(cluster, DOOMED_CONTROLLER, ['controller', 'coordinator'], doomed.coordinator)
     await waitFor(async () => (await coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)) === DOOMED_CONTROLLER)
-    for (const nodeId of STANDBYS) await cluster.startNode(nodeId, ['data', 'coordinator', 'controller'])
+    for (const nodeId of STANDBYS) {
+      await startQuickHandoverNode(cluster, nodeId, ['data', 'coordinator', 'controller'], coordinator)
+    }
 
     const oracle = new ChangeOracle()
     const random = seededRandom(83)

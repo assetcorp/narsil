@@ -1,9 +1,9 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { ClusterNode, ClusterNodeConfig } from '../../../../distribution/cluster-node/types'
+import type { ClusterNode } from '../../../../distribution/cluster-node/types'
 import { NarsilError } from '../../../../errors'
-import { createTestCluster, INDEX, readCopy, SCHEMA, type TestCluster, waitUntil } from './harness'
+import { createTestCluster, INDEX, type NodeOptions, readCopy, SCHEMA, type TestCluster, waitUntil } from './harness'
 
 const NODE_IDS = ['ledger-a', 'ledger-b', 'ledger-c']
 const SOURCE_PARTITIONS = 3
@@ -19,6 +19,9 @@ const FORWARD = 'cluster.reshard_forward'
 const CUTOVER = 'cluster.reshard_cutover'
 const PURGE = 'cluster.reshard_purge'
 const SEARCH = 'query.search'
+const FAILED_NODE_REQUEST_TIMEOUT_MS = 5_000
+const STANDBY_RETRY_MS = 250
+const QUICK_TAKEOVER_CONTROLLER = { nodeLeftDelayMs: 0, standbyRetryMs: STANDBY_RETRY_MS }
 const REFUSED_BEFORE_THE_WRITE = new Set(['PARTITION_REBALANCING_BACKPRESSURE', 'PARTITION_NOT_PRIMARY'])
 
 interface Ledger {
@@ -122,7 +125,7 @@ async function expectLedgerKept(cluster: TestCluster, router: ClusterNode, ledge
 describe('changing the partition count while nodes fail', () => {
   let cluster: TestCluster
 
-  async function seededCluster(config: Partial<ClusterNodeConfig> = {}): Promise<void> {
+  async function seededCluster(config: NodeOptions = {}): Promise<void> {
     for (const nodeId of NODE_IDS) {
       await cluster.start(nodeId, {
         durable: false,
@@ -216,7 +219,7 @@ describe('changing the partition count while nodes fail', () => {
   }, 60_000)
 
   it('keeps every acknowledged write when the controller fails during the cutover', async () => {
-    await seededCluster()
+    await seededCluster({ timeouts: { requestTimeout: FAILED_NODE_REQUEST_TIMEOUT_MS } })
     const controller = await controllerId(cluster)
     const router = await routerBesides(controller)
     const ledger = newLedger()
@@ -239,7 +242,7 @@ describe('changing the partition count while nodes fail', () => {
   }, 60_000)
 
   it('keeps every acknowledged write when a source primary fails while the copy runs', async () => {
-    await seededCluster()
+    await seededCluster({ timeouts: { requestTimeout: FAILED_NODE_REQUEST_TIMEOUT_MS } })
     const controller = await controllerId(cluster)
     const table = await cluster.coordinator.getAllocation(INDEX)
     const routerId = NODE_IDS.find(id => id !== controller) ?? ''
@@ -324,7 +327,7 @@ describe('changing the partition count while nodes fail', () => {
   }, 60_000)
 
   it('drops an index while its partition count changes, and leaves nothing behind when the controller then fails', async () => {
-    await seededCluster()
+    await seededCluster({ controller: QUICK_TAKEOVER_CONTROLLER })
     const controller = await controllerId(cluster)
     const router = await routerBesides(controller)
     const forwards = holdOnEveryNode(FORWARD)

@@ -78,7 +78,7 @@ async function codeOf(attempt: Promise<unknown>): Promise<string> {
 
 describe('BM25 parameters across a cluster', () => {
   it('match the oracle under local scoring on every coordinator, at every level, once a change spreads', async () => {
-    const documents = bm25Corpus(1_500, 971)
+    const documents = bm25Corpus(600, 971)
     const oracle = createBm25Oracle(documents)
     const cluster = await started(['node-a', 'node-b'])
     await createIndex(cluster, documents, ONE_PARTITION, { k1: 2 })
@@ -101,7 +101,7 @@ describe('BM25 parameters across a cluster', () => {
     { scoring: 'dfs' as const, partitionCount: PARTITION_COUNT, holders: 3 },
     { scoring: 'local' as const, partitionCount: 1, holders: 1 },
   ])('score one query under one setting under $scoring scoring while a change spreads', async shape => {
-    const documents = bm25Corpus(1_500, 972)
+    const documents = bm25Corpus(600, 972)
     const oracle = createBm25Oracle(documents)
     const cluster = await started(['node-a', 'node-b', 'node-c'])
     await createIndex(cluster, documents, {

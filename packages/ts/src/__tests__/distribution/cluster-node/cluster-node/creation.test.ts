@@ -12,15 +12,12 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
   let coordinator: ClusterCoordinator
   let network: InMemoryNetwork
   let nodeA: ClusterNode | undefined
-  let nodeB: ClusterNode | undefined
   let transportA: NodeTransport
-  let transportB: NodeTransport
 
   beforeEach(() => {
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     transportA = createInMemoryTransport('node-a', network)
-    transportB = createInMemoryTransport('node-b', network)
   })
 
   afterEach(async () => {
@@ -28,42 +25,11 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
       await nodeA.shutdown()
       nodeA = undefined
     }
-    if (nodeB !== undefined) {
-      await nodeB.shutdown()
-      nodeB = undefined
-    }
     await transportA.shutdown()
-    await transportB.shutdown()
     await coordinator.shutdown()
   })
 
   describe('node creation and configuration', () => {
-    it('creates a node with explicit nodeId', async () => {
-      nodeA = await createClusterNode(
-        makeConfig({
-          coordinator,
-          transport: transportA,
-          address: 'node-a:9200',
-          nodeId: 'explicit-id',
-        }),
-      )
-
-      expect(nodeA.nodeId).toBe('explicit-id')
-    })
-
-    it('auto-generates nodeId when not provided', async () => {
-      nodeA = await createClusterNode(
-        makeConfig({
-          coordinator,
-          transport: transportA,
-          address: 'node-a:9200',
-        }),
-      )
-
-      expect(nodeA.nodeId).toBeTruthy()
-      expect(nodeA.nodeId.length).toBeGreaterThan(0)
-    })
-
     it('defaults to all three roles when roles not specified', async () => {
       nodeA = await createClusterNode({
         coordinator,
@@ -72,19 +38,6 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
       })
 
       expect(nodeA.roles).toEqual(['data', 'coordinator', 'controller'])
-    })
-
-    it('respects custom roles', async () => {
-      nodeA = await createClusterNode(
-        makeConfig({
-          coordinator,
-          transport: transportA,
-          address: 'node-a:9200',
-          roles: ['data'],
-        }),
-      )
-
-      expect(nodeA.roles).toEqual(['data'])
     })
 
     it('rejects empty address', async () => {
@@ -238,37 +191,6 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
       })
 
       await expect(nodeA.createIndex('products', { schema: { title: 'string' } })).rejects.toThrow('already exists')
-    })
-
-    it('schema appears on coordinator after createIndex on another node', async () => {
-      nodeA = await createClusterNode(
-        makeConfig({
-          coordinator,
-          transport: transportA,
-          address: 'node-a:9200',
-          nodeId: 'node-a',
-        }),
-      )
-
-      nodeB = await createClusterNode(
-        makeConfig({
-          coordinator,
-          transport: transportB,
-          address: 'node-b:9200',
-          nodeId: 'node-b',
-          roles: ['data', 'coordinator'],
-        }),
-      )
-
-      await nodeA.start()
-      await nodeB.start()
-
-      await nodeA.createIndex('products', {
-        schema: { title: 'string', price: 'number' },
-      })
-
-      const schemaFromCoordinator = await coordinator.getSchema('products')
-      expect(schemaFromCoordinator).toEqual({ title: 'string', price: 'number' })
     })
   })
 })

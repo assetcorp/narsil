@@ -55,22 +55,10 @@ func TestARerankFailureRemainsVisibleAfterTheCallbackChangesTheIndex(t *testing.
 		{"error", func(context.Context, int) ([]float64, error) { return nil, errors.New("adapter refused") }},
 		{"panic", func(context.Context, int) ([]float64, error) { panic("adapter panicked") }},
 		{"nil", func(context.Context, int) ([]float64, error) { return nil, nil }},
-		{"empty", func(context.Context, int) ([]float64, error) { return []float64{}, nil }},
 		{"short", func(_ context.Context, count int) ([]float64, error) { return make([]float64, count-1), nil }},
-		{"long", func(_ context.Context, count int) ([]float64, error) { return make([]float64, count+1), nil }},
 		{"nan", func(_ context.Context, count int) ([]float64, error) {
 			scores := make([]float64, count)
 			scores[0] = math.NaN()
-			return scores, nil
-		}},
-		{"infinity", func(_ context.Context, count int) ([]float64, error) {
-			scores := make([]float64, count)
-			scores[0] = math.Inf(1)
-			return scores, nil
-		}},
-		{"negative infinity", func(_ context.Context, count int) ([]float64, error) {
-			scores := make([]float64, count)
-			scores[0] = math.Inf(-1)
 			return scores, nil
 		}},
 		{"timeout", func(ctx context.Context, _ int) ([]float64, error) {

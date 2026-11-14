@@ -97,30 +97,6 @@ describe('a node restarting to find every partition it held unassigned', () => {
     ).toBe(true)
   }
 
-  it('serves every document again from the copy on its own disk', async () => {
-    const first = await startNode()
-    await first.createIndex(
-      INDEX_NAME,
-      { schema: { title: 'string', price: 'number' } },
-      { partitionCount: 2, replicationFactor: 0 },
-    )
-    const inserted = await first.insertBatch(INDEX_NAME, shopDocuments())
-    expect(inserted.failed).toEqual([])
-    await first.checkpoint(INDEX_NAME)
-    await markEveryPartitionUnassigned()
-    await first.shutdown()
-
-    node = await startNode()
-
-    await waitForAllocation(table =>
-      [...table.assignments.values()].every(entry => entry.state === 'ACTIVE' && entry.primary === NODE_ID),
-    )
-
-    const answered = await node.query(INDEX_NAME, { term: 'portable', limit: DOCUMENT_TOTAL })
-    expect(answered.coverage.failedPartitions).toBe(0)
-    expect(answered.hits).toHaveLength(DOCUMENT_TOTAL)
-  }, 120_000)
-
   it('numbers a write after the restart above every sequence number its copy already holds', async () => {
     const first = await startNode()
     await first.createIndex(

@@ -1,8 +1,8 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import { createServer } from '../../../server'
@@ -138,35 +138,68 @@ describe('a vector field of an index with its text on disk', () => {
     expect(shared / Math.max(wanted.length, 1)).toBeGreaterThanOrEqual(MIN_RECALL)
   }
 
+  const awkwardIds = [
+    'a',
+    'x'.repeat(31),
+    'y'.repeat(32),
+    'z'.repeat(300),
+    'é',
+    'word-é-'.padEnd(31, 'q'),
+    '文書',
+    '😀 passage',
+    '\u007f-control',
+    ' leading space',
+  ]
+  let checkpointed = ''
+  const checkpointedOracle = new Map<string, Passage>()
+
+  beforeAll(async () => {
+    checkpointed = await mkdtemp(join(tmpdir(), 'narsil-disk-vectors-checkpointed-'))
+    const writer = await createNarsil({ durability: { directory: checkpointed }, workers: { enabled: false } })
+    try {
+      await writer.createIndex(INDEX, PASSAGE_CONFIG)
+      const random = seededRandom(95)
+      for (const id of awkwardIds) {
+        const passage: Passage = { title: `passage ${id}`, group: 'awkward', embedding: randomVector(random) }
+        await writer.insert(INDEX, passage, id)
+        checkpointedOracle.set(id, passage)
+      }
+      for (let at = 0; at < PASSAGES; at++) {
+        const passage: Passage = {
+          title: `passage number ${at}`,
+          group: at % 3 === 0 ? 'rare' : 'common',
+          embedding: randomVector(random),
+        }
+        await writer.insert(INDEX, passage, `passage-${at}`)
+        checkpointedOracle.set(`passage-${at}`, passage)
+      }
+      await writer.checkpoint(INDEX)
+    } finally {
+      await writer.shutdown()
+    }
+  }, 120_000)
+
+  afterAll(async () => {
+    await rm(checkpointed, { recursive: true, force: true })
+  })
+
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'narsil-disk-vectors-'))
-    await open()
-    await engine.createIndex(INDEX, PASSAGE_CONFIG)
+    await cp(checkpointed, root, { recursive: true })
   })
 
   afterEach(async () => {
-    await engine.shutdown()
+    await engine.shutdown().catch(() => undefined)
     await rm(root, { recursive: true, force: true })
   })
 
-  async function fill(oracle: Map<string, Passage>, random: () => number): Promise<void> {
-    for (let at = 0; at < PASSAGES; at++) {
-      const passage: Passage = {
-        title: `passage number ${at}`,
-        group: at % 3 === 0 ? 'rare' : 'common',
-        embedding: randomVector(random),
-      }
-      await engine.insert(INDEX, passage, `passage-${at}`)
-      oracle.set(`passage-${at}`, passage)
-    }
-    await engine.checkpoint(INDEX)
+  function checkpointedPassages(): Map<string, Passage> {
+    return new Map(checkpointedOracle)
   }
 
   it('answers before its load ends with the hits that it gives after that load', async () => {
     const random = seededRandom(95)
-    const oracle = new Map<string, Passage>()
-    await fill(oracle, random)
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
     await open()
 
     expect(isLoading()).toBe(true)
@@ -183,9 +216,7 @@ describe('a vector field of an index with its text on disk', () => {
 
   it('keeps writes and removals that arrive during the load, through another restart', async () => {
     const random = seededRandom(96)
-    const oracle = new Map<string, Passage>()
-    await fill(oracle, random)
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
     await open()
 
     const added: Passage = { title: 'passage added late', group: 'common', embedding: randomVector(random) }
@@ -221,9 +252,7 @@ describe('a vector field of an index with its text on disk', () => {
 
   it('keeps a passage that is removed and inserted again during the load, through another restart', async () => {
     const random = seededRandom(174)
-    const oracle = new Map<string, Passage>()
-    await fill(oracle, random)
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
     await open()
     expect(isLoading()).toBe(true)
 
@@ -267,9 +296,7 @@ describe('a vector field of an index with its text on disk', () => {
 
   it('applies a filter before its load ends', async () => {
     const random = seededRandom(97)
-    const oracle = new Map<string, Passage>()
-    await fill(oracle, random)
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
     await open()
 
     const query = randomVector(random)
@@ -280,26 +307,7 @@ describe('a vector field of an index with its text on disk', () => {
 
   it('gives back every kind of document ID exactly before its load ends', async () => {
     const random = seededRandom(98)
-    const oracle = new Map<string, Passage>()
-    const awkwardIds = [
-      'a',
-      'x'.repeat(31),
-      'y'.repeat(32),
-      'z'.repeat(300),
-      'é',
-      'word-é-'.padEnd(31, 'q'),
-      '文書',
-      '😀 passage',
-      '\u007f-control',
-      ' leading space',
-    ]
-    for (const id of awkwardIds) {
-      const passage: Passage = { title: `passage ${id}`, group: 'awkward', embedding: randomVector(random) }
-      await engine.insert(INDEX, passage, id)
-      oracle.set(id, passage)
-    }
-    await fill(oracle, random)
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
     await open()
 
     expect(isLoading()).toBe(true)
@@ -314,9 +322,7 @@ describe('a vector field of an index with its text on disk', () => {
   }, 120_000)
 
   it('refuses a damaged vector for as long as the index stays open', async () => {
-    const oracle = new Map<string, Passage>()
-    await fill(oracle, seededRandom(951))
-    await engine.shutdown()
+    const oracle = checkpointedPassages()
 
     const damagedId = 'passage-3000'
     const wanted = Float32Array.from(oracle.get(damagedId)?.embedding ?? [])

@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { SORT_COLUMN_REBUILD_FRACTION_SHIFT } from '../../core/partition/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
+import { RESULT_WINDOW } from '../../search/constants'
 import type { ListResult } from '../../types/results'
 import type { IndexConfig } from '../../types/schema'
 
-const CORPUS_SIZE = 25_000
+const CORPUS_SIZE = 12_000
+const ADDED_SINCE_THE_LAST_BUILD = 2_000
 const PAGE_SIZE = 500
 
 interface Catalogue {
@@ -106,24 +109,32 @@ const config: IndexConfig = {
   language: 'english',
 }
 
-describe('sorted paging off the sort columns', () => {
-  let narsil: Narsil
-  const catalogue = buildCatalogue(CORPUS_SIZE)
+const catalogue = buildCatalogue(CORPUS_SIZE)
 
-  beforeEach(async () => {
-    narsil = await createNarsil()
-    await narsil.createIndex('catalogue', config)
-    await narsil.insertBatch(
-      'catalogue',
-      catalogue.map(entry => ({ ...entry })),
-    )
+async function openCatalogue(): Promise<Narsil> {
+  const engine = await createNarsil()
+  await engine.createIndex('catalogue', config)
+  await engine.insertBatch(
+    'catalogue',
+    catalogue.map(entry => ({ ...entry })),
+  )
+  return engine
+}
+
+describe('sorted paging off the sort columns of an unchanged catalogue', () => {
+  let narsil: Narsil
+
+  beforeAll(async () => {
+    narsil = await openCatalogue()
   })
 
-  afterEach(async () => {
+  afterAll(async () => {
     await narsil.shutdown()
   })
 
   it('walks every document once under a number sort, in the reference order', async () => {
+    expect(CORPUS_SIZE).toBeGreaterThan(RESULT_WINDOW)
+
     const expected = referenceOrder(catalogue, entry => [entry.rank], ['desc'])
 
     const { ids, totals } = await walkEveryPage(narsil, 'catalogue', { rank: 'desc' }, PAGE_SIZE)
@@ -165,10 +176,37 @@ describe('sorted paging off the sort columns', () => {
     expect(new Set(totals)).toEqual(new Set([accepted.length]))
   })
 
+  it('orders a sorted query the same way it orders a listing', async () => {
+    const accepted = catalogue.filter(entry => entry.genre === 'thriller')
+    const expected = referenceOrder(accepted, entry => [entry.rank], ['desc']).slice(0, 25)
+
+    const result = await narsil.query('catalogue', {
+      term: 'catalogue',
+      filters: { fields: { genre: { eq: 'thriller' } } },
+      sort: { rank: 'desc' },
+      limit: 25,
+    })
+
+    expect(result.hits.map(hit => hit.id)).toEqual(expected)
+  })
+})
+
+describe('sorted paging off the sort columns after writes since the last build', () => {
+  let narsil: Narsil
+
+  beforeEach(async () => {
+    narsil = await openCatalogue()
+  })
+
+  afterEach(async () => {
+    await narsil.shutdown()
+  })
+
   it('reads documents written since the last build in their place', async () => {
     await narsil.listDocuments('catalogue', { limit: 1, sort: { rank: 'asc' } })
 
-    const addition = buildCatalogue(2_000, CORPUS_SIZE)
+    expect(ADDED_SINCE_THE_LAST_BUILD).toBeLessThan(CORPUS_SIZE >> SORT_COLUMN_REBUILD_FRACTION_SHIFT)
+    const addition = buildCatalogue(ADDED_SINCE_THE_LAST_BUILD, CORPUS_SIZE)
     await narsil.insertBatch(
       'catalogue',
       addition.map(entry => ({ ...entry })),
@@ -216,20 +254,6 @@ describe('sorted paging off the sort columns', () => {
 
     expect(ids).toEqual(expected)
     expect(new Set(totals)).toEqual(new Set([CORPUS_SIZE - removed.size]))
-  })
-
-  it('orders a sorted query the same way it orders a listing', async () => {
-    const accepted = catalogue.filter(entry => entry.genre === 'thriller')
-    const expected = referenceOrder(accepted, entry => [entry.rank], ['desc']).slice(0, 25)
-
-    const result = await narsil.query('catalogue', {
-      term: 'catalogue',
-      filters: { fields: { genre: { eq: 'thriller' } } },
-      sort: { rank: 'desc' },
-      limit: 25,
-    })
-
-    expect(result.hits.map(hit => hit.id)).toEqual(expected)
   })
 })
 

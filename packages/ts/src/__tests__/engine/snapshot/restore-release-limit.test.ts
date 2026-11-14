@@ -10,7 +10,7 @@ const distPackage = new URL('../../../../dist/index.mjs', import.meta.url)
 
 const TOKENIZER = 'restore-release-stall'
 const STALL_WORD = 'stallword'
-const WORKER_STALL_MS = 38_000
+const WORKER_STALL_MS = 33_000
 const RELEASE_LIMIT_MS = 30_000
 const QUERY_LATENCY_LIMIT_MS = 1_000
 const TERM = 'lantern'

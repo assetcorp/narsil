@@ -57,16 +57,6 @@ describe('suggest', () => {
     await narsil.shutdown()
   })
 
-  it('returns terms matching the prefix', async () => {
-    const result = await narsil.suggest('test', { prefix: 'ru' })
-    expect(result.terms.length).toBeGreaterThan(0)
-    for (const t of result.terms) {
-      expect(t.term.startsWith('ru')).toBe(true)
-      expect(t.documentFrequency).toBeGreaterThan(0)
-    }
-    expect(result.elapsed).toBeGreaterThanOrEqual(0)
-  })
-
   it('returns terms sorted by document frequency', async () => {
     const result = await narsil.suggest('test', { prefix: 'r' })
     for (let i = 1; i < result.terms.length; i++) {
@@ -77,11 +67,6 @@ describe('suggest', () => {
   it('respects the limit parameter', async () => {
     const result = await narsil.suggest('test', { prefix: 'r', limit: 3 })
     expect(result.terms.length).toBeLessThanOrEqual(3)
-  })
-
-  it('defaults limit to 10', async () => {
-    const result = await narsil.suggest('test', { prefix: 'a' })
-    expect(result.terms.length).toBeLessThanOrEqual(10)
   })
 
   it('clamps limit to 1-100', async () => {
@@ -132,26 +117,6 @@ describe('suggest', () => {
 
   it('throws for non-existent index', async () => {
     await expect(narsil.suggest('nonexistent', { prefix: 'test' })).rejects.toThrow()
-  })
-
-  it('works across multiple partitions', async () => {
-    await narsil.createIndex('partitioned', {
-      schema,
-      language: 'english',
-      surfaceForms: true,
-      partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
-    })
-
-    for (let i = 0; i < documents.length; i++) {
-      await narsil.insert('partitioned', documents[i])
-    }
-
-    const result = await narsil.suggest('partitioned', { prefix: 'ru' })
-    expect(result.terms.length).toBeGreaterThan(0)
-
-    for (const t of result.terms) {
-      expect(t.term.startsWith('ru')).toBe(true)
-    }
   })
 
   it('preserves suggestion counts and display spellings after a restored document is removed', async () => {

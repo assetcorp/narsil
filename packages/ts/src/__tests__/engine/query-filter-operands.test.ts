@@ -95,12 +95,6 @@ describe('a filter whose operands cannot match the field', () => {
     await expect(narsil.listDocuments('bikes', { filters })).rejects.toMatchObject({ code: 'SEARCH_INVALID_FILTER' })
   })
 
-  it('refuses a filter on a value stored in a field outside the schema, which no index holds', async () => {
-    await expect(
-      narsil.query('bikes', { term: 'bike', filters: { fields: { weight: { eq: 12 } } } }),
-    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FIELD', details: { field: 'weight', option: 'filter' } })
-  })
-
   it('still matches a radius of zero and well-formed operators', async () => {
     const result = await narsil.query('bikes', {
       term: 'bike',

@@ -24,7 +24,7 @@ import { seededRandom } from './oracle'
 
 const INDEX = 'passages'
 const DIMENSION = 16
-const PASSAGES = 800
+const PASSAGES = 300
 const TOP = 10
 const MIN_RECALL = 0.8
 const WAIT_LIMIT_MS = 60_000

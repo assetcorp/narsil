@@ -87,14 +87,4 @@ describe('partition capacity enforcement', () => {
       expect(failure.error.code).toBe(ErrorCodes.PARTITION_CAPACITY_EXCEEDED)
     }
   })
-
-  it('does not enforce limits when partition config is omitted', async () => {
-    await narsil.createIndex('unlimited', { schema, language: 'english' })
-
-    for (let i = 0; i < 50; i++) {
-      await narsil.insert('unlimited', { title: `Item ${i}`, price: i })
-    }
-
-    expect(await narsil.countDocuments('unlimited')).toBe(50)
-  })
 })

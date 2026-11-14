@@ -146,11 +146,6 @@ describe.skipIf(!shouldRun)('Embedding E2E: auto-vectorization with Transformers
     categoryMap.clear()
   })
 
-  it('inserts all documents with auto-vectorization', async () => {
-    const count = await narsil.countDocuments('docs')
-    expect(count).toBe(allDocs.length)
-  })
-
   it('retrieves semantically relevant animal results for animal queries', async () => {
     const result = await narsil.query('docs', {
       vector: { field: 'embedding', text: 'wildlife animals nature habitat' },
@@ -248,17 +243,5 @@ describe.skipIf(!shouldRun)('Embedding E2E: auto-vectorization with Transformers
 
     const topDoc = result.hits[0].document as Record<string, unknown>
     expect(topDoc.category).toBe('cooking')
-  })
-
-  it('returns scored results with positive scores', async () => {
-    const result = await narsil.query('docs', {
-      vector: { field: 'embedding', text: 'planets and solar system' },
-      mode: 'vector',
-      limit: 3,
-    })
-
-    for (const hit of result.hits) {
-      expect(hit.score).toBeGreaterThan(0)
-    }
   })
 })

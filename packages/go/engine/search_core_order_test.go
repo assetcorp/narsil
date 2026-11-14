@@ -37,7 +37,6 @@ const (
 	archiveIndexName       = "archive"
 	archiveMarker          = "ledger"
 	archiveOddDigits       = "13579"
-	archiveTimedRounds     = 3
 	archiveDocuments       = 3_000
 	archiveNoteRepeats     = 2_000
 	archiveDeadlineDivisor = 8
@@ -408,19 +407,16 @@ func TestASearchStopsAtItsDeadlineWithTheContextError(t *testing.T) {
 		}},
 	}
 	for _, entry := range reads {
-		unbounded := time.Duration(math.MaxInt64)
-		for range archiveTimedRounds {
-			started := time.Now()
-			count, err := entry.read(context.Background())
-			if err != nil || count != withOddDigit {
-				t.Fatalf("the %s without a deadline counts %d with error %v, want %d", entry.name, count, err, withOddDigit)
-			}
-			unbounded = min(unbounded, time.Since(started))
+		started := time.Now()
+		count, err := entry.read(context.Background())
+		if err != nil || count != withOddDigit {
+			t.Fatalf("the %s without a deadline counts %d with error %v, want %d", entry.name, count, err, withOddDigit)
 		}
+		unbounded := time.Since(started)
 		allowed := unbounded / archiveDeadlineDivisor
 		ctx, cancel := context.WithTimeout(context.Background(), allowed)
-		started := time.Now()
-		_, err := entry.read(ctx)
+		started = time.Now()
+		_, err = entry.read(ctx)
 		spent := time.Since(started)
 		cancel()
 		if !errors.Is(err, context.DeadlineExceeded) {

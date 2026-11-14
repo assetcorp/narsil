@@ -36,7 +36,8 @@ const WRITE_PACE_MS = 20
 const RETRIED_REMOVALS = 3
 const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
 const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
-const TERM_END_QUIET_MS = 3_000
+const TERM_END_QUIET_MS = 2_000
+const REDUCED_REPLICATION_TIMEOUT_MS = 2_000
 const SHORT_REPLICATION_TIMEOUT_MS = 500
 const LATE_REMOVAL_REPLICATION_TIMEOUT_MS = 40_000
 const ADMISSION_REPLY_SETTLE_MS = 250
@@ -385,7 +386,9 @@ describe('a new primary that starts its term on every in-sync copy', () => {
   }
 
   it('keeps asking for the removal of a copy ahead through a removal outage longer than the replication timeout, refuses a write in that outage within the timeout, and settles once the controller answers', async () => {
-    const { running, settled, ledger } = await startLedger()
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: REDUCED_REPLICATION_TIMEOUT_MS },
+    })
     const { ahead, release, restoreRemovals, droppedRemovals } = await strandOnCopyAhead(running, settled)
     const aheadWatch = await watchInSync(running, ahead)
 
@@ -398,9 +401,11 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     )
     const writeMs = Date.now() - startedAt
     expect(outageWrite.state).toBe('refused')
-    expect(writeMs).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+    expect(writeMs).toBeLessThan(REDUCED_REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
 
-    await sleep(Math.max(0, handover.at + REPLICATION_TIMEOUT_MS + REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS - Date.now()))
+    await sleep(
+      Math.max(0, handover.at + REDUCED_REPLICATION_TIMEOUT_MS + REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS - Date.now()),
+    )
     expect(aheadWatch.leftAt()).toBeNull()
     expect(droppedRemovals()).toBeLessThan(MAX_REMOVAL_REQUESTS_IN_OUTAGE)
     const restoredAt = Date.now()
@@ -681,7 +686,9 @@ describe('a new primary that starts its term on every in-sync copy', () => {
   }, 90_000)
 
   it('removes an older copy that never answers the term start, then resyncs it, and holds writes no longer than the replication timeout', async () => {
-    const { running, settled, ledger } = await startLedger()
+    const { running, settled, ledger } = await startLedger({
+      timeouts: { replicationTimeout: REDUCED_REPLICATION_TIMEOUT_MS },
+    })
     const older = otherCopyOf(settled)
     running.transport(older).ignoreWhen(ofType('replication.term_start'))
     const olderWatch = await watchInSync(running, older)
@@ -696,10 +703,10 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const leftAt = await waitUntil(
       'the older copy to leave the in-sync set',
       () => olderWatch.leftAt(),
-      REPLICATION_TIMEOUT_MS + REJOIN_TIMEOUT_MS,
+      REDUCED_REPLICATION_TIMEOUT_MS + REJOIN_TIMEOUT_MS,
     )
-    expect(leftAt - handover.at).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
-    expect(firstWriteMs).toBeLessThan(REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+    expect(leftAt - handover.at).toBeLessThan(REDUCED_REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
+    expect(firstWriteMs).toBeLessThan(REDUCED_REPLICATION_TIMEOUT_MS + WRITE_MARGIN_MS)
     await expectEveryCopyHolds(running, ledger, [older])
     expect(running.transport(older).syncTiers().slice(syncsBefore)).toEqual(['incremental'])
   }, 120_000)

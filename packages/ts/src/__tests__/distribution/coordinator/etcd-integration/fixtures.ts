@@ -8,6 +8,7 @@ import type { SchemaDefinition } from '../../../../types/schema'
 
 export const ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.6.0'
 export const MANAGED_ETCD_ENDPOINT = process.env.NARSIL_ETCD_ENDPOINT?.trim() || null
+const EVENTUALLY_POLL_INTERVAL_MS = 200
 
 export interface EtcdContainerHandle {
   endpoint: string
@@ -94,7 +95,12 @@ export async function getAvailablePort(): Promise<number> {
   })
 }
 
-export async function eventually(action: () => Promise<void>, timeoutMs: number, description: string): Promise<void> {
+export async function eventually(
+  action: () => Promise<void>,
+  timeoutMs: number,
+  description: string,
+  pollIntervalMs = EVENTUALLY_POLL_INTERVAL_MS,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: Error | null = null
 
@@ -104,7 +110,7 @@ export async function eventually(action: () => Promise<void>, timeoutMs: number,
       return
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
-      await sleep(200)
+      await sleep(pollIntervalMs)
     }
   }
 

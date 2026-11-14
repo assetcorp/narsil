@@ -5,6 +5,7 @@ import type { QueryParams } from '../../../types/search'
 
 const TERMS = ['alpha', 'beta', 'gamma', 'delta', 'omega']
 const CORPUS_SIZE = 4000
+const MAIN_COPY_ONLY = { workers: { enabled: false } }
 
 function bodyFor(index: number): string {
   const repeats = (index % 7) + 1
@@ -19,7 +20,7 @@ function titleFor(index: number): string {
 }
 
 async function buildIndex(): Promise<Narsil> {
-  const narsil = await createNarsil()
+  const narsil = await createNarsil(MAIN_COPY_ONLY)
   await narsil.createIndex('skewed', {
     schema: { title: 'string', body: 'string', rank: 'number' },
     language: 'english',
@@ -53,6 +54,10 @@ describe('pruned single-term scoring', () => {
 
   beforeAll(async () => {
     narsil = await buildIndex()
+  })
+
+  afterAll(async () => {
+    await narsil.shutdown()
   })
 
   it('returns the same page, scores, and count as the unpruned path for every term', async () => {
@@ -117,21 +122,24 @@ describe('pruned single-term scoring', () => {
   })
 
   it('finds a winner that sits in the last block, after the page is already full', async () => {
-    const late = await createNarsil()
-    await late.createIndex('late', { schema: { title: 'string', body: 'string' }, language: 'english' })
-    const documents = []
-    for (let index = 0; index < 5000; index++) {
-      documents.push({ id: `doc-${String(index).padStart(5, '0')}`, title: 'alpha', body: 'padding text here' })
-    }
-    documents.push({ id: 'doc-99999', title: 'alpha alpha alpha alpha alpha alpha', body: 'alpha' })
-    await late.insertBatch('late', documents)
+    const late = await createNarsil(MAIN_COPY_ONLY)
+    try {
+      await late.createIndex('late', { schema: { title: 'string', body: 'string' }, language: 'english' })
+      const documents = []
+      for (let index = 0; index < 5000; index++) {
+        documents.push({ id: `doc-${String(index).padStart(5, '0')}`, title: 'alpha', body: 'padding text here' })
+      }
+      documents.push({ id: 'doc-99999', title: 'alpha alpha alpha alpha alpha alpha', body: 'alpha' })
+      await late.insertBatch('late', documents)
 
-    const pruned = await late.query('late', { term: 'alpha', limit: 3 })
-    const full = await late.query('late', { term: 'alpha', limit: 3, includeScoreComponents: true })
-    expect(pruned.hits[0].id).toBe('doc-99999')
-    expect(pruned.hits.map(hit => hit.id)).toEqual(full.hits.map(hit => hit.id))
-    expect(pruned.count).toBe(full.count)
-    await late.shutdown()
+      const pruned = await late.query('late', { term: 'alpha', limit: 3 })
+      const full = await late.query('late', { term: 'alpha', limit: 3, includeScoreComponents: true })
+      expect(pruned.hits[0].id).toBe('doc-99999')
+      expect(pruned.hits.map(hit => hit.id)).toEqual(full.hits.map(hit => hit.id))
+      expect(pruned.count).toBe(full.count)
+    } finally {
+      await late.shutdown()
+    }
   })
 
   it('agrees with the unpruned path under a filter', async () => {
@@ -152,7 +160,7 @@ describe('bm25 parameters and the pruned scan', () => {
   let engine: Narsil
 
   beforeAll(async () => {
-    engine = await createNarsil()
+    engine = await createNarsil(MAIN_COPY_ONLY)
     const documents = []
     for (let index = 0; index < 3000; index++) {
       const repeats = (index % 9) + 1

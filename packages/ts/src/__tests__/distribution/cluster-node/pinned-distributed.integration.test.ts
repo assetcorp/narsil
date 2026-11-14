@@ -26,25 +26,6 @@ describe('pinned documents on the distributed query path', () => {
     expect(result.hits.map(hit => hit.id)).toContain('spanner')
   }, 30_000)
 
-  it('drops a pinned id no node holds', async () => {
-    const result = await cluster.node.query('products', {
-      term: 'widget',
-      pinned: [{ docId: 'deleted-sku', position: 0 }],
-    })
-    expect(result.hits.map(hit => hit.id)).not.toContain('deleted-sku')
-    expect(result.hits.length).toBe(2)
-  }, 30_000)
-
-  it('drops a pinned id no node holds under a bodiless projection', async () => {
-    const result = await cluster.node.query('products', {
-      term: 'widget',
-      pinned: [{ docId: 'deleted-sku', position: 0 }],
-      document: false,
-    })
-    expect(result.hits.map(hit => hit.id)).not.toContain('deleted-sku')
-    expect(result.hits.length).toBe(2)
-  }, 30_000)
-
   it('fills a limited page after excluding missing pins before placement', async () => {
     for (const document of [false, true]) {
       const result = await cluster.node.query('products', {

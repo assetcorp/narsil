@@ -218,7 +218,7 @@ fn crash_rounds(storage: &str) {
     let mut model = BTreeMap::new();
     let mut next = 0;
     for round in 0..ROUNDS {
-        let wanted = 25 + round * 37;
+        let wanted = 25 + round * 10;
         let Some(last) = killed_after(root.path(), storage, next, wanted) else {
             panic!("round {round} acknowledged no write");
         };

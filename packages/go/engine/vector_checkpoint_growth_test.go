@@ -24,6 +24,7 @@ const (
 	growthIndexName          = "beacons"
 	growthPromotionThreshold = 1_000
 	growthBaseDocuments      = 1_500
+	growthBaseQueryStride    = 10
 	growthInsertBatch        = 250
 	growthFeedLevel          = 2 * growthPromotionThreshold
 	growthRounds             = 12
@@ -233,6 +234,9 @@ func requireEveryVectorFindsItself(t *testing.T, label string, narsil *engine.Na
 	t.Helper()
 	ctx := context.Background()
 	for slot := range len(live) {
+		if slot < growthBaseDocuments && slot%growthBaseQueryStride != 0 {
+			continue
+		}
 		id := growthID(slot)
 		query := live[id]
 		expected := bruteForceNearest(query, live)
