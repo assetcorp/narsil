@@ -1,12 +1,8 @@
 const { join } = require('node:path')
 const { VersionActions } = require('nx/src/command-line/release/version/version-actions')
 const { rewritingMarkedVersions } = require('./release-versions.js')
-const { escapedForPattern, tableKeyPattern } = require('./toml-table.js')
-
-function lockedPackageVersion(packageName) {
-  const name = escapedForPattern(packageName)
-  return new RegExp(`(^\\[\\[package\\]\\]\\s*^name\\s*=\\s*"${name}"\\s*^version\\s*=\\s*")([^"]+)(")`, 'm')
-}
+const { rewritePathPinnedVersions } = require('./cargo-lockfiles.js')
+const { tableKeyPattern } = require('./toml-table.js')
 
 class TomlVersionActions extends VersionActions {
   get validManifestFilenames() {
@@ -54,12 +50,7 @@ class TomlVersionActions extends VersionActions {
 
     const nameMatch = tableKeyPattern(table, 'name').exec(manifest)
     if (nameMatch === null) throw new Error(`${manifestPath} holds no [${table}] name`)
-    const lockfile = tree.read(lockfilePath, 'utf-8') ?? ''
-    const lockedVersion = lockedPackageVersion(nameMatch[2])
-    if (!lockedVersion.test(lockfile)) throw new Error(`${lockfilePath} holds no entry for ${nameMatch[2]}`)
-    tree.write(lockfilePath, lockfile.replace(lockedVersion, `$1${newVersion}$3`))
-    logMessages.push(`✍️  New version ${newVersion} written to lockfile: ${lockfilePath}`)
-    return logMessages
+    return [...logMessages, ...rewritePathPinnedVersions(tree, nameMatch[2], newVersion, lockfilePath)]
   }
 
   async updateProjectDependencies() {
