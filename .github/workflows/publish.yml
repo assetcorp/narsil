@@ -207,8 +207,8 @@ jobs:
 
   engine:
     name: Engine
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true') }}
+    needs: [changes, release-proof]
+    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == '@delali/narsil' || inputs.package == 'github.com/assetcorp/narsil/packages/go/engine' || inputs.package == 'delali-narsil' || inputs.package == 'delali-narsil on PyPI' || (inputs.package == 'narsil-client' && needs.release-proof.outputs.python_client != 'true') || ((inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes') && needs.release-proof.outputs.go_client != 'true')))) }}
     permissions:
       contents: read
     uses: ./.github/workflows/engine.yml
