@@ -75,7 +75,7 @@ function adapterFiles(storage: Extract<HistoryStorage, { kind: 'adapter' }>): Hi
       const bytes = await adapter.load(key)
       if (bytes === null) return null
       if (bytes.byteLength > MAX_HISTORY_FILE_BYTES) return 'too-long'
-      return bytes.slice()
+      return new Uint8Array(bytes)
     },
     write: (key, bytes) => adapter.save(key, bytes),
     remove: key => adapter.delete(key),
