@@ -2,6 +2,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import { getHeapSpaceStatistics, setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
+import { Worker } from 'node:worker_threads'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
 import { createTcpTransport } from '../../../../dist/distribution/transport/tcp.mjs'
 import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribution.mjs'
@@ -16,10 +17,25 @@ const BALLAST_ARRAY_LENGTH = 131_072
 const OLD_GENERATION_SAMPLE_INTERVAL_MS = 20
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 
+const UNBACKED_PEAK_SLOT = 0
+const UNBACKED_SAMPLES_SLOT = 1
+const UNBACKED_FIGURE_SLOTS = 2
+
 const hostShareBytes = Number(process.env.NARSIL_TEST_HOST_SHARE_BYTES ?? 0)
+const unbackedFigures = new BigInt64Array(
+  new SharedArrayBuffer(UNBACKED_FIGURE_SLOTS * BigInt64Array.BYTES_PER_ELEMENT),
+)
 if (hostShareBytes > 0) {
   os.freemem = () => Math.max(0, hostShareBytes - memoryThatNoFileBacks())
   syncBuiltinESMExports()
+  Atomics.store(unbackedFigures, UNBACKED_PEAK_SLOT, BigInt(memoryThatNoFileBacks()))
+  new Worker(new URL('./unbacked-peak-sampler.mjs', import.meta.url), {
+    workerData: { figures: unbackedFigures.buffer },
+  }).unref()
+}
+
+function peakUnbackedBytes() {
+  return Math.max(Number(Atomics.load(unbackedFigures, UNBACKED_PEAK_SLOT)), memoryThatNoFileBacks())
 }
 
 let peakOldGenerationBytes = 0
@@ -34,6 +50,8 @@ setInterval(sampleOldGeneration, OLD_GENERATION_SAMPLE_INTERVAL_MS).unref()
 process.on('SIGUSR2', () => {
   sampleOldGeneration()
   process.stdout.write(`PEAK_OLD_GENERATION ${peakOldGenerationBytes}\n`)
+  const samples = Atomics.load(unbackedFigures, UNBACKED_SAMPLES_SLOT)
+  process.stdout.write(`PEAK_UNBACKED ${peakUnbackedBytes()} ${samples}\n`)
 })
 
 registerLanguage(chinese)

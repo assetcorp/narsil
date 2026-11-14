@@ -8,16 +8,26 @@ interface GateMessage {
   armed?: unknown
   held?: unknown
   released?: unknown
-  busyMs?: unknown
+  answer?: unknown
   moved?: unknown
   probed?: unknown
   started?: unknown
 }
 
+export interface HeldAnswer {
+  status: number
+  body: string
+}
+
 export interface LongQueryReport {
-  longQuery: number
-  others: number[]
   movedSinceClosed: number
+  heldAnswer: HeldAnswer | null
+}
+
+function heldAnswerOf(answer: unknown): HeldAnswer | null {
+  if (typeof answer !== 'object' || answer === null) return null
+  const { status, body } = answer as { status?: unknown; body?: unknown }
+  return typeof status === 'number' && typeof body === 'string' ? { status, body } : null
 }
 
 export interface HeldMove {
@@ -35,14 +45,29 @@ export interface LongQueryGate {
 
 function gateModule(): string {
   const source = `import { BroadcastChannel, MessagePort, workerData } from 'node:worker_threads'
-import { performance } from 'node:perf_hooks'
 const workerId = workerData?.workerId
 const channel = new BroadcastChannel(${JSON.stringify(GATE_CHANNEL)})
-let since = performance.eventLoopUtilization()
+const decoder = new TextDecoder()
 let moved = 0
 let armed = false
 let holding = null
+let answering = null
 const portListeners = new WeakMap()
+const post = MessagePort.prototype.postMessage
+MessagePort.prototype.postMessage = function (message, transfer) {
+  if (answering !== null && this === answering.port && message?.requestId === answering.requestId) {
+    if (message.type === 'response') {
+      answering.answer = { status: message.status, body: decoder.decode(message.body) }
+    } else if (message.type === 'stream-start') {
+      answering.status = message.status
+    } else if (message.type === 'stream-chunk') {
+      answering.body += decoder.decode(message.chunk, { stream: true })
+    } else if (message.type === 'stream-end' && !message.failed) {
+      answering.answer = { status: answering.status, body: answering.body + decoder.decode() }
+    }
+  }
+  return post.call(this, message, transfer)
+}
 const on = MessagePort.prototype.on
 MessagePort.prototype.on = function (type, listener) {
   if (type === 'message') {
@@ -60,6 +85,7 @@ MessagePort.prototype.on = function (type, listener) {
         armed = false
         event.stopImmediatePropagation()
         holding = { port, data: event.data, listeners: held }
+        answering = { port, requestId: event.data.requestId, status: 0, body: '', answer: null }
         channel.postMessage({ held: workerId })
       })
     }
@@ -69,7 +95,6 @@ MessagePort.prototype.on = function (type, listener) {
 }
 function release() {
   armed = false
-  since = performance.eventLoopUtilization()
   const released = holding
   holding = null
   if (released !== null) for (const listener of released.listeners) listener.call(released.port, released.data)
@@ -79,15 +104,13 @@ channel.onmessage = message => {
   if (data?.hold === workerId) {
     moved = 0
     armed = true
-    since = performance.eventLoopUtilization()
+    answering = null
     channel.postMessage({ armed: workerId })
   } else if (data?.release === workerId) {
     release()
     channel.postMessage({ released: workerId })
-  } else if (data?.mark === true && data.except !== workerId) {
-    since = performance.eventLoopUtilization()
   } else if (typeof data?.probe === 'number') {
-    channel.postMessage({ probed: data.probe, workerId, moved, busyMs: performance.eventLoopUtilization(since).active })
+    channel.postMessage({ probed: data.probe, workerId, moved, answer: answering?.answer ?? null })
   }
 }
 channel.unref()
@@ -149,7 +172,6 @@ export function createLongQueryGate(): LongQueryGate {
     async release() {
       const target = longQueryWorker()
       const released = awaitReplies(data => data.released === target, 1)
-      channel.postMessage({ mark: true, except: target })
       channel.postMessage({ release: target })
       await released
     },
@@ -159,18 +181,14 @@ export function createLongQueryGate(): LongQueryGate {
       const probe = probes
       const replies = awaitReplies(data => data.probed === probe && typeof data.workerId === 'number', workers.size)
       channel.postMessage({ probe })
-      const busy = new Map<number, number>()
       let movedSinceClosed = 0
+      let heldAnswer: HeldAnswer | null = null
       for (const reply of await replies) {
-        if (typeof reply.workerId !== 'number' || typeof reply.busyMs !== 'number') continue
-        busy.set(reply.workerId, reply.busyMs)
-        if (reply.workerId === target && typeof reply.moved === 'number') movedSinceClosed = reply.moved
+        if (reply.workerId !== target) continue
+        if (typeof reply.moved === 'number') movedSinceClosed = reply.moved
+        heldAnswer = heldAnswerOf(reply.answer)
       }
-      return {
-        longQuery: busy.get(target) ?? 0,
-        others: [...busy].filter(([workerId]) => workerId !== target).map(([, busyMs]) => busyMs),
-        movedSinceClosed,
-      }
+      return { movedSinceClosed, heldAnswer }
     },
     stop() {
       listeners.clear()

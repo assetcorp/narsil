@@ -35,6 +35,21 @@ type expectedSearches struct {
 			} `json:"hits"`
 		} `json:"queries"`
 	} `json:"text"`
+	Grouped struct {
+		Group struct {
+			Fields      []string `json:"fields"`
+			Limit       int      `json:"limit"`
+			MaxPerGroup int      `json:"maxPerGroup"`
+		} `json:"group"`
+		Queries []struct {
+			ID     string `json:"id"`
+			Text   string `json:"text"`
+			Groups []struct {
+				Values map[string]any `json:"values"`
+				IDs    []string       `json:"ids"`
+			} `json:"groups"`
+		} `json:"queries"`
+	} `json:"grouped"`
 	Vector struct {
 		Field  string `json:"field"`
 		Floors []struct {
@@ -118,6 +133,44 @@ func cosineSimilarities(dataset conformanceDataset, query []float64) []float64 {
 	return similarities
 }
 
+func requireCommittedGroups(t *testing.T, ctx context.Context, narsil *engine.Narsil, expected expectedSearches) {
+	t.Helper()
+	committed := expected.Grouped
+	if len(committed.Queries) != len(expected.Text.Queries) {
+		t.Fatalf("queries.json groups %d queries, not the %d text queries", len(committed.Queries), len(expected.Text.Queries))
+	}
+	for _, query := range committed.Queries {
+		result, err := narsil.Query(ctx, searchesIndexName, engine.QueryParams{Term: query.Text, Limit: engine.Some(expected.Text.Limit),
+			Group: &engine.GroupConfig{Fields: committed.Group.Fields, Limit: engine.Some(committed.Group.Limit), MaxPerGroup: engine.Some(committed.Group.MaxPerGroup)}})
+		if err != nil {
+			t.Fatalf("grouped query %s failed: %v", query.ID, err)
+		}
+		if len(result.Groups) != len(query.Groups) {
+			t.Fatalf("grouped query %s returned %d groups, not %d", query.ID, len(result.Groups), len(query.Groups))
+		}
+		for at, group := range result.Groups {
+			want := query.Groups[at]
+			if len(group.Values) != len(want.Values) {
+				t.Fatalf("group %d of query %s holds values %v, where the reference holds %v", at, query.ID, group.Values, want.Values)
+			}
+			for field, wanted := range want.Values {
+				found, present := group.Values[field]
+				if !present || found != wanted {
+					t.Fatalf("group %d of query %s holds %v under %q, where the reference holds %v", at, query.ID, found, field, wanted)
+				}
+			}
+			if len(group.Hits) != len(want.IDs) {
+				t.Fatalf("group %d of query %s holds %d hits, not %d", at, query.ID, len(group.Hits), len(want.IDs))
+			}
+			for rank, hit := range group.Hits {
+				if hit.ID != want.IDs[rank] {
+					t.Fatalf("group %d of query %s holds %s at %d, where the reference holds %s", at, query.ID, hit.ID, rank+1, want.IDs[rank])
+				}
+			}
+		}
+	}
+}
+
 func TestConformanceSearchesMatchTheReferenceOverThePinnedDataset(t *testing.T) {
 	t.Parallel()
 	var expected expectedSearches
@@ -152,6 +205,7 @@ func TestConformanceSearchesMatchTheReferenceOverThePinnedDataset(t *testing.T) 
 			}
 		}
 	}
+	requireCommittedGroups(t, ctx, narsil, expected)
 	rows := map[string]int{}
 	for row, document := range dataset.documents {
 		rows[document.ID] = row

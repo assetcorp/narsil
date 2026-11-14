@@ -160,7 +160,7 @@ A server built with `createServer` answers the routes below without a body, so a
 | --- | --- |
 | `GET /livez` | The route answers 200 whenever the process can serve HTTP. |
 | `GET /readyz`, `GET /health` | The routes answer 200 once the engine is ready, and only while the node reports `SERVING` where the server fronts a cluster node. |
-| `GET /version` | The answer gives the package version, the build commit, and the vector search path that this process takes. |
+| `GET /version` | The answer gives the installed `@delali/narsil` version, the build commit, and the path through which this process searches vector graphs. The answer reports a null commit with a `dirty` flag of false until you set `gitSha` and `dirty` in the `build` option of `createServer`. You can also set `version` in that option, so that `/version` reports the version of your deployment in place of the package version. |
 | `GET /capabilities` | The answer lists the optional routes that this server answers. |
 | `GET /stats/memory` | The answer repeats the figures that `getMemoryStats()` returns, with the request thread count added. |
 | `GET /cluster` | The answer gives the cluster topology that the node behind this server has recorded. |

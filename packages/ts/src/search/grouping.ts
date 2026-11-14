@@ -93,7 +93,7 @@ export function applyGrouping<T = AnyDocument>(
   for (let at = 0; at < found; at++) {
     const values: Record<string, unknown> = Object.create(null)
     const row = documents.fieldValues(hits[heads[at]].id, group.fields)
-    for (let field = 0; field < group.fields.length; field++) values[group.fields[field]] = row?.[field]
+    for (let field = 0; field < group.fields.length; field++) values[group.fields[field]] = row?.[field] ?? null
     const everyHit: Hit[] = []
     for (let member = offsets[at]; member < offsets[at + 1]; member++) everyHit.push(hits[positions[member]] as Hit)
     const result: GroupResult = { values, hits: everyHit.slice(0, keptPerGroup) }
