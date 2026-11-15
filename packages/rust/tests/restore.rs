@@ -27,6 +27,10 @@ const FIRST_SEGMENT_ENTRY: &str = "segments/0/s0000000000000000";
 const TAR_SIZE_OFFSET: usize = 124;
 const TAR_SIZE_BYTES: usize = 12;
 const DAMAGE_POINTS: usize = 16;
+const ENVELOPE_HEADER_BYTES: usize = 32;
+const ENVELOPE_VERSION_OFFSET: usize = 4;
+const ENVELOPE_CHECKSUM_OFFSET: usize = 14;
+const CRC32_REFLECTED_POLYNOMIAL: u32 = 0xedb8_8320;
 
 fn words_of(document: &Map) -> Vec<String> {
     let mut words = Vec::new();
@@ -147,7 +151,7 @@ fn require_whole_index(narsil: &Narsil, index: &str, ids: &[String], held: &BTre
     }
 }
 
-fn copies_with_a_damaged_segment(archive: &[u8]) -> Vec<Vec<u8>> {
+fn first_segment_entry(archive: &[u8]) -> (usize, usize) {
     let name = FIRST_SEGMENT_ENTRY.as_bytes();
     let header = (0..archive.len())
         .step_by(TAR_BLOCK_BYTES)
@@ -157,7 +161,11 @@ fn copies_with_a_damaged_segment(archive: &[u8]) -> Vec<Vec<u8>> {
     let size_text = String::from_utf8_lossy(size_field);
     let size = usize::from_str_radix(size_text.trim_matches(|c: char| c == '\0' || c == ' '), 8)
         .expect("the tar header gives the segment's size in octal");
-    let body = header + TAR_BLOCK_BYTES;
+    (header + TAR_BLOCK_BYTES, size)
+}
+
+fn copies_with_a_damaged_segment(archive: &[u8]) -> Vec<Vec<u8>> {
+    let (body, size) = first_segment_entry(archive);
     (1..=DAMAGE_POINTS)
         .map(|point| {
             let mut damaged = archive.to_vec();
@@ -287,6 +295,96 @@ fn a_refused_restore_leaves_the_index_as_it_was_and_a_good_one_replaces_it() {
         drop(target);
         let reopened = tier.open(root.path());
         assert_eq!(held_documents(&reopened, "copy", &ids), second, "{tier:?}");
+    }
+}
+
+fn crc32_of(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &byte in bytes {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let low_bit = crc & 1;
+            crc >>= 1;
+            if low_bit == 1 {
+                crc ^= CRC32_REFLECTED_POLYNOMIAL;
+            }
+        }
+    }
+    !crc
+}
+
+fn details_of(pairs: &[(&str, f64)]) -> Map {
+    let mut details = Map::new();
+    for (key, value) in pairs {
+        details.insert(*key, Value::Number(*value));
+    }
+    details
+}
+
+#[test]
+fn a_damaged_snapshot_reports_what_it_found_in_the_details_of_its_refusal() {
+    let archive = snapshot_of(&source_engine(&documents("doc", 0..120)), "source");
+    let (body, size) = first_segment_entry(&archive);
+
+    let written_version = archive[body + ENVELOPE_VERSION_OFFSET];
+    let mut other_version = archive.clone();
+    other_version[body + ENVELOPE_VERSION_OFFSET] = written_version + 1;
+    let version_details = details_of(&[
+        ("version", f64::from(written_version + 1)),
+        ("expected", f64::from(written_version)),
+    ]);
+
+    let mut flipped = archive.clone();
+    let payload = body + ENVELOPE_HEADER_BYTES..body + size;
+    flipped[payload.start + (payload.len() / 2)] ^= 0xff;
+    let header_checksum = u32::from_be_bytes(
+        flipped[body + ENVELOPE_CHECKSUM_OFFSET..body + ENVELOPE_CHECKSUM_OFFSET + 4]
+            .try_into()
+            .expect("the envelope header holds a 4-byte checksum"),
+    );
+    let checksum_details = details_of(&[
+        ("expected", f64::from(header_checksum)),
+        ("computed", f64::from(crc32_of(&flipped[payload]))),
+    ]);
+
+    for tier in [Tier::Memory, Tier::Log, Tier::Snapshot] {
+        let root = ScratchDirectory::new("restore-details");
+        let target = tier.open(root.path());
+        let refused = target
+            .restore("copy", &mut other_version.as_slice())
+            .expect_err("a segment in another envelope version restored");
+        assert_eq!(
+            refused.code(),
+            ErrorCode::ENVELOPE_VERSION_MISMATCH,
+            "{tier:?}"
+        );
+        assert_eq!(refused.details(), Some(&version_details), "{tier:?}");
+
+        let refused = target
+            .restore("copy", &mut flipped.as_slice())
+            .expect_err("a segment with a flipped payload byte restored");
+        assert_eq!(
+            refused.code(),
+            ErrorCode::PERSISTENCE_CRC_MISMATCH,
+            "{tier:?}"
+        );
+        assert_eq!(refused.details(), Some(&checksum_details), "{tier:?}");
+
+        for cut in [archive.len() / 2, body + size / 2, body - 1] {
+            let refused = target
+                .restore("copy", &mut &archive[..cut])
+                .expect_err("a truncated archive restored");
+            assert_eq!(
+                refused.code(),
+                ErrorCode::PERSISTENCE_LOAD_FAILED,
+                "{tier:?}: cut at {cut}"
+            );
+            assert_eq!(refused.details(), None, "{tier:?}: cut at {cut}");
+        }
+        assert!(
+            target.list_indexes().is_empty(),
+            "{tier:?}: a refused restore left an index behind"
+        );
     }
 }
 
