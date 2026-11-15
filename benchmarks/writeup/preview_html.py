@@ -156,8 +156,7 @@ def preview_document(run_id: str, headline: str, page: str) -> str:
     notice = (
         f"<p><strong>Preview.</strong> This page renders BENCHMARKS.md from run <code>{html.escape(run_id)}</code> "
         "with a row for every Narsil server in every server table and chart.</p>"
-        "<p>A row that reads not measured yet holds no figure, because this comparison has no measurement "
-        "for that server on that dataset.</p>"
+        "<p>A row that reads not measured yet holds no figure, because no recorded run measured that server.</p>"
     )
     return "\n".join([
         "<!doctype html>",

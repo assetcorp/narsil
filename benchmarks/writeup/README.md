@@ -42,9 +42,11 @@ leaves out that figure with it.
 The server suite can measure Narsil's TypeScript server under the engine id
 `narsil` and its Rust server under `narsil-rust`. While a run holds results for
 the TypeScript server alone, the page calls it Narsil. Once a run holds results
-for both servers, every server table and chart gives each server a separate row,
-labelled Narsil TypeScript and Narsil Rust, and a dataset that the run measured
-with only one of them lists the other as not measured yet. The README headline
+for the Rust server, every server table and chart gives each server a separate
+row, labelled Narsil TypeScript and Narsil Rust, and a dataset that the run
+measured with only one of them lists the other as not measured yet. The generator
+stops with an error on a comparison that it cannot report truthfully, such as one
+that records the same engine twice on a dataset. The README headline
 quotes the Rust server's peak in a separate sentence, and it never treats one
 Narsil server as a rival of the other.
 
