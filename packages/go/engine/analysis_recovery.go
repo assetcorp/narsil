@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
@@ -291,6 +292,7 @@ func (n *Narsil) runStaleRebuild(entry *indexEntry, run *staleRebuild) error {
 // change a restart interrupted, the engine runs that change again. An index
 // with current terms and no pending change returns at once.
 func (n *Narsil) RebuildAnalysis(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

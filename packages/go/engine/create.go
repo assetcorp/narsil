@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/indexconfig"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -180,7 +181,7 @@ func partitionCountOf(config model.IndexConfig) int {
 // CodeEmbeddingConfigInvalid when the embedding configuration names an
 // adapter that the engine has not registered.
 func (n *Narsil) CreateIndex(ctx context.Context, name string, config IndexConfig) error {
-	return n.createIndex(ctx, name, config, nil)
+	return n.createIndex(callerctx.Shield(ctx), name, config, nil)
 }
 
 func (n *Narsil) createIndex(ctx context.Context, name string, config IndexConfig, schemaOrder []string) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -19,6 +20,7 @@ import (
 // restored contents. An embedding adapter that the archive names binds when
 // it is registered.
 func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader) error {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return err
@@ -114,6 +116,7 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 // durable storage at once, so that recovery replays no log for the writes
 // before it. Without durability configured, the call returns at once.
 func (n *Narsil) Checkpoint(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -129,6 +132,7 @@ func (n *Narsil) Checkpoint(ctx context.Context, indexName string) error {
 // settings. With durability configured, the engine saves a checkpoint of the
 // empty index before it returns.
 func (n *Narsil) Clear(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

@@ -93,8 +93,9 @@ func (a *Analyzer) LanguageName() string {
 }
 
 type Pass struct {
-	analyzer *Analyzer
-	stops    *core.StopWordSet
+	analyzer   *Analyzer
+	stops      *core.StopWordSet
+	remembered *rememberedTokens
 }
 
 func (a *Analyzer) Prepare() (*Pass, error) {
@@ -249,6 +250,18 @@ func (e *TokenPositionError) Error() string {
 }
 
 func (p *Pass) customTokens(source string) ([]model.Token, error) {
+	if p.remembered == nil {
+		return p.checkedCustomTokens(source)
+	}
+	if held, found := p.remembered.lookup(source); found {
+		return held.tokens, held.err
+	}
+	entries, err := p.checkedCustomTokens(source)
+	p.remembered.keep(source, entries, err)
+	return entries, err
+}
+
+func (p *Pass) checkedCustomTokens(source string) ([]model.Token, error) {
 	entries, err := p.callTokenizer(source)
 	if err != nil {
 		return nil, err

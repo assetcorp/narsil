@@ -1,6 +1,7 @@
 package partition
 
 import (
+	"context"
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
@@ -75,7 +76,7 @@ func mergedOutput(result *segments.MergeResult, inputs []*frozenSegment) (*froze
 	return newFrozenSegment(result.Frozen, ids, documents), nil
 }
 
-func (p *Partition) Merge(sides *Sides, pick func(sizes []SegmentSize) []int) (bool, error) {
+func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []SegmentSize) []int) (bool, error) {
 	p.merging.Lock()
 	defer p.merging.Unlock()
 	read, err := sides.readWithoutLease()
@@ -108,7 +109,7 @@ func (p *Partition) Merge(sides *Sides, pick func(sizes []SegmentSize) []int) (b
 		merged.output = append(merged.output, output)
 	}
 	installed := false
-	err = sides.Write(func(write *Write) (err error) {
+	err = sides.Write(ctx, func(write *Write) (err error) {
 		pl := p.planner(write)
 		defer pl.commit(&err)
 		inputsHeld, err := pl.lateRemovals(merged, snapshot)

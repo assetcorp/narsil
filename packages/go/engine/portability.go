@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/export"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/indexconfig"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -27,6 +28,7 @@ func (n *Narsil) openArchive(ctx context.Context, entry *indexEntry) (*persist.A
 // It returns CodeConfigInvalid for an index that uses a tokenizer instance or
 // a stop word function, because an archive keeps no code.
 func (n *Narsil) Snapshot(ctx context.Context, indexName string, options SnapshotOptions, destination io.Writer) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -57,6 +59,7 @@ func (n *Narsil) Snapshot(ctx context.Context, indexName string, options Snapsho
 // then one JSON line per document with its vectors. ImportDocumentExport
 // reads it back into an index of this engine or of the TypeScript one.
 func (n *Narsil) ExportDocuments(ctx context.Context, indexName string, destination io.Writer) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -138,6 +141,7 @@ func unionKeys(left, right map[string]string) map[string]struct{} {
 // header that is not a document export or for an index whose schema gives a
 // field another type than the export.
 func (n *Narsil) ImportDocumentExport(ctx context.Context, indexName string, source io.Reader) (DocumentImportResult, error) {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return model.DocumentImportResult{}, err

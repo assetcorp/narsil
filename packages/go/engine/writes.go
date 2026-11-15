@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -72,6 +73,7 @@ func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working *mod
 // UpdateBatch embed the same way, and InsertBatch writes each chunk of 1,000
 // documents whole to one index.
 func (n *Narsil) Insert(ctx context.Context, indexName string, document *Document, docID string, options InsertOptions) (string, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return "", err
@@ -150,6 +152,7 @@ func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write
 // CodeDocValidationFailed when the document's own "id" names another ID, and
 // the same validation and embedding codes as Insert.
 func (n *Narsil) Update(ctx context.Context, indexName string, docID string, document *Document, options WriteOptions) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -246,6 +249,7 @@ func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write
 // Remove deletes the document under docID from the index called indexName.
 // It returns CodeDocNotFound when no document holds that ID.
 func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, options WriteOptions) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -296,6 +300,7 @@ func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID
 // acknowledges it, except during a rebalance, which queues writes until the
 // new partitions answer, so the call waits for that queue alone.
 func (n *Narsil) WaitForWrites(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

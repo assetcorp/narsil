@@ -169,6 +169,7 @@ func (ix *Index) requireUsablePhrases(term analysedTerm, phraseReady func() erro
 type QueryOptions struct {
 	CursorParams model.Optional[model.QueryParams]
 	PhraseReady  func() error
+	Analysed     *AnalysedQuery
 }
 
 func (ix *Index) QueryContext(ctx context.Context, request model.QueryParams) (model.QueryResult, error) {
@@ -184,7 +185,7 @@ func (ix *Index) QueryWith(ctx context.Context, request model.QueryParams, optio
 	if err != nil {
 		return model.QueryResult{}, err
 	}
-	pass, err := ix.settings.Analyzer.Prepare()
+	pass, err := ix.queryPass(options)
 	if err != nil {
 		return model.QueryResult{}, err
 	}

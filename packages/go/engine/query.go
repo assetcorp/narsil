@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -31,6 +32,11 @@ func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.Que
 
 func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
 	options index.QueryOptions) (model.QueryResult, error) {
+	analysed, err := target.AnalyseQuery(resolved)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	options.Analysed = analysed
 	pinned, unpin, err := target.Pin(ctx)
 	if err != nil {
 		return model.QueryResult{}, err
@@ -103,6 +109,7 @@ func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model
 // the index during each of three rerank calls, while the reruns after a
 // rebalance or an analysis change count toward no limit.
 func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams) (QueryResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.QueryResult{}, err
@@ -126,6 +133,7 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 // clause's Text the same way, with no lock held on the index during the
 // embedding.
 func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryParams) (PreflightResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.PreflightResult{}, err

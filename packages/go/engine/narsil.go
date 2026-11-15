@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
@@ -55,6 +56,7 @@ type Narsil struct {
 // every index saved there before it returns, so the first call after New
 // sees them. The context bounds that loading.
 func New(ctx context.Context, config Config) (*Narsil, error) {
+	ctx = callerctx.Shield(ctx)
 	engine := &Narsil{
 		config:        config,
 		idGenerator:   config.IDGenerator,
@@ -138,6 +140,7 @@ func (n *Narsil) leave(generation uint64) {
 // and the engine finishes closing in the background. A second call returns
 // nil at once.
 func (n *Narsil) Shutdown(ctx context.Context) error {
+	ctx = callerctx.Shield(ctx)
 	first := false
 	n.shutdown.Do(func() {
 		first = true

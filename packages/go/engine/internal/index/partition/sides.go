@@ -1,6 +1,7 @@
 package partition
 
 import (
+	"context"
 	"math"
 	"runtime"
 	"sync/atomic"
@@ -40,24 +41,33 @@ type Write struct {
 	side      int
 }
 
-func (s *Sides) claim(side int) {
+func (s *Sides) claim(ctx context.Context, side int) error {
+	held := s.heldState[side].Load()
 	s.heldState[side].Store(stateBeingWritten)
+	stopped := ctx.Done()
 	delay := SideReaderWaitFirstDelay
 	for s.readers[side].Load() != 0 {
+		select {
+		case <-stopped:
+			s.heldState[side].Store(held)
+			return ctx.Err()
+		default:
+		}
 		time.Sleep(delay)
 		delay = min(delay*2, SideReaderWaitMaxDelay)
 	}
+	return nil
 }
 
-func (s *Sides) Write(apply func(write *Write) error) error {
-	return s.write(false, apply)
+func (s *Sides) Write(ctx context.Context, apply func(write *Write) error) error {
+	return s.write(ctx, false, apply)
 }
 
-func (s *Sides) WriteInPlace(apply func(write *Write) error) error {
-	return s.write(true, apply)
+func (s *Sides) WriteInPlace(ctx context.Context, apply func(write *Write) error) error {
+	return s.write(ctx, true, apply)
 }
 
-func (s *Sides) write(inPlace bool, apply func(write *Write) error) error {
+func (s *Sides) write(ctx context.Context, inPlace bool, apply func(write *Write) error) error {
 	var gate chan struct{}
 	err := s.slots.Write(func(sequence int64) error {
 		w, err := core.AcquireWorkspace()
@@ -74,7 +84,7 @@ func (s *Sides) write(inPlace bool, apply func(write *Write) error) error {
 			s.heldState[1-published].Store(stateBeingWritten)
 		} else {
 			write.side = 1 - published
-			if err := s.catchUp(write); err != nil {
+			if err := s.catchUp(ctx, write); err != nil {
 				return err
 			}
 		}
@@ -117,8 +127,10 @@ func (s *Sides) closeGate(side int) chan struct{} {
 	return nil
 }
 
-func (s *Sides) catchUp(write *Write) error {
-	s.claim(write.side)
+func (s *Sides) catchUp(ctx context.Context, write *Write) error {
+	if err := s.claim(ctx, write.side); err != nil {
+		return err
+	}
 	for _, partition := range s.partitions {
 		if err := partition.catchUp(write); err != nil {
 			return err

@@ -1,12 +1,14 @@
 package index
 
 import (
+	"context"
+
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
-func (ix *Index) AttachSegmentFile(partitionID int, file *keyword.Segment, documents [][]byte) error {
+func (ix *Index) AttachSegmentFile(ctx context.Context, partitionID int, file *keyword.Segment, documents [][]byte) error {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return err
 	}
@@ -23,7 +25,7 @@ func (ix *Index) AttachSegmentFile(partitionID int, file *keyword.Segment, docum
 	if err != nil {
 		return err
 	}
-	err = ix.Write(func(w *Write) error {
+	err = ix.Write(ctx, func(w *Write) error {
 		return ix.partitions[partitionID].Attach(w.write, frozen, ids, documents)
 	})
 	ix.noteGrowth()
@@ -36,17 +38,18 @@ type PagedSegmentFile struct {
 	Replaces     func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error
 }
 
-func (ix *Index) attachOpenedPaged(partitionID int, paged *segments.Paged, file PagedSegmentFile) (bool, error) {
+func (ix *Index) attachOpenedPaged(ctx context.Context, partitionID int, paged *segments.Paged,
+	file PagedSegmentFile) (bool, error) {
 	err := file.Replaces(paged.FieldSchema(), paged.Tombstones(), paged.DocumentCount())
 	if err != nil || paged.DocumentCount() == 0 {
 		return false, err
 	}
-	return true, ix.Write(func(w *Write) error {
+	return true, ix.Write(ctx, func(w *Write) error {
 		return ix.partitions[partitionID].AttachPaged(w.write, paged)
 	})
 }
 
-func (ix *Index) AttachPagedSegmentFile(partitionID int, file PagedSegmentFile) error {
+func (ix *Index) AttachPagedSegmentFile(ctx context.Context, partitionID int, file PagedSegmentFile) error {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return err
 	}
@@ -59,7 +62,7 @@ func (ix *Index) AttachPagedSegmentFile(partitionID int, file PagedSegmentFile) 
 	if err != nil {
 		return err
 	}
-	attached, err := ix.attachOpenedPaged(partitionID, paged, file)
+	attached, err := ix.attachOpenedPaged(ctx, partitionID, paged, file)
 	if err != nil || !attached {
 		paged.Close()
 	}

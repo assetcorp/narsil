@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -14,6 +15,7 @@ import (
 // name returns CodeIndexNotFound until an index of that name is created
 // again.
 func (n *Narsil) DropIndex(ctx context.Context, name string) error {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return err
@@ -231,6 +233,7 @@ func processMemory() *model.ProcessMemoryReport {
 // indexes serve their queries from the worker pool, and which checkpoints
 // the engine is holding back.
 func (n *Narsil) GetMemoryStats(ctx context.Context) (MemoryStats, error) {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return model.MemoryStats{}, err

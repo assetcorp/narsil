@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -145,6 +146,7 @@ func (entry *indexEntry) swapLayout(ctx context.Context, run *rebalanceRun, buil
 // when the index is already rebalancing or is changing its analysis. A count
 // equal to the current one returns at once.
 func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitionCount int) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -211,6 +213,7 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 // durability configured, the engine writes the index metadata that holds the
 // new limits before it returns.
 func (n *Narsil) UpdatePartitionConfig(ctx context.Context, indexName string, partitions PartitionConfig) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

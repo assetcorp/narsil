@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	is "github.com/assetcorp/narsil/packages/go/engine/internal/format/indexsettings"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/suggestions"
@@ -53,6 +54,7 @@ func (handle *QuerySuggestions) runtime(ctx context.Context) (*suggestionsRuntim
 // CodeQuerySuggestionsNotEnabled when the index has the feature off.
 func (handle *QuerySuggestions) RecordQuery(ctx context.Context, indexName string, query RecordedQuery) (
 	RecordQueryResult, error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return RecordQueryResult{}, err
@@ -69,6 +71,7 @@ func (handle *QuerySuggestions) RecordQuery(ctx context.Context, indexName strin
 // feature off deletes the counted searches of the index.
 func (handle *QuerySuggestions) UpdateSetting(ctx context.Context, indexName string,
 	setting QuerySuggestionsSetting) error {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return err
@@ -80,6 +83,7 @@ func (handle *QuerySuggestions) UpdateSetting(ctx context.Context, indexName str
 // Status returns the setting, the last build, the next scheduled build, and
 // the suggestions indexes of the index called indexName.
 func (handle *QuerySuggestions) Status(ctx context.Context, indexName string) (QuerySuggestionsStatus, error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return QuerySuggestionsStatus{}, err
@@ -108,6 +112,7 @@ func (handle *QuerySuggestions) Status(ctx context.Context, indexName string) (Q
 // build that finds the same counts as the last one reports BuildSkipped, and
 // a failed build undoes its writes and reports its error code.
 func (handle *QuerySuggestions) Build(ctx context.Context, indexName string) (QuerySuggestionsBuild, error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return QuerySuggestionsBuild{}, err
@@ -121,6 +126,7 @@ func (handle *QuerySuggestions) Build(ctx context.Context, indexName string) (Qu
 // be from 1 to 1,000, or Preview returns CodeConfigInvalid.
 func (handle *QuerySuggestions) Preview(ctx context.Context, indexName string, requested Optional[int]) (
 	QuerySuggestionsPreview, error) {
+	ctx = callerctx.Shield(ctx)
 	limit := requested.Or(suggestions.DefaultPreviewLimit)
 	if limit < 1 || limit > suggestions.MaxPreviewLimit {
 		return QuerySuggestionsPreview{}, suggestionsInvalid("The preview limit must be a whole number from 1 to "+
@@ -143,6 +149,7 @@ func (handle *QuerySuggestions) Preview(ctx context.Context, indexName string, r
 
 // Bans returns the ban list of the index called indexName in normal form.
 func (handle *QuerySuggestions) Bans(ctx context.Context, indexName string) ([]string, error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return nil, err
@@ -161,6 +168,7 @@ func (handle *QuerySuggestions) Bans(ctx context.Context, indexName string) ([]s
 // CodeConfigInvalid for more than 1,000 phrases or a phrase out of format.
 func (handle *QuerySuggestions) UpdateBans(ctx context.Context, indexName string, phrases []string) ([]string,
 	error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return nil, err
@@ -173,6 +181,7 @@ func (handle *QuerySuggestions) UpdateBans(ctx context.Context, indexName string
 // every suggestions index of the index. It returns how many suggestions
 // indexes held the phrase.
 func (handle *QuerySuggestions) RemoveQuery(ctx context.Context, indexName string, query string) (int, error) {
+	ctx = callerctx.Shield(ctx)
 	runtime, leave, err := handle.runtime(ctx)
 	if err != nil {
 		return 0, err
@@ -189,6 +198,7 @@ func (handle *QuerySuggestions) RemoveQuery(ctx context.Context, indexName strin
 // or a new group past MaxGroups.
 func (handle *QuerySuggestions) AddSuggestion(ctx context.Context, indexName string,
 	suggestion ManualQuerySuggestion) (string, error) {
+	ctx = callerctx.Shield(ctx)
 	if !is.IsGroup(suggestion.Group) {
 		return "", suggestionsInvalid("A suggestion needs a group of "+groupFormat, nil)
 	}

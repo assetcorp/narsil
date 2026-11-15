@@ -62,7 +62,7 @@ func (ix *Index) StageReranked(pinned context.Context, request model.QueryParams
 	firstParams.Document = model.NoDocumentFields()
 	stage := firstParams
 	stage.Offset, stage.Limit = 0, model.Some(depth)
-	first, err := ix.QueryWith(pinned, stage, QueryOptions{PhraseReady: options.PhraseReady})
+	first, err := ix.QueryWith(pinned, stage, QueryOptions{PhraseReady: options.PhraseReady, Analysed: options.Analysed})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (ix *Index) StageReranked(pinned context.Context, request model.QueryParams
 		}
 		plain.Facets, plain.Group = nil, nil
 		plain.Offset, plain.Limit = cursorDepth+offset, model.Some(limit)
-		if staged.counted, err = ix.QueryContext(pinned, plain); err != nil {
+		if staged.counted, err = ix.QueryWith(pinned, plain, QueryOptions{Analysed: options.Analysed}); err != nil {
 			return nil, err
 		}
 	}

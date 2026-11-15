@@ -1,6 +1,8 @@
 package index
 
 import (
+	"context"
+
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
@@ -45,8 +47,8 @@ func (ix *Index) prepare(documents []DocumentWrite) ([]PreparedDocument, []error
 	return prepared, failures
 }
 
-func (ix *Index) Write(apply func(w *Write) error) error {
-	return ix.sides.Write(func(write *partition.Write) error {
+func (ix *Index) Write(ctx context.Context, apply func(w *Write) error) error {
+	return ix.sides.Write(ctx, func(write *partition.Write) error {
 		return apply(&Write{ix: ix, write: write})
 	})
 }
@@ -137,5 +139,5 @@ func (w *Write) Clear(vectors []vector.NamedField) error {
 }
 
 func (ix *Index) Clear(vectors []vector.NamedField) error {
-	return ix.Write(func(w *Write) error { return w.Clear(vectors) })
+	return ix.Write(context.Background(), func(w *Write) error { return w.Clear(vectors) })
 }

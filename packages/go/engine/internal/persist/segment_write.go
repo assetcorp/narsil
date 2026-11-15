@@ -220,7 +220,7 @@ func writeSegmentsOf(selections []partition.Selection, request segmentWriteReque
 
 func freezePartitions(ctx context.Context, target *index.Index, partitionIDs []int) (*index.Reading, error) {
 	for _, partitionID := range partitionIDs {
-		if _, err := target.FreezeLiveTail(partitionID, 1); err != nil {
+		if _, err := target.FreezeLiveTail(ctx, partitionID, 1); err != nil {
 			return nil, err
 		}
 	}

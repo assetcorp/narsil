@@ -11,8 +11,8 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 )
 
-func (held *capture) trackChanges(handle *Handle) error {
-	changes, err := handle.Index.TrackChanges()
+func (held *capture) trackChanges(ctx context.Context, handle *Handle) error {
+	changes, err := handle.Index.TrackChanges(ctx)
 	if err != nil {
 		return err
 	}
@@ -22,7 +22,7 @@ func (held *capture) trackChanges(handle *Handle) error {
 
 func (held capture) stopTracking() {
 	if held.tracked != nil {
-		_ = held.tracked.StopTracking(held.changes)
+		_ = held.tracked.StopTracking(context.Background(), held.changes)
 	}
 }
 
@@ -136,7 +136,7 @@ func (durable *Durable) adoptPartition(ctx context.Context, store checkpoint.Sto
 		return nil
 	}
 	defer files.closeHeld()
-	adopted, err := durable.handle.Index.Adopt(partitionID, adoption, log)
+	adopted, err := durable.handle.Index.Adopt(ctx, partitionID, adoption, log)
 	if !adopted {
 		files.closeOpened()
 		return nil

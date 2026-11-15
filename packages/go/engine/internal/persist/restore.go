@@ -295,7 +295,7 @@ func (manager *Manager) installRestored(ctx context.Context, staging *restoreSta
 		manager.markFatal(err)
 	}
 	relocate := staging.relocation(ctx)
-	if err := handle.Index.ResumePagedFiles(relocate); err != nil {
+	if err := handle.Index.ResumePagedFiles(context.Background(), relocate); err != nil {
 		manager.markFatal(err)
 	}
 	if relocate != nil {
@@ -331,11 +331,11 @@ func commitWithFilesClosed(ctx context.Context, staging *restoreStaging, handle 
 	if err != nil {
 		return err
 	}
-	if err := handle.Index.SuspendPagedFiles(); err != nil {
+	if err := handle.Index.SuspendPagedFiles(ctx); err != nil {
 		return errors.Join(err, held.Resume())
 	}
 	if err := staging.commit(ctx); err != nil {
-		return errors.Join(err, handle.Index.ResumePagedFiles(nil), held.Resume())
+		return errors.Join(err, handle.Index.ResumePagedFiles(context.Background(), nil), held.Resume())
 	}
 	return nil
 }

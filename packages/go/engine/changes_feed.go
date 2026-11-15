@@ -5,6 +5,7 @@ import (
 	"iter"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/wal"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -32,6 +33,7 @@ import (
 // CHANGES_PREVIOUS_DOCUMENT_REQUIRED for a filter while PreviousDocument is
 // off or turns off, and with the error of ctx when ctx ends.
 func (n *Narsil) Changes(ctx context.Context, indexName string, request ChangesRequest) iter.Seq2[ChangesEvent, error] {
+	ctx = callerctx.Shield(ctx)
 	return func(yield func(ChangesEvent, error) bool) {
 		follower, first, err := n.openChanges(ctx, indexName, request)
 		if err != nil {

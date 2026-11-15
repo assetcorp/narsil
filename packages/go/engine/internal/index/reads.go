@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -21,6 +22,8 @@ func (r *Reading) Release() {
 }
 
 type pinnedReadKey struct{}
+
+var _ = callerctx.EngineKey(pinnedReadKey{})
 
 func (ix *Index) pinnedRead(ctx context.Context) (*partition.Read, bool) {
 	pinned, held := ctx.Value(pinnedReadKey{}).(*partition.Read)

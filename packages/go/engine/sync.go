@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -37,6 +38,7 @@ func (n *Narsil) requireSyncStorage(entry *indexEntry) error {
 // write-ahead log durability. The engine writes the index metadata that holds
 // the setting before it returns.
 func (n *Narsil) UpdateSync(ctx context.Context, indexName string, setting SyncSetting) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -88,6 +90,7 @@ func (n *Narsil) UpdateSync(ctx context.Context, indexName string, setting SyncS
 // with no epoch, or on with its limits, whether a device has asked for the
 // published snapshot, and the current epoch, which change capture shares.
 func (n *Narsil) GetSync(ctx context.Context, indexName string) (SyncStatus, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return SyncStatus{}, err

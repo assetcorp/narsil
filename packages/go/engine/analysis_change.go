@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -121,6 +122,7 @@ func requireRebuildMemory(indexName string, termBytes int64) error {
 // change or a restore replaces this one. When ctx ends first, the call
 // returns the context error and the change continues.
 func (n *Narsil) ChangeAnalysis(ctx context.Context, indexName string, change AnalysisChange) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

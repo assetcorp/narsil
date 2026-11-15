@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -50,6 +51,7 @@ func eachBatchChunk[T any](ctx context.Context, entries []T, apply func(chunk []
 // way as InsertBatch. An entry whose ID holds no document fails with
 // CodeDocNotFound.
 func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []DocumentUpdate, options WriteOptions) (BatchResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.BatchResult{}, err
@@ -119,6 +121,7 @@ func (n *Narsil) updateOne(ctx context.Context, holder indexHolder, entry *index
 // indexName and reports each one the same way as InsertBatch. An ID that
 // holds no document fails with CodeDocNotFound.
 func (n *Narsil) RemoveBatch(ctx context.Context, indexName string, docIDs []string, options WriteOptions) (BatchResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.BatchResult{}, err

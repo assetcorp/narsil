@@ -36,7 +36,7 @@ func (ix *Index) PreflightWith(ctx context.Context, request model.QueryParams, o
 		phraseReady: options.PhraseReady,
 		binding:     cursor.NewQueryBinding(request),
 	}
-	pass, err := ix.settings.Analyzer.Prepare()
+	pass, err := ix.queryPass(options)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}

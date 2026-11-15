@@ -2,6 +2,7 @@ package index
 
 import (
 	"cmp"
+	"context"
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
@@ -14,12 +15,12 @@ const (
 	CompactWhileIdle
 )
 
-func (ix *Index) FreezeLiveTail(partitionID, minimumDocuments int) (bool, error) {
+func (ix *Index) FreezeLiveTail(ctx context.Context, partitionID, minimumDocuments int) (bool, error) {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return false, err
 	}
 	froze := false
-	err := ix.Write(func(w *Write) error {
+	err := ix.Write(ctx, func(w *Write) error {
 		var err error
 		froze, err = ix.partitions[partitionID].FreezeGrowing(w.write, minimumDocuments)
 		return err
@@ -60,7 +61,7 @@ func (ix *Index) compactSegments(policy CompactionPolicy, stopped func() bool) (
 			return merges, nil
 		}
 		if policy == CompactWhileIdle {
-			if _, err := ix.FreezeLiveTail(partitionID, liveTailFreezeFloor); err != nil {
+			if _, err := ix.FreezeLiveTail(context.Background(), partitionID, liveTailFreezeFloor); err != nil {
 				return merges, err
 			}
 		}
@@ -68,7 +69,7 @@ func (ix *Index) compactSegments(policy CompactionPolicy, stopped func() bool) (
 			if stopped() {
 				return merges, nil
 			}
-			merged, err := held.Merge(ix.sides, pick)
+			merged, err := held.Merge(context.Background(), ix.sides, pick)
 			if err != nil {
 				return merges, err
 			}

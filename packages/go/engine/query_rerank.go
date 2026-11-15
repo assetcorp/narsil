@@ -35,6 +35,11 @@ func (staged *stagedRerank) finish(entry *indexEntry, scores []float64, requeste
 
 func (n *Narsil) stageRerank(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
 	options index.QueryOptions) (*stagedRerank, error) {
+	analysed, err := target.AnalyseQuery(resolved)
+	if err != nil {
+		return nil, err
+	}
+	options.Analysed = analysed
 	pinned, unpin, err := target.Pin(ctx)
 	if err != nil {
 		return nil, err

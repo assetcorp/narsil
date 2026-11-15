@@ -9,9 +9,9 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
-func (ix *Index) TrackChanges() ([]*partition.ChangeLog, error) {
+func (ix *Index) TrackChanges(ctx context.Context) ([]*partition.ChangeLog, error) {
 	logs := make([]*partition.ChangeLog, len(ix.partitions))
-	err := ix.Write(func(w *Write) error {
+	err := ix.Write(ctx, func(w *Write) error {
 		for at, held := range ix.partitions {
 			logs[at] = held.TrackChanges(w.write)
 		}
@@ -20,8 +20,8 @@ func (ix *Index) TrackChanges() ([]*partition.ChangeLog, error) {
 	return logs, err
 }
 
-func (ix *Index) StopTracking(logs []*partition.ChangeLog) error {
-	return ix.Write(func(w *Write) error {
+func (ix *Index) StopTracking(ctx context.Context, logs []*partition.ChangeLog) error {
+	return ix.Write(ctx, func(w *Write) error {
 		for at, log := range logs {
 			if at < len(ix.partitions) && log != nil {
 				ix.partitions[at].StopTracking(w.write, log)
@@ -49,9 +49,9 @@ func (ix *Index) HeldPagedSegments(ctx context.Context, partitionID int) (map[st
 	return held, nil
 }
 
-func (ix *Index) pagedSegments() ([]*segments.Paged, error) {
+func (ix *Index) pagedSegments(ctx context.Context) ([]*segments.Paged, error) {
 	var held []*segments.Paged
-	err := ix.Write(func(w *Write) error {
+	err := ix.Write(ctx, func(w *Write) error {
 		for _, partition := range ix.partitions {
 			for _, paged := range partition.PagedSegments(w.write) {
 				if !slices.Contains(held, paged) {
@@ -68,8 +68,8 @@ func samePagedPath(path string) string {
 	return path
 }
 
-func (ix *Index) SuspendPagedFiles() error {
-	held, err := ix.pagedSegments()
+func (ix *Index) SuspendPagedFiles(ctx context.Context) error {
+	held, err := ix.pagedSegments(ctx)
 	if err != nil {
 		return err
 	}
@@ -84,11 +84,11 @@ func (ix *Index) SuspendPagedFiles() error {
 	return nil
 }
 
-func (ix *Index) ResumePagedFiles(relocate func(path string) string) error {
+func (ix *Index) ResumePagedFiles(ctx context.Context, relocate func(path string) string) error {
 	if relocate == nil {
 		relocate = samePagedPath
 	}
-	held, err := ix.pagedSegments()
+	held, err := ix.pagedSegments(ctx)
 	if err != nil {
 		return err
 	}
@@ -108,12 +108,13 @@ func (ix *Index) PrepareAdoption(partitionID int, paged []*segments.Paged, kept 
 	return ix.partitions[partitionID].PrepareAdoption(paged, kept)
 }
 
-func (ix *Index) Adopt(partitionID int, adoption *partition.Adoption, log *partition.ChangeLog) (bool, error) {
+func (ix *Index) Adopt(ctx context.Context, partitionID int, adoption *partition.Adoption,
+	log *partition.ChangeLog) (bool, error) {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return false, err
 	}
 	adopted := false
-	err := ix.Write(func(w *Write) error {
+	err := ix.Write(ctx, func(w *Write) error {
 		var failed error
 		adopted, failed = ix.partitions[partitionID].Adopt(w.write, adoption, log)
 		return failed

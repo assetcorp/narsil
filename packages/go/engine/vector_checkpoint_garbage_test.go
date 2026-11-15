@@ -7,9 +7,16 @@ import (
 	"math"
 	"path/filepath"
 	"regexp"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/assetcorp/narsil/packages/go/engine"
+)
+
+const (
+	searchesBesideCheckpoints = 4
+	rewritesBesideSearches    = 6
 )
 
 var embeddingVectorFileName = regexp.MustCompile(`^vec-embedding-[0-9a-z]+-f[0-9]+$`)
@@ -32,25 +39,62 @@ func vectorFilesIn(t *testing.T, directory string) map[string]struct{} {
 	return found
 }
 
-func sameDirectionTwiceAsLong(vector []float32) []float32 {
-	doubled := make([]float32, len(vector))
+func sameDirectionScaled(vector []float32, factor float32) []float32 {
+	scaled := make([]float32, len(vector))
 	for at, value := range vector {
-		doubled[at] = 2 * value
+		scaled[at] = factor * value
 	}
-	return doubled
+	return scaled
 }
 
-type garbageDuringSearch struct {
-	collected     int
-	keptForSearch int
+func searchUntilStopped(narsil *engine.Narsil, stop *atomic.Bool, searched *atomic.Int64) error {
+	query := catalogueVector(nearestNeighboursChecked)
+	expected := cosineOracle(query, nearestNeighboursChecked)
+	for !stop.Load() {
+		result, err := narsil.Query(context.Background(), "catalogue", engine.QueryParams{
+			Mode: engine.SearchVector, Limit: engine.Some(nearestNeighboursChecked), IncludeScores: true,
+			Vector:  &engine.VectorQueryConfig{Field: "embedding", Value: query},
+			Filters: &engine.FilterExpression{Fields: map[string]engine.FieldFilter{"selected": {Eq: engine.BooleanValue(true)}}},
+		})
+		if err != nil {
+			return fmt.Errorf("a search beside the checkpoints failed: %w", err)
+		}
+		if len(result.Hits) != len(expected) {
+			return fmt.Errorf("a search beside the checkpoints returned %d hits, expected %d", len(result.Hits), len(expected))
+		}
+		for position, hit := range result.Hits {
+			score, held := hit.Score.Get()
+			if hit.ID != expected[position].id || !held || math.Abs(score-expected[position].score) > scoreTolerance {
+				return fmt.Errorf("hit %d is %s at %g, expected %s at %g", position, hit.ID, score,
+					expected[position].id, expected[position].score)
+			}
+		}
+		searched.Add(1)
+	}
+	return nil
 }
 
-func checkpointGarbageDuringSearch(t *testing.T, at int64) (garbageDuringSearch, bool) {
-	t.Helper()
+func rewriteRebuildAndCheckpoint(ctx context.Context, narsil *engine.Narsil, factor float32) error {
+	updates := make([]engine.DocumentUpdate, documentsBelowPromotion)
+	for position := range updates {
+		updates[position] = engine.DocumentUpdate{DocID: fmt.Sprintf("item-%d", position), Document: engine.NewDocument().
+			Set("embedding", sameDirectionScaled(catalogueVector(position), factor)).
+			Set("selected", position < nearestNeighboursChecked)}
+	}
+	if result, err := narsil.UpdateBatch(ctx, "catalogue", updates, engine.WriteOptions{}); err != nil || len(result.Failed) != 0 {
+		return fmt.Errorf("rewriting every vector failed: %v %+v", err, result.Failed)
+	}
+	if err := narsil.OptimizeVectors(ctx, "catalogue", "embedding"); err != nil {
+		return err
+	}
+	return narsil.Checkpoint(ctx, "catalogue")
+}
+
+func TestACheckpointKeepsTheVectorFilesThatARunningSearchStillReads(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
 	narsil := failedLoadEngine(t, directory)
-	defer shutDown(t, narsil, "after the search that spanned a checkpoint")
+	defer shutDown(t, narsil, "after the searches that spanned the checkpoints")
 	config := engine.IndexConfig{
 		Schema: engine.Schema{"embedding": engine.VectorFieldType(vectorSettingsDimension), "selected": engine.FieldBoolean},
 		VectorPromotion: &engine.VectorIndexConfig{Threshold: engine.Some(documentsPastPromotion),
@@ -60,13 +104,9 @@ func checkpointGarbageDuringSearch(t *testing.T, at int64) (garbageDuringSearch,
 		t.Fatal(err)
 	}
 	documents := make([]*engine.Document, documentsBelowPromotion)
-	updates := make([]engine.DocumentUpdate, documentsBelowPromotion)
 	for position := range documents {
-		id := fmt.Sprintf("item-%d", position)
-		documents[position] = engine.NewDocument().Set("id", id).
+		documents[position] = engine.NewDocument().Set("id", fmt.Sprintf("item-%d", position)).
 			Set("embedding", catalogueVector(position)).Set("selected", position < nearestNeighboursChecked)
-		updates[position] = engine.DocumentUpdate{DocID: id, Document: engine.NewDocument().
-			Set("embedding", sameDirectionTwiceAsLong(catalogueVector(position))).Set("selected", position < nearestNeighboursChecked)}
 	}
 	if result, err := narsil.InsertBatch(ctx, "catalogue", documents, engine.InsertOptions{}); err != nil || len(result.Failed) != 0 {
 		t.Fatalf("inserting the vectors failed: %v %+v", err, result.Failed)
@@ -77,85 +117,48 @@ func checkpointGarbageDuringSearch(t *testing.T, at int64) (garbageDuringSearch,
 	if err := narsil.Checkpoint(ctx, "catalogue"); err != nil {
 		t.Fatal(err)
 	}
-	first := vectorFilesIn(t, directory)
-	if result, err := narsil.UpdateBatch(ctx, "catalogue", updates, engine.WriteOptions{}); err != nil || len(result.Failed) != 0 {
-		t.Fatalf("rewriting every vector failed: %v %+v", err, result.Failed)
+	replaced := vectorFilesIn(t, directory)
+	var stop atomic.Bool
+	var searched atomic.Int64
+	failures := make([]error, searchesBesideCheckpoints)
+	var searches sync.WaitGroup
+	for searcher := range searchesBesideCheckpoints {
+		searches.Go(func() { failures[searcher] = searchUntilStopped(narsil, &stop, &searched) })
 	}
-	called := false
-	var during map[string]struct{}
-	var callbackErr error
-	callback := &checkpointContext{Context: ctx, at: at, act: func() {
-		called = true
-		bounded, cancel := context.WithTimeout(ctx, checkpointCallbackTimeout)
-		defer cancel()
-		callbackErr = narsil.OptimizeVectors(bounded, "catalogue", "embedding")
-		if callbackErr == nil {
-			callbackErr = narsil.Checkpoint(bounded, "catalogue")
-		}
-		during = vectorFilesIn(t, directory)
-	}}
-	query := catalogueVector(nearestNeighboursChecked)
-	result, err := narsil.Query(callback, "catalogue", engine.QueryParams{
-		Mode: engine.SearchVector, Limit: engine.Some(nearestNeighboursChecked), IncludeScores: true,
-		Vector:  &engine.VectorQueryConfig{Field: "embedding", Value: query},
-		Filters: &engine.FilterExpression{Fields: map[string]engine.FieldFilter{"selected": {Eq: engine.BooleanValue(true)}}},
-	})
-	if callbackErr != nil {
-		t.Fatalf("the checkpoint during the search failed: %v", callbackErr)
-	}
-	if err != nil {
-		t.Fatalf("the search that spanned a checkpoint failed: %v", err)
-	}
-	expected := cosineOracle(query, nearestNeighboursChecked)
-	if len(result.Hits) != len(expected) {
-		t.Fatalf("the search returned %d hits, expected %d", len(result.Hits), len(expected))
-	}
-	for position, hit := range result.Hits {
-		score, held := hit.Score.Get()
-		if hit.ID != expected[position].id || !held || math.Abs(score-expected[position].score) > scoreTolerance {
-			t.Fatalf("hit %d is %s at %g, expected %s at %g", position, hit.ID, score, expected[position].id, expected[position].score)
-		}
-	}
-	if !called {
-		return garbageDuringSearch{}, false
-	}
-	if err := narsil.Checkpoint(ctx, "catalogue"); err != nil {
-		t.Fatalf("the checkpoint after the search failed: %v", err)
-	}
-	last := vectorFilesIn(t, directory)
-	outcome := garbageDuringSearch{}
-	for path := range first {
-		if _, left := last[path]; left {
-			t.Fatalf("%s holds only replaced vectors, yet it stayed on disk after the search ended and another checkpoint ran", path)
-		}
-		outcome.collected++
-		if _, kept := during[path]; kept {
-			outcome.keptForSearch++
-		}
-	}
-	if outcome.collected == 0 {
-		t.Fatal("rebuilding the rewritten vectors left no vector file to collect, so the test checked nothing")
-	}
-	return outcome, true
-}
-
-func TestACheckpointKeepsTheVectorFilesThatARunningSearchStillReads(t *testing.T) {
-	keptForSearch := 0
-	for at := int64(1); ; at++ {
-		var outcome garbageDuringSearch
-		called := false
-		passed := t.Run(fmt.Sprintf("callback-%d", at), func(t *testing.T) {
-			outcome, called = checkpointGarbageDuringSearch(t, at)
-		})
-		if !passed {
-			return
-		}
-		keptForSearch += outcome.keptForSearch
-		if !called {
+	var rewriteErr error
+	for round := range rewritesBesideSearches {
+		if rewriteErr = rewriteRebuildAndCheckpoint(ctx, narsil, float32(round+2)); rewriteErr != nil {
 			break
 		}
+		if round < rewritesBesideSearches-1 {
+			for path := range vectorFilesIn(t, directory) {
+				replaced[path] = struct{}{}
+			}
+		}
 	}
-	if keptForSearch == 0 {
-		t.Fatal("every checkpoint during the search removed a vector file that the search still read")
+	stop.Store(true)
+	searches.Wait()
+	if rewriteErr != nil {
+		t.Fatalf("a checkpoint beside the searches failed: %v", rewriteErr)
+	}
+	for _, failure := range failures {
+		if failure != nil {
+			t.Fatal(failure)
+		}
+	}
+	if searched.Load() == 0 {
+		t.Fatal("no search finished beside the checkpoints, so the test checked nothing")
+	}
+	if err := narsil.Checkpoint(ctx, "catalogue"); err != nil {
+		t.Fatalf("the checkpoint after the searches failed: %v", err)
+	}
+	last := vectorFilesIn(t, directory)
+	if len(last) == 0 {
+		t.Fatal("the last checkpoint left no vector file, so the index lost its vectors")
+	}
+	for path := range replaced {
+		if _, left := last[path]; left {
+			t.Fatalf("%s holds only replaced vectors, yet it stayed on disk after every search ended and another checkpoint ran", path)
+		}
 	}
 }

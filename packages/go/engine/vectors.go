@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -82,6 +83,7 @@ func (entry *indexEntry) selectVectorFields(fieldName string) ([]*vector.Field, 
 // vectors held is freed. It returns CodeIndexNotFound when the index
 // declares no vector field of that name.
 func (n *Narsil) CompactVectors(ctx context.Context, indexName string, fieldName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -110,6 +112,7 @@ func (n *Narsil) CompactVectors(ctx context.Context, indexName string, fieldName
 // so that the next vector query searches the graph and skips the full scan.
 // The context bounds the build.
 func (n *Narsil) OptimizeVectors(ctx context.Context, indexName string, fieldName string) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err

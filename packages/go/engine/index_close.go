@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -16,6 +17,7 @@ import (
 // does nothing. It returns CodeIndexNotFound for an unknown name and the
 // recovery code of the load when the saved files cannot be read.
 func (n *Narsil) Open(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return err
@@ -49,6 +51,7 @@ func (n *Narsil) Open(ctx context.Context, indexName string) error {
 // nothing. It returns CodeIndexNotFound for an unknown name and
 // CodeConfigInvalid when the engine has no durability to reopen it from.
 func (n *Narsil) Close(ctx context.Context, indexName string) error {
+	ctx = callerctx.Shield(ctx)
 	leave, err := n.enter()
 	if err != nil {
 		return err

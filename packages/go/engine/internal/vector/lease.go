@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
@@ -81,6 +82,8 @@ func releaseHeldLocks(graph *graphMemory, row unsafe.Pointer) {
 }
 
 type leaseKey struct{}
+
+var _ = callerctx.EngineKey(leaseKey{})
 
 func WithLease(ctx context.Context, lease *Lease) context.Context {
 	return context.WithValue(ctx, leaseKey{}, lease)

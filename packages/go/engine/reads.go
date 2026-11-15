@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
@@ -42,6 +43,7 @@ func (entry *indexEntry) storedDocument(ctx context.Context, id string) (*model.
 // CodePersistenceLoadFailed when the stored bytes of the document do not
 // decode.
 func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (*Document, bool, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, false, err
@@ -56,6 +58,7 @@ func (n *Narsil) Get(ctx context.Context, indexName string, docID string) (*Docu
 // GetMultiple returns each stored document among docIDs as Get returns it,
 // keyed by ID; an ID that holds no document is absent from the map.
 func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []string) (map[string]*Document, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, err
@@ -84,6 +87,7 @@ func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []str
 
 // Has reports whether the index called indexName holds a document under docID.
 func (n *Narsil) Has(ctx context.Context, indexName string, docID string) (bool, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return false, err
@@ -97,6 +101,7 @@ func (n *Narsil) Has(ctx context.Context, indexName string, docID string) (bool,
 
 // CountDocuments returns the number of documents in the index called indexName.
 func (n *Narsil) CountDocuments(ctx context.Context, indexName string) (int, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return 0, err
@@ -110,6 +115,7 @@ func (n *Narsil) CountDocuments(ctx context.Context, indexName string) (int, err
 // with the cursor that fetches the next page. Each document carries its
 // vectors unless the projection drops them.
 func (n *Narsil) ListDocuments(ctx context.Context, indexName string, params ListParams) (ListResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.ListResult{}, err
@@ -139,6 +145,7 @@ func (n *Narsil) ListDocuments(ctx context.Context, indexName string, params Lis
 // Suggest returns the indexed words that start with params.Prefix, most
 // frequent first, with the number of documents that hold each one.
 func (n *Narsil) Suggest(ctx context.Context, indexName string, params SuggestParams) (SuggestResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.SuggestResult{}, err

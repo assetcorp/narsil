@@ -138,7 +138,7 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 		}
 	}
 	if options.pagedText {
-		if err := held.trackChanges(durable.handle); err != nil {
+		if err := held.trackChanges(ctx, durable.handle); err != nil {
 			return held, err
 		}
 	}

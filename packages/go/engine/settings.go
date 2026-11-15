@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -85,6 +86,7 @@ func (n *Narsil) UpdateBM25(ctx context.Context, indexName string, bm25 BM25Para
 // reduces to nothing. With durability configured, the engine writes the index
 // metadata that holds the new rules before it returns.
 func (n *Narsil) UpdateSynonyms(ctx context.Context, indexName string, rules []SynonymRule) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -105,6 +107,7 @@ func (n *Narsil) UpdateSynonyms(ctx context.Context, indexName string, rules []S
 // GetSynonyms returns the synonym rules of the index called indexName in the
 // form the engine stores them, or an empty list when the index has none.
 func (n *Narsil) GetSynonyms(ctx context.Context, indexName string) ([]SynonymRule, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	is "github.com/assetcorp/narsil/packages/go/engine/internal/format/indexsettings"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -30,6 +31,8 @@ func (held *suggestionsState) set(next is.QuerySuggestionsState) {
 }
 
 type suggestionsMarkerKey struct{}
+
+var _ = callerctx.EngineKey(suggestionsMarkerKey{})
 
 func withSuggestionsMarker(ctx context.Context, source is.QuerySuggestionsSource) context.Context {
 	return context.WithValue(ctx, suggestionsMarkerKey{}, source)

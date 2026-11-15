@@ -53,7 +53,7 @@ func attachStored(target *index.Index, partitionID int, segment checkpoint.Store
 		}
 		documents[ordinal] = slices.Clone(encoded)
 	}
-	return target.AttachSegmentFile(partitionID, file, documents)
+	return target.AttachSegmentFile(context.Background(), partitionID, file, documents)
 }
 
 type pagedAttachment struct {
@@ -79,7 +79,7 @@ func attachPagedListed(ctx context.Context, handle *Handle, partitionID int, lis
 
 func attachPagedFile(ctx context.Context, attachment pagedAttachment) error {
 	target, partitionID, key := attachment.target, attachment.partitionID, attachment.key
-	err := target.AttachPagedSegmentFile(partitionID, index.PagedSegmentFile{Path: attachment.path,
+	err := target.AttachPagedSegmentFile(ctx, partitionID, index.PagedSegmentFile{Path: attachment.path,
 		RemovalPages: attachment.pages,
 		Replaces: func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error {
 			if attachment.listed != nil {

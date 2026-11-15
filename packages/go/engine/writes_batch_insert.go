@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -87,6 +88,7 @@ func (hooked hookedInserts) admitInto(entry *indexEntry, outcome *batchOutcome) 
 // when the whole call fails, such as for an unknown index, a cancelled
 // context, or a durable write that failed.
 func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []*Document, options InsertOptions) (BatchResult, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return model.BatchResult{}, err

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
@@ -27,6 +28,7 @@ func (n *Narsil) requireChangesStorage(entry *indexEntry) error {
 // index metadata that holds the setting before it returns, and no snapshot of
 // the index holds the setting.
 func (n *Narsil) UpdateChanges(ctx context.Context, indexName string, setting ChangesSetting) error {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return err
@@ -75,6 +77,7 @@ func turnChangesOff(ctx context.Context, entry *indexEntry, previous *feedState)
 // off with no epoch, or on with its setting and the current epoch, which
 // device sync shares.
 func (n *Narsil) GetChanges(ctx context.Context, indexName string) (ChangesStatus, error) {
+	ctx = callerctx.Shield(ctx)
 	entry, release, err := n.acquire(indexName)
 	if err != nil {
 		return ChangesStatus{}, err
