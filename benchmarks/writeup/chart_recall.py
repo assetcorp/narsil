@@ -19,6 +19,7 @@ from chart_style import (
     style_axes,
 )
 from matplotlib.ticker import FuncFormatter
+from narsil_servers import unmeasured_server_rows
 from render import dataset_name
 
 LINE_STYLES = {"equal-precision": "-", "best-config": "--"}
@@ -53,8 +54,9 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
     handles, labels = axes.get_legend_handles_labels()
     for profile, comparison in comparisons.items():
+        rows = dataset_rows(comparison, "vector", dataset_id) or unmeasured_server_rows(comparison)
         for handle, label in not_measured_entries(
-            dataset_rows(comparison, "vector", dataset_id), profile, recall_curve, "recall sweep"
+            rows, profile, recall_curve, "recall sweep"
         ):
             handles.append(handle)
             labels.append(f"{label}, {profile_title(profile)}")

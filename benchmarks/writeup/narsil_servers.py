@@ -58,6 +58,12 @@ def _placeholder(name: str, key: str) -> dict:
     return {key: name, DISPLAY_NAME_FIELD: NARSIL_SERVER_NAMES[name], UNMEASURED_FIELD: True}
 
 
+def unmeasured_server_rows(comparison: dict | None) -> list[dict]:
+    if comparison is None or not any(DISPLAY_NAME_FIELD in engine for engine in comparison.get("engines") or []):
+        return []
+    return [_placeholder(name, "engine") for name in NARSIL_SERVERS]
+
+
 def _with_every_server(entries: list[dict], key: str) -> list[dict]:
     first = next((index for index, entry in enumerate(entries) if is_narsil_server(entry.get(key))), len(entries))
     found = {entry.get(key): entry for entry in entries if is_narsil_server(entry.get(key))}

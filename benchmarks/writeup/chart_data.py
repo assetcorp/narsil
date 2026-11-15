@@ -110,6 +110,10 @@ def dataset_rows(comparison: dict | None, name: str, dataset_id: str) -> list[di
     return []
 
 
+def dataset_ids(comparison: dict | None, name: str) -> list[str]:
+    return [dataset["dataset_id"] for dataset in (track(comparison, name) or {}).get("datasets", [])]
+
+
 def has_bars(rows: list[dict]) -> bool:
     return any(number((row.get("metrics") or {}).get("ndcg_cut_10")) is not None or peak_qps(row) is not None for row in rows)
 

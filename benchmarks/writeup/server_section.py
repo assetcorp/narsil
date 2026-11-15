@@ -12,6 +12,7 @@ from __future__ import annotations
 from chart_data import (
     BEST_CONFIG,
     EQUAL_PRECISION,
+    dataset_ids,
     has_bars,
     has_recall_curve,
     has_sweep,
@@ -175,7 +176,8 @@ def _track_block(source: Source, profile: str, name: str, render_table, comparis
         if sweep:
             chunks.append(sweep)
         if name == "vector":
-            recall = _recall_figure(chart_dir, dataset_id, comparisons) if profile == EQUAL_PRECISION else None
+            show_recall = profile == EQUAL_PRECISION or dataset_id not in dataset_ids(comparisons[EQUAL_PRECISION], name)
+            recall = _recall_figure(chart_dir, dataset_id, comparisons) if show_recall else None
             if recall:
                 chunks.append(recall)
     tail = _tail_figure(chart_dir, profile, name, entry["datasets"])

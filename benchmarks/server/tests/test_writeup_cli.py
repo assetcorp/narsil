@@ -209,3 +209,26 @@ def test_unknown_recall_never_becomes_a_throughput_win(checkout):
     assert completed.returncode == 0, completed.stderr
     chart = checkout / "benchmarks/server/results/runs" / RUN / "charts/equal-precision-vector-scifact-bars.svg"
     assert "bars with unrecorded recall are unranked" in chart.read_text()
+
+
+def test_recall_charts_label_profiles_without_the_dataset(checkout):
+    typescript = row("narsil")
+    typescript["operating_point"] = {"met_target": True, "sweep": [{"recall": 0.99, "qps": 900}]}
+    rust = row("narsil-rust", 1500)
+    rust["operating_point"] = {"met_target": True, "sweep": [{"recall": 0.99, "qps": 1500}]}
+    data = comparison([typescript])
+    data["tracks"][0]["track"] = "vector"
+    best = {"tracks": [{"track": "vector", "datasets": [{"dataset_id": NFCORPUS, "rows": [rust]}]}]}
+    write_comparison(checkout, data, best)
+    completed = command(checkout, "charts.py")
+    assert completed.returncode == 0, completed.stderr
+    charts = checkout / "benchmarks/server/results/runs" / RUN / "charts"
+    scifact = (charts / "vector-scifact-throughput-against-recall.svg").read_text()
+    assert "Narsil Rust, not measured yet, recommended production settings" in scifact
+    assert "Narsil TypeScript, not measured yet, recommended production settings" in scifact
+    nfcorpus = (charts / "vector-nfcorpus-throughput-against-recall.svg").read_text()
+    assert "Narsil Rust, not measured yet, equal precision" in nfcorpus
+    assert "Narsil TypeScript, not measured yet, equal precision" in nfcorpus
+    page, _ = generate(checkout)
+    assert "vector-scifact-throughput-against-recall.svg" in page
+    assert "vector-nfcorpus-throughput-against-recall.svg" in page
