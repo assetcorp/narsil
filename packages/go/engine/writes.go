@@ -85,15 +85,6 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err := schema.RequireDocument(working); err != nil {
 		return "", err
 	}
-	routedID := docID
-	if routedID == "" {
-		routedID, _ = schema.ProvidedDocID(working)
-	}
-	reservation, err := n.memory.reserveDocument(entry, routedID, working)
-	if err != nil {
-		return "", err
-	}
-	defer reservation.Release()
 	id, err := n.resolveInsertID(working, docID)
 	if err != nil {
 		return "", err
@@ -111,6 +102,11 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err != nil {
 		return "", err
 	}
+	reservation, err := n.memory.reserveDocument(entry, id, insert.Document)
+	if err != nil {
+		return "", err
+	}
+	defer reservation.Release()
 	write, err := n.prepareOne(ctx, entry, insert.Document)
 	if err != nil {
 		return "", err
@@ -178,11 +174,6 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err := schema.RequireDocument(working); err != nil {
 		return err
 	}
-	reservation, err := n.memory.reserveDocument(entry, docID, working)
-	if err != nil {
-		return err
-	}
-	defer reservation.Release()
 	var update *model.UpdateContext
 	var write persist.Write
 	entry, release, update, write, err = n.replaceDocument(ctx, entry, release, n.holderOf(indexName), docID, working)
@@ -232,6 +223,11 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 		return entry, release, nil, persist.Write{}, err
 	}
 	update.NewDocument = embedded
+	reservation, err := n.memory.reserveDocument(entry, docID, update.NewDocument)
+	if err != nil {
+		return entry, release, nil, persist.Write{}, err
+	}
+	defer reservation.Release()
 	write, err := n.prepareOne(ctx, entry, update.NewDocument)
 	if err != nil {
 		return entry, release, nil, persist.Write{}, err
