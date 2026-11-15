@@ -11,7 +11,7 @@ use hyper::body::Incoming;
 use narsil::{Map, Value};
 
 use super::body::{BodyRead, declared_body_bytes, drain_in_background, read_body};
-use super::respond::{HttpResponse, error, insert_header};
+use super::respond::{HttpResponse, error, held_until_sent, insert_header};
 use super::routes::{BodyRule, RouteOptions, match_route};
 use super::spool::{SpoolOutcome, SpooledBody, spool_body};
 use crate::errors::{ServerError, server_codes};
@@ -294,10 +294,8 @@ async fn route(
     let outcome = AssertUnwindSafe(dispatch(Arc::clone(state), route, context))
         .catch_unwind()
         .await;
-    drop(pass);
-    drop(hold);
     match outcome {
-        Ok(Ok(response)) => response,
+        Ok(Ok(response)) => held_until_sent(response, (pass, hold)),
         Ok(Err(failure)) => error(&failure),
         Err(_) => error(&ServerError::internal()),
     }
