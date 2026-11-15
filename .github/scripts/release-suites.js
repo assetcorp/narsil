@@ -1,4 +1,15 @@
-const { PATHS_BY_LANGUAGE_AREA } = require('./changed-areas.js')
+const {
+  COMPOSITE_ACTIONS,
+  FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
+  PATHS_BY_LANGUAGE_AREA,
+  README_EXAMPLE_SCRIPTS,
+} = require('./changed-areas.js')
+
+const CI_WORKFLOW = '.github/workflows/ci.yml'
+const PUBLISH_WORKFLOW = '.github/workflows/publish.yml'
+const ENGINE_WORKFLOW = '.github/workflows/engine.yml'
+const EMBEDDINGS_WORKFLOW = '.github/workflows/embeddings.yml'
+const CHECK_JOB_GO_VERSION = 'packages/go/go.mod'
 
 const WORKSPACE_FILES = [
   'package.json',
@@ -8,31 +19,19 @@ const WORKSPACE_FILES = [
   'tsconfig.json',
   'biome.json',
   'patches/',
-  '.github/workflows/',
-  '.github/scripts/',
-  '.pnpmfile.cjs',
 ]
 const ENGINE_MANIFEST = 'packages/ts/package.json'
-const ENGINE_BUILD_FILES = [
-  'packages/ts/',
-  'packages/native/',
-  'packages/conformance/',
-  'packages/embeddings-transformers/',
-]
-const TYPESCRIPT_PACKAGES = ENGINE_BUILD_FILES
-const TYPESCRIPT_IMPORTERS = [
-  '.',
-  'packages/ts',
-  'packages/embeddings-transformers',
-  'packages/native',
-  'packages/conformance',
-]
+const ENGINE_BUILD_FILES = [ENGINE_MANIFEST, 'packages/ts/tsup.config.ts', 'packages/ts/tsconfig.json']
+const TYPESCRIPT_PACKAGES = ['packages/ts/', 'packages/embeddings-transformers/']
+const TYPESCRIPT_IMPORTERS = ['.', 'packages/ts', 'packages/embeddings-transformers']
 const NATIVE_CORE = 'Native search core'
 const NATIVE_CORE_LINT_PARTS = 2
 
 const parts = (count, name) => Array.from({ length: count }, (_, index) => name(index + 1, count))
 
-const areaPaths = area => PATHS_BY_LANGUAGE_AREA[area].paths.filter(path => !path.startsWith('.github/workflows/'))
+const areaPaths = area => PATHS_BY_LANGUAGE_AREA[area].paths
+
+const workflowFiles = (...files) => [...files, COMPOSITE_ACTIONS]
 
 const SUITES = {
   'typescript-suite': {
@@ -46,31 +45,38 @@ const SUITES = {
       'packages/conformance/samples/earlier-releases/',
       'packages/native/npm/',
       ...WORKSPACE_FILES,
+      ...workflowFiles(PUBLISH_WORKFLOW, ENGINE_WORKFLOW),
     ],
     importers: TYPESCRIPT_IMPORTERS,
   },
   'typescript-checks': {
     workflows: ['ci.yml'],
     jobs: ['Check'],
-    paths: [...TYPESCRIPT_PACKAGES, 'packages/conformance/samples/earlier-releases/', ...WORKSPACE_FILES],
+    paths: [
+      ...TYPESCRIPT_PACKAGES,
+      'packages/conformance/samples/earlier-releases/',
+      CHECK_JOB_GO_VERSION,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW),
+    ],
     importers: TYPESCRIPT_IMPORTERS,
   },
   certutil: {
     workflows: ['ci.yml'],
     jobs: ['Check'],
-    paths: ['packages/certutil/', ...WORKSPACE_FILES],
+    paths: ['packages/certutil/', CHECK_JOB_GO_VERSION, ...WORKSPACE_FILES, ...workflowFiles(CI_WORKFLOW)],
     importers: ['.', 'packages/certutil'],
   },
   'embedding-adapters': {
     workflows: ['embeddings.yml'],
     jobs: ['Embedding Adapter Tests'],
-    paths: [...TYPESCRIPT_PACKAGES, ...WORKSPACE_FILES],
+    paths: [...TYPESCRIPT_PACKAGES, ...WORKSPACE_FILES, ...workflowFiles(EMBEDDINGS_WORKFLOW)],
     importers: TYPESCRIPT_IMPORTERS,
   },
   'embedding-integration': {
     workflows: ['embeddings.yml'],
     jobs: ['Embedding Integration Tests'],
-    paths: [...TYPESCRIPT_PACKAGES, ...WORKSPACE_FILES],
+    paths: [...TYPESCRIPT_PACKAGES, ...WORKSPACE_FILES, ...workflowFiles(EMBEDDINGS_WORKFLOW)],
     importers: TYPESCRIPT_IMPORTERS,
   },
   'native-core': {
@@ -86,8 +92,13 @@ const SUITES = {
         label => `${NATIVE_CORE} / Compare the core with the WebAssembly search on ${label}`,
       ),
     ],
-    paths: ['packages/native/', 'packages/ts/', ...WORKSPACE_FILES],
-    importers: TYPESCRIPT_IMPORTERS,
+    paths: [
+      'packages/native/',
+      'packages/ts/',
+      ...WORKSPACE_FILES,
+      ...workflowFiles('.github/workflows/native-core.yml', PUBLISH_WORKFLOW, CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    importers: ['.', 'packages/ts', 'packages/native'],
   },
   'native-core-lint': {
     workflows: ['ci.yml'],
@@ -95,16 +106,28 @@ const SUITES = {
       NATIVE_CORE_LINT_PARTS,
       (part, count) => `${NATIVE_CORE} / Check the C code with clang-tidy and clang-format, part ${part} of ${count}`,
     ),
-    paths: [...areaPaths('native_core'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      ...areaPaths('native_core'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: TYPESCRIPT_IMPORTERS,
+    importers: ['.', 'packages/ts', 'packages/native'],
   },
   'react-native-android': {
     workflows: ['publish.yml'],
     jobs: ['expo', 'bare'].map(app => `Build the React Native apps / Android (${app})`),
-    paths: [...areaPaths('react_native'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      ...areaPaths('react_native'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(PUBLISH_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: PATHS_BY_LANGUAGE_AREA.react_native.except,
     importers: [
-      ...TYPESCRIPT_IMPORTERS,
+      '.',
+      'packages/ts',
       'packages/react-native',
       'packages/react-native/examples/expo',
       'packages/react-native/examples/bare',
@@ -118,9 +141,15 @@ const SUITES = {
       ...parts(2, (part, count) => `Rust crate / Test on darwin-arm64, part ${part} of ${count}`),
       ...parts(5, (part, count) => `Rust crate / Test on win32-x64, part ${part} of ${count}`),
     ],
-    paths: [...areaPaths('rust'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      ...areaPaths('rust'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: TYPESCRIPT_IMPORTERS,
+    importers: ['.', 'packages/ts', 'packages/conformance'],
   },
   'go-engine': {
     workflows: ['ci.yml'],
@@ -132,9 +161,15 @@ const SUITES = {
       ...parts(2, (part, count) => `Go engine / Test on darwin-arm64 with Go stable, part ${part} of ${count}`),
       ...parts(5, (part, count) => `Go engine / Test on win32-x64 with Go stable, part ${part} of ${count}`),
     ],
-    paths: [...areaPaths('go_engine'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      ...areaPaths('go_engine'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: TYPESCRIPT_IMPORTERS,
+    importers: ['.', 'packages/ts'],
   },
   'python-engine': {
     workflows: ['ci.yml'],
@@ -147,21 +182,40 @@ const SUITES = {
       'Python package / Build and test the darwin-arm64 wheel on Python 3.14',
       'Python package / Test the win32-x64 wheel on Python 3.14',
     ],
-    paths: [...areaPaths('python_engine'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      ...areaPaths('python_engine'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: PATHS_BY_LANGUAGE_AREA.python_engine.except,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: TYPESCRIPT_IMPORTERS,
+    importers: ['.', 'packages/ts'],
   },
   'python-client': {
     workflows: ['ci.yml'],
     jobs: ['3.11', '3.14'].map(python => `Clients / Python client (${python})`),
-    paths: ['packages/python/', ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    paths: [
+      'packages/python/',
+      'packages/ts/',
+      ...README_EXAMPLE_SCRIPTS,
+      ...WORKSPACE_FILES,
+      ...workflowFiles('.github/workflows/clients.yml', CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: ['packages/ts/src/__tests__/', 'packages/ts/examples/', 'packages/ts/benchmarks/'],
     importers: TYPESCRIPT_IMPORTERS,
   },
   'go-client': {
     workflows: ['ci.yml'],
     jobs: ['1.26', 'stable'].map(go => `Clients / Go client (${go})`),
-    paths: ['packages/go/', ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
-    except: ['packages/go/engine/'],
+    paths: [
+      'packages/go/',
+      'packages/ts/',
+      ...README_EXAMPLE_SCRIPTS,
+      ...WORKSPACE_FILES,
+      ...workflowFiles('.github/workflows/clients.yml', CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: ['packages/go/engine/', 'packages/ts/src/__tests__/', 'packages/ts/examples/', 'packages/ts/benchmarks/'],
     importers: TYPESCRIPT_IMPORTERS,
   },
 }

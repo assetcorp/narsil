@@ -3,6 +3,7 @@ const { appendFileSync } = require('node:fs')
 
 const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
 const SHARED_ENGINE_WORKFLOW = '.github/workflows/engine.yml'
+const COMPOSITE_ACTIONS = '.github/actions/'
 const MISSING_COMMIT = /^0+$/
 const TYPESCRIPT_JOB_AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness', 'benchmark_languages']
 const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
@@ -250,7 +251,7 @@ const main = () => {
     const quotedFiles = files.map(path => JSON.stringify(path).replaceAll('##[', '##\\u005b'))
     console.log(`Changed files:\n${quotedFiles.join('\n')}`)
     for (const path of files) {
-      const areas = filesThatTouchEveryArea.has(path) ? AREAS : areasOf(path)
+      const areas = filesThatTouchEveryArea.has(path) || path.startsWith(COMPOSITE_ACTIONS) ? AREAS : areasOf(path)
       for (const area of areas) touched.add(area)
     }
   }
@@ -261,4 +262,10 @@ const main = () => {
 
 if (require.main === module) main()
 
-module.exports = { FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE, PATHS_BY_LANGUAGE_AREA, README_EXAMPLE_SCRIPTS, matchesAnyPath }
+module.exports = {
+  COMPOSITE_ACTIONS,
+  FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
+  PATHS_BY_LANGUAGE_AREA,
+  README_EXAMPLE_SCRIPTS,
+  matchesAnyPath,
+}

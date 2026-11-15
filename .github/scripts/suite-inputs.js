@@ -89,9 +89,8 @@ function createInputHasher() {
     const lockfile = entries.find(entry => entry.path === LOCKFILE)
     if (lockfile === undefined) throw new Error(`${commit} holds no ${LOCKFILE}`)
     const closure = closureOf(lockfile.object, suite)
-    const paths = [...suite.paths, ...closure.importers.filter(path => path !== '.').map(path => `${path}/`)]
     const files = entries
-      .filter(entry => matchesAnyPath(entry.path, paths) && !matchesAnyPath(entry.path, except))
+      .filter(entry => matchesAnyPath(entry.path, suite.paths) && !matchesAnyPath(entry.path, except))
       .filter(entry => !RELEASE_GENERATED.test(entry.path))
       .map(entry => {
         const content = versionless.includes(entry.path) ? versionlessManifest(entry) : entry.object
