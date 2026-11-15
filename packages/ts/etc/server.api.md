@@ -598,6 +598,16 @@ export interface PartitionAllocationReport {
 }
 
 // @public
+export class PersistenceTaskStore implements TaskStore {
+    constructor(adapter: PersistenceAdapter, maxRetained?: number);
+    delete(id: string): Promise<void>;
+    get(id: string): Promise<TaskRecord | null>;
+    list(): Promise<TaskRecord[]>;
+    set(record: TaskRecord): Promise<void>;
+    shutdown(): Promise<void>;
+}
+
+// @public
 export interface QueryBansBody {
     bans: string[];
 }

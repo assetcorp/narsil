@@ -221,53 +221,82 @@ fn committed_group_config(searches: &Value) -> GroupConfig {
     }
 }
 
+fn fieldless_group_config(query: &Value) -> GroupConfig {
+    assert!(
+        listed(query, "group.fields").is_empty(),
+        "a query under grouped.withoutFields groups by no field"
+    );
+    GroupConfig {
+        fields: Vec::new(),
+        max_per_group: Some(whole_number(query, "group.maxPerGroup")),
+        limit: query
+            .pointer("group.limit")
+            .map(|_| whole_number(query, "group.limit")),
+        reduce: None,
+    }
+}
+
+fn group_difference(
+    engine: &Narsil,
+    query: &Value,
+    limit: usize,
+    config: GroupConfig,
+) -> Option<String> {
+    let id = text_of(query, "id");
+    let params = QueryParams {
+        term: Some(text_of(query, "text").to_string()),
+        limit: Some(limit),
+        group: Some(config),
+        ..QueryParams::default()
+    };
+    let result = engine
+        .query(INDEX_NAME, &params)
+        .expect("the grouped query runs");
+    let found: Vec<(Map, Vec<String>)> = result
+        .groups
+        .unwrap_or_default()
+        .into_iter()
+        .map(|group| {
+            let mut values = Map::new();
+            for (field, value) in group.values {
+                values.insert(field, value.unwrap_or(Value::Null));
+            }
+            (values, group.hits.into_iter().map(|hit| hit.id).collect())
+        })
+        .collect();
+    let wanted: Vec<(Map, Vec<String>)> = listed(query, "groups")
+        .iter()
+        .map(|group| {
+            let values = group
+                .pointer("values")
+                .and_then(Value::as_object)
+                .expect("each group holds its values")
+                .clone();
+            let ids = listed(group, "ids")
+                .iter()
+                .map(|hit| hit.as_str().expect("each ID is a string").to_string())
+                .collect();
+            (values, ids)
+        })
+        .collect();
+    (found != wanted).then(|| format!("{id}: found {found:?}, wanted {wanted:?}"))
+}
+
 fn group_differences(engine: &Narsil, searches: &Value) -> Vec<String> {
     let limit = whole_number(searches, "text.limit");
     let config = committed_group_config(searches);
-    let mut problems = Vec::new();
-    for query in listed(searches, "grouped.queries") {
-        let id = text_of(query, "id");
-        let params = QueryParams {
-            term: Some(text_of(query, "text").to_string()),
-            limit: Some(limit),
-            group: Some(config.clone()),
-            ..QueryParams::default()
-        };
-        let result = engine
-            .query(INDEX_NAME, &params)
-            .expect("the grouped query runs");
-        let found: Vec<(Map, Vec<String>)> = result
-            .groups
-            .unwrap_or_default()
-            .into_iter()
-            .map(|group| {
-                let mut values = Map::new();
-                for (field, value) in group.values {
-                    values.insert(field, value.unwrap_or(Value::Null));
-                }
-                (values, group.hits.into_iter().map(|hit| hit.id).collect())
-            })
-            .collect();
-        let wanted: Vec<(Map, Vec<String>)> = listed(query, "groups")
-            .iter()
-            .map(|group| {
-                let values = group
-                    .pointer("values")
-                    .and_then(Value::as_object)
-                    .expect("each group holds its values")
-                    .clone();
-                let ids = listed(group, "ids")
-                    .iter()
-                    .map(|hit| hit.as_str().expect("each ID is a string").to_string())
-                    .collect();
-                (values, ids)
-            })
-            .collect();
-        if found != wanted {
-            problems.push(format!("{id}: found {found:?}, wanted {wanted:?}"));
-        }
-    }
-    problems
+    let fieldless = listed(searches, "grouped.withoutFields");
+    assert!(
+        !fieldless.is_empty(),
+        "the searches hold a query that groups by no field"
+    );
+    listed(searches, "grouped.queries")
+        .iter()
+        .filter_map(|query| group_difference(engine, query, limit, config.clone()))
+        .chain(fieldless.iter().filter_map(|query| {
+            group_difference(engine, query, limit, fieldless_group_config(query))
+        }))
+        .collect()
 }
 
 #[test]

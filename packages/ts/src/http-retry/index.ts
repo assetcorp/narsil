@@ -1,5 +1,11 @@
 import { type ErrorCode, NarsilError } from '../errors'
-import { BASE_BACKOFF_MS, MAX_BACKOFF_MS, MAX_JITTER_MS, RETRYABLE_STATUS_CODES } from './constants'
+import {
+  BASE_BACKOFF_MS,
+  MAX_BACKOFF_MS,
+  MAX_JITTER_MS,
+  RETRYABLE_STATUS_CODES,
+  TIMER_DELAY_LIMIT_MS,
+} from './constants'
 
 export type ApiKeySource = string | (() => string | Promise<string>)
 
@@ -44,10 +50,26 @@ export async function resolveApiKey(apiKey: ApiKeySource, service: string, inval
   return resolved
 }
 
-export function buildSignal(callerSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  if (callerSignal === undefined) return timeoutSignal
-  return AbortSignal.any([callerSignal, timeoutSignal])
+export function buildSignal(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController()
+  const deadline = performance.now() + timeoutMs
+  const signal = callerSignal === undefined ? controller.signal : AbortSignal.any([callerSignal, controller.signal])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const check = (): void => {
+    if (signal.aborted) return
+    const remaining = deadline - performance.now()
+    if (remaining <= 0) {
+      controller.abort(new DOMException('The operation timed out', 'TimeoutError'))
+      return
+    }
+    timer = setTimeout(check, Math.min(remaining, TIMER_DELAY_LIMIT_MS))
+    if (typeof timer === 'object') timer.unref()
+  }
+  check()
+  return { signal, dispose: () => clearTimeout(timer) }
 }
 
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
