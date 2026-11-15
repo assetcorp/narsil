@@ -5,6 +5,7 @@ use crate::durability::store::DurabilityStore;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata_parts::is_sync_epoch;
+use crate::value::Value;
 
 use super::filter::ChangeFilter;
 use super::step::Following;
@@ -15,33 +16,41 @@ pub(super) enum Opened {
     Resync(ResyncReason),
 }
 
+fn of_index(code: ErrorCode, index_name: &str, message: String) -> NarsilError {
+    NarsilError::new(code, message).with_details([("indexName", Value::from(index_name))])
+}
+
 pub(super) fn not_enabled(index_name: &str) -> NarsilError {
-    NarsilError::new(
+    of_index(
         ErrorCode::CHANGES_NOT_ENABLED,
+        index_name,
         format!("Index \"{index_name}\" has change capture off"),
     )
 }
 
 pub(super) fn previous_document_required(index_name: &str) -> NarsilError {
-    NarsilError::new(
+    of_index(
         ErrorCode::CHANGES_PREVIOUS_DOCUMENT_REQUIRED,
+        index_name,
         format!(
             "Index \"{index_name}\" records no previous document, so a request for its changes cannot hold a filter"
         ),
     )
 }
 
-fn invalid_positions(message: String) -> NarsilError {
-    NarsilError::new(ErrorCode::CHANGES_INVALID_POSITIONS, message)
+fn invalid_positions(index_name: &str, message: String) -> NarsilError {
+    of_index(ErrorCode::CHANGES_INVALID_POSITIONS, index_name, message)
 }
 
-fn require_request_shape(request: &ChangesRequest) -> Result<()> {
+fn require_request_shape(index_name: &str, request: &ChangesRequest) -> Result<()> {
     match (&request.epoch, &request.positions) {
         (Some(epoch), Some(_)) if !is_sync_epoch(epoch) => Err(invalid_positions(
+            index_name,
             "The epoch of a request for changes must be 32 lowercase hexadecimal digits"
                 .to_string(),
         )),
         (Some(_), None) | (None, Some(_)) => Err(invalid_positions(
+            index_name,
             "A request for changes gives both an epoch and positions, or neither".to_string(),
         )),
         _ => Ok(()),
@@ -58,23 +67,29 @@ fn require_positions(
     for position in positions {
         let at = position.partition_id as usize;
         if at >= partition_count {
-            return Err(invalid_positions(format!(
-                "Index \"{index_name}\" has {partition_count} partitions, so it holds no partition {}",
-                position.partition_id
-            )));
+            return Err(invalid_positions(
+                index_name,
+                format!(
+                    "Index \"{index_name}\" has {partition_count} partitions, so it holds no partition {}",
+                    position.partition_id
+                ),
+            ));
         }
         if !seen.insert(at) {
-            return Err(invalid_positions(format!(
-                "The positions repeat partition {}",
-                position.partition_id
-            )));
+            return Err(invalid_positions(
+                index_name,
+                format!("The positions repeat partition {}", position.partition_id),
+            ));
         }
         ordered[at] = position.seq_no;
     }
     if seen.len() != partition_count {
-        return Err(invalid_positions(format!(
-            "The positions leave out a partition of index \"{index_name}\", which has {partition_count}"
-        )));
+        return Err(invalid_positions(
+            index_name,
+            format!(
+                "The positions leave out a partition of index \"{index_name}\", which has {partition_count}"
+            ),
+        ));
     }
     Ok(ordered)
 }
@@ -95,7 +110,7 @@ pub(super) fn open_locked(
     store: &Arc<DurabilityStore>,
     request: &ChangesRequest,
 ) -> Result<Opened> {
-    require_request_shape(request)?;
+    require_request_shape(&index.name, request)?;
     let Some(log) = index.log() else {
         return Err(not_enabled(&index.name));
     };

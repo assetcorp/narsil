@@ -44,6 +44,7 @@ fn not_enabled(index_name: &str) -> NarsilError {
         ErrorCode::SYNC_NOT_ENABLED,
         format!("Index \"{index_name}\" has device sync off"),
     )
+    .with_details([("indexName", Value::from(index_name))])
 }
 
 fn replaced(index_name: &str) -> NarsilError {

@@ -8,8 +8,8 @@ use crate::durability::sync_retention::published_archive_bytes;
 use crate::engine::change_capture::ChangePosition;
 use crate::engine::durable::archive::index_configuration;
 use crate::engine::{EngineInner, Narsil};
-use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::Map;
+use crate::error::{ErrorCode, NarsilError, Result, index_not_found};
+use crate::value::{Map, Value};
 
 const SYNC_SETTINGS_KEYS: [&str; 7] = [
     "language",
@@ -90,13 +90,6 @@ impl SyncCursor {
     }
 }
 
-fn index_not_found(index_name: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::INDEX_NOT_FOUND,
-        format!("Index \"{index_name}\" does not exist"),
-    )
-}
-
 fn engine_log_store(engine: &EngineInner, index_name: &str) -> Result<Arc<DurabilityStore>> {
     if !engine.holds_index(index_name) {
         return Err(index_not_found(index_name));
@@ -111,6 +104,7 @@ fn engine_log_store(engine: &EngineInner, index_name: &str) -> Result<Arc<Durabi
                 ErrorCode::SYNC_DURABILITY_REQUIRED,
                 "Device sync needs write-ahead log durability",
             )
+            .with_details([("indexName", Value::from(index_name))])
         })
 }
 

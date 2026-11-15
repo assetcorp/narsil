@@ -18,8 +18,9 @@ use crate::config::{
     validate_pattern_value_limit, validate_required_fields_in_schema, validate_storage,
     validate_vector_promotion,
 };
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::{ErrorCode, NarsilError, Result, index_not_found};
 use crate::schema::{CompiledSchema, require_creatable_schema, schema_fields, validate_schema};
+use crate::value::Value;
 
 pub(crate) const DEFAULT_LANGUAGE: &str = "english";
 
@@ -60,7 +61,8 @@ fn require_persistable_analysis(name: &str, config: &IndexConfig) -> Result<()> 
             format!(
                 "Index \"{name}\" cannot use a tokenizer instance while durability is configured, because a checkpoint persists no code. Register it with registerTokenizer and pass its name"
             ),
-        ));
+        )
+        .with_details([("indexName", Value::from(name))]));
     }
     if matches!(
         config.stop_words,
@@ -73,7 +75,8 @@ fn require_persistable_analysis(name: &str, config: &IndexConfig) -> Result<()> 
             format!(
                 "Index \"{name}\" cannot use a stop word function while durability is configured, because a checkpoint persists no code. Register it with registerStopWords and pass its name"
             ),
-        ));
+        )
+        .with_details([("indexName", Value::from(name))]));
     }
     Ok(())
 }
@@ -163,7 +166,8 @@ fn create_unannounced(
         return Err(NarsilError::new(
             ErrorCode::INDEX_ALREADY_EXISTS,
             format!("Index \"{name}\" already exists"),
-        ));
+        )
+        .with_details([("indexName", Value::from(name))]));
     }
     clear_leftovers_of_name(engine, name)?;
     let registered = engine.adapters.embedding();
@@ -184,10 +188,7 @@ fn create_unannounced(
 pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
     engine.guard_shutdown()?;
     if !engine.holds_index(name) {
-        return Err(NarsilError::new(
-            ErrorCode::INDEX_NOT_FOUND,
-            format!("Index \"{name}\" does not exist"),
-        ));
+        return Err(index_not_found(name));
     }
     let config = {
         let _writes = engine.suggestions.write_turns.take(name)?;
@@ -231,10 +232,7 @@ fn drop_closed(engine: &EngineInner, name: &str) -> Result<Arc<IndexConfig>> {
         .get(name)
         .map(|entry| Arc::clone(&entry.closed.config));
     let Some(config) = config else {
-        return Err(NarsilError::new(
-            ErrorCode::INDEX_NOT_FOUND,
-            format!("Index \"{name}\" does not exist"),
-        ));
+        return Err(index_not_found(name));
     };
     if let Some(durable) = &engine.durable {
         durable.remove_index(name)?;

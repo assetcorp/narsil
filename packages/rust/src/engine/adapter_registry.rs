@@ -3,9 +3,11 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::rerank_settings::RerankSettings;
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
+use crate::util::registered::RegisteredByName;
 
-/// The embedding adapters of an engine, keyed by the name that an index configuration gives.
-pub(crate) type EmbeddingAdapters = BTreeMap<String, Arc<dyn EmbeddingAdapter>>;
+/// The embedding adapters of an engine, keyed by the name that an index configuration gives, in the order that
+/// each name was first registered.
+pub(crate) type EmbeddingAdapters = RegisteredByName<Arc<dyn EmbeddingAdapter>>;
 
 type RerankAdapters = BTreeMap<String, Arc<dyn RerankAdapter>>;
 

@@ -57,7 +57,11 @@ impl Analysis<'_> {
                         format!(
                             "{source}Synonym rule {rule} holds a word that the index analyses {reason}"
                         ),
-                    ))
+                    )
+                    .with_details([
+                        ("rule", crate::value::Value::from(rule)),
+                        ("tokens", crate::value::Value::from(count)),
+                    ]))
                 }
             },
         }

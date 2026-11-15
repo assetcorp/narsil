@@ -8,6 +8,7 @@ use crate::config::{
     validate_partition_config,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 /// Returns the BM25 setting that an index keeps: the given values, without a field pair that sets nothing, with the
 /// last pair of a field that the setting gives twice, and `None` where nothing is set.
@@ -65,7 +66,11 @@ fn update_partition_limits(index: &IndexState, change: &PartitionConfig) -> Resu
     {
         return Err(capacity_exceeded(format!(
             "maxPartitions ({max_partitions}) is less than the current partition count ({partition_count})"
-        )));
+        ))
+        .with_details([
+            ("maxPartitions", Value::from(max_partitions)),
+            ("partitionCount", Value::from(partition_count)),
+        ]));
     }
     let current = index.config().partitions.unwrap_or_default();
     let document_count = index.document_count();
@@ -77,7 +82,11 @@ fn update_partition_limits(index: &IndexState, change: &PartitionConfig) -> Resu
         if capacity < document_count {
             return Err(capacity_exceeded(format!(
                 "New capacity ({capacity}) is less than current document count ({document_count})"
-            )));
+            ))
+            .with_details([
+                ("newTotalCapacity", Value::from(capacity)),
+                ("currentDocCount", Value::from(document_count)),
+            ]));
         }
     }
     replace_settings(index, |config| {

@@ -113,7 +113,8 @@ impl BuildRunner {
         if runtime.scrambler().is_none() {
             return Err(config_invalid(
                 "This engine has no query suggestions key, so it builds no suggestions",
-            ));
+            )
+            .with_details([("indexName", crate::value::Value::from(index_name))]));
         }
         runtime.guard_stopping()?;
         let build = {

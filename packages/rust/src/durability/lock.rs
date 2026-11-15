@@ -134,6 +134,10 @@ fn held_elsewhere(root: &Path, who: &str, lock_path: &Path) -> NarsilError {
             lock_path.display()
         ),
     )
+    .with_details([(
+        "directory",
+        crate::value::Value::from(root.display().to_string()),
+    )])
 }
 
 fn holder_label(holder: &LockHolder, me: &LockHolder) -> String {

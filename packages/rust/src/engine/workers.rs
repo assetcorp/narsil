@@ -1,5 +1,6 @@
 use super::constants::LARGEST_SAFE_INTEGER;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 /// Which queries TypeScript's engine answers on its main copy, kept so that one configuration reads the same in
 /// both packages.
@@ -45,7 +46,8 @@ fn require_positive_safe_integer(field: &str, value: Option<u64>) -> Result<()> 
         Some(value) if value == 0 || value > LARGEST_SAFE_INTEGER => Err(NarsilError::new(
             ErrorCode::CONFIG_INVALID,
             format!("{field} must be a positive safe integer, got {value}"),
-        )),
+        )
+        .with_details([("field", Value::from(field)), ("value", Value::from(value))])),
         _ => Ok(()),
     }
 }
@@ -68,7 +70,11 @@ pub(crate) fn validate_workers(
             format!(
                 "workers.idleTimeoutMs must be at most lifecycle.idleTimeoutMs, so that an index drops its copies before it closes, got {drop_after} and {close_after}"
             ),
-        )),
+        )
+        .with_details([
+            ("workersIdleTimeoutMs", Value::from(drop_after)),
+            ("lifecycleIdleTimeoutMs", Value::from(close_after)),
+        ])),
         _ => Ok(()),
     }
 }

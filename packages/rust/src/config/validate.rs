@@ -4,7 +4,7 @@ use super::types::{
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::{CompiledSchema, validate_schema};
 use crate::util::text::utf16_length;
-use crate::value::number_to_text;
+use crate::value::{Value, number_to_text};
 
 pub(crate) const MAX_INDEX_NAME_LENGTH: usize = 255;
 pub(crate) const MAX_DOC_ID_LENGTH: usize = 512;
@@ -33,14 +33,18 @@ fn invalid(message: impl Into<String>) -> NarsilError {
 /// Raises `CONFIG_INVALID` for an index name outside the characters and length that every Narsil engine accepts.
 pub(crate) fn validate_index_name(name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err(invalid(
-            "Index name must be a string of at least one character",
-        ));
+        return Err(
+            invalid("Index name must be a string of at least one character")
+                .with_details([("received", Value::from("string"))]),
+        );
     }
-    if utf16_length(name) > MAX_INDEX_NAME_LENGTH {
+    let named = || ("indexName", Value::from(name));
+    let length = utf16_length(name);
+    if length > MAX_INDEX_NAME_LENGTH {
         return Err(invalid(format!(
             "Index name must not exceed {MAX_INDEX_NAME_LENGTH} characters"
-        )));
+        ))
+        .with_details([named(), ("length", Value::from(length))]));
     }
     let bytes = name.as_bytes();
     let first_allowed = bytes[0].is_ascii_alphanumeric();
@@ -50,26 +54,37 @@ pub(crate) fn validate_index_name(name: &str) -> Result<()> {
     if !first_allowed || !rest_allowed {
         return Err(invalid(format!(
             "Index name \"{name}\" contains invalid characters; use alphanumeric, dots, hyphens, and underscores only"
-        )));
+        ))
+        .with_details([named()]));
     }
     if name.contains("..") {
-        return Err(invalid(format!(
-            "Index name \"{name}\" must not contain \"..\""
-        )));
+        return Err(
+            invalid(format!("Index name \"{name}\" must not contain \"..\""))
+                .with_details([named()]),
+        );
     }
     Ok(())
 }
 
 /// Raises `DOC_VALIDATION_FAILED` for a document ID that no Narsil engine can store.
 pub(crate) fn validate_doc_id(doc_id: &str) -> Result<()> {
-    let failed = |message: String| NarsilError::new(ErrorCode::DOC_VALIDATION_FAILED, message);
+    let failed = |message: String| {
+        NarsilError::new(ErrorCode::DOC_VALIDATION_FAILED, message)
+            .with_details([("docId", Value::from(doc_id))])
+    };
     if doc_id.is_empty() {
         return Err(failed("Document ID must not be empty".to_string()));
     }
-    if utf16_length(doc_id) > MAX_DOC_ID_LENGTH {
-        return Err(failed(format!(
-            "Document ID must not exceed {MAX_DOC_ID_LENGTH} characters"
-        )));
+    let length = utf16_length(doc_id);
+    if length > MAX_DOC_ID_LENGTH {
+        return Err(NarsilError::new(
+            ErrorCode::DOC_VALIDATION_FAILED,
+            format!("Document ID must not exceed {MAX_DOC_ID_LENGTH} characters"),
+        )
+        .with_details([
+            ("docId", Value::from(doc_id)),
+            ("length", Value::from(length)),
+        ]));
     }
     if doc_id.contains('\0') {
         return Err(failed(
@@ -81,29 +96,30 @@ pub(crate) fn validate_doc_id(doc_id: &str) -> Result<()> {
 
 pub(crate) fn validate_partition_config(partitions: &PartitionConfig) -> Result<()> {
     if partitions.max_docs_per_partition == Some(0) {
-        return Err(invalid(
-            "partitions.maxDocsPerPartition must be a positive integer",
-        ));
+        return Err(
+            invalid("partitions.maxDocsPerPartition must be a positive integer")
+                .with_details([("maxDocsPerPartition", Value::from(0))]),
+        );
     }
-    if partitions.max_partitions == Some(0) {
-        return Err(invalid(
-            "partitions.maxPartitions must be a positive integer",
-        ));
-    }
-    if partitions
-        .max_partitions
-        .is_some_and(|count| count > MAX_PARTITIONS)
-    {
-        return Err(invalid(format!(
-            "partitions.maxPartitions must be at most {MAX_PARTITIONS}"
-        )));
+    if let Some(count) = partitions.max_partitions {
+        let refusal = match count {
+            0 => Some("partitions.maxPartitions must be a positive integer".to_string()),
+            _ if count > MAX_PARTITIONS => Some(format!(
+                "partitions.maxPartitions must be at most {MAX_PARTITIONS}"
+            )),
+            _ => None,
+        };
+        if let Some(message) = refusal {
+            return Err(invalid(message).with_details([("maxPartitions", Value::from(count))]));
+        }
     }
     if let Some(watermark) = partitions.watermark
         && !(watermark > 0.0 && watermark <= 1.0)
     {
-        return Err(invalid(
-            "partitions.watermark must be above 0 and at most 1",
-        ));
+        return Err(
+            invalid("partitions.watermark must be above 0 and at most 1")
+                .with_details([("watermark", Value::Number(watermark))]),
+        );
     }
     Ok(())
 }
@@ -113,7 +129,8 @@ pub(crate) fn validate_pattern_value_limit(limit: Option<u64>) -> Result<()> {
         Some(limit) if !(MIN_PATTERN_VALUE_LIMIT..=MAX_PATTERN_VALUE_LIMIT).contains(&limit) => {
             Err(invalid(format!(
                 "patternValueLimit must be a whole number of code points from {MIN_PATTERN_VALUE_LIMIT} to {MAX_PATTERN_VALUE_LIMIT}"
-            )))
+            ))
+            .with_details([("patternValueLimit", Value::from(limit))]))
         }
         _ => Ok(()),
     }
@@ -139,14 +156,19 @@ pub(crate) fn require_surface_forms_for_partial_fields(
     };
     Err(invalid(format!(
         "Field \"{first}\" declares \"partial\", which compares words as the documents wrote them, so its index needs surfaceForms left on"
-    )))
+    ))
+    .with_details([
+        ("fields", Value::from(partial.clone())),
+        ("surfaceForms", Value::from(false)),
+    ]))
 }
 
 pub(crate) fn validate_vector_promotion(promotion: &VectorPromotion) -> Result<()> {
     if promotion.threshold == Some(0) {
-        return Err(invalid(
-            "vectorPromotion.threshold must be a positive integer",
-        ));
+        return Err(
+            invalid("vectorPromotion.threshold must be a positive integer")
+                .with_details([("threshold", Value::from(0))]),
+        );
     }
     let Some(hnsw) = promotion.hnsw else {
         return Ok(());
@@ -156,12 +178,14 @@ pub(crate) fn validate_vector_promotion(promotion: &VectorPromotion) -> Result<(
     {
         return Err(invalid(format!(
             "vectorPromotion.hnswConfig.m must be a whole number from {MIN_M} to {MAX_M}"
-        )));
+        ))
+        .with_details([("m", Value::from(m))]));
     }
     if hnsw.ef_construction == Some(0) {
         return Err(invalid(
             "vectorPromotion.hnswConfig.efConstruction must be a positive integer",
-        ));
+        )
+        .with_details([("efConstruction", Value::from(0))]));
     }
     Ok(())
 }
@@ -174,12 +198,14 @@ pub(crate) fn validate_storage(config: &IndexConfig, filesystem_durability: bool
     if vector_storage == Some(Storage::Disk) && !filesystem_durability {
         return Err(invalid(
             "vectorPromotion.storage 'disk' needs filesystem durability, because a checkpoint file holds the vectors",
-        ));
+        )
+        .with_details([("storage", Value::from(Storage::Disk.name()))]));
     }
     if config.text_storage == Some(Storage::Disk) && !filesystem_durability {
-        return Err(invalid(
-            "textStorage must be 'memory', or 'disk' with filesystem durability",
-        ));
+        return Err(
+            invalid("textStorage must be 'memory', or 'disk' with filesystem durability")
+                .with_details([("textStorage", Value::from(Storage::Disk.name()))]),
+        );
     }
     Ok(())
 }
@@ -200,7 +226,8 @@ fn require_bm25_value(label: &str, value: Option<f64>, maximum: f64, settable: b
         "{label} must be a finite number from 0 to {}, and this request sets {}",
         number_to_text(maximum),
         number_to_text(value)
-    )))
+    ))
+    .with_details([("parameter", Value::from(label))]))
 }
 
 fn require_bm25_pair(label: &str, pair: &Bm25FieldParams, settable: bool) -> Result<()> {
@@ -231,7 +258,8 @@ pub(crate) fn validate_bm25_params(
                         "BM25 parameters apply to a text field alone, and the schema declares field \"{shown}\" as \"{}\"",
                         displayed_name(&field_type.name)
                     ),
-                ));
+                )
+                .with_details([("field", Value::from(shown))]));
             }
             None => {
                 return Err(NarsilError::new(
@@ -239,7 +267,8 @@ pub(crate) fn validate_bm25_params(
                     format!(
                         "BM25 parameters apply to a text field that the schema declares, and the schema declares no field \"{shown}\""
                     ),
-                ));
+                )
+                .with_details([("field", Value::from(shown))]));
             }
         }
         require_bm25_pair(&format!("bm25.fields.{shown}"), pair, settable)?;
@@ -259,7 +288,8 @@ pub(crate) fn validate_required_fields_in_schema(
         if schema.field(field).is_none() {
             return Err(embedding_invalid(format!(
                 "Required field \"{field}\" does not exist in the schema"
-            )));
+            ))
+            .with_details([("field", Value::from(field.as_str()))]));
         }
     }
     Ok(())
