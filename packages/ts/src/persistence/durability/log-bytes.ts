@@ -159,9 +159,9 @@ export function createLogBytesLedger(base: DurableDirectory, sizes: StoredSizesR
       if (loggedFileOf(to) !== null) track(to, moved?.bytes ?? (await currentLength(to)))
     },
     list: prefix => base.list(prefix),
-    pathOf: key => base.pathOf(key),
   }
-  const { readRange, byteLength, identity, lock } = base
+  const { readRange, byteLength, identity, lock, pathOf } = base
+  if (pathOf !== undefined) directory.pathOf = key => pathOf.call(base, key)
   if (readRange !== undefined) directory.readRange = (key, offset, length) => readRange.call(base, key, offset, length)
   if (byteLength !== undefined) directory.byteLength = key => byteLength.call(base, key)
   if (identity !== undefined) directory.identity = () => identity.call(base)
