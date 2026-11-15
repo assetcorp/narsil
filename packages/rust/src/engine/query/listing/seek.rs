@@ -109,7 +109,7 @@ fn tail_candidates(
     out.extend(found.into_iter().map(str::to_string));
 }
 
-fn matched_live_count(entry: &SegmentEntry, bits: &[u32]) -> u64 {
+pub(super) fn matched_live_count(entry: &SegmentEntry, bits: &[u32]) -> u64 {
     let mut count = 0;
     for (word_at, word) in bits.iter().enumerate() {
         let mut word = *word;
