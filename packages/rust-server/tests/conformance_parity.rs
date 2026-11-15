@@ -118,7 +118,7 @@ async fn fill(port: u16, searches: &Value) {
         "/indexes",
         &object(vec![
             ("name", Value::String(INDEX.to_string())),
-            ("config", at(searches, "/index").clone()),
+            ("config", at(searches, "index").clone()),
         ]),
     )
     .await;
@@ -136,7 +136,7 @@ async fn fill(port: u16, searches: &Value) {
         assert_eq!(
             reply
                 .json()
-                .pointer("/failed")
+                .pointer("failed")
                 .and_then(Value::as_array)
                 .map(Vec::len),
             Some(0),
@@ -152,54 +152,52 @@ async fn search(port: u16, index: &str, body: Value) -> Value {
 }
 
 fn hit_ids(hits: &[Value]) -> Vec<String> {
-    hits.iter()
-        .map(|hit| text(hit, "/id").to_string())
-        .collect()
+    hits.iter().map(|hit| text(hit, "id").to_string()).collect()
 }
 
 async fn answers(port: u16, index: &str, searches: &Value, vector_queries: &[Value]) -> Answers {
-    let limit = Value::Number(whole(searches, "/text/limit") as f64);
+    let limit = Value::Number(whole(searches, "text.limit") as f64);
     let mut text_answers = Vec::new();
-    for query in list(searches, "/text/queries") {
+    for query in list(searches, "text.queries") {
         let found = search(
             port,
             index,
             object(vec![
-                ("term", at(query, "/text").clone()),
+                ("term", at(query, "text").clone()),
                 ("limit", limit.clone()),
             ]),
         )
         .await;
-        let hits = list(&found, "/hits")
+        let hits = list(&found, "hits")
             .iter()
             .map(|hit| {
-                let score = at(hit, "/score").as_f64().expect("each hit has a score");
-                (text(hit, "/id").to_string(), score.to_bits())
+                let score = at(hit, "score").as_f64().expect("each hit has a score");
+                (text(hit, "id").to_string(), score.to_bits())
             })
             .collect();
-        text_answers.push((text(query, "/id").to_string(), hits));
+        text_answers.push((text(query, "id").to_string(), hits));
     }
     let mut grouped_answers = Vec::new();
-    for query in list(searches, "/grouped/queries") {
+    for query in list(searches, "grouped.queries") {
         let found = search(
             port,
             index,
             object(vec![
-                ("term", at(query, "/text").clone()),
+                ("term", at(query, "text").clone()),
                 ("limit", limit.clone()),
-                ("group", at(searches, "/grouped/group").clone()),
+                ("group", at(searches, "grouped.group").clone()),
             ]),
         )
         .await;
-        let groups = list(&found, "/groups")
+        let groups = list(&found, "groups")
             .iter()
-            .map(|group| (at(group, "/values").clone(), hit_ids(list(group, "/hits"))))
+            .map(|group| (at(group, "values").clone(), hit_ids(list(group, "hits"))))
             .collect();
-        grouped_answers.push((text(query, "/id").to_string(), groups));
+        grouped_answers.push((text(query, "id").to_string(), groups));
     }
-    let deepest = list(searches, "/vector/floors")
+    let deepest = list(searches, "vector.floors")
         .iter()
-        .map(|floor| whole(floor, "/k"))
+        .map(|floor| whole(floor, "k"))
         .max()
         .expect("the searches set a recall floor");
     let mut vector_answers = Vec::new();
@@ -212,18 +210,15 @@ async fn answers(port: u16, index: &str, searches: &Value, vector_queries: &[Val
                 (
                     "vector",
                     object(vec![
-                        ("field", at(searches, "/vector/field").clone()),
-                        ("value", at(query, "/vector").clone()),
+                        ("field", at(searches, "vector.field").clone()),
+                        ("value", at(query, "vector").clone()),
                     ]),
                 ),
                 ("limit", Value::Number(deepest as f64)),
             ]),
         )
         .await;
-        vector_answers.push((
-            text(query, "/id").to_string(),
-            hit_ids(list(&found, "/hits")),
-        ));
+        vector_answers.push((text(query, "id").to_string(), hit_ids(list(&found, "hits"))));
     }
     Answers {
         text: text_answers,
@@ -234,10 +229,10 @@ async fn answers(port: u16, index: &str, searches: &Value, vector_queries: &[Val
 
 fn check_against_committed(answers: &Answers, searches: &Value) -> Vec<String> {
     let mut problems = Vec::new();
-    for ((id, hits), query) in answers.text.iter().zip(list(searches, "/text/queries")) {
-        let wanted = list(query, "/hits");
+    for ((id, hits), query) in answers.text.iter().zip(list(searches, "text.queries")) {
+        let wanted = list(query, "hits");
         let found_ids: Vec<&str> = hits.iter().map(|(hit, _)| hit.as_str()).collect();
-        let wanted_ids: Vec<&str> = wanted.iter().map(|hit| text(hit, "/id")).collect();
+        let wanted_ids: Vec<&str> = wanted.iter().map(|hit| text(hit, "id")).collect();
         if found_ids != wanted_ids {
             problems.push(format!(
                 "text {id}: found {found_ids:?}, wanted {wanted_ids:?}"
@@ -246,7 +241,7 @@ fn check_against_committed(answers: &Answers, searches: &Value) -> Vec<String> {
         }
         for ((hit, bits), wanted_hit) in hits.iter().zip(wanted) {
             let score = f64::from_bits(*bits);
-            let wanted_score = at(wanted_hit, "/score").as_f64().unwrap_or(f64::NAN);
+            let wanted_score = at(wanted_hit, "score").as_f64().unwrap_or(f64::NAN);
             if (score - wanted_score).abs() > SCORE_RELATIVE_TOLERANCE * wanted_score.abs().max(1.0)
             {
                 problems.push(format!(
@@ -258,37 +253,33 @@ fn check_against_committed(answers: &Answers, searches: &Value) -> Vec<String> {
     for ((id, groups), query) in answers
         .grouped
         .iter()
-        .zip(list(searches, "/grouped/queries"))
+        .zip(list(searches, "grouped.queries"))
     {
-        let wanted: Groups = list(query, "/groups")
+        let wanted: Groups = list(query, "groups")
             .iter()
             .map(|group| {
-                let ids = list(group, "/ids")
+                let ids = list(group, "ids")
                     .iter()
                     .map(|value| value.as_str().unwrap_or_default().to_string())
                     .collect();
-                (at(group, "/values").clone(), ids)
+                (at(group, "values").clone(), ids)
             })
             .collect();
         if groups != &wanted {
             problems.push(format!("grouped {id}: found {groups:?}, wanted {wanted:?}"));
         }
     }
-    for floor in list(searches, "/vector/floors") {
-        let k = whole(floor, "/k");
-        let minimum = at(floor, "/floor").as_f64().unwrap_or(1.0);
+    for floor in list(searches, "vector.floors") {
+        let k = whole(floor, "k");
+        let minimum = at(floor, "floor").as_f64().unwrap_or(1.0);
         let mut found_total = 0usize;
         let mut wanted_total = 0usize;
-        for ((id, hits), query) in answers.vector.iter().zip(list(searches, "/vector/queries")) {
-            assert_eq!(
-                id,
-                text(query, "/id"),
-                "the vector queries pair up in order"
-            );
-            let neighbours: Vec<&str> = list(query, "/neighbours")
+        for ((id, hits), query) in answers.vector.iter().zip(list(searches, "vector.queries")) {
+            assert_eq!(id, text(query, "id"), "the vector queries pair up in order");
+            let neighbours: Vec<&str> = list(query, "neighbours")
                 .iter()
                 .take(k)
-                .map(|neighbour| text(neighbour, "/id"))
+                .map(|neighbour| text(neighbour, "id"))
                 .collect();
             wanted_total += neighbours.len();
             found_total += hits
@@ -327,13 +318,13 @@ async fn restore(port: u16, archive: Bytes) {
     )
     .await;
     assert_eq!(started.status, 202, "{:?}", started.json());
-    let task = text(&started.json(), "/id").to_string();
+    let task = text(&started.json(), "id").to_string();
     let deadline = Instant::now() + TASK_DEADLINE;
     loop {
         let record = send(port, &Call::new("GET", &format!("/tasks/{task}")))
             .await
             .json();
-        match text(&record, "/status") {
+        match text(&record, "status") {
             "succeeded" => return,
             "running" if Instant::now() < deadline => tokio::time::sleep(TASK_POLL_INTERVAL).await,
             status => panic!("the restore task ended {status}: {record:?}"),
@@ -346,7 +337,7 @@ async fn an_index_that_the_rust_server_saves_answers_the_conformance_searches_al
  {
     let searches = json_file("searches/queries.json");
     let dataset_queries = json_file(".dataset/queries.json");
-    let vector_queries = list(&dataset_queries, "/vectorQueries");
+    let vector_queries = list(&dataset_queries, "vectorQueries");
     let directory = ScratchDirectory::new("conformance-parity");
 
     let writer = RustServer::durable(directory.path(), ServerOptions::default()).await;
@@ -366,7 +357,7 @@ async fn an_index_that_the_rust_server_saves_answers_the_conformance_searches_al
     )
     .await;
     assert_eq!(
-        counted.json().pointer("/count").and_then(Value::as_f64),
+        counted.json().pointer("count").and_then(Value::as_f64),
         Some(DATASET_DOCUMENTS as f64),
         "the restarted server finds every document"
     );

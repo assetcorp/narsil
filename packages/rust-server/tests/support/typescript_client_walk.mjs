@@ -380,7 +380,7 @@ await attempt(
 await attempt('cancel missing task', () => client.cancelTask('00000000-0000-4000-8000-000000000000'))
 
 await attempt('close', () => client.close(INDEX))
-await attempt('search closed', () => client.query(INDEX, { term: 'zorblat' }))
+await attempt('search closed', () => client.query(INDEX, { term: 'zorblat' }), scored)
 await attempt('open', () => client.open(INDEX))
 await attempt('clear', () => client.clear(INDEX))
 const cleared = await attempt('count cleared', () => client.countDocuments(INDEX))
