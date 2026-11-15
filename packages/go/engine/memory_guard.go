@@ -37,10 +37,11 @@ func burstBytesOf(growth partition.WriteGrowth) float64 {
 
 func (g *memoryGuard) takeGroup(indexName string, ix *index.Index, bounds *documentBounds, start,
 	mostDocuments int) (*memory.Reservation, error) {
-	burst := memory.Burst{}
-	if ix != nil {
-		end := min(len(bounds.bounds), start+max(1, mostDocuments))
-		burst = memory.Burst{Key: ix, Bytes: ix.WriteBurst(bounds.docIDs[start:end], burstBytesOf)}
+	burst := func(count int) memory.Burst {
+		if ix == nil {
+			return memory.Burst{}
+		}
+		return memory.Burst{Key: ix, Bytes: ix.WriteBurst(bounds.docIDs[start:start+count], burstBytesOf)}
 	}
 	return g.projection.TakeGroup(indexName, bounds.bounds, start, mostDocuments, burst, bounds.countExactly)
 }
