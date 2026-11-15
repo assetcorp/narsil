@@ -6,10 +6,10 @@ use crate::engine::events::{ListenerId, NarsilEvent, NarsilEventKind};
 use crate::engine::{EngineInner, Narsil};
 use crate::error::{Result, instance_shut_down};
 
-use super::constants::CHANGE_FOLLOW_INTERVAL_MS;
+use super::constants::{CHANGE_FOLLOW_INTERVAL_MS, CHANGE_READ_CHUNK_BYTES};
 use super::open::{Opened, bytes_behind, log_store_for_changes, open_locked};
 use super::step::{Following, Step, step};
-use super::types::{ChangesEvent, ChangesRequest};
+use super::types::{ChangePosition, ChangesEvent, ChangesRequest};
 
 #[derive(Default)]
 struct SignalState {
@@ -80,7 +80,7 @@ pub struct ChangeFeed {
     engine: Weak<EngineInner>,
     index_name: String,
     signal: Arc<FeedSignal>,
-    listener: Option<ListenerId>,
+    listeners: Vec<ListenerId>,
     pending: VecDeque<Result<ChangesEvent>>,
     following: Option<Box<Following>>,
 }
@@ -107,13 +107,37 @@ impl ChangeFeed {
     /// Returns the next event, waiting at most `timeout` for one, or `None` where none arrives in that time or the
     /// feed has ended, which [`ChangeFeed::is_finished`] tells apart.
     pub fn next_within(&mut self, timeout: Duration) -> Option<Result<ChangesEvent>> {
-        self.next_event(Some(Instant::now() + timeout))
+        self.next_event(Some(Instant::now() + timeout), CHANGE_READ_CHUNK_BYTES)
+    }
+
+    /// Returns the next event as [`ChangeFeed::next_within`] does, reading at most `max_bytes` of documents for it,
+    /// and never more than 1 MiB, so that a server can keep each group within the room that its window leaves. A
+    /// read always takes at least one entry, so a group can pass `max_bytes` by one entry.
+    pub fn next_within_bytes(
+        &mut self,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Option<Result<ChangesEvent>> {
+        let budget = max_bytes.clamp(1, CHANGE_READ_CHUNK_BYTES);
+        self.next_event(Some(Instant::now() + timeout), budget)
+    }
+
+    /// Moves the feed back to `position` in its partition, so that its next read of the partition returns the
+    /// changes above that position again, as a server does with a group that its window had no room to send. A
+    /// position at or above the feed's own leaves the feed as it stands.
+    pub fn rewind(&mut self, position: ChangePosition) {
+        if let Some(following) = self.following.as_mut() {
+            following.rewind(position.partition_id as usize, position.seq_no);
+        }
     }
 
     fn finish(&mut self) {
         self.following = None;
-        if let (Some(id), Some(engine)) = (self.listener.take(), self.engine.upgrade()) {
-            engine.events.remove_listener(id);
+        let listeners = std::mem::take(&mut self.listeners);
+        if let Some(engine) = self.engine.upgrade() {
+            for id in listeners {
+                engine.events.remove_listener(id);
+            }
         }
     }
 
@@ -122,7 +146,11 @@ impl ChangeFeed {
         Some(event)
     }
 
-    fn next_event(&mut self, deadline: Option<Instant>) -> Option<Result<ChangesEvent>> {
+    fn next_event(
+        &mut self,
+        deadline: Option<Instant>,
+        budget_bytes: usize,
+    ) -> Option<Result<ChangesEvent>> {
         loop {
             if let Some(event) = self.pending.pop_front() {
                 return Some(event);
@@ -136,7 +164,7 @@ impl ChangeFeed {
                 return self.end_with(Err(instance_shut_down()));
             };
             self.signal.take_wake();
-            match step(&engine, &self.index_name, following) {
+            match step(&engine, &self.index_name, following, budget_bytes) {
                 Err(error) => return self.end_with(Err(error)),
                 Ok(Step::Resync(reason)) => return self.end_with(Ok(ChangesEvent::Resync(reason))),
                 Ok(Step::Group(group)) => return Some(Ok(ChangesEvent::Changes(group))),
@@ -163,7 +191,7 @@ impl Iterator for ChangeFeed {
     type Item = Result<ChangesEvent>;
 
     fn next(&mut self) -> Option<Result<ChangesEvent>> {
-        self.next_event(None)
+        self.next_event(None, CHANGE_READ_CHUNK_BYTES)
     }
 }
 
@@ -177,19 +205,26 @@ fn listen_for_writes(
     engine: &EngineInner,
     index_name: &str,
     signal: &Arc<FeedSignal>,
-) -> ListenerId {
-    let name = index_name.to_string();
-    let signal = Arc::clone(signal);
-    engine.events.add_listener(
-        NarsilEventKind::Write,
-        Arc::new(move |event: &NarsilEvent| {
-            if let NarsilEvent::Write { index_name } = event
-                && *index_name == name
-            {
-                signal.wake();
-            }
-        }),
-    )
+) -> Vec<ListenerId> {
+    [NarsilEventKind::Write, NarsilEventKind::FeedChange]
+        .into_iter()
+        .map(|kind| {
+            let name = index_name.to_string();
+            let signal = Arc::clone(signal);
+            engine.events.add_listener(
+                kind,
+                Arc::new(move |event: &NarsilEvent| match event {
+                    NarsilEvent::Write { index_name }
+                    | NarsilEvent::FeedChange { index_name, .. }
+                        if *index_name == name =>
+                    {
+                        signal.wake();
+                    }
+                    _ => {}
+                }),
+            )
+        })
+        .collect()
 }
 
 impl Narsil {
@@ -224,7 +259,7 @@ impl Narsil {
             engine: Arc::downgrade(&self.inner),
             index_name: index.to_string(),
             signal: Arc::clone(&signal),
-            listener: None,
+            listeners: Vec::new(),
             pending: VecDeque::new(),
             following: None,
         };
@@ -232,7 +267,7 @@ impl Narsil {
             Opened::Resync(reason) => feed.pending.push_back(Ok(ChangesEvent::Resync(reason))),
             Opened::Following(following, mut subscribed) => {
                 subscribed.bytes_behind = bytes_behind(&store, index, &subscribed.positions)?;
-                feed.listener = Some(listen_for_writes(&self.inner, index, &signal));
+                feed.listeners = listen_for_writes(&self.inner, index, &signal);
                 feed.pending
                     .push_back(Ok(ChangesEvent::Subscribed(subscribed)));
                 feed.following = Some(following);

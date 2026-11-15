@@ -29,4 +29,4 @@ pub(crate) mod store_inner;
 mod store_thread;
 pub(crate) mod sync_files;
 pub(crate) mod sync_retention;
-mod sync_store;
+pub(crate) mod sync_store;

@@ -92,6 +92,9 @@ pub struct ChangeGroup {
     /// The highest sequence number that the read examined, which the subscriber saves as its position in the
     /// partition once it has applied the changes.
     pub scanned_seq_no: u64,
+    /// The length in bytes of the log entries that the read examined, by which a server spaces the empty groups
+    /// that it sends under a filter.
+    pub scanned_bytes: u64,
 }
 
 /// Why a change feed asks its subscriber to load a fresh document export.

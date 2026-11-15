@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::Narsil;
 use super::index::IndexState;
+use super::sync::notify::announce_sync_settings;
 use crate::config::{
     Bm25FieldParams, Bm25Params, IndexConfig, PartitionConfig, validate_bm25_params,
     validate_partition_config,
@@ -113,7 +114,9 @@ impl Narsil {
             validate_bm25_params(bm25, &state.schema, ErrorCode::CONFIG_INVALID, true)?;
             let stored = stored_bm25(bm25);
             replace_settings(state, |config| config.bm25 = stored)
-        })
+        })?;
+        announce_sync_settings(&self.inner, index);
+        Ok(())
     }
 
     /// Changes how many documents an index accepts and when it reports that it is filling up, without moving the

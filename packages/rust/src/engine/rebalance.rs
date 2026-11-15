@@ -6,6 +6,7 @@ use super::changes::rebuild::Rebuild;
 use super::changes::switch::{LayoutSwitch, switch_layout};
 use super::events::NarsilEvent;
 use super::index::IndexState;
+use super::sync::notify::announcing_epoch;
 use super::{EngineInner, Narsil};
 use crate::config::{DEFAULT_MAX_PARTITIONS, MAX_PARTITIONS};
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -121,9 +122,11 @@ impl Narsil {
     /// write fails with that code while a rebalance holds 10,000 writes that it has yet to apply.
     pub fn rebalance(&self, index: &str, target_partition_count: usize) -> Result<()> {
         let mut reached = None;
-        let outcome = self.inner.on_current_index(index, |state| {
-            reached = Some(std::sync::Arc::clone(state));
-            rebalance_index(&self.inner, state, target_partition_count)
+        let outcome = announcing_epoch(&self.inner, index, || {
+            self.inner.on_current_index(index, |state| {
+                reached = Some(std::sync::Arc::clone(state));
+                rebalance_index(&self.inner, state, target_partition_count)
+            })
         });
         let Some(state) = reached else {
             return outcome.map(|_| ());
