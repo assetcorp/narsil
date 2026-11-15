@@ -3,7 +3,7 @@ const { createHash } = require('node:crypto')
 const { matchesAnyPath } = require('./changed-areas.js')
 const { lockfileClosure } = require('./pnpm-lockfile.js')
 
-const INPUT_HASH_FORMAT = 1
+const INPUT_HASH_FORMAT = 2
 const LOCKFILE = 'pnpm-lock.yaml'
 const COMMIT = /^[0-9a-f]{40}$/
 const RELEASE_GENERATED = /(^|\/)CHANGELOG\.md$/
@@ -76,7 +76,7 @@ function createInputHasher() {
     const key = `${lockfileObject}\0${suite.production === true}\0${suite.importers.join('\0')}`
     let closure = closures.get(key)
     if (closure === undefined) {
-      closure = lockfileClosure(blob(lockfileObject), suite.importers, { production: suite.production === true }).digest
+      closure = lockfileClosure(blob(lockfileObject), suite.importers, { production: suite.production === true })
       closures.set(key, closure)
     }
     return closure
@@ -86,19 +86,21 @@ function createInputHasher() {
     const entries = treeAt(commit)
     const except = suite.except ?? []
     const versionless = suite.manifestsWithoutVersion ?? []
+    const lockfile = entries.find(entry => entry.path === LOCKFILE)
+    if (lockfile === undefined) throw new Error(`${commit} holds no ${LOCKFILE}`)
+    const closure = closureOf(lockfile.object, suite)
+    const paths = [...suite.paths, ...closure.importers.filter(path => path !== '.').map(path => `${path}/`)]
     const files = entries
-      .filter(entry => matchesAnyPath(entry.path, suite.paths) && !matchesAnyPath(entry.path, except))
+      .filter(entry => matchesAnyPath(entry.path, paths) && !matchesAnyPath(entry.path, except))
       .filter(entry => !RELEASE_GENERATED.test(entry.path))
       .map(entry => {
         const content = versionless.includes(entry.path) ? versionlessManifest(entry) : entry.object
         return `${entry.mode} ${entry.type} ${content}\t${entry.path}`
       })
     if (files.length === 0) throw new Error(`${commit} holds no input of the ${suiteName} suite`)
-    const lockfile = entries.find(entry => entry.path === LOCKFILE)
-    if (lockfile === undefined) throw new Error(`${commit} holds no ${LOCKFILE}`)
     const digest = createHash('sha256')
     digest.update(JSON.stringify({ format: INPUT_HASH_FORMAT, suite: suiteName, files }))
-    digest.update(`\0${closureOf(lockfile.object, suite)}`)
+    digest.update(`\0${closure.digest}`)
     return digest.digest('hex')
   }
 }
