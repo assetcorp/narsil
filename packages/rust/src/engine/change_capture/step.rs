@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::durability::change_reader::{LogCursor, LogRead, LogRecord, entry_bytes};
+use crate::durability::change_reader::{LogCursor, LogRead, LogRecord};
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -167,8 +167,8 @@ pub(super) fn step(
     let before = following.cursors[partition].position();
     let up_to = following.heads[partition];
     let keep = |record: LogRecord| {
-        let bytes = entry_bytes(&record.entry);
-        ((record.entry, record.payload.len() as u64), bytes)
+        let bytes = record.payload.len();
+        ((record.entry, bytes as u64), bytes)
     };
     let read = store.read_log_entries(
         index_name,

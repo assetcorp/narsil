@@ -1,19 +1,31 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
+mod changes;
+mod constants;
+mod core;
+mod driver;
+mod hub;
+mod limits;
+mod options;
+mod outbox;
+mod regex;
+mod signals;
+mod socket;
+mod sync;
+mod upgrade;
+mod wire;
 
-use http::{Method, Request};
-use hyper::body::Incoming;
+use std::sync::Arc;
+use std::time::Duration;
+
+use http::Method;
 use narsil::{ErrorCode, NarsilError};
 
-use crate::errors::{ServerError, server_codes};
-use crate::http::respond::{HttpResponse, error};
-use crate::options::{FeedOptions, ServerOptions};
+use crate::options::ServerOptions;
 use crate::state::ServerState;
+use constants::FEED_CLOSE_DRAIN_DEADLINE_MS;
+use hub::Hub;
+use limits::ConnectionTracker;
 
-const DEFAULT_FEED_WINDOW_BYTES: u64 = 8_388_608;
-const DEFAULT_MAX_FEED_CONNECTIONS: u64 = 10_000;
-const DEFAULT_MAX_FEED_CATCH_UPS: u64 = 32;
-const DEFAULT_MAX_FEED_BUFFERED_BYTES: u64 = 268_435_456;
+pub(crate) use upgrade::upgrade;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FeedKind {
@@ -28,67 +40,35 @@ impl FeedKind {
             FeedKind::Changes => "changes",
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ResolvedFeedOptions {
-    pub(crate) window_bytes: u64,
-    pub(crate) max_connections: u64,
-    pub(crate) max_catch_ups: u64,
-    pub(crate) max_buffered_bytes: u64,
+    fn subprotocol(self) -> &'static str {
+        match self {
+            FeedKind::Sync => wire::SYNC_SUBPROTOCOL,
+            FeedKind::Changes => wire::CHANGES_SUBPROTOCOL,
+        }
+    }
 }
 
 pub(crate) struct Feeds {
-    pub(crate) sync: Option<ResolvedFeedOptions>,
-    pub(crate) changes: Option<ResolvedFeedOptions>,
-}
-
-fn resolve(
-    kind: FeedKind,
-    options: Option<&FeedOptions>,
-) -> Result<Option<ResolvedFeedOptions>, NarsilError> {
-    let Some(options) = options else {
-        return Ok(None);
-    };
-    let fields = [
-        ("windowBytes", options.window_bytes),
-        ("maxConnections", options.max_connections),
-        ("maxCatchUps", options.max_catch_ups),
-        ("maxBufferedBytes", options.max_buffered_bytes),
-    ];
-    for (field, value) in fields {
-        if let Some(value) = value
-            && value < 1
-        {
-            return Err(NarsilError::new(
-                ErrorCode::CONFIG_INVALID,
-                format!(
-                    "{}.{field} must be a whole number of at least 1; however, this configuration sets it to {value}",
-                    kind.name()
-                ),
-            ));
-        }
-    }
-    Ok(Some(ResolvedFeedOptions {
-        window_bytes: options.window_bytes.unwrap_or(DEFAULT_FEED_WINDOW_BYTES),
-        max_connections: options
-            .max_connections
-            .unwrap_or(DEFAULT_MAX_FEED_CONNECTIONS),
-        max_catch_ups: options.max_catch_ups.unwrap_or(DEFAULT_MAX_FEED_CATCH_UPS),
-        max_buffered_bytes: options
-            .max_buffered_bytes
-            .unwrap_or(DEFAULT_MAX_FEED_BUFFERED_BYTES),
-    }))
+    pub(crate) sync: Option<Arc<Hub>>,
+    pub(crate) changes: Option<Arc<Hub>>,
+    tracker: Arc<ConnectionTracker>,
 }
 
 const SYNC_REFUSAL: &str = "Refusing to start: the device sync routes are on with no onRequest hook. A device receives the whole index, so set options.onRequest to admit only the user whose documents the index holds. allowInsecure does not lift this refusal.";
 const CHANGES_REFUSAL: &str = "Refusing to start: the change feed is on with no onRequest hook. A subscriber receives every document of the index, so set options.onRequest to admit only the services that may read the whole index. allowInsecure does not lift this refusal.";
 
 impl Feeds {
-    pub(crate) fn of(options: &ServerOptions) -> Result<Feeds, NarsilError> {
+    pub(crate) fn of(server: &ServerOptions) -> Result<Feeds, NarsilError> {
+        let allow_regex = server.allow_regex.unwrap_or(true);
+        let hub_of = |kind: FeedKind, feed| -> Result<Option<Arc<Hub>>, NarsilError> {
+            Ok(options::resolve(kind, feed)?
+                .map(|resolved| Arc::new(Hub::new(kind, resolved, allow_regex))))
+        };
         Ok(Feeds {
-            sync: resolve(FeedKind::Sync, options.sync.as_ref())?,
-            changes: resolve(FeedKind::Changes, options.changes.as_ref())?,
+            sync: hub_of(FeedKind::Sync, server.sync.as_ref())?,
+            changes: hub_of(FeedKind::Changes, server.changes.as_ref())?,
+            tracker: Arc::new(ConnectionTracker::default()),
         })
     }
 
@@ -109,7 +89,21 @@ impl Feeds {
         }
     }
 
-    pub(crate) fn close(&self) {}
+    fn hub(&self, kind: FeedKind) -> Option<&Arc<Hub>> {
+        match kind {
+            FeedKind::Sync => self.sync.as_ref(),
+            FeedKind::Changes => self.changes.as_ref(),
+        }
+    }
+
+    pub(crate) async fn close(&self) {
+        for hub in [&self.sync, &self.changes].into_iter().flatten() {
+            hub.close();
+        }
+        self.tracker
+            .wait_idle(Duration::from_millis(FEED_CLOSE_DRAIN_DEADLINE_MS))
+            .await;
+    }
 }
 
 pub(crate) fn feed_of(
@@ -128,18 +122,4 @@ pub(crate) fn feed_of(
         _ => return None,
     };
     Some((kind, name.to_string()))
-}
-
-pub(crate) async fn upgrade(
-    state: Arc<ServerState>,
-    feed: (FeedKind, String),
-    request: Request<Incoming>,
-    remote: SocketAddr,
-) -> HttpResponse {
-    let _ = (state, feed, request, remote);
-    error(&ServerError::new(
-        404,
-        server_codes::NOT_FOUND,
-        "Route not found",
-    ))
 }
