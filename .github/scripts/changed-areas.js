@@ -53,7 +53,6 @@ const README_EXAMPLE_SCRIPTS = [
 
 const MARKDOWN_THAT_THE_CHECK_JOB_COMPILES = [
   'packages/ts/README.md',
-  'packages/ts/examples/http-server/README.md',
   'packages/embeddings-transformers/README.md',
   'packages/certutil/README.md',
   'packages/react-native/README.md',
@@ -194,7 +193,6 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/etc/',
       'packages/ts/LICENSE',
       'packages/ts/NOTICE',
-      'packages/ts/examples/http-server/server.ts',
       'packages/embeddings-transformers/src/',
       'packages/embeddings-transformers/package.json',
       'packages/embeddings-transformers/tsconfig.json',

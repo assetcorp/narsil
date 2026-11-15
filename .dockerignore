@@ -28,7 +28,6 @@
 !packages/ts/src
 !packages/ts/scripts
 !packages/ts/etc
-!packages/ts/examples/http-server/server.ts
 packages/ts/src/__tests__
 packages/embeddings-transformers/src/__tests__
 packages/container/src/__tests__
