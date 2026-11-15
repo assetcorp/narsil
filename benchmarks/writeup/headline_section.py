@@ -87,8 +87,9 @@ def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     narsil = _ndcg10(_row(rows, "narsil"))
     if narsil is None:
         return []
-    subject = "Narsil's TypeScript server" if _row(rows, NARSIL_RUST) is not None else "Narsil"
-    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, {subject}'s BM25 ranking scores {decimal(narsil, 3)} nDCG@10"
+    rust = _row(rows, NARSIL_RUST)
+    ranking = "Narsil's BM25 ranking" if rust is None or is_unmeasured(rust) else "the BM25 ranking of Narsil's TypeScript server"
+    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, {ranking} scores {decimal(narsil, 3)} nDCG@10"
     if reference is not None:
         sentence += (
             f", which is within {decimal(abs(narsil - reference), 3)} of the Anserini reference "

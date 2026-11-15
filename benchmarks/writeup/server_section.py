@@ -213,7 +213,7 @@ def _vector_intro(comparison: dict, config: dict) -> str:
             _metric(narsil, key) is not None and _metric(row, key) == _metric(narsil, key)
             for row in measured for key in ("ndcg_cut_10", "recall_100")
         )
-        if not same_ranking or any(DISPLAY_NAME_FIELD in row for row in rows):
+        if not same_ranking:
             sentences.append(f"{opening}. The tables report each engine's measured ranking quality.")
             continue
         sentences.append(
@@ -228,7 +228,7 @@ def server_blocks(source: Source, best: Source | None) -> dict[str, str]:
     config = comparison.get("config") or {}
     comparisons = {EQUAL_PRECISION: comparison, BEST_CONFIG: best.data if best is not None else None}
     blocks = {
-        "server-setup": setup_block(source),
+        "server-setup": setup_block(source, best),
         "server-keyword": _track_block(source, EQUAL_PRECISION, "keyword", _quality_table, comparisons),
         "server-vector": "\n\n".join([
             _vector_intro(comparison, config),

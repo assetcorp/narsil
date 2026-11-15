@@ -53,13 +53,26 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.set_ylim(bottom=0)
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
     handles, labels = axes.get_legend_handles_labels()
-    for profile, comparison in comparisons.items():
-        rows = dataset_rows(comparison, "vector", dataset_id) or unmeasured_server_rows(comparison)
-        for handle, label in not_measured_entries(
-            rows, profile, recall_curve, "recall sweep"
-        ):
+    missing = {
+        profile: not_measured_entries(
+            dataset_rows(comparison, "vector", dataset_id) or unmeasured_server_rows(comparison),
+            profile,
+            recall_curve,
+            "recall sweep",
+        )
+        for profile, comparison in comparisons.items()
+        if comparison is not None
+    }
+    missing_labels = {tuple(label for _, label in entries) for entries in missing.values()}
+    if len(missing_labels) == 1:
+        for handle, label in next(iter(missing.values())):
             handles.append(handle)
-            labels.append(f"{label}, {profile_title(profile)}")
+            labels.append(label)
+    else:
+        for profile, entries in missing.items():
+            for handle, label in entries:
+                handles.append(handle)
+                labels.append(f"{label}, {profile_title(profile)}")
     axes.legend(
         handles, labels,
         loc="upper center",

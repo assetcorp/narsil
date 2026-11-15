@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from chart_data import track
-from narsil_servers import NARSIL_RUST, NARSIL_TYPESCRIPT, engine_entry, engine_label, is_narsil_server, is_unmeasured, narsil_row
+from narsil_servers import (
+    NARSIL_RUST,
+    NARSIL_TYPESCRIPT,
+    comparison_rows,
+    engine_entry,
+    engine_label,
+    is_narsil_server,
+    is_unmeasured,
+    narsil_row,
+)
 from render import and_join, dataset_name, gibibytes, integer
 from run_conditions import SINGLE_SERVER_LABEL, java_heap_sentence, load_sentence, narsil_vector_search_bullets
 from sources import Source
@@ -105,32 +114,50 @@ def _version(engine: dict) -> str:
     return (engine.get("build_identity") or {}).get("version") or engine.get("version") or "n/a"
 
 
-def _engines_bullet(engines: list[dict]) -> str:
+def _measured_in(comparison: dict | None, name: str) -> bool:
+    return comparison is not None and any(
+        row.get("engine") == name and not is_unmeasured(row) for row in comparison_rows(comparison)
+    )
+
+
+def _unmeasured_sentence(engines: list[dict], unmeasured: list[dict], production: dict | None) -> str:
+    elsewhere = [engine_label(engines, engine["name"]) for engine in unmeasured if _measured_in(production, engine["name"])]
+    nowhere = [engine_label(engines, engine["name"]) for engine in unmeasured if not _measured_in(production, engine["name"])]
+    sentence = ""
+    if nowhere:
+        sentence += (
+            f" The harness has not measured {and_join(nowhere)} in this run, so every table and chart lists it as "
+            "not measured yet."
+        )
+    if elsewhere:
+        sentence += (
+            f" The harness measured {and_join(elsewhere)} only under recommended production settings, so the "
+            "equal-precision tables and charts list it as not measured yet."
+        )
+    return sentence
+
+
+def _engines_bullet(engines: list[dict], production: dict | None) -> str:
     servers = [engine for engine in engines if is_narsil_server(engine.get("name"))]
     measured = [
         f"{engine_label(engines, engine['name'])} {_version(engine)}" for engine in servers if not is_unmeasured(engine)
     ]
-    unmeasured = [engine_label(engines, engine["name"]) for engine in servers if is_unmeasured(engine)]
+    unmeasured = [engine for engine in servers if is_unmeasured(engine)]
     others = [
         f"{engine_label(engines, engine['name'])} {engine.get('version') or 'n/a'}"
         for engine in engines
         if not is_narsil_server(engine.get("name"))
     ]
-    narsil = and_join(measured)
-    if narsil and others:
+    narsil = and_join([*measured, *(engine_label(engines, engine["name"]) for engine in unmeasured)])
+    if measured and others:
         bullet = f"- **Engines.** The comparison runs {narsil} against {and_join(others)}, and every engine runs from a pinned image."
     else:
         participants = and_join([*measured, *others])
         bullet = f"- **Engines.** The comparison records {participants}." if participants else "- **Engines.** The harness recorded no engine metadata."
-    if unmeasured:
-        bullet += (
-            f" The harness has not measured {and_join(unmeasured)} under equal settings, so the equal-settings tables and charts list it as "
-            "not measured yet."
-        )
-    return bullet
+    return bullet + _unmeasured_sentence(engines, unmeasured, production)
 
 
-def setup_block(source: Source) -> str:
+def setup_block(source: Source, best: Source | None = None) -> str:
     comparison = source.data
     config = comparison.get("config") or {}
     environment = comparison.get("environment") or {}
@@ -151,7 +178,7 @@ def setup_block(source: Source) -> str:
         f"[the run report]({source.report_link}).",
         f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}"
         f"{_dataset_engines_sentence(config, engines)}",
-        _engines_bullet(engines),
+        _engines_bullet(engines, best.data if best is not None else None),
         f"- **Equal conditions.** Every engine receives the same {cap} memory cap, the same run depth of "
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
         f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
