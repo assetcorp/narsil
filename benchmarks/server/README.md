@@ -578,9 +578,6 @@ pytest
   as the TypeScript image. Both images preload jemalloc so that the two servers
   measure on the same allocator, and `run-all.sh` records whether each server's
   source differs from the release.
-  To check that the two servers return the same hits, start one of each and run
-  `NARSIL_PARITY_TS_URL=http://127.0.0.1:7700 NARSIL_PARITY_RUST_URL=http://127.0.0.1:7701 pytest tests/test_rust_server_parity.py`,
-  which compares both answers with an exact BM25, cosine, and fusion oracle.
 - Typesense and Meilisearch run with a throwaway local API key (`BENCH_API_KEY`,
   default `localdev`) on the internal compose network, which the harness does not
   publish to the host. Qdrant and Weaviate run with anonymous access on that same
