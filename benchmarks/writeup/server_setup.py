@@ -124,7 +124,7 @@ def _engines_bullet(engines: list[dict]) -> str:
         bullet = f"- **Engines.** The comparison records {participants}." if participants else "- **Engines.** The harness recorded no engine metadata."
     if unmeasured:
         bullet += (
-            f" The harness has not measured {and_join(unmeasured)} in this run, so every table and chart lists it as "
+            f" The harness has not measured {and_join(unmeasured)} under equal settings, so the equal-settings tables and charts list it as "
             "not measured yet."
         )
     return bullet
