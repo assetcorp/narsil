@@ -1,6 +1,11 @@
 package partition
 
-import "unsafe"
+import (
+	"sort"
+	"unsafe"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+)
 
 const documentEntryBytes = uint64(unsafe.Sizeof(documentEntry{}))
 
@@ -73,20 +78,51 @@ func (s *Sides) noteGrowth(published int) {
 	s.growth.Store(&facts)
 }
 
-func (s *Sides) WriteGrowth(documents int) WriteGrowth {
-	growth := WriteGrowth{}
-	held := s.growth.Load()
-	if held == nil {
-		return growth
-	}
-	for _, facts := range *held {
-		growth.FreezingBytes += facts.freezing
-		growth.CopiedBytes += facts.copied
-		tableBytes := uint64(0)
-		for _, table := range facts.tables[:facts.tableCount] {
-			tableBytes = max(tableBytes, table.growthBytesFor(documents))
+func RouteOf(docID string, partitions int) int {
+	return int(codec.FNV1aString(docID) % uint32(partitions))
+}
+
+func routedDocuments(docIDs []string, partitions int) ([]int, int) {
+	routed := make([]int, partitions)
+	unrouted := 0
+	for _, docID := range docIDs {
+		if docID == "" {
+			unrouted++
+			continue
 		}
-		growth.TableBytes += tableBytes
+		routed[RouteOf(docID, partitions)]++
+	}
+	return routed, unrouted
+}
+
+func (facts partitionFacts) growthFor(documents int) WriteGrowth {
+	growth := WriteGrowth{FreezingBytes: facts.freezing, CopiedBytes: facts.copied}
+	for _, table := range facts.tables[:facts.tableCount] {
+		growth.TableBytes = max(growth.TableBytes, table.growthBytesFor(documents))
 	}
 	return growth
+}
+
+func (s *Sides) WriteBurst(docIDs []string, burstOf func(WriteGrowth) float64) float64 {
+	held := s.growth.Load()
+	if held == nil || len(*held) == 0 || len(docIDs) == 0 {
+		return 0
+	}
+	routed, unrouted := routedDocuments(docIDs, len(*held))
+	total := 0.0
+	var reachable []float64
+	for at, facts := range *held {
+		burst := burstOf(facts.growthFor(routed[at] + unrouted))
+		switch {
+		case routed[at] > 0:
+			total += burst
+		case unrouted > 0 && burst > 0:
+			reachable = append(reachable, burst)
+		}
+	}
+	sort.Float64s(reachable)
+	for taken := 0; taken < unrouted && taken < len(reachable); taken++ {
+		total += reachable[len(reachable)-1-taken]
+	}
+	return total
 }

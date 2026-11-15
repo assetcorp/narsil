@@ -119,26 +119,19 @@ type shortfall struct {
 	availableBytes float64
 }
 
-func availableIn(used, limit float64, countInUse bool) float64 {
-	if countInUse {
-		return limit - used
-	}
-	return limit
-}
-
-func shortfallOf(heapBytes, processBytes float64, countInUse bool) (shortfall, bool) {
+func shortfallOf(heapBytes, processBytes float64) (shortfall, bool) {
 	figures, found := process.measure()
 	if !found {
 		return shortfall{}, false
 	}
 	if !math.IsInf(figures.HeapLimitBytes, 1) {
-		available := availableIn(figures.HeapBytes, figures.HeapLimitBytes, countInUse)
+		available := figures.HeapLimitBytes - figures.HeapBytes
 		if heapBytes > available {
 			return shortfall{budget: heapBudget, neededBytes: heapBytes, availableBytes: available}, true
 		}
 	}
 	if !math.IsInf(figures.ProcessLimitBytes, 1) {
-		available := availableIn(figures.ProcessBytes, figures.ProcessLimitBytes, countInUse)
+		available := figures.ProcessLimitBytes - figures.ProcessBytes
 		if processBytes > available {
 			return shortfall{budget: processBudget, neededBytes: processBytes, availableBytes: available}, true
 		}
@@ -147,16 +140,16 @@ func shortfallOf(heapBytes, processBytes float64, countInUse bool) (shortfall, b
 }
 
 func inMegabytes(bytes float64) string {
-	return strconv.FormatFloat(math.Ceil(max(0, bytes)/megabyteBytes), 'f', 0, 64)
+	return strconv.FormatFloat(math.Ceil(max(0, bytes)/mebibyteBytes), 'f', 0, 64)
 }
 
 func RequireRestoreMemory(indexName string, size RestoreSize, replacesIndex bool) error {
 	needed := restoreFootprint(size, replacesIndex)
-	if _, short := shortfallOf(needed.heapBytes, needed.processBytes, true); !short {
+	if _, short := shortfallOf(needed.heapBytes, needed.processBytes); !short {
 		return nil
 	}
-	collected := collectGarbage()
-	found, short := shortfallOf(needed.heapBytes, needed.processBytes, collected || replacesIndex)
+	collectGarbage()
+	found, short := shortfallOf(needed.heapBytes, needed.processBytes)
 	if !short {
 		return nil
 	}
@@ -171,6 +164,6 @@ func RequireRestoreMemory(indexName string, size RestoreSize, replacesIndex bool
 	return narsilerr.New(narsilerr.CodeRestoreMemoryExceeded,
 		`The restore of index "`+indexName+`" needs about `+inMegabytes(found.neededBytes)+" MB "+where+
 			", and this process has "+inMegabytes(found.availableBytes)+" MB free, "+outcome,
-		map[string]any{"indexName": indexName, "budget": found.budget, "neededBytes": math.Ceil(found.neededBytes),
-			"availableBytes": math.Floor(found.availableBytes)})
+		map[string]any{"indexName": indexName, "budget": found.budget, "neededBytes": found.neededBytes,
+			"availableBytes": found.availableBytes})
 }

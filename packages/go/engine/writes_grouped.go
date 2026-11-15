@@ -77,8 +77,9 @@ func providedDocIDAt(documents []*model.Document) func(at int) string {
 
 func (n *Narsil) insertInGroups(ctx context.Context, holder indexHolder, entry *indexEntry, release func(),
 	documents []*model.Document, outcome *batchOutcome) (*indexEntry, func(), error) {
-	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents),
-		idOf: providedDocIDAt(documents), outcome: outcome}
+	idOf := providedDocIDAt(documents)
+	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents, idOf), idOf: idOf,
+		outcome: outcome}
 	write.apply = func(start, end int) (bool, error) {
 		var err error
 		entry, release, err = n.insertChunk(ctx, holder, entry, release, documents[start:end], outcome)
@@ -105,8 +106,9 @@ func (n *Narsil) updateInGroups(ctx context.Context, holder indexHolder, entry *
 	for at, update := range updates {
 		documents[at] = update.Document
 	}
-	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents),
-		idOf: func(at int) string { return updates[at].DocID }, outcome: outcome}
+	idOf := func(at int) string { return updates[at].DocID }
+	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents, idOf), idOf: idOf,
+		outcome: outcome}
 	write.apply = func(start, end int) (bool, error) {
 		for at := start; at < end; at++ {
 			if err := ctx.Err(); err != nil {

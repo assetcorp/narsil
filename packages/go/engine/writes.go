@@ -85,7 +85,11 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err := schema.RequireDocument(working); err != nil {
 		return "", err
 	}
-	reservation, err := n.memory.reserveDocument(entry, working)
+	routedID := docID
+	if routedID == "" {
+		routedID, _ = schema.ProvidedDocID(working)
+	}
+	reservation, err := n.memory.reserveDocument(entry, routedID, working)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +178,7 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err := schema.RequireDocument(working); err != nil {
 		return err
 	}
-	reservation, err := n.memory.reserveDocument(entry, working)
+	reservation, err := n.memory.reserveDocument(entry, docID, working)
 	if err != nil {
 		return err
 	}

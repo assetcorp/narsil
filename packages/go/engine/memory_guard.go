@@ -4,6 +4,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/memory"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
@@ -30,18 +31,23 @@ func (g *memoryGuard) memoryReleased() {
 	g.monitor.MemoryReleased()
 }
 
+func burstBytesOf(growth partition.WriteGrowth) float64 {
+	return memory.BurstBytes(growth.FreezingBytes, growth.CopiedBytes, growth.TableBytes)
+}
+
 func (g *memoryGuard) takeGroup(indexName string, ix *index.Index, bounds *documentBounds, start,
 	mostDocuments int) (*memory.Reservation, error) {
-	burst := 0.0
+	burst := memory.Burst{}
 	if ix != nil {
-		growth := ix.WriteGrowth(min(mostDocuments, len(bounds.bounds)-start))
-		burst = memory.BurstBytes(growth.FreezingBytes, growth.CopiedBytes, growth.TableBytes)
+		end := min(len(bounds.bounds), start+max(1, mostDocuments))
+		burst = memory.Burst{Key: ix, Bytes: ix.WriteBurst(bounds.docIDs[start:end], burstBytesOf)}
 	}
 	return g.projection.TakeGroup(indexName, bounds.bounds, start, mostDocuments, burst, bounds.countExactly)
 }
 
-func (g *memoryGuard) reserveDocument(entry *indexEntry, document *model.Document) (*memory.Reservation, error) {
-	bounds := boundsOf(entry, []*model.Document{document})
+func (g *memoryGuard) reserveDocument(entry *indexEntry, docID string, document *model.Document) (*memory.Reservation,
+	error) {
+	bounds := boundsOf(entry, []*model.Document{document}, func(int) string { return docID })
 	if bounds.bounds[0] == 0 {
 		return &memory.Reservation{}, nil
 	}
@@ -85,13 +91,16 @@ func (entry *indexEntry) memoryShape() *memory.Shape {
 type documentBounds struct {
 	shape     *memory.Shape
 	documents []*model.Document
+	docIDs    []string
 	bounds    []float64
 }
 
-func boundsOf(entry *indexEntry, documents []*model.Document) *documentBounds {
+func boundsOf(entry *indexEntry, documents []*model.Document, idOf func(at int) string) *documentBounds {
 	shape := entry.memoryShape()
-	held := &documentBounds{shape: shape, documents: documents, bounds: make([]float64, len(documents))}
+	held := &documentBounds{shape: shape, documents: documents, docIDs: make([]string, len(documents)),
+		bounds: make([]float64, len(documents))}
 	for at, document := range documents {
+		held.docIDs[at] = idOf(at)
 		if document != nil {
 			held.bounds[at] = shape.Bound(document)
 		}

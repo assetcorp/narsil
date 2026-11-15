@@ -34,6 +34,7 @@ type figureCache struct {
 	limitKnown     bool
 	limitReadAt    time.Time
 	reservedBytes  float64
+	bursts         map[any]*heldBurst
 	admittedBytes  float64
 }
 
@@ -53,9 +54,8 @@ func goHeap() (float64, float64, bool) {
 	return float64(total - min(total, released)), float64(limit), true
 }
 
-func collectGarbage() bool {
+func collectGarbage() {
 	debug.FreeOSMemory()
-	return true
 }
 
 func (c *figureCache) processFigures(now time.Time) (uint64, uint64, bool) {
@@ -123,9 +123,7 @@ func (r *refusalCollector) collect() bool {
 		return false
 	}
 	r.lastAt, r.collected = startedAt, true
-	if !collectGarbage() {
-		return false
-	}
+	collectGarbage()
 	r.interval = max(refusalCollectionMinInterval, time.Since(startedAt)*refusalCollectionTimeMultiple)
 	return true
 }

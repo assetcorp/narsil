@@ -203,18 +203,18 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 		}
 		inserts = append(inserts, imported)
 	}
-	if len(updates) > 0 {
-		if entry, release, err = n.updateInGroups(ctx, holder, entry, release, updates, outcome); err != nil {
+	if len(inserts) > 0 {
+		if entry, release, err = n.insertInGroups(ctx, holder, entry, release, inserts, outcome); err != nil {
 			return nil, err
 		}
 	}
-	if len(inserts) > 0 {
+	if len(updates) > 0 {
 		if entry == nil {
 			if entry, release, err = holder.reacquire(); err != nil {
 				return nil, err
 			}
 		}
-		if entry, release, err = n.insertInGroups(ctx, holder, entry, release, inserts, outcome); err != nil {
+		if entry, release, err = n.updateInGroups(ctx, holder, entry, release, updates, outcome); err != nil {
 			return nil, err
 		}
 	}
