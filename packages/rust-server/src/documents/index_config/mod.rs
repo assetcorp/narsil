@@ -1,6 +1,9 @@
 mod analysis;
 mod bm25;
+mod given_values;
 mod vectors;
+
+pub(crate) use given_values::with_given_values;
 
 use narsil::{
     ErrorCode, IndexConfig, Map, PartitionConfig, ScoringMode, Storage, Value,
