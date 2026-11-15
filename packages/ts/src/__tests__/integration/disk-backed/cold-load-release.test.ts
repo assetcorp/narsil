@@ -13,6 +13,7 @@ import { requireManifestOnDisk } from '../../persistence/durability/manifest-on-
 const INDEX = 'passages'
 const DOCUMENTS = 300
 const DAMAGED_GRAPH_BYTES = 128 * 1024 * 1024
+const DAMAGED_GRAPH_BYTES_THAT_OUTLAST_AN_UNRELATED_DROP = 512 * 1024 * 1024
 const LOAD_WAIT_MS = 10_000
 
 function handlesUnder(root: string): string[] {
@@ -65,19 +66,24 @@ it
       const graph = manifest.vectors[0]?.graphParts[0]
       if (graph === undefined) throw new Error('The checkpoint holds no graph')
       const graphPath = join(root, graph.key)
-      await truncate(graphPath, DAMAGED_GRAPH_BYTES)
-      graph.bytes = DAMAGED_GRAPH_BYTES
+      const damagedBytes =
+        action === 'drop unrelated index' ? DAMAGED_GRAPH_BYTES_THAT_OUTLAST_AN_UNRELATED_DROP : DAMAGED_GRAPH_BYTES
+      await truncate(graphPath, damagedBytes)
+      graph.bytes = damagedBytes
       const packed = await encodeSegmentManifest(manifest)
       await writeFile(join(root, manifestKey(INDEX)), Buffer.concat(packed.chunks))
       engine = await createNarsil(config)
       expect(engine.vectorMaintenanceStatus(INDEX)[0]?.loadingFromFiles).toBe(true)
       const handlesBeforeLoad = handlesUnder(root).filter(path => path === graphPath).length
-      await engine.query(INDEX, { vector: { field: 'embedding', value: [1, 0, 0, 0] }, limit: 0 })
-      const deadline = Date.now() + LOAD_WAIT_MS
-      while (handlesUnder(root).filter(path => path === graphPath).length <= handlesBeforeLoad) {
-        if (Date.now() > deadline) throw new Error('The cold loader never opened the graph')
-        await nextTurn()
+      const startGraphRead = async (): Promise<void> => {
+        await engine.query(INDEX, { vector: { field: 'embedding', value: [1, 0, 0, 0] }, limit: 0 })
+        const deadline = Date.now() + LOAD_WAIT_MS
+        while (handlesUnder(root).filter(path => path === graphPath).length <= handlesBeforeLoad) {
+          if (Date.now() > deadline) throw new Error('The cold loader never opened the graph')
+          await nextTurn()
+        }
       }
+      if (action !== 'drop unrelated index') await startGraphRead()
       if (action === 'clear') {
         await engine.clear(INDEX)
         expect(handlesUnder(graphPath)).toEqual([])
@@ -90,6 +96,7 @@ it
       ) {
         engine.registerRerankAdapter('clearing', {
           async rerank(_query, texts) {
+            if (action === 'drop unrelated index') await startGraphRead()
             await engine.clear(INDEX)
             if (emptyArchive !== null) await engine.restore(INDEX, emptyArchive)
             return texts.map(() => 1)
@@ -99,6 +106,11 @@ it
           term: 'passage',
           rerank: { adapter: 'clearing', fields: ['title'] },
         })
+        if (action === 'drop unrelated index') {
+          expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
+          await engine.dropIndex('unrelated')
+          expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
+        }
         const expected = Array.from({ length: DOCUMENTS }, (_, at) => `passage-${at}`)
           .sort()
           .slice(0, 10)
@@ -112,11 +124,6 @@ it
       if (action === 'drop after rerank') {
         await engine.dropIndex(INDEX)
         expect(handlesUnder(join(root, INDEX))).toEqual([])
-      }
-      if (action === 'drop unrelated index') {
-        expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
-        await engine.dropIndex('unrelated')
-        expect(handlesUnder(graphPath).length).toBeGreaterThan(0)
       }
       await engine.shutdown()
       expect(handlesUnder(root)).toEqual([])

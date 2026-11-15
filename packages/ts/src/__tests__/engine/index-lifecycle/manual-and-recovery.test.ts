@@ -225,6 +225,11 @@ describe('index lifecycle', () => {
 
     expect(engine.listIndexes()[0]).toEqual(expect.objectContaining({ state: 'open' }))
     expect(await engine.get('products', 'lamp')).toEqual({ title: 'Desk lamp' })
+
+    rejectSnapshot = false
+    await engine.shutdown()
+    engine = await createNarsil({ persistence: adapter, durability: { tier: 'snapshot' }, lifecycle: {} })
+    expect(await engine.get('products', 'lamp')).toEqual({ title: 'Desk lamp' })
   })
 
   it('writes a fresh snapshot when close meets an older checkpoint', async () => {

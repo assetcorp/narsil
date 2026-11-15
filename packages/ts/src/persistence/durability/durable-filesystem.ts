@@ -41,7 +41,7 @@ export interface DurableDirectory {
   move(from: string, to: string): Promise<void>
   list(prefix: string): Promise<string[]>
   /** Reports the absolute path a key maps to, which a reader opening the file by position needs. */
-  pathOf(key: string): Promise<string>
+  pathOf?(key: string): Promise<string>
   identity?(): Promise<string | null>
   lock?(): Promise<DirectoryLock>
 }

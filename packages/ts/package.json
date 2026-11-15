@@ -612,6 +612,7 @@
     "ajv": "8.20.0",
     "esbuild": "0.28.2",
     "etcd3": "1.1.2",
+    "fake-indexeddb": "6.2.8",
     "fflate": "0.8.3",
     "jsdom": "28.1.0",
     "re2-wasm": "1.0.2",

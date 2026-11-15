@@ -560,6 +560,12 @@ export interface IndexContext {
 }
 
 // @public
+export interface IndexedDBLocation {
+    readonly databaseName: string;
+    readonly storeName: string;
+}
+
+// @public
 export interface IndexInfo {
     analysisStale?: boolean;
     documentCount: number;
@@ -1693,6 +1699,7 @@ export interface PatternSearch {
 export interface PersistenceAdapter {
     delete(key: string): Promise<void>;
     readonly directory?: string;
+    readonly indexedDB?: IndexedDBLocation;
     list(prefix: string): Promise<string[]>;
     load(key: string): Promise<Uint8Array | null>;
     loadStream?(key: string): Promise<AsyncIterable<Uint8Array> | null>;

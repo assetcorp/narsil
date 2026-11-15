@@ -71,6 +71,24 @@ export interface PersistenceAdapter {
   saveIfAbsent?(key: string, data: Uint8Array): Promise<boolean>
   /** This adapter writes to this directory, when a filesystem backs it. */
   readonly directory?: string
+  /**
+   * This adapter writes to this IndexedDB database and object store, when IndexedDB backs it. The engine then keeps
+   * its write-ahead log in the same store, so a closed tab keeps every write that the engine acknowledged.
+   */
+  readonly indexedDB?: IndexedDBLocation
+}
+
+/**
+ * The IndexedDB database and object store that a persistence adapter writes to, which
+ * {@link PersistenceAdapter.indexedDB} reports.
+ *
+ * @public
+ */
+export interface IndexedDBLocation {
+  /** The adapter opens the database with this name. */
+  readonly databaseName: string
+  /** The adapter keeps its records in the object store with this name. */
+  readonly storeName: string
 }
 
 /**
