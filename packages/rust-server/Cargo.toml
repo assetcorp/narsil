@@ -1,0 +1,42 @@
+[package]
+name = "delali-narsil-server"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Serve one Narsil node over HTTP and WebSocket from a Rust program, with the routes, limits, and error codes of the TypeScript server."
+license = "Apache-2.0"
+repository = "https://github.com/assetcorp/narsil"
+homepage = "https://narsil.sondelali.com"
+documentation = "https://docs.rs/delali-narsil-server"
+readme = "README.md"
+keywords = ["search", "http", "server", "bm25", "hnsw"]
+categories = ["database-implementations", "web-programming::http-server"]
+
+[lib]
+name = "narsil_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "narsil-server"
+path = "src/bin/narsil-server.rs"
+
+[dependencies]
+bytes = "=1.12.1"
+delali-narsil = { version = "0.2.0", path = "../rust" }
+form_urlencoded = "=1.2.2"
+futures-util = "=0.3.34"
+getrandom = "=0.4.3"
+http = "=1.5.0"
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["http1", "server", "server-graceful", "tokio"] }
+percent-encoding = "=2.3.2"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "io-util", "fs", "signal"] }
+tokio-tungstenite = "=0.30.0"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
