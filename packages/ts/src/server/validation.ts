@@ -2,6 +2,7 @@ import { ANALYSIS_CHANGE_MEMBERS } from '../engine/constants'
 import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
 import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { DEFAULT_TASK_PAGE_SIZE } from './constants'
 import { TASK_STATUSES, TASK_TYPES } from './task-status'
 import type {
   BatchBody,
@@ -299,7 +300,7 @@ export function parseTaskListQuery(
       ...(type === undefined ? {} : { type }),
       ...(status === undefined ? {} : { status }),
       from,
-      ...(params.get('limit') === null ? {} : { limit }),
+      limit: params.get('limit') === null ? Math.min(DEFAULT_TASK_PAGE_SIZE, maxPageSize) : limit,
     },
   }
 }

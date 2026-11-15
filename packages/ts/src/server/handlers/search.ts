@@ -1,4 +1,5 @@
 import { bindQuerySignal, clearQuerySignal } from '../../narsil/internals'
+import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
@@ -22,7 +23,10 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      const query = withServerRerankWindow(params, limits)
+      const query = withServerRerankWindow(
+        { ...params, limit: params.limit ?? Math.min(DEFAULT_PAGE_SIZE, limits.maxResultWindow) },
+        limits,
+      )
       const result = await searchWithSignal(ctx, query)
       await respondAnswer(ctx, encodeQueryResult(result), 'hits', `a search on index '${ctx.params[0]}'`)
     } catch (err) {
