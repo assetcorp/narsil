@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .core import datasets as ds
+from .core.checkpoint_identity import bind_checkpoints
 from .core.config import load_config, select_datasets, select_engine
 from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
@@ -189,12 +190,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"engine cores allowed: {engine_cpu.cores_allowed() or 'not read from the cgroup'}", flush=True)
         if share_vector_index:
             print("the hybrid track measures the index that the vector track built", flush=True)
+        driver.wait_until_ready()
+        engine_info["build_identity"] = _safe_build_identity(driver)
+        engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
+        bind_checkpoints(
+            checkpoint_dir, engine_info["build_identity"], engine_info["image_digest"], config, engine_cfg,
+            vector_profile, share_vector_index,
+        )
         results = run_engine(
             driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir,
             engine_memory, share_vector_index,
         )
-        engine_info["build_identity"] = _safe_build_identity(driver)
-        engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
         engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
         engine_info["server_setup"] = next(
             (result["server_setup"] for result in reversed(results) if result.get("server_setup")), None
