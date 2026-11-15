@@ -42,8 +42,12 @@ const REFUSALS: Refusal[] = [
     return [
       { field: 'URL', value: 'http://private-user:private-password@127.0.0.1:9' },
       { field: 'URL', value: 'http://127.0.0.1:9/#fragment' },
+      { field: 'URL', value: 'http://127.0.0.1:9/?' },
+      { field: 'URL', value: 'http://127.0.0.1:9/#' },
       { field: 'MODEL', value: '   ' },
       { field: 'API_KEY', value: 'private-key\r\ninjected-header: secret' },
+      { field: 'API_KEY', value: 'private-key\u0001' },
+      { field: 'API_KEY', value: 'private-key\u007f' },
     ].map(({ field, value }) => ({
       label: `an unusable ${family} ${field}`,
       env: { ...env, [`${prefix}${field}`]: value },

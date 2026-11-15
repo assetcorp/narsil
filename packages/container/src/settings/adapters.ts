@@ -1,3 +1,4 @@
+import { validateHeaderValue } from 'node:http'
 import {
   ADAPTER_NAME_PATTERN,
   DEFAULT_ADAPTER_MAX_RETRIES,
@@ -52,7 +53,7 @@ function httpUrl(reader: VariableReader, variable: string): string | undefined {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new SettingError(variable, 'must be an absolute http or https URL')
   }
-  if (parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+  if (parsed.username !== '' || parsed.password !== '' || parsed.href.includes('?') || parsed.href.includes('#')) {
     throw new SettingError(variable, 'must be a base URL without credentials, a query, or a fragment')
   }
   return parsed.href
@@ -69,7 +70,7 @@ function apiKeyOf(reader: VariableReader, variable: string): string | undefined 
   const key = nonBlankText(reader, variable)
   if (key === undefined) return undefined
   try {
-    new Headers({ authorization: `Bearer ${key}` })
+    validateHeaderValue('authorization', `Bearer ${key}`)
   } catch {
     throw new SettingError(variable, 'must be a valid HTTP header value')
   }
