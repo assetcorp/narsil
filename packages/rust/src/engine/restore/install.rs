@@ -207,6 +207,7 @@ pub(super) fn activate(
             .indexes_mut()
             .insert(index.name.clone(), Arc::clone(&index));
     });
+    engine.listing.place(&index.name);
     engine.lifecycle.forget(&index.name);
     engine.lifecycle.touch(&index);
     if let Some(old) = &previous {

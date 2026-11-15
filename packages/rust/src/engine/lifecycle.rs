@@ -175,6 +175,7 @@ fn create_unannounced(
     engine
         .indexes_mut()
         .insert(name.to_string(), Arc::clone(&state));
+    engine.listing.place(name);
     Ok(state)
 }
 
@@ -215,6 +216,7 @@ fn drop_unannounced(engine: &EngineInner, name: &str) -> Result<Arc<IndexConfig>
     }
     engine.indexes_mut().remove(name);
     engine.lifecycle.forget(name);
+    engine.listing.forget(name);
     index.retire();
     drop(_writer);
     Ok(index.config())
@@ -238,5 +240,6 @@ fn drop_closed(engine: &EngineInner, name: &str) -> Result<Arc<IndexConfig>> {
         durable.remove_index(name)?;
     }
     engine.lifecycle.forget(name);
+    engine.listing.forget(name);
     Ok(config)
 }
