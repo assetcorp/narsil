@@ -87,6 +87,30 @@ if [ -n "$NARSIL_VERSION" ] &&
 fi
 export NARSIL_GIT_SHA NARSIL_GIT_DIRTY NARSIL_VERSION
 
+RUST_SERVER_SOURCE_PATHS=(
+  packages/rust/src
+  packages/rust/build.rs
+  packages/rust/Cargo.toml
+  packages/rust/Cargo.lock
+  packages/rust/layout
+  packages/native/include
+  packages/native/src
+  packages/rust-server/src
+  packages/rust-server/Cargo.toml
+  packages/rust-server/Cargo.lock
+  benchmarks/server/narsil-rust-server.Dockerfile
+)
+NARSIL_RUST_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' ../../packages/rust-server/Cargo.toml 2>/dev/null | head -1)"
+NARSIL_RUST_RELEASE_TAG="narsil-rust-server@v${NARSIL_RUST_VERSION}"
+NARSIL_RUST_GIT_DIRTY="true"
+if [ -n "$NARSIL_RUST_VERSION" ] &&
+  git -C ../.. rev-parse --verify --quiet "${NARSIL_RUST_RELEASE_TAG}^{commit}" >/dev/null 2>&1 &&
+  rust_server_changes="$(git -C ../.. diff --name-only "$NARSIL_RUST_RELEASE_TAG" -- "${RUST_SERVER_SOURCE_PATHS[@]}" 2>/dev/null)" &&
+  [ -z "$rust_server_changes" ]; then
+  NARSIL_RUST_GIT_DIRTY="false"
+fi
+export NARSIL_RUST_VERSION NARSIL_RUST_GIT_DIRTY
+
 # Resolve the immutable image artifact a running engine was started from. A pulled
 # image reports its registry digest; a locally built one (narsil, harness) has no
 # registry digest, so its local image id is used instead. Recorded with every result
@@ -163,12 +187,12 @@ echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: $
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")
 else
-  ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
+  ENGINES=(narsil narsil-rust elasticsearch opensearch qdrant weaviate typesense meilisearch)
 fi
 
 is_vector_engine() {
   case "$1" in
-    narsil|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
+    narsil|narsil-rust|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
     *) return 1 ;;
   esac
 }

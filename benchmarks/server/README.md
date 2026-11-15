@@ -32,6 +32,7 @@ engine's release source on 2026-09-21.
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:24-trixie-slim` base) | working tree | local source |
+| Narsil Rust server (`narsil-rust`) | built from this repo (`debian:trixie-slim` base) | working tree | local source |
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.4` | 9.5.4 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.8.0` | 3.8.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
 | Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
@@ -479,6 +480,7 @@ benchmarks/server/
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)
   narsil-server.Dockerfile   Narsil server image, built from repo source
+  narsil-rust-server.Dockerfile  Rust server image from packages/rust-server, built from repo source
   requirements.in / .txt     direct dependencies and the version-pinned lock
   config/benchmark.toml       datasets, BM25 reference, vector config, per-engine tracks
   src/ir_bench/
@@ -551,6 +553,14 @@ pytest
   The repository's example image (`packages/ts/examples/http-server/Dockerfile`)
   uses Debian bookworm (glibc 2.36), and the `uWebSockets.js` arm64 prebuilt the
   server loads needs glibc 2.38, so that image cannot start on Apple Silicon.
+- The `narsil-rust` engine is the Rust server in `packages/rust-server`, which
+  serves the same routes as the TypeScript server, so the harness drives both
+  through one driver. Its image comes from
+  [narsil-rust-server.Dockerfile](narsil-rust-server.Dockerfile), and both
+  images preload jemalloc so that the two servers measure on the same allocator.
+  To check that the two servers return the same hits, start one of each and run
+  `NARSIL_PARITY_TS_URL=http://127.0.0.1:7700 NARSIL_PARITY_RUST_URL=http://127.0.0.1:7701 pytest tests/test_rust_server_parity.py`,
+  which compares both answers with an exact BM25, cosine, and fusion oracle.
 - Typesense and Meilisearch run with a throwaway local API key (`BENCH_API_KEY`,
   default `localdev`) on the internal compose network, which the harness does not
   publish to the host. Qdrant and Weaviate run with anonymous access on that same
