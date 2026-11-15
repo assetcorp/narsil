@@ -71,6 +71,16 @@ names the method per engine.
   and the recorded value together so the number in the results always matches what
   was enforced. Engines run one at a time, so the cap never contends and latency
   compares directly. At the small corpus sizes no engine approaches the cap.
+- Each engine takes its vendor's memory setting inside that cap. Elasticsearch and
+  OpenSearch take the Java heap that `BENCH_JVM_HEAP` sets, and every results file
+  records the heap that each node reports. Weaviate runs with
+  `LIMIT_RESOURCES=true`, so it reads the container's memory limit at startup and
+  sets its Go soft memory limit (`GOMEMLIMIT`) to 80% of it, the low end of the
+  80 to 90% that Weaviate's documentation recommends. That limit covers only the Go
+  heap, so the other 20% of the cap stays free for the memory that Weaviate holds
+  outside it. Weaviate logs the limit that it set, and `run-all.sh` saves that log
+  beside each run. The setting changes Weaviate's CPU count only under a CPU quota,
+  and the compose file sets none.
 - One run-file ordering rule applies to every engine. `trec_eval` ignores the rank
   column, re-sorts hits by score, and breaks equal-score ties by document id in
   reverse-lexical order, which can reshuffle a ranking and change nDCG. The harness
