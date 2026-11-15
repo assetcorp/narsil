@@ -3,10 +3,18 @@ import { createHmac } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAIN = fileURLToPath(new URL('../../../dist/main.mjs', import.meta.url))
+const PROGRAM_VARIABLE = 'NARSIL_CONTAINER_PROGRAM'
+const SELECTED_PROGRAM = process.env[PROGRAM_VARIABLE]
+const PROGRAM =
+  SELECTED_PROGRAM === undefined || SELECTED_PROGRAM.length === 0
+    ? { command: process.execPath, args: [MAIN] }
+    : { command: resolve(SELECTED_PROGRAM), args: [] }
+
+export const HOLDS_WORKER_COPIES = PROGRAM.command === process.execPath
 const READY_LINE = 'Narsil serves HTTP'
 const START_TIMEOUT_MS = 30_000
 const EXIT_TIMEOUT_MS = 30_000
@@ -56,7 +64,7 @@ function childEnv(env: Env): NodeJS.ProcessEnv {
 }
 
 function spawnMain(env: Env): ChildProcess {
-  return spawn(process.execPath, [MAIN], { env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] })
+  return spawn(PROGRAM.command, PROGRAM.args, { env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
 function exitOf(child: ChildProcess, out: { stdout: string; stderr: string }): Promise<Exit> {

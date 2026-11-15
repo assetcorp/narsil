@@ -1,0 +1,42 @@
+{
+  "name": "narsil-rust-container",
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "cargo fmt --all --check",
+          "cargo clippy --all-targets --locked -- -D warnings"
+        ],
+        "parallel": false,
+        "cwd": "packages/rust-container"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo check --all-targets --locked",
+        "cwd": "packages/rust-container"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo build --release --locked",
+        "cwd": "packages/rust-container"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["build"],
+      "options": {
+        "command": "target=\"${CARGO_TARGET_DIR:-target}\"; case \"$target\" in /*) ;; *) target=\"$PWD/$target\" ;; esac; NARSIL_CONTAINER_PROGRAM=\"$target/release/narsil-container\" pnpm --dir ../container exec vitest run",
+        "cwd": "packages/rust-container"
+      }
+    }
+  }
+}
