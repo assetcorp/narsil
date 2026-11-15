@@ -121,6 +121,7 @@ export class WebhookQueue {
     if (entry.timer !== null) clearTimeout(entry.timer)
     entry.timer = null
     this.queued.delete(entry.delivery.id)
+    this.ready.delete(entry.delivery.id)
     this.options.store.remove(entry.delivery.id).catch(() => undefined)
   }
 
@@ -197,12 +198,12 @@ export class WebhookQueue {
 
   private settle(entry: QueuedDelivery, outcome: SendOutcome): void {
     entry.sending = false
+    if (outcome === 'gone') this.stop()
     if (this.queued.get(entry.delivery.id) !== entry || outcome === 'abandoned') return
     if (outcome === 'delivered') {
       this.forget(entry)
       return
     }
-    if (outcome === 'gone') this.stop()
     this.retry(entry)
   }
 
