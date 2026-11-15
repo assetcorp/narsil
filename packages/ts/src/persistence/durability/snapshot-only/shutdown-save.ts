@@ -21,7 +21,12 @@ async function saveIndex(deps: ShutdownSaveDeps, indexName: string, indexState: 
   })
 }
 
-export async function saveUnsavedIndexes(deps: ShutdownSaveDeps): Promise<void> {
+export interface ShutdownReleaseDeps extends ShutdownSaveDeps {
+  settleMetadataWrites(): Promise<void>
+  release(): void
+}
+
+async function saveUnsavedIndexes(deps: ShutdownSaveDeps): Promise<void> {
   let failure: Error | null = null
   for (const [indexName, indexState] of deps.indexes) {
     try {
@@ -33,4 +38,13 @@ export async function saveUnsavedIndexes(deps: ShutdownSaveDeps): Promise<void> 
     }
   }
   if (failure !== null) throw failure
+}
+
+export async function saveAndReleaseIndexes(deps: ShutdownReleaseDeps): Promise<void> {
+  try {
+    await saveUnsavedIndexes(deps)
+  } finally {
+    await deps.settleMetadataWrites()
+    deps.release()
+  }
 }
