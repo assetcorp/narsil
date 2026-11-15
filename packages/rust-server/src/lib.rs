@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod constants;
+mod documents;
 mod errors;
 mod feeds;
 mod handlers;
