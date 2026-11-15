@@ -297,8 +297,8 @@ func (n *Narsil) RebuildAnalysis(ctx context.Context, indexName string) error {
 	if err != nil {
 		return err
 	}
-	defer release()
 	defer n.emitWrite(indexName)
+	defer release()
 	if entry.pendingAnalysisMetadata() != nil {
 		run, err := n.resumeChange(entry)
 		if run == nil {

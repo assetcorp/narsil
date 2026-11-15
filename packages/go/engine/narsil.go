@@ -93,7 +93,7 @@ func New(ctx context.Context, config Config) (*Narsil, error) {
 		return nil, err
 	}
 	engine.workers = pool
-	engine.heap = newHeapWatch(config.Memory, engine.events)
+	engine.heap = newHeapWatch(config.Memory)
 	engine.stopping, engine.stop = context.WithCancel(context.Background())
 	if err := engine.openDurability(ctx); err != nil {
 		engine.syncRetention.stop()

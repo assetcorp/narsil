@@ -155,13 +155,17 @@ func (n *Narsil) Rebalance(ctx context.Context, indexName string, targetPartitio
 	split, err := n.rebalanceHeld(ctx, entry, targetPartitionCount)
 	release()
 	if split != nil {
+		n.events.emit(model.PartitionRebalanceEvent{IndexName: indexName, OldCount: split.OldPartitionCount,
+			NewCount: split.NewPartitionCount})
 		_ = n.plugins.each(ctx, hookOnPartitionSplit, func(plugin model.Plugin) func(context.Context) error {
 			if plugin.OnPartitionSplit == nil {
 				return nil
 			}
 			return func(ctx context.Context) error { return plugin.OnPartitionSplit(ctx, split) }
 		})
-		n.onIndexInPlace(indexName, n.checkWatermark)
+		var watermark model.Event
+		n.onIndexInPlace(indexName, func(entry *indexEntry) { watermark = n.checkWatermark(entry) })
+		n.events.emit(watermark)
 	}
 	return err
 }
@@ -199,7 +203,6 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 	if entry.index() != built {
 		return nil, err
 	}
-	n.events.emit(model.PartitionRebalanceEvent{IndexName: entry.name, OldCount: oldCount, NewCount: targetPartitionCount})
 	return &model.PartitionContext{IndexName: entry.name, OldPartitionCount: oldCount,
 		NewPartitionCount: targetPartitionCount}, err
 }
@@ -218,6 +221,8 @@ func (n *Narsil) UpdatePartitionConfig(ctx context.Context, indexName string, pa
 	if err != nil {
 		return err
 	}
+	var watermark model.Event
+	defer func() { n.events.emit(watermark) }()
 	defer release()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -226,7 +231,7 @@ func (n *Narsil) UpdatePartitionConfig(ctx context.Context, indexName string, pa
 	err = n.updatePartitionConfigLocked(ctx, entry, partitions)
 	entry.writeMu.Unlock()
 	if err == nil {
-		n.checkWatermark(entry)
+		watermark = n.checkWatermark(entry)
 	}
 	return err
 }

@@ -35,6 +35,9 @@ func (bus *eventBus) add(handlers model.EventHandlers) func() {
 }
 
 func (bus *eventBus) emit(event model.Event) int {
+	if event == nil {
+		return 0
+	}
 	bus.mu.RLock()
 	ids := make([]uint64, 0, len(bus.listeners))
 	handlers := make(map[uint64]model.EventHandlers, len(bus.listeners))
@@ -51,6 +54,12 @@ func (bus *eventBus) emit(event model.Event) int {
 		}
 	}
 	return handled
+}
+
+func (bus *eventBus) emitAll(events []model.Event) {
+	for _, event := range events {
+		bus.emit(event)
+	}
 }
 
 func sortIDs(ids []uint64) {

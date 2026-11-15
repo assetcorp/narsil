@@ -51,8 +51,10 @@ func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents [
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(name)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
@@ -62,7 +64,7 @@ func (n *Narsil) suggestionsInsert(ctx context.Context, name string, documents [
 	if entry, release, err = n.insertChunk(ctx, n.suggestionsHolder(name), entry, release, documents, outcome); err != nil {
 		return outcome.result, err
 	}
-	n.afterWriteOn(entry, name)
+	notifications = n.afterWriteOn(entry, name)
 	return outcome.result, nil
 }
 
@@ -76,8 +78,10 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(name)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
@@ -96,7 +100,7 @@ func (n *Narsil) suggestionsUpdate(ctx context.Context, name string, updates []m
 		}
 		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
 	}
-	n.afterWriteOn(entry, name)
+	notifications = n.afterWriteOn(entry, name)
 	return outcome.result, nil
 }
 
@@ -117,8 +121,8 @@ func (n *Narsil) suggestionsRemoveBatch(ctx context.Context, name string, ids []
 	if err != nil {
 		return nil, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(name)
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	if _, release, err = n.removeChunk(ctx, n.suggestionsHolder(name), entry, release, ids, outcome); err != nil {
 		return outcome.result.Succeeded, err

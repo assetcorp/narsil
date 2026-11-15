@@ -17,10 +17,8 @@ const (
 )
 
 type heapWatch struct {
-	block  float64
-	resume float64
-	events *eventBus
-
+	block      float64
+	resume     float64
 	mu         sync.Mutex
 	measuredAt time.Time
 	used       int64
@@ -54,9 +52,9 @@ func validateMemoryConfig(config model.MemoryConfig) error {
 	return nil
 }
 
-func newHeapWatch(config model.MemoryConfig, events *eventBus) *heapWatch {
+func newHeapWatch(config model.MemoryConfig) *heapWatch {
 	return &heapWatch{block: config.BlockWritesAbove.Or(defaultBlockWritesAbove),
-		resume: config.ResumeWritesBelow.Or(defaultResumeWritesBelow), events: events, pressured: map[string]bool{}}
+		resume: config.ResumeWritesBelow.Or(defaultResumeWritesBelow), pressured: map[string]bool{}}
 }
 
 func heapLimit() (int64, bool) {
@@ -106,10 +104,10 @@ func (watch *heapWatch) admit(indexName string) error {
 			"heapBytes": used, "heapLimitBytes": limit})
 }
 
-func (watch *heapWatch) check(indexName string, estimate func() (int64, error)) {
+func (watch *heapWatch) check(indexName string, estimate func() (int64, error)) model.Event {
 	limit, limited := heapLimit()
 	if !limited {
-		return
+		return nil
 	}
 	watch.mu.Lock()
 	used := watch.measure(limit)
@@ -125,15 +123,15 @@ func (watch *heapWatch) check(indexName string, estimate func() (int64, error)) 
 	}
 	watch.mu.Unlock()
 	if !emit {
-		return
+		return nil
 	}
 	estimated, err := estimate()
 	if err != nil {
 		watch.mu.Lock()
 		delete(watch.pressured, indexName)
 		watch.mu.Unlock()
-		return
+		return nil
 	}
-	watch.events.emit(model.HeapPressureEvent{IndexName: indexName, HeapUsed: used, HeapLimit: limit,
-		EstimatedMemoryBytes: estimated})
+	return model.HeapPressureEvent{IndexName: indexName, HeapUsed: used, HeapLimit: limit,
+		EstimatedMemoryBytes: estimated}
 }

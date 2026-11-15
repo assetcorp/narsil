@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -25,11 +26,13 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 	if err != nil {
 		return err
 	}
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer n.emitWrite(indexName)
 	defer leave()
 	if err := validateIndexName(indexName); err != nil {
 		return err
 	}
-	defer n.emitWrite(indexName)
 	unlock, err := n.names.lockContext(ctx, indexName)
 	if err != nil {
 		return err
@@ -113,7 +116,7 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 		n.enforceOpenLimits(ctx, indexName)
 	}
 	n.afterSuggestionsRestore(ctx, sink, created)
-	n.afterWrite(created)
+	notifications = n.afterWrite(created)
 	return n.releaseInheritedSync(ctx, created)
 }
 
@@ -142,13 +145,13 @@ func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 	if err != nil {
 		return err
 	}
+	defer n.emitWrite(indexName)
 	defer release()
 	releaseSync, err := n.holdRenewedSyncEpoch(ctx, entry)
 	if err != nil {
 		return err
 	}
 	defer releaseSync()
-	defer n.emitWrite(indexName)
 	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	if err := entry.noteCleared(); err != nil {

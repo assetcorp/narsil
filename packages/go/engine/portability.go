@@ -146,8 +146,8 @@ func (n *Narsil) ImportDocumentExport(ctx context.Context, indexName string, sou
 	if err != nil {
 		return model.DocumentImportResult{}, err
 	}
-	defer leave()
 	defer n.emitWrite(indexName)
+	defer leave()
 	if err := validateIndexName(indexName); err != nil {
 		return model.DocumentImportResult{}, err
 	}
@@ -179,6 +179,8 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	if err != nil {
 		return nil, err
 	}
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
 	defer func() { release() }()
 	failures := make([]error, len(batch))
 	position := make(map[string]int, len(batch))
@@ -226,6 +228,6 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 			failures[at] = failure.Err
 		}
 	}
-	n.afterWriteOn(entry, indexName)
+	notifications = n.afterWriteOn(entry, indexName)
 	return failures, nil
 }

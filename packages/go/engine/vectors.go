@@ -88,6 +88,7 @@ func (n *Narsil) CompactVectors(ctx context.Context, indexName string, fieldName
 	if err != nil {
 		return err
 	}
+	defer n.emitWrite(indexName)
 	defer release()
 	fields, err := entry.selectVectorFields(fieldName)
 	if err != nil {
@@ -95,7 +96,6 @@ func (n *Narsil) CompactVectors(ctx context.Context, indexName string, fieldName
 	}
 	entry.lockWrites()
 	defer entry.writeMu.Unlock()
-	defer n.emitWrite(indexName)
 	for _, field := range fields {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -117,12 +117,12 @@ func (n *Narsil) OptimizeVectors(ctx context.Context, indexName string, fieldNam
 	if err != nil {
 		return err
 	}
+	defer n.emitWrite(indexName)
 	defer release()
 	fields, err := entry.selectVectorFields(fieldName)
 	if err != nil {
 		return err
 	}
-	defer n.emitWrite(indexName)
 	for _, field := range fields {
 		if err := field.Optimize(ctx); err != nil {
 			return err

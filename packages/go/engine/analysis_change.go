@@ -127,8 +127,8 @@ func (n *Narsil) ChangeAnalysis(ctx context.Context, indexName string, change An
 	if err != nil {
 		return err
 	}
-	defer release()
 	defer n.emitWrite(indexName)
+	defer release()
 	if err := entry.refuseChangeStart(); err != nil {
 		return err
 	}

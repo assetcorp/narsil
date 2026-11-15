@@ -78,8 +78,10 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err != nil {
 		return "", err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	working := codec.SnapshotDocument(document)
 	if err := schema.RequireDocument(working); err != nil {
 		return "", err
@@ -126,7 +128,7 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 		_ = n.plugins.insert(ctx, hookAfterInsert, insert)
 		entry = nil
 	}
-	n.afterWriteOn(entry, indexName)
+	notifications = n.afterWriteOn(entry, indexName)
 	return id, nil
 }
 
@@ -157,8 +159,10 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err != nil {
 		return err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
@@ -181,7 +185,7 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 		_ = n.plugins.update(ctx, hookAfterUpdate, update)
 		entry = nil
 	}
-	n.afterWriteOn(entry, indexName)
+	notifications = n.afterWriteOn(entry, indexName)
 	return nil
 }
 
@@ -254,8 +258,8 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	if err != nil {
 		return err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	defer func() { release() }()
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
@@ -309,18 +313,17 @@ func (n *Narsil) WaitForWrites(ctx context.Context, indexName string) error {
 	return entry.awaitReplay(ctx)
 }
 
-func (n *Narsil) afterWrite(entry *indexEntry) {
-	n.checkWatermark(entry)
-	n.heap.check(entry.name, entry.estimatedBytes)
-	n.workers.consider(entry)
+func (n *Narsil) afterWrite(entry *indexEntry) []model.Event {
+	return []model.Event{n.checkWatermark(entry), n.heap.check(entry.name, entry.estimatedBytes),
+		n.workers.consider(entry)}
 }
 
-func (n *Narsil) checkWatermark(entry *indexEntry) {
+func (n *Narsil) checkWatermark(entry *indexEntry) model.Event {
 	partitionConfig := entry.currentConfig().Partitions
 	maximum, capped := partitionConfig.MaxDocsPerPartition.Get()
 	watermark, marked := partitionConfig.Watermark.Get()
 	if !capped || !marked {
-		return
+		return nil
 	}
 	partitions := entry.index().PartitionCount()
 	capacity := maximum * partitions
@@ -329,14 +332,14 @@ func (n *Narsil) checkWatermark(entry *indexEntry) {
 	if float64(count) < watermark*float64(capacity) {
 		entry.watermarkLatched = 0
 		entry.writeMu.Unlock()
-		return
+		return nil
 	}
 	if entry.watermarkLatched == capacity {
 		entry.writeMu.Unlock()
-		return
+		return nil
 	}
 	entry.watermarkLatched = capacity
 	entry.writeMu.Unlock()
-	n.events.emit(model.PartitionWatermarkEvent{IndexName: entry.name, DocumentCount: count, Capacity: capacity,
-		PartitionCount: partitions})
+	return model.PartitionWatermarkEvent{IndexName: entry.name, DocumentCount: count, Capacity: capacity,
+		PartitionCount: partitions}
 }

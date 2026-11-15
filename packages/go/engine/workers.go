@@ -101,20 +101,20 @@ func (pool *queryPool) execute(worker int, run func() error) (err error) {
 	return run()
 }
 
-func (pool *queryPool) consider(entry *indexEntry) {
+func (pool *queryPool) consider(entry *indexEntry) model.Event {
 	if !pool.enabled || entry.promoted.Load() {
-		return
+		return nil
 	}
 	held := entry.index().Count()
 	if held < pool.threshold {
-		return
+		return nil
 	}
 	if !entry.promoted.CompareAndSwap(false, true) {
-		return
+		return nil
 	}
 	pool.start()
-	pool.events.emit(model.WorkerPromoteEvent{WorkerCount: pool.count,
-		Reason: fmt.Sprintf("Index %q holds %d documents, reaching the copy threshold of %d", entry.name, held, pool.threshold)})
+	return model.WorkerPromoteEvent{WorkerCount: pool.count,
+		Reason: fmt.Sprintf("Index %q holds %d documents, reaching the copy threshold of %d", entry.name, held, pool.threshold)}
 }
 
 func (pool *queryPool) forget(string) {}

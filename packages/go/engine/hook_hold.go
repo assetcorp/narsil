@@ -1,5 +1,7 @@
 package engine
 
+import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
+
 type indexHolder struct {
 	name    string
 	acquire func(name string) (*indexEntry, func(), error)
@@ -44,10 +46,11 @@ func (n *Narsil) onIndexInPlace(indexName string, check func(*indexEntry)) {
 	}
 }
 
-func (n *Narsil) afterWriteOn(entry *indexEntry, indexName string) {
+func (n *Narsil) afterWriteOn(entry *indexEntry, indexName string) []model.Event {
 	if entry != nil {
-		n.afterWrite(entry)
-		return
+		return n.afterWrite(entry)
 	}
-	n.onIndexInPlace(indexName, n.afterWrite)
+	var events []model.Event
+	n.onIndexInPlace(indexName, func(entry *indexEntry) { events = n.afterWrite(entry) })
+	return events
 }

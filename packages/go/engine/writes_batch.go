@@ -56,8 +56,10 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
@@ -78,7 +80,7 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 		}
 		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
 	}
-	n.afterWriteOn(entry, indexName)
+	notifications = n.afterWriteOn(entry, indexName)
 	return outcome.result, nil
 }
 
@@ -126,8 +128,8 @@ func (n *Narsil) RemoveBatch(ctx context.Context, indexName string, docIDs []str
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	err = eachBatchChunk(ctx, docIDs, func(chunk []string) error {
 		var chunkErr error

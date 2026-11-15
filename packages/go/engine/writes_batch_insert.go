@@ -93,8 +93,10 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	if err != nil {
 		return model.BatchResult{}, err
 	}
-	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	var notifications []model.Event
+	defer func() { n.events.emitAll(notifications) }()
+	defer func() { release() }()
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
@@ -109,7 +111,7 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	if err != nil {
 		return outcome.result, err
 	}
-	n.afterWriteOn(entry, indexName)
+	notifications = n.afterWriteOn(entry, indexName)
 	return outcome.result, nil
 }
 
