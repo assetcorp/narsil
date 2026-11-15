@@ -10,7 +10,7 @@ use super::query_suggestions::stored_state::SuggestionState;
 use super::synonyms::prepare_synonyms;
 use super::vectors::IndexVectors;
 use super::vectors::embedding::bind_embedding;
-use crate::analysis::{Analyser, Language, ResolvedAnalysis};
+use crate::analysis::{Analyser, ResolvedAnalysis};
 use crate::config::{
     DEFAULT_MAX_PARTITIONS, IndexConfig, StopWordsSetting, TokenizerSetting,
     require_configuration_within_size_limit, require_surface_forms_for_partial_fields,
@@ -112,7 +112,10 @@ fn build_index(
     {
         validate_required_fields_in_schema(required, &schema)?;
     }
-    let language = Language::named(requested.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))?;
+    let language = engine
+        .settings
+        .languages
+        .resolve(requested.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))?;
     require_configuration_within_size_limit(&requested, &language)?;
     let analysis = resolved_analysis(engine, &requested)?;
     let analyser = Analyser::new(language, &analysis)?;

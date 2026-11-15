@@ -243,6 +243,7 @@ pub(crate) fn engine_setup(value: Option<&Bound<'_, PyAny>>) -> Result<EngineSet
             .fields("querySuggestions")?
             .map(query_suggestions)
             .transpose()?,
+        languages: None,
     };
     let plugins = match fields.get("plugins")? {
         None => Vec::new(),

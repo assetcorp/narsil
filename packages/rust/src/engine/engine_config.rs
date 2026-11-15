@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::durable::config::NarsilConfig;
 use super::index_lifecycle::constants::DEFAULT_MAX_REOPEN_WAITERS;
+use super::languages::LanguageList;
 use super::memory::constants::{DEFAULT_BLOCK_WRITES_ABOVE, DEFAULT_RESUME_WRITES_BELOW};
 use super::rerank_settings::RerankSettings;
 use super::stale_review::StaleRebuild;
@@ -126,6 +127,7 @@ pub(crate) struct EngineSettings {
     pub(crate) lifecycle: Option<LifecycleLimits>,
     pub(crate) memory: MemoryFractions,
     pub(crate) rerank: RerankSettings,
+    pub(crate) languages: LanguageList,
 }
 
 impl Default for EngineSettings {
@@ -140,6 +142,7 @@ impl Default for EngineSettings {
                 resume: DEFAULT_RESUME_WRITES_BELOW,
             },
             rerank: RerankSettings::default(),
+            languages: LanguageList::default(),
         }
     }
 }
@@ -231,6 +234,7 @@ pub(crate) fn engine_settings(config: &NarsilConfig) -> Result<EngineSettings> {
         .transpose()?;
     let memory = memory_fractions(config.memory.as_ref())?;
     let analysis = config.analysis.clone().unwrap_or_default();
+    let languages = LanguageList::checked(config.languages.as_deref())?;
     Ok(EngineSettings {
         id_generator: config.id_generator.clone(),
         rebuild_mode: analysis.rebuild.unwrap_or_default(),
@@ -238,5 +242,6 @@ pub(crate) fn engine_settings(config: &NarsilConfig) -> Result<EngineSettings> {
         lifecycle,
         memory,
         rerank,
+        languages,
     })
 }

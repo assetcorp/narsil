@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::metadata::config_of;
-use crate::analysis::{Analyser, Language};
+use crate::analysis::Analyser;
 use crate::config::{
     IndexConfig, compiled_config_schema, validate_partition_config, validate_storage,
 };
@@ -20,8 +20,9 @@ use crate::synonyms::wire::synonym_rules_of;
 use crate::value::{Map, Value};
 
 const STORED_SYNONYMS_SOURCE: &str = "The synonym set in the index metadata is invalid: ";
-const RECOVERY_CONFIG_ERROR_CODES: [ErrorCode; 3] = [
+const RECOVERY_CONFIG_ERROR_CODES: [ErrorCode; 4] = [
     ErrorCode::CONFIG_INVALID,
+    ErrorCode::LANGUAGE_NOT_SUPPORTED,
     ErrorCode::SCHEMA_INVALID_TYPE,
     ErrorCode::SCHEMA_INVALID_VECTOR_DIMENSION,
 ];
@@ -97,7 +98,11 @@ pub(crate) fn recovered_index(
 ) -> Result<IndexState> {
     let name = metadata.index_name.as_str();
     let config = config_of(metadata).map_err(|error| recovery_failure(metadata, error))?;
-    let language = Language::named(config.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))?;
+    let language = engine
+        .settings
+        .languages
+        .resolve(config.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))
+        .map_err(|error| recovery_failure(metadata, error))?;
     let schema = checked_schema(&config).map_err(|error| recovery_failure(metadata, error))?;
     let embedding = {
         let registered = engine.adapters.embedding();
