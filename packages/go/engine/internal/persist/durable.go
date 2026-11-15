@@ -286,6 +286,9 @@ func (durable *Durable) Close(ctx context.Context) error {
 }
 
 func (durable *Durable) Drop(ctx context.Context) error {
+	if err := durable.manager.archives.awaitReleased(ctx, durable.handle.Name); err != nil {
+		return err
+	}
 	err := durable.close()
 	for _, log := range durable.partitions {
 		if log.writer != nil {

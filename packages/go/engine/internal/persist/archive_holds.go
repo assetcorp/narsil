@@ -12,8 +12,9 @@ type archiveHold struct {
 }
 
 type archiveHolds struct {
-	mutex sync.Mutex
-	held  map[string]map[*archiveHold]struct{}
+	mutex    sync.Mutex
+	held     map[string]map[*archiveHold]struct{}
+	released chan struct{}
 }
 
 func (holds *archiveHolds) hold(name string) (*archiveHold, func()) {
@@ -37,6 +38,30 @@ func (holds *archiveHolds) release(name string, hold *archiveHold) {
 	delete(holds.held[name], hold)
 	if len(holds.held[name]) == 0 {
 		delete(holds.held, name)
+	}
+	if holds.released != nil {
+		close(holds.released)
+		holds.released = nil
+	}
+}
+
+func (holds *archiveHolds) awaitReleased(ctx context.Context, name string) error {
+	for {
+		holds.mutex.Lock()
+		if len(holds.held[name]) == 0 {
+			holds.mutex.Unlock()
+			return nil
+		}
+		if holds.released == nil {
+			holds.released = make(chan struct{})
+		}
+		released := holds.released
+		holds.mutex.Unlock()
+		select {
+		case <-released:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 

@@ -33,5 +33,8 @@ func (manager *Manager) RemoveClosedIndex(ctx context.Context, name string) erro
 		return narsilerr.New(narsilerr.CodeConfigInvalid, `Index "`+name+`" is open, so the engine cannot remove its files without closing it`,
 			map[string]any{"indexName": name})
 	}
+	if err := manager.archives.awaitReleased(ctx, name); err != nil {
+		return err
+	}
 	return manager.removeIndexKeys(ctx, name)
 }

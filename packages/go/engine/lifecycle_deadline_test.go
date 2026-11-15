@@ -23,8 +23,9 @@ func (w *pausedArchiveWriter) Write(data []byte) (int, error) {
 	return io.Discard.Write(data)
 }
 
-func TestLifecycleDeadlinesEndWaitsForAnIndexReader(t *testing.T) {
-	for _, operation := range []string{"close", "drop", "restore"} {
+func TestLifecycleCallsBesideAStreamingSnapshotKeepItWhole(t *testing.T) {
+	waitsForTheArchive := map[string]bool{"close": false, "drop": true, "restore": true}
+	for operation, waits := range waitsForTheArchive {
 		t.Run(operation, func(t *testing.T) {
 			ctx := context.Background()
 			narsil := startedForCallbacks(t, true)
@@ -65,14 +66,14 @@ func TestLifecycleDeadlinesEndWaitsForAnIndexReader(t *testing.T) {
 			}
 			if !returned {
 				<-finished
-				t.Fatal("the lifecycle call waited beyond its deadline for the reader")
+				t.Fatalf("the %s waited beyond its deadline for the snapshot", operation)
 			}
-			if !errors.Is(failure, context.DeadlineExceeded) {
-				t.Fatalf("the lifecycle call returned %v", failure)
+			if waits && !errors.Is(failure, context.DeadlineExceeded) || !waits && failure != nil {
+				t.Fatalf("the %s returned %v", operation, failure)
 			}
 			result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "lighthouse"})
 			if err != nil || len(result.Hits) != 1 || result.Hits[0].ID != "kept" {
-				t.Fatalf("the cancelled lifecycle call changed the index: %+v, %v", result, err)
+				t.Fatalf("after the %s the index returned %+v, %v", operation, result, err)
 			}
 		})
 	}

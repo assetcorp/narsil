@@ -9,7 +9,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine"
 )
 
-func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
+func TestSearchesAndCheckpointsBesideATokenizingRemove(t *testing.T) {
 	ctx := context.Background()
 	tokenizer := &reenteringTokenizer{}
 	narsil, err := engine.New(ctx, engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)},
@@ -38,8 +38,10 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	searched := make(chan error, 1)
 	checkpointed := make(chan error, 1)
 	go func() { checkpointed <- narsil.Checkpoint(bounded, callbackIndex) }()
+	found := make(chan int, 1)
 	go func() {
-		_, err := narsil.Query(bounded, callbackIndex, engine.QueryParams{Term: "lighthouse"})
+		result, err := narsil.Query(bounded, callbackIndex, engine.QueryParams{Term: "lighthouse"})
+		found <- result.Count
 		searched <- err
 	}()
 	var searchErr error
@@ -62,10 +64,10 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	}
 	if !returned {
 		<-searched
-		t.Fatal("the search waited beyond its deadline for the in-place writer")
+		t.Fatal("the search waited for the remove whose tokenizer was running")
 	}
-	if !errors.Is(searchErr, context.DeadlineExceeded) {
-		t.Fatalf("the search returned %v", searchErr)
+	if count := <-found; searchErr != nil || count != 1 {
+		t.Fatalf("the search beside the remove found %d documents with error %v; the index held 1", count, searchErr)
 	}
 	if !checkpointReturned {
 		<-checkpointed
