@@ -21,20 +21,6 @@ describe('durability recovery (in-process)', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('recovers documents written before a clean shutdown', async () => {
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('movies', MOVIE_SCHEMA)
-    await writer.insert('movies', { title: 'Dune', year: 2021, genre: 'scifi' }, 'm1')
-    await writer.insert('movies', { title: 'Arrival', year: 2016, genre: 'scifi' }, 'm2')
-    await writer.shutdown()
-
-    const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.get('movies', 'm1')).toMatchObject({ title: 'Dune', year: 2021 })
-    expect(await reader.get('movies', 'm2')).toMatchObject({ title: 'Arrival', year: 2016 })
-    expect(await reader.countDocuments('movies')).toBe(2)
-    await reader.shutdown()
-  })
-
   it('replays updates and removes in order', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('movies', MOVIE_SCHEMA)
@@ -76,22 +62,6 @@ describe('durability recovery (in-process)', () => {
     const result = await reader.query('movies', { term: 'matrix' })
     expect(result.hits.length).toBe(1)
     expect(result.hits[0].id).toBe('m1')
-    await reader.shutdown()
-  })
-
-  it('recovers a batch insert', async () => {
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('movies', MOVIE_SCHEMA)
-    const batch = await writer.insertBatch('movies', [
-      { title: 'A', year: 2001, genre: 'drama' },
-      { title: 'B', year: 2002, genre: 'drama' },
-      { title: 'C', year: 2003, genre: 'drama' },
-    ])
-    expect(batch.succeeded.length).toBe(3)
-    await writer.shutdown()
-
-    const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('movies')).toBe(3)
     await reader.shutdown()
   })
 

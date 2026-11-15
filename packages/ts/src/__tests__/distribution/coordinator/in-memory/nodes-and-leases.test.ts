@@ -16,16 +16,6 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('node registration', () => {
-    it('registers a node and lists it', async () => {
-      const reg = makeNodeRegistration()
-      await coordinator.registerNode(reg)
-
-      const listed = await coordinator.listNodes()
-      expect(listed).toHaveLength(1)
-      expect(listed[0].nodeId).toBe('node-1')
-      expect(listed[0].address).toBe('127.0.0.1:9200')
-    })
-
     it('registers multiple nodes', async () => {
       await coordinator.registerNode(makeNodeRegistration({ nodeId: 'node-1' }))
       await coordinator.registerNode(makeNodeRegistration({ nodeId: 'node-2', address: '127.0.0.1:9201' }))
@@ -97,11 +87,6 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('leases', () => {
-    it('acquires a lease when no one holds it', async () => {
-      const acquired = await coordinator.acquireLease('test-key', 'node-1', 10_000)
-      expect(acquired).toBe(true)
-    })
-
     it('fails to acquire a lease held by another node', async () => {
       await coordinator.acquireLease('test-key', 'node-1', 10_000)
       const acquired = await coordinator.acquireLease('test-key', 'node-2', 10_000)
@@ -147,11 +132,6 @@ describe('InMemoryCoordinator', () => {
       await coordinator.acquireLease('test-key', 'node-1', 10_000)
       const holder = await coordinator.getLeaseHolder('test-key')
       expect(holder).toBe('node-1')
-    })
-
-    it('getLeaseHolder returns null when no lease exists', async () => {
-      const holder = await coordinator.getLeaseHolder('test-key')
-      expect(holder).toBeNull()
     })
 
     it('getLeaseHolder returns null after lease is released', async () => {

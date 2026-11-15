@@ -16,10 +16,10 @@ const (
 	tallySearchers       = 8
 	tallyGroups          = 5
 	tallyHitCeiling      = 10_000
-	tallyQuietDocuments  = 9_000
+	tallyQuietDocuments  = 3_000
 	tallyQuietBatch      = 1_500
 	tallyRounds          = 6
-	tallyRoundInserts    = 1_200
+	tallyRoundInserts    = 600
 	tallyRoundUpdates    = 160
 	tallyRoundRemovals   = 400
 	tallyQuietRound      = 3

@@ -92,15 +92,16 @@ export function expectAgreesWithOracle(
   matched: readonly string[],
 ): number {
   const found = new Set(matched)
+  const disagreements: string[] = []
   let decided = 0
   for (const document of documents) {
     const verdict = expressionVerdict(document, filters)
     if (verdict === null) continue
     decided++
-    expect(
-      found.has(String(document.id)),
-      `${document.id} ${JSON.stringify(filters)} ${JSON.stringify(document)}`,
-    ).toBe(verdict)
+    const served = found.has(String(document.id))
+    if (served !== verdict)
+      disagreements.push(`${document.id} served ${served}, oracle ${verdict} ${JSON.stringify(document)}`)
   }
+  if (disagreements.length > 0) expect(disagreements, JSON.stringify(filters)).toEqual([])
   return decided
 }

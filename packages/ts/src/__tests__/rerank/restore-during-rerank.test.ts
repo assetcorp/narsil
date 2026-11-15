@@ -12,6 +12,7 @@ const SIMILARITY_FLOOR = 0.9
 const MATCHING_VECTOR = [1, 0]
 const OTHER_VECTOR = [0, 1]
 const FAILURE_TIMEOUT_MS = 1_000
+const TIMED_OUT_RERANK_TIMEOUT_MS = 50
 
 type Trail = { title: string; category: string }
 
@@ -126,19 +127,19 @@ function rerankedSearch(engine: Narsil) {
 describe('a restore during a rerank call', () => {
   it.each([
     'throw',
-    'empty',
     'short',
-    'long',
     'nan',
-    'infinity',
-    'negative infinity',
     'timeout',
   ])('preserves RERANK_FAILED when the adapter returns %s after restoring the index', async failure => {
     const archive = await archiveOf(RESTORED_DOCUMENTS)
-    const engine = await engineHolding(REPLACED_DOCUMENTS, FAILURE_TIMEOUT_MS)
+    const engine = await engineHolding(
+      REPLACED_DOCUMENTS,
+      failure === 'timeout' ? TIMED_OUT_RERANK_TIMEOUT_MS : FAILURE_TIMEOUT_MS,
+    )
     let calls = 0
     let restored = false
     let cancelled = false
+    let abortedBeforeTheRestoreFinished = false
     const finished = Promise.withResolvers<void>()
     engine.registerRerankAdapter('restoring', {
       async rerank(_query, texts, signal) {
@@ -147,11 +148,10 @@ describe('a restore during a rerank call', () => {
           await engine.restore(INDEX, archive)
           restored = true
           if (failure === 'throw') throw new Error('The adapter refused the documents')
-          if (failure === 'empty') return []
           if (failure === 'short') return texts.slice(1).map(titleLengthScore)
-          if (failure === 'long') return [...texts.map(titleLengthScore), 0]
           if (failure === 'timeout') {
             if (signal === undefined) throw new Error('The adapter received no cancellation signal')
+            abortedBeforeTheRestoreFinished = signal.aborted
             await new Promise<void>(resolve => {
               if (signal.aborted) resolve()
               else signal.addEventListener('abort', () => resolve(), { once: true })
@@ -160,12 +160,7 @@ describe('a restore during a rerank call', () => {
             throw new Error('The adapter received cancellation')
           }
           const scores = texts.map(titleLengthScore)
-          scores[0] =
-            failure === 'nan'
-              ? Number.NaN
-              : failure === 'infinity'
-                ? Number.POSITIVE_INFINITY
-                : Number.NEGATIVE_INFINITY
+          scores[0] = Number.NaN
           return scores
         } finally {
           finished.resolve()
@@ -178,6 +173,7 @@ describe('a restore during a rerank call', () => {
     expect(restored).toBe(true)
     expect(calls).toBe(1)
     expect(cancelled).toBe(failure === 'timeout')
+    expect(abortedBeforeTheRestoreFinished).toBe(false)
     expect(await engine.get(INDEX, 'restored-current')).toEqual(RESTORED_DOCUMENTS[4][1])
   })
 

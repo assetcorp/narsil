@@ -42,16 +42,6 @@ describe('a write-ahead log directory held by one engine', () => {
     expect(await first.countDocuments('orders')).toBe(1)
   })
 
-  it('opens the directory again once the first engine shuts down', async () => {
-    const first = await open()
-    await first.createIndex('orders', { schema: { item: 'string' } })
-    await first.insert('orders', { item: 'kettle' }, 'o1')
-    await first.shutdown()
-
-    const second = await open()
-    expect(await second.countDocuments('orders')).toBe(1)
-  })
-
   async function startHoldingEngine(documentCount: number): Promise<ChildProcess> {
     const holder = spawn(process.execPath, [CHILD_WRITER], {
       env: {

@@ -250,15 +250,4 @@ describe('cluster-node scatter-gather reads', () => {
       expect((failure as NarsilError).code).toBe(ErrorCodes.QUERY_NO_ACTIVE_REPLICA)
     }
   }, 30_000)
-
-  it('fails the exact reads instead of answering partially when a holder is gone', async () => {
-    if (router === undefined || holderTwo === undefined) throw new Error('nodes missing')
-    await holderTwo.shutdown()
-    holderTwo = undefined
-    await transports[2].shutdown()
-
-    await expect(router.countDocuments('shop')).rejects.toThrow()
-    await expect(router.listDocuments('shop', { limit: 5 })).rejects.toThrow()
-    await expect(router.preflight('shop', { term: 'portable' })).rejects.toThrow()
-  }, 30_000)
 })

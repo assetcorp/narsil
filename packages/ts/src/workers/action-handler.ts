@@ -30,9 +30,9 @@ async function importBootstrapModule(moduleUrl: string): Promise<void> {
   await import(moduleUrl)
 }
 
-async function stopServingRequests(): Promise<void> {
+async function stopServingRequests(refuseNewRequests: boolean): Promise<void> {
   const { drainRequestThread } = await import('../server/request-threads/thread')
-  await drainRequestThread()
+  await drainRequestThread(refuseNewRequests)
   const { closeLongQueryThread } = await import('../server/request-threads/long-query-thread')
   closeLongQueryThread()
 }
@@ -67,9 +67,9 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
     return result
   }
 
-  async function stopServingOnceStarted(): Promise<void> {
+  async function stopServingOnceStarted(refuseNewRequests: boolean): Promise<void> {
     if (serving.start !== null) await serving.start
-    if (servingRequests) await stopServingRequests()
+    if (servingRequests) await stopServingRequests(refuseNewRequests)
     servingRequests = false
   }
 
@@ -82,7 +82,7 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
       if (stopping) throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'The worker is shutting down')
       if (action.type === 'shutdown') {
         stopping = true
-        await stopServingOnceStarted()
+        await stopServingOnceStarted(false)
         await Promise.all(copyChanges.values())
         await executor.shutdown()
         post(buildSuccessResponse(action.requestId, undefined))
@@ -124,7 +124,7 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
       }
 
       if (action.type === 'stopServing') {
-        await stopServingOnceStarted()
+        await stopServingOnceStarted(action.refuseNewRequests === true)
         post(buildSuccessResponse(action.requestId, undefined))
         return false
       }

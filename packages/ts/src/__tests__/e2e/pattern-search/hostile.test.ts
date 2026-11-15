@@ -106,15 +106,10 @@ function expectOracleHits(
 describe('the preparation of typo tests under the work cap', () => {
   const corpus = operationsCorpus(400, 43)
   const STOPPED = { status: 400, code: 'SEARCH_WORK_CAP_EXCEEDED' }
-  const everyFilter = [
-    longDistinctTextFilter(),
-    caseFoldFilter(),
-    autoResolvingToExactFilter(),
-    longestFoldFilter(),
-    repeatedTestFilter(),
-  ]
+  const filtersCheckedOnARequestThread = [longDistinctTextFilter(), caseFoldFilter(), autoResolvingToExactFilter()]
+  const filtersCheckedAcrossWorkerCounts = [longestFoldFilter(), repeatedTestFilter()]
 
-  for (const filter of everyFilter) {
+  for (const filter of [...filtersCheckedOnARequestThread, ...filtersCheckedAcrossWorkerCounts]) {
     const units = unitsOverPartitions(filter, 1)
 
     it(`counts the preparation to the exact unit on the main thread for ${filter.label}`, async () => {
@@ -125,6 +120,10 @@ describe('the preparation of typo tests under the work cap', () => {
       const stopped = await typoAnswerUnderCap(corpus, NO_WORKERS, units - 1, filter)
       expect({ status: stopped.status, code: stopped.code }).toEqual(STOPPED)
     }, 60_000)
+  }
+
+  for (const filter of filtersCheckedOnARequestThread) {
+    const units = unitsOverPartitions(filter, 1)
 
     it.skipIf(!WORKERS_BUILT)(
       `stops one unit below the count on a request thread for ${filter.label}`,

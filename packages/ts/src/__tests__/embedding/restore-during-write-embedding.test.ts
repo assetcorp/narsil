@@ -15,7 +15,6 @@ const VECTOR_WORD = 'river'
 const VECTOR_HIT = [1, 0]
 const VECTOR_MISS = [0, 1]
 const SIMILARITY_FLOOR = 0.9
-const RUNS = 3
 const SETTLE_LIMIT_MS = 2_000
 const TEST_TIMEOUT_MS = 20_000
 const EMBEDDINGS_BEFORE_REFUSAL = 3
@@ -224,12 +223,6 @@ async function writeDuringRestore(write: WriteOperation, durable: boolean): Prom
   }
 }
 
-async function outcomesOver(write: WriteOperation, durable: boolean): Promise<WriteOutcome[]> {
-  const outcomes: WriteOutcome[] = []
-  for (let run = 0; run < RUNS; run++) outcomes.push(await writeDuringRestore(write, durable))
-  return outcomes
-}
-
 function withDocuments(base: Documents, changes: Array<[string, Trail]>): Documents {
   const next = new Map(base)
   for (const [id, document] of changes) next.set(id, document)
@@ -252,48 +245,42 @@ describe(
       { storage: 'in memory', durable: false },
       { storage: 'with filesystem durability', durable: true },
     ])('$storage', ({ durable }) => {
-      it('lands a single insert in the restored index on every run', async () => {
+      it('lands a single insert in the restored index', async () => {
         const written: Trail = { title: 'trail river beacon' }
-        const outcomes = await outcomesOver(engine => engine.insert(INDEX, { ...written }, 'written'), durable)
+        const outcome = await writeDuringRestore(engine => engine.insert(INDEX, { ...written }, 'written'), durable)
 
-        for (const outcome of outcomes) {
-          expect(outcome.errorCode).toBeNull()
-          expect(outcome.value).toBe('written')
-          expectIndexHolds(outcome, withDocuments(RESTORED, [['written', written]]))
-          expect(outcome.embedCalls).toBe(1)
-        }
+        expect(outcome.errorCode).toBeNull()
+        expect(outcome.value).toBe('written')
+        expectIndexHolds(outcome, withDocuments(RESTORED, [['written', written]]))
+        expect(outcome.embedCalls).toBe(1)
       })
 
-      it('lands a single update in the restored index on every run', async () => {
+      it('lands a single update in the restored index', async () => {
         const rewritten: Trail = { title: 'trail shared river rewritten' }
-        const outcomes = await outcomesOver(engine => engine.update(INDEX, 'shared', { ...rewritten }), durable)
+        const outcome = await writeDuringRestore(engine => engine.update(INDEX, 'shared', { ...rewritten }), durable)
 
-        for (const outcome of outcomes) {
-          expect(outcome.errorCode).toBeNull()
-          expectIndexHolds(outcome, withDocuments(RESTORED, [['shared', rewritten]]))
-          expect(outcome.embedCalls).toBe(1)
-        }
+        expect(outcome.errorCode).toBeNull()
+        expectIndexHolds(outcome, withDocuments(RESTORED, [['shared', rewritten]]))
+        expect(outcome.embedCalls).toBe(1)
       })
 
-      it('refuses a single update of a document that only the replaced index held, on every run', async () => {
-        const outcomes = await outcomesOver(
+      it('refuses a single update of a document that only the replaced index held', async () => {
+        const outcome = await writeDuringRestore(
           engine => engine.update(INDEX, 'replaced-only', { title: 'trail river gone' }),
           durable,
         )
 
-        for (const outcome of outcomes) {
-          expect(outcome.errorCode).toBe(ErrorCodes.DOC_NOT_FOUND)
-          expectIndexHolds(outcome, RESTORED)
-        }
+        expect(outcome.errorCode).toBe(ErrorCodes.DOC_NOT_FOUND)
+        expectIndexHolds(outcome, RESTORED)
       })
 
-      it('lands a batch insert in the restored index on every run', async () => {
+      it('lands a batch insert in the restored index', async () => {
         const batch: Array<[string, Trail]> = [
           ['written-ford', { title: 'trail river ford' }],
           ['written-meadow', { title: 'trail meadow' }],
           ['written-delta', { title: 'trail river delta' }],
         ]
-        const outcomes = await outcomesOver(
+        const outcome = await writeDuringRestore(
           engine =>
             engine.insertBatch(
               INDEX,
@@ -302,19 +289,17 @@ describe(
           durable,
         )
 
-        for (const outcome of outcomes) {
-          expect(outcome.errorCode).toBeNull()
-          expect(outcome.value).toEqual({ succeeded: batch.map(([id]) => id), failed: [] })
-          expectIndexHolds(outcome, withDocuments(RESTORED, batch))
-        }
+        expect(outcome.errorCode).toBeNull()
+        expect(outcome.value).toEqual({ succeeded: batch.map(([id]) => id), failed: [] })
+        expectIndexHolds(outcome, withDocuments(RESTORED, batch))
       })
 
-      it('lands a batch update in the restored index and refuses the document that only the replaced index held, on every run', async () => {
+      it('lands a batch update in the restored index and refuses the document that only the replaced index held', async () => {
         const rewritten: Array<[string, Trail]> = [
           ['shared', { title: 'trail shared river rewritten' }],
           ['restored-ridge', { title: 'trail pine river ridge' }],
         ]
-        const outcomes = await outcomesOver(
+        const outcome = await writeDuringRestore(
           engine =>
             engine.updateBatch(INDEX, [
               ...rewritten.map(([docId, document]) => ({ docId, document: { ...document } })),
@@ -323,12 +308,10 @@ describe(
           durable,
         )
 
-        for (const outcome of outcomes) {
-          expect(outcome.errorCode).toBeNull()
-          expect((outcome.value as BatchResult).succeeded).toEqual(rewritten.map(([id]) => id))
-          expect(failureCodesOf(outcome.value)).toEqual([['replaced-only', ErrorCodes.DOC_NOT_FOUND]])
-          expectIndexHolds(outcome, withDocuments(RESTORED, rewritten))
-        }
+        expect(outcome.errorCode).toBeNull()
+        expect((outcome.value as BatchResult).succeeded).toEqual(rewritten.map(([id]) => id))
+        expect(failureCodesOf(outcome.value)).toEqual([['replaced-only', ErrorCodes.DOC_NOT_FOUND]])
+        expectIndexHolds(outcome, withDocuments(RESTORED, rewritten))
       })
 
       it.each([

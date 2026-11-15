@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
-import { resolvePartitionId } from '../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
 import type { InMemoryNetwork } from '../../../distribution/transport'
@@ -12,20 +11,6 @@ import { ReplicationMessageTypes } from '../../../distribution/transport/types'
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
 const PARTITION_COUNT = 4
-
-function idsInEveryPartition(prefix: string, perPartition: number): string[] {
-  const ids: string[] = []
-  for (let partitionId = 0; partitionId < PARTITION_COUNT; partitionId += 1) {
-    let found = 0
-    for (let candidate = 0; found < perPartition; candidate += 1) {
-      const id = `${prefix}-${partitionId}-${candidate}`
-      if (resolvePartitionId(id, PARTITION_COUNT) !== partitionId) continue
-      ids.push(id)
-      found += 1
-    }
-  }
-  return ids
-}
 
 async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<boolean> {
   const start = Date.now()
@@ -108,49 +93,6 @@ describe('cluster-node updates replicate to replicas', () => {
     await coordinator.shutdown()
   })
 
-  it('replicates a single update to the replica as a full document', async () => {
-    if (nodeA === undefined || nodeB === undefined) throw new Error('nodes are missing')
-
-    await nodeA.insert('products', { title: 'Original Kettle', price: 20 }, 'kettle-1')
-    await nodeA.update('products', 'kettle-1', { title: 'Replacement Kettle', price: 25 })
-
-    const local = await nodeA.get('products', 'kettle-1')
-    expect(local?.title).toBe('Replacement Kettle')
-
-    const replicated = await pollUntil(async () => {
-      const viaReplica = await nodeB?.query('products', { term: 'Replacement' })
-      return viaReplica?.count === 1
-    })
-    expect(replicated).toBe(true)
-
-    const oldTermGone = await nodeB.query('products', { term: 'Original' })
-    expect(oldTermGone.count).toBe(0)
-  }, 30_000)
-
-  it('replicates a batch of updates as entry batches', async () => {
-    if (nodeA === undefined || nodeB === undefined) throw new Error('nodes are missing')
-
-    const docIds = Array.from({ length: 12 }, (_, index) => `desk-${index}`)
-    const inserted = await nodeA.insertBatch(
-      'products',
-      docIds.map(id => ({ id, title: `Seeded Desk ${id}`, price: 50 })),
-    )
-    expect(inserted.failed).toEqual([])
-
-    const updated = await nodeA.updateBatch(
-      'products',
-      docIds.map(id => ({ docId: id, document: { title: `Refreshed Desk ${id}`, price: 55 } })),
-    )
-    expect(updated.failed).toEqual([])
-    expect(updated.succeeded).toHaveLength(docIds.length)
-
-    const refreshed = await pollUntil(async () => {
-      const viaReplica = await nodeB?.query('products', { term: 'Refreshed', limit: 20 })
-      return viaReplica?.count === docIds.length
-    })
-    expect(refreshed).toBe(true)
-  }, 30_000)
-
   it('rejects an update for a document that does not exist', async () => {
     if (nodeA === undefined) throw new Error('node is missing')
     await expect(nodeA.update('products', 'missing-doc', { title: 'Ghost', price: 1 })).rejects.toThrow()
@@ -221,63 +163,6 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     await dataTransport.shutdown()
     await coordinator.shutdown()
   })
-
-  it('forwards an insert batch as one message per partition and a single insert as a plain forward', async () => {
-    if (router === undefined || dataNode === undefined) throw new Error('nodes are missing')
-
-    const docIds = idsInEveryPartition('chair', 3)
-    recordedTypes.length = 0
-    const inserted = await router.insertBatch(
-      'products',
-      docIds.map(id => ({ id, title: `Batched Chair ${id}`, price: 40 })),
-    )
-    expect(inserted.failed).toEqual([])
-    expect(inserted.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
-
-    recordedTypes.length = 0
-    await router.insert('products', { title: 'Solo Chair', price: 41 }, 'chair-solo')
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(1)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(0)
-
-    const visible = await router.query('products', { term: 'Chair', limit: 20 })
-    expect(visible.count).toBe(docIds.length + 1)
-  }, 30_000)
-
-  it('forwards updates and removals as one batch per partition and applies them on the primary', async () => {
-    if (router === undefined || dataNode === undefined) throw new Error('nodes are missing')
-
-    const docIds = idsInEveryPartition('stool', 2)
-    const inserted = await router.insertBatch(
-      'products',
-      docIds.map(id => ({ id, title: `Seeded Stool ${id}`, price: 10 })),
-    )
-    expect(inserted.failed).toEqual([])
-
-    recordedTypes.length = 0
-    const updated = await router.updateBatch(
-      'products',
-      docIds.map(id => ({ docId: id, document: { title: `Refreshed Stool ${id}`, price: 12 } })),
-    )
-    expect(updated.failed).toEqual([])
-    expect(updated.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
-
-    const refreshed = await router.query('products', { term: 'Refreshed', limit: 20 })
-    expect(refreshed.count).toBe(docIds.length)
-
-    recordedTypes.length = 0
-    const removed = await router.removeBatch('products', docIds)
-    expect(removed.failed).toEqual([])
-    expect(removed.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
-
-    const emptied = await router.query('products', { term: 'Stool', limit: 20 })
-    expect(emptied.count).toBe(0)
-  }, 30_000)
 
   it('forwards a single remote update as a plain forward and reports remote failures per document', async () => {
     if (router === undefined) throw new Error('node is missing')

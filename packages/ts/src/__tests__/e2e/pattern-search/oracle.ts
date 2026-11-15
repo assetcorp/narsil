@@ -33,11 +33,31 @@ function literalCheck(test: ValueTest, text: string): ValueCheck {
   return value => value.includes(text)
 }
 
-function valueCheck(test: ValueTest, text: string, caseFold: boolean): ValueCheck {
+type PointsOf = (value: string) => number[]
+
+const pointsByCorpus = new WeakMap<readonly AnyDocument[], [Map<string, number[]>, Map<string, number[]>]>()
+
+function pointsOverCorpus(documents: readonly AnyDocument[], caseFold: boolean): PointsOf {
+  let caches = pointsByCorpus.get(documents)
+  if (caches === undefined) {
+    caches = [new Map(), new Map()]
+    pointsByCorpus.set(documents, caches)
+  }
+  const cache = caches[caseFold ? 1 : 0]
+  return value => {
+    const known = cache.get(value)
+    if (known !== undefined) return known
+    const points = codePointsOf(value, caseFold)
+    cache.set(value, points)
+    return points
+  }
+}
+
+function valueCheck(test: ValueTest, text: string, caseFold: boolean, pointsOf: PointsOf): ValueCheck {
   if (!caseFold && !SURROGATE.test(text)) return literalCheck(test, text)
   const textPoints = codePointsOf(text, caseFold)
   return value => {
-    const valuePoints = codePointsOf(value, caseFold)
+    const valuePoints = pointsOf(value)
     if (test === 'eq') return valuePoints.length === textPoints.length && sameAt(valuePoints, textPoints, 0)
     if (textPoints.length > valuePoints.length) return false
     if (test === 'startsWith') return sameAt(valuePoints, textPoints, 0)
@@ -47,7 +67,7 @@ function valueCheck(test: ValueTest, text: string, caseFold: boolean): ValueChec
 }
 
 export function valuePasses(value: string, test: ValueTest, text: string, caseFold: boolean): boolean {
-  return valueCheck(test, text, caseFold)(value)
+  return valueCheck(test, text, caseFold, candidate => codePointsOf(candidate, caseFold))(value)
 }
 
 export function textValuesOf(document: AnyDocument, field: string): string[] {
@@ -57,35 +77,36 @@ export function textValuesOf(document: AnyDocument, field: string): string[] {
   return value.filter((element): element is string => typeof element === 'string')
 }
 
-function eqCheck(text: string, tolerance: unknown, caseFold: boolean): ValueCheck {
-  if (tolerance === undefined) return valueCheck('eq', text, caseFold)
+function eqCheck(text: string, tolerance: unknown, caseFold: boolean, pointsOf: PointsOf): ValueCheck {
+  if (tolerance === undefined) return valueCheck('eq', text, caseFold, pointsOf)
   const accepted = acceptedTolerance(text, tolerance)
   if (accepted === null) throw new Error(`The engine refuses a tolerance of ${String(tolerance)} on "${text}"`)
   return value => withinTolerance(value, text, accepted, caseFold)
 }
 
-function anyEqualCheck(operand: unknown, caseFold: boolean): ValueCheck {
+function anyEqualCheck(operand: unknown, caseFold: boolean, pointsOf: PointsOf): ValueCheck {
   const texts = Array.isArray(operand) ? operand.filter((text): text is string => typeof text === 'string') : []
   if (!caseFold && !texts.some(text => SURROGATE.test(text))) {
     const members = new Set(texts)
     return value => members.has(value)
   }
-  const checks = texts.map(text => valueCheck('eq', text, caseFold))
+  const checks = texts.map(text => valueCheck('eq', text, caseFold, pointsOf))
   return value => checks.some(check => check(value))
 }
 
-function filterCheck(filter: FieldFilter): (values: string[]) => boolean {
+function filterCheck(filter: FieldFilter, documents: readonly AnyDocument[]): (values: string[]) => boolean {
   const probe = filter as Record<string, unknown>
   const caseFold = probe.caseFold === true
+  const pointsOf = pointsOverCorpus(documents, caseFold)
   const required: ValueCheck[] = []
   const refused: ValueCheck[] = []
-  if (typeof probe.eq === 'string') required.push(eqCheck(probe.eq, probe.tolerance, caseFold))
-  if (typeof probe.ne === 'string') refused.push(valueCheck('eq', probe.ne, caseFold))
-  if (probe.in !== undefined) required.push(anyEqualCheck(probe.in, caseFold))
-  if (probe.nin !== undefined) refused.push(anyEqualCheck(probe.nin, caseFold))
+  if (typeof probe.eq === 'string') required.push(eqCheck(probe.eq, probe.tolerance, caseFold, pointsOf))
+  if (typeof probe.ne === 'string') refused.push(valueCheck('eq', probe.ne, caseFold, pointsOf))
+  if (probe.in !== undefined) required.push(anyEqualCheck(probe.in, caseFold, pointsOf))
+  if (probe.nin !== undefined) refused.push(anyEqualCheck(probe.nin, caseFold, pointsOf))
   for (const test of ['startsWith', 'endsWith', 'contains'] as const) {
     const text = probe[test]
-    if (typeof text === 'string') required.push(valueCheck(test, text, caseFold))
+    if (typeof text === 'string') required.push(valueCheck(test, text, caseFold, pointsOf))
   }
   for (const operator of ['wildcard', 'regex'] as const) {
     const pattern = probe[operator]
@@ -95,7 +116,7 @@ function filterCheck(filter: FieldFilter): (values: string[]) => boolean {
 }
 
 export function expectedIds(documents: readonly AnyDocument[], field: string, filter: FieldFilter): string[] {
-  const passes = filterCheck(filter)
+  const passes = filterCheck(filter, documents)
   const ids: string[] = []
   for (const document of documents) {
     const stored = document[field]

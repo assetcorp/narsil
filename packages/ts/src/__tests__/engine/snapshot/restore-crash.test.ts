@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { Narsil } from '../../../narsil'
 import { decodedPayload } from '../../e2e/portability/archive-oracle'
 import { logFileBytes } from '../../persistence/durability/saved-size-oracle'
@@ -11,17 +11,18 @@ import {
   archiveBytes,
   configFor,
   fill,
+  GENERATIONS_ABOVE_THRESHOLDS,
   type Generation,
   holdsGeneration,
   LIVE,
-  NEW,
-  NEW_COUNT,
   newDirectory,
-  OLD,
-  OLD_COUNT,
   openEngine,
   SOURCE,
 } from './restore-fixtures'
+
+const { old: OLD, new: NEW } = GENERATIONS_ABOVE_THRESHOLDS
+const OLD_COUNT = OLD.documents.size
+const NEW_COUNT = NEW.documents.size
 
 const CHILD_SCRIPT = fileURLToPath(new URL('./restore-child-dist.mjs', import.meta.url))
 const built = await readdir(new URL('../../../../dist/', import.meta.url)).then(
@@ -32,25 +33,41 @@ const built = await readdir(new URL('../../../../dist/', import.meta.url)).then(
 type DurableKind = 'wal' | 'snapshot'
 
 const roots: string[] = []
+const preparedRoots: string[] = []
 const engines: Narsil[] = []
+const prepared = new Map<DurableKind, { directory: string; archive: string }>()
+
+beforeAll(async () => {
+  for (const kind of ['wal', 'snapshot'] as const) {
+    const directory = await newDirectory(preparedRoots)
+    const scratch = await newDirectory(preparedRoots)
+    const engine = await openEngine(configFor(kind, directory, false), engines)
+    await fill(engine, LIVE, OLD.documents)
+    await fill(engine, SOURCE, NEW.documents)
+    const archive = join(scratch, 'archive.tar')
+    await writeFile(archive, await archiveBytes(engine, SOURCE))
+    await engine.dropIndex(SOURCE)
+    await engine.checkpoint(LIVE)
+    await engine.shutdown()
+    prepared.set(kind, { directory, archive })
+  }
+}, 60_000)
 
 afterEach(async () => {
   for (const engine of engines.splice(0)) await engine.shutdown().catch(() => undefined)
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
+afterAll(async () => {
+  for (const root of preparedRoots.splice(0)) await rm(root, { recursive: true, force: true })
+})
+
 async function preparedDirectory(kind: DurableKind): Promise<{ directory: string; archive: string }> {
+  const source = prepared.get(kind)
+  if (source === undefined) throw new Error(`no ${kind} directory was prepared`)
   const directory = await newDirectory(roots)
-  const scratch = await newDirectory(roots)
-  const engine = await openEngine(configFor(kind, directory, false), engines)
-  await fill(engine, LIVE, OLD.documents)
-  await fill(engine, SOURCE, NEW.documents)
-  const archive = join(scratch, 'archive.tar')
-  await writeFile(archive, await archiveBytes(engine, SOURCE))
-  await engine.dropIndex(SOURCE)
-  await engine.checkpoint(LIVE)
-  await engine.shutdown()
-  return { directory, archive }
+  await cp(source.directory, directory, { recursive: true })
+  return { directory, archive: source.archive }
 }
 
 function runChild(kind: DurableKind, directory: string, archive: string, killAt: string) {

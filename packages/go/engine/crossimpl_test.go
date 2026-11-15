@@ -93,7 +93,7 @@ func goSave(t *testing.T, scenario crossScenario, plan crossPlan, directory stri
 	if err := settleVectors(ctx, narsil, plan.Index); err != nil {
 		t.Fatal(err)
 	}
-	if stats, err := narsil.GetStats(plan.Index); err != nil || (scenario.partitioned && stats.PartitionCount < 2) {
+	if stats, err := narsil.GetStats(plan.Index); err != nil || (scenario.partitioned && stats.PartitionCount != crossMaxPartitions) {
 		t.Fatalf("the Go index holds %d partitions after its inserts: %v", stats.PartitionCount, err)
 	}
 	if err := narsil.Checkpoint(ctx, plan.Index); err != nil {
@@ -235,7 +235,7 @@ func requireSameAnswers(t *testing.T, label string, left [][][2]any, right [][][
 		if textOnly && query.Mode == "vector" {
 			continue
 		}
-		if !sameHits(left[position], right[position]) {
+		if !sameHits(left[position], right[position], query.Mode == "vector") {
 			leftJSON, _ := json.Marshal(left[position])
 			rightJSON, _ := json.Marshal(right[position])
 			t.Fatalf("%s differ on query %d (%q):\n  %s\n  %s", label, position, query.Term, leftJSON, rightJSON)
@@ -243,17 +243,64 @@ func requireSameAnswers(t *testing.T, label string, left [][][2]any, right [][][
 	}
 }
 
-func sameHits(left [][2]any, right [][2]any) bool {
-	if len(left) != len(right) {
+func scoresAgree(left float64, right float64) bool {
+	return math.Abs(left-right) <= crossScoreTolerance*math.Max(1, math.Abs(right))
+}
+
+func scoresOf(hits [][2]any) ([]float64, bool) {
+	scores := make([]float64, len(hits))
+	for rank, hit := range hits {
+		score, scored := hit[1].(float64)
+		if !scored {
+			return nil, false
+		}
+		scores[rank] = score
+	}
+	return scores, true
+}
+
+func sameIDsAcross(left [][2]any, right [][2]any) bool {
+	counts := make(map[any]int, len(left))
+	for _, hit := range left {
+		counts[hit[0]]++
+	}
+	for _, hit := range right {
+		if counts[hit[0]] == 0 {
+			return false
+		}
+		counts[hit[0]]--
+	}
+	return true
+}
+
+func sameHits(left [][2]any, right [][2]any, tiedScoresShareRanks bool) bool {
+	leftScores, leftScored := scoresOf(left)
+	rightScores, rightScored := scoresOf(right)
+	if len(left) != len(right) || !leftScored || !rightScored {
 		return false
 	}
 	for rank := range left {
-		leftScore, leftScored := left[rank][1].(float64)
-		rightScore, rightScored := right[rank][1].(float64)
-		if left[rank][0] != right[rank][0] || !leftScored || !rightScored ||
-			math.Abs(leftScore-rightScore) > crossScoreTolerance*math.Max(1, math.Abs(rightScore)) {
+		if !scoresAgree(leftScores[rank], rightScores[rank]) {
 			return false
 		}
+	}
+	if !tiedScoresShareRanks {
+		for rank := range left {
+			if left[rank][0] != right[rank][0] {
+				return false
+			}
+		}
+		return true
+	}
+	for start := 0; start < len(left); {
+		end := start + 1
+		for end < len(left) && scoresAgree(leftScores[end-1], leftScores[end]) && scoresAgree(rightScores[end-1], rightScores[end]) {
+			end++
+		}
+		if !sameIDsAcross(left[start:end], right[start:end]) {
+			return false
+		}
+		start = end
 	}
 	return true
 }

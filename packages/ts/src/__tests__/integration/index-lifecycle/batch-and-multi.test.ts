@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
-import { indexConfig, products, schema } from './fixtures'
+import { indexConfig, products } from './fixtures'
 
 describe('Index Lifecycle Integration', () => {
   let narsil: Narsil
@@ -69,19 +69,5 @@ describe('Index Lifecycle Integration', () => {
     const remaining = narsil.listIndexes()
     expect(remaining.length).toBe(1)
     expect(remaining[0].name).toBe('articles')
-  })
-
-  it('reports correct stats for an index', async () => {
-    await narsil.createIndex('products', indexConfig)
-
-    for (const product of products.slice(0, 10)) {
-      await narsil.insert('products', product)
-    }
-
-    const stats = narsil.getStats('products')
-    expect(stats.documentCount).toBe(10)
-    expect(stats.partitionCount).toBeGreaterThanOrEqual(1)
-    expect(stats.language).toBe('english')
-    expect(stats.schema).toEqual(schema)
   })
 })

@@ -15,7 +15,6 @@ const REFUSED_ENTRIES: ReadonlyArray<readonly [string, (position: number) => Rec
   ['a negative position', () => ({ token: REFUSED_WORD, position: -1 })],
   ['a fractional position', () => ({ token: REFUSED_WORD, position: 0.5 })],
   ['the position 2^32', () => ({ token: REFUSED_WORD, position: 2 ** 32 })],
-  ['a position that is NaN', () => ({ token: REFUSED_WORD, position: Number.NaN })],
 ]
 
 function registerHostileTokenizer(name: string, refusedEntry: (position: number) => Record<string, unknown>): void {

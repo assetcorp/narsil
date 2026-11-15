@@ -92,10 +92,14 @@ describe('change capture served by a cluster', () => {
     return started
   }
 
-  async function seed(running: SyncCluster, index: string): Promise<Map<string, Note>> {
-    const oracle = new Map<string, Note>()
+  async function createActiveIndex(running: SyncCluster, index: string): Promise<void> {
     await running.admin.createIndex(index, SCHEMA)
     await activeTable(running.coordinator, index)
+  }
+
+  async function seed(running: SyncCluster, index: string): Promise<Map<string, Note>> {
+    const oracle = new Map<string, Note>()
+    await createActiveIndex(running, index)
     const batch = []
     for (let at = 0; at < FIRST_DOCUMENTS; at++) {
       oracle.set(`n${at}`, note(at))
@@ -116,7 +120,7 @@ describe('change capture served by a cluster', () => {
       const readers = readerHook([READER_TOKEN, ADMIN_TOKEN])
       const bare = await startCluster(false)
       await bare.serve(ROUTER, readers, 'changes')
-      await seed(bare, 'alice')
+      await createActiveIndex(bare, 'alice')
       expect(await codeOf(bare.admin.updateChanges('alice', { enabled: true }))).toBe('CHANGES_BACKUP_STORE_REQUIRED')
       expect((await bare.admin.getChanges('alice')).enabled).toBe(false)
       await bare.dispose()
@@ -124,7 +128,7 @@ describe('change capture served by a cluster', () => {
 
       const running = await startCluster(true)
       const base = await running.serve(ROUTER, readers, 'changes')
-      await seed(running, 'alice')
+      await createActiveIndex(running, 'alice')
       await running.coordinator.registerNode(olderRegistration(['coordinator']))
       expect(await codeOf(running.admin.updateChanges('alice', { enabled: true }))).toBe('CHANGES_NOT_READY')
       expect((await running.admin.getChanges('alice')).enabled).toBe(false)
@@ -260,7 +264,7 @@ describe('change capture served by a cluster', () => {
     async () => {
       const running = await startCluster(true, 0)
       await running.serve(ROUTER, readerHook([READER_TOKEN, ADMIN_TOKEN]), 'changes')
-      await seed(running, 'alice')
+      await createActiveIndex(running, 'alice')
       await running.admin.updateChanges('alice', { enabled: true, previousDocument: true })
       await running.coordinator.registerNode(olderRegistration(['data']))
 

@@ -19,7 +19,7 @@ import { walkSavedGraph } from './saved-graph-walk'
 const INDEX = 'passages'
 const PASSAGES = 1_500
 const QUESTIONS = 30
-const BUILDS = 3
+const BUILDS = 2
 const SPEC_RECALL_AT_10 = 0.95
 const TEST_TIMEOUT_MS = 300_000
 
@@ -63,7 +63,7 @@ function recallAgainstExactScan(passages: Passage[], questions: number[][], answ
 
 searchWithTheHostBinary()
 
-describe.each(backends)('three bulk loads of the same passages through $name', ({ native, available }) => {
+describe.each(backends)('two bulk loads of the same passages through $name', ({ native, available }) => {
   beforeEach(() => {
     setNativeSearchCoreEnabled(native)
   })

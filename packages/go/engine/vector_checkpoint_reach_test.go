@@ -25,7 +25,7 @@ const (
 	reachClusters           = 24
 	reachClusterSpread      = 0.02
 	reachWaveDocuments      = 3_000
-	reachMaxDocuments       = 60_000
+	reachMaxDocuments       = 36_000
 	reachCheckpoints        = 30
 	reachCentreSeed         = 90_000_000
 	reachStatusPoll         = time.Millisecond

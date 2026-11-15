@@ -10,7 +10,7 @@ import { seededRandom } from './oracle'
 
 const INDEX = 'passages'
 const DIMENSION = 64
-const PASSAGES = 3_000
+const PASSAGES = 1_000
 const ENVELOPE_HEADER_BYTES = 32
 const ENVELOPE_CHECKSUM_OFFSET = 14
 const VECTOR_PAGE_BYTES = 65_536

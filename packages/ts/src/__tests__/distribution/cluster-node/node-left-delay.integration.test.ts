@@ -16,8 +16,8 @@ const INDEX_NAME = 'lighthouses'
 const PARTITION_COUNT = 6
 const DATA_NODES = ['keeper-a', 'keeper-b', 'keeper-c', 'keeper-d']
 const LEAVING_NODE = 'keeper-c'
-const QUIET_WAIT_MS = 2_000
-const SHORT_DELAY_MS = 1_500
+const QUIET_WAIT_MS = 1_000
+const SHORT_DELAY_MS = 500
 const ALLOCATION_WAIT_MS = 20_000
 const STEADY_WRITERS = 8
 

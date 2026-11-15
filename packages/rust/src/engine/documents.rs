@@ -200,7 +200,7 @@ impl Narsil {
         }
         let state = self.inner.open_index(index)?;
         let mut document = document;
-        let old = hooked::before_update(plugins, &state, doc_id, &mut document)?;
+        let old = hooked::before_update(&self.inner, index, doc_id, &mut document)?;
         let kept = document.clone();
         let mut held = HeldWrite::new(document);
         self.write_one(index, |state| {
@@ -230,7 +230,7 @@ impl Narsil {
         let mut kept = Vec::with_capacity(updates.len());
         let mut failed = Vec::new();
         for (doc_id, mut document) in updates {
-            match hooked::before_update(plugins, &state, &doc_id, &mut document) {
+            match hooked::before_update(&self.inner, index, &doc_id, &mut document) {
                 Ok(old) => {
                     kept.push((doc_id.clone(), old, document.clone()));
                     admitted.push((doc_id, document));

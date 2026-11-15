@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
 import { type NativeOperation, observeFallbacks, setNativeSearchCoreEnabled } from '../../vector/native/backend'
 import { waitFor } from '../server/helpers'
@@ -243,115 +243,144 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
     300_000,
   )
 
-  const openTheClips = async (): Promise<{ opened: Narsil; clips: Clip[] }> => {
-    const settled = await openSettledClips()
-    engine = settled.opened
-    return settled
-  }
+  describe('a settled index that each test reads through a snapshot', () => {
+    let settledClips: { opened: Narsil; clips: Clip[] } | null = null
+    const fallbacksWhileSettling: NativeOperation[] = []
 
-  it.skipIf(!available)(
-    'links every vector at the first placement after it restores a saved graph that left some vectors with no incoming link',
-    async () => {
-      const { opened, clips } = await openTheClips()
+    beforeAll(async () => {
+      if (!available) return
+      setNativeSearchCoreEnabled(native)
+      observeFallbacks(operation => fallbacksWhileSettling.push(operation))
+      try {
+        settledClips = await openSettledClips()
+      } finally {
+        observeFallbacks(null)
+        setNativeSearchCoreEnabled(true)
+      }
+    }, SETTLE_TIMEOUT_MS)
 
-      const { archive, cut } = await snapshotWithoutLinksTo(await opened.snapshot(INDEX), FIELD, baseNodes =>
-        baseNodes.filter((_, position) => position % CUT_EVERY === 0).slice(0, CUT_NODES),
-      )
-      expect(cut).toHaveLength(CUT_NODES)
-      const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
-      expect(saved.unreached.length).toBeGreaterThanOrEqual(CUT_NODES)
+    afterEach(async () => {
+      const opened = settledClips?.opened
+      if (opened?.listIndexes().some(index => index.name === RESTORED_INDEX)) await opened.dropIndex(RESTORED_INDEX)
+    })
 
-      const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
-      expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
-      expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
-      expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
-      if (native) expect(fallbacks).not.toContain('connect')
-    },
-    300_000,
-  )
+    afterAll(async () => {
+      await settledClips?.opened.shutdown()
+      settledClips = null
+    })
 
-  it.skipIf(!available)(
-    'links two unlinked vectors to the entry point at the first placement after a restore when they come before every node with room for them',
-    async () => {
-      const { opened, clips } = await openTheClips()
+    const openTheClips = (): { opened: Narsil; clips: Clip[] } => {
+      if (settledClips === null) throw new Error('the clips never settled')
+      return settledClips
+    }
 
-      const archive = await snapshotWithBaseLists(await opened.snapshot(INDEX), FIELD, baseListLimit => {
-        const entryPoint = FIRST_HELD_BY_FULL_LIST + baseListLimit
-        const baseListOf = (number: number): number[] => {
-          if (number === FULL_LIST) return Array.from({ length: baseListLimit }, (_, i) => FIRST_HELD_BY_FULL_LIST + i)
-          if (number === FIRST_UNLINKED || number === SECOND_UNLINKED) return [FULL_LIST]
-          if (number < entryPoint || number === CLIPS - 1) return []
-          return number === entryPoint ? [number + 1, FULL_LIST] : [number + 1]
+    const fallbacksSinceSettling = (): NativeOperation[] => [...fallbacksWhileSettling, ...fallbacks]
+
+    it.skipIf(!available)(
+      'links every vector at the first placement after it restores a saved graph that left some vectors with no incoming link',
+      async () => {
+        const { opened, clips } = openTheClips()
+
+        const { archive, cut } = await snapshotWithoutLinksTo(await opened.snapshot(INDEX), FIELD, baseNodes =>
+          baseNodes.filter((_, position) => position % CUT_EVERY === 0).slice(0, CUT_NODES),
+        )
+        expect(cut).toHaveLength(CUT_NODES)
+        const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
+        expect(saved.unreached.length).toBeGreaterThanOrEqual(CUT_NODES)
+
+        const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
+        expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
+        expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
+        expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
+        if (native) expect(fallbacksSinceSettling()).not.toContain('connect')
+      },
+      300_000,
+    )
+
+    it.skipIf(!available)(
+      'links two unlinked vectors to the entry point at the first placement after a restore when they come before every node with room for them',
+      async () => {
+        const { opened, clips } = openTheClips()
+
+        const archive = await snapshotWithBaseLists(await opened.snapshot(INDEX), FIELD, baseListLimit => {
+          const entryPoint = FIRST_HELD_BY_FULL_LIST + baseListLimit
+          const baseListOf = (number: number): number[] => {
+            if (number === FULL_LIST)
+              return Array.from({ length: baseListLimit }, (_, i) => FIRST_HELD_BY_FULL_LIST + i)
+            if (number === FIRST_UNLINKED || number === SECOND_UNLINKED) return [FULL_LIST]
+            if (number < entryPoint || number === CLIPS - 1) return []
+            return number === entryPoint ? [number + 1, FULL_LIST] : [number + 1]
+          }
+          return { entryPoint, baseListOf }
+        })
+        const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
+        expect(saved.unreached).toHaveLength(2)
+
+        const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
+        expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
+        expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
+        expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
+        if (native) expect(fallbacksSinceSettling()).not.toContain('connect')
+      },
+      300_000,
+    )
+
+    it.skipIf(!available)(
+      'links a chain of three vectors back to the entry point once compaction removes the only link into it',
+      async () => {
+        const { opened, clips } = openTheClips()
+
+        const { saved, removed, compacted } = await compactAwayTheOnlyLinkIntoAChain(opened)
+        expect(saved.liveDocIds).toHaveLength(CLIPS)
+        expect(missedBy(saved)).toEqual({ unplaced: [], unreached: [] })
+        const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
+        expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
+        expect(compacted.nodeCount).toBe(CLIPS - 1)
+        expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
+        if (native) {
+          expect(fallbacksSinceSettling()).not.toContain('compact')
+          expect(fallbacksSinceSettling()).not.toContain('connect')
         }
-        return { entryPoint, baseListOf }
-      })
-      const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
-      expect(saved.unreached).toHaveLength(2)
+      },
+      300_000,
+    )
 
-      const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
-      expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
-      expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
-      expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
-      if (native) expect(fallbacks).not.toContain('connect')
-    },
-    300_000,
-  )
+    it.skipIf(!available)(
+      'links a cycle of three vectors back to the entry point once compaction removes the only link into it',
+      async () => {
+        const { opened, clips } = openTheClips()
 
-  it.skipIf(!available)(
-    'links a chain of three vectors back to the entry point once compaction removes the only link into it',
-    async () => {
-      const { opened, clips } = await openTheClips()
+        const { saved, removed, compacted } = await compactAwayTheOnlyLinkIntoAChain(opened, [CHAIN_HEAD])
+        expect(missedBy(saved)).toEqual({ unplaced: [], unreached: [] })
+        expect(saved.baseListOf.get(saved.liveDocIds[CHAIN_TAIL])).toEqual([saved.liveDocIds[CHAIN_HEAD]])
+        const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
+        expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
+        expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
+        if (native) {
+          expect(fallbacksSinceSettling()).not.toContain('compact')
+          expect(fallbacksSinceSettling()).not.toContain('connect')
+        }
+      },
+      300_000,
+    )
 
-      const { saved, removed, compacted } = await compactAwayTheOnlyLinkIntoAChain(opened)
-      expect(saved.liveDocIds).toHaveLength(CLIPS)
-      expect(missedBy(saved)).toEqual({ unplaced: [], unreached: [] })
-      const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
-      expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
-      expect(compacted.nodeCount).toBe(CLIPS - 1)
-      expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
-      if (native) {
-        expect(fallbacks).not.toContain('compact')
-        expect(fallbacks).not.toContain('connect')
-      }
-    },
-    300_000,
-  )
+    it.skipIf(!available)(
+      'keeps every vector reachable when the walk must take a link out of a full list to connect a closed group',
+      async () => {
+        const { opened } = openTheClips()
 
-  it.skipIf(!available)(
-    'links a cycle of three vectors back to the entry point once compaction removes the only link into it',
-    async () => {
-      const { opened, clips } = await openTheClips()
-
-      const { saved, removed, compacted } = await compactAwayTheOnlyLinkIntoAChain(opened, [CHAIN_HEAD])
-      expect(missedBy(saved)).toEqual({ unplaced: [], unreached: [] })
-      expect(saved.baseListOf.get(saved.liveDocIds[CHAIN_TAIL])).toEqual([saved.liveDocIds[CHAIN_HEAD]])
-      const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
-      expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
-      expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
-      if (native) {
-        expect(fallbacks).not.toContain('compact')
-        expect(fallbacks).not.toContain('connect')
-      }
-    },
-    300_000,
-  )
-
-  it.skipIf(!available)(
-    'keeps every vector reachable when the walk must take a link out of a full list to connect a closed group',
-    async () => {
-      const { opened } = await openTheClips()
-
-      const { saved, orphanGroups, compacted } = await compactWhileEveryReachedListIsFull(opened)
-      expect([...saved.unreached].sort()).toEqual([...orphanGroups].sort())
-      expect(compacted.nodeCount).toBe(CLIPS - 1)
-      expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
-      if (native) {
-        expect(fallbacks).not.toContain('compact')
-        expect(fallbacks).not.toContain('connect')
-      }
-    },
-    300_000,
-  )
+        const { saved, orphanGroups, compacted } = await compactWhileEveryReachedListIsFull(opened)
+        expect([...saved.unreached].sort()).toEqual([...orphanGroups].sort())
+        expect(compacted.nodeCount).toBe(CLIPS - 1)
+        expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
+        if (native) {
+          expect(fallbacksSinceSettling()).not.toContain('compact')
+          expect(fallbacksSinceSettling()).not.toContain('connect')
+        }
+      },
+      300_000,
+    )
+  })
 })
 
 describe('a chain that compaction cuts off', () => {

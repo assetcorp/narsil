@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { QueryParams } from '../../../types/search'
 import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
@@ -16,6 +16,7 @@ const EXHAUSTIVE_EF_SEARCH = 1_000
 const COPY_LOAD_TIMEOUT_MS = 120_000
 const CONCURRENT_STEPS = 40
 const CONCURRENT_SEARCHERS = 6
+const FIRST_DOCUMENT_THAT_ONLY_THE_ROUNDS_REEMBED = 100
 const INDEX = 'clips'
 const FILTERED_GROUP = 'a'
 
@@ -90,14 +91,15 @@ const built = existsSync(distEntry)
 
 describe.skipIf(!built)('vector searches that request threads answer right after a write', () => {
   let srv: TestServer
+  let base: ClipDocument[]
   const live = new Map<string, ClipDocument>()
 
-  beforeEach(async () => {
-    live.clear()
+  beforeAll(async () => {
     srv = await startTestServer(undefined, { workers: { count: 2 } })
-  })
+    base = await createLoadedIndex()
+  }, COPY_LOAD_TIMEOUT_MS)
 
-  afterEach(async () => {
+  afterAll(async () => {
     await srv.stop()
   })
 
@@ -191,13 +193,13 @@ describe.skipIf(!built)('vector searches that request threads answer right after
       },
     })
     expect(created.status, JSON.stringify(created.body)).toBe(201)
-    const base = Array.from({ length: BASE_DOCUMENTS }, (_, i) => clip(i))
-    for (let start = 0; start < base.length; start += INSERT_BATCH_SIZE) {
-      await write('insert', base.slice(start, start + INSERT_BATCH_SIZE))
+    const documents = Array.from({ length: BASE_DOCUMENTS }, (_, i) => clip(i))
+    for (let start = 0; start < documents.length; start += INSERT_BATCH_SIZE) {
+      await write('insert', documents.slice(start, start + INSERT_BATCH_SIZE))
     }
     await waitFor(() => scaledOut(srv.engine, INDEX), COPY_LOAD_TIMEOUT_MS)
     await srv.engine.waitForWrites(INDEX)
-    return base
+    return documents
   }
 
   async function checkAcknowledged(expectation: Acknowledged): Promise<void> {
@@ -217,7 +219,6 @@ describe.skipIf(!built)('vector searches that request threads answer right after
   }
 
   it('never loses an acknowledged vector or brings back a removed one while writes and searches overlap', async () => {
-    const base = await createLoadedIndex()
     const acknowledged: Acknowledged[] = []
     let writing = true
     const writer = (async () => {
@@ -257,17 +258,15 @@ describe.skipIf(!built)('vector searches that request threads answer right after
   }, 600_000)
 
   it('finds every vector written with wait, whichever thread answers', async () => {
-    const base = await createLoadedIndex()
-
     for (let round = 0; round < ROUNDS; round++) {
       const fresh = Array.from({ length: FRESH_PER_ROUND }, (_, k) => {
-        const i = BASE_DOCUMENTS + round * FRESH_PER_ROUND + k
+        const i = BASE_DOCUMENTS + CONCURRENT_STEPS + round * FRESH_PER_ROUND + k
         return { ...clip(i), group: FILTERED_GROUP }
       })
       await write('insert', fresh)
       for (const document of fresh) await checkFresh(document)
 
-      const previous = base[round * 7]
+      const previous = base[FIRST_DOCUMENT_THAT_ONLY_THE_ROUNDS_REEMBED + round * 7]
       const current = { ...previous, embedding: seededValues(1_000_003 + round, VECTOR_DIMENSION) }
       await write('update', [current])
       await checkReembedded(previous, current)

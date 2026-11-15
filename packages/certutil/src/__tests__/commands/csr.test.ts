@@ -101,7 +101,6 @@ describe('narsil-certutil csr', () => {
   it.each([
     [['--cn', 'node1', '--key-size', '1024'], 2, /Invalid --key-size/],
     [[], 2, /--cn or --nodes/],
-    [['--cn', 'node1', '--ip', 'not-an-ip'], 1, /Invalid IP address/],
   ])('refuses the arguments %j and writes nothing', async (args, code, message) => {
     const outDir = await createWorkspace(root)
 

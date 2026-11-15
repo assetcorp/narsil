@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use narsil::{Map, Value, write_json};
 
 use super::parity_cases::chosen_writes;
@@ -97,10 +99,9 @@ fn first_difference(path: &str, found: &Value, wanted: &Value) -> Option<String>
     }
 }
 
-fn require_same_pages(spec: &ShapingSpec, found: &[Vec<Value>], wanted: &[Vec<Value>]) {
+fn require_same_pages(queries: &[(Value, usize)], found: &[Vec<Value>], wanted: &[Vec<Value>]) {
     assert_eq!(found.len(), wanted.len(), "both sides answer every query");
-    let problems: Vec<String> = spec
-        .queries
+    let problems: Vec<String> = queries
         .iter()
         .zip(found.iter().zip(wanted))
         .filter_map(|((query, _), (found, wanted))| {
@@ -158,7 +159,33 @@ fn late_documents(documents: &[Map]) -> Vec<Map> {
         .collect()
 }
 
-fn require_parity_with(queries: Vec<(Value, usize)>, copies: usize, max_partitions: Option<u64>) {
+struct ComparedPages {
+    queries: Vec<(Value, usize)>,
+    found: Vec<Vec<Value>>,
+    wanted: Vec<Vec<Value>>,
+}
+
+fn require_answered(wanted: &[Vec<Value>]) {
+    let answered = wanted
+        .iter()
+        .flatten()
+        .filter(|page| {
+            page.pointer("hits")
+                .and_then(Value::as_array)
+                .is_some_and(|hits| !hits.is_empty())
+        })
+        .count();
+    assert!(
+        answered >= MIN_ANSWERED_PAGES,
+        "only {answered} reference pages hold hits"
+    );
+}
+
+fn compared_pages(
+    queries: Vec<(Value, usize)>,
+    copies: usize,
+    max_partitions: Option<u64>,
+) -> ComparedPages {
     let (removals, updates) = writes();
     let documents = shaping_documents(copies);
     let spec = ShapingSpec {
@@ -184,28 +211,50 @@ fn require_parity_with(queries: Vec<(Value, usize)>, copies: usize, max_partitio
         );
     }
     let found = crate_pages(&spec, &engine);
-    let answered = wanted
-        .iter()
-        .flatten()
-        .filter(|page| {
-            page.pointer("hits")
-                .and_then(Value::as_array)
-                .is_some_and(|hits| !hits.is_empty())
-        })
-        .count();
-    assert!(
-        answered >= MIN_ANSWERED_PAGES,
-        "only {answered} reference pages hold hits"
-    );
-    require_same_pages(&spec, &found, &wanted);
-}
-
-pub fn require_parity(queries: Vec<(Value, usize)>) {
-    require_parity_with(queries, 1, None);
+    ComparedPages {
+        queries: spec.queries,
+        found,
+        wanted,
+    }
 }
 
 pub fn require_spread_parity(queries: Vec<(Value, usize)>) {
-    require_parity_with(queries, SPREAD_COPIES, Some(SPREAD_MAX_PARTITIONS));
+    let compared = compared_pages(queries, SPREAD_COPIES, Some(SPREAD_MAX_PARTITIONS));
+    require_answered(&compared.wanted);
+    require_same_pages(&compared.queries, &compared.found, &compared.wanted);
+}
+
+pub struct SharedParity {
+    compared: ComparedPages,
+    groups: Vec<Range<usize>>,
+}
+
+impl SharedParity {
+    pub fn new(groups: Vec<Vec<(Value, usize)>>) -> SharedParity {
+        let mut ranges = Vec::with_capacity(groups.len());
+        let mut queries = Vec::new();
+        for group in groups {
+            let start = queries.len();
+            queries.extend(group);
+            ranges.push(start..queries.len());
+        }
+        SharedParity {
+            compared: compared_pages(queries, 1, None),
+            groups: ranges,
+        }
+    }
+
+    pub fn require(&self, queries: &[(Value, usize)]) {
+        let range = self
+            .groups
+            .iter()
+            .find(|range| &self.compared.queries[(*range).clone()] == queries)
+            .expect("the shared comparison holds these queries")
+            .clone();
+        let wanted = &self.compared.wanted[range.clone()];
+        require_answered(wanted);
+        require_same_pages(queries, &self.compared.found[range], wanted);
+    }
 }
 
 pub fn step(json: &str, pages: usize) -> (Value, usize) {

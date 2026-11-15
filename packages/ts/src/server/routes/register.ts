@@ -3,7 +3,7 @@ import { corsHeaderReader, type ResolvedCors, writeCorsOrigin } from '../cors'
 import type { ResolvedLimits } from '../deps'
 import { ServerErrorCodes } from '../errors'
 import { type RouteHandler, type RouteOptions, sinkWritingAfterStatus } from '../request'
-import { sendError } from '../response'
+import { type ResponseSink, sendError } from '../response'
 import type { ServerHandlers } from './spec'
 import { serverRoutes } from './table'
 
@@ -18,9 +18,11 @@ export function registerServerRoutes(
   handlers: ServerHandlers,
   limits: ResolvedLimits,
   cors: ResolvedCors | null,
+  accept?: (res: ResponseSink) => boolean,
 ): void {
   if (cors) {
     app.options('/*', (res, req) => {
+      if (accept?.(res) === false) return
       const origin = req.getHeader('origin')
       res.cork(() => {
         res.writeStatus('204 No Content')
@@ -40,6 +42,7 @@ export function registerServerRoutes(
 
   const corsHeaders = cors ? corsHeaderReader(cors) : null
   app.any('/*', (res, req) => {
+    if (accept?.(res) === false) return
     const sink = corsHeaders === null ? res : sinkWritingAfterStatus(res, corsHeaders(req))
     sendError(sink, 404, ServerErrorCodes.NOT_FOUND, 'Route not found')
   })

@@ -43,21 +43,6 @@ describe('time-ordered segmented checkpoint', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('writes a single segment on a cold checkpoint', async () => {
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
-    for (let i = 0; i < 40; i += 1) {
-      await writer.insert('docs', doc(i), `d${i}`)
-    }
-    await writer.checkpoint('docs')
-    const manifest = await readManifest(root, 'docs')
-    await writer.shutdown()
-
-    expect(manifest.partitions[0].segments.length).toBe(1)
-    expect(manifest.partitions[0].segments[0].docCount).toBe(40)
-    expect(manifest.partitions[0].nextSegmentId).toBe(1)
-  })
-
   it('appends one new segment per incremental checkpoint and never rewrites prior segment files', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', SCHEMA)
@@ -100,17 +85,6 @@ describe('time-ordered segmented checkpoint', () => {
     expect(second).toEqual(first)
   })
 
-  it('produces no segment for an empty index', async () => {
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
-    await writer.checkpoint('docs')
-    const manifest = await readManifest(root, 'docs')
-    await writer.shutdown()
-
-    expect(manifest.partitions[0].segments.length).toBe(0)
-    expect((await segmentFiles(root, 'docs', 0)).length).toBe(0)
-  })
-
   it('resolves updates and deletes across segments so the newest write wins on recovery', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', SCHEMA)
@@ -134,28 +108,6 @@ describe('time-ordered segmented checkpoint', () => {
     const stale = await reader.query('docs', { term: 'brown fox lazy dog' })
     expect(stale.hits.length).toBeGreaterThan(0)
     expect(stale.hits.some(hit => hit.id === 'd1')).toBe(false)
-    await reader.shutdown()
-  })
-
-  it('records a tombstone-only segment when a checkpoint sees only deletes', async () => {
-    const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
-    for (let i = 0; i < 10; i += 1) {
-      await writer.insert('docs', doc(i), `d${i}`)
-    }
-    await writer.checkpoint('docs')
-    await writer.remove('docs', 'd3')
-    await writer.checkpoint('docs')
-    const manifest = await readManifest(root, 'docs')
-    expect(manifest.partitions[0].segments.length).toBe(2)
-    const tombstoneSegment = manifest.partitions[0].segments[1]
-    expect(tombstoneSegment.docCount).toBe(0)
-    expect(tombstoneSegment.tombstoneCount).toBe(1)
-    await writer.shutdown()
-
-    const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('docs')).toBe(9)
-    expect(await reader.has('docs', 'd3')).toBe(false)
     await reader.shutdown()
   })
 

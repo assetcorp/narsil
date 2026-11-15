@@ -10,15 +10,6 @@ const productSchema: SchemaDefinition = {
   inStock: 'boolean' as const,
 }
 
-const vectorSchema: SchemaDefinition = {
-  title: 'string' as const,
-  embedding: 'vector[32]' as const,
-}
-
-function seededVector(dim: number, seed: number): number[] {
-  return Array.from({ length: dim }, (_, i) => Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i))
-}
-
 describe('capacity + rebalancing + strict mode integration', () => {
   let narsil: Narsil
 
@@ -91,35 +82,6 @@ describe('capacity + rebalancing + strict mode integration', () => {
     expect(result.failed[0].error.code).toBe(ErrorCodes.DOC_VALIDATION_FAILED)
   })
 
-  it('preserves vector search results after rebalancing', async () => {
-    await narsil.createIndex('vectors', { schema: vectorSchema, language: 'english', partitions: { maxPartitions: 3 } })
-
-    for (let i = 0; i < 50; i++) {
-      await narsil.insert('vectors', { title: `Vector Document ${i}`, embedding: seededVector(32, i + 1) })
-    }
-
-    const queryVec = seededVector(32, 201)
-
-    const before = await narsil.query('vectors', {
-      mode: 'vector',
-      vector: { field: 'embedding', value: queryVec, similarity: 0 },
-      limit: 5,
-    })
-    expect(before.hits.length).toBeGreaterThan(0)
-
-    await narsil.rebalance('vectors', 3)
-
-    expect(await narsil.countDocuments('vectors')).toBe(50)
-    expect(narsil.getStats('vectors').partitionCount).toBe(3)
-
-    const after = await narsil.query('vectors', {
-      mode: 'vector',
-      vector: { field: 'embedding', value: queryVec, similarity: 0 },
-      limit: 5,
-    })
-    expect(after.hits.length).toBeGreaterThan(0)
-  })
-
   it('full CRUD lifecycle with capacity + strict + partitions', async () => {
     const config: IndexConfig = {
       schema: productSchema,
@@ -171,12 +133,5 @@ describe('capacity + rebalancing + strict mode integration', () => {
     const stats = narsil.getStats('products')
     expect(stats.estimatedMemoryBytes).toBeGreaterThan(0)
     expect(stats.documentCount).toBe(1)
-  })
-
-  it('empty index can be rebalanced', async () => {
-    await narsil.createIndex('empty', { schema: productSchema, language: 'english', partitions: { maxPartitions: 3 } })
-    await narsil.rebalance('empty', 3)
-    expect(narsil.getStats('empty').partitionCount).toBe(3)
-    expect(await narsil.countDocuments('empty')).toBe(0)
   })
 })

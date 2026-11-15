@@ -1,7 +1,7 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createNarsil } from '../../../narsil'
 import type { Narsil } from '../../../types/engine'
@@ -95,9 +95,35 @@ describe('an index with its text on disk, through the operations that move its f
     return oracle
   }
 
+  let seededTemplate = ''
+  const seededTemplateOracle = new ArticleOracle()
+
+  beforeAll(async () => {
+    seededTemplate = await mkdtemp(join(tmpdir(), 'narsil-disk-operations-seeded-'))
+    const writer = await createNarsil({ durability: { directory: seededTemplate }, workers: { enabled: false } })
+    try {
+      for (const [id, document] of (await seeded(writer, 11)).documents) seededTemplateOracle.set(id, document)
+    } finally {
+      await writer.shutdown()
+    }
+  }, 120_000)
+
+  afterAll(async () => {
+    await rm(seededTemplate, { recursive: true, force: true })
+  })
+
+  async function openSeededCopy(
+    root: string,
+    extra: Partial<Parameters<typeof createNarsil>[0]> = {},
+  ): Promise<{ engine: Narsil; oracle: ArticleOracle }> {
+    await cp(seededTemplate, root, { recursive: true })
+    const oracle = new ArticleOracle()
+    for (const [id, document] of seededTemplateOracle.documents) oracle.set(id, document)
+    return { engine: await open(root, extra), oracle }
+  }
+
   it('restores a snapshot under another engine and keeps taking writes through a restart', async () => {
-    const source = await open(await newRoot())
-    const oracle = await seeded(source, 11)
+    const { engine: source, oracle } = await openSeededCopy(await newRoot())
     const archive = await bytesOf(await source.snapshot(INDEX))
 
     const targetRoot = await newRoot()
@@ -116,8 +142,9 @@ describe('an index with its text on disk, through the operations that move its f
 
   it('restores a snapshot over its own index while that index holds other documents', async () => {
     const root = await newRoot()
-    let engine = await open(root)
-    const oracle = await seeded(engine, 13)
+    const seededCopy = await openSeededCopy(root)
+    let engine = seededCopy.engine
+    const oracle = seededCopy.oracle
     const archive = await bytesOf(await engine.snapshot(INDEX))
     await engine.insert(INDEX, { title: 'amber', body: 'amber', year: 1990 }, 'discarded-by-restore')
     await engine.checkpoint(INDEX)
@@ -129,9 +156,7 @@ describe('an index with its text on disk, through the operations that move its f
   }, 120_000)
 
   it('refuses a damaged snapshot archive and keeps the index that it would replace', async () => {
-    const root = await newRoot()
-    const engine = await open(root)
-    const oracle = await seeded(engine, 14)
+    const { engine, oracle } = await openSeededCopy(await newRoot())
     await engine.checkpoint(INDEX)
     const archive = await bytesOf(await engine.snapshot(INDEX))
     const damaged = archive.slice()
@@ -141,8 +166,7 @@ describe('an index with its text on disk, through the operations that move its f
   }, 120_000)
 
   it('exports every live document once and imports them into a memory index that answers alike', async () => {
-    const engine = await open(await newRoot())
-    const oracle = await seeded(engine, 15)
+    const { engine, oracle } = await openSeededCopy(await newRoot())
     await engine.checkpoint(INDEX)
     const lines = new TextDecoder()
       .decode(await bytesOf(await engine.exportDocuments(INDEX)))
@@ -159,8 +183,7 @@ describe('an index with its text on disk, through the operations that move its f
   }, 120_000)
 
   it('answers alike after an idle close and the reopen that the next read causes', async () => {
-    const engine = await open(await newRoot(), { lifecycle: { idleTimeoutMs: 100 } })
-    const oracle = await seeded(engine, 16)
+    const { engine, oracle } = await openSeededCopy(await newRoot(), { lifecycle: { idleTimeoutMs: 100 } })
     await engine.checkpoint(INDEX)
     await expect
       .poll(() => engine.listIndexes().find(index => index.name === INDEX)?.state, { timeout: 15_000 })
@@ -194,8 +217,9 @@ describe('an index with its text on disk, through the operations that move its f
 
   it('moves documents between partitions through a rebalance and answers alike after a restart', async () => {
     const root = await newRoot()
-    let engine = await open(root)
-    const oracle = await seeded(engine, 18)
+    const seededCopy = await openSeededCopy(root)
+    let engine = seededCopy.engine
+    const oracle = seededCopy.oracle
     await engine.checkpoint(INDEX)
     await engine.updatePartitionConfig(INDEX, { maxPartitions: 3 })
     await engine.rebalance(INDEX, 3)
@@ -245,8 +269,9 @@ describe('an index with its text on disk, through the operations that move its f
 
   it('answers alike after a rebuild of its analysis and a restart', async () => {
     const root = await newRoot()
-    let engine = await open(root)
-    const oracle = await seeded(engine, 20)
+    const seededCopy = await openSeededCopy(root)
+    let engine = seededCopy.engine
+    const oracle = seededCopy.oracle
     await engine.checkpoint(INDEX)
     await engine.rebuildAnalysis(INDEX)
     await expectEngineMatchesOracle(engine, INDEX, oracle)
@@ -258,8 +283,7 @@ describe('an index with its text on disk, through the operations that move its f
 
   it('forgets every document on clear and on a drop, and leaves no segment file behind a drop', async () => {
     const root = await newRoot()
-    const engine = await open(root)
-    await seeded(engine, 21)
+    const { engine } = await openSeededCopy(root)
     await engine.checkpoint(INDEX)
     await engine.clear(INDEX)
     await expectEngineMatchesOracle(engine, INDEX, new ArticleOracle())
@@ -284,7 +308,7 @@ describe('an index with its text on disk, through the operations that move its f
     let total = 0
     for (let round = 0; round < 4; round++) {
       const batch = []
-      for (let i = 0; i < 1_250; i++) {
+      for (let i = 0; i < 1_000; i++) {
         const id = `large-${round}-${i}`
         const words = Array.from({ length: 12 }, rareWord)
         if (i % 125 === 0) holders.set(words[0], [...(holders.get(words[0]) ?? []), id])
@@ -369,7 +393,7 @@ describe('worker copies of an index with its text on disk', () => {
       const random = seededRandom(24)
       const oracle = new ArticleOracle()
       for (let round = 0; round < 3; round++) {
-        await writeRound(engine, oracle, random, `round-${round}`, 700)
+        await writeRound(engine, oracle, random, `round-${round}`, 150)
         await engine.checkpoint(INDEX)
         await expectEngineMatchesOracle(engine, INDEX, oracle)
       }

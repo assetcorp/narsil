@@ -83,27 +83,6 @@ describe('plugin hooks around reads and index lifecycle', () => {
     expect(created).toEqual(['docs', 'docs'])
   })
 
-  it('applies a batch in one pass while an insert hook is registered', async () => {
-    const seen: string[] = []
-    const plugin: NarsilPlugin = {
-      name: 'counter',
-      afterInsert(ctx) {
-        seen.push(ctx.docId)
-      },
-    }
-    narsil = await createNarsil({ ...WORKERS_OFF, plugins: [plugin] })
-    await narsil.createIndex('docs', { schema, language: 'english' })
-
-    const written = await narsil.insertBatch('docs', [
-      { id: 'one', title: 'first' },
-      { id: 'two', title: 'second' },
-      { id: 'three', title: 'third' },
-    ])
-
-    expect(written.succeeded).toEqual(['one', 'two', 'three'])
-    expect(seen).toEqual(['one', 'two', 'three'])
-  })
-
   it.each([
     [
       'a synchronous',

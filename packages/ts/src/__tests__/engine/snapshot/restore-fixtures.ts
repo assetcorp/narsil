@@ -1,11 +1,13 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DEFAULT_COPY_THRESHOLD } from '../../../engine/orchestration/constants'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import type { ByteSource } from '../../../types/byte-source'
 import type { NarsilConfig } from '../../../types/config'
 import type { AnyDocument } from '../../../types/schema'
+import { DEFAULT_PROMOTION_THRESHOLD } from '../../../vector/vector-index/constants'
 
 export const SCHEMA = { body: 'string', group: 'enum', embedding: 'vector[8]' } as const
 export const LIVE = 'live'
@@ -44,6 +46,22 @@ function generation(prefix: string, count: number, carriesTerm: (n: number) => b
 
 export const OLD = generation('old', OLD_COUNT, n => n % 3 === 0)
 export const NEW = generation('new', NEW_COUNT, n => n % 5 === 0)
+
+export interface Generations {
+  old: Generation
+  new: Generation
+}
+
+export const GENERATIONS: Generations = { old: OLD, new: NEW }
+
+const HIGHER_DEFAULT_THRESHOLD = Math.max(DEFAULT_PROMOTION_THRESHOLD, DEFAULT_COPY_THRESHOLD)
+const OLD_DOCUMENTS_ABOVE_THRESHOLDS = 400
+const NEW_DOCUMENTS_ABOVE_THRESHOLDS = 200
+
+export const GENERATIONS_ABOVE_THRESHOLDS: Generations = {
+  old: generation('old', HIGHER_DEFAULT_THRESHOLD + OLD_DOCUMENTS_ABOVE_THRESHOLDS, n => n % 3 === 0),
+  new: generation('new', HIGHER_DEFAULT_THRESHOLD + NEW_DOCUMENTS_ABOVE_THRESHOLDS, n => n % 5 === 0),
+}
 
 export function sameSet(found: readonly string[], expected: Set<string>): boolean {
   return found.length === expected.size && found.every(id => expected.has(id))
@@ -106,13 +124,14 @@ function settledFlag(until: Promise<unknown>): () => boolean {
   return () => settled
 }
 
-async function checkRound(target: HammerTarget, observed: Observed): Promise<void> {
+async function checkRound(target: HammerTarget, observed: Observed, generations: Generations): Promise<void> {
+  const { old: earlier, new: incoming } = generations
   const record = (what: string, error: unknown): void => {
     observed.failures.push(`${what}: ${error instanceof Error ? error.message : String(error)}`)
   }
   try {
     const ids = await target.query({ term: TERM, limit: OLD_COUNT })
-    if (!sameSet(ids, OLD.termHits) && !sameSet(ids, NEW.termHits)) {
+    if (!sameSet(ids, earlier.termHits) && !sameSet(ids, incoming.termHits)) {
       observed.failures.push(`text query returned ${ids.length} hits, matching neither generation`)
     }
   } catch (error) {
@@ -120,7 +139,7 @@ async function checkRound(target: HammerTarget, observed: Observed): Promise<voi
   }
   try {
     const ids = await target.query({ term: TERM, limit: OLD_COUNT, filters: { fields: { group: { eq: 'even' } } } })
-    if (!sameSet(ids, OLD.filteredHits) && !sameSet(ids, NEW.filteredHits)) {
+    if (!sameSet(ids, earlier.filteredHits) && !sameSet(ids, incoming.filteredHits)) {
       observed.failures.push(`filtered query returned ${ids.length} hits, matching neither generation`)
     }
   } catch (error) {
@@ -139,10 +158,10 @@ async function checkRound(target: HammerTarget, observed: Observed): Promise<voi
   try {
     const oldDocument = await target.get('old-9')
     const newDocument = await target.get('new-10')
-    if (oldDocument !== undefined && oldDocument.body !== OLD.documents.get('old-9')?.body) {
+    if (oldDocument !== undefined && oldDocument.body !== earlier.documents.get('old-9')?.body) {
       observed.failures.push('a get returned a document that neither generation holds')
     }
-    if (newDocument !== undefined && newDocument.body !== NEW.documents.get('new-10')?.body) {
+    if (newDocument !== undefined && newDocument.body !== incoming.documents.get('new-10')?.body) {
       observed.failures.push('a get returned a document that neither generation holds')
     }
     if (oldDocument === undefined && newDocument === undefined) {
@@ -163,6 +182,7 @@ async function checkRound(target: HammerTarget, observed: Observed): Promise<voi
 export async function hammer(
   target: HammerTarget,
   until: Promise<unknown>,
+  generations: Generations = GENERATIONS,
   onRound?: (rounds: number) => void,
 ): Promise<Observed> {
   const settled = settledFlag(until)
@@ -170,7 +190,7 @@ export async function hammer(
   while (!settled()) {
     await new Promise(resolve => setImmediate(resolve))
     observed.rounds += 1
-    await checkRound(target, observed)
+    await checkRound(target, observed, generations)
     onRound?.(observed.rounds)
   }
   return observed

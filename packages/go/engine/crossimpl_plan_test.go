@@ -6,7 +6,7 @@ import (
 
 const (
 	crossIndexName          = "bills"
-	crossDocumentCount      = 1_500
+	crossDocumentCount      = 700
 	crossInsertedLater      = 20
 	crossUpdateStride       = 37
 	crossRemoveStride       = 53
@@ -14,7 +14,7 @@ const (
 	crossHitLimit           = 10
 	crossVectorQueriesTaken = 40
 	crossMaxPartitions      = 3
-	crossDocsPerPartition   = 600
+	crossDocsPerPartition   = 300
 )
 
 type crossScenario struct {

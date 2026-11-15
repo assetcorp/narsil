@@ -36,21 +36,23 @@ function exactNearestByScan(passages: Passage[]): string[] {
     const length = Math.sqrt(squares)
     for (let d = 0; d < dimension; d++) unit[row * dimension + d] = embedding[d] / length
   }
-  const nearest: string[] = []
+  const best = new Int32Array(count).fill(-1)
+  const bestScore = new Float64Array(count).fill(Number.NEGATIVE_INFINITY)
   for (let row = 0; row < count; row++) {
-    let best = -1
-    let bestScore = Number.NEGATIVE_INFINITY
-    for (let other = 0; other < count; other++) {
+    for (let other = row; other < count; other++) {
       let dot = 0
       for (let d = 0; d < dimension; d++) dot += unit[row * dimension + d] * unit[other * dimension + d]
-      if (dot > bestScore) {
-        best = other
-        bestScore = dot
+      if (dot > bestScore[row]) {
+        best[row] = other
+        bestScore[row] = dot
+      }
+      if (other !== row && dot > bestScore[other]) {
+        best[other] = row
+        bestScore[other] = dot
       }
     }
-    nearest.push(passages[best].id)
   }
-  return nearest
+  return Array.from(best, position => passages[position].id)
 }
 
 async function builtOnce(passages: Passage[], exactNearest: string[]): Promise<Build> {

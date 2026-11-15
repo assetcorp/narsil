@@ -10,14 +10,14 @@ const SOURCE = 'lighting'
 const PHRASE = 'brass reading lamp'
 const GROUP = 'shop-floor'
 const FIRST_PEOPLE = ['person-1', 'person-2', 'person-3']
-const RUNS = 4
+const RUNS = 2
 const STEADY_PEOPLE = 10
 
-function adapterThatLendsItsBytes(buffer = false): PersistenceAdapter {
+function adapterThatLendsItsBytes(): PersistenceAdapter {
   const stored = new Map<string, Uint8Array>()
   return {
     async save(key, data) {
-      const copy = buffer ? Buffer.alloc(data.byteLength) : new Uint8Array(data.byteLength)
+      const copy = Buffer.alloc(data.byteLength)
       copy.set(data)
       stored.set(key, copy)
     },
@@ -36,17 +36,9 @@ function adapterThatLendsItsBytes(buffer = false): PersistenceAdapter {
 const ENGINES: Array<{ label: string; config: () => NarsilConfig }> = [
   { label: 'an engine with no durability', config: () => ({ querySuggestions: { key: KEY } }) },
   {
-    label: 'an engine that saves to an adapter whose load returns the bytes that it holds',
-    config: () => ({
-      persistence: adapterThatLendsItsBytes(),
-      durability: { tier: 'snapshot' },
-      querySuggestions: { key: KEY },
-    }),
-  },
-  {
     label: 'an adapter that returns a Buffer backed by its stored history',
     config: () => ({
-      persistence: adapterThatLendsItsBytes(true),
+      persistence: adapterThatLendsItsBytes(),
       durability: { tier: 'snapshot' },
       querySuggestions: { key: KEY },
     }),

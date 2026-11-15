@@ -11,7 +11,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 const POLL_INTERVAL_MS = 50
 const POLL_BUDGET_MS = 15_000
 const HEARTBEAT_WAIT_MS = 25_000
-const RETRY_GRACE_MS = 1_500
+const RETRY_GRACE_MS = 300
 const GIBIBYTE = 1024 * 1024 * 1024
 const MEBIBYTE = 1024 * 1024
 const SCHEMA = { title: 'string', price: 'number' } as const

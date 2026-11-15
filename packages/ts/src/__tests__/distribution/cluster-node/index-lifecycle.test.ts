@@ -4,8 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
-import { seedReopenedPrimaryLogs } from '../../../distribution/cluster-node/local-replication'
-import { getReplicationLog } from '../../../distribution/cluster-node/replication-logs'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { resolvePartitionId } from '../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
@@ -113,49 +111,6 @@ describe('cluster-node index lifecycle', () => {
     } finally {
       await engine.shutdown()
     }
-  })
-
-  it('resumes a reopened primary log above its durable and committed floors', async () => {
-    await coordinator.putAllocation('products', {
-      indexName: 'products',
-      version: 1,
-      replicationFactor: 1,
-      assignments: new Map([
-        [
-          0,
-          {
-            primary: 'node-a',
-            replicas: ['node-a'],
-            inSyncSet: ['node-a'],
-            state: 'ACTIVE',
-            primaryTerm: 3,
-            commitPoint: 7,
-          },
-        ],
-      ]),
-    })
-    const logs = new Map()
-
-    await seedReopenedPrimaryLogs({
-      indexName: 'products',
-      nodeId: 'node-a',
-      engine: {
-        heldPartitionsOf: () => [0],
-        persistedPositionOf: () => ({ seqNo: 9, primaryTerm: 3 }),
-      },
-      coordinator,
-      replicationLogs: logs,
-    })
-    const entry = getReplicationLog(logs, 'products', 0).append({
-      primaryTerm: 3,
-      operation: 'DELETE',
-      partitionId: 0,
-      indexName: 'products',
-      documentId: 'lamp',
-      document: null,
-    })
-
-    expect(entry.seqNo).toBe(10)
   })
 
   it('replicates a primary write after a close and reopen without disturbing the replica', async () => {

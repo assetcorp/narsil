@@ -4,8 +4,9 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { IndexConfig } from '../../../types/schema'
 import { defaultSpoolDirectory } from '../../replication/snapshot-spool'
 import { abandonSnapshotStream } from '../../replication/snapshot-stream-assembler'
+import { UNADDRESSABLE_TARGET_DETAIL } from '../../transport/constants'
 import type { SyncRequestPayload, TransportMessage } from '../../transport/types'
-import { ReplicationMessageTypes } from '../../transport/types'
+import { ReplicationMessageTypes, TransportError } from '../../transport/types'
 import { isTransientFailure, withDeadline } from '../bootstrap-fetch'
 import { SYNCED_POSITION_REPORT_TIMEOUT_MS } from '../constants'
 import { applyLiveIncrementalSync, applyLiveSnapshotSync } from './apply'
@@ -19,6 +20,12 @@ import type {
   LiveSyncResult,
   LocalLogState,
 } from './types'
+
+function unaddressableTargetOf(err: unknown): Record<string, unknown> {
+  return err instanceof TransportError && err.details[UNADDRESSABLE_TARGET_DETAIL] === true
+    ? { [UNADDRESSABLE_TARGET_DETAIL]: true }
+    : {}
+}
 
 export function readLocalLogState(indexName: string, partitionId: number, deps: BootstrapSyncDeps): LocalLogState {
   const log = deps.getReplicationLog(indexName, partitionId)
@@ -85,7 +92,7 @@ async function reportSyncedPosition(
     return new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
       `reporting the synced position failed: ${cause}`,
-      { ...details, cause },
+      { ...details, cause, ...unaddressableTargetOf(err) },
     )
   } finally {
     abandonSnapshotStream(frameState.snapshotState)
@@ -122,6 +129,7 @@ export async function syncFromAnyTarget(
     primaryNodeId,
   })
 
+  let lastReachableError: NarsilError | null = null
   const attempted = new Set<string>()
   for (const target of targets) {
     if (attempted.has(target)) {
@@ -173,12 +181,13 @@ export async function syncFromAnyTarget(
       ...failure.details,
       target,
     })
+    if (failure.details[UNADDRESSABLE_TARGET_DETAIL] !== true) lastReachableError = lastError
     if (!isTransientFailure(failure.code, failure.details)) {
       return { ok: false, error: lastError }
     }
   }
 
-  return { ok: false, error: lastError }
+  return { ok: false, error: lastReachableError ?? lastError }
 }
 
 async function syncFromTarget(
@@ -271,6 +280,7 @@ async function syncFrameStateFromTarget(
         partitionId,
         target,
         cause,
+        ...unaddressableTargetOf(err),
       }),
     }
   }

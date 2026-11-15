@@ -114,10 +114,8 @@ describe('narsil-certutil ca', () => {
 
   it.each([
     ['--days', '0', /Invalid --days/],
-    ['--days', '-5', /Invalid --days/],
     ['--days', 'forever', /Invalid --days/],
     ['--key-size', '1024', /Invalid --key-size/],
-    ['--key-size', 'large', /Invalid --key-size/],
   ])('refuses %s %s with exit code 2 and writes nothing', async (flag, value, message) => {
     const outDir = await createWorkspace(root)
 

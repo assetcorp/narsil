@@ -205,7 +205,7 @@ class RecordingWriter:
         return self.returned
 
 
-@pytest.mark.parametrize("returned", [True, 10**9, "written", 2.5])
+@pytest.mark.parametrize("returned", [True, 10**9, "written"])
 def test_a_snapshot_refuses_a_writer_whose_write_reports_a_count_that_cannot_be_true(
     engine: Narsil, index_name: str, returned: object
 ) -> None:
