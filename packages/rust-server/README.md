@@ -13,7 +13,7 @@ cargo build --release --bin narsil-server
 NARSIL_DURABILITY_DIR=/var/lib/narsil NARSIL_API_KEY=change-me ./target/release/narsil-server
 ```
 
-The server listens on `127.0.0.1:7700` until it receives `SIGTERM` or `SIGINT`, and it then finishes the requests in flight and closes the engine. Every request other than `/livez`, `/readyz`, `/health`, `/version`, and `/capabilities` needs the key in `Authorization: Bearer <key>` or in `x-api-key`.
+The server listens on `127.0.0.1:7700` until it receives `SIGTERM` or `SIGINT`, and it then finishes the requests in flight and closes the engine. Every request other than `/livez`, `/readyz`, `/health`, and `/version` needs the key in `Authorization: Bearer <key>` or in `x-api-key`.
 
 | Variable | What it sets |
 | --- | --- |
