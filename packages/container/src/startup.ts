@@ -176,6 +176,7 @@ async function startQueue(settings: ContainerSettings, folders: Folders, output:
   const queue = new WebhookQueue({
     url: webhook.url,
     secret: webhook.secret,
+    events: webhook.events,
     store,
     report: (type, data) => output.event(deliveryBody(type, data, Date.now())),
   })

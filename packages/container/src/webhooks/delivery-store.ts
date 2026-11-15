@@ -1,5 +1,6 @@
 import type { PersistenceAdapter } from '@delali/narsil'
-import { DELIVERY_LOAD_CONCURRENCY } from './constants'
+import { EVENT_TYPES } from '../events/types'
+import { DELIVERY_LOAD_CONCURRENCY, RETRY_DELAYS_MS } from './constants'
 
 export interface Delivery {
   id: string
@@ -38,11 +39,24 @@ function deliveryOf(key: string, bytes: Uint8Array): Delivery | null {
   const record = parsed as Record<string, unknown>
   const { id, type, body, enqueuedAt, sequence, failedTries, dueAt } = record
   if (typeof id !== 'string' || !DELIVERY_ID.test(id) || key !== `${id}${KEY_SUFFIX}`) return null
-  if (typeof type !== 'string' || typeof body !== 'string') return null
+  if (typeof type !== 'string' || !EVENT_TYPES.has(type) || typeof body !== 'string') return null
   if (!isWholeNumber(enqueuedAt) || !isWholeNumber(sequence) || !isWholeNumber(failedTries) || !isWholeNumber(dueAt)) {
     return null
   }
+  if (failedTries > RETRY_DELAYS_MS.length || !validBody(body, type)) return null
   return { id, type, body, enqueuedAt, sequence, failedTries, dueAt }
+}
+
+function validBody(body: string, type: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
+    const record = parsed as Record<string, unknown>
+    if (record.type !== type || typeof record.timestamp !== 'string' || !Object.hasOwn(record, 'data')) return false
+    return new Date(record.timestamp).toISOString() === record.timestamp
+  } catch {
+    return false
+  }
 }
 
 export class MemoryDeliveryStore implements DeliveryStore {

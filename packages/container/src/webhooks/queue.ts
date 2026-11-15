@@ -19,6 +19,7 @@ export interface WebhookQueueOptions {
   url: string
   secret: Uint8Array
   store: DeliveryStore
+  events?: ReadonlySet<string> | null
   report: (type: string, data: Record<string, unknown>) => void
   now?: () => number
   random?: () => number
@@ -59,6 +60,10 @@ export class WebhookQueue {
     const loaded = await this.options.store.load()
     loaded.sort((left, right) => left.sequence - right.sequence || left.enqueuedAt - right.enqueuedAt)
     for (const delivery of loaded) {
+      if (this.options.events != null && !this.options.events.has(delivery.type)) {
+        await this.options.store.remove(delivery.id)
+        continue
+      }
       this.nextSequence = Math.max(this.nextSequence, delivery.sequence + 1)
       this.admit(delivery, false)
     }
