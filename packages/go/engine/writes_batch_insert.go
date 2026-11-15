@@ -63,18 +63,13 @@ func (n *Narsil) runBeforeInsertHooks(ctx context.Context, indexName string, doc
 	}
 }
 
-func (hooked hookedInserts) admitInto(entry *indexEntry, outcome *batchOutcome) {
+func (hooked hookedInserts) admitInto(entry *indexEntry) {
 	for at := range hooked.working {
 		if !hooked.live[at] || len(entry.config.Required) == 0 {
 			continue
 		}
 		if err := schema.ValidateRequiredFields(hooked.working[at], entry.config.Required); err != nil {
 			hooked.refuse(at, hooked.contexts[at].DocID, err)
-		}
-	}
-	for at, refusal := range hooked.refusals {
-		if refusal != nil {
-			outcome.fail(hooked.refusedAs[at], refusal)
 		}
 	}
 }
@@ -124,35 +119,13 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 			return nil, releasedNothing, err
 		}
 	}
-	hooked.admitInto(entry, outcome)
+	hooked.admitInto(entry)
 	entry, release, err := n.embedChunk(ctx, entry, release,
-		chunkEmbedding{working: hooked.working, live: hooked.live, contexts: hooked.contexts, outcome: outcome})
+		chunkEmbedding{working: hooked.working, live: hooked.live, contexts: hooked.contexts, refuse: hooked.refuse})
 	if err != nil {
 		return entry, release, err
 	}
-	pending := make([]pendingInsert, 0, len(documents))
-	for at := range documents {
-		if !hooked.live[at] {
-			continue
-		}
-		write, err := entry.prepared(hooked.working[at])
-		if err != nil {
-			outcome.fail(hooked.contexts[at].DocID, err)
-			continue
-		}
-		write.DocumentID = hooked.contexts[at].DocID
-		pending = append(pending, pendingInsert{id: write.DocumentID, context: hooked.contexts[at], write: write})
-	}
-	if len(pending) > 0 {
-		if err := n.memory.refuseWhileFull(entry.name); err != nil {
-			for _, insert := range pending {
-				outcome.fail(insert.id, err)
-			}
-			outcome.memoryRefusal = err
-			return entry, release, nil
-		}
-	}
-	inserted, err := n.applyInsertChunk(ctx, entry, pending, outcome)
+	inserted, err := n.insertPreparedGroups(ctx, entry, hooked, outcome)
 	if err != nil || len(inserted) == 0 || !n.plugins.hasHook(hookAfterInsert) {
 		return entry, release, err
 	}

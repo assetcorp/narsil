@@ -18,16 +18,6 @@ type groupedWrite struct {
 	apply     func(start, end int) (bool, error)
 }
 
-func (n *Narsil) currentIndexOf(entry *indexEntry, indexName string) *index.Index {
-	if entry != nil {
-		return entry.index()
-	}
-	if held, found := n.lookup(indexName); found {
-		return held.index()
-	}
-	return nil
-}
-
 func (n *Narsil) applyGroup(write groupedWrite, reservation *memory.Reservation, start int) (bool, error) {
 	defer reservation.Release()
 	return write.apply(start, start+reservation.Count)
@@ -55,16 +45,12 @@ func (n *Narsil) writeInGroups(ctx context.Context, current func() *index.Index,
 
 func (write groupedWrite) refuseFrom(start int, err error) {
 	refused := write.idOf(start)
+	write.outcome.memoryRefusal = err
+	write.outcome.refusedDocID = refused
 	write.outcome.fail(refused, err)
 	for at := start + 1; at < len(write.bounds.bounds); at++ {
 		docID := write.idOf(at)
 		write.outcome.fail(docID, memory.RefusedAfter(write.indexName, docID, refused))
-	}
-}
-
-func (write groupedWrite) failFrom(start int, err error) {
-	for at := start; at < len(write.bounds.bounds); at++ {
-		write.outcome.fail(write.idOf(at), err)
 	}
 }
 
@@ -78,22 +64,25 @@ func providedDocIDAt(documents []*model.Document) func(at int) string {
 func (n *Narsil) insertInGroups(ctx context.Context, holder indexHolder, entry *indexEntry, release func(),
 	documents []*model.Document, outcome *batchOutcome) (*indexEntry, func(), error) {
 	idOf := providedDocIDAt(documents)
-	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents, idOf), idOf: idOf,
-		outcome: outcome}
-	write.apply = func(start, end int) (bool, error) {
+	for start := 0; start < len(documents); start += batchChunkSize {
+		if err := ctx.Err(); err != nil {
+			return entry, release, err
+		}
+		end := min(start+batchChunkSize, len(documents))
 		var err error
 		entry, release, err = n.insertChunk(ctx, holder, entry, release, documents[start:end], outcome)
 		if err != nil {
-			return false, err
+			return entry, release, err
 		}
-		if refusal := outcome.memoryRefusal; refusal != nil {
-			write.failFrom(end, refusal)
-			return false, nil
+		if outcome.memoryRefusal != nil {
+			for at := end; at < len(documents); at++ {
+				id := idOf(at)
+				outcome.fail(id, memory.RefusedAfter(holder.name, id, outcome.refusedDocID))
+			}
+			break
 		}
-		return true, nil
 	}
-	err := n.writeInGroups(ctx, func() *index.Index { return n.currentIndexOf(entry, holder.name) }, write)
-	return entry, release, err
+	return entry, release, nil
 }
 
 func isMemoryRefusal(err error) bool {
@@ -102,34 +91,26 @@ func isMemoryRefusal(err error) bool {
 
 func (n *Narsil) updateInGroups(ctx context.Context, holder indexHolder, entry *indexEntry, release func(),
 	updates []model.DocumentUpdate, outcome *batchOutcome) (*indexEntry, func(), error) {
-	documents := make([]*model.Document, len(updates))
 	for at, update := range updates {
-		documents[at] = update.Document
-	}
-	idOf := func(at int) string { return updates[at].DocID }
-	write := groupedWrite{indexName: holder.name, bounds: boundsOf(entry, documents, idOf), idOf: idOf,
-		outcome: outcome}
-	write.apply = func(start, end int) (bool, error) {
-		for at := start; at < end; at++ {
-			if err := ctx.Err(); err != nil {
-				return false, err
-			}
-			var err error
-			entry, release, err = n.updateOne(ctx, holder, entry, release, updates[at], outcome.touched)
-			switch {
-			case err == nil:
-				outcome.result.Succeeded = append(outcome.result.Succeeded, updates[at].DocID)
-			case entry == nil || !isPerDocument(err):
-				return false, err
-			case isMemoryRefusal(err):
-				write.failFrom(at, err)
-				return false, nil
-			default:
-				outcome.fail(updates[at].DocID, err)
-			}
+		if err := ctx.Err(); err != nil {
+			return entry, release, err
 		}
-		return true, nil
+		var err error
+		entry, release, err = n.updateOne(ctx, holder, entry, release, update, outcome.touched)
+		switch {
+		case err == nil:
+			outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
+		case entry == nil || !isPerDocument(err):
+			return entry, release, err
+		case isMemoryRefusal(err):
+			outcome.fail(update.DocID, err)
+			for _, later := range updates[at+1:] {
+				outcome.fail(later.DocID, memory.RefusedAfter(holder.name, later.DocID, update.DocID))
+			}
+			return entry, release, nil
+		default:
+			outcome.fail(update.DocID, err)
+		}
 	}
-	err := n.writeInGroups(ctx, func() *index.Index { return n.currentIndexOf(entry, holder.name) }, write)
-	return entry, release, err
+	return entry, release, nil
 }

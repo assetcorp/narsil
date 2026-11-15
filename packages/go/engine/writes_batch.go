@@ -15,6 +15,7 @@ type batchOutcome struct {
 	result        model.BatchResult
 	touched       touchedVectors
 	memoryRefusal error
+	refusedDocID  string
 }
 
 func newBatchOutcome() *batchOutcome {
