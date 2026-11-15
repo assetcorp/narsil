@@ -53,9 +53,16 @@ impl LogCursor {
 
 /// What one bounded read of a partition returned: the entries above the cursor in sequence order, or the news that
 /// history no longer holds the next entry.
-pub(crate) enum LogRead {
-    Entries(Vec<LogEntry>),
+pub(crate) enum LogRead<T> {
+    Entries(Vec<T>),
     HistoryGone,
+}
+
+/// One record of a log segment: the decoded entry with the payload of its frame, which a device feed sends as it
+/// stands.
+pub(crate) struct LogRecord {
+    pub(crate) entry: LogEntry,
+    pub(crate) payload: Vec<u8>,
 }
 
 fn all_segments(
@@ -164,10 +171,13 @@ fn read_frame(segment: &mut OpenSegment) -> Result<Option<Vec<u8>>> {
     Ok(Some(payload))
 }
 
-fn next_record(segment: &mut OpenSegment) -> Result<Option<(LogEntry, u64)>> {
+fn next_record(segment: &mut OpenSegment) -> Result<Option<(LogRecord, u64)>> {
     let start = segment.offset;
     match read_frame(segment)? {
-        Some(payload) => Ok(Some((decode_entry(&payload)?, start))),
+        Some(payload) => {
+            let entry = decode_entry(&payload)?;
+            Ok(Some((LogRecord { entry, payload }, start)))
+        }
         None => {
             rewind(segment)?;
             Ok(None)
@@ -232,8 +242,8 @@ impl DurabilityStore {
                 continue;
             };
             if at == first {
-                while let Some((entry, frame_start)) = next_record(&mut segment)? {
-                    if entry.seq_no as u64 > after {
+                while let Some((record, frame_start)) = next_record(&mut segment)? {
+                    if record.entry.seq_no as u64 > after {
                         segment.offset = frame_start;
                         break;
                     }
@@ -244,17 +254,19 @@ impl DurabilityStore {
         Ok(bytes)
     }
 
-    /// Reads the entries of one partition above `cursor` and at or below `up_to`, in sequence order, until they hold
-    /// `budget_bytes` of documents. The reader holds one record in memory beyond the entries that it returns, and it
-    /// looks for a segment in history where a checkpoint moved it during the read.
-    pub(crate) fn read_log_entries(
+    /// Reads the records of one partition above `cursor` and at or below `up_to`, in sequence order, until the
+    /// values that `keep` makes of them hold `budget_bytes` by the count that `keep` returns beside each value. The
+    /// reader holds one record in memory beyond the values that it returns, and it looks for a segment in history
+    /// where a checkpoint moved it during the read.
+    pub(crate) fn read_log_entries<T>(
         &self,
         index_name: &str,
         partition_id: u32,
         cursor: &mut LogCursor,
         up_to: u64,
         budget_bytes: usize,
-    ) -> Result<LogRead> {
+        keep: &dyn Fn(LogRecord) -> (T, usize),
+    ) -> Result<LogRead<T>> {
         let directory = &self.inner.directory;
         let mut entries = Vec::new();
         let mut held = 0usize;
@@ -284,7 +296,7 @@ impl DurabilityStore {
             let Some(segment) = cursor.segment.as_mut() else {
                 return Ok(LogRead::HistoryGone);
             };
-            let Some((entry, frame_start)) = next_record(segment)? else {
+            let Some((record, frame_start)) = next_record(segment)? else {
                 let finished = segment.start;
                 let later: Vec<u64> = all_segments(directory, index_name, partition_id)?
                     .into_iter()
@@ -305,7 +317,7 @@ impl DurabilityStore {
                 rewind(segment)?;
                 continue;
             };
-            let seq_no = entry.seq_no as u64;
+            let seq_no = record.entry.seq_no as u64;
             if seq_no <= cursor.after {
                 continue;
             }
@@ -317,15 +329,17 @@ impl DurabilityStore {
             if seq_no != cursor.after + 1 {
                 return Ok(LogRead::HistoryGone);
             }
-            held += entry_bytes(&entry);
+            let (kept, bytes) = keep(record);
+            held += bytes;
             cursor.after = seq_no;
-            entries.push(entry);
+            entries.push(kept);
         }
         Ok(LogRead::Entries(entries))
     }
 }
 
-fn entry_bytes(entry: &LogEntry) -> usize {
+/// Returns the bytes of the documents that one entry holds, by which a change feed bounds a read.
+pub(crate) fn entry_bytes(entry: &LogEntry) -> usize {
     let previous = entry.previous_document.as_ref().and_then(Option::as_ref);
     entry.document.as_ref().map_or(0, Vec::len) + previous.map_or(0, Vec::len) + 1
 }

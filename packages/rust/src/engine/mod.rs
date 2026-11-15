@@ -67,7 +67,7 @@ pub use engine_config::{
     StaleAnalysis, StaleAnalysisListener,
 };
 use engine_config::{EngineSettings, engine_settings};
-pub use events::{EarlierLayout, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
+pub use events::{EarlierLayout, FeedChange, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
 pub use export::{DocumentImportResult, ImportRefusal};
 use index::IndexState;
 pub use index_lifecycle::IndexResidencyState;
@@ -97,6 +97,8 @@ use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
+pub use sync::feed::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead};
+pub use sync::snapshot::SyncSnapshot;
 pub use sync::{SyncSetting, SyncStatus};
 pub use vectors::VectorMaintenanceStatus;
 pub use wait::WriteOptions;

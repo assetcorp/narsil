@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::EngineInner;
 use super::adapter_registry::EmbeddingAdapters;
+use super::events::FeedChange;
 use super::index::IndexState;
 use super::index_lifecycle::enforce_limits;
 use super::query_suggestions::engine_hooks::{clear_leftovers_of_name, drop_suggestion_indexes_of};
@@ -198,6 +199,7 @@ pub(crate) fn drop_index(engine: &EngineInner, name: &str) -> Result<()> {
     engine.events.forget(name);
     engine.plugins.index_dropped(name, &config);
     engine.events.wrote(name);
+    engine.events.feed_changed(name, FeedChange::Dropped);
     Ok(())
 }
 

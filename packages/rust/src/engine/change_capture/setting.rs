@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::durability::store::DurabilityStore;
 use crate::engine::Narsil;
+use crate::engine::events::FeedChange;
 use crate::engine::index::IndexState;
 use crate::engine::sync::{new_sync_epoch, require_limit};
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -81,19 +82,22 @@ fn apply_setting(
     index: &IndexState,
     store: &DurabilityStore,
     setting: &ChangesSetting,
-) -> Result<()> {
+) -> Result<Option<FeedChange>> {
     let _writer = index.lock_writes()?;
     let Some(log) = index.log() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut metadata = log.metadata(index);
     let was_on = metadata.captures_changes();
     if !setting.enabled {
         if !was_on {
-            return Ok(());
+            return Ok(None);
         }
-        return turn_off(index, store, metadata);
+        turn_off(index, store, metadata)?;
+        return Ok(Some(FeedChange::ChangesOff));
     }
+    let stops_previous =
+        was_on && metadata.records_previous_documents() && !setting.previous_document;
     metadata.changes = Some(StoredChangesSetting {
         enabled: true,
         previous_document: setting.previous_document.then_some(true),
@@ -107,7 +111,8 @@ fn apply_setting(
     if !keeps_epoch || metadata.sync_epoch.is_none() {
         metadata.sync_epoch = Some(new_sync_epoch()?);
     }
-    log.write_recorded(metadata)
+    log.write_recorded(metadata)?;
+    Ok(stops_previous.then_some(FeedChange::PreviousDocumentOff))
 }
 
 fn status_of(metadata: &IndexMetadata) -> ChangesStatus {
@@ -140,9 +145,15 @@ impl Narsil {
         self.inner.open_index(index)?;
         require_limit("changes", "historyMaxAgeMs", setting.history_max_age_ms)?;
         require_limit("changes", "historyMaxBytes", setting.history_max_bytes)?;
-        let (_name, state) = self.inner.open_index_in_turn(index)?;
-        let store = log_store_of(&state)?;
-        apply_setting(&state, &store, setting)
+        let change = {
+            let (_name, state) = self.inner.open_index_in_turn(index)?;
+            let store = log_store_of(&state)?;
+            apply_setting(&state, &store, setting)?
+        };
+        if let Some(change) = change {
+            self.inner.events.feed_changed(index, change);
+        }
+        Ok(())
     }
 
     /// Returns the change capture state of an index: its setting and its epoch.

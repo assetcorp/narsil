@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use crate::durability::change_reader::{LogCursor, LogRead};
+use crate::durability::change_reader::{LogCursor, LogRead, LogRecord, entry_bytes};
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::wal::LogEntry;
 
-use super::constants::CHANGE_READ_CHUNK_BYTES;
 use super::derive::{change_of, filtered_change};
 use super::filter::ChangeFilter;
 use super::open::{log_store_for_changes, not_enabled, previous_document_required};
@@ -52,6 +51,16 @@ impl Following {
         }
     }
 
+    /// Moves the cursor of `partition` back to `seq_no`, so that the next read of the partition returns the entries
+    /// above it again, and leaves a cursor at or below `seq_no` as it stands.
+    pub(super) fn rewind(&mut self, partition: usize, seq_no: u64) {
+        if let Some(cursor) = self.cursors.get_mut(partition)
+            && seq_no < cursor.position()
+        {
+            *cursor = LogCursor::after(seq_no);
+        }
+    }
+
     fn caught_up(&self) -> bool {
         self.cursors
             .iter()
@@ -89,13 +98,14 @@ impl Following {
         engine: &EngineInner,
         index: &IndexState,
         partition: usize,
-        entries: Vec<LogEntry>,
+        entries: Vec<(LogEntry, u64)>,
     ) -> Result<Option<ChangeGroup>> {
-        let Some(scanned_seq_no) = entries.last().map(|entry| entry.seq_no as u64) else {
+        let Some(scanned_seq_no) = entries.last().map(|(entry, _)| entry.seq_no as u64) else {
             return Ok(None);
         };
+        let scanned_bytes = entries.iter().map(|(_, bytes)| *bytes).sum();
         let mut changes = Vec::with_capacity(entries.len());
-        for entry in entries {
+        for (entry, _) in entries {
             let holds_previous = entry.previous_document.is_some();
             let change = change_of(entry)?;
             match &self.filter {
@@ -111,6 +121,7 @@ impl Following {
             partition_id: partition as u32,
             changes,
             scanned_seq_no,
+            scanned_bytes,
         }))
     }
 }
@@ -136,6 +147,7 @@ pub(super) fn step(
     engine: &EngineInner,
     index_name: &str,
     following: &mut Following,
+    budget_bytes: usize,
 ) -> Result<Step> {
     engine.guard_shutdown()?;
     let Some(index) = reach(engine, index_name, following.caught_up())? else {
@@ -154,12 +166,17 @@ pub(super) fn step(
     };
     let before = following.cursors[partition].position();
     let up_to = following.heads[partition];
+    let keep = |record: LogRecord| {
+        let bytes = entry_bytes(&record.entry);
+        ((record.entry, record.payload.len() as u64), bytes)
+    };
     let read = store.read_log_entries(
         index_name,
         partition as u32,
         &mut following.cursors[partition],
         up_to,
-        CHANGE_READ_CHUNK_BYTES,
+        budget_bytes,
+        &keep,
     )?;
     let Some(current) = engine.open_index_named(index_name) else {
         following.cursors[partition] = LogCursor::after(before);

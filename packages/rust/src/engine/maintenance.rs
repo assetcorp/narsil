@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::sync::notify::announce_sync_settings;
 use super::{Narsil, VectorMaintenanceStatus, durable, registration, synonyms};
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
 use crate::analysis::{StopWords, Tokenizer};
@@ -57,7 +58,9 @@ impl Narsil {
     /// or to several, and leaves the old set in place.
     pub fn update_synonyms(&self, index: &str, rules: &[SynonymRule]) -> Result<()> {
         self.inner
-            .on_current_index(index, |state| synonyms::update_synonyms(state, rules))
+            .on_current_index(index, |state| synonyms::update_synonyms(state, rules))?;
+        announce_sync_settings(&self.inner, index);
+        Ok(())
     }
 
     /// Returns the synonym set of an index, or an empty list where it holds none.
