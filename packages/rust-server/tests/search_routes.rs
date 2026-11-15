@@ -364,39 +364,49 @@ async fn the_server_limits_bound_every_page() {
         ..Setup::default()
     };
     let rust = setup.rust().await;
-    let port = rust.port;
+    let reference = setup.reference().await;
+    let (mine, theirs) = (rust.port, reference.port);
     let post = |route: &str, body: &str| {
         let target = path(route);
         let body = body.to_string();
         async move {
-            send(
-                port,
-                &Call::new("POST", &target)
-                    .header("content-type", "application/json")
-                    .raw(body),
-            )
-            .await
+            let call = Call::new("POST", &target)
+                .header("content-type", "application/json")
+                .raw(body);
+            same_status_and_code(mine, theirs, &call).await
         }
     };
 
-    let search = post(
+    let search = same_answer(
+        mine,
+        theirs,
         "search",
         r#"{"term":"river stone quiet harbor","termMatch":"any"}"#,
     )
     .await;
     assert_eq!(
-        ids(&search.json(), "hits").len(),
+        ids(&search, "hits").len(),
         5,
         "a search without a limit stops at the window"
     );
-    let grouped = post(
+    let grouped = same_answer(
+        mine,
+        theirs,
         "search",
         r#"{"group":{"fields":["year"],"maxPerGroup":1},"limit":5}"#,
     )
     .await;
-    assert!(items(field(&grouped.json(), "groups")).len() <= 5);
+    assert!(items(field(&grouped, "groups")).len() <= 5);
+    let faceted = same_answer(
+        mine,
+        theirs,
+        "search",
+        r#"{"facets":{"genre":{},"year":{"limit":0}}}"#,
+    )
+    .await;
+    assert!(field(&faceted, "facets").as_object().is_some());
 
-    let listing = post("documents/_list", "{}").await.json();
+    let listing = same_answer(mine, theirs, "documents/_list", "{}").await;
     assert_eq!(
         ids(&listing, "documents"),
         ["book-000", "book-001", "book-002"]
@@ -407,7 +417,27 @@ async fn the_server_limits_bound_every_page() {
         (
             "search",
             r#"{"limit":9007199254740993}"#,
-            r#"Field "limit" exceeds the maximum result window of 5"#,
+            r#"Field "limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"limit":2.5}"#,
+            r#"Field "limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"offset":-1}"#,
+            r#"Field "offset" must be a non-negative integer"#,
+        ),
+        (
+            "search/preflight",
+            r#"{"offset":0.5}"#,
+            r#"Field "offset" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"group":{"fields":["year"],"maxPerGroup":-2}}"#,
+            r#"Field "group.maxPerGroup" must be a non-negative integer"#,
         ),
         (
             "search",
@@ -427,7 +457,7 @@ async fn the_server_limits_bound_every_page() {
         (
             "search",
             r#"{"facets":{"genre":{"limit":1e308}}}"#,
-            r#"Field "facets.genre.limit" exceeds the maximum result window of 5"#,
+            r#"Field "facets.genre.limit" must be a non-negative integer"#,
         ),
         (
             "search",
@@ -445,7 +475,7 @@ async fn the_server_limits_bound_every_page() {
             r#"Field "limit" exceeds the maximum of 3 documents per request"#,
         ),
     ] {
-        let reply = post(route, body).await;
+        let (reply, reference_reply) = post(route, body).await;
         assert_eq!(
             (
                 reply.status,
@@ -455,15 +485,21 @@ async fn the_server_limits_bound_every_page() {
             (400, Some("INVALID_REQUEST"), message.to_string()),
             "{route} {body} is refused at the server limit"
         );
+        assert_eq!(
+            error_message(&reply.json()),
+            error_message(&reference_reply.json()),
+            "{route} {body} is refused with the message of the TypeScript server"
+        );
     }
 
-    let negative = post("documents/_list", r#"{"limit":-9}"#).await.json();
+    let negative = same_answer(mine, theirs, "documents/_list", r#"{"limit":-9}"#).await;
     assert_eq!(
         ids(&negative, "documents"),
         ["book-000"],
         "a limit below one lists one book"
     );
 
+    reference.stop().await;
     rust.stop().await;
 }
 
