@@ -392,3 +392,53 @@ fn a_batch_update_keeps_the_updates_before_the_one_that_would_fill_memory() {
     engine.shutdown().expect("stops");
     drop(ballast);
 }
+
+const CONCURRENT_WRITERS: usize = 8;
+const INSERTS_PER_WRITER: usize = 2_000;
+
+#[test]
+fn concurrent_inserts_into_separate_indexes_leave_no_memory_reserved_once_they_finish() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let ballast = std::hint::black_box(vec![1u8; BALLAST_BYTES]);
+    let Some(engine) = bounded_engine() else {
+        return;
+    };
+    let indexes: Vec<String> = (0..CONCURRENT_WRITERS)
+        .map(|writer| format!("{INDEX}-{writer}"))
+        .collect();
+    for index in &indexes {
+        engine.create_index(index, index_config()).expect("created");
+    }
+    std::thread::scope(|scope| {
+        for index in &indexes {
+            let engine = &engine;
+            scope.spawn(move || {
+                for serial in 0..INSERTS_PER_WRITER {
+                    engine
+                        .insert(index, titled(&small_title(serial)), None)
+                        .expect("a small insert fits");
+                }
+            });
+        }
+    });
+    for index in &indexes {
+        assert_eq!(
+            engine.count_documents(index).expect("counted"),
+            INSERTS_PER_WRITER as u64
+        );
+    }
+    let filling = titled(&distinct_text(FILLING_TOKENS));
+    let refused = engine
+        .insert(INDEX, filling.clone(), Some("filling"))
+        .expect_err("the bound passes the block fraction");
+    assert_would_fill(&refused, &filling);
+    assert_eq!(
+        number_of(details_of(&refused), "projectedBytes"),
+        0.0,
+        "every finished write gives back exactly the bytes that it reserved"
+    );
+    engine.shutdown().expect("stops");
+    drop(ballast);
+}
