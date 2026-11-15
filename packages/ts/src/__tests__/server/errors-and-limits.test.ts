@@ -39,6 +39,36 @@ describe('Narsil HTTP server error mapping and limits', () => {
     expect(res.body.error.code.startsWith('SCHEMA_')).toBe(true)
   })
 
+  it('answers 400 to an optional body that holds JSON other than an object, and starts no task', async () => {
+    const paths = [
+      '/indexes/shapes/vectors/_optimize',
+      '/indexes/shapes/vectors/_compact',
+      '/indexes/shapes/_change-analysis',
+      '/indexes/shapes/_rebalance',
+      '/indexes/shapes/partition-config',
+    ]
+    for (const path of paths) {
+      for (const body of ['null', 'false', '0', '""', '[]', '7', '"text"']) {
+        const res = await postRaw<ErrorBody>(srv.base, path, body, 'application/json')
+        expect({
+          path,
+          body,
+          status: res.status,
+          code: res.body?.error.code,
+          message: res.body?.error.message,
+        }).toEqual({
+          path,
+          body,
+          status: 400,
+          code: 'INVALID_REQUEST',
+          message: 'The request body must be an object',
+        })
+      }
+    }
+    const tasks = await getJson<{ total: number }>(srv.base, '/tasks')
+    expect(tasks.body.total).toBe(0)
+  })
+
   it('returns 404 for an unknown route', async () => {
     const res = await getJson<ErrorBody>(srv.base, '/does/not/exist')
     expect(res.status).toBe(404)
