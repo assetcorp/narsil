@@ -1,10 +1,11 @@
 const { createHash } = require('node:crypto')
+const { posix } = require('node:path')
 
 const SECTION_HEADER = /^([A-Za-z][\w-]*):(.*)$/
 const SECTIONS_WITH_ENTRIES = new Set(['importers', 'packages', 'snapshots'])
 const IMPORTER_DEPENDENCY_KINDS = ['dependencies', 'optionalDependencies', 'devDependencies']
 const SNAPSHOT_DEPENDENCY_KINDS = new Set(['dependencies', 'optionalDependencies'])
-const WORKSPACE_LINK = /^(link|file|workspace):/
+const UNSUPPORTED_LOCAL_REFERENCE = /^(file|workspace):/
 
 function unquoted(text) {
   if (text.length >= 2 && text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1).replaceAll("''", "'")
@@ -39,11 +40,17 @@ function parsedLockfile(text) {
   const entries = { importers: new Map(), packages: new Map(), snapshots: new Map() }
   let section = null
   let entry = null
+  const sections = new Set()
   for (const line of text.split('\n')) {
     if (line.trim() === '') continue
     const top = SECTION_HEADER.exec(line)
     if (top !== null) {
       section = top[1]
+      if (sections.has(section)) throw new Error(`pnpm-lock.yaml repeats section ${section}`)
+      sections.add(section)
+      if (SECTIONS_WITH_ENTRIES.has(section) && top[2].trim() !== '') {
+        throw new Error(`pnpm-lock.yaml holds an unsupported ${section} mapping`)
+      }
       entry = null
       if (!SECTIONS_WITH_ENTRIES.has(section)) header.push(line)
       continue
@@ -55,6 +62,7 @@ function parsedLockfile(text) {
     }
     if (indentOf(line) === 2) {
       const { key, value } = keyAndValue(line.slice(2))
+      if (value !== '' && value !== '{}') throw new Error(`pnpm-lock.yaml holds an unsupported entry ${key}`)
       if (entries[section].has(key)) throw new Error(`pnpm-lock.yaml lists ${section} entry ${key} twice`)
       entry = { lines: [line], flowValue: value }
       entries[section].set(key, entry)
@@ -78,6 +86,9 @@ function nestedPairs(entry, kinds, kindIndent) {
     const indent = indentOf(line)
     if (indent === kindIndent) {
       const { key, value } = keyAndValue(line.trimStart())
+      if (kinds.has(key) && value !== '' && value !== '{}') {
+        throw new Error(`pnpm-lock.yaml holds unsupported dependencies: ${line}`)
+      }
       kind = kinds.has(key) && value === '' ? key : null
       continue
     }
@@ -96,6 +107,9 @@ function importerDependencies(entry, kinds) {
     const indent = indentOf(line)
     const { key, value } = keyAndValue(line.trimStart())
     if (indent === 4) {
+      if (IMPORTER_DEPENDENCY_KINDS.includes(key) && value !== '' && value !== '{}') {
+        throw new Error(`pnpm-lock.yaml holds unsupported dependencies: ${line}`)
+      }
       kind = IMPORTER_DEPENDENCY_KINDS.includes(key) && value === '' ? key : null
       current = null
       continue
@@ -126,14 +140,28 @@ function lockfileClosure(text, importerPaths, { production }) {
   const kinds = production ? ['dependencies', 'optionalDependencies'] : IMPORTER_DEPENDENCY_KINDS
   const importers = []
   const pending = []
-  for (const path of importerPaths) {
+  const pendingImporters = [...importerPaths]
+  const visitedImporters = new Set()
+  for (const path of pendingImporters) {
+    if (visitedImporters.has(path)) continue
+    visitedImporters.add(path)
     const importer = lockfile.importers.get(path)
     if (importer === undefined) throw new Error(`pnpm-lock.yaml lists no importer ${path}`)
     const dependencies = importerDependencies(importer, kinds)
     for (const dependency of dependencies) {
       if (dependency.version === null)
         throw new Error(`pnpm-lock.yaml resolves no version of ${dependency.name} in ${path}`)
-      if (!WORKSPACE_LINK.test(dependency.version)) pending.push(snapshotKey(dependency.name, dependency.version))
+      if (UNSUPPORTED_LOCAL_REFERENCE.test(dependency.version)) {
+        throw new Error(`pnpm-lock.yaml holds an unsupported local dependency ${dependency.version}`)
+      }
+      if (dependency.version.startsWith('link:')) {
+        const linked = posix.normalize(posix.join(path, dependency.version.slice(5)))
+        if (linked === '..' || linked.startsWith('../') || posix.isAbsolute(linked))
+          throw new Error(`dependency ${linked} leaves the repository`)
+        pendingImporters.push(linked)
+      } else {
+        pending.push(snapshotKey(dependency.name, dependency.version))
+      }
     }
     importers.push({ path, dependencies })
   }
@@ -147,7 +175,10 @@ function lockfileClosure(text, importerPaths, { production }) {
     if (snapshot === undefined) throw new Error(`pnpm-lock.yaml lists no snapshot ${key}`)
     if (!lockfile.packages.has(packageKey(key))) throw new Error(`pnpm-lock.yaml lists no package ${packageKey(key)}`)
     for (const dependency of nestedPairs(snapshot, SNAPSHOT_DEPENDENCY_KINDS, 4)) {
-      if (!WORKSPACE_LINK.test(dependency.value)) pending.push(snapshotKey(dependency.name, dependency.value))
+      if (UNSUPPORTED_LOCAL_REFERENCE.test(dependency.value) || dependency.value.startsWith('link:')) {
+        throw new Error(`pnpm-lock.yaml holds an unsupported snapshot dependency ${dependency.value}`)
+      }
+      pending.push(snapshotKey(dependency.name, dependency.value))
     }
   }
 
@@ -158,7 +189,11 @@ function lockfileClosure(text, importerPaths, { production }) {
     digest.update(`\0${lockfile.snapshots.get(key).lines.join('\n')}`)
     digest.update(`\0${lockfile.packages.get(packageKey(key)).lines.join('\n')}`)
   }
-  return { digest: digest.digest('hex'), packages: [...new Set(snapshots.map(packageKey))].sort() }
+  return {
+    digest: digest.digest('hex'),
+    packages: [...new Set(snapshots.map(packageKey))].sort(),
+    importers: [...visitedImporters].sort(),
+  }
 }
 
 module.exports = { lockfileClosure }

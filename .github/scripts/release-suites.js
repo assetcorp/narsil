@@ -1,8 +1,4 @@
-const {
-  FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
-  PATHS_BY_LANGUAGE_AREA,
-  README_EXAMPLE_SCRIPTS,
-} = require('./changed-areas.js')
+const { PATHS_BY_LANGUAGE_AREA } = require('./changed-areas.js')
 
 const WORKSPACE_FILES = [
   'package.json',
@@ -12,11 +8,25 @@ const WORKSPACE_FILES = [
   'tsconfig.json',
   'biome.json',
   'patches/',
+  '.github/workflows/',
+  '.github/scripts/',
+  '.pnpmfile.cjs',
 ]
 const ENGINE_MANIFEST = 'packages/ts/package.json'
-const ENGINE_BUILD_FILES = [ENGINE_MANIFEST, 'packages/ts/tsup.config.ts', 'packages/ts/tsconfig.json']
-const TYPESCRIPT_PACKAGES = ['packages/ts/', 'packages/embeddings-transformers/']
-const TYPESCRIPT_IMPORTERS = ['.', 'packages/ts', 'packages/embeddings-transformers']
+const ENGINE_BUILD_FILES = [
+  'packages/ts/',
+  'packages/native/',
+  'packages/conformance/',
+  'packages/embeddings-transformers/',
+]
+const TYPESCRIPT_PACKAGES = ENGINE_BUILD_FILES
+const TYPESCRIPT_IMPORTERS = [
+  '.',
+  'packages/ts',
+  'packages/embeddings-transformers',
+  'packages/native',
+  'packages/conformance',
+]
 const NATIVE_CORE = 'Native search core'
 const NATIVE_CORE_LINT_PARTS = 2
 
@@ -77,7 +87,7 @@ const SUITES = {
       ),
     ],
     paths: ['packages/native/', 'packages/ts/', ...WORKSPACE_FILES],
-    importers: ['.', 'packages/ts', 'packages/native'],
+    importers: TYPESCRIPT_IMPORTERS,
   },
   'native-core-lint': {
     workflows: ['ci.yml'],
@@ -87,16 +97,14 @@ const SUITES = {
     ),
     paths: [...areaPaths('native_core'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts', 'packages/native'],
+    importers: TYPESCRIPT_IMPORTERS,
   },
   'react-native-android': {
     workflows: ['publish.yml'],
     jobs: ['expo', 'bare'].map(app => `Build the React Native apps / Android (${app})`),
     paths: [...areaPaths('react_native'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
-    except: PATHS_BY_LANGUAGE_AREA.react_native.except,
     importers: [
-      '.',
-      'packages/ts',
+      ...TYPESCRIPT_IMPORTERS,
       'packages/react-native',
       'packages/react-native/examples/expo',
       'packages/react-native/examples/bare',
@@ -111,9 +119,8 @@ const SUITES = {
       ...parts(5, (part, count) => `Rust crate / Test on win32-x64, part ${part} of ${count}`),
     ],
     paths: [...areaPaths('rust'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
-    except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts', 'packages/conformance'],
+    importers: TYPESCRIPT_IMPORTERS,
   },
   'go-engine': {
     workflows: ['ci.yml'],
@@ -126,10 +133,8 @@ const SUITES = {
       ...parts(5, (part, count) => `Go engine / Test on win32-x64 with Go stable, part ${part} of ${count}`),
     ],
     paths: [...areaPaths('go_engine'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
-    except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts'],
-    production: true,
+    importers: TYPESCRIPT_IMPORTERS,
   },
   'python-engine': {
     workflows: ['ci.yml'],
@@ -143,23 +148,20 @@ const SUITES = {
       'Python package / Test the win32-x64 wheel on Python 3.14',
     ],
     paths: [...areaPaths('python_engine'), ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
-    except: PATHS_BY_LANGUAGE_AREA.python_engine.except,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts'],
-    production: true,
+    importers: TYPESCRIPT_IMPORTERS,
   },
   'python-client': {
     workflows: ['ci.yml'],
     jobs: ['3.11', '3.14'].map(python => `Clients / Python client (${python})`),
-    paths: ['packages/python/', 'packages/ts/', ...README_EXAMPLE_SCRIPTS, ...WORKSPACE_FILES],
-    except: ['packages/ts/src/__tests__/', 'packages/ts/examples/', 'packages/ts/benchmarks/'],
+    paths: ['packages/python/', ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
     importers: TYPESCRIPT_IMPORTERS,
   },
   'go-client': {
     workflows: ['ci.yml'],
     jobs: ['1.26', 'stable'].map(go => `Clients / Go client (${go})`),
-    paths: ['packages/go/', 'packages/ts/', ...README_EXAMPLE_SCRIPTS, ...WORKSPACE_FILES],
-    except: ['packages/go/engine/', 'packages/ts/src/__tests__/', 'packages/ts/examples/', 'packages/ts/benchmarks/'],
+    paths: ['packages/go/', ...ENGINE_BUILD_FILES, ...WORKSPACE_FILES],
+    except: ['packages/go/engine/'],
     importers: TYPESCRIPT_IMPORTERS,
   },
 }
