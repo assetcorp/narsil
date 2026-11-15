@@ -114,9 +114,12 @@ async function verifyChain(cert: forge.pki.Certificate, caCertPath: string): Pro
     return false
   }
   try {
+    const anchor = withNameExtensionsChecked(caCert)
+    const policies = anchor.getExtension('certificatePolicies') as { id?: string; critical?: boolean } | null
+    if (policies?.id === '2.5.29.32') policies.critical = false
     return forge.pki.verifyCertificateChain(
       forge.pki.createCaStore([caCert]),
-      [withNameExtensionsChecked(cert), withNameExtensionsChecked(caCert)],
+      [withNameExtensionsChecked(cert), anchor],
       { validityCheckDate: null },
     )
   } catch {
@@ -124,12 +127,12 @@ async function verifyChain(cert: forge.pki.Certificate, caCertPath: string): Pro
   }
 }
 
-const EXTENSIONS_CHECKED_BY_TLS = new Set(['subjectAltName', 'extKeyUsage'])
+const EXTENSIONS_CHECKED_BY_TLS = new Set(['2.5.29.17', '2.5.29.37'])
 
 function withNameExtensionsChecked(cert: forge.pki.Certificate): forge.pki.Certificate {
   const copy = forge.pki.certificateFromPem(forge.pki.certificateToPem(cert))
-  for (const extension of copy.extensions as Array<{ name?: string; critical?: boolean }>) {
-    if (extension.name !== undefined && EXTENSIONS_CHECKED_BY_TLS.has(extension.name)) extension.critical = false
+  for (const extension of copy.extensions as Array<{ id?: string; critical?: boolean }>) {
+    if (extension.id !== undefined && EXTENSIONS_CHECKED_BY_TLS.has(extension.id)) extension.critical = false
   }
   return copy
 }
