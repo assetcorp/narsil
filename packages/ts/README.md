@@ -129,6 +129,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [Persistence and durability](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, snapshots, document exports, and indexes from an earlier release |
 | [Partitions and workers](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) | Every language module, analysis revisions and rebuilds, and named tokenizers and stop words |
+| [Container image](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, keeping the data across a restart, and the tag of the Rust server |
 | [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
 | [Client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
@@ -148,7 +149,6 @@ The [specification](https://github.com/assetcorp/narsil/tree/main/packages/spec)
 
 | Example | What it shows |
 | --- | --- |
-| [HTTP server](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/http-server/README.md) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, while every setting comes from the environment. |
 | [Browser](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/server-app/README.md) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 

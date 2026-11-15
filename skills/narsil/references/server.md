@@ -1,5 +1,19 @@
 # Serving Narsil
 
+## Start the image when the server needs no code
+
+The image `ghcr.io/assetcorp/narsil` serves one node and takes every setting from an environment variable. With `NARSIL_ADMIN_KEY` and `NARSIL_READ_KEY` set in the shell, this command starts a node that keeps its indexes on a volume:
+
+```bash skip
+docker run -d -p 127.0.0.1:7700:7700 -e NARSIL_ADMIN_KEY -e NARSIL_READ_KEY -v narsil-data:/data ghcr.io/assetcorp/narsil:latest
+```
+
+- Each key must hold at least 32 characters, and the two keys must differ, or the node exits with status 1.
+- The read key may call the search, suggestion, and document-reading routes, which include listing and fetching every stored document, and every `GET` route apart from the snapshot and the export. Give that key to a browser only when every document in the node may be public, and route a browser's searches through the app's backend otherwise.
+- The node answers `/livez`, `/readyz`, `/health`, and `/version` without a key, and every other route needs `Authorization: Bearer <key>`.
+- `NARSIL_LANGUAGES` registers language modules, given as a comma-separated list such as `english,french`. `NARSIL_EMBEDDERS` and `NARSIL_RERANKERS` list adapter names that an index or a query can use, and each name takes its kind, such as `openai` for an OpenAI-compatible endpoint or `transformers` for a model inside the node, from a variable such as `NARSIL_EMBEDDER_<NAME>_KIND`, which spells the name in upper case with each `-` written as `_`.
+- Write the server in the steps below when it needs an adapter that you write, an `onRequest` hook that no key describes, or cluster mode, because the image serves one node.
+
 ## 1. Install the server's peer package
 
 ```bash skip
