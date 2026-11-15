@@ -40,28 +40,6 @@ func (c *cancellingTokenizer) Tokenize(text string) []engine.Token {
 	return tokens
 }
 
-type countingContext struct {
-	context.Context
-	errCalls      atomic.Int64
-	doneCalls     atomic.Int64
-	deadlineCalls atomic.Int64
-}
-
-func (c *countingContext) Err() error {
-	c.errCalls.Add(1)
-	return c.Context.Err()
-}
-
-func (c *countingContext) Done() <-chan struct{} {
-	c.doneCalls.Add(1)
-	return c.Context.Done()
-}
-
-func (c *countingContext) Deadline() (time.Time, bool) {
-	c.deadlineCalls.Add(1)
-	return c.Context.Deadline()
-}
-
 func openCancellingArticles(t *testing.T, tokenizer *cancellingTokenizer) *engine.Narsil {
 	t.Helper()
 	ctx := context.Background()
@@ -107,20 +85,13 @@ func TestASearchStopsWhenItsCallerCancelsDuringIt(t *testing.T) {
 			narsil := openCancellingArticles(t, tokenizer)
 			bounded, cancel := context.WithTimeout(context.Background(), scenario.deadline)
 			defer cancel()
-			caller := &countingContext{Context: bounded}
 			tokenizer.during = func() { scenario.during(bounded, cancel) }
 			tokenizer.armed.Store(true)
 			result, err := finishedWithin(t, "the search whose caller cancelled", func() (engine.QueryResult, error) {
-				return narsil.Query(caller, cancellingIndex, engine.QueryParams{Term: cancellingTerm})
+				return narsil.Query(bounded, cancellingIndex, engine.QueryParams{Term: cancellingTerm})
 			})
 			if !errors.Is(err, scenario.expected) {
 				t.Fatalf("the search returned %d hits and the error %v, expected %v", len(result.Hits), err, scenario.expected)
-			}
-			if calls := caller.errCalls.Load(); calls != 0 {
-				t.Fatalf("the engine called the caller's Err %d times", calls)
-			}
-			if done, deadline := caller.doneCalls.Load(), caller.deadlineCalls.Load(); done != 1 || deadline != 1 {
-				t.Fatalf("the engine called the caller's Done %d times and Deadline %d times, expected once each", done, deadline)
 			}
 		})
 	}

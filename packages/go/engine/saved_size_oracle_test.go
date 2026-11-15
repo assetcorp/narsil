@@ -40,6 +40,9 @@ func filesUnder(t *testing.T, root string) map[string]int64 {
 			return nil
 		}
 		info, err := entry.Info()
+		if os.IsNotExist(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
