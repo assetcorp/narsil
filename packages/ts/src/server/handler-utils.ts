@@ -79,20 +79,8 @@ export async function parseWriteJson<T>(
 /** Parses an optional JSON body, treating an empty body as an empty object. */
 export function parseJsonOptional<T extends object>(ctx: RouteContext): T | undefined {
   const raw = ctx.rawBody
-  if (refusesParse(ctx, raw, 'write')) return undefined
-  if (!raw || raw.length === 0) return {} as T
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw.toString('utf8'))
-  } catch {
-    sendError(ctx.res, 400, ServerErrorCodes.INVALID_JSON, 'Request body is not valid JSON')
-    return undefined
-  }
-  if (!isPlainObject(parsed)) {
-    badRequest(ctx.res, 'The request body must be an object')
-    return undefined
-  }
-  return parsed as T
+  if (ctx.bodyRefusal === null && (!raw || raw.length === 0)) return {} as T
+  return parseJsonObject<T>(ctx)
 }
 
 /** Writes the mapped HTTP status and safe envelope for any thrown value, unless

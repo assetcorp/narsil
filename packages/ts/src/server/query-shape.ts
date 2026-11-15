@@ -1,3 +1,4 @@
+import { SORT_MODES } from '../core/ordering/sort-values'
 import { isPlainObject, type ValidationFailure } from './validation'
 
 type Shape =
@@ -117,7 +118,7 @@ const QUERY_SHAPE = object([
             [
               ['field', STRING],
               ['direction', SORT_DIRECTION],
-              ['mode', { kind: 'choice', values: ['min', 'max', 'avg', 'median'] }],
+              ['mode', { kind: 'choice', values: SORT_MODES }],
             ],
             ['field', 'direction'],
           ),
