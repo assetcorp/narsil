@@ -129,6 +129,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/src/__tests__/core/keyword-score/',
       'packages/ts/src/__tests__/math/',
       'packages/ts/scripts/native-analysis/',
+      'packages/ts/snowball/native.ts',
       'packages/ts/wasm/',
       '.github/workflows/native-core.yml',
     ],

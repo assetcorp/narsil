@@ -19,9 +19,15 @@ const WORKSPACE_FILES = [
   'tsconfig.json',
   'biome.json',
   'patches/',
+  '.pnpmfile.cjs',
 ]
 const ENGINE_MANIFEST = 'packages/ts/package.json'
-const ENGINE_BUILD_FILES = [ENGINE_MANIFEST, 'packages/ts/tsup.config.ts', 'packages/ts/tsconfig.json']
+const ENGINE_BUILD_FILES = [
+  ENGINE_MANIFEST,
+  'packages/ts/project.json',
+  'packages/ts/tsup.config.ts',
+  'packages/ts/tsconfig.json',
+]
 const TYPESCRIPT_PACKAGES = ['packages/ts/', 'packages/embeddings-transformers/']
 const TYPESCRIPT_IMPORTERS = ['.', 'packages/ts', 'packages/embeddings-transformers']
 const NATIVE_CORE = 'Native search core'
@@ -56,6 +62,8 @@ const SUITES = {
       ...TYPESCRIPT_PACKAGES,
       'packages/conformance/samples/earlier-releases/',
       CHECK_JOB_GO_VERSION,
+      '.github/scripts/check-guide-examples.js',
+      ...README_EXAMPLE_SCRIPTS,
       ...WORKSPACE_FILES,
       ...workflowFiles(CI_WORKFLOW),
     ],
@@ -64,7 +72,13 @@ const SUITES = {
   certutil: {
     workflows: ['ci.yml'],
     jobs: ['Check'],
-    paths: ['packages/certutil/', CHECK_JOB_GO_VERSION, ...WORKSPACE_FILES, ...workflowFiles(CI_WORKFLOW)],
+    paths: [
+      'packages/certutil/',
+      CHECK_JOB_GO_VERSION,
+      ...README_EXAMPLE_SCRIPTS,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW),
+    ],
     importers: ['.', 'packages/certutil'],
   },
   'embedding-adapters': {
@@ -169,7 +183,7 @@ const SUITES = {
     ],
     except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts'],
+    importers: ['.', 'packages/ts', 'packages/conformance'],
   },
   'python-engine': {
     workflows: ['ci.yml'],
@@ -190,7 +204,7 @@ const SUITES = {
     ],
     except: PATHS_BY_LANGUAGE_AREA.python_engine.except,
     manifestsWithoutVersion: [ENGINE_MANIFEST],
-    importers: ['.', 'packages/ts'],
+    importers: ['.', 'packages/ts', 'packages/conformance'],
   },
   'python-client': {
     workflows: ['ci.yml'],
