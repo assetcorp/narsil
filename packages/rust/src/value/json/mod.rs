@@ -1,8 +1,10 @@
 mod parse;
+mod plain;
 mod tags;
 mod write;
 
 pub(crate) use parse::parse_json_raw;
+pub use plain::{parse_plain_json, write_plain_json, write_plain_json_into};
 pub use tags::parse_json;
 pub(crate) use tags::untag_value;
 pub use write::write_json;
