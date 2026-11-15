@@ -37,11 +37,12 @@ func burstBytesOf(growth partition.WriteGrowth) float64 {
 
 func (g *memoryGuard) takeGroup(indexName string, ix *index.Index, bounds *documentBounds, start,
 	mostDocuments int) (*memory.Reservation, error) {
+	var growth *partition.GrowthSnapshot
+	if ix != nil {
+		growth = ix.WriteGrowth()
+	}
 	burst := func(count int) memory.Burst {
-		if ix == nil {
-			return memory.Burst{}
-		}
-		return memory.Burst{Key: ix, Bytes: ix.WriteBurst(bounds.docIDs[start:start+count], burstBytesOf)}
+		return memory.Burst{Key: growth, Bytes: growth.Burst(bounds.docIDs[start:start+count], burstBytesOf)}
 	}
 	return g.projection.TakeGroup(indexName, bounds.bounds, start, mostDocuments, burst, bounds.countExactly)
 }
@@ -56,9 +57,9 @@ func (g *memoryGuard) reserveDocument(entry *indexEntry, docID string, document 
 }
 
 func (g *memoryGuard) reserveWriteBurst(entry *indexEntry, docIDs []string) (*memory.Reservation, error) {
-	ix := entry.index()
+	growth := entry.index().WriteGrowth()
 	burst := func(int) memory.Burst {
-		return memory.Burst{Key: ix, Bytes: ix.WriteBurst(docIDs, burstBytesOf)}
+		return memory.Burst{Key: growth, Bytes: growth.Burst(docIDs, burstBytesOf)}
 	}
 	return g.projection.TakeGroup(entry.name, []float64{0}, 0, 1, burst, nil)
 }
