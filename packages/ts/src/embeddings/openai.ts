@@ -32,28 +32,45 @@ interface OpenAIEmbeddingItem {
   embedding: number[]
 }
 
-function parseEmbeddingItems(data: unknown): OpenAIEmbeddingItem[] {
+function parseEmbeddingItems(data: unknown, count: number, dimensions: number): OpenAIEmbeddingItem[] {
   if (!Array.isArray(data)) {
     throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI response missing "data" array')
   }
+  if (data.length !== count) {
+    throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `OpenAI returned ${data.length} embeddings for ${count} inputs`)
+  }
   const items: OpenAIEmbeddingItem[] = []
+  const indexes = new Set<number>()
   for (let i = 0; i < data.length; i++) {
     const item = data[i] as Record<string, unknown> | undefined
     if (item === undefined || item === null || typeof item !== 'object') {
       throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `OpenAI response item at position ${i} is not an object`)
     }
-    if (typeof item.index !== 'number') {
+    if (
+      typeof item.index !== 'number' ||
+      !Number.isSafeInteger(item.index) ||
+      item.index < 0 ||
+      item.index >= count ||
+      indexes.has(item.index)
+    ) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI response item at position ${i} missing numeric "index"`,
+        `OpenAI response item at position ${i} has an invalid or duplicate index`,
       )
     }
-    if (!Array.isArray(item.embedding)) {
+    if (
+      !Array.isArray(item.embedding) ||
+      item.embedding.length !== dimensions ||
+      item.embedding.some(
+        value => typeof value !== 'number' || !Number.isFinite(value) || !Number.isFinite(Math.fround(value)),
+      )
+    ) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI response item at position ${i} missing "embedding" array`,
+        `OpenAI response item at position ${i} has an invalid embedding`,
       )
     }
+    indexes.add(item.index)
     items.push({ index: item.index, embedding: item.embedding as number[] })
   }
   return items
@@ -135,12 +152,12 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
         body,
         apiKey,
         maxRetries,
-        signal: combinedSignal,
+        signal: combinedSignal.signal,
         service: 'OpenAI',
         failureCode: ErrorCodes.EMBEDDING_FAILED,
-      })
+      }).finally(combinedSignal.dispose)
 
-      const items = parseEmbeddingItems(result.data)
+      const items = parseEmbeddingItems(result.data, 1, dimensionCount)
       if (items.length === 0) {
         throw new NarsilError(
           ErrorCodes.EMBEDDING_FAILED,
@@ -164,37 +181,34 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
           body,
           apiKey,
           maxRetries,
-          signal: combinedSignal,
+          signal: combinedSignal.signal,
           service: 'OpenAI',
           failureCode: ErrorCodes.EMBEDDING_FAILED,
         })
 
-        const items = parseEmbeddingItems(result.data)
-        if (items.length !== chunk.length) {
-          throw new NarsilError(
-            ErrorCodes.EMBEDDING_FAILED,
-            `OpenAI returned ${items.length} embeddings for ${chunk.length} inputs`,
-            { expected: chunk.length, actual: items.length },
-          )
-        }
+        const items = parseEmbeddingItems(result.data, chunk.length, dimensionCount)
 
         const sorted = items.slice().sort((a, b) => a.index - b.index)
         return sorted.map(item => new Float32Array(item.embedding))
       }
 
-      if (inputs.length <= MAX_INPUTS_PER_REQUEST) {
-        return executeChunk(inputs)
-      }
-
-      const results: Float32Array[] = []
-      for (let start = 0; start < inputs.length; start += MAX_INPUTS_PER_REQUEST) {
-        const chunk = inputs.slice(start, start + MAX_INPUTS_PER_REQUEST)
-        const chunkResults = await executeChunk(chunk)
-        for (const vec of chunkResults) {
-          results.push(vec)
+      try {
+        if (inputs.length <= MAX_INPUTS_PER_REQUEST) {
+          return await executeChunk(inputs)
         }
+
+        const results: Float32Array[] = []
+        for (let start = 0; start < inputs.length; start += MAX_INPUTS_PER_REQUEST) {
+          const chunk = inputs.slice(start, start + MAX_INPUTS_PER_REQUEST)
+          const chunkResults = await executeChunk(chunk)
+          for (const vec of chunkResults) {
+            results.push(vec)
+          }
+        }
+        return results
+      } finally {
+        combinedSignal.dispose()
       }
-      return results
     },
 
     async shutdown(): Promise<void> {},
