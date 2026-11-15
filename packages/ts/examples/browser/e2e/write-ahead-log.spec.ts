@@ -15,6 +15,7 @@ interface PageEngine {
   openWatched(scenario: LogScenario): Promise<void>
   insertAfterStorageCleared(): Promise<LossReport>
   reportedErrors(): string[]
+  writeDuringUpgrade(scenario: LogScenario): Promise<LossReport>
 }
 
 async function openProfile(profile: string): Promise<{ context: BrowserContext; page: Page }> {
@@ -118,4 +119,46 @@ test('clearing the site data under a running engine refuses every later write an
   } finally {
     await rm(profile, { recursive: true, force: true })
   }
+})
+
+test('an async write rejects when a version change precedes its transaction commit', async ({ page }) => {
+  await page.goto(BROWSER_E2E_ORIGIN)
+  const report = await page.evaluate(async modulePath => {
+    const engine = (await import(modulePath)) as PageEngine
+    return engine.writeDuringUpgrade({ dbName: 'narsil-e2e-log-upgrade' })
+  }, PAGE_ENGINE_MODULE)
+  expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+  expect(report.reported).toContain('PERSISTENCE_SAVE_FAILED')
+})
+
+test('clearing site data during a strict commit reports connection loss', async ({ page, context }) => {
+  await page.goto(BROWSER_E2E_ORIGIN)
+  const scenario = { dbName: 'narsil-e2e-log-commit-cleared' }
+  await page.evaluate(
+    async ([modulePath, chosen]) => {
+      const engine = (await import(modulePath)) as PageEngine
+      await engine.openWatched(chosen)
+      const opening = indexedDB.open(chosen.dbName)
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opening.onsuccess = () => resolve(opening.result)
+        opening.onerror = () => reject(opening.error)
+      })
+      const store = database.transaction('partitions', 'readwrite').objectStore('partitions')
+      function keepOpen(): void {
+        store.get('notes/meta').onsuccess = keepOpen
+      }
+      keepOpen()
+    },
+    [PAGE_ENGINE_MODULE, scenario] as const,
+  )
+  const pending = page.evaluate(async modulePath => {
+    const engine = (await import(modulePath)) as PageEngine
+    return engine.insertAfterStorageCleared()
+  }, PAGE_ENGINE_MODULE)
+  await page.waitForTimeout(30)
+  const session = await context.newCDPSession(page)
+  await session.send('Storage.clearDataForOrigin', { origin: BROWSER_E2E_ORIGIN, storageTypes: 'indexeddb' })
+  const report = await pending
+  expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+  expect(report.reported).toContain('PERSISTENCE_SAVE_FAILED')
 })

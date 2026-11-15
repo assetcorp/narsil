@@ -124,7 +124,7 @@ export function openLogConnection(location: IndexedDBLocation): LogConnection {
       })
     }
     const opened = await opening
-    if (lostReason !== null) throw replaced()
+    if (lostReason !== null || closedByEngine) throw replaced()
     return opened
   }
 
@@ -159,17 +159,24 @@ export function openLogConnection(location: IndexedDBLocation): LogConnection {
         transaction.abort()
       } catch {}
       await committed.catch(() => undefined)
-      throw error instanceof NarsilError ? error : storeFailed(failure, causeOf(error))
+      throw transactionFailed(transaction, failure, error)
     }
     try {
       await committed
     } catch (error) {
-      if (lostReason === null && transaction.error?.name === 'AbortError') {
-        lostReason = 'the browser closed the connection'
-      }
-      throw lostReason === null ? storeFailed(failure, causeOf(error)) : replaced()
+      throw transactionFailed(transaction, failure, error)
     }
+    if (lostReason !== null || closedByEngine) throw replaced()
     return result
+  }
+
+  function transactionFailed(transaction: IDBTransaction, failure: StoreFailure, error: unknown): NarsilError {
+    const aborted = transaction.error?.name === 'AbortError' || (error instanceof Error && error.name === 'AbortError')
+    if (lostReason === null && aborted) {
+      lostReason = 'the browser closed the connection'
+    }
+    if (lostReason !== null || closedByEngine) return replaced()
+    return error instanceof NarsilError ? error : storeFailed(failure, causeOf(error))
   }
 
   return {

@@ -207,4 +207,87 @@ describe('the write-ahead log in IndexedDB', () => {
     })
     expect(errors.some(error => (error as { code?: string }).code === 'PERSISTENCE_SAVE_FAILED')).toBe(true)
   })
+
+  it('refuses an append record with an extra key component before replaying its bytes', async () => {
+    const engine = await open()
+    await engine.createIndex(NOTES, SCHEMA)
+    await engine.insert(NOTES, { title: 'kept', body: 'acknowledged content' }, 'kept')
+    await engine.shutdown()
+    const database = await openDatabase(globals.indexedDB)
+    try {
+      const transaction = database.transaction(STORE, 'readwrite')
+      const store = transaction.objectStore(STORE)
+      const keys = await requestDone(store.getAllKeys())
+      const key = keys.find(key => Array.isArray(key))
+      if (!Array.isArray(key)) throw new Error('The write produced no append record')
+      const bytes: unknown = await requestDone(store.get(key))
+      await requestDone(store.delete(key))
+      await requestDone(store.put(bytes, [...key, 'foreign']))
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve()
+        transaction.onabort = () => reject(transaction.error)
+      })
+    } finally {
+      database.close()
+    }
+    await expect(open()).rejects.toMatchObject({ code: 'PERSISTENCE_LOAD_FAILED' })
+  })
+
+  it('refuses an async append whose transaction completes after a version change request', async () => {
+    const engine = await open({ mode: 'async', flushIntervalMs: 600_000, checkpointIntervalMs: 0 })
+    const errors: Error[] = []
+    engine.on('durabilityError', ({ error }) => errors.push(error))
+    await engine.createIndex(NOTES, SCHEMA)
+    await engine.insert(NOTES, { title: 'kept', body: 'before the version change' }, 'kept')
+    const database = await openDatabase(globals.indexedDB)
+    let holding = true
+    const transaction = database.transaction(STORE, 'readwrite')
+    const store = transaction.objectStore(STORE)
+    function keepTransactionOpen(): void {
+      const request = store.get('notes/meta')
+      request.onsuccess = () => {
+        if (holding) keepTransactionOpen()
+      }
+    }
+    keepTransactionOpen()
+    database.onversionchange = () => {
+      holding = false
+      database.close()
+    }
+    const pending = engine.insert(NOTES, { title: 'refused', body: 'during the version change' }, 'refused')
+    const outcome = pending.then(
+      () => null,
+      error => error as unknown,
+    )
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      const upgrade = await requestDone(globals.indexedDB.open(DATABASE, 2))
+      upgrade.close()
+      expect(await outcome).toMatchObject({ code: 'PERSISTENCE_SAVE_FAILED' })
+      expect(errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'PERSISTENCE_SAVE_FAILED' })]))
+    } finally {
+      holding = false
+      database.close()
+      await outcome
+    }
+  })
+
+  it('refuses stored undefined metadata without silently hiding the index', async () => {
+    const engine = await open()
+    await engine.createIndex(NOTES, SCHEMA)
+    await engine.insert(NOTES, { title: 'kept', body: 'acknowledged content' }, 'kept')
+    await engine.shutdown()
+    const database = await openDatabase(globals.indexedDB)
+    try {
+      const transaction = database.transaction(STORE, 'readwrite')
+      transaction.objectStore(STORE).put(undefined, `${NOTES}/meta`)
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve()
+        transaction.onabort = () => reject(transaction.error)
+      })
+    } finally {
+      database.close()
+    }
+    await expect(open()).rejects.toMatchObject({ code: 'PERSISTENCE_LOAD_FAILED' })
+  })
 })

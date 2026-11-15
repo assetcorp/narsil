@@ -42,7 +42,7 @@ function requireBytes(key: string, value: unknown): Uint8Array {
 }
 
 function requireAppendNumber(key: string, recordKey: IDBValidKey): number {
-  const n = Array.isArray(recordKey) ? recordKey[1] : undefined
+  const n = Array.isArray(recordKey) && recordKey.length === 2 && recordKey[0] === key ? recordKey[1] : undefined
   if (typeof n === 'number' && Number.isSafeInteger(n) && n >= 1) return n
   throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `An append record of "${key}" carries no valid position`, {
     key,
@@ -51,7 +51,8 @@ function requireAppendNumber(key: string, recordKey: IDBValidKey): number {
 
 export async function readRecords(store: IDBObjectStore, key: string): Promise<FileRecords | null> {
   const first = await requestResult(store.get(key))
-  if (first === undefined) return null
+  if (first === undefined && (await requestResult(store.getKey(key))) === undefined) return null
+  const bytes = requireBytes(key, first)
   const range = appendRecordsOf(key)
   const keys = await requestResult(store.getAllKeys(range))
   const values = await requestResult(store.getAll(range))
@@ -64,7 +65,7 @@ export async function readRecords(store: IDBObjectStore, key: string): Promise<F
   for (let at = 0; at < keys.length; at++) {
     appended.push({ n: requireAppendNumber(key, keys[at]), bytes: requireBytes(key, values[at]) })
   }
-  return { first: requireBytes(key, first), appended }
+  return { first: bytes, appended }
 }
 
 export function contentOf(records: FileRecords): Uint8Array {
