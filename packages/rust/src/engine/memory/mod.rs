@@ -13,8 +13,11 @@ use std::time::{Duration, Instant};
 
 use super::engine_config::MemoryFractions;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 pub(crate) use budget::{require_analysis_rebuild_memory, require_restore_memory};
 use constants::{FREE_PAGE_RELEASE_INTERVAL_MS, MEMORY_FIGURES_MAX_AGE_MS};
+
+const MEMORY_FULL_REASON: &str = "memory_full";
 
 #[cfg(target_os = "linux")]
 use linux as platform;
@@ -176,7 +179,15 @@ impl MemoryGuard {
                 megabytes(figures.process_bytes),
                 megabytes(figures.limit_bytes)
             ),
-        ))
+        )
+        .with_details([
+            ("reason", Value::from(MEMORY_FULL_REASON)),
+            ("indexName", Value::from(index_name)),
+            ("processBytes", Value::Number(figures.process_bytes as f64)),
+            ("processLimitBytes", Value::Number(figures.limit_bytes as f64)),
+            ("heapBytes", Value::Null),
+            ("heapLimitBytes", Value::Null),
+        ]))
     }
 
     /// Makes the next write read the memory again, once a remove or a drop has freed some while the engine is
