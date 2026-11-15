@@ -11,6 +11,7 @@ mod files;
 pub(crate) mod filter;
 mod graph;
 mod graph_search;
+mod growth;
 pub(crate) mod maintenance;
 mod numbered;
 pub(crate) mod ranking;
