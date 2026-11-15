@@ -6,6 +6,7 @@ mod feeds;
 mod handlers;
 mod http;
 mod ids;
+mod maintenance;
 mod options;
 mod server;
 mod state;
@@ -17,4 +18,6 @@ pub use options::{
     RequestContext, RequestDecision, RequestDenial, RequestHook, ServerLimits, ServerOptions,
 };
 pub use server::NarsilServer;
-pub use tasks::{InMemoryTaskStore, StoreFuture, TaskRecord, TaskStatus, TaskStore};
+pub use tasks::{
+    InMemoryTaskStore, PersistenceTaskStore, StoreFuture, TaskRecord, TaskStatus, TaskStore,
+};
