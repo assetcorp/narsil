@@ -1,8 +1,7 @@
 use narsil::{Bm25FieldParams, Bm25Params, Map, Narsil, NarsilError, Value};
 
 use super::constants::{MAX_BM25_B, MAX_BM25_K1};
-use super::details::with_bm25_field_details;
-use super::errors::{after_engine_checks, config_invalid, indexed};
+use super::errors::{after_engine_checks, config_invalid};
 use super::js_text::{displayed, displayed_name, number_text};
 use crate::errors::{Outcome, ServerError};
 
@@ -133,20 +132,11 @@ fn not_a_number() -> Bm25FieldParams {
     }
 }
 
-fn field_names(params: &Bm25Params) -> impl Iterator<Item = &str> {
-    params
-        .fields
-        .iter()
-        .flatten()
-        .map(|(name, _)| name.as_str())
-}
-
 pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Outcome<()> {
     match shape_of(body) {
-        Shape::Valid(params) => engine.update_bm25(index_name, &params).map_err(|raised| {
-            let failure = indexed(ServerError::from(raised), index_name);
-            with_bm25_field_details(failure, field_names(&params))
-        }),
+        Shape::Valid(params) => engine
+            .update_bm25(index_name, &params)
+            .map_err(ServerError::from),
         Shape::TopLevel(failure) => {
             let sentinel = Bm25Params {
                 k1: Some(f64::NAN),
@@ -154,7 +144,6 @@ pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Ou
             };
             Err(after_engine_checks(
                 engine,
-                index_name,
                 failure,
                 |engine| engine.update_bm25(index_name, &sentinel),
                 provoked,
@@ -170,14 +159,12 @@ pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Ou
                 fields: Some(checked),
                 ..Bm25Params::default()
             };
-            let failure = after_engine_checks(
+            Err(after_engine_checks(
                 engine,
-                index_name,
                 failure,
                 |engine| engine.update_bm25(index_name, &sentinel),
                 provoked,
-            );
-            Err(with_bm25_field_details(failure, field_names(&sentinel)))
+            ))
         }
     }
 }

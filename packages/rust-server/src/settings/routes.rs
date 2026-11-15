@@ -3,8 +3,7 @@ use std::sync::Arc;
 use narsil::{SnapshotOptions, Value};
 
 use super::bm25::update_bm25;
-use super::details::with_synonym_details;
-use super::errors::{engine_failure, indexed, on_engine, preparing};
+use super::errors::{on_engine, preparing};
 use super::js_text::is_falsy;
 use super::partition::update_partition_config;
 use super::stream::streamed_write;
@@ -37,7 +36,7 @@ fn query_history_of(context: &RouteContext) -> Outcome<bool> {
 
 async fn checkpoint(state: &Arc<ServerState>, name: String) -> Outcome<HttpResponse> {
     on_engine(state, move |engine| {
-        engine.checkpoint(&name).map_err(engine_failure(&name))
+        engine.checkpoint(&name).map_err(ServerError::from)
     })
     .await?;
     Ok(ok())
@@ -51,32 +50,29 @@ async fn snapshot(
     let options = SnapshotOptions {
         query_history: query_history_of(context)?,
     };
-    let wanted = name.clone();
     streamed_write(
         &state.engine,
         SNAPSHOT_ARCHIVE_CONTENT_TYPE,
-        move |engine, out| engine.snapshot_with(&wanted, out, &options),
+        move |engine, out| engine.snapshot_with(&name, out, &options),
     )
     .await
-    .map_err(|failure| indexed(failure, &name))
 }
 
 async fn export_documents(state: &Arc<ServerState>, name: String) -> Outcome<HttpResponse> {
-    let wanted = name.clone();
     streamed_write(
         &state.engine,
         DOCUMENT_EXPORT_CONTENT_TYPE,
-        move |engine, out| engine.export_documents(&wanted, out),
+        move |engine, out| engine.export_documents(&name, out),
     )
     .await
-    .map_err(|failure| preparing(indexed(failure, &name), CHANGES_EXPORT_PREPARING))
+    .map_err(|failure| preparing(failure, CHANGES_EXPORT_PREPARING))
 }
 
 async fn vector_maintenance(state: &Arc<ServerState>, name: String) -> Outcome<HttpResponse> {
     let statuses = on_engine(state, move |engine| {
         engine
             .vector_maintenance_status(&name)
-            .map_err(engine_failure(&name))
+            .map_err(ServerError::from)
     })
     .await?;
     Ok(json(200, &maintenance_json(&statuses)))
@@ -112,7 +108,7 @@ async fn partition_config(
 
 async fn read_synonyms(state: &Arc<ServerState>, name: String) -> Outcome<HttpResponse> {
     let rules = on_engine(state, move |engine| {
-        engine.get_synonyms(&name).map_err(engine_failure(&name))
+        engine.get_synonyms(&name).map_err(ServerError::from)
     })
     .await?;
     Ok(json(200, &synonym_set_json(&rules)))
@@ -135,11 +131,11 @@ async fn replace_synonyms(
         }
     };
     on_engine(state, move |engine| {
-        engine.get_synonyms(&name).map_err(engine_failure(&name))?;
+        engine.get_synonyms(&name).map_err(ServerError::from)?;
         let rules = synonym_rules_of(&rules)?;
         engine
             .update_synonyms(&name, &rules)
-            .map_err(|raised| with_synonym_details(engine_failure(&name)(raised)))
+            .map_err(ServerError::from)
     })
     .await?;
     Ok(ok())

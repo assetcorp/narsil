@@ -1,8 +1,7 @@
 use narsil::{Map, Narsil, PartitionConfig, Value};
 
 use super::constants::MAX_PARTITIONS;
-use super::details::with_capacity_details;
-use super::errors::{after_engine_checks, config_invalid, indexed};
+use super::errors::{after_engine_checks, config_invalid};
 use super::js_text::is_whole_number;
 use crate::errors::{Outcome, ServerError};
 
@@ -97,14 +96,11 @@ pub(crate) fn update_partition_config(
     match checked_change(fields) {
         Ok(change) => engine
             .update_partition_config(index_name, &change)
-            .map_err(|raised| {
-                with_capacity_details(indexed(ServerError::from(raised), index_name))
-            }),
+            .map_err(ServerError::from),
         Err(refused) => {
             let Refusal { failure, sentinel } = *refused;
             Err(after_engine_checks(
                 engine,
-                index_name,
                 failure,
                 |engine| engine.update_partition_config(index_name, &sentinel),
                 |raised| raised.code().as_str() == "CONFIG_INVALID",

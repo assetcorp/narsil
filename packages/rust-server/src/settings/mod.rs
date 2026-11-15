@@ -1,6 +1,5 @@
 mod bm25;
 mod constants;
-mod details;
 mod errors;
 mod feed_routes;
 mod feed_settings;
