@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use narsil::{ErrorCode, Map, Narsil, Value};
 
-use super::common::{engine_call, json_body, object};
+use super::common::{engine_call, json_object_body, object};
 use crate::documents::answers::{documents_answer, ordered_documents};
 use crate::documents::batch::{batch_request, run_batch};
 use crate::documents::bodies::{ChosenId, document_of, insert_id_of, multi_get_ids};
@@ -26,7 +26,7 @@ fn refused_insert(
 }
 
 async fn insert(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let mut body = json_body(context)?;
+    let mut body = json_object_body(context)?;
     let document = document_of(&mut body)?;
     let index = context.param(0).to_string();
     let chosen = insert_id_of(&body, &document);
@@ -40,7 +40,7 @@ async fn insert(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<Htt
 }
 
 async fn put(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let mut body = json_body(context)?;
+    let mut body = json_object_body(context)?;
     let document = document_of(&mut body)?;
     let index = context.param(0).to_string();
     let id = context.param(1).to_string();
@@ -61,7 +61,7 @@ async fn put(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpRe
 }
 
 async fn patch(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let mut body = json_body(context)?;
+    let mut body = json_object_body(context)?;
     let document = document_of(&mut body)?;
     let index = context.param(0).to_string();
     let id = context.param(1).to_string();
@@ -74,14 +74,14 @@ async fn patch(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<Http
 }
 
 async fn batch(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let request = batch_request(json_body(context)?)?;
+    let request = batch_request(json_object_body(context)?)?;
     let index = context.param(0).to_string();
     let written = engine_call(state, move |engine| run_batch(engine, &index, request)).await?;
     Ok(json(200, &written.to_value()))
 }
 
 async fn multi_get(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let body = json_body(context)?;
+    let body = json_object_body(context)?;
     let wanted = multi_get_ids(&body, state.limits.max_fetch_documents)?;
     let index = context.param(0).to_string();
     let documents = engine_call(state, move |engine| {
