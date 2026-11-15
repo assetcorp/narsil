@@ -84,8 +84,12 @@ names the method per engine.
 - One run-file ordering rule applies to every engine. `trec_eval` ignores the rank
   column, re-sorts hits by score, and breaks equal-score ties by document id in
   reverse-lexical order, which can reshuffle a ranking and change nDCG. The harness
-  rewrites each query's scores to decrease strictly in the engine's returned order,
-  so the scorer honours that order. The rule lives in `core/runfile.py` and runs
+  replaces each query's scores with whole numbers that fall by one at each step of
+  the engine's returned order, so the scorer honours that order. Smaller nudges are
+  not enough, because the scorer treats scores that differ by one step of a 64-bit
+  float as ties, and it does the same with scores as large as Typesense's
+  text-match values. The saved run files therefore hold those rank scores in place
+  of the engine's own. The rule lives in `core/runfile.py` and runs
   over whatever hits a driver returns, whether they came from keyword, vector, or
   hybrid retrieval.
 
