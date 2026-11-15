@@ -1,1 +1,0 @@
-export const RECORD_LOAD_LIMIT_BYTES = 16 * 1024 * 1024
