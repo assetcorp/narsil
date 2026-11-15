@@ -12,6 +12,9 @@ import {
   temporaryFolder,
 } from './support/node'
 
+const LARGER_THAN_ANY_WRITABLE_RECORD_BYTES = 4 * 1024 * 1024 * 1024
+const LONG_FAILURE_REPEATS = 800_000
+
 const folders: string[] = []
 const running: RunningNode[] = []
 
@@ -61,7 +64,7 @@ async function finishedTask(node: RunningNode, id: string): Promise<{ status: st
 }
 
 describe('the data folder across a restart', () => {
-  it('ignores symbolic links and oversized records without exposing files outside the task folder', async () => {
+  it('keeps a long task record, and ignores symbolic links and files larger than any record', async () => {
     const folder = dataFolder('planted-records')
     const tasks = join(folder, 'tasks')
     const hooks = join(folder, 'webhooks')
@@ -83,9 +86,23 @@ describe('the data folder across a restart', () => {
     symlinkSync(privateFile, join(tasks, 'private.json'))
     for (const directory of [tasks, hooks]) {
       const file = openSync(join(directory, 'oversized.json'), 'w')
-      ftruncateSync(file, 1024 * 1024 * 1024)
+      ftruncateSync(file, LARGER_THAN_ANY_WRITABLE_RECORD_BYTES)
       closeSync(file)
     }
+    const longFailure = 'line 7 failed validation '.repeat(LONG_FAILURE_REPEATS)
+    writeFileSync(
+      join(tasks, 'long-import.json'),
+      JSON.stringify({
+        id: 'long-import',
+        type: 'import',
+        status: 'failed',
+        indexName: 'books',
+        owner: 'previous-node',
+        createdAt: 1,
+        completedAt: 2,
+        error: { code: 'DOC_VALIDATION_FAILED', message: longFailure },
+      }),
+    )
     const node = await start({
       NARSIL_DATA_DIR: folder,
       NARSIL_WEBHOOK_URL: 'http://127.0.0.1:9/events',
@@ -93,6 +110,9 @@ describe('the data folder across a restart', () => {
     })
     const answer = await call(node, 'GET', '/tasks/private', { credential: ADMIN_KEY })
     expect(answer.status).toBe(404)
+    const long = await call(node, 'GET', '/tasks/long-import', { credential: ADMIN_KEY })
+    expect(long.status).toBe(200)
+    expect((long.body as { error: { message: string } }).error.message).toBe(longFailure)
     expect(JSON.stringify(await call(node, 'GET', '/tasks', { credential: ADMIN_KEY }))).not.toContain(
       'private account',
     )

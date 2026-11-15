@@ -57,7 +57,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 ## 3. Keep it safe
 
 - The server binds `127.0.0.1` on port 9876 by default. For any other address, `listen()` throws `CONFIG_INVALID` unless you pass `onRequest`. Set `allowInsecure: true` only on a private network where something else controls access.
-- The server calls `onRequest` for every route apart from `/livez`, `/readyz`, `/health`, `/version`, and `/capabilities`. A caller that it admits can also drop, clear, and restore indexes, so give a browser a key that the hook limits to the search routes, as above, and keep the admin key on servers.
+- The server calls `onRequest` for every route apart from `/livez`, `/readyz`, `/health`, and `/version`. A caller that it admits can also drop, clear, and restore indexes, so give a browser a key that the hook limits to the search routes, as above, and keep the admin key on servers.
 - List the app's origins in `cors.origin`, since `cors: true` admits every origin.
 - `limits.maxConcurrentRequests` defaults to 0, which sheds nothing, so set a ceiling before the address goes public. The server answers a body over 16 MiB with 413, and a `limit` or an `offset` over 10,000 with 400.
 - Put a TLS-terminating proxy in front before anything outside the machine connects. Behind a proxy, `remoteAddress` holds the proxy's address.

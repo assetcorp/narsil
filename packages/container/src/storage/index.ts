@@ -1,9 +1,12 @@
+import { constants as bufferConstants } from 'node:buffer'
 import { constants } from 'node:fs'
 import { open, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ErrorCodes, NarsilError, type PersistenceAdapter } from '@delali/narsil'
 import { createFilesystemPersistence } from '@delali/narsil/adapters/filesystem'
-import { RECORD_LOAD_LIMIT_BYTES } from './constants'
+
+const MAX_UTF8_BYTES_PER_UTF16_UNIT = 3
+const LARGEST_WRITABLE_RECORD_BYTES = MAX_UTF8_BYTES_PER_UTF16_UNIT * bufferConstants.MAX_STRING_LENGTH
 
 function requireFilename(key: string): void {
   if (key.length === 0 || key === '.' || key === '..' || /[/\\\0]/.test(key)) {
@@ -31,7 +34,7 @@ export function createRecordPersistence(directory: string): PersistenceAdapter {
       const handle = await open(join(directory, key), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
       try {
         const stat = await handle.stat()
-        if (!stat.isFile() || stat.size > RECORD_LOAD_LIMIT_BYTES) return null
+        if (!stat.isFile() || stat.size > LARGEST_WRITABLE_RECORD_BYTES) return null
         const bytes = new Uint8Array(stat.size)
         let offset = 0
         while (offset < bytes.length) {
