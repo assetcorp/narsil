@@ -199,7 +199,7 @@ class NarsilHttpServer implements NarsilServer {
     this.closing = (async () => {
       if (listening !== null) await listening.catch(() => undefined)
       await this.stopListening()
-    })().finally(() => {
+    })().then(() => {
       this.closing = null
     })
     return this.closing

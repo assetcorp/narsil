@@ -1,14 +1,20 @@
 const STATE_WORD = 0
-const CLOSING = 1
+const OPEN = 0n
 
-export function createServerCloseSignal(): Int32Array<SharedArrayBuffer> {
-  return new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
+export function createServerCloseSignal(): BigInt64Array<SharedArrayBuffer> {
+  return new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT))
 }
 
-export function signalServerClose(signal: Int32Array<SharedArrayBuffer>): void {
-  Atomics.store(signal, STATE_WORD, CLOSING)
+export function signalServerClose(signal: BigInt64Array<SharedArrayBuffer>, deadlineMs: number): number {
+  Atomics.compareExchange(signal, STATE_WORD, OPEN, BigInt(Date.now() + deadlineMs))
+  return Number(Atomics.load(signal, STATE_WORD))
 }
 
-export function serverCloseSignalled(signal: Int32Array<SharedArrayBuffer>): boolean {
-  return Atomics.load(signal, STATE_WORD) === CLOSING
+export function serverCloseDeadline(signal: BigInt64Array<SharedArrayBuffer>): number | null {
+  const deadline = Atomics.load(signal, STATE_WORD)
+  return deadline === OPEN ? null : Number(deadline)
+}
+
+export function serverCloseSignalled(signal: BigInt64Array<SharedArrayBuffer>): boolean {
+  return serverCloseDeadline(signal) !== null
 }

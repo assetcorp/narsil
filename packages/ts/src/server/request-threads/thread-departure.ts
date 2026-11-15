@@ -5,10 +5,11 @@ import type { ResponseAbort, RouteHandler } from '../request'
 import { stopResponse } from '../request-signal'
 import type { ResponseSink } from '../response'
 import type { ErrorEnvelope } from '../types'
+import { threadCloseRequested } from './close-at-exit'
 import { awaitDepartureConfirmation, departureConfirmation, departureConfirmed } from './departure'
 import { LeavingResponse, refuseAndClose } from './leaving-response'
 import type { RelayClient } from './relay-client'
-import { serverCloseSignalled } from './server-close'
+import { serverCloseDeadline, serverCloseSignalled } from './server-close'
 
 const DEPARTURE_REFUSAL: ErrorEnvelope = {
   error: {
@@ -46,6 +47,7 @@ type ThreadExit = (code: unknown) => void
 
 export interface ThreadDeparture {
   accept(res: ResponseSink): boolean
+  canRespond(): boolean
   respondThrough(res: ResponseSink): ResponseSink
   track(res: ResponseSink, abort: ResponseAbort): () => void
   guardRoute(handler: RouteHandler, onMainThread?: RouteHandler): RouteHandler
@@ -56,7 +58,8 @@ export interface ThreadDeparture {
 export interface ThreadDepartureOptions {
   relay: RelayClient
   departure: Int32Array<SharedArrayBuffer>
-  serverClose: Int32Array<SharedArrayBuffer>
+  serverClose: BigInt64Array<SharedArrayBuffer>
+  closeAtExit: Int32Array<SharedArrayBuffer>
   close: () => void
 }
 
@@ -178,6 +181,12 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
     close()
   }
 
+  function canRespond(): boolean {
+    if (!threadCloseRequested(options.closeAtExit)) return true
+    closeOnce()
+    return false
+  }
+
   function leaving(): boolean {
     return departing || draining || departureConfirmed(departure)
   }
@@ -195,18 +204,19 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
   async function drainRunning(): Promise<void> {
     draining = true
     if (!departureConfirmed(departure)) relay.announceDeparture()
-    const deadline = Date.now() + REQUEST_THREAD_DRAIN_DEADLINE_MS
+    let deadline = serverCloseDeadline(options.serverClose) ?? Date.now() + REQUEST_THREAD_DRAIN_DEADLINE_MS
     await settledBy(departureConfirmation(departure), deadline)
     do {
+      deadline = serverCloseDeadline(options.serverClose) ?? deadline
       await settledBy(idle(), deadline)
-      if (Date.now() >= deadline) break
-      await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
+      if (Date.now() >= deadline && deadline === (serverCloseDeadline(options.serverClose) ?? deadline)) break
+      await pause(Math.min(REQUEST_THREAD_DEPARTURE_DRAIN_MS, Math.max(0, deadline - Date.now())))
     } while (running.size > 0)
     closing = true
     const refused = running.size > 0
     for (const request of running) refuse(request, DRAIN_DEADLINE_REFUSAL)
     running.clear()
-    if (refused) await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
+    if (refused && !serverCloseSignalled(options.serverClose)) await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
   }
 
   const state: Departure = {
@@ -255,14 +265,16 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
   }
 
   return {
+    canRespond,
     accept(res) {
+      if (!canRespond()) return false
       const refusal = refusalOnConnection()
       if (refusal === null) return true
       refuseAndClose(res, 503, refusal)
       return false
     },
     respondThrough(res) {
-      return new LeavingResponse(res, leaving)
+      return new LeavingResponse(res, leaving, canRespond)
     },
     track(res, abort) {
       const request: RunningRequest = { res, abort }

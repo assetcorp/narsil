@@ -85,6 +85,7 @@ async function upgradeFeed(
   context: RequestContext,
   indexName: string,
   handshake: { key: string; extensions: string; socketContext: us_socket_context_t },
+  canRespond: () => boolean,
 ): Promise<void> {
   const abort = initAbortHandler(res)
   let authorization: Authorization
@@ -93,7 +94,7 @@ async function upgradeFeed(
   } catch {
     authorization = { allowed: false, denial: null }
   }
-  if (abort.aborted) return
+  if (abort.aborted || !canRespond()) return
   if (!authorization.allowed) {
     const { denial } = authorization
     if (denial === null) sendError(res, 500, ServerErrorCodes.HOOK_ERROR, 'The onRequest hook threw an error')
@@ -104,10 +105,10 @@ async function upgradeFeed(
   try {
     ticket = await gateway.admit(indexName, authorization.expiresAt)
   } catch (err) {
-    if (!abort.aborted) refuse(res, err)
+    if (!abort.aborted && canRespond()) refuse(res, err)
     return
   }
-  if (abort.aborted) {
+  if (abort.aborted || !canRespond()) {
     ticket.cancel()
     return
   }
@@ -122,6 +123,7 @@ export function registerFeedRoute(
   gateway: FeedGateway,
   route: FeedRoute,
   accept?: (res: ResponseSink) => boolean,
+  canRespond: () => boolean = () => true,
 ): void {
   const { path, subprotocol } = route
   app.ws<FeedUserData>(path, {
@@ -159,7 +161,7 @@ export function registerFeedRoute(
         )
         return
       }
-      void upgradeFeed(gateway, subprotocol, res, context, indexName, handshake).catch(() => undefined)
+      void upgradeFeed(gateway, subprotocol, res, context, indexName, handshake, canRespond).catch(() => undefined)
     },
     open(ws) {
       const data = ws.getUserData()
