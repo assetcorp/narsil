@@ -9,7 +9,7 @@ use crate::format::keyword_columns::{
 };
 use crate::format::keyword_segment::KeywordSegment;
 use crate::util::bytes::{offset_entry, u32_bytes, u64_bytes};
-use crate::value::{write_array_header, write_string, write_uint};
+use crate::value::{Value, write_array_header, write_string, write_uint};
 
 /// A paged keyword segment ready to write: the head and every section in the order of the payload.
 pub(crate) struct PagedSegmentFile {
@@ -24,6 +24,10 @@ pub(crate) fn padding_before(offset: u64, cursor: u64) -> Result<Vec<u8>> {
             ErrorCode::PERSISTENCE_SAVE_FAILED,
             format!("Section offset {offset} of a paged segment does not follow byte {cursor}"),
         )
+        .with_details([
+            ("offset", Value::from(offset)),
+            ("cursor", Value::from(cursor)),
+        ])
     })?;
     Ok(vec![0u8; padding as usize])
 }
