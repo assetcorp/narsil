@@ -125,7 +125,8 @@ const (
 	CodePartitionCapacityExceeded = narsilerr.CodePartitionCapacityExceeded
 	// CodeRestoreMemoryExceeded reports a restore that needs more memory than the process has free.
 	CodeRestoreMemoryExceeded = narsilerr.CodeRestoreMemoryExceeded
-	// CodeMemoryWriteBlocked reports a write refused while memory use stays above the block level.
+	// CodeMemoryWriteBlocked reports an insert or update that the engine refuses, either because memory use
+	// stays above the block level or because indexing the document could take memory past that level.
 	CodeMemoryWriteBlocked = narsilerr.CodeMemoryWriteBlocked
 	// CodeAnalysisChangeReplaced reports an analysis change that a later change replaced.
 	CodeAnalysisChangeReplaced = narsilerr.CodeAnalysisChangeReplaced
