@@ -88,18 +88,13 @@ func (field *exportVectors) vectorOf(docID string) ([]float32, bool, error) {
 	return values, true, nil
 }
 
-func exportScan(writer *export.Writer, scans []segmentScan, at int, vectors []*exportVectors) error {
-	scan := scans[at]
+func exportScan(writer *export.Writer, scan segmentScan, at int, newest map[string]int, vectors []*exportVectors) error {
 	for ordinal := range scan.count {
 		id, err := scan.idAt(ordinal)
 		if err != nil {
 			return err
 		}
-		latest, err := countsAsLatestHolder(scans, at, id)
-		if err != nil {
-			return err
-		}
-		if !latest {
+		if holder, touched := newest[id]; touched && holder > at {
 			continue
 		}
 		encoded, err := scan.encodedAt(ordinal)
@@ -151,29 +146,65 @@ func (opened *Archive) Export(ctx context.Context, destination io.Writer, header
 	if err != nil {
 		return err
 	}
+	exporting := &segmentExport{archive: opened, writer: writer, vectors: vectors}
 	for _, entry := range opened.Manifest.Partitions {
-		if err := opened.exportPartition(ctx, writer, entry, vectors); err != nil {
+		if err := exporting.partition(ctx, entry); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (opened *Archive) exportPartition(ctx context.Context, writer *export.Writer, entry manifest.PartitionEntry,
-	vectors []*exportVectors) error {
-	scans := make([]segmentScan, 0, len(entry.Segments))
-	defer func() { closeScans(scans) }()
-	for _, ref := range entry.Segments {
-		scan, err := openSegmentScan(ctx, opened.store, ref.File, opened.pagedText)
-		if err != nil {
-			return err
-		}
-		scans = append(scans, scan)
+type segmentExport struct {
+	archive *Archive
+	writer  *export.Writer
+	vectors []*exportVectors
+	buffer  []byte
+}
+
+func (exporting *segmentExport) partition(ctx context.Context, entry manifest.PartitionEntry) error {
+	newest, err := exporting.newestHolders(ctx, entry.Segments)
+	if err != nil {
+		return err
 	}
-	for at := range scans {
-		if err := exportScan(writer, scans, at, vectors); err != nil {
+	for at, ref := range entry.Segments {
+		if err := exporting.withSegmentScan(ctx, ref.File, func(scan segmentScan) error {
+			return exportScan(exporting.writer, scan, at, newest, exporting.vectors)
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (exporting *segmentExport) newestHolders(ctx context.Context, listed []manifest.SegmentRef) (map[string]int, error) {
+	newest := map[string]int{}
+	for at := 1; at < len(listed); at++ {
+		if err := exporting.withSegmentScan(ctx, listed[at].File, func(scan segmentScan) error {
+			for id := range scan.tombstones {
+				newest[id] = at
+			}
+			for ordinal := range scan.count {
+				id, err := scan.idAt(ordinal)
+				if err != nil {
+					return err
+				}
+				newest[id] = at
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return newest, nil
+}
+
+func (exporting *segmentExport) withSegmentScan(ctx context.Context, ref manifest.FileRef,
+	read func(scan segmentScan) error) error {
+	scan, err := openSegmentScanInto(ctx, exporting.archive.store, ref, exporting.archive.pagedText, &exporting.buffer)
+	if err != nil {
+		return err
+	}
+	defer scan.close()
+	return read(scan)
 }

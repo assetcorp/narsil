@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -11,6 +12,7 @@ import (
 const (
 	archivedDocuments  = 300
 	changedWhileStream = 50
+	layeredDocuments   = 25
 )
 
 func archivedID(at int) string {
@@ -38,6 +40,32 @@ func writeDuringArchive(ctx context.Context, narsil *engine.Narsil) error {
 		return err
 	}
 	return narsil.Checkpoint(ctx, callbackIndex)
+}
+
+func layerArchivedIndex(t *testing.T, narsil *engine.Narsil, reference map[string]string) []string {
+	t.Helper()
+	ctx := context.Background()
+	if err := narsil.Checkpoint(ctx, callbackIndex); err != nil {
+		t.Fatal(err)
+	}
+	var removed []string
+	for at := archivedDocuments - 2*layeredDocuments; at < archivedDocuments-layeredDocuments; at++ {
+		reference[archivedID(at)] = fmt.Sprintf("layered %d", at)
+		update := engine.NewDocument().Set("title", reference[archivedID(at)])
+		if err := narsil.Update(ctx, callbackIndex, archivedID(at), update, engine.WriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		gone := archivedID(at + layeredDocuments)
+		delete(reference, gone)
+		removed = append(removed, gone)
+		if err := narsil.Remove(ctx, callbackIndex, gone, engine.WriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := narsil.Checkpoint(ctx, callbackIndex); err != nil {
+		t.Fatal(err)
+	}
+	return removed
 }
 
 func requireTitles(t *testing.T, narsil *engine.Narsil, indexName string, expected map[string]string, absent []string) {
@@ -94,6 +122,7 @@ func TestAnArchiveKeepsItsContentsWhileWritesContinue(t *testing.T) {
 			if result, err := narsil.InsertBatch(ctx, callbackIndex, documents, engine.InsertOptions{}); err != nil || len(result.Failed) != 0 {
 				t.Fatalf("the insert returned %+v, %v", result, err)
 			}
+			removedBefore := layerArchivedIndex(t, narsil, reference)
 			writer := &callingWriter{act: func() error {
 				bounded, cancel := context.WithTimeout(ctx, callbackDeadline/2)
 				defer cancel()
@@ -104,6 +133,9 @@ func TestAnArchiveKeepsItsContentsWhileWritesContinue(t *testing.T) {
 			}
 			if !writer.called || writer.err != nil {
 				t.Fatalf("the writer called=%t and its writes returned %v", writer.called, writer.err)
+			}
+			if lines := bytes.Count(writer.Bytes(), []byte("\n")) - 1; name == "export" && lines != len(reference) {
+				t.Fatalf("the export holds %d document lines; the reference holds %d documents", lines, len(reference))
 			}
 			if err := route.read(narsil, archiveCopyIndex, writer.Bytes()); err != nil {
 				t.Fatalf("reading the %s back failed with %s: %v", name, codeOrMessage(err), err)
@@ -119,7 +151,7 @@ func TestAnArchiveKeepsItsContentsWhileWritesContinue(t *testing.T) {
 				delete(live, archivedID(changedWhileStream+at))
 				live[arrived[at]] = fmt.Sprintf("arrived %d", at)
 			}
-			requireTitles(t, narsil, archiveCopyIndex, reference, arrived)
+			requireTitles(t, narsil, archiveCopyIndex, reference, append(arrived, removedBefore...))
 			requireTitles(t, narsil, callbackIndex, live, nil)
 		})
 	}

@@ -13,7 +13,6 @@ type segmentScan struct {
 	schema     map[string]string
 	tombstones map[string]struct{}
 	idAt       func(ordinal int) (string, error)
-	holds      func(id string) (bool, error)
 	encodedAt  func(ordinal int) ([]byte, error)
 	close      func()
 }
@@ -27,18 +26,10 @@ func idSetOf(ids []string) map[string]struct{} {
 }
 
 func wholeSegmentScan(segment checkpoint.StoredSegment) segmentScan {
-	ids := make([]string, segment.DocumentTotal())
-	for ordinal := range ids {
-		ids[ordinal] = segment.DocumentID(ordinal)
-	}
-	held := idSetOf(ids)
-	return segmentScan{count: len(ids), schema: segment.FieldSchema(), tombstones: idSetOf(segment.RemovedIDs()),
-		idAt: func(ordinal int) (string, error) { return ids[ordinal], nil },
-		holds: func(id string) (bool, error) {
-			_, present := held[id]
-			return present, nil
-		},
-		encodedAt: segment.EncodedDocument, close: func() {}}
+	return segmentScan{count: segment.DocumentTotal(), schema: segment.FieldSchema(),
+		tombstones: idSetOf(segment.RemovedIDs()),
+		idAt:       func(ordinal int) (string, error) { return segment.DocumentID(ordinal), nil },
+		encodedAt:  segment.EncodedDocument, close: func() {}}
 }
 
 func pagedSegmentScan(ctx context.Context, store checkpoint.Store, ref manifest.FileRef) (segmentScan, error) {
@@ -57,10 +48,6 @@ func pagedSegmentScan(ctx context.Context, store checkpoint.Store, ref manifest.
 			id, err := reader.IDBytes(uint32(ordinal))
 			return string(id), err
 		},
-		holds: func(id string) (bool, error) {
-			ordinal, err := reader.OrdinalOf(id)
-			return ordinal >= 0, err
-		},
 		encodedAt: func(ordinal int) ([]byte, error) { return reader.EncodedDocument(uint32(ordinal)) },
 		close: func() {
 			reader.Close()
@@ -70,6 +57,11 @@ func pagedSegmentScan(ctx context.Context, store checkpoint.Store, ref manifest.
 
 func openSegmentScan(ctx context.Context, store checkpoint.Store, ref manifest.FileRef, pagedText bool) (segmentScan,
 	error) {
+	return openSegmentScanInto(ctx, store, ref, pagedText, nil)
+}
+
+func openSegmentScanInto(ctx context.Context, store checkpoint.Store, ref manifest.FileRef, pagedText bool,
+	buffer *[]byte) (segmentScan, error) {
 	if pagedText {
 		_, held, err := checkpoint.ListedPagedPath(ctx, store, ref)
 		if err != nil {
@@ -79,28 +71,21 @@ func openSegmentScan(ctx context.Context, store checkpoint.Store, ref manifest.F
 			return pagedSegmentScan(ctx, store, ref)
 		}
 	}
-	segment, err := checkpoint.OpenStoredSegment(ctx, store, ref, pagedText)
+	if buffer == nil {
+		segment, err := checkpoint.OpenStoredSegment(ctx, store, ref, pagedText)
+		if err != nil {
+			return segmentScan{}, err
+		}
+		return wholeSegmentScan(segment), nil
+	}
+	data, err := checkpoint.ReadListedInto(ctx, store, ref, "segment", *buffer)
+	if err != nil {
+		return segmentScan{}, err
+	}
+	*buffer = data
+	segment, err := checkpoint.StoredSegmentFrom(ref, data, pagedText)
 	if err != nil {
 		return segmentScan{}, err
 	}
 	return wholeSegmentScan(segment), nil
-}
-
-func closeScans(scans []segmentScan) {
-	for _, scan := range scans {
-		scan.close()
-	}
-}
-
-func countsAsLatestHolder(scans []segmentScan, at int, id string) (bool, error) {
-	for later := at + 1; later < len(scans); later++ {
-		if _, removed := scans[later].tombstones[id]; removed {
-			return false, nil
-		}
-		held, err := scans[later].holds(id)
-		if err != nil || held {
-			return false, err
-		}
-	}
-	return true, nil
 }

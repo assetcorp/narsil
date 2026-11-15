@@ -100,12 +100,5 @@ func OpenStoredSegment(ctx context.Context, store Store, ref manifest.FileRef, p
 	if err != nil {
 		return nil, err
 	}
-	if pagedText && holdsPagedText(data) {
-		return openPaged(ref, data)
-	}
-	segment, err := openKeyword(ref, data)
-	if err != nil {
-		return nil, err
-	}
-	return keywordStored{segment: segment}, nil
+	return StoredSegmentFrom(ref, data, pagedText)
 }
