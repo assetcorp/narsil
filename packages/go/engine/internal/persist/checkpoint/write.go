@@ -332,6 +332,12 @@ func (written Written) Record(ctx context.Context) error {
 func RemoveGarbage(ctx context.Context, store Store, garbage []string, fields []*vector.Field) ([]string, error) {
 	inUse := map[string]struct{}{}
 	for _, field := range fields {
+		if len(garbage) == 0 {
+			break
+		}
+		if err := field.ReleaseUnreadVectorFiles(); err != nil {
+			return garbage, err
+		}
 		for _, path := range field.VectorFilesInUse() {
 			inUse[path] = struct{}{}
 		}

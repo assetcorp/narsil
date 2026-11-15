@@ -152,6 +152,29 @@ func (f *Field) releaseLocations(ctx context.Context, paths []string, located []
 	return nil
 }
 
+func (f *Field) ReleaseUnreadVectorFiles() error {
+	f.writeMu.Lock()
+	defer f.writeMu.Unlock()
+	if f.disposed || f.cold != nil || !f.holdsVectorsOnDisk() {
+		return nil
+	}
+	f.releaseReplacedLocked()
+	next, dropped := f.store.releaseColdBlocks()
+	if next == nil {
+		return nil
+	}
+	previous := f.store.tables
+	f.store.tables = next
+	if err := f.publish(f.store, f.graph); err != nil {
+		f.store.tables = previous
+		return err
+	}
+	for _, resource := range dropped {
+		resource.drop()
+	}
+	return nil
+}
+
 func (f *Field) VectorFilesInUse() []string {
 	f.writeMu.Lock()
 	defer f.writeMu.Unlock()
