@@ -115,6 +115,10 @@ func (a *Analyzer) Prepare() (*Pass, error) {
 	return pass, nil
 }
 
+func (a *Analyzer) CallsCallerCode() bool {
+	return a.tokenizer != nil || a.stopFunction != nil
+}
+
 func (a *Analyzer) PrepareWithoutStopWords() *Pass {
 	return &Pass{analyzer: a}
 }

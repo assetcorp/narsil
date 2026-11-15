@@ -110,7 +110,7 @@ func (w *Write) ApplyBatch(b *Batch, vectors []vector.NamedField) error {
 }
 
 func (ix *Index) Apply(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField) ([]error, error) {
-	if len(vectors) > 0 {
+	if len(vectors) > 0 || kind != WriteInsert && ix.settings.Analyzer.CallsCallerCode() {
 		batch := ix.PrepareBatch(kind, writes)
 		err := ix.Write(context.Background(), func(w *Write) error { return w.ApplyBatch(batch, vectors) })
 		ix.noteGrowth()
