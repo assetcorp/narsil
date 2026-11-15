@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from chart_data import EQUAL_PRECISION, dataset_rows, has_recall_curve, profile_title, recall_curve, row_label
+from chart_legend import not_measured_entries
 from chart_paths import recall_chart, server_chart_dir
 from chart_style import (
     BASE_FONT_POINTS,
@@ -12,11 +13,13 @@ from chart_style import (
     MARKER_SIZE,
     caption,
     engine_colour,
+    engine_marker,
     rate_label,
     save,
     style_axes,
 )
 from matplotlib.ticker import FuncFormatter
+from narsil_servers import unmeasured_server_rows
 from render import dataset_name
 
 LINE_STYLES = {"equal-precision": "-", "best-config": "--"}
@@ -40,7 +43,7 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
                 [qps for _, qps in points],
                 color=engine_colour(engine),
                 linestyle=LINE_STYLES.get(profile, "-"),
-                marker="o",
+                marker=engine_marker(engine),
                 markersize=MARKER_SIZE,
                 linewidth=LINE_WIDTH,
                 label=label,
@@ -49,7 +52,29 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
     axes.set_ylim(bottom=0)
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
+    handles, labels = axes.get_legend_handles_labels()
+    missing = {
+        profile: not_measured_entries(
+            dataset_rows(comparison, "vector", dataset_id) or unmeasured_server_rows(comparison),
+            profile,
+            recall_curve,
+            "recall sweep",
+        )
+        for profile, comparison in comparisons.items()
+        if comparison is not None
+    }
+    missing_labels = {tuple(label for _, label in entries) for entries in missing.values()}
+    if len(missing_labels) == 1:
+        for handle, label in next(iter(missing.values())):
+            handles.append(handle)
+            labels.append(label)
+    else:
+        for profile, entries in missing.items():
+            for handle, label in entries:
+                handles.append(handle)
+                labels.append(f"{label}, {profile_title(profile)}")
     axes.legend(
+        handles, labels,
         loc="upper center",
         bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
         ncols=LEGEND_COLUMNS,

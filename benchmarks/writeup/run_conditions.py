@@ -9,6 +9,7 @@ from render import and_join, engine_name, gibibytes, integer
 
 NATIVE_VECTOR_SEARCH = "native"
 WASM_VECTOR_SEARCH = "wasm"
+SINGLE_SERVER_LABEL = "Narsil"
 
 _SHARED_MACHINE_SENTENCES = (
     "The load generator shares the machine with the engine under test, so its client processes take CPU time "
@@ -46,16 +47,21 @@ def java_heap_sentence(engines: list[dict]) -> str:
     return f" Each Java engine divides that cap between its heap and the memory outside it. {and_join(heaps)}."
 
 
-def narsil_vector_search_bullets(narsil: dict) -> list[str]:
+def _server_subject(label: str) -> str:
+    return f"{label}'s server" if label == SINGLE_SERVER_LABEL else f"The {label} server"
+
+
+def narsil_vector_search_bullets(narsil: dict, label: str = SINGLE_SERVER_LABEL) -> list[str]:
     path = (narsil.get("build_identity") or {}).get("vector_search")
+    subject = _server_subject(label)
     if path == NATIVE_VECTOR_SEARCH:
         return [
-            "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through its native "
+            f"- **{label} vector search.** {subject} reports that it searches vector graphs through its native "
             "search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows."
         ]
     if path == WASM_VECTOR_SEARCH:
         return [
-            "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through WebAssembly, "
+            f"- **{label} vector search.** {subject} reports that it searches vector graphs through WebAssembly, "
             "so these figures exclude its native search core."
         ]
     return []
