@@ -19,7 +19,7 @@ from generate import BENCHMARKS_PAGE, generated_pages
 from headline_section import README_TARGETS, readme_blocks
 from markdown_it import MarkdownIt
 from narsil_servers import load_server_sources
-from preview_html import absolute_links, embed_figures, preview_document
+from preview_html import preview_document, render_content
 from sources import load_inprocess_source, load_languages_source, repo_root
 
 OUTPUT_SUFFIX = ".html"
@@ -53,8 +53,8 @@ def main(argv: list[str]) -> int:
     with tempfile.TemporaryDirectory() as scratch:
         drawn = Path(scratch)
         render(drawn, server, best, inprocess, languages)
-        page_html = absolute_links(embed_figures(markdown.render(page), (drawn, root)))
-    headline_html = absolute_links(markdown.render(headline))
+        page_html = render_content(markdown.render(page), (drawn, root))
+        headline_html = render_content(markdown.render(headline), (drawn, root))
     _write(output, preview_document(server.run_id, headline_html, page_html))
     sys.stdout.write(f"Wrote the benchmark page preview to {output}.\n")
     return 0

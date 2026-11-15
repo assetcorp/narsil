@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import base64
 import html
-import re
+from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote, unquote, urlsplit
 
-from generate import IMAGE_SOURCE
 from headline_section import REPOSITORY_FILE_URL
 
 FIGURE_MEDIA_TYPES = {".svg": "image/svg+xml", ".png": "image/png"}
-_LINK_TARGET = re.compile(r'href="([^"]*)"')
-_ABSOLUTE_TARGET = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|#|//)")
+CONTENT_TAGS = frozenset((
+    "a", "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "pre", "code", "em", "strong",
+    "blockquote", "table", "thead", "tbody", "tr", "th", "td", "img", "br", "hr", "details", "summary", "div", "span",
+))
+VOID_TAGS = frozenset(("img", "br", "hr"))
 
 PAGE_STYLE = """
 :root {
@@ -73,32 +76,76 @@ tr:nth-child(2n) { background: var(--page-stripe); }
 
 
 def _data_uri(source: str, roots: tuple[Path, ...]) -> str:
-    relative = PurePosixPath(source)
+    target = urlsplit(source)
+    relative = PurePosixPath(unquote(target.path))
     media_type = FIGURE_MEDIA_TYPES.get(relative.suffix)
-    if relative.is_absolute() or ".." in relative.parts or media_type is None:
+    if target.scheme or target.netloc or relative.is_absolute() or ".." in relative.parts or "\\" in source or media_type is None:
         raise SystemExit(f"benchmark preview: refusing the figure path {source!r}")
     for root in roots:
-        candidate = root.joinpath(*relative.parts)
+        candidate = root.joinpath(*relative.parts).resolve()
+        if not candidate.is_relative_to(root.resolve()):
+            raise SystemExit(f"benchmark preview: refusing the figure path {source!r}")
         if candidate.is_file():
             encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
             return f"data:{media_type};base64,{encoded}"
     raise SystemExit(f"benchmark preview: the page embeds {source}, but no chart drawing produced it")
 
 
-def embed_figures(rendered: str, roots: tuple[Path, ...]) -> str:
-    return IMAGE_SOURCE.sub(lambda match: f'<img src="{_data_uri(match.group(1), roots)}"', rendered)
+def _absolute_link(target: str) -> str:
+    if any(ord(char) < 32 for char in target) or "\\" in target:
+        return "#"
+    parsed = urlsplit(target)
+    if parsed.scheme:
+        return target if parsed.scheme.lower() in ("http", "https", "mailto") else "#"
+    if target.startswith("//"):
+        return "https:" + target
+    if not target or target.startswith("#"):
+        return target
+    path = PurePosixPath(unquote(parsed.path).removeprefix("/"))
+    if ".." in path.parts:
+        return "#"
+    suffix = f"?{parsed.query}" if parsed.query else ""
+    suffix += f"#{parsed.fragment}" if parsed.fragment else ""
+    return REPOSITORY_FILE_URL + "/" + quote(str(path), safe="/") + suffix
 
 
-def _absolute_link(match: re.Match[str]) -> str:
-    target = html.unescape(match.group(1))
-    if not target or _ABSOLUTE_TARGET.match(target):
-        return match.group(0)
-    path = target.removeprefix("./").removeprefix("/")
-    return f'href="{html.escape(REPOSITORY_FILE_URL + "/" + path)}"'
+class _Content(HTMLParser):
+    def __init__(self, roots: tuple[Path, ...]):
+        super().__init__(convert_charrefs=True)
+        self.roots = roots
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in CONTENT_TAGS:
+            return
+        values = dict(attrs)
+        kept = {}
+        for key in ("title", "alt", "width", "height", "colspan", "rowspan"):
+            if values.get(key) is not None:
+                kept[key] = values[key]
+        if tag == "a" and values.get("href") is not None:
+            kept["href"] = _absolute_link(values["href"])
+        if tag == "img":
+            kept["src"] = _data_uri(values.get("src") or "", self.roots)
+        alignment = values.get("style") or ""
+        if tag in ("th", "td") and alignment in ("text-align:left", "text-align:right", "text-align:center"):
+            kept["style"] = alignment
+        attributes = "".join(f' {key}="{html.escape(value, quote=True)}"' for key, value in kept.items())
+        self.parts.append(f"<{tag}{attributes}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in CONTENT_TAGS and tag not in VOID_TAGS:
+            self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(html.escape(data, quote=False))
 
 
-def absolute_links(rendered: str) -> str:
-    return _LINK_TARGET.sub(_absolute_link, rendered)
+def render_content(rendered: str, roots: tuple[Path, ...]) -> str:
+    parser = _Content(roots)
+    parser.feed(rendered)
+    parser.close()
+    return "".join(parser.parts)
 
 
 def _wrap_tables(rendered: str) -> str:
@@ -116,6 +163,7 @@ def preview_document(run_id: str, headline: str, page: str) -> str:
         '<html lang="en-GB">',
         "<head>",
         '<meta charset="utf-8">',
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         "<title>Benchmark page preview</title>",
         f"<style>{PAGE_STYLE}</style>",
