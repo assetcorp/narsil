@@ -209,14 +209,11 @@ const QUERY_SHAPE = object([
   ],
   [
     'group',
-    object(
-      [
-        ['fields', STRINGS],
-        ['limit', NUMBER],
-        ['maxPerGroup', NUMBER],
-      ],
-      ['fields'],
-    ),
+    object([
+      ['fields', STRINGS],
+      ['limit', NUMBER],
+      ['maxPerGroup', NUMBER],
+    ]),
   ],
 ])
 

@@ -212,7 +212,7 @@ const QUERY_SHAPE: Shape = Shape::Object(
                     ("limit", Shape::Number),
                     ("maxPerGroup", Shape::Number),
                 ],
-                &["fields"],
+                &[],
             ),
         ),
     ],
