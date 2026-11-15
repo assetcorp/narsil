@@ -86,7 +86,8 @@ out-of-memory kill on the first run and adjust the caps.
 
 `BENCH_MEM_CAP` is the per-engine container limit; the JVM engines (Elasticsearch,
 OpenSearch) also need `BENCH_JVM_HEAP`, which should stay at or below half the cap
-and at or below 31g. The cap follows the common benchmark practice of sizing to
+and at or below 31g. Weaviate needs no separate setting, because it sets its Go
+memory limit to 80% of `BENCH_MEM_CAP` at startup. The cap follows the common benchmark practice of sizing to
 roughly three times an engine's resident footprint while leaving room for the
 harness, which holds the embeddings. The cap you set is recorded in every results
 file, so the comparison stays transparent.
