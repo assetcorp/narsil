@@ -88,8 +88,53 @@ pub struct TaskRecord {
     pub error: Option<Map>,
 }
 
+pub(crate) const TASK_TYPES: [&str; 11] = [
+    "optimizeVectors",
+    "rebalance",
+    "restore",
+    "import",
+    "importExport",
+    "rebuildAnalysis",
+    "changeAnalysis",
+    "backup",
+    "backupRestore",
+    "backupDelete",
+    "querySuggestionsBuild",
+];
+
+fn insert_time(out: &mut Map, key: &str, time: Option<f64>) {
+    if let Some(time) = time {
+        out.insert(key, Value::Number(time));
+    }
+}
+
+fn insert_object(out: &mut Map, key: &str, object: &Option<Map>) {
+    if let Some(object) = object {
+        out.insert(key, Value::Object(object.clone()));
+    }
+}
+
+fn text_of(fields: &Map, key: &str) -> Option<String> {
+    fields.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn time_of(fields: &Map, key: &str) -> Option<f64> {
+    match fields.get(key) {
+        Some(Value::Number(time)) if time.is_finite() => Some(*time),
+        _ => None,
+    }
+}
+
+fn object_of(fields: &Map, key: &str) -> Option<Map> {
+    match fields.get(key) {
+        Some(Value::Object(object)) => Some(object.clone()),
+        _ => None,
+    }
+}
+
 impl TaskRecord {
-    /// Returns the record as the JSON object that `GET /tasks/{id}` answers with.
+    /// Returns the record as the JSON object that `GET /tasks/{id}` answers with, with its fields in the order
+    /// that the TypeScript server writes them.
     pub fn to_wire(&self) -> Value {
         let mut out = Map::new();
         out.insert("id", Value::String(self.id.clone()));
@@ -98,32 +143,50 @@ impl TaskRecord {
         if let Some(backup_name) = &self.backup_name {
             out.insert("backupName", Value::String(backup_name.clone()));
         }
-        out.insert("status", Value::String(self.status.as_str().to_string()));
         out.insert("owner", Value::String(self.owner.clone()));
+        out.insert("status", Value::String(self.status.as_str().to_string()));
         out.insert("createdAt", Value::Number(self.created_at));
-        let times = [
-            ("startedAt", self.started_at),
-            ("completedAt", self.completed_at),
-            ("cancelRequestedAt", self.cancel_requested_at),
-        ];
-        for (key, time) in times {
-            if let Some(time) = time {
-                out.insert(key, Value::Number(time));
-            }
-        }
-        let objects = [
-            ("progress", &self.progress),
-            ("steps", &self.steps),
-            ("result", &self.result),
-            ("build", &self.build),
-            ("error", &self.error),
-        ];
-        for (key, object) in objects {
-            if let Some(object) = object {
-                out.insert(key, Value::Object(object.clone()));
-            }
-        }
+        insert_time(&mut out, "startedAt", self.started_at);
+        insert_object(&mut out, "progress", &self.progress);
+        insert_object(&mut out, "steps", &self.steps);
+        insert_time(&mut out, "cancelRequestedAt", self.cancel_requested_at);
+        insert_object(&mut out, "result", &self.result);
+        insert_object(&mut out, "build", &self.build);
+        insert_object(&mut out, "error", &self.error);
+        insert_time(&mut out, "completedAt", self.completed_at);
         Value::Object(out)
+    }
+
+    /// Returns the record that `value` holds in the shape that [`TaskRecord::to_wire`] writes, or `None` where
+    /// `value` lacks a string `id`, `indexName`, or `owner`, a known `type` or `status`, or a finite `createdAt`.
+    ///
+    /// An optional field of the wrong type reads as absent.
+    pub fn from_wire(value: &Value) -> Option<TaskRecord> {
+        let Value::Object(fields) = value else {
+            return None;
+        };
+        let task_type =
+            text_of(fields, "type").filter(|kind| TASK_TYPES.contains(&kind.as_str()))?;
+        Some(TaskRecord {
+            id: text_of(fields, "id")?,
+            task_type,
+            index_name: text_of(fields, "indexName")?,
+            backup_name: text_of(fields, "backupName"),
+            status: fields
+                .get("status")
+                .and_then(Value::as_str)
+                .and_then(TaskStatus::from_wire)?,
+            owner: text_of(fields, "owner")?,
+            created_at: time_of(fields, "createdAt")?,
+            started_at: time_of(fields, "startedAt"),
+            completed_at: time_of(fields, "completedAt"),
+            cancel_requested_at: time_of(fields, "cancelRequestedAt"),
+            progress: object_of(fields, "progress"),
+            steps: object_of(fields, "steps"),
+            result: object_of(fields, "result"),
+            build: object_of(fields, "build"),
+            error: object_of(fields, "error"),
+        })
     }
 }
 
