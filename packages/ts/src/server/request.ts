@@ -1,7 +1,7 @@
 import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
 import type { BodyBudget } from './body-budget'
 import type { RequestGate } from './concurrency-gate'
-import { ServerErrorCodes } from './errors'
+import { ServerErrorCodes, toHttpError } from './errors'
 import type { ParseRefusal } from './parse-heap'
 import { type BodyKindOf, RefusedBody, readBody } from './read-body'
 import { type ResponseSink, sendError } from './response'
@@ -321,9 +321,9 @@ export function createRouteRunner(deps: RunnerDeps) {
             })
           } catch (err) {
             if (!abort.aborted) {
-              sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')
+              const { status, body } = toHttpError(err)
+              sendError(res, status, body.code, body.message, body.details)
             }
-            void err
           } finally {
             if (gated) gate.release()
           }

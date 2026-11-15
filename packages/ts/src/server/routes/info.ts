@@ -53,7 +53,7 @@ export function infoRoutes(shared: SharedRouteOptions): RouteSpec[] {
       method: 'get',
       path: '/capabilities',
       handler: 'capabilities',
-      options: probe,
+      options: bare,
       operationId: 'capabilities',
       summary: 'List the optional routes and modes that this server serves',
       tags: ['Server'],

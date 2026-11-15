@@ -310,11 +310,11 @@ describe('capabilities', () => {
     )
   })
 
-  it('needs no API key, matching the health probes', async () => {
+  it('honours the admission hook on capability discovery', async () => {
     const guarded = await startTestServer({ onRequest: () => ({ status: 401, code: 'UNAUTHORIZED', message: 'no' }) })
     try {
       const announced = await getJson(guarded.base, '/capabilities')
-      expect(announced.status).toBe(200)
+      expect(announced.status).toBe(401)
     } finally {
       await guarded.stop()
     }

@@ -1,5 +1,5 @@
 """These functions write the sentences about the conditions that every engine meets
-in a server run, which are the load, the Java heaps inside the memory cap, and the
+in a server run, which are the load, the Java and Narsil heaps inside the memory cap, and the
 path through which Narsil searches vector graphs. Each sentence comes from a value
 that the results record. Where an older run lacks a value, its sentence stays out."""
 
@@ -45,6 +45,13 @@ def java_heap_sentence(engines: list[dict]) -> str:
     if not heaps:
         return ""
     return f" Each Java engine divides that cap between its heap and the memory outside it. {and_join(heaps)}."
+
+
+def narsil_heap_sentence(narsil: dict, label: str = SINGLE_SERVER_LABEL) -> str:
+    heap = (narsil.get("server_setup") or {}).get("heap_limit_bytes")
+    if not isinstance(heap, (int, float)):
+        return ""
+    return f" {_server_subject(label)} reports that its V8 heap can grow to {gibibytes(heap)} inside that cap."
 
 
 def _server_subject(label: str) -> str:

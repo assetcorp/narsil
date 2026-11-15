@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Iterable
 
@@ -35,6 +36,12 @@ _DEFAULT_RESCORE_OVERSAMPLING = 2.0
 _OSQ4_NARROW_RESCORE_OVERSAMPLING = 5.0
 _OSQ4_NARROW_DIMENSION_LIMIT = 1024
 _ALREADY_INDEXED_CODE = "DOC_ALREADY_EXISTS"
+_HOST_CHECKOUT_DIRTY_VARIABLE = "NARSIL_GIT_DIRTY"
+_HOST_CHECKOUT_DIRTY_VALUES = {"true": True, "false": False}
+
+
+def host_checkout_dirty() -> bool | None:
+    return _HOST_CHECKOUT_DIRTY_VALUES.get(os.environ.get(_HOST_CHECKOUT_DIRTY_VARIABLE, "").strip())
 
 
 def default_rescore_oversampling(quantization: str, dims: int) -> float:
@@ -327,9 +334,12 @@ class NarsilDriver:
         workers = raw.get("workers") if isinstance(raw.get("workers"), list) else []
         copies = raw.get("workerCopies") if isinstance(raw.get("workerCopies"), list) else []
         request_threads = raw.get("requestThreads")
+        process = raw.get("process") if isinstance(raw.get("process"), dict) else {}
+        heap_limit = process.get("heapLimit")
         return {
             "worker_threads": len(workers),
             "request_threads": int(request_threads) if isinstance(request_threads, int) else None,
+            "heap_limit_bytes": int(heap_limit) if isinstance(heap_limit, (int, float)) else None,
             "scaled_out_indexes": [
                 str(entry.get("indexName")) for entry in copies if isinstance(entry, dict) and entry.get("scaledOut")
             ],
@@ -338,9 +348,10 @@ class NarsilDriver:
 
     def build_identity(self) -> dict | None:
         """The running server's own build, read from its `/version` endpoint: the
-        package version and the git commit it was built from (with a dirty-tree
-        flag). Older servers without the endpoint degrade to None so a run still
-        completes; the recorded image identity then carries the build."""
+        package version and the git commit it was built from, with the dirty-tree
+        flag that the host checkout gives. Older servers without the endpoint degrade
+        to None so a run still completes; the recorded image identity then carries
+        the build."""
 
         try:
             response = self._client.get("/version")
@@ -353,7 +364,7 @@ class NarsilDriver:
             "version": payload.get("version"),
             "build_hash": payload.get("gitSha"),
             "build_date": payload.get("buildTime"),
-            "dirty": payload.get("dirty"),
+            "dirty": host_checkout_dirty(),
             "vector_search": payload.get("vectorSearch"),
             "source_endpoint": "/version",
             "raw": payload,
