@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::value::{Map, Value};
+
 macro_rules! error_codes {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
         /// The code of a [`NarsilError`], with the same spelling as the error codes of the Narsil specification.
@@ -171,20 +173,40 @@ impl fmt::Display for ErrorCode {
 /// The error that every fallible operation of this crate returns.
 ///
 /// The [`code`](NarsilError::code) names the rule that the operation broke, with the spelling that every
-/// Narsil implementation uses, and the message says what happened in words.
+/// Narsil implementation uses, and the message says what happened in words. The
+/// [`details`](NarsilError::details) carry the values behind the failure, such as the field, the index, or the
+/// limit involved, under the keys that every Narsil implementation uses for the same refusal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NarsilError {
     code: ErrorCode,
     message: String,
+    details: Option<Box<Map>>,
 }
 
 impl NarsilError {
-    /// Builds an error with `code` and a message for a person to read.
+    /// Builds an error with `code` and a message for a person to read, and with no details.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> NarsilError {
         NarsilError {
             code,
             message: message.into(),
+            details: None,
         }
+    }
+
+    /// Returns this error with `details` in place of any that it held, where an empty set of details leaves the
+    /// error with none.
+    pub fn with_details<K: Into<String>>(
+        mut self,
+        details: impl IntoIterator<Item = (K, Value)>,
+    ) -> NarsilError {
+        let details: Map = details.into_iter().collect();
+        self.details = (!details.is_empty()).then(|| Box::new(details));
+        self
+    }
+
+    /// Returns the values behind the failure, or `None` when the code and the message say everything.
+    pub fn details(&self) -> Option<&Map> {
+        self.details.as_deref()
     }
 
     /// Returns the code that names the rule that the operation broke.

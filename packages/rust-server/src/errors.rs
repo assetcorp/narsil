@@ -241,7 +241,11 @@ impl ServerError {
 
 impl From<NarsilError> for ServerError {
     fn from(error: NarsilError) -> ServerError {
-        ServerError::coded(error.code().as_str(), error.message())
+        let mut converted = ServerError::coded(error.code().as_str(), error.message());
+        if let Some(details) = error.details() {
+            converted.details = Some(details.clone());
+        }
+        converted
     }
 }
 

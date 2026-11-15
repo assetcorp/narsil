@@ -315,6 +315,15 @@ fn a_full_engine_refuses_inserts_and_updates_and_keeps_removes_and_searches() {
             "{}",
             error.message()
         );
+        let details = error.details().expect("the refusal carries details");
+        assert_eq!(details.get("reason"), Some(&Value::from("memory_full")));
+        assert_eq!(details.get("indexName"), Some(&Value::from(INDEX)));
+        let process_bytes = details.get("processBytes").and_then(Value::as_f64);
+        let limit_bytes = details.get("processLimitBytes").and_then(Value::as_f64);
+        assert!(
+            matches!((process_bytes, limit_bytes), (Some(used), Some(limit)) if used > 0.0 && limit >= used),
+            "{details:?}"
+        );
     };
     blocked(engine.insert(INDEX, note("boiler"), Some("a")).map(|_| ()));
     blocked(engine.insert_batch(INDEX, vec![note("boiler")]).map(|_| ()));
