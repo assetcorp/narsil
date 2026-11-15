@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from narsil_servers import DISPLAY_NAME_FIELD
 from render import engine_name, is_number
 
 TRACK_TITLES = {"keyword": "Keyword", "vector": "Vector", "hybrid": "Hybrid"}
@@ -12,6 +13,11 @@ PERCENTILE_LABELS = ("p50", "p95", "p99", "p99.9", "max")
 
 def number(value: object) -> float | None:
     return float(value) if is_number(value) else None
+
+
+def recall_unrecorded(row: dict) -> bool:
+    point = row.get("operating_point") or {}
+    return "met_target" in point and point["met_target"] is None
 
 
 def levels(row: dict) -> list[dict]:
@@ -104,6 +110,10 @@ def dataset_rows(comparison: dict | None, name: str, dataset_id: str) -> list[di
     return []
 
 
+def dataset_ids(comparison: dict | None, name: str) -> list[str]:
+    return [dataset["dataset_id"] for dataset in (track(comparison, name) or {}).get("datasets", [])]
+
+
 def has_bars(rows: list[dict]) -> bool:
     return any(number((row.get("metrics") or {}).get("ndcg_cut_10")) is not None or peak_qps(row) is not None for row in rows)
 
@@ -113,7 +123,7 @@ def has_sweep(rows: list[dict]) -> bool:
 
 
 def row_label(row: dict, profile: str) -> str:
-    name = engine_name(row["engine"])
+    name = row.get(DISPLAY_NAME_FIELD) or engine_name(row["engine"])
     quantization = row.get("quantization")
     if profile == BEST_CONFIG and isinstance(quantization, str) and quantization:
         return f"{name} ({quantization})"
