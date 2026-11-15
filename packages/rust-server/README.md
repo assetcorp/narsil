@@ -72,4 +72,4 @@ fn main() -> Result<(), BoxError> {
 }
 ```
 
-The server runs every engine call on Tokio's blocking pool, so a slow search or import leaves the other requests answering. `shutdown` stops accepting connections, gives the requests in flight up to 30 seconds, stops the running tasks, and closes the engine, while `close` does the same and leaves the engine open.
+The server runs every engine call on Tokio's blocking pool, so a slow search or import leaves the other requests answering. `shutdown` stops accepting connections, gives the requests in flight up to 30 seconds, stops the running tasks, and closes the engine, while `close` does only the first two and leaves the tasks and the engine running.
