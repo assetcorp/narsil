@@ -1,5 +1,4 @@
 const { createHash } = require('node:crypto')
-const { posix } = require('node:path')
 
 const SECTION_HEADER = /^([A-Za-z][\w-]*):(.*)$/
 const SECTIONS_WITH_ENTRIES = new Set(['importers', 'packages', 'snapshots'])
@@ -140,11 +139,7 @@ function lockfileClosure(text, importerPaths, { production }) {
   const kinds = production ? ['dependencies', 'optionalDependencies'] : IMPORTER_DEPENDENCY_KINDS
   const importers = []
   const pending = []
-  const pendingImporters = [...importerPaths]
-  const visitedImporters = new Set()
-  for (const path of pendingImporters) {
-    if (visitedImporters.has(path)) continue
-    visitedImporters.add(path)
+  for (const path of importerPaths) {
     const importer = lockfile.importers.get(path)
     if (importer === undefined) throw new Error(`pnpm-lock.yaml lists no importer ${path}`)
     const dependencies = importerDependencies(importer, kinds)
@@ -154,14 +149,7 @@ function lockfileClosure(text, importerPaths, { production }) {
       if (UNSUPPORTED_LOCAL_REFERENCE.test(dependency.version)) {
         throw new Error(`pnpm-lock.yaml holds an unsupported local dependency ${dependency.version}`)
       }
-      if (dependency.version.startsWith('link:')) {
-        const linked = posix.normalize(posix.join(path, dependency.version.slice(5)))
-        if (linked === '..' || linked.startsWith('../') || posix.isAbsolute(linked))
-          throw new Error(`dependency ${linked} leaves the repository`)
-        pendingImporters.push(linked)
-      } else {
-        pending.push(snapshotKey(dependency.name, dependency.version))
-      }
+      if (!dependency.version.startsWith('link:')) pending.push(snapshotKey(dependency.name, dependency.version))
     }
     importers.push({ path, dependencies })
   }
@@ -189,11 +177,7 @@ function lockfileClosure(text, importerPaths, { production }) {
     digest.update(`\0${lockfile.snapshots.get(key).lines.join('\n')}`)
     digest.update(`\0${lockfile.packages.get(packageKey(key)).lines.join('\n')}`)
   }
-  return {
-    digest: digest.digest('hex'),
-    packages: [...new Set(snapshots.map(packageKey))].sort(),
-    importers: [...visitedImporters].sort(),
-  }
+  return { digest: digest.digest('hex'), packages: [...new Set(snapshots.map(packageKey))].sort() }
 }
 
 module.exports = { lockfileClosure }
