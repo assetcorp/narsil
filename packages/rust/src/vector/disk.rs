@@ -104,8 +104,9 @@ impl VectorField {
     }
 
     /// Stops the field's background work and drops every vector, so that the field holds none of its files open,
-    /// mapped or paged. Only a restore that takes the field's index out of the engine does this, while it holds the
-    /// index's write lock and no read runs on the index.
+    /// mapped or paged. Two callers do this, and each one holds the index's write lock while no read runs on the
+    /// index: a restore that takes the field's index out of the engine, and an engine shutdown, which retires every
+    /// index.
     pub(crate) fn release_files(&self) {
         let shared = &self.shared;
         shared.disposed.store(true, Ordering::Release);
