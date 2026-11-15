@@ -54,13 +54,15 @@ impl Language {
         core::language_index(name)
             .and_then(|index| every_language().get(index as usize))
             .cloned()
-            .ok_or_else(|| {
-                NarsilError::new(
-                    ErrorCode::LANGUAGE_NOT_SUPPORTED,
-                    format!("Language \"{name}\" is not registered"),
-                )
-                .with_details([("language", crate::value::Value::from(name))])
-            })
+            .ok_or_else(|| Language::not_registered(name))
+    }
+
+    pub(crate) fn not_registered(name: &str) -> NarsilError {
+        NarsilError::new(
+            ErrorCode::LANGUAGE_NOT_SUPPORTED,
+            format!("Language \"{name}\" is not registered"),
+        )
+        .with_details([("language", crate::value::Value::from(name))])
     }
 
     /// Returns every language that the native core analyses, in the core's order.

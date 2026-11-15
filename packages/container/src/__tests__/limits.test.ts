@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ADMIN_KEY, call, type RunningNode, startNode } from './support/node'
+import { ADMIN_KEY, call, HOLDS_WORKER_COPIES, type RunningNode, startNode } from './support/node'
 
 describe.each(['0', '2'])('result limits with %s workers', workers => {
   let node: RunningNode
@@ -32,7 +32,8 @@ describe.each(['0', '2'])('result limits with %s workers', workers => {
         ).status,
       ).toBe(201)
     }
-    if (workers !== '0') await node.waitForStdout(line => line.includes('"engine.workerPromote"'))
+    if (workers !== '0' && HOLDS_WORKER_COPIES)
+      await node.waitForStdout(line => line.includes('"engine.workerPromote"'))
   })
 
   it('bounds grouped and faceted answers and rejects a string page size', async () => {

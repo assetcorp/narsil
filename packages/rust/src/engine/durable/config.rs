@@ -109,6 +109,13 @@ pub struct NarsilConfig {
     pub max_rerank_window: Option<usize>,
     /// The key of popular query suggestions, or `None` for an engine that counts no searches.
     pub query_suggestions: Option<QuerySuggestionsConfig>,
+    /// The languages that an index may take, or `None` for every language that the native core analyses.
+    ///
+    /// The engine refuses a language outside the list with `LANGUAGE_NOT_SUPPORTED`, the error that TypeScript's
+    /// engine raises for a language that nobody registered, wherever an index takes its language: a create, an
+    /// analysis change, a snapshot restore, and the recovery of a stored index. [`crate::Narsil::open`] fails with
+    /// `LANGUAGE_NOT_SUPPORTED` for a name in the list that the native core holds no module for.
+    pub languages: Option<Vec<String>>,
 }
 
 impl std::fmt::Debug for NarsilConfig {
@@ -126,6 +133,7 @@ impl std::fmt::Debug for NarsilConfig {
             .field("rerank_timeout_ms", &self.rerank_timeout_ms)
             .field("max_rerank_window", &self.max_rerank_window)
             .field("query_suggestions", &self.query_suggestions)
+            .field("languages", &self.languages)
             .finish()
     }
 }
