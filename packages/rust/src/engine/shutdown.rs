@@ -51,6 +51,9 @@ impl Narsil {
         self.inner.search_limits.stop.stop_every_search();
         self.inner.suggestions.stop(&self.inner);
         self.inner.shut_down.store(true, Ordering::Release);
+        for index in self.inner.index_list() {
+            index.residency.wake_waiters();
+        }
         self.inner.shutdown_gate.await_admitted();
         self.inner.lifecycle.sweeper.stop();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());
@@ -61,7 +64,7 @@ impl Narsil {
             index.empty_partitions();
             index.vectors.release_files();
             drop(writer);
-            index.residency.finish_close();
+            index.residency.wake_waiters();
         }
         self.inner.lifecycle.clear();
         let closed = match &self.inner.durable {
