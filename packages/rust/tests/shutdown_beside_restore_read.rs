@@ -163,6 +163,7 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
     let mut awakened = Vec::new();
     while awakened.len() < readers.len() {
         match answers.recv_timeout(ANSWER_WAIT) {
+            Ok((_, Ok(false))) => {}
             Ok(answer) => awakened.push(answer),
             Err(_) => break,
         }
