@@ -9,6 +9,7 @@ mod ids;
 mod maintenance;
 mod options;
 mod server;
+mod settings;
 mod state;
 mod tasks;
 
