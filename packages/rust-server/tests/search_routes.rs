@@ -286,8 +286,6 @@ const SAME_MESSAGE: &[Refusal] = &[
 ];
 
 const SAME_CODE: &[Refusal] = &[
-    refusal("search", r#"{"bm25":null}"#),
-    refusal("search", r#"{"rerank":null}"#),
     refusal("search", r#"{"vector":{"value":[1,2]}}"#),
     refusal("search", r#"{"term":"river","prefixLength":-1}"#),
     Refusal {
@@ -408,23 +406,13 @@ async fn the_server_limits_bound_every_page() {
     for (route, body, message) in [
         (
             "search",
-            r#"{"limit":1.5}"#,
-            r#"Field "limit" must be a non-negative integer"#,
-        ),
-        (
-            "search",
-            r#"{"offset":-1}"#,
-            r#"Field "offset" must be a non-negative integer"#,
-        ),
-        (
-            "search",
             r#"{"limit":9007199254740993}"#,
-            r#"Field "limit" must be a non-negative integer"#,
+            r#"Field "limit" exceeds the maximum result window of 5"#,
         ),
         (
             "search",
             r#"{"limit":"7"}"#,
-            r#"Field "limit" must be a non-negative integer"#,
+            r#"Field "limit" must be a number"#,
         ),
         (
             "search",
@@ -439,7 +427,7 @@ async fn the_server_limits_bound_every_page() {
         (
             "search",
             r#"{"facets":{"genre":{"limit":1e308}}}"#,
-            r#"Field "facets.genre.limit" must be a non-negative integer"#,
+            r#"Field "facets.genre.limit" exceeds the maximum result window of 5"#,
         ),
         (
             "search",

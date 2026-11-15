@@ -6,6 +6,7 @@ mod reader;
 mod reads;
 mod regex_policy;
 mod server_limits;
+mod shape;
 mod suggestions;
 
 pub(crate) use answer::respond_answer;
@@ -19,4 +20,5 @@ pub(crate) use server_limits::{
     default_list_limit, not_an_object, validate_list, validate_query, validate_suggest,
     with_server_query_limits,
 };
+pub(crate) use shape::shaped_query;
 pub(crate) use suggestions::{bans_value, preview_value, recorded_value, status_value};

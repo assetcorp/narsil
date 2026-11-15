@@ -4,7 +4,9 @@ use narsil::{
 };
 
 use crate::errors::ServerError;
-use crate::search::reader::{Converted, Fields, refusal, safe_whole, size_of, strings_of};
+use crate::search::reader::{
+    Converted, Fields, details_of, refusal, safe_whole, size_of, strings_of,
+};
 
 const METRICS: [(&str, Metric); 3] = [
     ("cosine", Metric::Cosine),
@@ -50,7 +52,9 @@ fn whole_or(fields: &Fields<'_>, key: &str, message: &str) -> Converted<Option<u
         Some(value) => safe_whole(value)
             .and_then(|whole| u32::try_from(whole).ok())
             .map(Some)
-            .ok_or_else(|| config_invalid(message)),
+            .ok_or_else(|| {
+                config_invalid(message).with_details(details_of(vec![(key, value.clone())]))
+            }),
     }
 }
 
@@ -136,6 +140,7 @@ pub(crate) fn hybrid_config(hybrid: &Value) -> Converted<HybridConfig> {
         None => None,
         Some(value) => Some(size_of(value).ok_or_else(|| {
             config_invalid("hybrid.depth must be a whole number from 1 to 10000")
+                .with_details(details_of(vec![("depth", value.clone())]))
         })?),
     };
     Ok(HybridConfig {
@@ -158,7 +163,7 @@ fn rerank_invalid(message: impl Into<String>) -> ServerError {
     refusal(ErrorCode::RERANK_CONFIG_INVALID, message)
 }
 
-pub(crate) fn rerank_refusal() -> ServerError {
+fn rerank_refusal() -> ServerError {
     rerank_invalid("rerank must be an object that gives an adapter and the fields to rerank by")
 }
 
@@ -190,6 +195,10 @@ pub(crate) fn rerank_config(rerank: &Value, max_rerank_window: usize) -> Convert
             rerank_invalid(format!(
                 "rerank.window must be a whole number from 1 to {max_rerank_window}"
             ))
+            .with_details(details_of(vec![
+                ("window", window.clone()),
+                ("maxRerankWindow", Value::Number(max_rerank_window as f64)),
+            ]))
         })?),
     };
     Ok(RerankConfig {
@@ -200,7 +209,7 @@ pub(crate) fn rerank_config(rerank: &Value, max_rerank_window: usize) -> Convert
     })
 }
 
-pub(crate) fn bm25_refusal() -> ServerError {
+fn bm25_refusal() -> ServerError {
     config_invalid("bm25 must be an object that sets k1, b, or fields")
 }
 

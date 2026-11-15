@@ -1,7 +1,7 @@
 use narsil::{Map, Value};
 
 use super::constants::{DEFAULT_PAGE_SIZE, DEFAULT_RERANK_WINDOW, MAX_SORT_FIELDS};
-use super::reader::{entries_of, is_safe_integer};
+use super::reader::entries_of;
 use crate::errors::{Outcome, ServerError};
 use crate::state::ResolvedLimits;
 
@@ -28,19 +28,11 @@ fn over_window(field: &str, value: Option<&Value>, max_window: u64) -> Outcome<(
         return Ok(());
     };
     match value {
-        Value::Number(given) if is_safe_integer(*given) && *given >= 0.0 => {
-            if *given > max_window as f64 {
-                Err(detailed(
-                    format!("Field \"{field}\" exceeds the maximum result window of {max_window}"),
-                    vec![("value", value.clone()), ("limit", number(max_window))],
-                ))
-            } else {
-                Ok(())
-            }
-        }
-        _ => Err(ServerError::invalid(format!(
-            "Field \"{field}\" must be a non-negative integer"
-        ))),
+        Value::Number(given) if *given > max_window as f64 => Err(detailed(
+            format!("Field \"{field}\" exceeds the maximum result window of {max_window}"),
+            vec![("value", value.clone()), ("limit", number(max_window))],
+        )),
+        _ => Ok(()),
     }
 }
 

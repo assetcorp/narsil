@@ -9,8 +9,8 @@ use crate::http::respond::{HttpResponse, json};
 use crate::http::routes::Route;
 use crate::search::{
     Converted, default_list_limit, list_answer, list_params, preflight_value, query_answer,
-    query_params, refused_regex, respond_answer, suggest_params, suggest_value, validate_list,
-    validate_query, validate_suggest, with_server_query_limits,
+    query_params, refused_regex, respond_answer, shaped_query, suggest_params, suggest_value,
+    validate_list, validate_query, validate_suggest, with_server_query_limits,
 };
 use crate::state::ServerState;
 
@@ -48,10 +48,13 @@ async fn search(
     context: RouteContext,
     preflight: bool,
 ) -> Outcome<HttpResponse> {
-    let params = object_body(&context)?;
+    let params = shaped_query(object_body(&context)?)?;
     validate_query(&params, &state.limits)?;
     regex_check(&state, &params)?;
-    let params = with_server_query_limits(params, &state.limits);
+    let mut params = with_server_query_limits(params, &state.limits);
+    if preflight {
+        params.remove("pinned");
+    }
     let index = context.param(0).to_string();
     let max_rerank_window = state.engine.max_rerank_window();
     let query =
