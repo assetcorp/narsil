@@ -1,4 +1,4 @@
-import { readdirSync, writeFileSync } from 'node:fs'
+import { closeSync, ftruncateSync, mkdirSync, openSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
@@ -61,6 +61,45 @@ async function finishedTask(node: RunningNode, id: string): Promise<{ status: st
 }
 
 describe('the data folder across a restart', () => {
+  it('ignores symbolic links and oversized records without exposing files outside the task folder', async () => {
+    const folder = dataFolder('planted-records')
+    const tasks = join(folder, 'tasks')
+    const hooks = join(folder, 'webhooks')
+    mkdirSync(tasks)
+    mkdirSync(hooks)
+    const privateFile = join(folder, 'private.json')
+    writeFileSync(
+      privateFile,
+      JSON.stringify({
+        id: 'private',
+        type: 'import',
+        status: 'succeeded',
+        indexName: 'books',
+        owner: 'previous-node',
+        createdAt: 1,
+        error: { message: 'private account credential' },
+      }),
+    )
+    symlinkSync(privateFile, join(tasks, 'private.json'))
+    for (const directory of [tasks, hooks]) {
+      const file = openSync(join(directory, 'oversized.json'), 'w')
+      ftruncateSync(file, 1024 * 1024 * 1024)
+      closeSync(file)
+    }
+    const node = await start({
+      NARSIL_DATA_DIR: folder,
+      NARSIL_WEBHOOK_URL: 'http://127.0.0.1:9/events',
+      NARSIL_WEBHOOK_SECRET: `whsec_${Buffer.alloc(32, 1).toString('base64')}`,
+    })
+    const answer = await call(node, 'GET', '/tasks/private', { credential: ADMIN_KEY })
+    expect(answer.status).toBe(404)
+    expect(JSON.stringify(await call(node, 'GET', '/tasks', { credential: ADMIN_KEY }))).not.toContain(
+      'private account',
+    )
+    expect((await call(node, 'GET', '/readyz')).status).toBe(200)
+    await stopCleanly(node)
+  })
+
   it('keeps the documents and the task records, and skips junk that a person left in tasks/', async () => {
     const folder = dataFolder('restart')
     const first = await start({ NARSIL_DATA_DIR: folder })
