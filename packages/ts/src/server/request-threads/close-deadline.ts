@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { SERVER_CLOSE_ACKNOWLEDGE_GRACE_MS, SERVER_CLOSE_DRAIN_DEADLINE_MS } from '../constants'
+import { waitUntilWallClock } from '../wall-clock-wait'
 import { closeEveryThreadAtExit, threadCloseAcknowledged, threadCloseAcknowledgedWithin } from './close-at-exit'
 
 export async function closeThreadsByDeadline(
@@ -7,14 +8,9 @@ export async function closeThreadsByDeadline(
   closed: Promise<unknown>,
   deadline: number,
 ): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined
+  const drained = waitUntilWallClock(deadline)
   try {
-    await Promise.race([
-      closed,
-      new Promise<void>(resolve => {
-        timer = setTimeout(resolve, Math.max(0, deadline - Date.now()))
-      }),
-    ])
+    await Promise.race([closed, drained.reached])
     closeEveryThreadAtExit(words, 0)
     await Promise.all([...words].map(word => threadCloseAcknowledgedWithin(word, SERVER_CLOSE_ACKNOWLEDGE_GRACE_MS)))
     const unacknowledged = [...words].filter(word => !threadCloseAcknowledged(word)).length
@@ -26,6 +22,6 @@ export async function closeThreadsByDeadline(
       )
     }
   } finally {
-    clearTimeout(timer)
+    drained.cancel()
   }
 }

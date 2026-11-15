@@ -45,7 +45,7 @@ it.concurrent.for([false, true])(
     try {
       pending.end()
       await started
-      const began = performance.now()
+      const began = Date.now()
       let closed = false
       const closing = server.server.close().then(() => {
         closed = true
@@ -53,7 +53,7 @@ it.concurrent.for([false, true])(
       await new Promise(resolve => setTimeout(resolve, 29_000))
       expect(closed).toBe(false)
       await closing
-      const elapsed = performance.now() - began
+      const elapsed = Date.now() - began
       expect(elapsed).toBeGreaterThanOrEqual(30_000)
       expect(elapsed).toBeLessThan(35_000)
       expect(['closed', 503]).toContain(await ended)
