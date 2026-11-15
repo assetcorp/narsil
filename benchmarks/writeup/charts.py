@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from chart_bars import bars_figure
-from chart_data import BEST_CONFIG, EQUAL_PRECISION, track, tracks
+from chart_data import BEST_CONFIG, EQUAL_PRECISION, dataset_ids, tracks
 from chart_embedded import embedded_scale_figure
 from chart_languages import languages_figures
 from chart_recall import recall_figure
@@ -27,10 +27,10 @@ def _server_charts(root: Path, source: Source, best: Source | None) -> list[Path
                 written.append(bars_figure(root, source.run_id, profile, name, dataset["dataset_id"], dataset["rows"]))
                 written.append(sweep_figure(root, source.run_id, profile, name, dataset["dataset_id"], dataset["rows"]))
             written.append(tail_figure(root, source.run_id, profile, name, entry["datasets"]))
-    vector = track(source.data, "vector")
     comparisons = {EQUAL_PRECISION: source.data, BEST_CONFIG: best.data if best is not None else None}
-    for dataset in (vector or {}).get("datasets", []):
-        written.append(recall_figure(root, source.run_id, dataset["dataset_id"], comparisons))
+    vector_ids = dict.fromkeys(dataset for comparison in comparisons.values() for dataset in dataset_ids(comparison, "vector"))
+    for dataset_id in vector_ids:
+        written.append(recall_figure(root, source.run_id, dataset_id, comparisons))
     return [path for path in written if path is not None]
 
 
