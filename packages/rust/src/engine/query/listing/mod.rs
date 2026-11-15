@@ -6,9 +6,7 @@ mod seek;
 use std::time::{Duration, Instant};
 
 use super::constants::DEFAULT_PAGE_SIZE;
-use super::cursor::{
-    PageCursor, decode_page_cursor, encode_page_cursor, list_binding, require_matching_cursor,
-};
+use super::cursor::{PageCursor, decode_matching_cursor, encode_page_cursor, list_binding};
 use super::params::DocumentProjection;
 use super::projection::resolve_projection;
 use super::require_within_result_window;
@@ -76,11 +74,7 @@ fn listed_page(
     let binding = list_binding(params.filters.as_ref());
     let anchor = match &params.cursor {
         None => None,
-        Some(text) => {
-            let cursor = decode_page_cursor(text)?;
-            require_matching_cursor(&cursor, None, false, &binding)?;
-            Some(cursor.anchor)
-        }
+        Some(text) => Some(decode_matching_cursor(text, None, false, &binding)?.anchor),
     };
     require_listing_filter(params.filters.as_ref())?;
     let partitions = index.partitions();

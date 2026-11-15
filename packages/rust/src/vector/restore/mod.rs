@@ -158,7 +158,11 @@ impl VectorRestore {
                     "Payload dimension {} does not match index dimension {dimension}",
                     file.dimension
                 ),
-            ));
+            )
+            .with_details([
+                ("expected", crate::value::Value::from(dimension)),
+                ("received", crate::value::Value::from(file.dimension)),
+            ]));
         }
         let mut writer = shared.lock_writer();
         let on_disk = shared.settings.reads_from_disk() && loaded.location.is_some();

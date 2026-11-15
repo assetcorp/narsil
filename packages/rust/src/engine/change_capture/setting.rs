@@ -8,6 +8,7 @@ use crate::engine::sync::{new_sync_epoch, require_limit};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::ChangesSetting as StoredChangesSetting;
+use crate::value::Value;
 
 /// The change capture setting of one index, which [`Narsil::update_changes`] takes.
 ///
@@ -56,6 +57,7 @@ fn log_store_of(index: &IndexState) -> Result<Arc<DurabilityStore>> {
                     index.name
                 ),
             )
+            .with_details([("indexName", Value::from(index.name.as_str()))])
         })
 }
 
