@@ -6,7 +6,6 @@ use http::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use http::{Response, StatusCode};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty, Full, StreamBody};
-use hyper::body::Frame;
 use narsil::{Value, write_plain_json};
 use tokio::sync::mpsc;
 use tokio_stream_shim::ReceiverStream;
@@ -48,10 +47,6 @@ pub(crate) fn json_text(status: u16, text: String) -> HttpResponse {
 
 pub(crate) fn json(status: u16, value: &Value) -> HttpResponse {
     json_text(status, write_plain_json(value))
-}
-
-pub(crate) fn bytes(status: u16, content_type: &str, data: impl Into<Bytes>) -> HttpResponse {
-    with_body(status, content_type, full_body(data))
 }
 
 pub(crate) fn empty(status: u16) -> HttpResponse {
@@ -99,10 +94,6 @@ pub(crate) fn insert_header(response: &mut HttpResponse, name: &str, value: &str
     ) {
         response.headers_mut().append(name, value);
     }
-}
-
-pub(crate) fn frame(chunk: Bytes) -> io::Result<Frame<Bytes>> {
-    Ok(Frame::data(chunk))
 }
 
 mod tokio_stream_shim {
