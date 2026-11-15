@@ -116,3 +116,27 @@ def test_invalid_recall_status_cannot_publish_a_speed_as_ranked(checkout):
     completed = command(checkout, "generate.py")
     assert completed.returncode != 0
     assert "met_target must be a boolean" in completed.stderr
+
+
+def test_rust_only_throughput_appears_in_the_headline(checkout):
+    write_comparison(checkout, comparison([row("narsil-rust", 1500), row("elasticsearch", 1000)]))
+    page, headline = generate(checkout)
+    assert "On SciFact, Narsil's Rust server answers 1,500 keyword queries a second at its peak." in headline
+    assert "Narsil has the highest peak throughput in 1 of the 1 keyword comparisons" in headline
+    assert "The comparison runs Narsil Rust n/a against Elasticsearch n/a" in page
+    assert "Narsil TypeScript started" not in page
+
+
+def test_different_rankings_and_failed_recall_are_reported_from_the_rows(checkout):
+    rust = row("narsil-rust", 1500, 0.4)
+    rust["operating_point"] = {"met_target": True, "achieved_recall": 0.5, "target": 0.99}
+    data = comparison([row("narsil", 900), rust, row("qdrant", 1000)])
+    data["tracks"][0]["track"] = "vector"
+    write_comparison(checkout, data)
+    page, headline = generate(checkout)
+    assert "each returns the same ranking" not in page
+    assert "The tables report each engine's measured ranking quality." in page
+    assert "1,500 (below recall target)" in page
+    assert "Narsil's Rust server misses the recall target, so the comparison leaves its speed unranked." in headline
+    assert "with every engine held" not in headline
+    assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in headline

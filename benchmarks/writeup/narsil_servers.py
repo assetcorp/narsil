@@ -73,9 +73,9 @@ def _with_every_server(entries: list[dict], key: str) -> list[dict]:
 def with_every_narsil_server(comparison: dict) -> dict:
     result = copy.deepcopy(comparison)
     engines = list(result.get("engines") or [])
-    recorded = {row.get("engine") for row in comparison_rows(result) if not is_unmeasured(row)}
-    for name in NARSIL_SERVERS:
-        if name in recorded and engine_entry(engines, name) is None:
+    recorded = dict.fromkeys(row.get("engine") for row in comparison_rows(result) if not is_unmeasured(row))
+    for name in recorded:
+        if engine_entry(engines, name) is None:
             engines.append({"name": name})
     result["engines"] = _with_every_server(engines, "name")
     for entry in result.get("tracks") or []:

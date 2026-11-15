@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from chart_data import track
-from narsil_servers import NARSIL_TYPESCRIPT, engine_entry, engine_label, is_narsil_server, is_unmeasured, narsil_row
+from narsil_servers import NARSIL_RUST, NARSIL_TYPESCRIPT, engine_entry, engine_label, is_narsil_server, is_unmeasured, narsil_row
 from render import and_join, dataset_name, gibibytes, integer
 from run_conditions import SINGLE_SERVER_LABEL, java_heap_sentence, load_sentence, narsil_vector_search_bullets
 from sources import Source
@@ -116,8 +116,12 @@ def _engines_bullet(engines: list[dict]) -> str:
         for engine in engines
         if not is_narsil_server(engine.get("name"))
     ]
-    narsil = and_join([*measured, *unmeasured]) or f"{SINGLE_SERVER_LABEL} n/a"
-    bullet = f"- **Engines.** The comparison runs {narsil} against {and_join(others)}, and every engine runs from a pinned image."
+    narsil = and_join(measured)
+    if narsil and others:
+        bullet = f"- **Engines.** The comparison runs {narsil} against {and_join(others)}, and every engine runs from a pinned image."
+    else:
+        participants = and_join([*measured, *others])
+        bullet = f"- **Engines.** The comparison records {participants}." if participants else "- **Engines.** The harness recorded no engine metadata."
     if unmeasured:
         bullet += (
             f" The harness has not measured {and_join(unmeasured)} in this run, so every table and chart lists it as "
@@ -135,7 +139,8 @@ def setup_block(source: Source) -> str:
 
     narsil = engine_entry(engines, NARSIL_TYPESCRIPT) or {}
     label = engine_label(engines, NARSIL_TYPESCRIPT) if narsil else SINGLE_SERVER_LABEL
-    build = narsil.get("build_identity") or {}
+    measured = narsil if narsil and not is_unmeasured(narsil) else engine_entry(engines, NARSIL_RUST) or {}
+    build = measured.get("build_identity") or {}
     commit = (build.get("build_hash") or "")[:12] or "unknown"
     dirty = ", which sits ahead of the released version" if build.get("dirty") else ""
     cap = gibibytes(config.get("memory_cap_bytes"))
@@ -151,7 +156,7 @@ def setup_block(source: Source) -> str:
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
         f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
         f"- **Load.** {load_sentence(config)}",
-        f"- **{label} threads.** {_threads_sentence(narsil, label)}",
+        *([f"- **{label} threads.** {_threads_sentence(narsil, label)}"] if narsil and not is_unmeasured(narsil) else []),
         *narsil_vector_search_bullets(narsil, label),
         f"- **Machine.** {_machine_sentence(environment, engines)}",
         f"- **BM25 calibration.** Narsil indexes each corpus with BM25 k1={config.get('k1')} and b={config.get('b')}, "

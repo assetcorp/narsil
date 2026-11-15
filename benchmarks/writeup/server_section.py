@@ -55,6 +55,8 @@ def _qps_cell(row: dict) -> str:
         cell += f" ({integer(interval[0])} to {integer(interval[1])})"
     if _client_bound(row):
         cell += " (client-limited)"
+    if (row.get("operating_point") or {}).get("met_target") is False:
+        cell += " (below recall target)"
     return cell
 
 
@@ -201,6 +203,14 @@ def _vector_intro(comparison: dict, config: dict) -> str:
             continue
         ndcg = decimal(_metric(narsil, "ndcg_cut_10"), 4) if narsil else "n/a"
         recall = decimal(_metric(narsil, "recall_100"), 4) if narsil else "n/a"
+        measured = [row for row in rows if not is_unmeasured(row)]
+        same_ranking = narsil is not None and all(
+            _metric(narsil, key) is not None and _metric(row, key) == _metric(narsil, key)
+            for row in measured for key in ("ndcg_cut_10", "recall_100")
+        )
+        if not same_ranking:
+            sentences.append(f"{opening}. The tables report each engine's measured ranking quality.")
+            continue
         sentences.append(
             f"{opening}, and each returns the same ranking, so nDCG@10 is {ndcg} and Recall@100 is {recall} "
             "across the field."
