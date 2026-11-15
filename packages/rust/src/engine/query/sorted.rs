@@ -1,4 +1,4 @@
-use super::cursor::{PageCursor, decode_page_cursor, encode_page_cursor, require_matching_cursor};
+use super::cursor::{PageCursor, decode_matching_cursor, encode_page_cursor};
 use super::documents::Location;
 use super::facets::count_facets;
 use super::gather::{QueryRun, collected_segments, search_text};
@@ -36,8 +36,7 @@ fn anchor_of(
     let Some(text) = run.params.search_after.as_deref() else {
         return Ok(None);
     };
-    let decoded = decode_page_cursor(text)?;
-    require_matching_cursor(&decoded, Some(signature), true, run.binding())?;
+    let decoded = decode_matching_cursor(text, Some(signature), true, run.binding())?;
     let key = decoded
         .sort_key
         .unwrap_or_default()

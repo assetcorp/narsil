@@ -59,6 +59,7 @@ impl Language {
                     ErrorCode::LANGUAGE_NOT_SUPPORTED,
                     format!("Language \"{name}\" is not registered"),
                 )
+                .with_details([("language", crate::value::Value::from(name))])
             })
     }
 

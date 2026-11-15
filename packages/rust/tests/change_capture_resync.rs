@@ -4,13 +4,13 @@ use std::time::{Duration, Instant};
 
 use narsil::{
     ChangePosition, ChangeType, ChangesEvent, ChangesRequest, ChangesSetting, ErrorCode,
-    FieldTests, Filter, Narsil, QueryParams, ResyncReason, SyncSetting, Value,
+    FieldTests, Filter, Narsil, QueryParams, ResyncReason, SyncSetting, Value, parse_json,
 };
-use support::ScratchDirectory;
 use support::changes::{
     FEED_WAIT, INDEX, Oracle, Subscriber, capture, first_event, heads_of, history_files,
     open_orders, order, resync_of,
 };
+use support::{ScratchDirectory, details_json};
 
 const RETENTION_WAIT: Duration = Duration::from_secs(60);
 const SAFE_INTEGER_LIMIT: u64 = 9_007_199_254_740_991;
@@ -283,40 +283,50 @@ fn malformed_requests_and_settings_fail_with_their_codes() {
     for _ in 0..64 {
         too_deep = Filter::negate(too_deep);
     }
-    for (broken, code) in [
+    let field_outside_fields =
+        parse_json(r#"{"status": {"eq": "open"}}"#).expect("the filter parses");
+    for (broken, code, details) in [
         (
             Filter::field("absent", FieldTests::new().eq("open")),
             ErrorCode::SEARCH_INVALID_FIELD,
+            Some(r#"{"field":"absent","option":"filter"}"#),
         ),
         (
             Filter::field("total", FieldTests::new().eq("not a number")),
             ErrorCode::SEARCH_INVALID_FILTER,
+            Some(r#"{"fieldPath":"total","operator":"eq"}"#),
+        ),
+        (
+            Filter::from_value(field_outside_fields),
+            ErrorCode::SEARCH_INVALID_FILTER,
+            Some(r#"{"key":"status"}"#),
         ),
         (
             Filter::from_value(Value::String("status".into())),
             ErrorCode::SEARCH_INVALID_FILTER,
+            None,
         ),
-        (too_deep, ErrorCode::SEARCH_INVALID_FILTER),
+        (too_deep, ErrorCode::SEARCH_INVALID_FILTER, None),
     ] {
         let query = QueryParams {
             filters: Some(broken.to_value()),
             ..QueryParams::default()
         };
-        assert_eq!(
-            narsil
-                .query(INDEX, &query)
-                .expect_err("the query refuses the filter")
-                .code(),
-            code,
-            "{broken:?}"
-        );
+        let refused = narsil
+            .query(INDEX, &query)
+            .expect_err("the query refuses the filter");
+        assert_eq!(refused.code(), code, "{broken:?}");
+        assert_eq!(details_json(&refused).as_deref(), details, "{broken:?}");
         let request = ChangesRequest {
             filter: Some(broken),
             ..ChangesRequest::default()
         };
+        let Err(fed) = narsil.changes(INDEX, &request) else {
+            panic!("the feed opens on a filter that the query refused");
+        };
         assert_eq!(
-            refusal(&narsil, &request),
-            code,
+            (fed.code(), details_json(&fed).as_deref()),
+            (code, details),
             "a feed refuses a filter as a query does"
         );
     }

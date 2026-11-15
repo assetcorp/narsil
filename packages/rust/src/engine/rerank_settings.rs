@@ -3,6 +3,7 @@ use super::query::constants::{
     MIN_RERANK_WINDOW, RERANK_TIMEOUT_MS,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 /// How long the engine waits for a rerank adapter, and the most hits that one query may rerank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +35,8 @@ impl RerankSettings {
                 format!(
                     "rerankTimeout must be a whole number of milliseconds from {MIN_RERANK_TIMEOUT_MS} to {MAX_RERANK_TIMEOUT_MS}"
                 ),
-            ));
+            )
+            .with_details([("rerankTimeout", Value::from(timeout))]));
         }
         if let Some(window) = max_window
             && !(MIN_RERANK_WINDOW..=MAX_RERANK_WINDOW).contains(&window)
@@ -44,7 +46,8 @@ impl RerankSettings {
                 format!(
                     "maxRerankWindow must be a whole number from {MIN_RERANK_WINDOW} to {MAX_RERANK_WINDOW}"
                 ),
-            ));
+            )
+            .with_details([("maxRerankWindow", Value::from(window))]));
         }
         let defaults = RerankSettings::default();
         Ok(RerankSettings {

@@ -13,7 +13,7 @@ use crate::engine::events::FeedChange;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::SyncSetting as StoredSyncSetting;
-use crate::value::Value;
+use crate::value::{Value, number_to_text};
 use constants::{MAX_SYNC_LIMIT, SYNC_EPOCH_BYTES};
 
 /// The device sync setting of one index, which [`Narsil::update_sync`] takes.
@@ -185,7 +185,8 @@ pub(crate) fn require_limit(feature: &str, name: &str, value: Option<u64>) -> Re
         Some(limit) if limit == 0 || limit > MAX_SYNC_LIMIT => Err(NarsilError::new(
             ErrorCode::CONFIG_INVALID,
             format!("The {feature} setting {name} must be a positive whole number"),
-        )),
+        )
+        .with_details([(name, Value::from(number_to_text(limit as f64)))])),
         _ => Ok(()),
     }
 }
@@ -203,6 +204,7 @@ pub(super) fn log_store_of(index: &IndexState) -> Result<Arc<DurabilityStore>> {
                     index.name
                 ),
             )
+            .with_details([("indexName", Value::from(index.name.as_str()))])
         })
 }
 
@@ -219,7 +221,8 @@ fn require_no_query_suggestions(metadata: &IndexMetadata, index_name: &str) -> R
         format!(
             "Index \"{index_name}\" has popular query suggestions on, so it cannot sync to devices: a device receives the whole index of one user, while a suggestion comes from the searches of several people"
         ),
-    ))
+    )
+    .with_details([("indexName", Value::from(index_name))]))
 }
 
 fn apply_setting(

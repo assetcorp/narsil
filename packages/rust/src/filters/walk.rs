@@ -83,6 +83,7 @@ fn checks_of(operator: &str) -> u8 {
 
 struct UnknownKey {
     message: String,
+    key: String,
 }
 
 struct FilterWalk<'s> {
@@ -102,6 +103,10 @@ fn undeclared_filter_field(field: &str) -> NarsilError {
             "The schema declares no field \"{field}\", while the engine answers a filter only from the indexes that it keeps for declared fields. Declare the field in the schema of a new index to filter by it"
         ),
     )
+    .with_details([
+        ("field", Value::from(field)),
+        ("option", Value::from("filter")),
+    ])
 }
 
 fn record_of(value: &Value) -> Option<Cow<'_, Map>> {
@@ -180,6 +185,7 @@ fn require_valid_field_tests(field: &FieldContext<'_>, walk: &mut FilterWalk<'_>
                     "Field \"{}\" is tested with \"{operator}\", which is no filter operator",
                     field.path
                 ),
+                key: operator.clone(),
             });
         }
         tests += tests_of_operator(operator, operand);
@@ -235,6 +241,7 @@ fn note_unknown_expression_key(expression: &Map, walk: &mut FilterWalk<'_>) {
         message: format!(
             "A filter expression takes \"fields\", \"and\", \"or\", and \"not\", and \"{key}\" is none of them. A per-field test such as {{ {key}: {{ eq: ... }} }} belongs under \"fields\""
         ),
+        key: key.clone(),
     });
 }
 
@@ -318,7 +325,10 @@ pub(crate) fn validated_filter_of(expression: &Value, schema: &CompiledSchema) -
     };
     let validated = owned_expression_of(expression, &mut walk, 0)?;
     if let Some(unknown) = walk.unknown_key {
-        return invalid(unknown.message);
+        return Err(
+            NarsilError::new(ErrorCode::SEARCH_INVALID_FILTER, unknown.message)
+                .with_details([("key", Value::from(unknown.key))]),
+        );
     }
     Ok(validated)
 }

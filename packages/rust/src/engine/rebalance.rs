@@ -11,6 +11,7 @@ use super::{EngineInner, Narsil};
 use crate::config::{DEFAULT_MAX_PARTITIONS, MAX_PARTITIONS};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::Partition;
+use crate::value::Value;
 
 fn capacity_exceeded(message: String) -> NarsilError {
     NarsilError::new(ErrorCode::PARTITION_CAPACITY_EXCEEDED, message)
@@ -20,7 +21,8 @@ fn require_target(index: &IndexState, target: usize) -> Result<()> {
     if target == 0 {
         return Err(capacity_exceeded(format!(
             "Target partition count must be a positive integer, got {target}"
-        )));
+        ))
+        .with_details([("targetPartitionCount", Value::from(target))]));
     }
     let ceiling = index
         .config()
@@ -31,7 +33,11 @@ fn require_target(index: &IndexState, target: usize) -> Result<()> {
     if target as u64 > ceiling {
         return Err(capacity_exceeded(format!(
             "Target partition count ({target}) is above the maximum of {ceiling} partitions"
-        )));
+        ))
+        .with_details([
+            ("targetPartitionCount", Value::from(target)),
+            ("maxPartitions", Value::from(ceiling)),
+        ]));
     }
     Ok(())
 }
@@ -49,7 +55,8 @@ fn require_no_pending_analysis(index: &IndexState) -> Result<()> {
             "Index \"{}\" is changing its analysis settings, so try the rebalance again once the change ends",
             index.name
         ),
-    ))
+    )
+    .with_details([("indexName", Value::from(index.name.as_str()))]))
 }
 
 fn changed_under_rebalance(index_name: &str) -> NarsilError {

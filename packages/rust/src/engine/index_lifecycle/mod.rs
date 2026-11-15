@@ -16,7 +16,8 @@ use super::name_turns::NameTurn;
 use super::query_suggestions::stored_state::SuggestionState;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
-use crate::error::{ErrorCode, NarsilError, Result};
+pub(crate) use crate::error::index_not_found;
+use crate::error::{NarsilError, Result};
 pub(crate) use close::{close_index, closed_facts};
 pub(crate) use limits::enforce_limits;
 pub(crate) use reading::PreparedRead;
@@ -178,13 +179,6 @@ impl IndexLifecycle {
         self.registry().entries.clear();
         self.changed.notify_all();
     }
-}
-
-fn index_not_found(name: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::INDEX_NOT_FOUND,
-        format!("Index \"{name}\" does not exist"),
-    )
 }
 
 impl EngineInner {

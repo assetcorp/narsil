@@ -10,6 +10,10 @@ fn invalid(source: &str, message: String) -> NarsilError {
     NarsilError::new(ErrorCode::CONFIG_INVALID, format!("{source}{message}"))
 }
 
+fn invalid_rule(source: &str, message: String, rule: usize) -> NarsilError {
+    invalid(source, message).with_details([("rule", Value::from(rule))])
+}
+
 fn holds_only(rule: &Map, keys: &[&str]) -> bool {
     rule.len() == keys.len() && keys.iter().all(|key| rule.contains_key(key))
 }
@@ -17,9 +21,10 @@ fn holds_only(rule: &Map, keys: &[&str]) -> bool {
 fn word_of(value: Option<&Value>, rule: usize, source: &str) -> Result<String> {
     match value {
         Some(Value::String(word)) => Ok(word.clone()),
-        _ => Err(invalid(
+        _ => Err(invalid_rule(
             source,
             format!("Synonym rule {rule} holds a word that is not a string"),
+            rule,
         )),
     }
 }
@@ -36,11 +41,12 @@ fn words_of(
             .as_array()
             .is_some_and(|items| (minimum..=maximum).contains(&items.len()))
     }) else {
-        return Err(invalid(
+        return Err(invalid_rule(
             source,
             format!(
                 "Synonym rule {rule} needs \"{key}\" as a list of {minimum} to {maximum} words"
             ),
+            rule,
         ));
     };
     items
@@ -51,9 +57,10 @@ fn words_of(
 
 fn rule_of(value: &Value, rule: usize, source: &str) -> Result<SynonymRule> {
     let Value::Object(entry) = value else {
-        return Err(invalid(
+        return Err(invalid_rule(
             source,
             format!("Synonym rule {rule} must be an object"),
+            rule,
         ));
     };
     if holds_only(entry, &["words"]) {
@@ -67,11 +74,12 @@ fn rule_of(value: &Value, rule: usize, source: &str) -> Result<SynonymRule> {
         let synonyms = words_of(entry.get("synonyms"), rule, "synonyms", bounds, source)?;
         return Ok(SynonymRule::OneWay { word, synonyms });
     }
-    Err(invalid(
+    Err(invalid_rule(
         source,
         format!(
             "Synonym rule {rule} must hold either \"words\" alone, or \"word\" and \"synonyms\""
         ),
+        rule,
     ))
 }
 
@@ -98,7 +106,8 @@ pub(crate) fn synonym_rules_of(value: &Value, source: &str) -> Result<Vec<Synony
         return Err(invalid(
             source,
             format!("A synonym set holds at most {MAX_SYNONYM_RULES} rules"),
-        ));
+        )
+        .with_details([("maxRules", Value::from(MAX_SYNONYM_RULES))]));
     }
     let rules = items
         .iter()

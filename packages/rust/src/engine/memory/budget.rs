@@ -1,10 +1,28 @@
 use super::constants::MEGABYTE_BYTES;
 use super::{read_process_memory, release_free_pages};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
+
+const PROCESS_MEMORY_BUDGET: &str = "process";
 
 struct Shortfall {
     needed_bytes: u64,
     available_bytes: u64,
+    limit_less_used_bytes: i128,
+}
+
+impl Shortfall {
+    fn details(&self, index_name: &str) -> [(&'static str, Value); 4] {
+        [
+            ("indexName", Value::from(index_name)),
+            ("budget", Value::from(PROCESS_MEMORY_BUDGET)),
+            ("neededBytes", Value::Number(self.needed_bytes as f64)),
+            (
+                "availableBytes",
+                Value::Number(self.limit_less_used_bytes as f64),
+            ),
+        ]
+    }
 }
 
 /// Compares `needed_bytes` with the memory that the process has free, or with its whole limit where
@@ -12,13 +30,17 @@ struct Shortfall {
 /// leaves the work unchecked.
 fn shortfall_of(needed_bytes: u64, counts_in_use: bool) -> Option<Shortfall> {
     let figures = read_process_memory()?;
-    let available_bytes = match counts_in_use {
-        true => figures.limit_bytes.saturating_sub(figures.process_bytes),
-        false => figures.limit_bytes,
+    let (available_bytes, limit_less_used_bytes) = match counts_in_use {
+        true => (
+            figures.limit_bytes.saturating_sub(figures.process_bytes),
+            i128::from(figures.limit_bytes) - i128::from(figures.process_bytes),
+        ),
+        false => (figures.limit_bytes, i128::from(figures.limit_bytes)),
     };
     (needed_bytes > available_bytes).then_some(Shortfall {
         needed_bytes,
         available_bytes,
+        limit_less_used_bytes,
     })
 }
 
@@ -54,7 +76,8 @@ pub(crate) fn require_restore_memory(
             megabytes(shortfall.needed_bytes),
             megabytes(shortfall.available_bytes)
         ),
-    ))
+    )
+    .with_details(shortfall.details(index_name)))
 }
 
 /// Refuses an analysis change of `index_name` with `ANALYSIS_REBUILD_MEMORY_EXCEEDED` where a second copy of its
@@ -74,5 +97,6 @@ pub(crate) fn require_analysis_rebuild_memory(index_name: &str, term_bytes: u64)
             megabytes(shortfall.needed_bytes),
             megabytes(shortfall.available_bytes)
         ),
-    ))
+    )
+    .with_details(shortfall.details(index_name)))
 }

@@ -16,7 +16,7 @@ pub(crate) use msgpack::{
     write_uint,
 };
 pub use msgpack::{decode_msgpack, encode_msgpack};
-pub(crate) use number_text::{javascript_text, number_to_text};
+pub(crate) use number_text::{javascript_text, javascript_typeof, number_to_text};
 
 pub(crate) const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 

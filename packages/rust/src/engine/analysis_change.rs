@@ -22,6 +22,7 @@ use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::PendingAnalysis;
 use crate::index::constants::ARRAY_POSITION_GAP;
 use crate::index::partition::Partition;
+use crate::value::Value;
 
 fn recorded_pending(index: &IndexState) -> Option<PendingAnalysis> {
     index
@@ -102,6 +103,7 @@ fn refused_during_rebalance(index_name: &str) -> NarsilError {
             "Index \"{index_name}\" is being rebalanced, so try its analysis change again once the rebalance ends"
         ),
     )
+    .with_details([("indexName", Value::from(index_name))])
 }
 
 /// Rebuilds the terms of `index` under `target` while the index keeps answering searches from its old terms, and

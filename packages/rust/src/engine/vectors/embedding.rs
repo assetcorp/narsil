@@ -83,16 +83,19 @@ pub(crate) fn validate_embedding_fields(
     }
     let flat = flatten_schema(&schema.definition);
     for (target, sources) in fields {
+        let target_field = ("field", Value::from(target.as_str()));
         let Some(target_type) = schema.field_type(target) else {
             return Err(config_invalid(format!(
                 "Embedding target field \"{target}\" does not exist in the schema"
-            )));
+            ))
+            .with_details([target_field]));
         };
         if target_type.base != BaseType::Vector {
+            let shown = type_name_of(&flat, target);
             return Err(config_invalid(format!(
-                "Embedding target field \"{target}\" must be a vector type, got \"{}\"",
-                type_name_of(&flat, target)
-            )));
+                "Embedding target field \"{target}\" must be a vector type, got \"{shown}\""
+            ))
+            .with_details([target_field, ("type", Value::from(shown))]));
         }
         if target_type.dimension as usize != dimensions {
             return Err(NarsilError::new(
@@ -101,24 +104,38 @@ pub(crate) fn validate_embedding_fields(
                     "Embedding target field \"{target}\" has dimension {} but the adapter produces {dimensions}-dimensional vectors",
                     target_type.dimension
                 ),
-            ));
+            )
+            .with_details([
+                target_field,
+                ("expected", Value::from(target_type.dimension)),
+                ("actual", Value::from(dimensions)),
+            ]));
         }
         if sources.is_empty() {
             return Err(config_invalid(format!(
                 "Embedding target field \"{target}\" must have at least one source field"
-            )));
+            ))
+            .with_details([target_field]));
         }
         for source in sources {
+            let source_field = ("field", Value::from(source.as_str()));
+            let target_of_source = ("targetField", Value::from(target.as_str()));
             let Some(source_type) = schema.field_type(source) else {
                 return Err(config_invalid(format!(
                     "Embedding source field \"{source}\" does not exist in the schema"
-                )));
+                ))
+                .with_details([source_field, target_of_source]));
             };
             if source_type.base != BaseType::String {
+                let shown = type_name_of(&flat, source);
                 return Err(config_invalid(format!(
-                    "Embedding source field \"{source}\" must be a string type, got \"{}\"",
-                    type_name_of(&flat, source)
-                )));
+                    "Embedding source field \"{source}\" must be a string type, got \"{shown}\""
+                ))
+                .with_details([
+                    source_field,
+                    ("type", Value::from(shown)),
+                    target_of_source,
+                ]));
             }
         }
     }
@@ -149,7 +166,11 @@ pub(crate) fn bind_embedding(
             None => {
                 return Err(config_invalid(format!(
                     "Embedding adapter \"{name}\" is not registered on this engine"
-                )));
+                ))
+                .with_details([
+                    ("adapter", Value::from(name.as_str())),
+                    ("available", Value::from(registered.names())),
+                ]));
             }
         },
         Some(AdapterSetting::Instance(adapter)) => {
@@ -185,12 +206,22 @@ impl AdapterFailure {
         }
     }
 
-    /// Returns the error to report, keeping an engine error that the adapter raised and wrapping anything else.
-    pub(crate) fn into_error(self, wrap: impl FnOnce(String) -> String) -> NarsilError {
+    /// Returns the error to report, keeping an engine error that the adapter raised and wrapping anything else with
+    /// the embedded vector `field` that the call fills, where it fills one.
+    pub(crate) fn into_error(
+        self,
+        wrap: impl FnOnce(&str) -> String,
+        field: Option<&str>,
+    ) -> NarsilError {
         match self {
             AdapterFailure::Raised(raised) => raised,
             AdapterFailure::Failed(message) => {
-                NarsilError::new(ErrorCode::EMBEDDING_FAILED, wrap(message))
+                NarsilError::new(ErrorCode::EMBEDDING_FAILED, wrap(&message)).with_details(
+                    field
+                        .map(|field| ("field", Value::from(field)))
+                        .into_iter()
+                        .chain([("cause", Value::from(message))]),
+                )
             }
         }
     }
@@ -210,12 +241,18 @@ pub(crate) fn call_adapter<T>(
     }
 }
 
-/// Checks a vector that an adapter returned, which must hold `dimensions` finite elements.
+/// Checks a vector that an adapter returned for the embedded vector field `field`, or for a query where `field` is
+/// `None`, which must hold `dimensions` finite elements.
 pub(crate) fn require_usable_embedding(
     vector: &[f32],
     dimensions: usize,
-    subject: &str,
+    field: Option<&str>,
 ) -> Result<()> {
+    let subject = match field {
+        Some(field) => format!("field \"{field}\""),
+        None => "query".to_string(),
+    };
+    let of_field = || field.map(|field| ("field", Value::from(field)));
     if vector.len() != dimensions {
         return Err(NarsilError::new(
             ErrorCode::EMBEDDING_DIMENSION_MISMATCH,
@@ -223,19 +260,21 @@ pub(crate) fn require_usable_embedding(
                 "Adapter returned {}-dimensional vector for {subject}, expected {dimensions}",
                 vector.len()
             ),
-        ));
+        )
+        .with_details(of_field().into_iter().chain([
+            ("expected", Value::from(dimensions)),
+            ("actual", Value::from(vector.len())),
+        ])));
     }
-    if let Some(at) = vector.iter().position(|element| element.is_nan()) {
-        return Err(NarsilError::new(
-            ErrorCode::EMBEDDING_FAILED,
-            format!("Adapter returned vector with NaN at index {at} for {subject}"),
-        ));
-    }
-    if let Some(at) = vector.iter().position(|element| element.is_infinite()) {
-        return Err(NarsilError::new(
-            ErrorCode::EMBEDDING_FAILED,
-            format!("Adapter returned vector with an infinite element at index {at} for {subject}"),
-        ));
-    }
-    Ok(())
+    let Some(at) = vector.iter().position(|element| !element.is_finite()) else {
+        return Ok(());
+    };
+    let message = match vector[at].is_nan() {
+        true => format!("Adapter returned vector with NaN at index {at} for {subject}"),
+        false => {
+            format!("Adapter returned vector with an infinite element at index {at} for {subject}")
+        }
+    };
+    Err(NarsilError::new(ErrorCode::EMBEDDING_FAILED, message)
+        .with_details(of_field().into_iter().chain([("index", Value::from(at))])))
 }

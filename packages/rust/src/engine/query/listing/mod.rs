@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::constants::DEFAULT_PAGE_SIZE;
 use super::cursor::{
-    PageCursor, decode_page_cursor, encode_page_cursor, list_binding, require_matching_cursor,
-    sort_signature_of,
+    PageCursor, decode_matching_cursor, encode_page_cursor, list_binding, sort_signature_of,
 };
 use super::params::{DocumentProjection, SortField};
 use super::projection::resolve_projection;
@@ -123,11 +122,12 @@ fn listed_page(
     let binding = list_binding(params.filters.as_ref());
     let cursor = match &params.cursor {
         None => None,
-        Some(text) => {
-            let cursor = decode_page_cursor(text)?;
-            require_matching_cursor(&cursor, signature.as_deref(), false, &binding)?;
-            Some(cursor)
-        }
+        Some(text) => Some(decode_matching_cursor(
+            text,
+            signature.as_deref(),
+            false,
+            &binding,
+        )?),
     };
     require_listing_filter(params.filters.as_ref())?;
     let snapshots: Vec<Arc<PartitionSnapshot>> = index

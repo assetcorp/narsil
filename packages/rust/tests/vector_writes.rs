@@ -11,6 +11,7 @@ use narsil::{
     parse_json,
 };
 use support::adapters::{EmbedWith, RerankWith};
+use support::details_json;
 
 const INDEX: &str = "notes";
 const FIELD: &str = "embedding";
@@ -154,6 +155,12 @@ fn a_refused_vector_write_leaves_documents_and_vectors_as_they_were() {
         error.message(),
         format!("Vector dimension mismatch for field \"{FIELD}\": expected {DIMENSION}, got 3")
     );
+    assert_eq!(
+        details_json(&error),
+        Some(format!(
+            r#"{{"field":"{FIELD}","expected":{DIMENSION},"received":3}}"#
+        ))
+    );
     let mut with_text = as_value(&kept);
     if let Value::Array(items) = &mut with_text {
         items[2] = Value::String("0.5".into());
@@ -166,14 +173,29 @@ fn a_refused_vector_write_leaves_documents_and_vectors_as_they_were() {
     if let Value::Array(items) = &mut overflowing {
         items[0] = Value::Number(FLOAT32_OVERFLOW);
     }
-    for (id, bad) in [
-        ("text", with_text.clone()),
-        ("nan", with_nan.clone()),
-        ("overflow", overflowing.clone()),
+    for (id, bad, details) in [
+        (
+            "text",
+            with_text.clone(),
+            format!(r#"{{"field":"{FIELD}","index":2,"value":"0.5"}}"#),
+        ),
+        (
+            "nan",
+            with_nan.clone(),
+            format!(r#"{{"field":"{FIELD}","index":4,"value":{{"$number":"NaN"}}}}"#),
+        ),
+        (
+            "overflow",
+            overflowing.clone(),
+            format!(r#"{{"field":"{FIELD}","index":0,"value":1e+39}}"#),
+        ),
     ] {
+        let refused = engine
+            .insert(INDEX, document(id, id, Some(bad)), None)
+            .expect_err("the engine refuses the call");
         assert_eq!(
-            code_of(engine.insert(INDEX, document(id, id, Some(bad)), None)),
-            ErrorCode::DOC_VALIDATION_FAILED,
+            (refused.code(), details_json(&refused)),
+            (ErrorCode::DOC_VALIDATION_FAILED, Some(details)),
             "the engine refuses the {id} vector"
         );
         assert!(engine.get(INDEX, id).expect("the read succeeds").is_none());
@@ -227,14 +249,26 @@ fn a_refused_vector_write_leaves_documents_and_vectors_as_they_were() {
         .map(|failure| (failure.doc_id.as_str(), failure.error.code()))
         .collect();
     assert_eq!(refused, vec![("b2", ErrorCode::VECTOR_DIMENSION_MISMATCH)]);
+    assert_eq!(
+        details_json(&batch.failed[0].error),
+        Some(format!(
+            r#"{{"field":"{FIELD}","expected":{DIMENSION},"received":4}}"#
+        ))
+    );
     assert!(stored_vector(&engine, "b2").is_none());
     assert_eq!(top_ids(&engine, &vector_of(3), 1), vec!["b3".to_string()]);
 
     let mut infinite_query = kept.clone();
     infinite_query[1] = f32::INFINITY;
+    let refused = engine
+        .query(INDEX, &vector_query(&infinite_query, 5))
+        .expect_err("the engine refuses the call");
     assert_eq!(
-        code_of(engine.query(INDEX, &vector_query(&infinite_query, 5))),
-        ErrorCode::DOC_VALIDATION_FAILED
+        (refused.code(), details_json(&refused).as_deref()),
+        (
+            ErrorCode::DOC_VALIDATION_FAILED,
+            Some(r#"{"index":1,"value":{"$number":"Infinity"}}"#)
+        )
     );
 
     engine
