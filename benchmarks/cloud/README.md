@@ -57,10 +57,9 @@ prints the command to delete it. Add `--teardown` to delete on success and
 PROVIDER=hetzner ./run-cloud.sh all --yes --teardown
 ```
 
-The in-process suite runs on the VM's Node 24; the server suite builds its Narsil
-container from `node:22-trixie-slim` as pinned in
-`../server/narsil-server.Dockerfile`, so it runs Narsil on Node 22 regardless of
-the host.
+The in-process suite runs on the VM's Node 24. The server suite builds the Narsil
+image from `../../packages/container/Dockerfile`, so it runs Narsil on the Node
+version that the image pins, whatever the host holds.
 
 `SUITES=languages` runs the suite in `../engine-languages/`, which measures Narsil
 in TypeScript, Rust, and Go, and `both` leaves it out. The setup step installs
