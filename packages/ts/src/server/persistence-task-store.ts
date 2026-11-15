@@ -15,7 +15,8 @@ function keyOf(id: string): string {
 function idOfKey(key: string): string | null {
   if (!key.endsWith(RECORD_KEY_SUFFIX)) return null
   try {
-    return decodeURIComponent(key.slice(0, -RECORD_KEY_SUFFIX.length))
+    const id = decodeURIComponent(key.slice(0, -RECORD_KEY_SUFFIX.length))
+    return keyOf(id) === key ? id : null
   } catch {
     return null
   }

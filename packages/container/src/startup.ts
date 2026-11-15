@@ -2,7 +2,6 @@ import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNarsil, isNarsilError, type Narsil, type NarsilConfig, registerLanguage } from '@delali/narsil'
-import { createFilesystemPersistence } from '@delali/narsil/adapters/filesystem'
 import {
   type CorsOptions,
   createServer,
@@ -26,6 +25,7 @@ import {
 } from './settings/constants'
 import { limitVariableOf } from './settings/limits'
 import { SettingError } from './settings/variables'
+import { createRecordPersistence } from './storage'
 import { MemoryDeliveryStore, PersistedDeliveryStore } from './webhooks/delivery-store'
 import { WebhookQueue } from './webhooks/queue'
 
@@ -127,7 +127,7 @@ async function createEngine(config: NarsilConfig): Promise<Narsil> {
 
 function taskStoreOf(folders: Folders): TaskStore {
   if (folders.tasks === null) return new InMemoryTaskStore()
-  return new PersistenceTaskStore(createFilesystemPersistence({ directory: folders.tasks }))
+  return new PersistenceTaskStore(createRecordPersistence(folders.tasks))
 }
 
 function serverOptions(settings: ContainerSettings, taskStore: TaskStore): ServerOptions {
@@ -171,7 +171,7 @@ async function startQueue(settings: ContainerSettings, folders: Folders, output:
   const store =
     folders.webhooks === null
       ? new MemoryDeliveryStore()
-      : new PersistedDeliveryStore(createFilesystemPersistence({ directory: folders.webhooks }))
+      : new PersistedDeliveryStore(createRecordPersistence(folders.webhooks))
   const queue = new WebhookQueue({
     url: webhook.url,
     secret: webhook.secret,
