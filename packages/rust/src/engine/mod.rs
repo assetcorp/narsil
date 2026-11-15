@@ -379,6 +379,7 @@ impl Narsil {
         for index in indexes.values() {
             let writer = index.write_lock();
             index.retire();
+            index.vectors.release_files();
             drop(writer);
             index.residency.finish_close();
         }
