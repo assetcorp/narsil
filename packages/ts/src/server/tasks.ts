@@ -148,9 +148,21 @@ export class TaskRegistry {
       finished: Promise.resolve(),
     }
     this.live.set(record.id, task)
-    const accepted = this.enqueueWrite(task, record, RUNNING_TASK_TTL_MS)
-    task.finished = accepted.then(() => this.drive(task, op))
-    await accepted
+    const accepted = Promise.resolve().then(() => this.store.set(record, RUNNING_TASK_TTL_MS))
+    task.writes = accepted
+    task.finished = accepted.then(
+      () => this.drive(task, op),
+      async () => {
+        this.live.delete(record.id)
+        await this.store.delete(record.id).catch(() => undefined)
+      },
+    )
+    try {
+      await accepted
+    } catch (err) {
+      await task.finished
+      throw err
+    }
     return record
   }
 
