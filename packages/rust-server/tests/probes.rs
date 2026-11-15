@@ -2,7 +2,7 @@ mod support;
 
 use narsil::Value;
 use narsil_server::ServerOptions;
-use support::{Call, ReferenceServer, RustServer, object, same_status_and_code, send, token_hook};
+use support::{Call, ReferenceServer, RustServer, object, same_status_and_code, token_hook};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_probes_answer_a_caller_who_fails_the_request_check() {
@@ -13,7 +13,7 @@ async fn only_the_probes_answer_a_caller_who_fails_the_request_check() {
     )]))
     .await;
 
-    for path in ["/livez", "/readyz", "/health", "/version"] {
+    for path in ["/livez", "/readyz", "/health", "/version", "/capabilities"] {
         let (mine, theirs) =
             same_status_and_code(rust.port, reference.port, &Call::new("GET", path)).await;
         assert_eq!(mine.status, 200, "{path} answers a caller without a token");
@@ -32,13 +32,6 @@ async fn only_the_probes_answer_a_caller_who_fails_the_request_check() {
             same_status_and_code(rust.port, reference.port, &Call::new("GET", path)).await;
         assert_eq!(mine.status, 401, "{path} refuses a caller without a token");
     }
-    let capabilities = send(rust.port, &Call::new("GET", "/capabilities")).await;
-    assert_eq!(
-        (capabilities.status, capabilities.error_code().as_deref()),
-        (401, Some("UNAUTHORIZED")),
-        "/capabilities takes the request check"
-    );
-
     let (mine, theirs) = same_status_and_code(
         rust.port,
         reference.port,
