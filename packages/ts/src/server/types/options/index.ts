@@ -1,8 +1,11 @@
-import type { ClusterNamespace } from '../../distribution/cluster-node/types'
-import type { EmbeddingAdapter, RerankAdapter } from '../../types/adapters'
-import type { RecordedQuery } from '../../types/query-suggestions'
-import type { ErrorDetail } from './responses'
-import type { TaskStore } from './tasks'
+import type { ClusterNamespace } from '../../../distribution/cluster-node/types'
+import type { EmbeddingAdapter, RerankAdapter } from '../../../types/adapters'
+import type { RecordedQuery } from '../../../types/query-suggestions'
+import type { ErrorDetail } from '../responses'
+import type { TaskStore } from '../tasks'
+import type { ServerChangesOptions, ServerSyncOptions } from './feeds'
+
+export type { ServerChangesOptions, ServerSyncOptions } from './feeds'
 
 /**
  * Context handed to {@link OnRequestHook} for every inbound request, captured
@@ -70,65 +73,6 @@ export interface RequestGrant {
 export type OnRequestHook = (
   ctx: RequestContext,
 ) => undefined | RequestDenial | RequestGrant | Promise<undefined | RequestDenial | RequestGrant>
-
-/**
- * The settings of the device sync routes, `GET /indexes/{name}/sync/snapshot`
- * and the feed at `GET /indexes/{name}/sync/feed`. Every field has a default.
- *
- * @public
- */
-export interface ServerSyncOptions {
-  /**
-   * The server stops sending entries to a device while the entries that it
-   * has sent, and that the device has not acknowledged, hold more than this
-   * many bytes. It defaults to 8,388,608.
-   */
-  windowBytes?: number
-  /** The server holds at most this many feed connections, and it answers 429 to one more. It defaults to 10,000. */
-  maxConnections?: number
-  /**
-   * The server reads the history of at most this many feed connections at
-   * once, and it holds any other connection until one of those reads ends.
-   * It defaults to 32.
-   */
-  maxCatchUps?: number
-  /**
-   * The server stops reading entries for every feed while its feed
-   * connections hold this many bytes that the network has not yet taken. It
-   * defaults to 268,435,456.
-   */
-  maxBufferedBytes?: number
-}
-
-/**
- * The settings of the change feed at `GET /indexes/{name}/changes/feed`. Every
- * field has a default, and the server counts the connections and the
- * catch-ups of this feed apart from those of the device sync feed.
- *
- * @public
- */
-export interface ServerChangesOptions {
-  /**
-   * The server stops sending changes to a subscriber while the changes that
-   * it has sent, and that the subscriber has not acknowledged, hold more than
-   * this many bytes. It defaults to 8,388,608.
-   */
-  windowBytes?: number
-  /** The server holds at most this many change feed connections, and it answers 429 to one more. It defaults to 10,000. */
-  maxConnections?: number
-  /**
-   * The server reads the history of at most this many change feed
-   * connections at once, and it holds any other connection until one of
-   * those reads ends. It defaults to 32.
-   */
-  maxCatchUps?: number
-  /**
-   * The server stops reading changes for every subscriber while its change
-   * feed connections hold this many bytes that the network has not yet
-   * taken. It defaults to 268,435,456.
-   */
-  maxBufferedBytes?: number
-}
 
 /**
  * Which cross-origin requests the server accepts.
@@ -371,6 +315,15 @@ export interface NarsilServer {
    * request on a connection that is already open gets a 503 that closes the
    * connection, and a running request gets up to 30 seconds to finish before
    * the server drops every connection. The engine keeps running.
+   *
+   * @returns A promise that resolves once every connection has closed. After
+   * a timeout, later calls return the same rejection.
+   * @throws A `NarsilError` with `WORKER_TIMEOUT` if a request thread has not
+   * acknowledged closure by the 30-second deadline. The message reports the
+   * number of threads and the deadline. The server closes connections on the
+   * main thread and responsive threads before rejecting. A blocked thread
+   * retains the close signal and closes its connections without answering
+   * once it resumes.
    */
   close(): Promise<void>
   /**
