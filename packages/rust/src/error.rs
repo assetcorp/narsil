@@ -242,6 +242,14 @@ pub(crate) fn instance_shut_down() -> NarsilError {
     )
 }
 
+pub(crate) fn index_not_found(index_name: &str) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::INDEX_NOT_FOUND,
+        format!("Index \"{index_name}\" does not exist"),
+    )
+    .with_details([("indexName", Value::from(index_name))])
+}
+
 pub(crate) fn load_failed<T>(message: impl Into<String>) -> Result<T> {
     fail(ErrorCode::PERSISTENCE_LOAD_FAILED, message)
 }

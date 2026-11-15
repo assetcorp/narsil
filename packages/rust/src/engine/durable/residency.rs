@@ -68,7 +68,7 @@ impl Durable {
                 language: metadata.language.clone(),
                 suggestions: Arc::new(
                     SuggestionState::from_metadata(&metadata)
-                        .map_err(|error| recovery_failure(&name, error))?,
+                        .map_err(|error| recovery_failure(&metadata, error))?,
                 ),
                 sync_on: sync_is_on(&metadata),
             };

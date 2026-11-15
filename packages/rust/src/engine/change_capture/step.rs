@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::durability::change_reader::{LogCursor, LogRead, LogRecord, entry_bytes};
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
-use crate::error::{ErrorCode, NarsilError, Result};
+use crate::error::{Result, index_not_found};
 use crate::format::wal::LogEntry;
 
 use super::derive::{change_of, filtered_change};
@@ -23,13 +23,6 @@ pub(super) enum Step {
     Group(ChangeGroup),
     Resync(ResyncReason),
     Idle,
-}
-
-fn index_not_found(index_name: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::INDEX_NOT_FOUND,
-        format!("Index \"{index_name}\" does not exist"),
-    )
 }
 
 impl Following {

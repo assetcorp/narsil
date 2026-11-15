@@ -55,6 +55,7 @@ fn refused_stop_words(index_name: &str) -> NarsilError {
             "The stop words of index \"{index_name}\" must change to a name registered with registerStopWords or to a list of words, because a function survives neither a worker boundary nor a restart"
         ),
     )
+    .with_details([("indexName", crate::value::Value::from(index_name))])
 }
 
 fn kept<T: Clone>(setting: &AnalysisSetting<T>, current: Option<&T>) -> Option<T> {

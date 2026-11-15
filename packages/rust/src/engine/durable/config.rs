@@ -140,7 +140,8 @@ pub(crate) fn resolve_pattern_work_cap(config: &NarsilConfig) -> Result<i64> {
         Ok(cap) if (1..=MAX_PATTERN_WORK_CAP).contains(&cap) => Ok(cap),
         _ => Err(config_error(format!(
             "The configuration sets \"patternWorkCap\" to {cap}, while the cap must be a whole number from 1 to {MAX_PATTERN_WORK_CAP}"
-        ))),
+        ))
+        .with_details([("setting", crate::value::Value::from("patternWorkCap"))])),
     }
 }
 

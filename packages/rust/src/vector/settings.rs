@@ -49,7 +49,8 @@ pub(crate) fn require_dimension(dimension: usize) -> Result<()> {
         return Err(NarsilError::new(
             ErrorCode::VECTOR_DIMENSION_MISMATCH,
             format!("Vector dimension must be a positive integer, got {dimension}"),
-        ));
+        )
+        .with_details([("dimension", crate::value::Value::from(dimension))]));
     }
     Ok(())
 }

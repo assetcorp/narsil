@@ -1,9 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::registered::RegisteredByName;
 use crate::util::unwind::guarded;
+use crate::value::Value;
 
 /// One token that a [`Tokenizer`] returns: the term to index and its position in the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,8 +110,8 @@ pub(crate) struct ResolvedAnalysis {
 /// The tokenizers and stop word sets that an engine holds under names, so that an index can store the name.
 #[derive(Default)]
 pub(crate) struct AnalysisRegistry {
-    tokenizers: RwLock<HashMap<String, Arc<dyn Tokenizer>>>,
-    stop_words: RwLock<HashMap<String, StopWords>>,
+    tokenizers: RwLock<RegisteredByName<Arc<dyn Tokenizer>>>,
+    stop_words: RwLock<RegisteredByName<StopWords>>,
 }
 
 fn require_name(name: &str, kind: &str) -> Result<()> {
@@ -117,7 +119,8 @@ fn require_name(name: &str, kind: &str) -> Result<()> {
         return Err(NarsilError::new(
             ErrorCode::CONFIG_INVALID,
             format!("A registered {kind} needs a non-empty name"),
-        ));
+        )
+        .with_details([("name", Value::from(name))]));
     }
     Ok(())
 }
@@ -133,7 +136,7 @@ impl AnalysisRegistry {
             .tokenizers
             .write()
             .unwrap_or_else(|poison| poison.into_inner());
-        held.insert(name.to_string(), tokenizer);
+        held.insert(name, tokenizer);
         Ok(())
     }
 
@@ -143,7 +146,7 @@ impl AnalysisRegistry {
             .stop_words
             .write()
             .unwrap_or_else(|poison| poison.into_inner());
-        held.insert(name.to_string(), stop_words);
+        held.insert(name, stop_words);
         Ok(())
     }
 
@@ -157,6 +160,10 @@ impl AnalysisRegistry {
                 ErrorCode::CONFIG_INVALID,
                 format!("Tokenizer \"{name}\" is not registered on this engine"),
             )
+            .with_details([
+                ("tokenizer", Value::from(name)),
+                ("available", Value::from(held.names())),
+            ])
         })
     }
 
@@ -170,6 +177,10 @@ impl AnalysisRegistry {
                 ErrorCode::CONFIG_INVALID,
                 format!("Stop word set \"{name}\" is not registered on this engine"),
             )
+            .with_details([
+                ("stopWords", Value::from(name)),
+                ("available", Value::from(held.names())),
+            ])
         })
     }
 }

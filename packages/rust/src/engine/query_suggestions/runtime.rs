@@ -37,6 +37,7 @@ fn not_enabled(index_name: &str) -> NarsilError {
         ErrorCode::QUERY_SUGGESTIONS_NOT_ENABLED,
         format!("Index \"{index_name}\" has popular query suggestions off"),
     )
+    .with_details([("indexName", crate::value::Value::from(index_name))])
 }
 
 fn result_of(outcome: RecordQueryOutcome) -> RecordQueryResult {

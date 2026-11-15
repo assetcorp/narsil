@@ -64,5 +64,9 @@ pub(crate) fn require_document_within_size_limit(document: &Map) -> Result<()> {
     Err(failed(format!(
         "The document takes {} bytes as MessagePack, vector values included, but a document may take at most {MAX_DOCUMENT_BYTES}",
         encoded.len()
-    )))
+    ))
+    .with_details([
+        ("bytes", Value::from(encoded.len())),
+        ("maximum", Value::from(MAX_DOCUMENT_BYTES)),
+    ]))
 }

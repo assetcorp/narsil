@@ -50,7 +50,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use crate::analysis::AnalysisRegistry;
 use crate::config::IndexConfig;
-use crate::error::{ErrorCode, NarsilError, Result, instance_shut_down};
+use crate::error::{Result, index_not_found, instance_shut_down};
 use crate::pattern::SearchLimits;
 use crate::pattern::constants::DEFAULT_PATTERN_WORK_CAP;
 use adapter_registry::AdapterRegistry;
@@ -172,12 +172,10 @@ impl EngineInner {
     }
 
     pub(crate) fn index(&self, name: &str) -> Result<Arc<IndexState>> {
-        self.indexes().get(name).cloned().ok_or_else(|| {
-            NarsilError::new(
-                ErrorCode::INDEX_NOT_FOUND,
-                format!("Index \"{name}\" does not exist"),
-            )
-        })
+        self.indexes()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| index_not_found(name))
     }
 
     /// Returns the index called `name` where it is open, without opening a closed one.

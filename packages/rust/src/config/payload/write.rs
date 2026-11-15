@@ -162,7 +162,11 @@ pub(crate) fn require_configuration_within_size_limit(
         format!(
             "The index configuration takes {bytes} bytes as MessagePack, but an index configuration may take at most {MAX_INDEX_CONFIGURATION_BYTES}"
         ),
-    ))
+    )
+    .with_details([
+        ("bytes", Value::from(bytes)),
+        ("maximum", Value::from(MAX_INDEX_CONFIGURATION_BYTES)),
+    ]))
 }
 
 /// Writes the stored form of an index configuration, with the keys in the order that every Narsil engine writes them.

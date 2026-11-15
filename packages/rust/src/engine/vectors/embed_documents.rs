@@ -18,7 +18,12 @@ fn holds_value(document: &Map, path: &str) -> bool {
     !matches!(value_at(document, path), None | Some(Value::Null))
 }
 
-fn source_text(document: &Map, sources: &[String], target: &str) -> Result<String> {
+fn source_text(
+    document: &Map,
+    sources: &[String],
+    target: &str,
+    document_index: Option<usize>,
+) -> Result<String> {
     let mut parts: Vec<&str> = Vec::with_capacity(sources.len());
     for source in sources {
         match value_at(document, source) {
@@ -32,7 +37,11 @@ fn source_text(document: &Map, sources: &[String], target: &str) -> Result<Strin
                         "Embedding source field \"{source}\" must be a string, got {}",
                         kind_of(other)
                     ),
-                ));
+                )
+                .with_details([
+                    ("field", Value::from(source.as_str())),
+                    ("targetField", Value::from(target)),
+                ]));
             }
         }
     }
@@ -40,6 +49,11 @@ fn source_text(document: &Map, sources: &[String], target: &str) -> Result<Strin
         return Err(NarsilError::new(
             ErrorCode::EMBEDDING_NO_SOURCE,
             format!("All source fields for embedding target \"{target}\" are missing or empty"),
+        )
+        .with_details(
+            [("field", Value::from(target))]
+                .into_iter()
+                .chain(document_index.map(|at| ("documentIndex", Value::from(at)))),
         ));
     }
     Ok(parts.join("\n"))
@@ -54,7 +68,7 @@ fn as_value(vector: &[f32]) -> Value {
     )
 }
 
-fn embedding_failed(target: &str) -> impl FnOnce(String) -> String + '_ {
+fn embedding_failed(target: &str) -> impl FnOnce(&str) -> String + '_ {
     move |message| format!("Embedding failed for field \"{target}\": {message}")
 }
 
@@ -69,14 +83,10 @@ pub(crate) fn embed_document(
         if holds_value(document, target) {
             continue;
         }
-        let text = source_text(document, sources, target)?;
+        let text = source_text(document, sources, target, None)?;
         let vector = call_adapter(|| adapter.embed(&text, EmbeddingPurpose::Document))
-            .map_err(|failure| failure.into_error(embedding_failed(target)))?;
-        require_usable_embedding(
-            &vector,
-            adapter.dimensions(),
-            &format!("field \"{target}\""),
-        )?;
+            .map_err(|failure| failure.into_error(embedding_failed(target), Some(target)))?;
+        require_usable_embedding(&vector, adapter.dimensions(), Some(target))?;
         set_value_at(document, target, as_value(&vector));
     }
     Ok(())
@@ -111,7 +121,7 @@ pub(crate) fn embed_documents(
             if refused[at] || holds_value(document, target) {
                 continue;
             }
-            match source_text(document, sources, target) {
+            match source_text(document, sources, target, Some(at)) {
                 Ok(text) => {
                     positions.push(at);
                     texts.push(text);
@@ -127,7 +137,7 @@ pub(crate) fn embed_documents(
             continue;
         }
         let vectors = call_adapter(|| adapter.embed_batch(&texts, EmbeddingPurpose::Document))
-            .map_err(|failure| failure.into_error(embedding_failed(target)))?;
+            .map_err(|failure| failure.into_error(embedding_failed(target), Some(target)))?;
         if vectors.len() != texts.len() {
             return Err(NarsilError::new(
                 ErrorCode::EMBEDDING_FAILED,
@@ -136,11 +146,15 @@ pub(crate) fn embed_documents(
                     vectors.len(),
                     texts.len()
                 ),
-            ));
+            )
+            .with_details([
+                ("field", Value::from(target.as_str())),
+                ("expected", Value::from(texts.len())),
+                ("actual", Value::from(vectors.len())),
+            ]));
         }
-        let subject = format!("field \"{target}\"");
         for vector in &vectors {
-            require_usable_embedding(vector, adapter.dimensions(), &subject)?;
+            require_usable_embedding(vector, adapter.dimensions(), Some(target))?;
         }
         for (at, vector) in positions.into_iter().zip(&vectors) {
             if let Some(document) = documents.get_mut(at) {

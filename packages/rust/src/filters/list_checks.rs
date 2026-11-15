@@ -1,5 +1,5 @@
 use super::checks::{
-    FieldContext, OperandKind, base_name, finite_number, invalid, kind_of_value,
+    FieldContext, OperandKind, base_name, finite_number, invalid_operand, kind_of_value,
     require_list_length,
 };
 use crate::error::Result;
@@ -31,10 +31,14 @@ pub(crate) fn require_whole_value_index(field: &FieldContext<'_>) -> Result<()> 
         if !field.has(operator) {
             continue;
         }
-        return invalid(format!(
-            "\"{operator}\" compares whole values of field \"{}\", which the engine finds only through a pattern index. A \"{base}\" field keeps a pattern index where its type includes \"pattern\", so declare the field as \"{base}:pattern\" in a new index to filter it this way",
-            field.path
-        ));
+        return invalid_operand(
+            format!(
+                "\"{operator}\" compares whole values of field \"{}\", which the engine finds only through a pattern index. A \"{base}\" field keeps a pattern index where its type includes \"pattern\", so declare the field as \"{base}:pattern\" in a new index to filter it this way",
+                field.path
+            ),
+            field.path,
+            operator,
+        );
     }
     Ok(())
 }
@@ -44,10 +48,14 @@ pub(crate) fn require_presence_operands(field: &FieldContext<'_>) -> Result<()> 
         match field.get(operator) {
             None | Some(Value::Bool(_)) => {}
             Some(_) => {
-                return invalid(format!(
-                    "\"{operator}\" on field \"{}\" must be true or false",
-                    field.path
-                ));
+                return invalid_operand(
+                    format!(
+                        "\"{operator}\" on field \"{}\" must be true or false",
+                        field.path
+                    ),
+                    field.path,
+                    operator,
+                );
             }
         }
     }
@@ -59,10 +67,14 @@ fn list_element_kind(field: &FieldContext<'_>, operator: &str) -> Result<Operand
         BaseType::NumberList => Ok(OperandKind::Number),
         BaseType::BooleanList => Ok(OperandKind::Boolean),
         BaseType::EnumList | BaseType::StringList | BaseType::VerbatimList => Ok(OperandKind::Text),
-        _ => invalid(format!(
-            "\"{operator}\" tests the elements of a list field, while the schema declares field \"{}\" as \"{}\"",
-            field.path, field.declared
-        )),
+        _ => invalid_operand(
+            format!(
+                "\"{operator}\" tests the elements of a list field, while the schema declares field \"{}\" as \"{}\"",
+                field.path, field.declared
+            ),
+            field.path,
+            operator,
+        ),
     }
 }
 
@@ -81,7 +93,11 @@ pub(crate) fn require_element_operands(field: &FieldContext<'_>) -> Result<()> {
             continue;
         };
         let Value::Array(values) = operand else {
-            return invalid(format!("\"{operator}\" on field \"{path}\" must be a list"));
+            return invalid_operand(
+                format!("\"{operator}\" on field \"{path}\" must be a list"),
+                path,
+                operator,
+            );
         };
         require_list_length(path, operator, values.len())?;
         let kind = list_element_kind(field, operator)?;
@@ -89,10 +105,14 @@ pub(crate) fn require_element_operands(field: &FieldContext<'_>) -> Result<()> {
             .iter()
             .any(|value| kind_of_value(Some(value)) != Some(kind))
         {
-            return invalid(format!(
-                "Every value of \"{operator}\" on field \"{path}\" must be a {}, because the field holds a list of them",
-                element_noun(kind)
-            ));
+            return invalid_operand(
+                format!(
+                    "Every value of \"{operator}\" on field \"{path}\" must be a {}, because the field holds a list of them",
+                    element_noun(kind)
+                ),
+                path,
+                operator,
+            );
         }
     }
     Ok(())
@@ -104,17 +124,23 @@ pub(crate) fn require_size_operands(field: &FieldContext<'_>) -> Result<()> {
         return Ok(());
     };
     let Value::Object(comparison) = size else {
-        return invalid(format!(
-            "\"size\" on field \"{path}\" must be a comparison object"
-        ));
+        return invalid_operand(
+            format!("\"size\" on field \"{path}\" must be a comparison object"),
+            path,
+            "size",
+        );
     };
     list_element_kind(field, "size")?;
     for (operator, operand) in comparison.iter() {
         if !SIZE_OPERATORS.contains(&operator.as_str()) {
-            return invalid(format!(
-                "\"size\" on field \"{path}\" takes {}, while \"{operator}\" is none of them",
-                SIZE_OPERATORS.join(", ")
-            ));
+            return invalid_operand(
+                format!(
+                    "\"size\" on field \"{path}\" takes {}, while \"{operator}\" is none of them",
+                    SIZE_OPERATORS.join(", ")
+                ),
+                path,
+                "size",
+            );
         }
         let between = operator == "between";
         let valid = if between {
@@ -136,9 +162,11 @@ pub(crate) fn require_size_operands(field: &FieldContext<'_>) -> Result<()> {
             } else {
                 "a finite number"
             };
-            return invalid(format!(
-                "\"size.{operator}\" on field \"{path}\" must be {wanted}"
-            ));
+            return invalid_operand(
+                format!("\"size.{operator}\" on field \"{path}\" must be {wanted}"),
+                path,
+                "size",
+            );
         }
     }
     Ok(())
