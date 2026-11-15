@@ -2,6 +2,7 @@ export interface MetadataWriteQueue {
   queue(indexName: string, write: () => Promise<void>): Promise<void>
   pending(indexName: string): Promise<void> | undefined
   forget(indexName: string): void
+  settleAll(): Promise<void>
 }
 
 export function createMetadataWriteQueue(): MetadataWriteQueue {
@@ -19,6 +20,14 @@ export function createMetadataWriteQueue(): MetadataWriteQueue {
     pending: indexName => writes.get(indexName),
     forget(indexName) {
       writes.delete(indexName)
+    },
+    async settleAll() {
+      let waiting = [...writes.values()]
+      while (waiting.length > 0) {
+        await Promise.all(waiting)
+        const settled = waiting
+        waiting = [...writes.values()].filter(write => !settled.includes(write))
+      }
     },
   }
 }

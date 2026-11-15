@@ -480,7 +480,6 @@ benchmarks/server/
   run-all.sh                 orchestration: embed once, then one engine at a time, then aggregate
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)
-  narsil-server.Dockerfile   Narsil server image, built from repo source
   requirements.in / .txt     direct dependencies and the version-pinned lock
   config/benchmark.toml       datasets, BM25 reference, vector config, per-engine tracks
   src/ir_bench/
@@ -548,11 +547,14 @@ pytest
 
 ## Notes
 
-- The harness builds the Narsil server from its own
-  [narsil-server.Dockerfile](narsil-server.Dockerfile) on a Debian trixie base.
-  The repository's example image (`packages/ts/examples/http-server/Dockerfile`)
-  uses Debian bookworm (glibc 2.36), and the `uWebSockets.js` arm64 prebuilt the
-  server loads needs glibc 2.38, so that image cannot start on Apple Silicon.
+- The harness builds the Narsil server from the checkout through
+  [the image's Dockerfile](../../packages/container/Dockerfile), so the benchmark
+  measures the image that users run, with the heap limit that the image sets. The
+  run report records the heap limit that the server reports, and the benchmark
+  page shows it under the run conditions.
+- The harness records whether the checkout differs from the release that its
+  version names. `run-all.sh` works that out from the host's git history, because
+  the image holds the commit but no git history.
 - Typesense and Meilisearch run with a throwaway local API key (`BENCH_API_KEY`,
   default `localdev`) on the internal compose network, which the harness does not
   publish to the host. Qdrant and Weaviate run with anonymous access on that same

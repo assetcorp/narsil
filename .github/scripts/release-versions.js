@@ -25,6 +25,7 @@ const NARSIL_PACKAGE = new RegExp(
     'github\\.com/assetcorp/narsil/packages/go',
     '\\bpackages/go(?:/engine|/changes)?/v\\d',
     '\\bnarsil-[a-z-]+@v\\d',
+    'ghcr\\.io/assetcorp/narsil:',
     '\\bNarsil\\s+(?:version\\s+|release\\s+)?v?\\d+\\.\\d+\\.\\d+',
   ].join('|'),
   'i',
