@@ -1,9 +1,9 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::ffi;
 
-use super::super::constants::VECTORS_PER_BLOCK;
+use super::super::constants::{MAX_VECTOR_ORDINALS, MIN_ORDINAL_CAPACITY, VECTORS_PER_BLOCK};
 use super::super::files::MappedFile;
 use super::super::region::{byte_ptr, bytes, float_ptr, floats, load, store};
 use super::{CodeBlock, IN_A_BLOCK, StoreTables, VectorBlock};
@@ -189,6 +189,36 @@ impl StoreTables {
             flag.store(0, Ordering::Release);
         }
         self.set_word(ffi::NARSIL_STORE_WORD_CODE_COUNT, 0);
+    }
+
+    pub(crate) fn growth_bytes(&self, added: usize) -> usize {
+        let slots = self.slots() as usize;
+        let needed = slots
+            .saturating_add(added)
+            .min(MAX_VECTOR_ORDINALS as usize);
+        let block_bytes =
+            (self.stride * size_of::<f32>() + self.record_bytes) * VECTORS_PER_BLOCK as usize;
+        let new_blocks = needed
+            .div_ceil(VECTORS_PER_BLOCK as usize)
+            .saturating_sub(slots.div_ceil(VECTORS_PER_BLOCK as usize));
+        let mut bytes = new_blocks.saturating_mul(block_bytes);
+        if needed > self.capacity {
+            let capacity = (self.capacity * 2)
+                .max(needed)
+                .max(MIN_ORDINAL_CAPACITY)
+                .min(MAX_VECTOR_ORDINALS as usize);
+            let per_ordinal = 3 * size_of::<AtomicU8>()
+                + size_of::<AtomicU64>()
+                + 2 * size_of::<AtomicI32>()
+                + 2 * size_of::<i64>()
+                + size_of::<i32>();
+            let per_block =
+                2 * (size_of::<AtomicPtr<f32>>() + size_of::<OnceLock<Arc<VectorBlock>>>());
+            bytes = bytes
+                .saturating_add(capacity.saturating_mul(per_ordinal))
+                .saturating_add(capacity.div_ceil(VECTORS_PER_BLOCK as usize) * per_block);
+        }
+        bytes
     }
 
     fn vector_block_held(&self, block: usize) -> bool {

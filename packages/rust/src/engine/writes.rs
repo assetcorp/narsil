@@ -1,11 +1,12 @@
 mod batch;
+mod batch_groups;
 mod replay;
 
 use std::sync::Arc;
 
 use super::durable::log::PendingLog;
 use super::index::IndexState;
-use super::memory::MemoryGuard;
+use super::memory::{MemoryGuard, reserve_for_document};
 use super::vectors::HeldWrite;
 use crate::config::validate_doc_id;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -218,6 +219,7 @@ pub(crate) fn insert(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
+        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?)?;
         let document = held.take().ok_or_else(|| index.not_found(&id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
@@ -316,6 +318,7 @@ pub(crate) fn update(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
+        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?)?;
         let document = held.take().ok_or_else(|| index.not_found(doc_id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
