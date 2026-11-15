@@ -89,7 +89,7 @@ async fn list(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpRes
     let listing = list_params(&params, default_list_limit(&state.limits));
     let listing = checked_after_lookup(&state, &index, listing).await?;
     let result = engine_call(&state, move |engine| {
-        engine.list_documents(&index, &listing)
+        engine.list_documents_sorted(&index, &listing.params, &listing.sort)
     })
     .await?;
     Ok(respond_answer(list_answer(result)))

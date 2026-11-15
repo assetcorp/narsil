@@ -1,7 +1,12 @@
-use narsil::{ListParams, Map, SuggestParams, Value};
+use narsil::{ListParams, Map, SortField, SuggestParams, Value};
 
-use super::query::projection;
+use super::query::{projection, sort_fields};
 use super::reader::Converted;
+
+pub(crate) struct Listing {
+    pub(crate) params: ListParams,
+    pub(crate) sort: Vec<SortField>,
+}
 
 fn clamped_row_count(value: Option<&Value>) -> Option<usize> {
     match value {
@@ -10,26 +15,30 @@ fn clamped_row_count(value: Option<&Value>) -> Option<usize> {
     }
 }
 
-pub(crate) fn list_params(params: &Map, default_limit: u64) -> Converted<ListParams> {
+pub(crate) fn list_params(params: &Map, default_limit: u64) -> Converted<Listing> {
     let limit = match params.get("limit") {
         None => Some(usize::try_from(default_limit).unwrap_or(usize::MAX)),
         given => clamped_row_count(given),
     };
-    Ok(ListParams {
-        cursor: params
-            .get("cursor")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        limit,
-        filters: params
-            .get("filters")
-            .filter(|filters| !filters.is_null())
-            .cloned(),
-        document: params
-            .get("document")
-            .filter(|document| !document.is_null())
-            .map(projection)
-            .transpose()?,
+    let sort = match params.get("sort") {
+        None => Vec::new(),
+        Some(sort) => sort_fields(sort)?,
+    };
+    Ok(Listing {
+        params: ListParams {
+            cursor: params
+                .get("cursor")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            limit,
+            filters: params.get("filters").cloned(),
+            document: params
+                .get("document")
+                .filter(|document| !document.is_null())
+                .map(projection)
+                .transpose()?,
+        },
+        sort,
     })
 }
 

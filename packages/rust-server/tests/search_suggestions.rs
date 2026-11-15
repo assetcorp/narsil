@@ -106,14 +106,22 @@ async fn a_bad_setting_is_refused_before_the_index_is_read() {
     ] {
         pair.same_refusal(&json_call("PUT", &books, body)).await;
     }
-    pair.same_refusal(&json_call("PUT", &missing, r#"{"enabled":true,"fields":[]}"#))
-        .await;
+    pair.same_refusal(&json_call(
+        "PUT",
+        &missing,
+        r#"{"enabled":true,"fields":[]}"#,
+    ))
+    .await;
     pair.both(&json_call("PUT", &missing, VALID_SETTING)).await;
     pair.both(&Call::new("GET", &missing)).await;
 
     let status = pair.same_body(&Call::new("GET", &books)).await;
-    assert!(field(&status, "setting").is_null(), "a refused setting leaves none behind");
-    pair.same_body(&json_call("PUT", &books, VALID_SETTING)).await;
+    assert!(
+        field(&status, "setting").is_null(),
+        "a refused setting leaves none behind"
+    );
+    pair.same_body(&json_call("PUT", &books, VALID_SETTING))
+        .await;
     let status = pair.same_body(&Call::new("GET", &books)).await;
     assert_eq!(
         field(&status, "setting"),
@@ -145,8 +153,16 @@ async fn searches_count_only_for_the_person_whom_the_server_identifies() {
         .await;
 
     for call in [
-        search_by(&record, "alice", r#"{"query":"river stone","person":"mallory"}"#),
-        search_by(&record, "alice", r#"{"query":"river stone","group":"admins"}"#),
+        search_by(
+            &record,
+            "alice",
+            r#"{"query":"river stone","person":"mallory"}"#,
+        ),
+        search_by(
+            &record,
+            "alice",
+            r#"{"query":"river stone","group":"admins"}"#,
+        ),
         search_by(&record, "alice", r#"{}"#),
         search_by(&record, "alice", r#"{"query":7}"#),
         search_by(&record, "alice", "[]"),
@@ -156,7 +172,10 @@ async fn searches_count_only_for_the_person_whom_the_server_identifies() {
     }
     for mode in ["fail", "half"] {
         let (mine, _) = pair
-            .both(&search_by(&record, "alice", r#"{"query":"river stone"}"#).header("x-identify", mode))
+            .both(
+                &search_by(&record, "alice", r#"{"query":"river stone"}"#)
+                    .header("x-identify", mode),
+            )
             .await;
         assert_eq!(
             (mine.status, mine.error_code().as_deref()),
@@ -177,8 +196,15 @@ async fn searches_count_only_for_the_person_whom_the_server_identifies() {
     let anonymous = pair
         .same_body(&json_call("POST", &record, r#"{"query":"river stone"}"#))
         .await;
-    assert_eq!(anonymous, parsed(r#"{"recorded":false,"outcome":"unidentified"}"#));
-    for (person, outcome) in [("alice", "recorded"), ("alice", "repeat"), ("bob", "recorded")] {
+    assert_eq!(
+        anonymous,
+        parsed(r#"{"recorded":false,"outcome":"unidentified"}"#)
+    );
+    for (person, outcome) in [
+        ("alice", "recorded"),
+        ("alice", "repeat"),
+        ("bob", "recorded"),
+    ] {
         let answer = pair
             .same_body(&search_by(&record, person, r#"{"query":"River  Stone"}"#))
             .await;
@@ -189,7 +215,11 @@ async fn searches_count_only_for_the_person_whom_the_server_identifies() {
 
     let previewed = pair.same_body(&Call::new("GET", &preview)).await;
     let entries = items(field(&previewed, "entries"));
-    assert_eq!(entries.len(), 1, "only the phrase that two people searched is ready");
+    assert_eq!(
+        entries.len(),
+        1,
+        "only the phrase that two people searched is ready"
+    );
     assert_eq!(field(&entries[0], "query").as_str(), Some("river stone"));
     assert_eq!(field(&entries[0], "count").as_f64(), Some(2.0));
     for limit in ["abc", "0", "-1", "1.5", "12345678", "", "10000001"] {
@@ -204,8 +234,12 @@ async fn searches_count_only_for_the_person_whom_the_server_identifies() {
     for body in [r#"{"bans":"river"}"#, r#"{"bans":[1]}"#, r#"{}"#, "[]"] {
         pair.same_refusal(&json_call("PUT", &bans, body)).await;
     }
-    pair.same_body(&json_call("PUT", &bans, r#"{"bans":["Quiet  Garden","signal"]}"#))
-        .await;
+    pair.same_body(&json_call(
+        "PUT",
+        &bans,
+        r#"{"bans":["Quiet  Garden","signal"]}"#,
+    ))
+    .await;
     pair.same_body(&Call::new("GET", &bans)).await;
     let remove = route(INDEX, "/remove");
     pair.same_refusal(&json_call("POST", &remove, r#"{"query":null}"#))
@@ -274,8 +308,12 @@ async fn a_server_without_an_identify_function_counts_no_search() {
     );
     pair.same_refusal(&search_by(&record, "alice", r#"{"query":"river stone"}"#))
         .await;
-    pair.same_refusal(&search_by(&record, "alice", r#"{"query":"river","extra":1}"#))
-        .await;
+    pair.same_refusal(&search_by(
+        &record,
+        "alice",
+        r#"{"query":"river","extra":1}"#,
+    ))
+    .await;
 
     rust.stop().await;
     reference.stop().await;

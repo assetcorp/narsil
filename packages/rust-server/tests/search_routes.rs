@@ -26,7 +26,12 @@ async fn same_answer(rust: u16, reference: u16, route: &str, body: &str) -> Valu
     let target = path(route);
     let call = Call::new("POST", &target).json(&parsed(body));
     let (mine, theirs) = same_status_and_code(rust, reference, &call).await;
-    assert_eq!(mine.status, 200, "{route} {body} succeeds: {}", String::from_utf8_lossy(&mine.body));
+    assert_eq!(
+        mine.status,
+        200,
+        "{route} {body} succeeds: {}",
+        String::from_utf8_lossy(&mine.body)
+    );
     assert_eq!(
         without_elapsed(&mine.json()),
         without_elapsed(&theirs.json()),
@@ -67,18 +72,23 @@ async fn searches_answer_as_the_typescript_server_and_the_books_say() {
         ),
     )
     .await;
-    let costly: Vec<Book> = books(80).into_iter().filter(|book| book.price >= 10.0).collect();
+    let costly: Vec<Book> = books(80)
+        .into_iter()
+        .filter(|book| book.price >= 10.0)
+        .collect();
     assert!(costly.len() > 64, "the answer is long enough to stream");
     assert_eq!(
         ids(&streamed, "hits"),
         sorted_ids(costly.clone(), |book| -book.price),
         "the streamed answer holds every book of at least 10 from the dearest down"
     );
-    assert_eq!(field(&streamed, "count").as_f64(), Some(costly.len() as f64));
-
-    let by_year_page = format!(
-        r#"{{"term":"{EVERY_WORD}","termMatch":"any","sort":{{"year":"asc"}},"limit":7}}"#
+    assert_eq!(
+        field(&streamed, "count").as_f64(),
+        Some(costly.len() as f64)
     );
+
+    let by_year_page =
+        format!(r#"{{"term":"{EVERY_WORD}","termMatch":"any","sort":{{"year":"asc"}},"limit":7}}"#);
     let first = same_answer(mine, theirs, "search", &by_year_page).await;
     let cursor = text(field(&first, "cursor")).to_string();
     assert!(!cursor.is_empty(), "a full page hands out a cursor");
@@ -87,8 +97,15 @@ async fn searches_answer_as_the_typescript_server_and_the_books_say() {
     );
     let second = same_answer(mine, theirs, "search", &next).await;
     let by_year = sorted_ids(books(80), |book| book.year);
-    let pages: Vec<String> = ids(&first, "hits").into_iter().chain(ids(&second, "hits")).collect();
-    assert_eq!(pages, by_year[..14], "two pages follow the year order without a gap");
+    let pages: Vec<String> = ids(&first, "hits")
+        .into_iter()
+        .chain(ids(&second, "hits"))
+        .collect();
+    assert_eq!(
+        pages,
+        by_year[..14],
+        "two pages follow the year order without a gap"
+    );
 
     for body in [
         r#"{"prefix":"riv"}"#,
@@ -140,13 +157,61 @@ async fn a_listing_pages_through_every_book_once() {
     .await;
     let wanted: Vec<String> = every
         .iter()
-        .filter(|id| books(80).iter().any(|book| &book.id == *id && book.genre == "fiction"))
+        .filter(|id| {
+            books(80)
+                .iter()
+                .any(|book| &book.id == *id && book.genre == "fiction")
+        })
         .cloned()
         .collect();
     assert_eq!(ids(&fiction, "documents"), wanted);
     for listed in items(field(&fiction, "documents")) {
         let document = field(listed, "document");
-        assert!(field(document, "price").is_null(), "the projection keeps the title alone");
+        assert!(
+            field(document, "price").is_null(),
+            "the projection keeps the title alone"
+        );
+    }
+
+    for (sort, oracle) in [
+        (
+            r#"{"price":"desc"}"#,
+            sorted_ids(books(80), |book| -book.price),
+        ),
+        (
+            r#"[{"field":"year","direction":"asc"}]"#,
+            sorted_ids(books(80), |book| book.year),
+        ),
+    ] {
+        let mut listed = Vec::new();
+        let mut body = format!(r#"{{"limit":9,"sort":{sort}}}"#);
+        loop {
+            let page = same_answer(mine, theirs, "documents/_list", &body).await;
+            listed.extend(ids(&page, "documents"));
+            match field(&page, "cursor") {
+                Value::String(cursor) => {
+                    body = format!(r#"{{"limit":9,"sort":{sort},"cursor":"{cursor}"}}"#)
+                }
+                _ => break,
+            }
+        }
+        assert_eq!(
+            listed, oracle,
+            "a listing sorted by {sort} holds every book once in that order"
+        );
+    }
+
+    let unsorted = same_answer(mine, theirs, "documents/_list", r#"{"limit":3}"#).await;
+    let cursor = text(field(&unsorted, "cursor")).to_string();
+    for body in [
+        format!(r#"{{"sort":{{"price":"asc"}},"cursor":"{cursor}"}}"#),
+        r#"{"sort":{"title":"asc"}}"#.to_string(),
+        r#"{"filters":null}"#.to_string(),
+    ] {
+        let target = path("documents/_list");
+        let call = Call::new("POST", &target).json(&parsed(&body));
+        let (refused, _) = same_status_and_code(mine, theirs, &call).await;
+        assert_eq!(refused.status, 400, "{body} is refused");
     }
 
     rust.stop().await;
@@ -174,13 +239,28 @@ const SAME_MESSAGE: &[Refusal] = &[
     refusal("search", r#"{"offset":51}"#),
     refusal("search", r#"{"group":{"fields":["genre"],"reduce":{}}}"#),
     refusal("search", r#"{"group":[]}"#),
-    refusal("search", r#"{"rerank":{"adapter":"stand-in","fields":["title"],"window":21}}"#),
-    refusal("search", r#"{"group":{"fields":["genre"],"maxPerGroup":51}}"#),
+    refusal(
+        "search",
+        r#"{"rerank":{"adapter":"stand-in","fields":["title"],"window":21}}"#,
+    ),
+    refusal(
+        "search",
+        r#"{"group":{"fields":["genre"],"maxPerGroup":51}}"#,
+    ),
     refusal("search", r#"{"facets":{"genre":{"limit":51}}}"#),
-    refusal("search", r#"{"filters":{"fields":{"title":{"regex":"riv.*"}}}}"#),
-    refusal("search", r#"{"filters":{"or":[{"not":{"fields":{"tags":{"regex":"a"}}}}]}}"#),
+    refusal(
+        "search",
+        r#"{"filters":{"fields":{"title":{"regex":"riv.*"}}}}"#,
+    ),
+    refusal(
+        "search",
+        r#"{"filters":{"or":[{"not":{"fields":{"tags":{"regex":"a"}}}}]}}"#,
+    ),
     refusal("search/preflight", r#"{"limit":51}"#),
-    refusal("search/preflight", r#"{"filters":{"fields":{"title":{"regex":"x"}}}}"#),
+    refusal(
+        "search/preflight",
+        r#"{"filters":{"fields":{"title":{"regex":"x"}}}}"#,
+    ),
     refusal("search", r#"{"term":"river","tolerance":11}"#),
     refusal("search", r#"{"mode":"sideways"}"#),
     refusal("search", r#"{"searchAfter":"not-a-cursor"}"#),
@@ -193,7 +273,10 @@ const SAME_MESSAGE: &[Refusal] = &[
     refusal("documents/_list", r#"{"sort":{"year":"up"}}"#),
     refusal("documents/_list", r#"{"sort":[1,2,3,4,5,6,7,8,9]}"#),
     refusal("documents/_list", "[]"),
-    refusal("documents/_list", r#"{"filters":{"fields":{"title":{"regex":"a"}}}}"#),
+    refusal(
+        "documents/_list",
+        r#"{"filters":{"fields":{"title":{"regex":"a"}}}}"#,
+    ),
     Refusal {
         route: "search",
         index: "missing",
@@ -289,43 +372,108 @@ async fn the_server_limits_bound_every_page() {
         async move {
             send(
                 port,
-                &Call::new("POST", &target).header("content-type", "application/json").raw(body),
+                &Call::new("POST", &target)
+                    .header("content-type", "application/json")
+                    .raw(body),
             )
             .await
         }
     };
 
-    let search = post("search", r#"{"term":"river stone quiet harbor","termMatch":"any"}"#).await;
-    assert_eq!(ids(&search.json(), "hits").len(), 5, "a search without a limit stops at the window");
-    let grouped = post("search", r#"{"group":{"fields":["year"],"maxPerGroup":1},"limit":5}"#).await;
+    let search = post(
+        "search",
+        r#"{"term":"river stone quiet harbor","termMatch":"any"}"#,
+    )
+    .await;
+    assert_eq!(
+        ids(&search.json(), "hits").len(),
+        5,
+        "a search without a limit stops at the window"
+    );
+    let grouped = post(
+        "search",
+        r#"{"group":{"fields":["year"],"maxPerGroup":1},"limit":5}"#,
+    )
+    .await;
     assert!(items(field(&grouped.json(), "groups")).len() <= 5);
 
     let listing = post("documents/_list", "{}").await.json();
-    assert_eq!(ids(&listing, "documents"), ["book-000", "book-001", "book-002"]);
+    assert_eq!(
+        ids(&listing, "documents"),
+        ["book-000", "book-001", "book-002"]
+    );
     assert_eq!(field(&listing, "total").as_f64(), Some(30.0));
 
     for (route, body, message) in [
-        ("search", r#"{"limit":1.5}"#, r#"Field "limit" must be a non-negative integer"#),
-        ("search", r#"{"offset":-1}"#, r#"Field "offset" must be a non-negative integer"#),
-        ("search", r#"{"limit":9007199254740993}"#, r#"Field "limit" must be a non-negative integer"#),
-        ("search", r#"{"limit":"7"}"#, r#"Field "limit" must be a non-negative integer"#),
-        ("search", r#"{"limit":6}"#, r#"Field "limit" exceeds the maximum result window of 5"#),
-        ("search", r#"{"facets":{"genre":{"limit":1000000}}}"#, r#"Field "facets.genre.limit" exceeds the maximum result window of 5"#),
-        ("search", r#"{"facets":{"genre":{"limit":1e308}}}"#, r#"Field "facets.genre.limit" must be a non-negative integer"#),
-        ("search", r#"{"group":{"fields":["year"],"limit":6}}"#, r#"Field "group.limit" exceeds the maximum result window of 5"#),
-        ("documents/_list", r#"{"limit":4}"#, r#"Field "limit" exceeds the maximum of 3 documents per request"#),
-        ("documents/_list", r#"{"limit":1e308}"#, r#"Field "limit" exceeds the maximum of 3 documents per request"#),
+        (
+            "search",
+            r#"{"limit":1.5}"#,
+            r#"Field "limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"offset":-1}"#,
+            r#"Field "offset" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"limit":9007199254740993}"#,
+            r#"Field "limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"limit":"7"}"#,
+            r#"Field "limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"limit":6}"#,
+            r#"Field "limit" exceeds the maximum result window of 5"#,
+        ),
+        (
+            "search",
+            r#"{"facets":{"genre":{"limit":1000000}}}"#,
+            r#"Field "facets.genre.limit" exceeds the maximum result window of 5"#,
+        ),
+        (
+            "search",
+            r#"{"facets":{"genre":{"limit":1e308}}}"#,
+            r#"Field "facets.genre.limit" must be a non-negative integer"#,
+        ),
+        (
+            "search",
+            r#"{"group":{"fields":["year"],"limit":6}}"#,
+            r#"Field "group.limit" exceeds the maximum result window of 5"#,
+        ),
+        (
+            "documents/_list",
+            r#"{"limit":4}"#,
+            r#"Field "limit" exceeds the maximum of 3 documents per request"#,
+        ),
+        (
+            "documents/_list",
+            r#"{"limit":1e308}"#,
+            r#"Field "limit" exceeds the maximum of 3 documents per request"#,
+        ),
     ] {
         let reply = post(route, body).await;
         assert_eq!(
-            (reply.status, reply.error_code().as_deref(), error_message(&reply.json())),
+            (
+                reply.status,
+                reply.error_code().as_deref(),
+                error_message(&reply.json())
+            ),
             (400, Some("INVALID_REQUEST"), message.to_string()),
             "{route} {body} is refused at the server limit"
         );
     }
 
     let negative = post("documents/_list", r#"{"limit":-9}"#).await.json();
-    assert_eq!(ids(&negative, "documents"), ["book-000"], "a limit below one lists one book");
+    assert_eq!(
+        ids(&negative, "documents"),
+        ["book-000"],
+        "a limit below one lists one book"
+    );
 
     rust.stop().await;
 }
