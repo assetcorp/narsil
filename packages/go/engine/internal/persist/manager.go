@@ -64,9 +64,6 @@ func Open(ctx context.Context, settings Settings, hooks Hooks) (*Manager, error)
 	if hooks.CreateIndex == nil {
 		return nil, narsilerr.New(narsilerr.CodeConfigInvalid, "Durability needs the index creation hooks", nil)
 	}
-	if settings.FlushInterval <= 0 {
-		settings.FlushInterval = DefaultAsyncFlushInterval
-	}
 	if settings.CheckpointMutationThreshold == 0 {
 		settings.CheckpointMutationThreshold = DefaultCheckpointMutationThreshold
 	}
@@ -153,18 +150,26 @@ func (manager *Manager) verifyDirectory() error {
 	return failure
 }
 
+func tickerOf(interval time.Duration) (<-chan time.Time, func()) {
+	if interval <= 0 {
+		return nil, func() {}
+	}
+	ticker := time.NewTicker(interval)
+	return ticker.C, ticker.Stop
+}
+
 func (manager *Manager) background() {
 	defer manager.stopped.Done()
 	identity := time.NewTicker(DirectoryIdentityCheckInterval)
 	defer identity.Stop()
-	flush := time.NewTicker(manager.settings.FlushInterval)
-	defer flush.Stop()
-	interval := manager.settings.CheckpointInterval
-	if interval <= 0 {
-		interval = DefaultCheckpointInterval
+	flushInterval := time.Duration(0)
+	if manager.settings.Mode == ModeAsync {
+		flushInterval = manager.settings.FlushInterval
 	}
-	checkpoints := time.NewTicker(interval)
-	defer checkpoints.Stop()
+	flushes, stopFlushes := tickerOf(flushInterval)
+	defer stopFlushes()
+	checkpoints, stopCheckpoints := tickerOf(manager.settings.CheckpointInterval)
+	defer stopCheckpoints()
 	for {
 		select {
 		case <-manager.stop:
@@ -173,14 +178,10 @@ func (manager *Manager) background() {
 			if manager.Fatal() == nil {
 				_ = manager.verifyDirectory()
 			}
-		case <-flush.C:
-			if manager.settings.Mode == ModeAsync {
-				manager.flushAll()
-			}
-		case <-checkpoints.C:
-			if manager.settings.CheckpointInterval >= 0 {
-				manager.checkpointAll(false)
-			}
+		case <-flushes:
+			manager.flushAll()
+		case <-checkpoints:
+			manager.checkpointAll(false)
 		case <-manager.wake:
 			manager.checkpointAll(true)
 		}
