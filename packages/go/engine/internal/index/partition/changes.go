@@ -27,28 +27,27 @@ func (log *ChangeLog) changedIDs() []string {
 
 func (p *Partition) TrackChanges(_ *Write) *ChangeLog {
 	log := &ChangeLog{ids: map[string]struct{}{}, clears: p.clears}
-	p.changes = log
+	p.changes.Store(log)
 	return log
 }
 
-func (p *Partition) StopTracking(_ *Write, log *ChangeLog) {
-	if p.changes == log {
-		p.changes = nil
-	}
+func (p *Partition) StopTracking(log *ChangeLog) {
+	p.changes.CompareAndSwap(log, nil)
 }
 
 func (p *Partition) noteChange(op *operation) {
+	changes := p.changes.Load()
 	switch op.kind {
 	case clearDocuments, attachFrozen, adoptFrozen:
 		if op.kind == clearDocuments {
 			p.clears++
 		}
-		if p.changes != nil {
-			p.changes.replaced = true
+		if changes != nil {
+			changes.replaced = true
 		}
 	case insertDocument, removeDocument, replaceDocument, updateValues, removeFrozenDocument:
-		if p.changes != nil && !op.failed {
-			p.changes.ids[op.id] = struct{}{}
+		if changes != nil && !op.failed {
+			changes.ids[op.id] = struct{}{}
 		}
 	}
 }

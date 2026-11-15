@@ -153,7 +153,7 @@ func (n *Narsil) embedForQuery(ctx context.Context, indexName string, entry *ind
 		}
 		embedded := queryEmbedding{boundAdapter: boundAdapter{adapter: adapter, entry: entry, binding: binding},
 			params: resolved, embeddings: embeddings + 1}
-		if entry, release, err = n.acquire(indexName); err != nil {
+		if entry, release, err = n.acquireContext(ctx, indexName); err != nil {
 			return nil, nil, queryEmbedding{}, err
 		}
 		if embedded.fits(entry) {

@@ -138,7 +138,7 @@ func (a *Adoption) installed(s *side) (listed []*frozenSegment, positions []int,
 }
 
 func (p *Partition) Adopt(write *Write, adoption *Adoption, log *ChangeLog) (adopted bool, err error) {
-	p.StopTracking(write, log)
+	p.StopTracking(log)
 	pl := p.planner(write)
 	if log.replaced || !adoption.resolveKept(pl.side) {
 		return false, nil

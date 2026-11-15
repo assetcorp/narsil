@@ -20,15 +20,13 @@ func (ix *Index) TrackChanges(ctx context.Context) ([]*partition.ChangeLog, erro
 	return logs, err
 }
 
-func (ix *Index) StopTracking(ctx context.Context, logs []*partition.ChangeLog) error {
-	return ix.Write(ctx, func(w *Write) error {
-		for at, log := range logs {
-			if at < len(ix.partitions) && log != nil {
-				ix.partitions[at].StopTracking(w.write, log)
-			}
+func (ix *Index) StopTracking(_ context.Context, logs []*partition.ChangeLog) error {
+	for at, log := range logs {
+		if at < len(ix.partitions) && log != nil {
+			ix.partitions[at].StopTracking(log)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (ix *Index) HeldPagedSegments(ctx context.Context, partitionID int) (map[string]*segments.Paged, error) {

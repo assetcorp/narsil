@@ -79,17 +79,26 @@ func (durable *Durable) stallWhileCheckpointsFallBehind(ctx context.Context) {
 }
 
 func (durable *Durable) failedPartitionIDs() []int {
+	failed, _ := durable.failedPartitionIDsContext(context.Background())
+	return failed
+}
+
+func (durable *Durable) failedPartitionIDsContext(ctx context.Context) ([]int, error) {
 	var failed []int
-	durable.layoutMutex.RLock()
+	if err := durable.layoutMutex.RLockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer durable.layoutMutex.RUnlock()
 	for partitionID, log := range durable.partitions {
-		log.mutex.Lock()
+		if err := log.mutex.LockContext(ctx); err != nil {
+			return nil, err
+		}
 		if log.failed != nil {
 			failed = append(failed, partitionID)
 		}
 		log.mutex.Unlock()
 	}
-	return failed
+	return failed, nil
 }
 
 func joinedIDs(ids []int) string {
@@ -100,8 +109,11 @@ func joinedIDs(ids []int) string {
 	return strings.Join(parts, ", ")
 }
 
-func (durable *Durable) refuseFailedPartitions() error {
-	failed := durable.failedPartitionIDs()
+func (durable *Durable) refuseFailedPartitions(ctx context.Context) error {
+	failed, err := durable.failedPartitionIDsContext(ctx)
+	if err != nil {
+		return err
+	}
 	if len(failed) == 0 {
 		return nil
 	}

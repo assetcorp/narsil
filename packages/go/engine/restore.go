@@ -122,7 +122,7 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 // before it. Without durability configured, the call returns at once.
 func (n *Narsil) Checkpoint(ctx context.Context, indexName string) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return err
 	}

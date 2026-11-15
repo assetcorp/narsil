@@ -195,7 +195,7 @@ func (n *Narsil) answerQuery(ctx context.Context, indexName string, entry *index
 			return model.QueryResult{}, params, nil, indexReplacedDuringReranks(indexName, replacedReranks)
 		}
 		earlier = &embedded
-		if entry, release, err = n.acquire(indexName); err != nil {
+		if entry, release, err = n.acquireContext(ctx, indexName); err != nil {
 			return model.QueryResult{}, params, nil, err
 		}
 	}

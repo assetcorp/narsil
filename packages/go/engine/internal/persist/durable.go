@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/wal"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -13,7 +14,7 @@ import (
 )
 
 type partitionLog struct {
-	mutex         sync.Mutex
+	mutex         callerctx.RWMutex
 	writer        *writeahead.Writer
 	applied       uint64
 	failed        error
@@ -24,8 +25,8 @@ type Durable struct {
 	manager              *Manager
 	handle               *Handle
 	partitions           []*partitionLog
-	layoutMutex          sync.RWMutex
-	checkpointMutex      sync.Mutex
+	layoutMutex          callerctx.RWMutex
+	checkpointMutex      callerctx.RWMutex
 	metadataMutex        sync.Mutex
 	sinceCheckpoint      atomic.Int64
 	bytesSinceCheckpoint atomic.Int64

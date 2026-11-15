@@ -1,11 +1,12 @@
 package vector
 
 import (
+	"context"
 	"math"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
@@ -30,7 +31,7 @@ type Slots struct {
 	searching atomic.Int32
 	writers   atomic.Int32
 	sequence  atomic.Int64
-	writeMu   sync.Mutex
+	writeMu   callerctx.RWMutex
 }
 
 func NewSlots() (*Slots, error) {
@@ -77,7 +78,13 @@ func (s *Slots) Sequence() int64 {
 }
 
 func (s *Slots) Write(apply func(sequence int64) error) error {
-	s.writeMu.Lock()
+	return s.WriteContext(context.Background(), apply)
+}
+
+func (s *Slots) WriteContext(ctx context.Context, apply func(sequence int64) error) error {
+	if err := s.writeMu.LockContext(ctx); err != nil {
+		return err
+	}
 	sequence := s.sequence.Load() + 1
 	defer func() {
 		s.sequence.Store(sequence)

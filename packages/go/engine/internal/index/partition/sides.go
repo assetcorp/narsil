@@ -69,7 +69,7 @@ func (s *Sides) WriteInPlace(ctx context.Context, apply func(write *Write) error
 
 func (s *Sides) write(ctx context.Context, inPlace bool, apply func(write *Write) error) error {
 	var gate chan struct{}
-	err := s.slots.Write(func(sequence int64) error {
+	err := s.slots.WriteContext(ctx, func(sequence int64) error {
 		w, err := core.AcquireWorkspace()
 		if err != nil {
 			return err

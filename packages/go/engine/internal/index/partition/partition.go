@@ -2,6 +2,7 @@ package partition
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
@@ -29,7 +30,7 @@ type Partition struct {
 	pendingSide int
 	staleSide   bool
 	merging     sync.Mutex
-	changes     *ChangeLog
+	changes     atomic.Pointer[ChangeLog]
 	clears      uint64
 }
 

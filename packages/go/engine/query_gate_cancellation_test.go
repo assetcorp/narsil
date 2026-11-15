@@ -13,6 +13,7 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	ctx := context.Background()
 	tokenizer := &reenteringTokenizer{}
 	narsil, err := engine.New(ctx, engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)},
+		Durability: &engine.DurabilityConfig{Directory: t.TempDir(), Mode: engine.DurabilitySync},
 		Tokenizers: map[string]engine.Tokenizer{"callback": tokenizer}})
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +36,8 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	bounded, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 	searched := make(chan error, 1)
+	checkpointed := make(chan error, 1)
+	go func() { checkpointed <- narsil.Checkpoint(bounded, callbackIndex) }()
 	go func() {
 		_, err := narsil.Query(bounded, callbackIndex, engine.QueryParams{Term: "lighthouse"})
 		searched <- err
@@ -44,6 +47,13 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	select {
 	case searchErr = <-searched:
 		returned = true
+	case <-time.After(time.Second):
+	}
+	checkpointReturned := false
+	var checkpointErr error
+	select {
+	case checkpointErr = <-checkpointed:
+		checkpointReturned = true
 	case <-time.After(time.Second):
 	}
 	close(proceed)
@@ -56,6 +66,13 @@ func TestCancelledSearchLeavesAnInPlaceWriterGate(t *testing.T) {
 	}
 	if !errors.Is(searchErr, context.DeadlineExceeded) {
 		t.Fatalf("the search returned %v", searchErr)
+	}
+	if !checkpointReturned {
+		<-checkpointed
+		t.Fatal("the checkpoint waited beyond its deadline for the writer")
+	}
+	if !errors.Is(checkpointErr, context.DeadlineExceeded) {
+		t.Fatalf("the checkpoint returned %v", checkpointErr)
 	}
 	result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "lighthouse"})
 	if err != nil || result.Count != 0 {

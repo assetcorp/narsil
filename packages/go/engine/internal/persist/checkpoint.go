@@ -121,17 +121,21 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 	options checkpointOptions) (held capture, err error) {
 	consistent := options.consistent
 	held = capture{seqNos: make([]uint64, len(durable.partitions))}
-	for _, log := range durable.partitions {
-		log.mutex.Lock()
-	}
+	locked := 0
 	defer func() {
-		for _, log := range durable.partitions {
+		for _, log := range durable.partitions[:locked] {
 			log.mutex.Unlock()
 		}
 		if err != nil {
 			held.stopTracking()
 		}
 	}()
+	for _, log := range durable.partitions {
+		if err := log.mutex.LockContext(ctx); err != nil {
+			return held, err
+		}
+		locked++
+	}
 	for _, log := range durable.partitions {
 		if log.failed != nil {
 			return held, log.failed
@@ -188,12 +192,12 @@ func (durable *Durable) checkpoint(ctx context.Context, consistent bool) error {
 	return err
 }
 
-func (durable *Durable) prepareCheckpoint(logged bool) error {
+func (durable *Durable) prepareCheckpoint(ctx context.Context, logged bool) error {
 	if durable.closed.Load() {
 		return narsilerr.New(narsilerr.CodeInstanceShutDown,
 			`Index "`+durable.handle.Name+`" is closed`, map[string]any{"indexName": durable.handle.Name})
 	}
-	if err := durable.refuseFailedPartitions(); err != nil {
+	if err := durable.refuseFailedPartitions(ctx); err != nil {
 		return err
 	}
 	if err := durable.manager.Fatal(); err != nil {
@@ -214,7 +218,9 @@ func (durable *Durable) prepareCheckpoint(logged bool) error {
 }
 
 func (durable *Durable) checkpointWith(ctx context.Context, options checkpointOptions) (manifest.Manifest, error) {
-	durable.checkpointMutex.Lock()
+	if err := durable.checkpointMutex.LockContext(ctx); err != nil {
+		return manifest.Manifest{}, err
+	}
 	defer durable.checkpointMutex.Unlock()
 	durable.stall.begin()
 	defer durable.stall.end()
@@ -230,7 +236,7 @@ func (durable *Durable) checkpointWith(ctx context.Context, options checkpointOp
 func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpointOptions) (manifest.Manifest, uint64,
 	error) {
 	store, logged := durable.manager.store, durable.manager.logged()
-	if err := durable.prepareCheckpoint(logged); err != nil {
+	if err := durable.prepareCheckpoint(ctx, logged); err != nil {
 		return manifest.Manifest{}, 0, err
 	}
 	for _, field := range durable.handle.vectorFields() {
