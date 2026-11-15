@@ -15,6 +15,14 @@ export function threadCloseAcknowledged(word: Int32Array<SharedArrayBuffer>): bo
   return Atomics.load(word, CLOSED_WORD) === SIGNALLED
 }
 
+export async function threadCloseAcknowledgedWithin(
+  word: Int32Array<SharedArrayBuffer>,
+  timeoutMs: number,
+): Promise<void> {
+  const waiting = Atomics.waitAsync(word, CLOSED_WORD, OPEN, timeoutMs)
+  if (waiting.async) await waiting.value
+}
+
 export function acknowledgeThreadClose(word: Int32Array<SharedArrayBuffer>): void {
   Atomics.store(word, CLOSE_WORD, SIGNALLED)
   Atomics.notify(word, CLOSE_WORD)

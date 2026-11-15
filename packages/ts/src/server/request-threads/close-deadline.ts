@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { SERVER_CLOSE_DRAIN_DEADLINE_MS } from '../constants'
-import { closeEveryThreadAtExit, threadCloseAcknowledged } from './close-at-exit'
+import { SERVER_CLOSE_ACKNOWLEDGE_GRACE_MS, SERVER_CLOSE_DRAIN_DEADLINE_MS } from '../constants'
+import { closeEveryThreadAtExit, threadCloseAcknowledged, threadCloseAcknowledgedWithin } from './close-at-exit'
 
 export async function closeThreadsByDeadline(
   words: Set<Int32Array<SharedArrayBuffer>>,
@@ -16,7 +16,7 @@ export async function closeThreadsByDeadline(
       }),
     ])
     closeEveryThreadAtExit(words, 0)
-    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    await Promise.all([...words].map(word => threadCloseAcknowledgedWithin(word, SERVER_CLOSE_ACKNOWLEDGE_GRACE_MS)))
     const unacknowledged = [...words].filter(word => !threadCloseAcknowledged(word)).length
     if (unacknowledged > 0) {
       throw new NarsilError(
