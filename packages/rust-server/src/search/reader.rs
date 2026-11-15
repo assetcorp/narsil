@@ -9,6 +9,14 @@ pub(crate) fn refusal(code: ErrorCode, message: impl Into<String>) -> ServerErro
     ServerError::coded(code.as_str(), message)
 }
 
+pub(crate) fn details_of(entries: Vec<(&str, Value)>) -> Map {
+    let mut details = Map::with_capacity(entries.len());
+    for (key, value) in entries {
+        details.insert(key, value);
+    }
+    details
+}
+
 pub(crate) fn is_safe_integer(number: f64) -> bool {
     number.is_finite() && number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER as f64
 }
@@ -17,6 +25,14 @@ pub(crate) fn safe_whole(value: &Value) -> Option<u64> {
     match value {
         Value::Number(number) if is_safe_integer(*number) && *number >= 0.0 => Some(*number as u64),
         _ => None,
+    }
+}
+
+pub(crate) fn whole_count(number: f64) -> usize {
+    if number > 0.0 {
+        number.floor() as usize
+    } else {
+        0
     }
 }
 
@@ -115,13 +131,8 @@ impl<'a> Fields<'a> {
         }
     }
 
-    pub(crate) fn size(&self, key: &str, code: ErrorCode) -> Converted<Option<usize>> {
-        match self.get(key) {
-            None => Ok(None),
-            Some(value) => size_of(value)
-                .map(Some)
-                .ok_or_else(|| self.wrong(key, code, "a non-negative integer")),
-        }
+    pub(crate) fn count(&self, key: &str, code: ErrorCode) -> Converted<Option<usize>> {
+        Ok(self.number(key, code)?.map(whole_count))
     }
 
     pub(crate) fn strings(&self, key: &str, code: ErrorCode) -> Converted<Option<Vec<String>>> {

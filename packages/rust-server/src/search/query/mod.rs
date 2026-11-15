@@ -5,12 +5,10 @@ use narsil::{ErrorCode, Map, QueryParams, ScoringMode, SearchMode, TermMatch, Va
 
 use clauses::{facet_specs, group_config, highlight_config, pins};
 pub(crate) use clauses::{projection, sort_fields};
-use vector::{
-    bm25_params, bm25_refusal, hybrid_config, rerank_config, rerank_refusal, vector_query,
-};
+use vector::{bm25_params, hybrid_config, rerank_config, vector_query};
 
 use super::constants::{MAX_PREFIX_LENGTH, MAX_TOLERANCE};
-use super::reader::{Converted, Fields, refusal, safe_whole, shown};
+use super::reader::{Converted, Fields, details_of, refusal, safe_whole, shown, whole_count};
 
 const SCORING_MODES: [(&str, ScoringMode); 3] = [
     ("local", ScoringMode::Local),
@@ -38,6 +36,11 @@ fn integer_option(fields: &Fields<'_>, option: &str, maximum: u32) -> Converted<
                     shown(value)
                 ),
             )
+            .with_details(details_of(vec![
+                ("option", Value::from(option)),
+                ("value", Value::String(shown(value))),
+                ("maximum", Value::Number(f64::from(maximum))),
+            ]))
         })
 }
 
@@ -80,15 +83,17 @@ fn term_match(fields: &Fields<'_>) -> Converted<Option<TermMatch>> {
     match policy {
         Value::String(text) if text == "all" => Ok(Some(TermMatch::All)),
         Value::String(text) if text == "any" => Ok(Some(TermMatch::Any)),
-        other => safe_whole(other)
-            .map(|count| Some(TermMatch::AtLeast(u32::try_from(count).unwrap_or(u32::MAX))))
-            .ok_or_else(|| {
-                fields.wrong(
-                    "termMatch",
-                    ErrorCode::CONFIG_INVALID,
-                    "\"all\", \"any\", or a non-negative integer",
-                )
-            }),
+        Value::Number(count) => {
+            let required = whole_count(count.ceil());
+            Ok(Some(TermMatch::AtLeast(
+                u32::try_from(required).unwrap_or(u32::MAX),
+            )))
+        }
+        _ => Err(fields.wrong(
+            "termMatch",
+            ErrorCode::CONFIG_INVALID,
+            "\"all\", \"any\", or a number",
+        )),
     }
 }
 
@@ -127,17 +132,6 @@ fn search_after(fields: &Fields<'_>) -> Converted<Option<String>> {
     }
 }
 
-fn refuse_nulls(fields: &Fields<'_>) -> Converted<()> {
-    let null = |key: &str| fields.present(key).is_some_and(Value::is_null);
-    if null("bm25") {
-        return Err(bm25_refusal());
-    }
-    if null("rerank") {
-        return Err(rerank_refusal());
-    }
-    Ok(())
-}
-
 fn optional<T>(
     value: Option<&Value>,
     convert: impl FnOnce(&Value) -> Converted<T>,
@@ -147,7 +141,6 @@ fn optional<T>(
 
 pub(crate) fn query_params(params: &Map, max_rerank_window: usize) -> Converted<QueryParams> {
     let fields = Fields::new(params, "");
-    refuse_nulls(&fields)?;
     let code = ErrorCode::CONFIG_INVALID;
     Ok(QueryParams {
         term: fields.string("term", code)?,
@@ -166,8 +159,8 @@ pub(crate) fn query_params(params: &Map, max_rerank_window: usize) -> Converted<
         facets: optional(fields.get("facets"), facet_specs)?,
         sort: optional(fields.get("sort"), sort_fields)?,
         group: optional(fields.get("group"), group_config)?,
-        limit: fields.size("limit", code)?,
-        offset: fields.size("offset", code)?,
+        limit: fields.count("limit", code)?,
+        offset: fields.count("offset", code)?,
         search_after: search_after(&fields)?,
         highlight: optional(fields.get("highlight"), highlight_config)?,
         pinned: optional(fields.get("pinned"), pins)?,

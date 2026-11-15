@@ -4,7 +4,9 @@ use narsil::{
 };
 
 use crate::errors::ServerError;
-use crate::search::reader::{Converted, Fields, entries_of, refusal, shown, size_of, strings_of};
+use crate::search::reader::{
+    Converted, Fields, details_of, entries_of, refusal, shown, size_of, strings_of, whole_count,
+};
 
 pub(crate) const DIRECTIONS: [(&str, SortDirection); 2] =
     [("asc", SortDirection::Asc), ("desc", SortDirection::Desc)];
@@ -138,7 +140,7 @@ pub(crate) fn facet_specs(facets: &Value) -> Converted<Vec<(String, FacetSpec)>>
             let map = spec.as_object().unwrap_or(&empty);
             let spec = Fields::new(map, format!("facets.{field}"));
             let facet = FacetSpec {
-                limit: spec.size("limit", ErrorCode::CONFIG_INVALID)?,
+                limit: spec.count("limit", ErrorCode::CONFIG_INVALID)?,
                 sort: spec.choice("sort", ErrorCode::CONFIG_INVALID, &DIRECTIONS)?,
                 ranges: ranges(&spec)?,
             };
@@ -159,8 +161,11 @@ pub(crate) fn group_config(group: &Value) -> Converted<GroupConfig> {
         fields: fields
             .strings("fields", ErrorCode::CONFIG_INVALID)?
             .unwrap_or_default(),
-        max_per_group: fields.size("maxPerGroup", ErrorCode::CONFIG_INVALID)?,
-        limit: fields.size("limit", ErrorCode::CONFIG_INVALID)?,
+        max_per_group: fields.count("maxPerGroup", ErrorCode::CONFIG_INVALID)?,
+        limit: fields
+            .number("limit", ErrorCode::CONFIG_INVALID)?
+            .filter(|limit| *limit >= 0.0)
+            .map(whole_count),
         reduce: None,
     })
 }
@@ -181,7 +186,7 @@ pub(crate) fn highlight_config(highlight: &Value) -> Converted<HighlightConfig> 
             })?,
         pre_tag: fields.string("preTag", ErrorCode::CONFIG_INVALID)?,
         post_tag: fields.string("postTag", ErrorCode::CONFIG_INVALID)?,
-        max_snippet_length: fields.size("maxSnippetLength", ErrorCode::CONFIG_INVALID)?,
+        max_snippet_length: fields.count("maxSnippetLength", ErrorCode::CONFIG_INVALID)?,
     })
 }
 
@@ -209,6 +214,13 @@ pub(crate) fn pins(pinned: &Value) -> Converted<Vec<Pin>> {
                     ErrorCode::CONFIG_INVALID,
                     "A pinned document position must be a non-negative integer",
                 )
+                .with_details(details_of(vec![
+                    ("docId", Value::String(doc_id.clone())),
+                    (
+                        "position",
+                        entry.get("position").cloned().unwrap_or(Value::Null),
+                    ),
+                ]))
             })?;
             Ok(Pin {
                 doc_id: doc_id.clone(),
