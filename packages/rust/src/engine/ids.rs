@@ -50,3 +50,14 @@ pub(crate) fn generate_id() -> Result<String> {
 pub(crate) fn random_uuid(what: &str) -> Result<String> {
     Ok(uuid_text(random_bytes(what)?, UUID_VERSION_FOUR))
 }
+
+impl super::Narsil {
+    /// Returns a new document ID from the engine's ID generator, which is the ID that an insert without one takes:
+    /// the configured `id_generator`'s next ID, or a new UUID version 7 by default.
+    ///
+    /// A batch insert in TypeScript gives each entry that it refuses for not being an object an ID of this kind, so
+    /// that a server built on this crate reports such an entry as TypeScript does.
+    pub fn new_document_id(&self) -> Result<String> {
+        self.inner.next_document_id()
+    }
+}
