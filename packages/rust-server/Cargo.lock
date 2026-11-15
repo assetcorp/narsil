@@ -154,6 +154,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "delali-narsil",
+ "flate2",
  "form_urlencoded",
  "futures-util",
  "getrandom",
