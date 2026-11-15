@@ -47,8 +47,14 @@ export function applyGrouping<T = AnyDocument>(
   group: GroupConfig,
   documents: GroupedDocuments,
 ): GroupResult[] {
+  const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
+  const limit =
+    group.limit !== undefined && Number.isFinite(group.limit) && group.limit >= 0
+      ? Math.min(Math.floor(group.limit), hits.length)
+      : null
   if (!group.fields || group.fields.length === 0) {
-    return group.limit === 0 ? [] : [{ values: {}, hits: hits.slice(0, hitsKeptPerGroup(group.maxPerGroup)) as Hit[] }]
+    if (hits.length === 0 || limit === 0) return []
+    return [reducedGroup({ values: {}, hits: hits.slice(0, keptPerGroup) as Hit[] }, group, hits as Hit[], documents)]
   }
 
   if (hits.length > 0xffffffff)
@@ -67,11 +73,6 @@ export function applyGrouping<T = AnyDocument>(
     if (at > 0 && hits[order[at - 1]].id !== hits[order[at]].id) rank++
     idRanks[order[at]] = rank
   }
-  const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
-  const limit =
-    group.limit !== undefined && Number.isFinite(group.limit) && group.limit >= 0
-      ? Math.min(Math.floor(group.limit), hits.length)
-      : null
   const heads = new Uint32Array(hits.length)
   const offsets = new Uint32Array(hits.length + 1)
   const positions = new Uint32Array(hits.length)
@@ -96,26 +97,31 @@ export function applyGrouping<T = AnyDocument>(
     for (let field = 0; field < group.fields.length; field++) values[group.fields[field]] = row?.[field] ?? null
     const everyHit: Hit[] = []
     for (let member = offsets[at]; member < offsets[at + 1]; member++) everyHit.push(hits[positions[member]] as Hit)
-    const result: GroupResult = { values, hits: everyHit.slice(0, keptPerGroup) }
-
-    if (group.reduce) {
-      const folded = foldGroupReducer(
-        group.reduce,
-        everyHit.map(hit => ({ document: documents.document(hit.id), score: hit.score ?? 0 })),
-      )
-      if (folded.reducerError !== undefined) {
-        result.reducerError = folded.reducerError
-      } else {
-        result.reduced = folded.reduced
-      }
-    }
-
-    groups.push(result)
+    groups.push(reducedGroup({ values, hits: everyHit.slice(0, keptPerGroup) }, group, everyHit, documents))
   }
 
   if (limit !== null && groups.length > limit) groups.length = limit
 
   return groups
+}
+
+function reducedGroup(
+  result: GroupResult,
+  group: GroupConfig,
+  everyHit: readonly Hit[],
+  documents: GroupedDocuments,
+): GroupResult {
+  if (!group.reduce) return result
+  const folded = foldGroupReducer(
+    group.reduce,
+    everyHit.map(hit => ({ document: documents.document(hit.id), score: hit.score ?? 0 })),
+  )
+  if (folded.reducerError !== undefined) {
+    result.reducerError = folded.reducerError
+  } else {
+    result.reduced = folded.reduced
+  }
+  return result
 }
 
 /**

@@ -120,15 +120,15 @@ func pickHits(hits []resultHit, positions []int) []resultHit {
 }
 
 func (ix *Index) applyGrouping(prepared *preparedQuery, hits []resultHit, config model.GroupConfig, documents *documentLookup) ([]hitGroup, error) {
-	if len(config.Fields) == 0 {
-		return []hitGroup{{values: map[string]any{}, hits: hits}}, nil
-	}
 	if len(hits) == 0 {
 		return []hitGroup{}, nil
 	}
-	grouped, err := ix.groupedHitsOf(prepared, hits, config.Fields)
-	if err != nil {
-		return nil, err
+	grouped := make([]query.GroupedHit, len(hits))
+	if len(config.Fields) > 0 {
+		var err error
+		if grouped, err = ix.groupedHitsOf(prepared, hits, config.Fields); err != nil {
+			return nil, err
+		}
 	}
 	found, err := query.GroupHits(grouped, config)
 	if err != nil {
