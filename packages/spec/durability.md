@@ -1,6 +1,6 @@
 # Narsil Durability Specification
 
-This document defines how a single node survives a crash and restores its data on restart. Durability rests on two artefacts: a periodic snapshot, called the checkpoint, and a write-ahead log of every mutation since that checkpoint. On restart a node loads the snapshot and replays the log records the snapshot does not already contain. A filesystem deployment gets that full guarantee, and a persistence backend that is not filesystem-backed gets the weaker snapshot-only guarantee defined in [Snapshot-Only Persistence](#snapshot-only-persistence).
+This document defines how a single node survives a crash and restores its data on restart. Durability rests on two artefacts: a periodic snapshot, called the checkpoint, and a write-ahead log of every mutation since that checkpoint. On restart a node loads the snapshot and replays the log records the snapshot does not already contain. A filesystem deployment and an IndexedDB deployment get that full guarantee, and every other persistence backend gets the weaker snapshot-only guarantee defined in [Snapshot-Only Persistence](#snapshot-only-persistence).
 
 A write-ahead log record is the same entry the replication protocol uses; see [replication.md](distribution/replication.md). There is one log, not two. This document adds the on-disk framing, the fsync rules, recovery, checkpointing, and truncation that turn the in-memory replication log into a durable log. A single node uses it for crash recovery, and a cluster uses the same log for replication.
 
@@ -14,22 +14,22 @@ Structure definitions use a language-neutral notation. `List<T>` is an ordered c
 
 A node holds its index in memory. Persistence comes in two tiers, and each publishes a different guarantee.
 
-### Tier 1: Write-Ahead Log Durability, Filesystem Only
+### Tier 1: Write-Ahead Log Durability, Filesystem or IndexedDB
 
 The strong tier pairs a periodic snapshot with a write-ahead log.
 
 - The **snapshot**, or checkpoint, is the full index state at a point in time, which a node writes as the files of a [segmented checkpoint](#segmented-checkpoint) and commits with one atomic write of their manifest. A node takes one periodically.
 - The **write-ahead log** is an append-only, per-partition log of mutations. A mutation reaches the log durably before the write is acknowledged.
 
-Recovery loads the latest snapshot and then replays the log records whose sequence number exceeds the snapshot's recorded checkpoint position. This tier needs a real filesystem, because it relies on append, fsync, and atomic rename. Its guarantee is that no acknowledged write is lost; see [Durability Modes](#durability-modes).
+Recovery loads the latest snapshot and then replays the log records whose sequence number exceeds the snapshot's recorded checkpoint position. This tier relies on append, fsync, and atomic rename, which a filesystem provides and which [IndexedDB Storage](#indexeddb-storage) builds from IndexedDB transactions. Its guarantee is that no acknowledged write is lost; see [Durability Modes](#durability-modes).
 
 ### Tier 2: Snapshot-Only Persistence, Any Backend
 
-A persistence adapter that is not filesystem-backed cannot run a write-ahead log, because a key-to-bytes interface expresses neither append nor fsync. Such a backend persists periodic snapshots alone. Recovery restores the last snapshot and has no log to replay, so the guarantee is that the index is durable up to that snapshot and a crash loses every write made since. See [Snapshot-Only Persistence](#snapshot-only-persistence).
+A persistence adapter that is neither filesystem-backed nor the IndexedDB adapter cannot run a write-ahead log, because a key-to-bytes interface expresses neither append nor fsync. Such a backend persists periodic snapshots alone. Recovery restores the last snapshot and has no log to replay, so the guarantee is that the index is durable up to that snapshot and a crash loses every write made since. See [Snapshot-Only Persistence](#snapshot-only-persistence).
 
 ### Tier Selection
 
-An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because a node holds its write-ahead log directory alone; see [Directory Ownership](#directory-ownership). `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`. The write-ahead log fields `durability.directory`, `durability.mode`, `durability.flushIntervalMs`, `durability.segmentMaxBytes`, and `durability.compactionThreshold` cannot combine with `tier: "snapshot"`; the combination raises `CONFIG_INVALID`.
+An implementation selects the tier from the backend: a filesystem-backed adapter and the IndexedDB adapter run Tier 1, and any other adapter runs Tier 2. Where an invalidation adapter is configured and `durability.tier` is unset, the IndexedDB adapter runs Tier 2, because several tabs then share one store. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, or several tabs share one store, because a node holds its write-ahead log storage alone; see [Directory Ownership](#directory-ownership). `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` raises `CONFIG_INVALID` where the node can resolve no directory and has no IndexedDB adapter. The write-ahead log fields `durability.directory`, `durability.mode`, `durability.flushIntervalMs`, `durability.segmentMaxBytes`, and `durability.compactionThreshold` cannot combine with `tier: "snapshot"`; the combination raises `CONFIG_INVALID`.
 
 ---
 
@@ -83,6 +83,15 @@ A node must keep a file on disk while any reader holds the file open, on any wor
 The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk, and read the token in `.narsil.lock`, before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, a directory with other numbers, and a lock file with another token are fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
 
 A checkpoint that fails with an error of the host filesystem is fatal in the same way, and the node must report it as `PERSISTENCE_SAVE_FAILED` carrying the host error as its cause.
+
+### Ownership on IndexedDB
+
+A node that runs Tier 1 on IndexedDB takes a lock in the place of `.narsil.lock`, and it checks the open connection in the place of the device and inode numbers.
+
+- Before recovery lists the store, the node must request an exclusive Web Lock without waiting, under the name `narsil-wal` followed by the JSON encoding of the array `[databaseName, storeName]`. Where another holder has the lock, the node must refuse to start with `CONFIG_INVALID`.
+- The browser releases the lock when the tab that holds it closes or crashes, so no lock outlives the node that took it.
+- In a runtime without `navigator.locks`, the node must refuse a second open of the same database and store from inside its process with `CONFIG_INVALID`.
+- Where the browser closes the connection, or another connection asks for a version change of the database, the node must treat the store as replaced: it raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
 
 ---
 
@@ -190,6 +199,20 @@ A node must replace the content of a key atomically and durably wherever this do
 5. fsync the containing directory.
 
 A crash before step 4 leaves the previous content in place, and recovery then discards the temporary file. Every fsync error is fatal, as [Durability Modes](#durability-modes) describes.
+
+---
+
+## IndexedDB Storage
+
+A node that runs Tier 1 on IndexedDB must store the same keys and the same bytes that the filesystem layout holds, as records in the adapter's object store.
+
+- The node must store the first bytes of a file under the file's key, and each later append under the array key `[key, n]`, where `n` counts up from 1, so that the adapter's string-keyed `list` returns no append record.
+- A file's content is its first record followed by its append records in order of `n`.
+- An fsync is the commit of a `readwrite` transaction that the node opens with the durability hint `"strict"`.
+- The node must perform each [atomic write](#atomic-write), and each rename, inside one transaction, so that a directory fsync needs no further step.
+- In `async` mode, the node must commit each append in a transaction that it opens with the durability hint `"relaxed"` before it acknowledges the write, so that a closed or crashed tab loses no acknowledged write. An operating system crash or a power cut can lose the appends that the browser has not yet flushed.
+- In `async` mode, the node must write the records that only a relaxed commit holds again in one strict transaction every `flush_interval_ms`, before it advances the commit marker, so that the marker covers only bytes that a strict commit holds.
+- The node must pass a durability hint on every `readwrite` transaction, because a browser's default hint can be either one.
 
 ---
 
@@ -454,15 +477,16 @@ A node serialises a partition's apply, sequence-number assignment, and append, s
 
 ## Snapshot-Only Persistence
 
-A persistence adapter that is not filesystem-backed, such as an in-memory store, IndexedDB, an object store, or a key-value service, cannot run the write-ahead log, because a `save(key, bytes)` interface expresses neither append nor fsync. Such a backend persists checkpoints alone.
+A persistence adapter that is neither filesystem-backed nor the IndexedDB adapter, such as an in-memory store, an object store, or a key-value service, cannot run the write-ahead log, because a `save(key, bytes)` interface expresses neither append nor fsync. Such a backend persists checkpoints alone.
 
 - On the same interval and mutation-count triggers that a checkpoint uses, the node writes a [segmented checkpoint](#segmented-checkpoint) through the adapter's `save`, one key for each file. The node writes no log, so it builds each segment from the whole content of a changed partition, as step 1 of [Writing a Checkpoint](#writing-a-checkpoint) allows.
 - The node must save every file of a checkpoint before it saves the manifest, so that saving the manifest commits the checkpoint. It must delete the keys that only the previous manifest lists once that save returns. A filesystem-backed adapter must save the manifest with an [atomic write](#atomic-write).
 - Recovery loads the manifest and the files that it lists through the adapter's `load` and replays no log. It must delete every key under `<indexName>/segments/` that the manifest does not list, which it finds through the adapter's `list`.
+- On a clean shutdown, the node must write a checkpoint of every index that holds writes since its last checkpoint before the shutdown returns.
 
 The guarantee is that the index is durable up to the last checkpoint, and a crash loses every write made since. A node must publish that weaker guarantee and must never imply the write-ahead log guarantee for a snapshot-only backend.
 
-Configuring write-ahead log durability, by setting `durability.directory`, against a non-filesystem backend is a configuration error and raises `CONFIG_INVALID`.
+Configuring write-ahead log durability, by setting `durability.directory`, against a backend that is neither filesystem-backed nor IndexedDB is a configuration error and raises `CONFIG_INVALID`.
 
 ---
 
@@ -554,5 +578,5 @@ A node must reject an operation with `INDEX_REOPEN_CAPACITY_EXHAUSTED` when it n
 | `PERSISTENCE_FSYNC_FAILED` | An fsync returns an error. The node acknowledges no write that the fsync covers, and the error is fatal. |
 | `PERSISTENCE_LOAD_FAILED` | The node cannot read or decode a snapshot or log file. |
 | `PERSISTENCE_SAVE_FAILED` | The node cannot write a snapshot or log file, or the durability directory is missing or replaced; see [Directory Ownership](#directory-ownership). |
-| `CONFIG_INVALID` | A configuration asks for write-ahead log durability on a non-filesystem backend, for durability without a directory, or for the snapshot tier without a persistence adapter, or another running process holds the write-ahead log directory. |
+| `CONFIG_INVALID` | A configuration asks for write-ahead log durability on a backend that is neither filesystem-backed nor IndexedDB, for durability without a directory, or for the snapshot tier without a persistence adapter, or another running process or tab holds the write-ahead log storage. |
 | `RESTORE_MEMORY_EXCEEDED` | A restore needs more memory than the node has free, as [Replacing an Index by Restore](#replacing-an-index-by-restore) defines. The node refuses it before it stages any file, and the existing index keeps serving. |

@@ -11,11 +11,15 @@ const worker = new Worker(new URL('./search-worker.ts', import.meta.url), { type
 ```ts
 import { createNarsil, isNarsilError, type Narsil } from '@delali/narsil'
 import { createIndexedDBPersistence } from '@delali/narsil/adapters/indexeddb'
+import { createBroadcastChannelInvalidation } from '@delali/narsil/invalidation/broadcast-channel'
 
 const CATALOGUE_LOADED = 'products-loaded'
 
 async function openCatalogue(): Promise<Narsil> {
-  const narsil = await createNarsil({ persistence: createIndexedDBPersistence({ dbName: 'shop-search' }) })
+  const narsil = await createNarsil({
+    persistence: createIndexedDBPersistence({ dbName: 'shop-search' }),
+    invalidation: createBroadcastChannelInvalidation(),
+  })
   try {
     const saved = new Set(narsil.listIndexes().map(index => index.name))
     if (!saved.has(CATALOGUE_LOADED)) {
@@ -52,12 +56,12 @@ self.onmessage = async (event: MessageEvent<{ id: number; term: string }>) => {
 ```
 
 - `createNarsil` recovers every saved index from IndexedDB before it resolves, so on a later visit the worker skips the download and the load, and the search works with no network.
-- With IndexedDB, the engine saves an index every 5 minutes by default, or after 100,000 writes, so closing the tab sooner discards the load. `narsil.checkpoint(indexName)` saves the index at once, so call it after each load.
+- A shopper can open the shop in several tabs, so the worker passes `createBroadcastChannelInvalidation()`, which keeps every tab consistent over one IndexedDB store and keeps the engine on the snapshot tier. On that tier, the engine saves an index every 5 minutes by default, or after 100,000 writes, so closing the tab sooner discards the load. `narsil.checkpoint(indexName)` saves the index at once, so call it after each load.
+- Where only one tab at a time opens the store, leave the invalidation adapter out. The engine then logs every write in IndexedDB before it acknowledges the write, so a tab that closes keeps every write that resolved, and a second tab's `createNarsil` fails with `CONFIG_INVALID`.
 - `createIndex` saves the new index's name and schema before the load starts, so an index that exists can still be empty or half loaded. The worker creates the `products-loaded` index only once the checkpoint has finished, so a failed download or a tab that the user closes part-way through leaves no marker. The next start then drops the half-loaded `products` index and loads it again.
 - When the start fails, the worker answers every waiting message with an error, and the next message starts the engine again.
 - IndexedDB keeps the index on the device, but the page itself loads with no network only when the app registers a service worker that caches its files.
 - A browser bundle holds no code for pattern fields, partial-word fields, or synonym sets. Until the worker registers that code, `createIndex` throws `CONFIG_INVALID` for an index with a `verbatim` field, a field whose type includes `pattern` or `partial`, or a `synonyms` list. To register it before the worker creates or loads the index, pass `patternSearch` from `@delali/narsil/pattern` to `registerPatternSearch`, `partialWordSearch` from `@delali/narsil/partial-words` to `registerPartialWordSearch`, or `synonyms` from `@delali/narsil/synonyms` to `registerSynonyms`, each of which `@delali/narsil` exports.
 - In a browser, the engine keeps its worker pool off, so the engine answers every query on the thread that created it, which here is the worker that the app started.
 - Keep vectors out of each message with `document: { exclude: [...] }`, because the browser copies every hit that `postMessage` sends.
-- To keep several tabs consistent over one IndexedDB store, pass `invalidation: createBroadcastChannelInvalidation()` from `@delali/narsil/invalidation/broadcast-channel` to `createNarsil` in each tab.
 - The transformers adapter from [vectors.md](vectors.md) also embeds in the browser, where it caches the model in the Cache API after the first download. Pass `device: 'webgpu'` to embed on the GPU where the browser offers WebGPU.

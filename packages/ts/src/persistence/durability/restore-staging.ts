@@ -40,7 +40,7 @@ function stagedDirectory(
   staged: (key: string) => string,
   unstaged: (key: string) => string,
 ): DurableDirectory {
-  const { readRange, byteLength } = directory
+  const { readRange, byteLength, pathOf } = directory
   return {
     root: directory.root,
     appendHandle: key => directory.appendHandle(staged(key)),
@@ -51,7 +51,7 @@ function stagedDirectory(
     remove: key => directory.remove(staged(key)),
     move: (from, to) => directory.move(staged(from), staged(to)),
     list: async prefix => (await directory.list(staged(prefix))).map(unstaged),
-    pathOf: key => directory.pathOf(staged(key)),
+    ...(pathOf === undefined ? {} : { pathOf: (key: string) => pathOf.call(directory, staged(key)) }),
     ...(readRange === undefined
       ? {}
       : {
