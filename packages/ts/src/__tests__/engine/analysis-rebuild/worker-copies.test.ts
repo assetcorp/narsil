@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import { bytesOf } from '../../e2e/portability/archive-oracle'
@@ -101,6 +101,20 @@ describe.skipIf(!built)('a rebuild of an index with copies on worker threads', (
     return snapshot
   }
 
+  const startingPool: { corpus: OracleCorpus; random: () => number; snapshot: Uint8Array } = {
+    corpus: new OracleCorpus(),
+    random: seededRandom(59),
+    snapshot: new Uint8Array(0),
+  }
+
+  beforeAll(async () => {
+    startingPool.snapshot = await snapshotUnderFirstRevision(
+      startingPool.corpus,
+      startingPool.random,
+      STARTING_POOL_DOCUMENTS,
+    )
+  }, 120_000)
+
   async function restoreWithWorkersRunning(corpus: OracleCorpus, random: () => number): Promise<Narsil> {
     const snapshot = await snapshotUnderFirstRevision(corpus, random, DOCUMENTS)
     const opened = await openWithWorkers(DOCUMENTS + 200, false)
@@ -151,11 +165,9 @@ describe.skipIf(!built)('a rebuild of an index with copies on worker threads', (
   ])(
     'keeps every document when a copy load that waited on a starting worker pool freezes partitions %s',
     async (_when, partitions) => {
-      const corpus = new OracleCorpus()
-      const random = seededRandom(59)
-      const snapshot = await snapshotUnderFirstRevision(corpus, random, STARTING_POOL_DOCUMENTS)
+      const { corpus, random, snapshot } = startingPool
       const opened = await openWithWorkers(STARTING_POOL_DOCUMENTS + 1, false)
-      await opened.restore('prose', snapshot)
+      await opened.restore('prose', snapshot.slice())
       await opened.rebalance('prose', partitions)
       const title = sentence(random)
       await opened.insert('prose', { title }, 'threshold')

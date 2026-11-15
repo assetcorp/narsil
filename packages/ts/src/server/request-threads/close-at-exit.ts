@@ -7,6 +7,29 @@ export function createCloseAtExitWords(): Int32Array<SharedArrayBuffer> {
   return new Int32Array(new SharedArrayBuffer(2 * Int32Array.BYTES_PER_ELEMENT))
 }
 
+export function threadCloseRequested(word: Int32Array<SharedArrayBuffer>): boolean {
+  return Atomics.load(word, CLOSE_WORD) === SIGNALLED
+}
+
+export function threadCloseAcknowledged(word: Int32Array<SharedArrayBuffer>): boolean {
+  return Atomics.load(word, CLOSED_WORD) === SIGNALLED
+}
+
+export async function threadCloseAcknowledgedWithin(
+  word: Int32Array<SharedArrayBuffer>,
+  timeoutMs: number,
+): Promise<void> {
+  const waiting = Atomics.waitAsync(word, CLOSED_WORD, OPEN, timeoutMs)
+  if (waiting.async) await waiting.value
+}
+
+export function acknowledgeThreadClose(word: Int32Array<SharedArrayBuffer>): void {
+  Atomics.store(word, CLOSE_WORD, SIGNALLED)
+  Atomics.notify(word, CLOSE_WORD)
+  Atomics.store(word, CLOSED_WORD, SIGNALLED)
+  Atomics.notify(word, CLOSED_WORD)
+}
+
 export function closeEveryThreadAtExit(words: Iterable<Int32Array>, timeoutMs: number): void {
   const signalled = [...words]
   for (const word of signalled) {
@@ -29,7 +52,6 @@ export async function closeWhenTheProcessExits(word: Int32Array<SharedArrayBuffe
   try {
     close()
   } finally {
-    Atomics.store(word, CLOSED_WORD, SIGNALLED)
-    Atomics.notify(word, CLOSED_WORD)
+    acknowledgeThreadClose(word)
   }
 }

@@ -20,7 +20,7 @@ use support::suggestions::{
 const SAVING_CHILD: &str = "NARSIL_SUGGESTIONS_SAVE_CRASH_DIRECTORY";
 const BUILDING_CHILD: &str = "NARSIL_SUGGESTIONS_BUILD_CRASH_DIRECTORY";
 const SAVED_PHRASES: usize = 5;
-const SAVE_ACKNOWLEDGEMENTS: usize = 1_500;
+const SAVE_ACKNOWLEDGEMENTS: usize = 1_000;
 const SAVE_INTERVAL_MS: u32 = 1_000;
 const RECORD_PAUSE: Duration = Duration::from_millis(2);
 const SEARCHES_AFTER_RECOVERY: u64 = 10;

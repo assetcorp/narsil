@@ -81,25 +81,41 @@ export function searchOver(client: Pick<NarsilClient, 'query'>): SearchFn {
 
 export type HitComparison = 'ids and scores' | 'ids'
 
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let at = 0; at < left.length; at++) if (left[at] !== right[at]) return false
+  return true
+}
+
+function scoreMismatchesOf(found: readonly OracleHit[], expected: readonly OracleHit[]): string[] {
+  const expectedScores = new Map(expected.map(hit => [hit.id, hit.score]))
+  const mismatches: string[] = []
+  for (const hit of found) {
+    const score = expectedScores.get(hit.id) ?? Number.NaN
+    const bound = RELATIVE_SCORE_TOLERANCE * Math.max(1, Math.abs(score))
+    if (!(Math.abs(hit.score - score) <= bound)) mismatches.push(`${hit.id} scored ${hit.score}, expected ${score}`)
+  }
+  for (let at = 1; at < found.length; at++) {
+    if (!(found[at].score <= found[at - 1].score)) {
+      mismatches.push(`order at ${at}: ${found[at].score} follows ${found[at - 1].score}`)
+    }
+  }
+  return mismatches
+}
+
 export function expectSameHits(
   found: readonly OracleHit[],
   expected: readonly OracleHit[],
-  label: string,
+  label: string | (() => string),
   comparison: HitComparison = 'ids and scores',
 ): void {
-  expect(found.map(hit => hit.id).sort(), label).toEqual(expected.map(hit => hit.id).sort())
+  const labelText = (): string => (typeof label === 'string' ? label : label())
+  const foundIds = found.map(hit => hit.id).sort()
+  const expectedIds = expected.map(hit => hit.id).sort()
+  if (!sameIds(foundIds, expectedIds)) expect(foundIds, labelText()).toEqual(expectedIds)
   if (comparison === 'ids') return
-  const expectedScores = new Map(expected.map(hit => [hit.id, hit.score]))
-  for (const hit of found) {
-    const score = expectedScores.get(hit.id) ?? Number.NaN
-    expect(
-      Math.abs(hit.score - score),
-      `${label} ${hit.id} scored ${hit.score}, expected ${score}`,
-    ).toBeLessThanOrEqual(RELATIVE_SCORE_TOLERANCE * Math.max(1, Math.abs(score)))
-  }
-  for (let at = 1; at < found.length; at++) {
-    expect(found[at].score, `${label} order at ${at}`).toBeLessThanOrEqual(found[at - 1].score)
-  }
+  const mismatches = scoreMismatchesOf(found, expected)
+  if (mismatches.length > 0) expect(mismatches, labelText()).toEqual([])
 }
 
 export async function expectEveryProbe(
@@ -111,7 +127,7 @@ export async function expectEveryProbe(
   let matched = 0
   for (const query of probeQueries()) {
     const expected = oracle.search(query)
-    expectSameHits(await search(query), expected, `${label} ${JSON.stringify(query)}`, comparison)
+    expectSameHits(await search(query), expected, () => `${label} ${JSON.stringify(query)}`, comparison)
     matched += expected.length
   }
   return matched

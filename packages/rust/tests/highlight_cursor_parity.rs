@@ -1,7 +1,12 @@
 mod support;
 
+use std::sync::LazyLock;
+
 use narsil::{Value, parse_json};
-use support::shaping_compare::{require_parity, step};
+use support::shaping_compare::{SharedParity, step};
+
+static HIGHLIGHT_AND_CURSOR_PAGES: LazyLock<SharedParity> =
+    LazyLock::new(|| SharedParity::new(vec![highlighted_queries(), hostile_cursor_queries()]));
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -102,7 +107,7 @@ fn highlighted_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn highlighted_queries_tag_exactly_as_the_reference_does() {
-    require_parity(highlighted_queries());
+    HIGHLIGHT_AND_CURSOR_PAGES.require(&highlighted_queries());
 }
 
 fn forged(json: &str) -> String {
@@ -231,5 +236,5 @@ fn hostile_cursor_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn hostile_cursors_fail_exactly_as_the_reference_does() {
-    require_parity(hostile_cursor_queries());
+    HIGHLIGHT_AND_CURSOR_PAGES.require(&hostile_cursor_queries());
 }

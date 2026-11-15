@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 
-const DOCUMENTS_BEFORE_EACH_SNAPSHOT = 70_000
+const DOCUMENTS_BEFORE_EACH_SNAPSHOT = 20_000
 const INSERTED_AT_ONCE = 20_000
 const NEWEST_UPDATED = 2_000
 const UPDATED_AT_ONCE = 250

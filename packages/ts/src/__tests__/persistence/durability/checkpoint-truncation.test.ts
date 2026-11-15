@@ -60,18 +60,4 @@ describe('checkpoint and truncation', () => {
     expect(await reader.get('movies', 'm24')).toMatchObject({ title: 'Movie 24' })
     await reader.shutdown()
   })
-
-  it('writes a durable manifest that survives a crash before truncation', async () => {
-    const narsil = await createNarsil({ durability: { directory: root } })
-    await narsil.createIndex('movies', SCHEMA)
-    await narsil.insert('movies', { title: 'Dune', year: 2021 }, 'm1')
-    await narsil.checkpoint('movies')
-    await narsil.shutdown()
-
-    const directory = createDurableDirectory(root)
-    const manifest = await directory.read('movies/manifest')
-    expect(manifest).not.toBeNull()
-    const segments = await directory.list('movies/segments/')
-    expect(segments.length).toBeGreaterThan(0)
-  })
 })

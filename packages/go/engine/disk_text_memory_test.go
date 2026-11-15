@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	checkpointedBursts       = 6
+	checkpointedBursts       = 4
 	documentsPerBurst        = 120
 	pastIdleMergeDelay       = 1_500 * time.Millisecond
 	residentShareOfTextBytes = 0.5

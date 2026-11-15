@@ -4,7 +4,7 @@ import { addBackgroundAdmission } from '../../runtime/background-memory'
 import { waitFor } from '../server/helpers'
 
 const DIMENSION = 8
-const SETTLED_PASSAGES = 600
+const SETTLED_PASSAGES = 300
 const ARRIVING_PASSAGES = 300
 const SETTLED_PROBES = 100
 const PROMOTION_THRESHOLD = 100

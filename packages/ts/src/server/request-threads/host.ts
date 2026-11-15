@@ -9,6 +9,7 @@ import {
   INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT,
   MAX_INDEX_TOUCH_INTERVAL_MS,
   REQUEST_THREAD_CLOSE_AT_EXIT_MS,
+  SERVER_CLOSE_DRAIN_DEADLINE_MS,
 } from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
@@ -20,9 +21,11 @@ import { type AcceptorApp, acceptorOf } from './acceptor'
 import { answerRequest } from './answer-request'
 import type { CapturingResponse } from './captured-response'
 import { closeEveryThreadAtExit, createCloseAtExitWords } from './close-at-exit'
+import { closeThreadsByDeadline } from './close-deadline'
 import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
 import type { RelayRequest, ServeRequestsResult } from './messages'
 import { answerAuthorize, answerAwaitWrites, answerEmbed, answerFeedAdmit, answerRerank } from './relay-answers'
+import { createServerCloseSignal, signalServerClose } from './server-close'
 
 export interface RequestThreadHostOptions {
   core: EngineCore
@@ -54,13 +57,12 @@ interface ServingThread {
   closed: Promise<void>
 }
 
-function threadClosed(port: MessagePort, executor: Executor, clearSlots: () => void): Promise<void> {
+function threadClosed(port: MessagePort, clearSlots: () => void): Promise<void> {
   return new Promise(resolve => {
     port.once('close', () => {
       clearSlots()
       resolve()
     })
-    void executor.whenAbandoned?.().then(resolve)
   })
 }
 
@@ -99,6 +101,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   let longQueryThread: { workerId: number; port: MessagePort; executor: Executor } | null = null
   const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
   const retiring = new Set<Promise<void>>()
+  const serverClose = createServerCloseSignal()
   let stopped = false
 
   function closeThreadsAtExit(): void {
@@ -107,7 +110,6 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
 
   function releaseDescriptor(thread: ServingThread): void {
     thread.feeds?.closeAll()
-    closeAtExit.delete(thread.closeAtExit)
     if (thread.descriptor !== null) {
       try {
         acceptor.removeChildAppDescriptor(thread.descriptor)
@@ -190,14 +192,16 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     longQueryThread = null
   }
 
-  function retireThread(workerId: number, thread: ServingThread): Promise<void> {
+  function retireThread(workerId: number, thread: ServingThread, refuseNewRequests = false): Promise<void> {
     releaseDescriptor(thread)
     thread.port.unref()
     retiring.add(thread.closed)
     void thread.closed.then(() => retiring.delete(thread.closed))
-    void executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(
-      () => undefined,
-    )
+    void executeUntilAnswered(thread.executor, {
+      type: 'stopServing',
+      requestId: `stop-serving-${workerId}`,
+      refuseNewRequests,
+    }).catch(() => undefined)
     return thread.closed
   }
 
@@ -256,7 +260,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         executor,
         departure: createDepartureWord(),
         closeAtExit: createCloseAtExitWords(),
-        closed: threadClosed(channel.port2, executor, () => {
+        closed: threadClosed(channel.port2, () => {
           const remaining = (slotUsers.get(slot) ?? 1) - 1
           if (remaining > 0) {
             slotUsers.set(slot, remaining)
@@ -269,6 +273,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       }
       relayFrom(thread)
       closeAtExit.add(thread.closeAtExit)
+      void thread.closed.then(() => closeAtExit.delete(thread.closeAtExit))
       const longQueries = longQueryThread
       const longQueryChannel = longQueries === null ? null : new MessageChannel()
       const transfer = longQueryChannel === null ? [channel.port1] : [channel.port1, longQueryChannel.port1]
@@ -281,6 +286,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             settings: {
               port: channel.port1,
               departure: thread.departure.buffer,
+              serverClose: serverClose.buffer,
               closeAtExit: thread.closeAtExit.buffer,
               gate: options.gate,
               gateSlot: gateSlotOfWorker(workerId),
@@ -345,11 +351,12 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       return threads.size
     },
     async stop(): Promise<void> {
+      const deadline = signalServerClose(serverClose, SERVER_CLOSE_DRAIN_DEADLINE_MS)
       stopped = true
       process.off('exit', closeThreadsAtExit)
       const stopping = [...threads.entries()].map(([workerId, thread]) => {
         threads.delete(workerId)
-        return retireThread(workerId, thread)
+        return retireThread(workerId, thread, true)
       })
       core.orchestrator.stopRequestThreads()
       const longQueries = longQueryThread
@@ -364,7 +371,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             ),
         )
       }
-      await Promise.all([...stopping, ...retiring])
+      await closeThreadsByDeadline(closeAtExit, Promise.all([...stopping, ...retiring]), deadline)
     },
   }
 }

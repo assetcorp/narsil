@@ -7,6 +7,7 @@ import { createNarsil } from '../../narsil'
 
 const DIMENSIONS = 4
 const LARGEST_REQUEST_INPUTS = 2048
+const SHORTEST_RETRY_AFTER_SECONDS = '0.001'
 
 interface ReceivedRequest {
   method: string | undefined
@@ -31,7 +32,7 @@ function answerWithVectors(request: ReceivedRequest, response: ServerResponse): 
 
 function answerStatus(status: number, body: string): Answer {
   return (_request, response) => {
-    response.writeHead(status, { 'Retry-After': '0' })
+    response.writeHead(status, { 'Retry-After': SHORTEST_RETRY_AFTER_SECONDS })
     response.end(body)
   }
 }

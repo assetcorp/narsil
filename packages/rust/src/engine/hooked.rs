@@ -1,4 +1,4 @@
-use super::index::IndexState;
+use super::EngineInner;
 use super::plugins::{PluginRegistry, WriteHook};
 use super::reads;
 use super::writes::{
@@ -86,16 +86,18 @@ pub(crate) fn after_insert_batch(
 /// Runs every `before_update` hook on the document that replaces `doc_id`, after the checks that come first in
 /// every Narsil engine, and returns the document that the index holds now, or an empty map where it holds none.
 pub(crate) fn before_update(
-    plugins: &PluginRegistry,
-    index: &IndexState,
+    engine: &EngineInner,
+    index: &str,
     doc_id: &str,
     document: &mut Map,
 ) -> Result<Map> {
     validate_doc_id(doc_id)?;
     require_matching_doc_id(doc_id, document)?;
-    let old = reads::get(index, doc_id)?.unwrap_or_default();
-    plugins.before_write(WriteHook::Update, |plugin| {
-        plugin.before_update(&index.name, doc_id, &old, document)
+    let old = engine
+        .read_index(index, |state| reads::get(state, doc_id))?
+        .unwrap_or_default();
+    engine.plugins.before_write(WriteHook::Update, |plugin| {
+        plugin.before_update(index, doc_id, &old, document)
     })?;
     Ok(old)
 }

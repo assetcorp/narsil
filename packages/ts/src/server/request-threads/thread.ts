@@ -20,7 +20,7 @@ import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/
 import type { CapabilitiesResponse, LivenessResponse } from '../types'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
-import { closeWhenTheProcessExits } from './close-at-exit'
+import { acknowledgeThreadClose, closeWhenTheProcessExits } from './close-at-exit'
 import { type ThreadFeedGateway, threadFeedGateway } from './feed-relay'
 import { type LongQueryRoute, routeLongQueries } from './long-query-route'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
@@ -35,6 +35,7 @@ let servingApp: {
   longQueries: LongQueryRoute
   feeds: ThreadFeedGateway[]
   departure: ThreadDeparture
+  closeAtExit: Int32Array<SharedArrayBuffer>
 } | null = null
 
 function guardEveryRoute(
@@ -208,6 +209,10 @@ export async function serveRequests(
   const app = uws.App()
   const child = childAppOf(app)
   if (child === null) throw new Error('This uWebSockets.js build offers no child apps')
+  const closeAtExit = new Int32Array(settings.closeAtExit)
+  const close = (): void => {
+    if (servingApp?.app === child) closeRequestThread()
+  }
 
   const relay = createRelayClient(settings.port, settings.touchIntervalMs)
   const longQueries = routeLongQueries(
@@ -219,7 +224,9 @@ export async function serveRequests(
   const departure = watchForDeparture({
     relay,
     departure: new Int32Array(settings.departure),
-    close: closeRequestThread,
+    serverClose: new BigInt64Array(settings.serverClose),
+    closeAtExit,
+    close,
   })
   const local = createThreadReadEngine({
     executor: departure.guardExecutor(executor),
@@ -230,6 +237,7 @@ export async function serveRequests(
     moveAfterMs: () => longQueries.moveAfterMs(),
   })
   const run = createRouteRunner({
+    accept: departure.accept,
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
     bodyBudget: createSharedBodyBudget(settings.bodyBudget, settings.limits.maxBodyBytesInFlight, settings.gateSlot),
@@ -240,31 +248,38 @@ export async function serveRequests(
   const forwarded = relayedHandlers(relay, settings.limits)
   const handlers = guardEveryRoute(threadHandlers(local, forwarded, longQueries, settings), forwarded, departure)
   const feeds = settings.feeds.map(feed => {
-    const gateway = threadFeedGateway(settings.port, relay, feed)
-    registerFeedRoute(app, gateway, feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE)
+    const gateway = threadFeedGateway(settings.port, relay, feed, departure.canRespond)
+    registerFeedRoute(
+      app,
+      gateway,
+      feed === 'sync' ? SYNC_FEED_ROUTE : CHANGES_FEED_ROUTE,
+      departure.accept,
+      departure.canRespond,
+    )
     return gateway
   })
-  registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
+  registerServerRoutes(app, run, handlers, settings.limits, settings.cors, departure.accept)
 
-  servingApp = { app: child, relay, longQueries, feeds, departure }
-  void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
+  servingApp = { app: child, relay, longQueries, feeds, departure, closeAtExit }
+  void closeWhenTheProcessExits(closeAtExit, close)
   return { descriptor: child.getDescriptor() }
 }
 
-export async function drainRequestThread(): Promise<void> {
+export async function drainRequestThread(refuseNewRequests: boolean): Promise<void> {
   const serving = servingApp
   if (serving === null) return
-  await serving.departure.drain()
-  closeRequestThread()
+  await serving.departure.drain(refuseNewRequests)
+  if (servingApp === serving) closeRequestThread()
 }
 
 export function closeRequestThread(): void {
   leaveWithoutDeparture()
   if (servingApp === null) return
-  const { app, relay, longQueries, feeds } = servingApp
+  const { app, relay, longQueries, feeds, closeAtExit } = servingApp
   servingApp = null
   for (const gateway of feeds) gateway.close()
   app.close()
   longQueries.close()
   relay.close()
+  acknowledgeThreadClose(closeAtExit)
 }

@@ -22,7 +22,7 @@ const JOINER = 'node-c'
 const DOCUMENTS = 400
 const SHORT_LOG_BYTES = 4_096
 const RESULT_LIMIT = 10_000
-const SOURCE_BEHIND_MS = 4_000
+const SOURCE_BEHIND_MS = 2_500
 const REFUSAL_TEXT = 'holds terms from other analysis settings'
 const SETTLE_TIMEOUT_MS = 30_000
 

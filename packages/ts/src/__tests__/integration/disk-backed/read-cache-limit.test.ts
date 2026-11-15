@@ -9,8 +9,8 @@ import type { IndexConfig } from '../../../types/schema'
 const INDEX = 'pages'
 const READ_CACHE_LIMIT_BYTES = 128 * 2 ** 20
 const PAYLOAD_BYTES = 8_192
-const DOCUMENTS = 20_000
-const DOCUMENTS_PER_SEGMENT = 2_000
+const DOCUMENTS = 17_000
+const DOCUMENTS_PER_SEGMENT = 4_250
 const SCAN_BYTES = DOCUMENTS * PAYLOAD_BYTES
 const SAMPLE_EVERY_DOCUMENTS = 250
 const SMALLEST_GROWTH_THAT_SHOWS_THE_CACHE_BYTES = 32 * 2 ** 20

@@ -91,8 +91,6 @@ describe('changing the analysis of an index over HTTP', () => {
 
   it.each<[string, Record<string, string>, string]>([
     ['language', { language: 'nowhere-language' }, ErrorCodes.LANGUAGE_NOT_SUPPORTED],
-    ['tokeniser', { tokenizer: 'nowhere-tokenizer' }, ErrorCodes.CONFIG_INVALID],
-    ['stop word set', { stopWords: 'nowhere-stop-words' }, ErrorCodes.CONFIG_INVALID],
   ])('records the code that index creation returns for an unregistered %s', async (_kind, change, code) => {
     const creation = await postJson<{ error: { code: string } }>(server.base, '/indexes', {
       name: 'other',

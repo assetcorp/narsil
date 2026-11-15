@@ -1,7 +1,7 @@
-import { chmod, mkdtemp, open as openFile, readdir, rm, stat, truncate, unlink } from 'node:fs/promises'
+import { chmod, cp, mkdtemp, open as openFile, readdir, rm, stat, truncate, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import type { Narsil } from '../../../types/engine'
@@ -62,13 +62,13 @@ async function readEverything(root: string, oracle: ArticleOracle): Promise<Outc
 }
 
 describe('damaged files of an index with its text on disk', () => {
+  let checkpointed: string
   let root: string
-  let oracle: ArticleOracle
+  const oracle = new ArticleOracle()
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'narsil-disk-damage-'))
-    oracle = new ArticleOracle()
-    const engine = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+  beforeAll(async () => {
+    checkpointed = await mkdtemp(join(tmpdir(), 'narsil-disk-damage-checkpointed-'))
+    const engine = await createNarsil({ durability: { directory: checkpointed }, workers: { enabled: false } })
     await engine.createIndex(INDEX, ARTICLE_CONFIG)
     const random = seededRandom(95)
     const batch = []
@@ -80,6 +80,15 @@ describe('damaged files of an index with its text on disk', () => {
     await engine.insertBatch(INDEX, batch)
     await engine.checkpoint(INDEX)
     await engine.shutdown()
+  })
+
+  afterAll(async () => {
+    await rm(checkpointed, { recursive: true, force: true })
+  })
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'narsil-disk-damage-'))
+    await cp(checkpointed, root, { recursive: true })
   })
 
   afterEach(async () => {

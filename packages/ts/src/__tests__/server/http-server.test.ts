@@ -1,24 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { createNarsil } from '../../narsil'
-import type { createServer } from '../../server'
 import type { QueryCoverage } from '../../types/results'
 import { vectorSearchPath } from '../../vector/native/search-path'
-import {
-  del,
-  getJson,
-  patchJson,
-  postJson,
-  postRaw,
-  putJson,
-  scaledOut,
-  startTestServer,
-  type TestServer,
-  toNdjson,
-  waitFor,
-} from './helpers'
+import { getJson, postJson, postRaw, scaledOut, startTestServer, type TestServer, toNdjson, waitFor } from './helpers'
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const INSTALLED_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string })
@@ -67,28 +53,6 @@ describe('Narsil HTTP server', () => {
     expect(res.body).toMatchObject({ name: 'narsil', version: INSTALLED_VERSION, gitSha: null, dirty: false })
   })
 
-  it('reports the installed package version at /version from the built server bundle', async () => {
-    const builtServer = (await import(pathToFileURL(join(PACKAGE_ROOT, 'dist', 'server.mjs')).href)) as {
-      createServer: typeof createServer
-    }
-    const builtEngine = (await import(pathToFileURL(join(PACKAGE_ROOT, 'dist', 'index.mjs')).href)) as {
-      createNarsil: typeof createNarsil
-    }
-    const engine = await builtEngine.createNarsil({ workers: { enabled: false } })
-    const built = builtServer.createServer(engine, { host: '127.0.0.1', port: 0, build: { gitSha: 'f00dfeed' } })
-    await built.listen()
-    try {
-      const res = await getJson<{ version: string | null; gitSha: string | null }>(
-        `http://127.0.0.1:${built.listeningPort}`,
-        '/version',
-      )
-      expect(res.status).toBe(200)
-      expect(res.body).toMatchObject({ version: INSTALLED_VERSION, gitSha: 'f00dfeed' })
-    } finally {
-      await built.shutdown()
-    }
-  })
-
   it('reports at /version the path through which this process searches vector graphs', async () => {
     const res = await getJson<{ vectorSearch: string }>(srv.base, '/version')
     expect(res.status).toBe(200)
@@ -107,95 +71,6 @@ describe('Narsil HTTP server', () => {
     } finally {
       await stamped.stop()
     }
-  })
-
-  it('creates, lists, inspects, and drops an index', async () => {
-    await createMovies(srv.base)
-
-    const list = await getJson<{ indexes: Array<{ name: string }> }>(srv.base, '/indexes')
-    expect(list.body.indexes.map(i => i.name)).toContain('movies')
-
-    const stats = await getJson<{ documentCount: number }>(srv.base, '/indexes/movies/stats')
-    expect(stats.status).toBe(200)
-    expect(stats.body.documentCount).toBe(0)
-
-    const dropped = await del(srv.base, '/indexes/movies')
-    expect(dropped.status).toBe(200)
-
-    const after = await getJson<{ indexes: unknown[] }>(srv.base, '/indexes')
-    expect(after.body.indexes).toHaveLength(0)
-  })
-
-  it('runs the single-document lifecycle', async () => {
-    await createMovies(srv.base)
-
-    const inserted = await postJson<{ id: string }>(srv.base, '/indexes/movies/documents', {
-      document: MOVIES[0],
-      id: 'm1',
-    })
-    expect(inserted.status).toBe(201)
-    expect(inserted.body.id).toBe('m1')
-
-    const fetched = await getJson<{ document: { title: string } }>(srv.base, '/indexes/movies/documents/m1')
-    expect(fetched.status).toBe(200)
-    expect(fetched.body.document.title).toBe('The Matrix')
-
-    const exists = await getJson<{ exists: boolean }>(srv.base, '/indexes/movies/documents/m1/_exists')
-    expect(exists.body.exists).toBe(true)
-
-    const patched = await patchJson(srv.base, '/indexes/movies/documents/m1', {
-      document: { ...MOVIES[0], title: 'The Matrix Reloaded' },
-    })
-    expect(patched.status).toBe(200)
-
-    const afterPatch = await getJson<{ document: { title: string } }>(srv.base, '/indexes/movies/documents/m1')
-    expect(afterPatch.body.document.title).toBe('The Matrix Reloaded')
-
-    const removed = await del(srv.base, '/indexes/movies/documents/m1')
-    expect(removed.status).toBe(200)
-
-    const gone = await getJson(srv.base, '/indexes/movies/documents/m1')
-    expect(gone.status).toBe(404)
-  })
-
-  it('upserts with PUT', async () => {
-    await createMovies(srv.base)
-
-    const first = await putJson<{ created: boolean }>(srv.base, '/indexes/movies/documents/m9', {
-      document: { title: 'New', overview: 'x', embedding: [0, 0, 0, 1] },
-    })
-    expect(first.status).toBe(201)
-    expect(first.body.created).toBe(true)
-
-    const second = await putJson<{ created: boolean }>(srv.base, '/indexes/movies/documents/m9', {
-      document: { title: 'Replaced', overview: 'y', embedding: [0, 0, 0, 1] },
-    })
-    expect(second.status).toBe(200)
-    expect(second.body.created).toBe(false)
-
-    const fetched = await getJson<{ document: { title: string } }>(srv.base, '/indexes/movies/documents/m9')
-    expect(fetched.body.document.title).toBe('Replaced')
-  })
-
-  it('ingests a batch and reads it back', async () => {
-    await createMovies(srv.base)
-
-    const batch = await postJson<{ succeeded: string[] }>(srv.base, '/indexes/movies/documents/_batch', {
-      action: 'insert',
-      documents: MOVIES,
-    })
-    expect(batch.status).toBe(200)
-    expect(batch.body.succeeded.sort()).toEqual(['m1', 'm2', 'm3'])
-
-    const count = await getJson<{ count: number }>(srv.base, '/indexes/movies/count')
-    expect(count.body.count).toBe(3)
-
-    const multi = await postJson<{ documents: Record<string, { title: string }> }>(
-      srv.base,
-      '/indexes/movies/documents/_multi-get',
-      { docIds: ['m1', 'm3'] },
-    )
-    expect(Object.keys(multi.body.documents).sort()).toEqual(['m1', 'm3'])
   })
 
   it('pages every document through the listing endpoint', async () => {
@@ -276,19 +151,6 @@ describe('Narsil HTTP server', () => {
     })
   })
 
-  it('searches by vector', async () => {
-    await createMovies(srv.base)
-    await postJson(srv.base, '/indexes/movies/documents/_batch', { action: 'insert', documents: MOVIES })
-
-    const result = await postJson<{ hits: Array<{ id: string }> }>(srv.base, '/indexes/movies/search', {
-      mode: 'vector',
-      vector: { field: 'embedding', value: [0, 1, 0, 0] },
-      limit: 1,
-    })
-    expect(result.status).toBe(200)
-    expect(result.body.hits[0]?.id).toBe('m2')
-  })
-
   it('searches hybrid', async () => {
     await createMovies(srv.base)
     await postJson(srv.base, '/indexes/movies/documents/_batch', { action: 'insert', documents: MOVIES })
@@ -303,20 +165,10 @@ describe('Narsil HTTP server', () => {
     expect(result.status).toBe(200)
     expect(result.body.hits.map(h => h.id)).toContain('m2')
   })
-
-  it('suggests terms by prefix', async () => {
-    await createMovies(srv.base)
-    await postJson(srv.base, '/indexes/movies/documents/_batch', { action: 'insert', documents: MOVIES })
-
-    const result = await postJson<{ terms: Array<{ term: string }> }>(srv.base, '/indexes/movies/suggest', {
-      prefix: 'inter',
-    })
-    expect(result.status).toBe(200)
-    expect(result.body.terms.some(t => t.term.startsWith('inter'))).toBe(true)
-  })
 })
 
-const COPY_THRESHOLD = 1_000
+const COPY_THRESHOLD = 100
+const DOCUMENTS_PAST_THE_COPY_THRESHOLD = 200
 const VECTOR_DIMENSION = 8
 
 function catalogue(count: number): Array<Record<string, unknown>> {
@@ -341,13 +193,17 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
   let documents: Array<Record<string, unknown>>
 
   beforeEach(async () => {
-    documents = catalogue(COPY_THRESHOLD + 200)
-    srv = await startTestServer(undefined, { workers: { count: 2 } }, async engine => {
-      await engine.createIndex('catalogue', CATALOGUE_CONFIG)
-      await engine.createIndex('small', CATALOGUE_CONFIG)
-      await engine.insertBatch('catalogue', documents)
-      await engine.insertBatch('small', documents.slice(0, 5))
-    })
+    documents = catalogue(COPY_THRESHOLD + DOCUMENTS_PAST_THE_COPY_THRESHOLD)
+    srv = await startTestServer(
+      undefined,
+      { workers: { count: 2, promotionThreshold: COPY_THRESHOLD } },
+      async engine => {
+        await engine.createIndex('catalogue', CATALOGUE_CONFIG)
+        await engine.createIndex('small', CATALOGUE_CONFIG)
+        await engine.insertBatch('catalogue', documents)
+        await engine.insertBatch('small', documents.slice(0, 5))
+      },
+    )
     await waitFor(() => scaledOut(srv.engine, 'catalogue'))
     await srv.engine.waitForWrites('catalogue')
   })

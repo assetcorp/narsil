@@ -63,9 +63,8 @@ describe('filters sent over HTTP to differently built servers, after updates and
       const answer = await expectConsistent(filters)
       decidedAnywhere += answer.searched.length
       const negated = await answerOf(targets[0], { not: filters })
-      expect(negated.searched, `not ${JSON.stringify(filters)}`).toEqual(
-        allIds.filter(id => !answer.searched.includes(id)),
-      )
+      const searched = new Set(answer.searched)
+      expect(negated.searched, `not ${JSON.stringify(filters)}`).toEqual(allIds.filter(id => !searched.has(id)))
     }
     expect(decidedAnywhere).toBeGreaterThan(FIELD_PROBES * 10)
   }, 300_000)
@@ -79,10 +78,11 @@ describe('filters sent over HTTP to differently built servers, after updates and
         const parts = await Promise.all(
           (expression.and ?? expression.or ?? []).map(child => answerOf(targets[0], child)),
         )
+        const partIds = parts.map(part => new Set(part.searched))
         const combined =
           expression.and !== undefined
-            ? allIds.filter(id => parts.every(part => part.searched.includes(id)))
-            : allIds.filter(id => parts.some(part => part.searched.includes(id)))
+            ? allIds.filter(id => partIds.every(ids => ids.has(id)))
+            : allIds.filter(id => partIds.some(ids => ids.has(id)))
         expect(answer.searched, JSON.stringify(expression)).toEqual(combined)
       }
     }

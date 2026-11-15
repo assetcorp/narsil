@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { ListResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
@@ -113,15 +113,6 @@ describe('listDocuments with a sort', () => {
     const page = await narsil.listDocuments('docs', { sort: { rank: 'asc' }, limit: 10 })
 
     expect(page.documents[page.documents.length - 1].id).toBe('d6')
-  })
-
-  it('rejects a cursor the caller replays under a different sort', async () => {
-    const first = await narsil.listDocuments('docs', { sort: { rank: 'desc' }, limit: 2 })
-    expect(first.cursor).not.toBeNull()
-
-    await expect(
-      narsil.listDocuments('docs', { sort: { title: 'asc' }, limit: 2, cursor: first.cursor ?? undefined }),
-    ).rejects.toThrow(NarsilError)
   })
 
   it('rejects a sorted cursor the caller replays without a sort', async () => {

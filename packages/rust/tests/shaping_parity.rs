@@ -1,7 +1,18 @@
 mod support;
 
+use std::sync::LazyLock;
+
 use narsil::Value;
-use support::shaping_compare::{require_parity, require_spread_parity, step};
+use support::shaping_compare::{SharedParity, require_spread_parity, step};
+
+static UNPARTITIONED_PAGES: LazyLock<SharedParity> = LazyLock::new(|| {
+    SharedParity::new(vec![
+        sorted_queries(),
+        pinned_and_grouped_queries(),
+        facet_queries(),
+        filtered_queries(),
+    ])
+});
 
 fn sorted_queries() -> Vec<(Value, usize)> {
     vec![
@@ -117,7 +128,7 @@ fn sorted_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn sorted_queries_page_exactly_as_the_reference_does() {
-    require_parity(sorted_queries());
+    UNPARTITIONED_PAGES.require(&sorted_queries());
 }
 
 fn pinned_and_grouped_queries() -> Vec<(Value, usize)> {
@@ -214,7 +225,7 @@ fn pinned_and_grouped_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn pinned_and_grouped_queries_answer_exactly_as_the_reference_does() {
-    require_parity(pinned_and_grouped_queries());
+    UNPARTITIONED_PAGES.require(&pinned_and_grouped_queries());
 }
 
 fn facet_queries() -> Vec<(Value, usize)> {
@@ -279,7 +290,7 @@ fn facet_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn faceted_queries_count_exactly_as_the_reference_does() {
-    require_parity(facet_queries());
+    UNPARTITIONED_PAGES.require(&facet_queries());
 }
 
 fn filtered_queries() -> Vec<(Value, usize)> {
@@ -333,7 +344,7 @@ fn filtered_queries() -> Vec<(Value, usize)> {
 
 #[test]
 fn filtered_queries_shape_only_the_documents_that_the_filter_keeps() {
-    require_parity(filtered_queries());
+    UNPARTITIONED_PAGES.require(&filtered_queries());
 }
 
 fn spread_queries() -> Vec<(Value, usize)> {

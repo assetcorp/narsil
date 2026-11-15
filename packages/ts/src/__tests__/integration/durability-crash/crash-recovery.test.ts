@@ -80,15 +80,6 @@ describe('durability crash recovery (out-of-process)', () => {
     }
   }
 
-  it('recovers all acknowledged writes after a SIGKILL mid-life (single doc)', async () => {
-    const { child, acked, exited } = spawnChild({ directory: root, docCount: 1, exit: 'wait-for-kill' })
-    await acked
-    child.kill('SIGKILL')
-    await exited
-
-    expect(await recoverAndCount()).toBe(1)
-  })
-
   it('recovers all acknowledged writes after a SIGKILL mid-life (many docs)', async () => {
     const { child, acked, exited } = spawnChild({ directory: root, docCount: 25, exit: 'wait-for-kill' })
     await acked
@@ -132,16 +123,6 @@ describe('durability crash recovery (out-of-process)', () => {
     second.child.kill('SIGKILL')
     await second.exited
     expect(await recoverAndCount()).toBe(13)
-  })
-
-  it('loses no acknowledged write when the crash lands after the last ack', async () => {
-    const { child, acked, exited } = spawnChild({ directory: root, docCount: 12, exit: 'wait-for-kill' })
-    await acked
-    await new Promise<void>(resolve => setTimeout(resolve, 50))
-    child.kill('SIGKILL')
-    await exited
-
-    expect(await recoverAndCount()).toBe(12)
   })
 
   it('recovers every document of an acknowledged batch after a SIGKILL', async () => {

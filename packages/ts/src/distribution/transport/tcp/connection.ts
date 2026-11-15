@@ -1,6 +1,6 @@
 import { connect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
-import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
+import { MAX_MESSAGE_SIZE_BYTES, UNADDRESSABLE_TARGET_DETAIL } from '../constants'
 import { replyDeadlineMs } from '../reply-deadline'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
@@ -145,6 +145,7 @@ export class TcpConnectionPool {
     if (Number.isNaN(port) || port < 0 || port > 65535) {
       throw new TransportError(TransportErrorCodes.CONNECT_FAILED, `Invalid port in target address '${target}'`, {
         target,
+        [UNADDRESSABLE_TARGET_DETAIL]: true,
       })
     }
 

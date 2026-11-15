@@ -14,7 +14,7 @@ const (
 	savedSizeIndex            = "shelves"
 	savedSizeDocuments        = 2400
 	savedSizeBatch            = 400
-	savedSizeBodyLength       = 1200
+	savedSizeBodyLength       = 200
 	savedSizeRemoved          = 1000
 	savedSizeUpdated          = 300
 	savedSizeMaxPartitions    = 3

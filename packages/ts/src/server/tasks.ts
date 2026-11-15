@@ -196,7 +196,7 @@ export class TaskRegistry {
    * is effective only with a stable instanceId; with the default random id it
    * finds none of its own prior tasks, which is also correct for the in-memory
    * default (which starts empty). */
-  async reconcile(): Promise<void> {
+  async reconcile(cancelled: () => boolean = () => false): Promise<void> {
     let records: TaskRecord[]
     try {
       records = await this.store.list()
@@ -204,6 +204,7 @@ export class TaskRegistry {
       return
     }
     for (const record of records) {
+      if (cancelled()) return
       if (record.owner !== this.instanceId) continue
       if (isTerminalTaskStatus(record.status)) continue
       const failed: TaskRecord = {

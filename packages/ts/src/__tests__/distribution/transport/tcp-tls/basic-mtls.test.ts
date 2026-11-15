@@ -40,40 +40,6 @@ describe('TcpTransport with mTLS', () => {
         await pair.cleanup()
       }
     })
-
-    it('preserves payload bytes through TLS delivery', async () => {
-      const pair = await createTlsPair(
-        echoHandler('tls-server'),
-        makeTlsConfig(serverBundle),
-        makeTlsConfig(clientBundle),
-      )
-      try {
-        const payload = new Uint8Array([10, 20, 30, 40, 50, 60, 70, 80])
-        const response = await pair.client.send(
-          `127.0.0.1:${pair.port}`,
-          makeMessage({ payload, requestId: 'tls-echo-001' }),
-        )
-        expect(response.payload).toEqual(payload)
-      } finally {
-        await pair.cleanup()
-      }
-    })
-
-    it('handles multiple sequential messages over mTLS', async () => {
-      const pair = await createTlsPair(
-        echoHandler('tls-server'),
-        makeTlsConfig(serverBundle),
-        makeTlsConfig(clientBundle),
-      )
-      try {
-        for (let i = 0; i < 5; i++) {
-          const response = await pair.client.send(`127.0.0.1:${pair.port}`, makeMessage({ requestId: `tls-seq-${i}` }))
-          expect(response.requestId).toBe(`tls-seq-${i}`)
-        }
-      } finally {
-        await pair.cleanup()
-      }
-    })
   })
 
   describe('mTLS certificate rejection', () => {

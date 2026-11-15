@@ -55,10 +55,14 @@ describe('device sync served by a cluster', () => {
     return started
   }
 
-  async function seed(running: SyncCluster, index: string): Promise<Map<string, Note>> {
-    const oracle = new Map<string, Note>()
+  async function createActiveIndex(running: SyncCluster, index: string): Promise<void> {
     await running.admin.createIndex(index, SCHEMA)
     await activeTable(running.coordinator, index)
+  }
+
+  async function seed(running: SyncCluster, index: string): Promise<Map<string, Note>> {
+    const oracle = new Map<string, Note>()
+    await createActiveIndex(running, index)
     const batch = []
     for (let at = 0; at < FIRST_DOCUMENTS; at++) {
       oracle.set(`n${at}`, note(at))
@@ -86,7 +90,7 @@ describe('device sync served by a cluster', () => {
     async () => {
       const bare = await startCluster(false)
       await bare.serve(ROUTER, ownerHook())
-      await seed(bare, 'alice')
+      await createActiveIndex(bare, 'alice')
       expect(await codeOf(bare.admin.updateSync('alice', { enabled: true }))).toBe('SYNC_BACKUP_STORE_REQUIRED')
       expect((await bare.node(ROUTER).getSync('alice')).enabled).toBe(false)
       await bare.dispose()
@@ -94,7 +98,7 @@ describe('device sync served by a cluster', () => {
 
       const running = await startCluster(true)
       const base = await running.serve(ROUTER, ownerHook())
-      await seed(running, 'alice')
+      await createActiveIndex(running, 'alice')
       await running.coordinator.registerNode(olderRegistration())
       expect(await codeOf(running.admin.updateSync('alice', { enabled: true }))).toBe('SYNC_NOT_READY')
       await running.coordinator.deregisterNode(OLDER_NODE)

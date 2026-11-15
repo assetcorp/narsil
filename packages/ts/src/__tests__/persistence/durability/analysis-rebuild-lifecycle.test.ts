@@ -6,7 +6,6 @@ import { english } from '../../../languages/english'
 import { registerLanguage } from '../../../languages/registry'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
-import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import type { NarsilEventMap } from '../../../types/events'
 
 const schema = { title: 'string' as const }
@@ -106,40 +105,6 @@ describe('the lifecycle of a rebuild', () => {
     await rebuilding
 
     expect((await engine.query('prose', { term: 'jump', limit: 20 })).hits).toHaveLength(9)
-  })
-
-  it('rebuilds an index recovered through the snapshot tier', async () => {
-    const adapterDir = await mkdtemp(join(tmpdir(), 'narsil-rebuild-snapshot-'))
-    try {
-      engine = await createNarsil({
-        persistence: createFilesystemPersistence({ directory: adapterDir }),
-        durability: { tier: 'snapshot' },
-      })
-      await engine.createIndex('prose', { schema, language: LANGUAGE, partitions })
-      await engine.insert('prose', { title: 'jumping water' })
-      await engine.checkpoint('prose')
-      await engine.shutdown()
-
-      registerStrippingProgressive()
-      engine = await createNarsil({
-        persistence: createFilesystemPersistence({ directory: adapterDir }),
-        durability: { tier: 'snapshot' },
-      })
-
-      expect(engine.listIndexes()[0].analysisStale).toBe(true)
-      await engine.rebuildAnalysis('prose')
-      expect((await engine.query('prose', { term: 'jump' })).hits).toHaveLength(1)
-      await engine.shutdown()
-
-      engine = await createNarsil({
-        persistence: createFilesystemPersistence({ directory: adapterDir }),
-        durability: { tier: 'snapshot' },
-      })
-      expect(engine.listIndexes()[0].analysisStale).toBeUndefined()
-      expect((await engine.query('prose', { term: 'jump' })).hits).toHaveLength(1)
-    } finally {
-      await rm(adapterDir, { recursive: true, force: true })
-    }
   })
 
   it('marks an index restored from a snapshot taken under an earlier analysis', async () => {

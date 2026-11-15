@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use super::ClosedListing;
 use super::residency::{IndexResidency, held};
 use crate::engine::EngineInner;
+use crate::engine::callback_scope::CallbackScope;
 use crate::engine::index::IndexState;
 use crate::error::Result;
 
@@ -21,17 +22,24 @@ pub(crate) trait PreparedRead {
 /// An open index that a read holds, which a restore waits for before it closes the index's files.
 struct ReadingIndex {
     index: Arc<IndexState>,
+    _scope: CallbackScope,
 }
 
 impl ReadingIndex {
-    fn enter(index: Arc<IndexState>) -> std::result::Result<ReadingIndex, Arc<IndexState>> {
+    fn enter(
+        engine: &EngineInner,
+        index: Arc<IndexState>,
+    ) -> std::result::Result<ReadingIndex, Arc<IndexState>> {
         let residency = &index.residency;
         residency.active_reads.fetch_add(1, Ordering::SeqCst);
         if residency.swapping.load(Ordering::SeqCst) || index.is_retired() {
             residency.leave_read();
             return Err(index);
         }
-        Ok(ReadingIndex { index })
+        Ok(ReadingIndex {
+            index,
+            _scope: CallbackScope::enter(&engine.lifecycle),
+        })
     }
 }
 
@@ -101,7 +109,7 @@ impl EngineInner {
     ) -> Result<T> {
         loop {
             let index = self.open_index(name)?;
-            match ReadingIndex::enter(index) {
+            match ReadingIndex::enter(self, index) {
                 Ok(reading) => return read(&reading),
                 Err(swapped) => swapped.residency.wait_for_swap(&swapped),
             }
@@ -120,7 +128,7 @@ impl EngineInner {
             let mut reading = Vec::with_capacity(open.len());
             let mut swapped = None;
             for index in open {
-                match ReadingIndex::enter(index) {
+                match ReadingIndex::enter(self, index) {
                     Ok(held) => reading.push(held),
                     Err(index) => {
                         swapped = Some(index);
@@ -155,7 +163,7 @@ impl EngineInner {
         loop {
             let index = self.open_index(name)?;
             let mut prepared = prepare(&index, earlier.take())?;
-            match ReadingIndex::enter(index) {
+            match ReadingIndex::enter(self, index) {
                 Ok(reading) if prepared.holds_for(&reading) => {
                     return read(&reading.index, prepared);
                 }

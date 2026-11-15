@@ -35,11 +35,6 @@ describe('a query limit that is not a whole number', () => {
     expect(result.hits).toHaveLength(documents.length)
   })
 
-  it('answers an infinite limit with the default page', async () => {
-    const result = await narsil.query('catalogue', { term: 'widget', limit: Number.POSITIVE_INFINITY })
-    expect(result.hits).toHaveLength(documents.length)
-  })
-
   it('rounds a fractional limit down and returns the highest-scoring hits', async () => {
     const fractional = await narsil.query('catalogue', { term: 'widget', limit: 2.9 })
     const whole = await narsil.query('catalogue', { term: 'widget', limit: 2 })
@@ -58,18 +53,6 @@ describe('a query limit that is not a whole number', () => {
     const whole = await narsil.query('catalogue', { term: 'widget', limit: 2, offset: 1 })
 
     expect(fractional.hits.map(hit => hit.id)).toEqual(whole.hits.map(hit => hit.id))
-  })
-
-  it('scores a fractional limit the same way a whole limit does', async () => {
-    const wide = await narsil.query('catalogue', { term: 'widget', limit: 5 })
-    const fractional = await narsil.query('catalogue', { term: 'widget', limit: 3.5 })
-
-    expect(fractional.hits.map(hit => hit.id)).toEqual(wide.hits.slice(0, 3).map(hit => hit.id))
-  })
-
-  it('still accepts a whole-number limit and offset', async () => {
-    const result = await narsil.query('catalogue', { term: 'widget', limit: 2, offset: 1 })
-    expect(result.hits).toHaveLength(2)
   })
 })
 

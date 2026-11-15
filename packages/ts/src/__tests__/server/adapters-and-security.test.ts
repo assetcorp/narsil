@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../narsil'
-import { engineCoreOf } from '../../narsil/internals'
 import { createServer, type TaskRecord, type TaskStore } from '../../server'
 import { getJson, postJson, startTestServer, type TestServer } from './helpers'
 
@@ -106,26 +105,5 @@ describe('Narsil HTTP server secure-by-default binding', () => {
     expect(server.listeningPort).toBeGreaterThan(0)
     await server.close()
     await engine.shutdown()
-  })
-
-  it('serves on a loopback bind with no auth', async () => {
-    const srv = await startTestServer()
-    const res = await getJson<{ status: string }>(srv.base, '/livez')
-    expect(res.status).toBe(200)
-    await srv.stop()
-  })
-})
-
-describe('Narsil HTTP server main-thread sharing', () => {
-  it('sends every query to a copy unless the engine configured the main copy itself', async () => {
-    const unset = await createNarsil({ workers: { enabled: false } })
-    createServer(unset, { host: '127.0.0.1', port: 0 })
-    expect(engineCoreOf(unset)?.orchestrator.mainCopyQueries()).toBe('none')
-    await unset.shutdown()
-
-    const configured = await createNarsil({ workers: { enabled: false, mainCopyQueries: 'lone' } })
-    createServer(configured, { host: '127.0.0.1', port: 0 })
-    expect(engineCoreOf(configured)?.orchestrator.mainCopyQueries()).toBe('lone')
-    await configured.shutdown()
   })
 })

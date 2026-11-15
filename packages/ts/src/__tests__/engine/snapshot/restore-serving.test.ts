@@ -9,19 +9,19 @@ import {
   type EngineKind,
   engineTarget,
   fill,
+  GENERATIONS_ABOVE_THRESHOLDS,
   HELD_ROUNDS,
   hammer,
   heldBack,
   holdsGeneration,
   LIVE,
-  NEW,
-  NEW_COUNT,
   newDirectory,
   newGate,
-  OLD,
   openEngine,
   SOURCE,
 } from './restore-fixtures'
+
+const { old: OLD, new: NEW } = GENERATIONS_ABOVE_THRESHOLDS
 
 const built = await readdir(new URL('../../../../dist/', import.meta.url)).then(
   entries => entries.includes('index.mjs'),
@@ -65,12 +65,17 @@ function servingCases(workers: boolean): void {
       const gate = newGate()
 
       const restored = engine.restore(LIVE, heldBack(archive, gate.released))
-      const observed = await hammer(engineTarget(engine, LIVE), restored, gate.releaseAfter)
+      const observed = await hammer(
+        engineTarget(engine, LIVE),
+        restored,
+        GENERATIONS_ABOVE_THRESHOLDS,
+        gate.releaseAfter,
+      )
       await restored
 
       expect(observed.failures).toEqual([])
       expect(observed.rounds).toBeGreaterThanOrEqual(HELD_ROUNDS)
-      expect(await engine.countDocuments(LIVE)).toBeGreaterThanOrEqual(NEW_COUNT)
+      expect(await engine.countDocuments(LIVE)).toBeGreaterThanOrEqual(NEW.documents.size)
       expect(await holdsGeneration(engine, LIVE, NEW)).toBe(true)
     }, 30_000)
 
@@ -81,7 +86,7 @@ function servingCases(workers: boolean): void {
         const archive = damaged(await archiveBytes(engine, SOURCE))
 
         const restored = engine.restore(LIVE, archive)
-        const observed = await hammer(engineTarget(engine, LIVE), restored)
+        const observed = await hammer(engineTarget(engine, LIVE), restored, GENERATIONS_ABOVE_THRESHOLDS)
         await expect(restored).rejects.toMatchObject({ code })
 
         expect(observed.failures).toEqual([])
@@ -112,7 +117,7 @@ describe('a restore that survives a restart', () => {
       const reopened = await openEngine(configFor(kind, directory, false), engines)
       expect(await holdsGeneration(reopened, LIVE, NEW)).toBe(true)
       expect(await reopened.get(LIVE, 'after')).toMatchObject({ body: 'the beacon' })
-      expect(await reopened.countDocuments(LIVE)).toBe(NEW_COUNT + 1)
+      expect(await reopened.countDocuments(LIVE)).toBe(NEW.documents.size + 1)
       const files = await readdir(directory, { recursive: true, withFileTypes: true })
       const leftovers = files
         .filter(file => file.isFile() && file.name !== '.narsil.lock')

@@ -45,7 +45,9 @@ describe('createFilesystemPersistence', () => {
     await adapter.save('movies/snapshot', data)
 
     const loaded = await adapter.load('movies/snapshot')
-    expect(loaded).toEqual(data)
+    if (loaded === null) throw new Error('the adapter returned nothing for the saved snapshot')
+    expect(loaded.byteLength).toBe(data.byteLength)
+    expect(Buffer.compare(loaded, data)).toBe(0)
 
     const entries = await readdir(join(tempDir, 'movies'))
     expect(entries).toEqual(['snapshot'])

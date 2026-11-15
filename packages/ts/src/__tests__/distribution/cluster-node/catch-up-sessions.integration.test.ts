@@ -45,7 +45,7 @@ const BERTH_NOTE = 'deep water berth with two cranes, a fuel dock, and a pilot s
 const ENTRY_TYPES = new Set<string>([ReplicationMessageTypes.ENTRY, ReplicationMessageTypes.ENTRY_BATCH])
 const INSYNC_TYPES = new Set<string>([ReplicationMessageTypes.INSYNC_ADD, ReplicationMessageTypes.INSYNC_REMOVE])
 
-type ReplicaMode = 'silent' | 'ack' | 'hold' | 'apply'
+type ReplicaMode = 'silent' | 'refuse' | 'ack' | 'hold' | 'apply'
 
 interface ControllerEvent {
   type: string
@@ -176,6 +176,10 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
     script.deliveries.push(seqNos)
     script.receivedBatches.push(entries.map(entry => entry.documentId))
     if (script.mode === 'silent') return
+    if (script.mode === 'refuse') {
+      await respond(createAckMessage(seqNos.first - 1, PARTITION_ID, INDEX_NAME, nodeId, message.requestId))
+      return
+    }
     for (const entry of entries) script.deliveredDocumentIds.add(entry.documentId)
     const acknowledge = async () => {
       script.highestAcked = Math.max(script.highestAcked, seqNos.last)
@@ -400,9 +404,10 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
 
   async function dropFromInSyncSet(router: ClusterNode, replica: string): Promise<void> {
     script.replica = replica
-    script.mode = 'silent'
+    script.mode = 'refuse'
     await router.insert(INDEX_NAME, { id: 'berth-dropped', note: BERTH_NOTE })
     await waitFor(async () => ((await inSyncSet()).includes(replica) ? null : true), 'the replica to leave the set')
+    script.mode = 'silent'
     script.deliveries = []
     script.controllerEvents = []
   }

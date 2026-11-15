@@ -22,6 +22,7 @@ export class LeavingResponse implements ResponseSink {
   constructor(
     private readonly res: ResponseSink,
     private readonly leaving: () => boolean,
+    private readonly canRespond: () => boolean = () => true,
   ) {}
 
   get isFinished(): boolean {
@@ -34,7 +35,7 @@ export class LeavingResponse implements ResponseSink {
   }
 
   refuse(status: number, envelope: ErrorEnvelope): void {
-    if (this.finished) return
+    if (this.finished || !this.canRespond()) return
     if (this.headStarted) {
       this.close()
       return
@@ -45,23 +46,27 @@ export class LeavingResponse implements ResponseSink {
   }
 
   cork(callback: () => void): ResponseSink {
+    if (!this.canRespond()) return this
     this.res.cork(callback)
     return this
   }
 
   writeStatus(status: string): ResponseSink {
+    if (!this.canRespond()) return this
     this.res.writeStatus(status)
     this.startHead()
     return this
   }
 
   writeHeader(key: string, value: string): ResponseSink {
+    if (!this.canRespond()) return this
     this.startHead()
     this.res.writeHeader(key, value)
     return this
   }
 
   end(body?: string | Uint8Array, closeConnection?: boolean): ResponseSink {
+    if (!this.canRespond()) return this
     this.startHead()
     this.res.end(body, closeConnection === true || this.closesConnection)
     this.finish()
@@ -69,25 +74,30 @@ export class LeavingResponse implements ResponseSink {
   }
 
   write(chunk: Uint8Array): boolean {
+    if (!this.canRespond()) return false
     this.startHead()
     return this.res.write(chunk)
   }
 
   pause(): void {
+    if (!this.canRespond()) return
     this.res.pause()
   }
 
   resume(): void {
+    if (!this.canRespond()) return
     this.res.resume()
   }
 
   close(): ResponseSink {
+    if (!this.canRespond()) return this
     this.res.close()
     this.finish()
     return this
   }
 
   endWithoutBody(): ResponseSink {
+    if (!this.canRespond()) return this
     this.startHead()
     this.res.endWithoutBody()
     this.finish()
@@ -95,6 +105,7 @@ export class LeavingResponse implements ResponseSink {
   }
 
   tryEnd(body: Uint8Array, totalSize: number): [boolean, boolean] {
+    if (!this.canRespond()) return [false, false]
     this.startHead()
     const result = this.res.tryEnd(body, totalSize)
     if (result[1]) this.finish()
@@ -102,25 +113,35 @@ export class LeavingResponse implements ResponseSink {
   }
 
   getWriteOffset(): number {
+    if (!this.canRespond()) return 0
     return this.res.getWriteOffset()
   }
 
   onWritable(handler: (offset: number) => boolean): ResponseSink {
-    this.res.onWritable(handler)
+    if (!this.canRespond()) return this
+    this.res.onWritable(offset => (this.canRespond() ? handler(offset) : true))
     return this
   }
 
   onAborted(handler: () => void): ResponseSink {
+    if (!this.canRespond()) {
+      handler()
+      return this
+    }
     this.res.onAborted(handler)
     return this
   }
 
   onData(handler: (chunk: ArrayBuffer, isLast: boolean) => void): ResponseSink {
-    this.res.onData(handler)
+    if (!this.canRespond()) return this
+    this.res.onData((chunk, isLast) => {
+      if (this.canRespond()) handler(chunk, isLast)
+    })
     return this
   }
 
   getRemoteAddressAsText(): ArrayBuffer {
+    if (!this.canRespond()) return new ArrayBuffer(0)
     return this.res.getRemoteAddressAsText()
   }
 

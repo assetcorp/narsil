@@ -90,7 +90,8 @@ impl IndexVectors {
     }
 
     /// Drops every vector of every field and the files that the fields read them from, for a restore that takes
-    /// the index out of the engine.
+    /// the index out of the engine or for an engine shutdown, while the caller holds the index's write lock and no
+    /// read runs on the index.
     pub(crate) fn release_files(&self) {
         for entry in &self.fields {
             entry.field.release_files();

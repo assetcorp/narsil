@@ -42,6 +42,9 @@ unicode-properties = { version = "=0.1.4", default-features = false, features = 
 [build-dependencies]
 cc = { version = "=1.10.0", features = ["parallel"] }
 
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

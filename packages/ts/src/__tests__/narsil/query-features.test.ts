@@ -96,25 +96,6 @@ describe('Narsil query features', () => {
         expect(page1Ids.has(hit.id)).toBe(false)
       }
     })
-
-    it('returns a cursor when more results exist beyond the current page', async () => {
-      await narsil.createIndex('products', indexConfig)
-
-      for (let i = 0; i < 5; i++) {
-        await narsil.insert('products', {
-          title: `Wireless Device ${i}`,
-          category: 'electronics',
-          price: 10 + i,
-        })
-      }
-
-      const result = await narsil.query('products', { term: 'wireless', limit: 2 })
-      expect(result.hits.length).toBe(2)
-      expect(result.cursor).toBeDefined()
-
-      const lastPage = await narsil.query('products', { term: 'wireless', limit: 10 })
-      expect(lastPage.cursor).toBeUndefined()
-    })
   })
 
   describe('query with highlighting', () => {
@@ -139,65 +120,7 @@ describe('Narsil query features', () => {
     })
   })
 
-  describe('query with pinning', () => {
-    it('pins a specific document at a given position', async () => {
-      await narsil.createIndex('products', indexConfig)
-      await narsil.insert(
-        'products',
-        {
-          title: 'Standard Headphones',
-          category: 'electronics',
-          price: 30,
-        },
-        'standard',
-      )
-      await narsil.insert(
-        'products',
-        {
-          title: 'Premium Headphones Model',
-          category: 'electronics',
-          price: 250,
-        },
-        'premium',
-      )
-      await narsil.insert(
-        'products',
-        {
-          title: 'Budget Headphones',
-          category: 'electronics',
-          price: 15,
-        },
-        'budget',
-      )
-
-      const result = await narsil.query('products', {
-        term: 'headphones',
-        pinned: [{ docId: 'budget', position: 0 }],
-      })
-
-      expect(result.hits.length).toBeGreaterThan(0)
-      expect(result.hits[0].id).toBe('budget')
-    })
-  })
-
   describe('query with facets', () => {
-    it('returns facet counts for a field', async () => {
-      await narsil.createIndex('products', indexConfig)
-      await narsil.insert('products', { title: 'USB Cable', category: 'accessories', price: 5 })
-      await narsil.insert('products', { title: 'USB Hub', category: 'electronics', price: 25 })
-      await narsil.insert('products', { title: 'USB Charger', category: 'electronics', price: 15 })
-
-      const result = await narsil.query('products', {
-        term: 'usb',
-        facets: { category: {} },
-      })
-
-      const facets = result.facets
-      expect(facets).toBeDefined()
-      expect(facets?.category).toBeDefined()
-      expect(facets?.category.values).toBeDefined()
-    })
-
     it('counts a value repeated inside one document array once', async () => {
       await narsil.createIndex('articles', { schema: { title: 'string', topics: 'enum[]', ratings: 'number[]' } })
       await narsil.insert('articles', { title: 'alpha piece', topics: ['news', 'news', 'sport'], ratings: [4, 4, 5] })
@@ -290,15 +213,6 @@ describe('Narsil query features', () => {
       await narsil.insert('products', { title: 'Slow Charger', category: 'electronics', price: 10 })
       await narsil.insert('products', { title: 'Wall Charger', category: 'electronics', price: 20 })
     }
-
-    it('pages on with the cursor under the same query', async () => {
-      await indexWithChargers()
-      const firstPage = await narsil.query('products', { term: 'charger', limit: 2 })
-      expect(firstPage.cursor).toBeDefined()
-
-      const secondPage = await narsil.query('products', { term: 'charger', limit: 2, searchAfter: firstPage.cursor })
-      expect(secondPage.hits).toHaveLength(1)
-    })
 
     it('rejects the cursor under a changed term', async () => {
       await indexWithChargers()

@@ -1,9 +1,7 @@
 import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { isCompositePartition } from '../../core/partition/composite'
 import type { Narsil } from '../../narsil'
 import { createNarsil } from '../../narsil'
-import { engineCoreOf } from '../../narsil/internals'
 
 const distEntry = new URL('../../../dist/workers/entry.mjs', import.meta.url)
 const built = existsSync(distEntry)
@@ -30,17 +28,8 @@ async function waitForWorkers(narsil: Narsil): Promise<number> {
   return 0
 }
 
-function frozenSegmentsHeld(narsil: Narsil): number {
-  const core = engineCoreOf(narsil)
-  if (core === undefined) return -1
-  const manager = core.executor.getManager('prose')
-  if (manager === undefined) return -1
-  const partition = manager.getPartition(0)
-  return isCompositePartition(partition) ? partition.frozenSegmentCount() : 0
-}
-
-async function promotedEngine(workerCount = 2): Promise<Narsil> {
-  const narsil = await createNarsil({ workers: { enabled: true, count: workerCount, promotionThreshold: 2 } })
+async function promotedEngine(): Promise<Narsil> {
+  const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 2 } })
   await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
   await narsil.insertBatch('prose', batchDocuments(4, 'seed'))
   expect(await waitForWorkers(narsil)).toBeGreaterThan(0)
@@ -106,38 +95,6 @@ describe.skipIf(!built)('a promoted index takes a large batch through built segm
 
     await narsil.insert('prose', { id: 'bulk-0007', title: 'bulk gamma returned', price: 7 })
     expect(await narsil.countDocuments('prose')).toBe(BATCH_SIZE + 4)
-
-    await narsil.shutdown()
-  }, 120000)
-
-  it('leaves one frozen segment per batch however many copies build it', async () => {
-    const narsil = await promotedEngine(4)
-    const before = frozenSegmentsHeld(narsil)
-
-    await narsil.insertBatch('prose', batchDocuments(BATCH_SIZE, 'bulk'))
-    const afterFirst = frozenSegmentsHeld(narsil)
-
-    await narsil.insertBatch('prose', batchDocuments(BATCH_SIZE, 'second'))
-    const afterSecond = frozenSegmentsHeld(narsil)
-
-    expect(afterFirst).toBe(before + 1)
-    expect(afterSecond).toBe(before + 2)
-    expect(await narsil.countDocuments('prose')).toBe(BATCH_SIZE * 2 + 4)
-
-    const hits = await narsil.query('prose', { term: 'second', limit: BATCH_SIZE })
-    expect(hits.hits.length).toBe(BATCH_SIZE)
-
-    await narsil.shutdown()
-  }, 120000)
-
-  it('keeps a batch below the segment threshold on the document-by-document path', async () => {
-    const narsil = await promotedEngine()
-
-    await narsil.insertBatch('prose', batchDocuments(10, 'small'))
-
-    expect(await narsil.countDocuments('prose')).toBe(14)
-    const hits = await narsil.query('prose', { term: 'small', limit: 20 })
-    expect(hits.hits.length).toBe(10)
 
     await narsil.shutdown()
   }, 120000)

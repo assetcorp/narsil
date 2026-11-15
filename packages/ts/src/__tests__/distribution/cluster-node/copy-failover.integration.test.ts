@@ -14,7 +14,7 @@ import { waitForSettledReplica } from './cluster-harness'
 const INDEX_NAME = 'trails'
 const PARTITION_COUNT = 8
 const COPY_NODES = ['copy-a', 'copy-b']
-const ROUTER_WAIT_MS = 400
+const ROUTER_WAIT_MS = 250
 const QUERY_MESSAGE_PREFIX = 'query.'
 
 type FaultKind = 'unreachable' | 'paused'

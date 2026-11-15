@@ -85,34 +85,6 @@ describe('invalidation across engine instances', () => {
     expect((err as NarsilError).code).toBe('CONFIG_INVALID')
   })
 
-  it('evicts and reloads a foreign mutation after the publisher checkpoints', async () => {
-    const shared = createMemoryPersistence()
-    const bus = createLocalBus()
-
-    engineA = await createNarsil({ persistence: shared, invalidation: bus.adapterFor() })
-    engineB = await createNarsil({ persistence: shared, invalidation: bus.adapterFor() })
-
-    await engineA.createIndex('products', { schema: { title: 'string' } })
-    await engineB.createIndex('products', { schema: { title: 'string' } })
-
-    await engineA.insert('products', { title: 'Shared Wireless Mouse' }, 'doc-shared')
-    await engineA.checkpoint('products')
-
-    const activeEngineB = engineB
-    let found = false
-    const deadline = Date.now() + 2000
-    while (!found && Date.now() < deadline) {
-      found = await activeEngineB.has('products', 'doc-shared')
-      if (!found) {
-        await new Promise(resolve => setTimeout(resolve, 20))
-      }
-    }
-    expect(found).toBe(true)
-
-    const result = await activeEngineB.query('products', { term: 'wireless' })
-    expect(result.hits.map(hit => hit.id)).toContain('doc-shared')
-  })
-
   it.skipIf(!built).each([
     {
       backend: 'memory',

@@ -171,6 +171,7 @@ func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
 	}
 	for modeNumber, mode := range []string{crashModeInserts, crashModeCheckpoints, crashModeMerges, crashModeRewrites} {
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
 			directory := t.TempDir()
 			random := rand.New(rand.NewSource(int64(174 + modeNumber)))
 			oracle := map[string]any{}

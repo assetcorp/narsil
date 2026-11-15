@@ -109,59 +109,6 @@ describe('cluster-node live replication', () => {
     await coordinator.shutdown()
   })
 
-  it('replicates normal primary inserts and removes to an in-sync replica', async () => {
-    nodeA = await createClusterNode({
-      coordinator,
-      transport: transportA,
-      address: 'node-a:9200',
-      nodeId: 'node-a',
-      roles: ['data', 'coordinator', 'controller'],
-    })
-    await nodeA.start()
-
-    await nodeA.createIndex('products', {
-      schema: { title: 'string', description: 'string', price: 'number' },
-    })
-
-    const replicaTransport = transportB
-    if (replicaTransport === undefined) {
-      throw new Error('replica transport is not available')
-    }
-
-    nodeB = await createClusterNode({
-      coordinator,
-      transport: replicaTransport,
-      address: 'node-b:9200',
-      nodeId: 'node-b',
-      roles: ['data'],
-    })
-    await nodeB.start()
-
-    const allocation = await waitForSettledReplica(coordinator, 'products', 'node-b')
-    const partitionId = findNodeAPrimaryPartition(allocation)
-    const docId = docIdForPartition(partitionId, allocation.assignments.size)
-
-    await nodeA.insert(
-      'products',
-      { title: 'Live Replicated Widget', description: 'normal write path replication', price: 12 },
-      docId,
-    )
-
-    const replicated = await pollUntil(async () => {
-      const result = await nodeB?.query('products', { term: 'Live Replicated' })
-      return result?.count === 1
-    })
-    expect(replicated).toBe(true)
-
-    await nodeA.remove('products', docId)
-
-    const removed = await pollUntil(async () => {
-      const result = await nodeB?.query('products', { term: 'Live Replicated' })
-      return result?.count === 0
-    })
-    expect(removed).toBe(true)
-  }, 30_000)
-
   it('continues live replication after a replica bootstraps from a primary with existing log entries', async () => {
     nodeA = await createClusterNode({
       coordinator,

@@ -10,7 +10,12 @@ export interface ThreadFeedGateway extends FeedGateway {
   close(): void
 }
 
-export function threadFeedGateway(port: MessagePort, relay: RelayClient, feed: FeedKind): ThreadFeedGateway {
+export function threadFeedGateway(
+  port: MessagePort,
+  relay: RelayClient,
+  feed: FeedKind,
+  canRespond: () => boolean,
+): ThreadFeedGateway {
   const sockets = new Map<number, FeedSocket>()
 
   function post(note: ThreadFeedNote, transfer: ArrayBuffer[] = []): void {
@@ -21,6 +26,7 @@ export function threadFeedGateway(port: MessagePort, relay: RelayClient, feed: F
 
   const onMessage = (message: unknown): void => {
     if (!isMainFeedNote(message)) return
+    if (!canRespond()) return
     const socket = sockets.get(message.feedId)
     if (socket === undefined) return
     if (message.type === 'feed-close') {

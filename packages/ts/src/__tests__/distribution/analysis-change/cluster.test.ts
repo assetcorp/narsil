@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { decode, encode } from '@msgpack/msgpack'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { generateId } from '../../../core/id-generator'
 import { metadataWithPendingAnalysis } from '../../../distribution/cluster/analysis-metadata'
 import { indexConfigKey, readIndexMetadataSnapshot } from '../../../distribution/cluster/index-metadata'
@@ -34,6 +34,7 @@ import { waitFor } from '../../server/helpers'
 const SCHEMA = { title: 'string' as const }
 const PARTITIONS = 3
 const RESULT_LIMIT = 10_000
+const UNCHANGED_INDEX_DOCUMENTS = 30
 
 const clusters: GarageCluster[] = []
 const directories: string[] = []
@@ -134,13 +135,6 @@ describe('changing the analysis of a cluster index', () => {
     for (const reader of readers) await expectMatches(reader, oracle, STEMMING_SETTINGS)
     expect(await publishedGeneration(cluster)).toBe(3)
   }, 120_000)
-
-  it('completes with no new generation for the settings that the index holds', async () => {
-    const cluster = await started(['node-a', 'node-b'])
-    await filled(cluster, 'node-a', 20)
-    await cluster.node('node-b').changeAnalysis(INDEX, { language: PLAIN_LANGUAGE })
-    expect(await publishedGeneration(cluster)).toBe(0)
-  }, 60_000)
 
   it('answers each search under one set of settings and keeps every write while a change spreads', async () => {
     const cluster = await started(['node-a', 'node-b', 'node-c'])
@@ -245,21 +239,6 @@ describe('changing the analysis of a cluster index', () => {
     expect(await publishedGeneration(cluster)).toBe(2)
   }, 120_000)
 
-  it.each<[string, Record<string, unknown>, string]>([
-    ['language', { language: 'nowhere-language' }, 'LANGUAGE_NOT_SUPPORTED'],
-    ['tokeniser', { tokenizer: 'nowhere-tokenizer' }, 'CONFIG_INVALID'],
-    ['stop word set', { stopWords: 'nowhere-stop-words' }, 'CONFIG_INVALID'],
-  ])(
-    'refuses an unregistered %s and keeps answering',
-    async (_kind, change, code) => {
-      const cluster = await started(['node-a'])
-      const oracle = await filled(cluster, 'node-a', 30)
-      expect(await cluster.node('node-a').changeAnalysis(INDEX, change).catch(codeOf)).toBe(code)
-      await expectMatches(cluster.node('node-a'), oracle, OLD_SETTINGS)
-    },
-    60_000,
-  )
-
   it('records a failure and drops the new terms where a node refuses a pending name', async () => {
     const cluster = await started(['node-a', 'node-b'])
     const oracle = await filled(cluster, 'node-a', 50)
@@ -282,22 +261,6 @@ describe('changing the analysis of a cluster index', () => {
     await expectMatches(cluster.node('node-b'), oracle, OLD_SETTINGS)
     await cluster.node('node-a').changeAnalysis(INDEX, { stopWords: RIVER_STOP_WORDS })
     await expectMatches(cluster.node('node-b'), oracle, NO_RIVER_SETTINGS)
-  }, 60_000)
-
-  it('refuses a change while a registered node runs an older version', async () => {
-    const cluster = await started(['node-a', 'node-b'])
-    await filled(cluster, 'node-a', 20)
-    const nodes = await cluster.watched.coordinator.listNodes()
-    const registration = nodes.find(node => node.nodeId === 'node-b')
-    if (registration === undefined) throw new Error('no registration')
-    await cluster.watched.coordinator.registerNode({ ...registration, version: '1.0' })
-    expect(
-      await cluster
-        .node('node-a')
-        .changeAnalysis(INDEX, { stopWords: ['river'] })
-        .catch(codeOf),
-    ).toBe('ANALYSIS_CHANGE_NOT_READY')
-    await cluster.watched.coordinator.registerNode(registration)
   }, 60_000)
 
   it('refuses a partition count change during a change, and a change during a partition count change', async () => {
@@ -376,5 +339,52 @@ describe('changing the analysis of a cluster index', () => {
         details: { heldGeneration: 1 },
       })
     }
+  }, 60_000)
+})
+
+describe('a cluster index whose analysis no requested change alters', () => {
+  let shared: GarageCluster
+  let sharedOracle: ChangeOracle
+
+  beforeAll(async () => {
+    shared = await startGarageCluster(['node-a', 'node-b'])
+    sharedOracle = await filled(shared, 'node-a', UNCHANGED_INDEX_DOCUMENTS)
+  }, 60_000)
+
+  afterAll(async () => {
+    await shared.shutdown()
+  })
+
+  it('completes with no new generation for the settings that the index holds', async () => {
+    await shared.node('node-b').changeAnalysis(INDEX, { language: PLAIN_LANGUAGE })
+    expect(await publishedGeneration(shared)).toBe(0)
+  }, 60_000)
+
+  it.each<[string, Record<string, unknown>, string]>([
+    ['language', { language: 'nowhere-language' }, 'LANGUAGE_NOT_SUPPORTED'],
+    ['tokeniser', { tokenizer: 'nowhere-tokenizer' }, 'CONFIG_INVALID'],
+    ['stop word set', { stopWords: 'nowhere-stop-words' }, 'CONFIG_INVALID'],
+  ])(
+    'refuses an unregistered %s and keeps answering',
+    async (_kind, change, code) => {
+      expect(await shared.node('node-a').changeAnalysis(INDEX, change).catch(codeOf)).toBe(code)
+      await expectMatches(shared.node('node-a'), sharedOracle, OLD_SETTINGS)
+    },
+    60_000,
+  )
+
+  it('refuses a change while a registered node runs an older version', async () => {
+    const nodes = await shared.watched.coordinator.listNodes()
+    const registration = nodes.find(node => node.nodeId === 'node-b')
+    if (registration === undefined) throw new Error('no registration')
+    await shared.watched.coordinator.registerNode({ ...registration, version: '1.0' })
+    expect(
+      await shared
+        .node('node-a')
+        .changeAnalysis(INDEX, { stopWords: ['river'] })
+        .catch(codeOf),
+    ).toBe('ANALYSIS_CHANGE_NOT_READY')
+    await shared.watched.coordinator.registerNode(registration)
+    expect(await publishedGeneration(shared)).toBe(0)
   }, 60_000)
 })
