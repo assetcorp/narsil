@@ -2,6 +2,7 @@ import { ANALYSIS_CHANGE_MEMBERS } from '../engine/constants'
 import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
 import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { TASK_STATUSES, TASK_TYPES } from './task-status'
 import type {
   BatchBody,
   ChangeAnalysisBody,
@@ -11,8 +12,6 @@ import type {
   MultiGetBody,
   RebalanceBody,
   TaskListQuery,
-  TaskStatus,
-  TaskType,
 } from './types'
 
 /**
@@ -232,22 +231,6 @@ export function validateRebalance(body: RebalanceBody): ValidationFailure | null
   }
   return null
 }
-
-const TASK_TYPE_SET: Readonly<Record<TaskType, true>> = {
-  optimizeVectors: true,
-  rebalance: true,
-  restore: true,
-  import: true,
-  importExport: true,
-  rebuildAnalysis: true,
-  changeAnalysis: true,
-  backup: true,
-  backupRestore: true,
-  backupDelete: true,
-  querySuggestionsBuild: true,
-}
-const TASK_TYPES = Object.keys(TASK_TYPE_SET) as TaskType[]
-const TASK_STATUSES: readonly TaskStatus[] = ['running', 'succeeded', 'failed', 'cancelled']
 
 function parseCountParam(raw: string | null, field: string, minimum: number): number | ValidationFailure {
   if (raw === null) return minimum
