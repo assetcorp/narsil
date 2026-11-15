@@ -24,6 +24,7 @@ export interface PendingAdmission {
 export interface AdmittedReplica {
   primaryTerm: number
   generation: number
+  inSyncVersion: number
 }
 
 export interface AdmissionToWithdraw {
