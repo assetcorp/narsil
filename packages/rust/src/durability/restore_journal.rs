@@ -7,6 +7,7 @@ use crate::format::envelope::MAX_FILE_BYTES;
 use crate::format::layout::manifest_key;
 use crate::format::manifest::{DecodedManifest, decode_manifest_payload, open_manifest_payload};
 use crate::util::hash::sha256_hex;
+use crate::value::Value;
 
 use super::checkpoint_files::manifest_keys;
 use super::checkpoint_store::{AdapterStore, CheckpointStore};
@@ -200,6 +201,7 @@ fn corrupt_journal(key: &str, reason: &str) -> NarsilError {
         ErrorCode::PERSISTENCE_LOAD_FAILED,
         format!("The restore journal \"{key}\" {reason}"),
     )
+    .with_details([("key", Value::from(key))])
 }
 
 enum JournalReading {
@@ -251,7 +253,11 @@ fn listed_keys(
             format!(
                 "The restore of index \"{index_name}\" lost its manifest, both from staging and from the index"
             ),
-        ));
+        )
+        .with_details([
+            ("indexName", Value::from(index_name)),
+            ("stagingPrefix", Value::from(format!("{staging}/"))),
+        ]));
     };
     let (_, raw) = open_manifest_payload(&bytes)?;
     let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, index_name)? else {
@@ -260,7 +266,8 @@ fn listed_keys(
             format!(
                 "The restore of index \"{index_name}\" staged a manifest in the layout of an earlier release"
             ),
-        ));
+        )
+        .with_details([("indexName", Value::from(index_name))]));
     };
     let root = format!("{index_name}/");
     let mut keys: BTreeSet<String> = ["meta".to_string(), "manifest".to_string()].into();

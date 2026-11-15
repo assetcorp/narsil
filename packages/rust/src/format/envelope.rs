@@ -1,7 +1,10 @@
 use std::io::{Read, Write};
 
-use crate::error::{ErrorCode, NarsilError, Result, fail, load_failed};
+use crate::error::{
+    ErrorCode, NarsilError, Result, fail, fail_with, load_failed, load_failed_with,
+};
 use crate::util::hash::crc32;
+use crate::value::Value;
 
 pub(crate) const HEADER_BYTES: usize = 32;
 pub(crate) const MAX_FILE_BYTES: u64 = 2_147_483_647;
@@ -102,11 +105,15 @@ pub(crate) fn write_header(
     checksum: Option<u32>,
 ) -> Result<[u8; HEADER_BYTES]> {
     if payload_length > MAX_PAYLOAD_BYTES {
-        return fail(
+        return fail_with(
             ErrorCode::PERSISTENCE_SAVE_FAILED,
             format!(
                 "A payload of {payload_length} bytes exceeds the {MAX_PAYLOAD_BYTES} bytes the envelope header can describe"
             ),
+            [
+                ("payloadLength", Value::from(payload_length)),
+                ("maxPayloadLength", Value::from(MAX_PAYLOAD_BYTES)),
+            ],
         );
     }
     let mut header = [0u8; HEADER_BYTES];
@@ -130,11 +137,15 @@ pub(crate) fn require_within_file_limit(byte_length: u64, what: &str) -> Result<
     if byte_length <= MAX_FILE_BYTES {
         return Ok(());
     }
-    fail(
+    fail_with(
         ErrorCode::PERSISTENCE_SAVE_FAILED,
         format!(
             "The {what} would take {byte_length} bytes, above the file size limit of {MAX_FILE_BYTES}"
         ),
+        [
+            ("bytes", Value::from(byte_length)),
+            ("maximum", Value::from(MAX_FILE_BYTES)),
+        ],
     )
 }
 
@@ -155,9 +166,10 @@ pub(crate) fn gunzip_within(compressed: &[u8], limit: u64, what: &str) -> Result
     let mut decoder = flate2::read::MultiGzDecoder::new(compressed).take(limit + 1);
     let mut out = Vec::new();
     if let Err(error) = decoder.read_to_end(&mut out) {
-        return load_failed(format!(
-            "The {what} holds a gzip payload that fails to inflate: {error}"
-        ));
+        return load_failed_with(
+            format!("The {what} holds a gzip payload that fails to inflate: {error}"),
+            [("cause", Value::from(error.to_string()))],
+        );
     }
     if out.len() as u64 > limit {
         return load_failed(format!(
@@ -222,12 +234,16 @@ pub(crate) fn open_checksummed<'a>(
     let what = expected.what;
     let header = read_header(data)?;
     if header.envelope_format_version != expected.version {
-        return fail(
+        return fail_with(
             ErrorCode::ENVELOPE_VERSION_MISMATCH,
             format!(
                 "The {what} holds envelope format v{}, while this build reads it as v{}",
                 header.envelope_format_version, expected.version
             ),
+            [
+                ("version", Value::from(header.envelope_format_version)),
+                ("expected", Value::from(expected.version)),
+            ],
         );
     }
     if header.encrypted {
@@ -257,16 +273,27 @@ pub(crate) fn open_checksummed<'a>(
     }
     let wanted = HEADER_BYTES as u64 + header.payload_length as u64;
     if data.len() as u64 != wanted {
-        return load_failed(format!(
-            "The {what} holds {} bytes where its header gives {wanted}",
-            data.len()
-        ));
+        return load_failed_with(
+            format!(
+                "The {what} holds {} bytes where its header gives {wanted}",
+                data.len()
+            ),
+            [
+                ("bytes", Value::from(data.len())),
+                ("expected", Value::from(wanted)),
+            ],
+        );
     }
     let payload = &data[HEADER_BYTES..];
-    if crc32(payload) != header.checksum {
-        return fail(
+    let computed = crc32(payload);
+    if computed != header.checksum {
+        return fail_with(
             ErrorCode::PERSISTENCE_CRC_MISMATCH,
             format!("The checksum of the {what} does not match its payload"),
+            [
+                ("expected", Value::from(header.checksum)),
+                ("computed", Value::from(computed)),
+            ],
         );
     }
     if header.compressed {

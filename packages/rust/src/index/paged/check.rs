@@ -1,10 +1,23 @@
 use super::PagedSections;
 use super::lists::PostingList;
-use crate::error::{Result, load_failed};
+use crate::error::{Result, load_failed_with};
 use crate::format::keyword_segment::KeywordSegment;
 use crate::format::paged_segment::write_lists::{Row, block_summaries};
 use crate::format::paged_segment::{BLOCK_SUMMARY_BYTES, SMALLEST_BLOCK_POSTINGS};
 use crate::util::bytes::le_values;
+use crate::value::Value;
+
+fn first_differing_block(expected: &[u8], stored: &[u8]) -> usize {
+    expected
+        .chunks(BLOCK_SUMMARY_BYTES)
+        .zip(stored.chunks(BLOCK_SUMMARY_BYTES))
+        .position(|(made, held)| made != held)
+        .unwrap_or(expected.len().min(stored.len()) / BLOCK_SUMMARY_BYTES)
+}
+
+fn token_row(token: usize, row: usize) -> [(&'static str, Value); 2] {
+    [("token", Value::from(token)), ("row", Value::from(row))]
+}
 
 struct StoredBlocks {
     lists: Vec<u32>,
@@ -45,23 +58,32 @@ impl PagedSections {
         for at in 0..list.len() {
             let (document, field) = (list.documents[at], list.fields[at]);
             if document >= self.document_count {
-                return load_failed(format!(
-                    "Token {token} of \"{}\" names document {document} of {}",
-                    self.key, self.document_count
-                ));
+                return load_failed_with(
+                    format!(
+                        "Token {token} of \"{}\" names document {document} of {}",
+                        self.key, self.document_count
+                    ),
+                    token_row(token, at),
+                );
             }
             if usize::from(field) >= self.field_count {
-                return load_failed(format!(
-                    "Token {token} of \"{}\" names field {field} of {}",
-                    self.key, self.field_count
-                ));
+                return load_failed_with(
+                    format!(
+                        "Token {token} of \"{}\" names field {field} of {}",
+                        self.key, self.field_count
+                    ),
+                    token_row(token, at),
+                );
             }
             if let Some(before) = rows.last().map(|row: &Row| (row.document, row.field)) {
                 if (document, field) <= before {
-                    return load_failed(format!(
-                        "The list of token {token} of \"{}\" descends at posting {at}",
-                        self.key
-                    ));
+                    return load_failed_with(
+                        format!(
+                            "The list of token {token} of \"{}\" descends at posting {at}",
+                            self.key
+                        ),
+                        token_row(token, at),
+                    );
                 }
                 if document != before.0 {
                     counts.documents += 1;
@@ -99,19 +121,29 @@ impl PagedSections {
             let (rows, counts) = self.rows_of(token, &list)?;
             let blocked = stored.lists.get(listed) == Some(&(token as u32));
             if (rows.len() > SMALLEST_BLOCK_POSTINGS) != blocked {
-                return load_failed(format!(
-                    "The block summaries of token {token} of \"{}\" do not cover its postings",
-                    self.key
-                ));
+                return load_failed_with(
+                    format!(
+                        "The block summaries of token {token} of \"{}\" do not cover its postings",
+                        self.key
+                    ),
+                    [("token", Value::from(token))],
+                );
             }
             if blocked {
                 expected.clear();
                 block_summaries(&rows, &columns, &mut expected)?;
-                if expected.as_slice() != stored.summaries_of(listed) {
-                    return load_failed(format!(
-                        "The block summaries of token {token} of \"{}\" differ from its postings",
-                        self.key
-                    ));
+                let held = stored.summaries_of(listed);
+                if expected.as_slice() != held {
+                    return load_failed_with(
+                        format!(
+                            "The block summaries of token {token} of \"{}\" differ from its postings",
+                            self.key
+                        ),
+                        [
+                            ("token", Value::from(token)),
+                            ("block", Value::from(first_differing_block(&expected, held))),
+                        ],
+                    );
                 }
                 listed += 1;
             }
@@ -119,10 +151,13 @@ impl PagedSections {
             if counts.documents != resident.document_frequencies[token]
                 || counts.occurrences != total[0]
             {
-                return load_failed(format!(
-                    "The counts of token {token} of \"{}\" differ from its postings",
-                    self.key
-                ));
+                return load_failed_with(
+                    format!(
+                        "The counts of token {token} of \"{}\" differ from its postings",
+                        self.key
+                    ),
+                    [("token", Value::from(token))],
+                );
             }
         }
         Ok(())

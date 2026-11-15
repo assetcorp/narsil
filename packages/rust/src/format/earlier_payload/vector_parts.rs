@@ -1,7 +1,10 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::fields::whole_number;
 use crate::format::graph_part::GraphParts;
-use crate::format::vector_file::{VectorCodes, osq_record_bytes, require_payload_version};
+use crate::format::manifest_refs::listed_detail;
+use crate::format::vector_file::{
+    VectorCodes, count_and_bytes, osq_record_bytes, require_payload_version,
+};
 use crate::util::bytes::f32_list;
 use crate::value::{Map, Value};
 
@@ -66,7 +69,10 @@ fn decode_codes(
     };
     let bits = match codes.get("bits") {
         Some(Value::Number(number)) if [1.0, 2.0, 4.0, 8.0].contains(number) => *number as u8,
-        _ => return Err(invalid("codes.bits must be 8, 4, 2, or 1")),
+        _ => {
+            return Err(invalid("codes.bits must be 8, 4, 2, or 1")
+                .with_details(listed_detail("bits", codes.get("bits"))));
+        }
     };
     let centroid = match codes.get("centroid") {
         Some(Value::Array(items)) if items.len() == dimension => items
@@ -86,7 +92,8 @@ fn decode_codes(
         .checked_mul(usize::from(bits))
         .and_then(|_| count.checked_mul(osq_record_bytes(dimension, bits)));
     if expected != Some(records.len()) {
-        return Err(invalid("codes.records must hold one record per vector"));
+        return Err(invalid("codes.records must hold one record per vector")
+            .with_details(count_and_bytes(count, records.len())));
     }
     Ok(Some(VectorCodes {
         bits,
@@ -130,13 +137,20 @@ fn decode_part(raw: &Value) -> Result<(EarlierVectorPart, &[Value])> {
     };
     let parts = match non_negative_integer(map.get("parts")) {
         Some(parts) if parts > 0.0 && part < parts => parts,
-        _ => return Err(invalid("parts must exceed part")),
+        _ => {
+            return Err(invalid("parts must exceed part").with_details(
+                listed_detail("part", map.get("part"))
+                    .into_iter()
+                    .chain(listed_detail("parts", map.get("parts"))),
+            ));
+        }
     };
     let doc_ids = doc_ids_of(map)?;
     if doc_ids.len() > VECTOR_INDEX_PART_VECTORS {
         return Err(invalid(format!(
             "a part holds at most {VECTOR_INDEX_PART_VECTORS} vectors"
-        )));
+        ))
+        .with_details([("count", Value::from(doc_ids.len()))]));
     }
     let graphs = match map.get("graphs") {
         Some(Value::Array(graphs)) if graphs.iter().all(is_graph) => graphs.as_slice(),
@@ -151,9 +165,10 @@ fn decode_part(raw: &Value) -> Result<(EarlierVectorPart, &[Value])> {
     };
     let expected = doc_ids.len() as u128 * dimension as u128 * FLOAT32_BYTES;
     if vector_bytes.len() as u128 != expected {
-        return Err(invalid(
-            "vectors must hold dimension float32 components per document",
-        ));
+        return Err(
+            invalid("vectors must hold dimension float32 components per document")
+                .with_details(count_and_bytes(doc_ids.len(), vector_bytes.len())),
+        );
     }
     let codes = decode_codes(map.get("codes"), dimension, doc_ids.len())?;
     let vectors = f32_list(vector_bytes, "vectors")?;
