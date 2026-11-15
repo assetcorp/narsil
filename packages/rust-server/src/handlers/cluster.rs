@@ -6,11 +6,20 @@ use crate::http::respond::HttpResponse;
 use crate::http::routes::Route;
 use crate::state::ServerState;
 
+const CLUSTER_OPERATION_UNSUPPORTED: &str = "CLUSTER_OPERATION_UNSUPPORTED";
+const NO_CLUSTER: &str = "This server fronts a single engine, so it reports no cluster";
+const NO_CLUSTER_METRICS: &str =
+    "This server fronts a single engine, so it reports no cluster metrics";
+
 pub(crate) async fn handle(
-    state: Arc<ServerState>,
+    _state: Arc<ServerState>,
     route: Route,
-    context: RouteContext,
+    _context: RouteContext,
 ) -> Outcome<HttpResponse> {
-    let _ = (state, route, context);
-    Err(ServerError::internal())
+    let message = if route == Route::Metrics {
+        NO_CLUSTER_METRICS
+    } else {
+        NO_CLUSTER
+    };
+    Err(ServerError::coded(CLUSTER_OPERATION_UNSUPPORTED, message))
 }

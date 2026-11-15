@@ -40,3 +40,10 @@ opt-level = 1
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+[dev-dependencies]
+bytes = "=1.12.1"
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "macros", "time", "process", "io-util"] }
