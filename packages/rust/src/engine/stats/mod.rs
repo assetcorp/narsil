@@ -55,6 +55,10 @@ pub struct PartitionStats {
 pub struct MemoryStats {
     /// The resident set size of the process, which Linux reports and other systems leave as `None`.
     pub process_resident_bytes: Option<u64>,
+    /// The memory that the process may use: its cgroup's limit where one lies below the machine's memory, and
+    /// otherwise the smaller of the machine's memory and the process's memory plus the memory available, or `None`
+    /// on a system that reports no limit.
+    pub process_limit_bytes: Option<u64>,
     /// The sum of every open index's estimate.
     pub estimated_index_bytes: u64,
     /// The number of indexes that the engine holds open.
@@ -189,6 +193,8 @@ impl Narsil {
         });
         MemoryStats {
             process_resident_bytes: process_resident_bytes(),
+            process_limit_bytes: crate::engine::memory::read_process_memory()
+                .map(|memory| memory.limit_bytes),
             estimated_index_bytes,
             open_index_count: indexes.len(),
         }

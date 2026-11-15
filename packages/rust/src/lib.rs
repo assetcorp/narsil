@@ -63,4 +63,7 @@ pub use engine::{
 pub use engine::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead, SyncSnapshot};
 pub use error::{ErrorCode, NarsilError, Result};
 pub use filters::{DistanceUnit, FieldTests, Filter, GeoPolygon, GeoRadius, Scalar, Tolerance};
-pub use value::{Map, Timestamp, Value, parse_json, write_json};
+pub use value::{
+    Map, Timestamp, Value, parse_json, parse_plain_json, write_json, write_plain_json,
+    write_plain_json_into,
+};

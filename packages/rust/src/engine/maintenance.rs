@@ -41,6 +41,11 @@ impl Narsil {
         registration::register_rerank_adapter(&self.inner, name, adapter)
     }
 
+    /// Returns the most hits that one query may rerank, as the engine's `maxRerankWindow` setting gives it.
+    pub fn max_rerank_window(&self) -> usize {
+        self.inner.adapters.rerank_settings().max_window
+    }
+
     /// Writes the index's current state to the durability store, so that a restart replays less of the log; an
     /// engine without durability does nothing.
     pub fn checkpoint(&self, index: &str) -> Result<()> {
