@@ -142,6 +142,9 @@ export function openLogConnection(location: IndexedDBLocation): LogConnection {
           ? opened.transaction(location.storeName, mode)
           : opened.transaction(location.storeName, mode, { durability })
     } catch (error) {
+      if (lostReason === null && (error as { name?: unknown }).name === 'InvalidStateError') {
+        lostReason = 'the browser closed the connection'
+      }
       throw lostReason === null ? storeFailed(failure, causeOf(error)) : replaced()
     }
     const committed = new Promise<void>((resolve, reject) => {
@@ -161,6 +164,9 @@ export function openLogConnection(location: IndexedDBLocation): LogConnection {
     try {
       await committed
     } catch (error) {
+      if (lostReason === null && transaction.error?.name === 'AbortError') {
+        lostReason = 'the browser closed the connection'
+      }
       throw lostReason === null ? storeFailed(failure, causeOf(error)) : replaced()
     }
     return result
