@@ -141,11 +141,15 @@ func groupHitsWith(workspace *core.Workspace, fields []core.StoredValueSlices, o
 
 func GroupHits(hits []GroupedHit, config model.GroupConfig) ([]HitGroup, error) {
 	if len(config.Fields) == 0 {
+		if value, set := config.Limit.Get(); len(hits) == 0 || (set && value == 0) {
+			return []HitGroup{}, nil
+		}
 		every := make([]int, len(hits))
 		for at := range every {
 			every[at] = at
 		}
-		return []HitGroup{{Head: -1, Hits: every, Every: every}}, nil
+		kept := HitsKeptPerGroup(config.MaxPerGroup)
+		return []HitGroup{{Head: 0, Hits: every[:min(kept, len(every))], Every: every}}, nil
 	}
 	if uint64(len(hits)) > math.MaxUint32 {
 		return nil, groupFailure("The hit count exceeds the group layout", nil)

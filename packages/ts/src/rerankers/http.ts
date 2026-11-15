@@ -132,21 +132,25 @@ export function createHttpReranker(config: HttpRerankerConfig): RerankAdapter {
           ? null
           : await resolveApiKey(apiKeySource, 'HTTP rerank adapter', ErrorCodes.RERANK_CONFIG_INVALID)
       const combinedSignal = buildSignal(signal, timeoutMs)
-      const scores: number[] = []
-      for (let start = 0; start < documents.length; start += perRequest) {
-        const chunk = documents.slice(start, start + perRequest)
-        const response = await postJsonWithRetry({
-          url,
-          body: JSON.stringify({ model, query, documents: chunk, top_n: chunk.length }),
-          apiKey,
-          maxRetries,
-          signal: combinedSignal,
-          service: SERVICE,
-          failureCode: ErrorCodes.RERANK_FAILED,
-        })
-        for (const score of scoresFromResults(response.results, chunk.length)) scores.push(score)
+      try {
+        const scores: number[] = []
+        for (let start = 0; start < documents.length; start += perRequest) {
+          const chunk = documents.slice(start, start + perRequest)
+          const response = await postJsonWithRetry({
+            url,
+            body: JSON.stringify({ model, query, documents: chunk, top_n: chunk.length }),
+            apiKey,
+            maxRetries,
+            signal: combinedSignal.signal,
+            service: SERVICE,
+            failureCode: ErrorCodes.RERANK_FAILED,
+          })
+          for (const score of scoresFromResults(response.results, chunk.length)) scores.push(score)
+        }
+        return scores
+      } finally {
+        combinedSignal.dispose()
       }
-      return scores
     },
 
     async shutdown(): Promise<void> {},
