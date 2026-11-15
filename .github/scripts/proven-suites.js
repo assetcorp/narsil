@@ -1,19 +1,11 @@
 const { appendFileSync } = require('node:fs')
 const { SUITES, SUITES_BY_PACKAGE } = require('./release-suites.js')
-const { createInputHasher, isAncestor, requireCommit, resolvedHead } = require('./suite-inputs.js')
+const { createInputHasher, resolvedHead } = require('./suite-inputs.js')
+const { createRunLookup } = require('./proven-suite-runs.js')
 
-const MAIN_BRANCH = 'main'
-const RUNS_PER_PAGE = 100
-const MAX_RUN_PAGES = 3
-const JOBS_PER_PAGE = 100
-const MAX_JOB_PAGES = 5
-const REQUEST_TIMEOUT_MS = 30_000
-const REQUEST_ATTEMPTS = 3
-const RETRY_DELAY_MS = 2_000
 const SUCCESS_OR_SKIPPED = new Set(['success', 'skipped'])
 const JOB_RESULTS_LINE = /^([a-z][a-z-]*)((?: [a-z_]+)+)$/
 
-const API = process.env.GITHUB_API_URL ?? 'https://api.github.com'
 const REPOSITORY = process.env.GITHUB_REPOSITORY ?? ''
 
 const outputKey = suiteName => suiteName.replaceAll('-', '_')
@@ -29,100 +21,8 @@ function writeSummary(markdown) {
   if (target !== undefined && target !== '') appendFileSync(target, markdown)
 }
 
-async function request(path) {
-  const token = process.env.GITHUB_TOKEN ?? ''
-  if (token === '') throw new Error('GITHUB_TOKEN is empty, so the GitHub API cannot list the runs on main')
-  const headers = {
-    Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${token}`,
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
-  for (let attempt = 1; ; attempt += 1) {
-    let response = null
-    let failure = null
-    try {
-      response = await fetch(`${API}${path}`, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-    } catch (error) {
-      failure = error instanceof Error ? error.message : String(error)
-    }
-    if (response?.ok) return response.json()
-    const retryable = response === null || response.status >= 500 || response.status === 429
-    if (!retryable || attempt >= REQUEST_ATTEMPTS) {
-      throw new Error(`the GitHub API answered ${response?.status ?? failure} to ${path}`)
-    }
-    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * attempt))
-  }
-}
-
-function trustedRun(run, workflow) {
-  return (
-    typeof run?.id === 'number' &&
-    typeof run.head_sha === 'string' &&
-    typeof run.status === 'string' &&
-    run.event === 'push' &&
-    run.head_branch === MAIN_BRANCH &&
-    run.path === `.github/workflows/${workflow}` &&
-    run.repository?.full_name === REPOSITORY &&
-    run.head_repository?.full_name === REPOSITORY
-  )
-}
-
 function createLookup(head) {
-  const inputHash = createInputHasher()
-  const runsByWorkflow = new Map()
-  const jobsByRun = new Map()
-
-  async function listRuns(workflow) {
-    const runs = []
-    for (let page = 1; page <= MAX_RUN_PAGES; page += 1) {
-      const query = `branch=${MAIN_BRANCH}&event=push&per_page=${RUNS_PER_PAGE}&page=${page}`
-      const body = await request(`/repos/${REPOSITORY}/actions/workflows/${workflow}/runs?${query}`)
-      if (!Array.isArray(body?.workflow_runs)) throw new Error(`the GitHub API listed no runs of ${workflow}`)
-      for (const run of body.workflow_runs) {
-        if (!trustedRun(run, workflow)) continue
-        try {
-          requireCommit(run.head_sha)
-        } catch {
-          continue
-        }
-        if (isAncestor(run.head_sha, head)) runs.push(run)
-      }
-      if (body.workflow_runs.length < RUNS_PER_PAGE) break
-    }
-    return runs
-  }
-
-  async function listJobs(runId) {
-    const jobs = []
-    for (let page = 1; page <= MAX_JOB_PAGES; page += 1) {
-      const query = `filter=latest&per_page=${JOBS_PER_PAGE}&page=${page}`
-      const body = await request(`/repos/${REPOSITORY}/actions/runs/${runId}/jobs?${query}`)
-      if (!Array.isArray(body?.jobs) || typeof body.total_count !== 'number') {
-        throw new Error(`the GitHub API listed no jobs of run ${runId}`)
-      }
-      jobs.push(...body.jobs)
-      if (jobs.length >= body.total_count || body.jobs.length < JOBS_PER_PAGE) {
-        if (jobs.length < body.total_count) throw new Error(`run ${runId} lists fewer jobs than it counts`)
-        return jobs
-      }
-    }
-    throw new Error(`run ${runId} holds more than ${MAX_JOB_PAGES * JOBS_PER_PAGE} jobs`)
-  }
-
-  function cached(map, key, load) {
-    let value = map.get(key)
-    if (value === undefined) {
-      value = load(key)
-      map.set(key, value)
-    }
-    return value
-  }
-
-  return {
-    inputHash,
-    runsOf: workflow => cached(runsByWorkflow, workflow, listRuns),
-    jobsOf: runId => cached(jobsByRun, runId, listJobs),
-  }
+  return { inputHash: createInputHasher(), ...createRunLookup(head) }
 }
 
 function verdictOf(requiredJobs, jobs) {
@@ -141,7 +41,7 @@ function verdictOf(requiredJobs, jobs) {
 }
 
 function newestFirst(left, right) {
-  const byCreation = Date.parse(right.created_at) - Date.parse(left.created_at)
+  const byCreation = Date.parse(right.updated_at) - Date.parse(left.updated_at)
   return byCreation !== 0 ? byCreation : right.id - left.id
 }
 
@@ -149,6 +49,7 @@ async function proofOf(suiteName, head, lookup) {
   const suite = SUITES[suiteName]
   const releaseHash = lookup.inputHash(suiteName, suite, head)
   const runs = (await Promise.all(suite.workflows.map(workflow => lookup.runsOf(workflow)))).flat().sort(newestFirst)
+  const matching = []
   for (const run of runs) {
     let runHash = null
     try {
@@ -160,12 +61,16 @@ async function proofOf(suiteName, head, lookup) {
     if (run.status !== 'completed') {
       return { proven: false, releaseHash, reason: `${run.html_url} is testing the same inputs and has not finished` }
     }
-    const verdict = verdictOf(suite.jobs, await lookup.jobsOf(run.id))
+    matching.push(run)
+  }
+  for (const run of matching) {
+    const verdict = verdictOf(suite.jobs, await lookup.jobsOf(run))
     if (verdict === 'not-run') continue
     if (verdict === 'failed') {
       return { proven: false, releaseHash, reason: `${run.html_url} failed this suite on the same inputs` }
     }
     if (run.conclusion !== 'success') continue
+    await lookup.requireUnchanged(suite.workflows, run)
     return { proven: true, releaseHash, run }
   }
   return { proven: false, releaseHash, reason: 'no completed push run on main passed this suite on the same inputs' }
