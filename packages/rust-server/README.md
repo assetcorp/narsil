@@ -2,7 +2,9 @@
 
 `delali-narsil-server` serves one Narsil node over HTTP and WebSocket from a Rust program. It answers every single-node route of [`openapi.json`](https://github.com/assetcorp/narsil/blob/main/packages/ts/openapi.json) with the statuses, error codes, and limits of the TypeScript server, so the TypeScript, Python, and Go clients call it unchanged. It also serves device sync and change capture, with the routes and WebSocket feeds that [the Narsil specification](https://github.com/assetcorp/narsil/tree/main/packages/spec) defines. The engine underneath is [`delali-narsil`](https://github.com/assetcorp/narsil/tree/main/packages/rust), so this server opens and saves the same `.nrsl` files as the TypeScript package.
 
-Cluster mode stays in the TypeScript package. The cluster routes, the backup routes, `/metrics`, and `/cluster/health` answer `501` with the code `CLUSTER_OPERATION_UNSUPPORTED`, as the TypeScript server does when it runs without a cluster.
+The Rust server doesn't run cluster mode, which only the TypeScript package offers. The cluster routes, the backup routes, `/metrics`, and `/cluster/health` answer `501` with the code `CLUSTER_OPERATION_UNSUPPORTED`, as the TypeScript server does when it runs without a cluster.
+
+This crate isn't published on crates.io. To deploy the Rust server without building it, run the container image `ghcr.io/assetcorp/narsil` under a tag that ends in `-rust`, such as `latest-rust`, which takes every setting from the variables that [the container specification](https://github.com/assetcorp/narsil/blob/main/packages/spec/container.md) defines. The [container guide](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) starts a node from that image.
 
 ## Serve an index from the command line
 
