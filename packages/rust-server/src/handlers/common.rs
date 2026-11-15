@@ -31,7 +31,10 @@ pub(crate) fn json_body(context: &RouteContext) -> Outcome<Value> {
 pub(crate) fn optional_json_body(context: &RouteContext) -> Outcome<Value> {
     match context.body.as_deref() {
         None | Some([]) => Ok(Value::Object(Map::new())),
-        Some(raw) => parse_text(raw),
+        Some(raw) => match parse_text(raw)? {
+            Value::Object(fields) => Ok(Value::Object(fields)),
+            _ => Err(ServerError::invalid("The request body must be an object")),
+        },
     }
 }
 
