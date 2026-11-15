@@ -137,13 +137,14 @@ impl<'a> WriteProjection<'a> {
     fn fitting_count<'d>(
         &mut self,
         figures: &ProcessMemory,
+        reserved_before: u64,
         start: usize,
         end: usize,
         document_at: &impl Fn(usize) -> Option<&'d Map>,
     ) -> usize {
         let room = self.guard.fractions.block * figures.limit_bytes as f64
             - figures.process_bytes as f64
-            - self.guard.reserved_bytes() as f64;
+            - reserved_before as f64;
         let mut whole = DocumentCost::default();
         for cost in &self.costs[start..end] {
             whole.add(cost);
@@ -171,17 +172,42 @@ impl<'a> WriteProjection<'a> {
         count
     }
 
-    fn reserve(&self, start: usize, count: usize) -> ProjectedGroup<'a> {
+    fn reserve_if_unchanged(
+        &self,
+        reserved_before: u64,
+        start: usize,
+        count: usize,
+    ) -> Option<ProjectedGroup<'a>> {
         let mut shape = DocumentCost::default();
         for cost in &self.costs[start..start + count] {
             shape.add(cost);
         }
         let bytes = shape.bytes.saturating_add(self.growth_bytes(count, &shape));
-        self.guard.reserve(bytes);
-        ProjectedGroup {
-            guard: Some(self.guard),
-            bytes,
-            count,
+        self.guard
+            .reserve_if_unchanged(reserved_before, bytes)
+            .then_some(ProjectedGroup {
+                guard: Some(self.guard),
+                bytes,
+                count,
+            })
+    }
+
+    fn reserve_fitting<'d>(
+        &mut self,
+        figures: &ProcessMemory,
+        start: usize,
+        end: usize,
+        document_at: &impl Fn(usize) -> Option<&'d Map>,
+    ) -> Option<ProjectedGroup<'a>> {
+        loop {
+            let reserved_before = self.guard.reserved_bytes();
+            let count = self.fitting_count(figures, reserved_before, start, end, document_at);
+            if count == 0 {
+                return None;
+            }
+            if let Some(group) = self.reserve_if_unchanged(reserved_before, start, count) {
+                return Some(group);
+            }
         }
     }
 
@@ -259,15 +285,13 @@ impl<'a> WriteProjection<'a> {
         if self.costs[start].bytes > block_bytes {
             return Err(self.exceeds_memory(self.costs[start].bytes, block_bytes));
         }
-        let count = self.fitting_count(&measured, start, end, &document_at);
-        if count > 0 {
-            return Ok(self.reserve(start, count));
+        if let Some(group) = self.reserve_fitting(&measured, start, end, &document_at) {
+            return Ok(group);
         }
         let releases_before = self.guard.releases();
         let figures = self.guard.measure_after_release().unwrap_or(measured);
-        let count = self.fitting_count(&figures, start, end, &document_at);
-        if count > 0 {
-            return Ok(self.reserve(start, count));
+        if let Some(group) = self.reserve_fitting(&figures, start, end, &document_at) {
+            return Ok(group);
         }
         let collected = self.guard.releases() != releases_before;
         if collected {
