@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from chart_data import PERCENTILE_LABELS, has_tail, profile_title, row_label, tail_profile, track_title
+from chart_legend import not_measured_entries
 from chart_paths import server_chart_dir, tail_chart
 from chart_style import (
     BASE_FONT_POINTS,
@@ -12,6 +13,7 @@ from chart_style import (
     TAIL_MARKER_SIZE,
     caption,
     engine_colour,
+    engine_marker,
     millisecond_label,
     save,
     style_axes,
@@ -38,7 +40,7 @@ def tail_figure(repo_root: Path, run_id: str, profile: str, track: str, datasets
                 [position for position, _ in points],
                 [value for _, value in points],
                 color=engine_colour(row["engine"]),
-                marker="o",
+                marker=engine_marker(row["engine"]),
                 markersize=TAIL_MARKER_SIZE,
                 linewidth=TAIL_LINE_WIDTH,
                 label=row_label(row, profile),
@@ -66,6 +68,13 @@ def tail_figure(repo_root: Path, run_id: str, profile: str, track: str, datasets
             if label not in labels:
                 handles.append(handle)
                 labels.append(label)
+    every_row = [row for dataset in datasets for row in dataset["rows"]]
+    drawn = {row["engine"] for row in every_row if tail_profile(row)}
+    for handle, label in not_measured_entries(
+        [row for row in every_row if row["engine"] not in drawn], profile, tail_profile, "server latency"
+    ):
+        handles.append(handle)
+        labels.append(label)
     figure.legend(handles, labels, loc="lower center", ncols=min(len(labels), 5), fontsize=BASE_FONT_POINTS - 1)
     figure.subplots_adjust(wspace=0.12, bottom=LEGEND_RESERVE)
     return save(figure, repo_root / tail_chart(server_chart_dir(run_id), profile, track))
