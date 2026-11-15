@@ -254,10 +254,11 @@ impl DurabilityStore {
         Ok(bytes)
     }
 
-    /// Reads the records of one partition above `cursor` and at or below `up_to`, in sequence order, until the
-    /// values that `keep` makes of them hold `budget_bytes` by the count that `keep` returns beside each value. The
-    /// reader holds one record in memory beyond the values that it returns, and it looks for a segment in history
-    /// where a checkpoint moved it during the read.
+    /// Reads the records of one partition above `cursor` and at or below `up_to`, in sequence order, while the
+    /// values that `keep` makes of them stay within `budget_bytes` by the count that `keep` returns beside each
+    /// value. The first due record is always taken, so a read of one record can pass the budget. The reader holds
+    /// one record in memory beyond the values that it returns, and it looks for a segment in history where a
+    /// checkpoint moved it during the read.
     pub(crate) fn read_log_entries<T>(
         &self,
         index_name: &str,
@@ -330,16 +331,15 @@ impl DurabilityStore {
                 return Ok(LogRead::HistoryGone);
             }
             let (kept, bytes) = keep(record);
-            held += bytes;
+            if !entries.is_empty() && held.saturating_add(bytes) > budget_bytes {
+                segment.offset = frame_start;
+                rewind(segment)?;
+                break;
+            }
+            held = held.saturating_add(bytes);
             cursor.after = seq_no;
             entries.push(kept);
         }
         Ok(LogRead::Entries(entries))
     }
-}
-
-/// Returns the bytes of the documents that one entry holds, by which a change feed bounds a read.
-pub(crate) fn entry_bytes(entry: &LogEntry) -> usize {
-    let previous = entry.previous_document.as_ref().and_then(Option::as_ref);
-    entry.document.as_ref().map_or(0, Vec::len) + previous.map_or(0, Vec::len) + 1
 }
