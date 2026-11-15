@@ -120,22 +120,6 @@ pub fn without(value: &Value, dropped: &[&str]) -> Value {
     }
 }
 
-pub fn without_engine_details(value: &Value) -> Value {
-    match value {
-        Value::Object(fields) => {
-            let mut kept = Map::new();
-            for (key, field) in fields.iter() {
-                if key != "details" {
-                    kept.insert(key.clone(), without_engine_details(field));
-                }
-            }
-            Value::Object(kept)
-        }
-        Value::Array(entries) => Value::Array(entries.iter().map(without_engine_details).collect()),
-        other => other.clone(),
-    }
-}
-
 pub async fn wait_for_task(port: u16, id: &str) -> Value {
     let path = format!("/tasks/{id}");
     let deadline = tokio::time::Instant::now() + TASK_DEADLINE;

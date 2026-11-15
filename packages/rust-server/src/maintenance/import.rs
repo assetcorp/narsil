@@ -90,6 +90,9 @@ impl Tally {
                 "message",
                 Value::String(failure.error.message().to_string()),
             );
+            if let Some(details) = failure.error.details() {
+                error.insert("details", Value::Object(details.clone()));
+            }
             self.record(error);
         }
     }
