@@ -8,7 +8,6 @@ const ENGINE_SOURCE_PATHS = [
   'packages/ts/package.json',
   'packages/ts/tsup.config.ts',
   'packages/ts/tsconfig.json',
-  'packages/ts/examples/http-server',
 ]
 
 const GIT_TIMEOUT_MS = 30_000
