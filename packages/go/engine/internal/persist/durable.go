@@ -30,7 +30,6 @@ type Durable struct {
 	metadataMutex        sync.Mutex
 	sinceCheckpoint      atomic.Int64
 	bytesSinceCheckpoint atomic.Int64
-	heldFiles            atomic.Int32
 	closed               atomic.Bool
 	stall                writeStall
 	heads                Signal

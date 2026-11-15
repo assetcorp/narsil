@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"strings"
-	"sync"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/archive"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
@@ -48,9 +47,7 @@ func openArchive(ctx context.Context, store checkpoint.Store, name string, relea
 }
 
 func (durable *Durable) OpenArchive(ctx context.Context) (*Archive, error) {
-	durable.heldFiles.Add(1)
-	var once sync.Once
-	release := func() { once.Do(func() { durable.heldFiles.Add(-1) }) }
+	hold, release := durable.manager.archives.hold(durable.handle.Name)
 	if err := durable.checkpoint(ctx, true); err != nil {
 		release()
 		return nil, err
@@ -60,6 +57,7 @@ func (durable *Durable) OpenArchive(ctx context.Context) (*Archive, error) {
 		release()
 		return nil, err
 	}
+	durable.manager.archives.narrow(hold, opened.Manifest.ListedKeys())
 	opened.pagedText = durable.textStoredOnDisk()
 	return opened, nil
 }

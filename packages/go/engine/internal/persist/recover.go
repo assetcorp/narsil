@@ -132,6 +132,7 @@ func (manager *Manager) recoverDurable(ctx context.Context, handle *Handle) (*Du
 		}
 	}
 	durable := manager.newDurable(handle, applied)
+	durable.deferredGarbage, _ = manager.archives.keysOf(handle.Name)
 	if upgrade == nil {
 		return durable, nil
 	}
@@ -177,12 +178,12 @@ func (manager *Manager) loadCheckpoint(ctx context.Context, store checkpoint.Sto
 			}
 			return loaded, upgrade, err
 		}
-		return applied, nil, checkpoint.ReclaimUnlisted(ctx, store, handle.Name, withSyncKept(map[string]struct{}{}, keptForSync))
+		return applied, nil, manager.reclaimUnlisted(ctx, store, handle.Name, withSyncKept(map[string]struct{}{}, keptForSync))
 	}
 	if err := store.Remove(ctx, manifest.SnapshotBundleKey(handle.Name)); err != nil {
 		return nil, nil, err
 	}
-	if err := checkpoint.ReclaimUnlisted(ctx, store, handle.Name, withSyncKept(checkpoint.ReferencedKeys(read.Manifest), keptForSync)); err != nil {
+	if err := manager.reclaimUnlisted(ctx, store, handle.Name, withSyncKept(checkpoint.ReferencedKeys(read.Manifest), keptForSync)); err != nil {
 		return nil, nil, err
 	}
 	if err := LoadManifest(ctx, store, handle, read.Manifest); err != nil {

@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/export"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/indexconfig"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -29,29 +30,39 @@ func (n *Narsil) openArchive(ctx context.Context, entry *indexEntry) (*persist.A
 // a stop word function, because an archive keeps no code.
 func (n *Narsil) Snapshot(ctx context.Context, indexName string, options SnapshotOptions, destination io.Writer) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	leave, err := n.enter()
 	if err != nil {
 		return err
 	}
-	defer release()
-	configuration, err := entry.configuration()
-	if err != nil {
-		return err
-	}
-	config, err := indexconfig.Write(configuration, false)
-	if err != nil {
-		return err
-	}
-	opened, err := n.openArchive(ctx, entry)
+	defer leave()
+	config, opened, err := n.openSnapshotArchive(ctx, indexName)
 	if err != nil {
 		return err
 	}
 	defer opened.Release()
 	var history persist.HistoryEntries
 	if options.QueryHistory {
-		history = n.historyEntries(entry.name)
+		history = n.historyEntries(indexName)
 	}
 	return opened.Write(ctx, destination, config, history)
+}
+
+func (n *Narsil) openSnapshotArchive(ctx context.Context, indexName string) ([]byte, *persist.Archive, error) {
+	entry, release, err := n.acquireContext(ctx, indexName)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+	configuration, err := entry.configuration()
+	if err != nil {
+		return nil, nil, err
+	}
+	config, err := indexconfig.Write(configuration, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := n.openArchive(ctx, entry)
+	return config, opened, err
 }
 
 // ExportDocuments writes every document of the index called indexName to
@@ -60,21 +71,32 @@ func (n *Narsil) Snapshot(ctx context.Context, indexName string, options Snapsho
 // reads it back into an index of this engine or of the TypeScript one.
 func (n *Narsil) ExportDocuments(ctx context.Context, indexName string, destination io.Writer) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	leave, err := n.enter()
 	if err != nil {
 		return err
 	}
-	defer release()
-	configuration, err := entry.configuration()
-	if err != nil {
-		return err
-	}
-	opened, epoch, err := n.openExportArchive(ctx, entry)
+	defer leave()
+	header, opened, epoch, err := n.openDocumentExport(ctx, indexName)
 	if err != nil {
 		return err
 	}
 	defer opened.Release()
-	return opened.Export(ctx, destination, configuration.Value(), epoch)
+	return opened.Export(ctx, destination, header, epoch)
+}
+
+func (n *Narsil) openDocumentExport(ctx context.Context, indexName string) (codec.OrderedMap, *persist.Archive,
+	model.Optional[string], error) {
+	entry, release, err := n.acquireContext(ctx, indexName)
+	if err != nil {
+		return codec.OrderedMap{}, nil, model.Optional[string]{}, err
+	}
+	defer release()
+	configuration, err := entry.configuration()
+	if err != nil {
+		return codec.OrderedMap{}, nil, model.Optional[string]{}, err
+	}
+	opened, epoch, err := n.openExportArchive(ctx, entry)
+	return configuration.Value(), opened, epoch, err
 }
 
 func (n *Narsil) openExportArchive(ctx context.Context, entry *indexEntry) (*persist.Archive, model.Optional[string],
