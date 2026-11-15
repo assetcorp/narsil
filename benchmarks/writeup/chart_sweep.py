@@ -14,6 +14,7 @@ from chart_data import (
     row_label,
     track_title,
 )
+from chart_legend import legend_with_not_measured
 from chart_paths import server_chart_dir, sweep_chart
 from chart_style import (
     BASE_FONT_POINTS,
@@ -23,6 +24,7 @@ from chart_style import (
     REFERENCE_COLOUR,
     caption,
     engine_colour,
+    engine_marker,
     latency_axis,
     log2_axis,
     rate_label,
@@ -31,6 +33,7 @@ from chart_style import (
     style_axes,
 )
 from matplotlib.ticker import FuncFormatter
+from narsil_servers import is_unmeasured
 from render import dataset_name
 
 BAND_ALPHA = 0.18
@@ -95,17 +98,20 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
     throughput_axes, latency_axes = panels[0], panels[1]
 
     for row in rows:
+        if is_unmeasured(row):
+            continue
         engine = row["engine"]
         colour = engine_colour(engine)
+        marker = engine_marker(engine)
         label = row_label(row, profile)
         xs, qps = _series(row, lambda level: number(level.get("qps")))
         _band(throughput_axes, row, colour)
-        throughput_axes.plot(xs, qps, color=colour, marker="o", markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
+        throughput_axes.plot(xs, qps, color=colour, marker=marker, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
         xs, p99 = _series(row, _server_p99)
-        latency_axes.plot(xs, p99, color=colour, marker="o", markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
+        latency_axes.plot(xs, p99, color=colour, marker=marker, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
         if with_cores:
             xs, cores = _series(row, _cores)
-            panels[2].plot(xs, cores, color=colour, marker="o", markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
+            panels[2].plot(xs, cores, color=colour, marker=marker, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
 
     style_axes(throughput_axes, "Queries per second")
     throughput_axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
@@ -121,7 +127,10 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
             reference_note(panels[2], allowed, f"{allowed:g} cores on the machine")
     log2_axis(panels[-1], ticks)
     panels[-1].set_xlabel("Concurrent clients")
-    panels[-1].legend(
+    legend_with_not_measured(
+        panels[-1],
+        rows,
+        profile,
         loc="upper center",
         bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
         ncols=LEGEND_COLUMNS,

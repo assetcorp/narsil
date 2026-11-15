@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from chart_data import EQUAL_PRECISION, dataset_rows, has_recall_curve, profile_title, recall_curve, row_label
+from chart_legend import legend_with_not_measured
 from chart_paths import recall_chart, server_chart_dir
 from chart_style import (
     BASE_FONT_POINTS,
@@ -12,6 +13,7 @@ from chart_style import (
     MARKER_SIZE,
     caption,
     engine_colour,
+    engine_marker,
     rate_label,
     save,
     style_axes,
@@ -40,7 +42,7 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
                 [qps for _, qps in points],
                 color=engine_colour(engine),
                 linestyle=LINE_STYLES.get(profile, "-"),
-                marker="o",
+                marker=engine_marker(engine),
                 markersize=MARKER_SIZE,
                 linewidth=LINE_WIDTH,
                 label=label,
@@ -49,7 +51,10 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
     axes.set_ylim(bottom=0)
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
-    axes.legend(
+    legend_with_not_measured(
+        axes,
+        dataset_rows(comparisons.get(EQUAL_PRECISION), "vector", dataset_id),
+        EQUAL_PRECISION,
         loc="upper center",
         bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
         ncols=LEGEND_COLUMNS,

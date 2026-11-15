@@ -22,17 +22,11 @@ from pathlib import Path
 from headline_section import README_TARGETS, readme_blocks
 from inprocess_section import inprocess_blocks
 from languages_section import languages_blocks
+from narsil_servers import load_server_sources
 from server_section import server_blocks
-from sources import (
-    Source,
-    load_inprocess_source,
-    load_languages_source,
-    load_server_best_config_source,
-    load_server_source,
-    repo_root,
-)
+from sources import Source, load_inprocess_source, load_languages_source, repo_root
 
-_IMAGE_SOURCE = re.compile(r'<img src="([^"]+)"')
+IMAGE_SOURCE = re.compile(r'<img src="([^"]+)"')
 CHART_LIBRARY_MODULE = "matplotlib"
 BENCHMARKS_PAGE = "BENCHMARKS.md"
 LANGUAGES_MARKER = "<!-- BENCH:languages-"
@@ -53,7 +47,7 @@ def _inject(text: str, blocks: dict[str, str], page_name: str) -> str:
 
 
 def _missing_figures(page_text: str, root: Path) -> list[str]:
-    return sorted({path for path in _IMAGE_SOURCE.findall(page_text) if not (root / path).is_file()})
+    return sorted({path for path in IMAGE_SOURCE.findall(page_text) if not (root / path).is_file()})
 
 
 def _stale_figures(
@@ -87,7 +81,7 @@ def _languages_blocks(page_text: str, languages: Source | None) -> dict[str, str
     return {}
 
 
-def _generated_pages(
+def generated_pages(
     root: Path, server: Source, best: Source | None, inprocess: Source, languages: Source | None
 ) -> dict[str, tuple[str, str]]:
     pages: dict[str, tuple[str, str]] = {}
@@ -103,11 +97,10 @@ def _generated_pages(
 def main(argv: list[str]) -> int:
     check = "--check" in argv
     root = repo_root()
-    server = load_server_source()
-    best = load_server_best_config_source()
+    server, best = load_server_sources()
     inprocess = load_inprocess_source()
     languages = load_languages_source()
-    pages = _generated_pages(root, server, best, inprocess, languages)
+    pages = generated_pages(root, server, best, inprocess, languages)
     out_of_date = [name for name, (current, updated) in pages.items() if updated != current]
 
     if check:

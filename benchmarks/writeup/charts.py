@@ -11,14 +11,8 @@ from chart_recall import recall_figure
 from chart_style import apply_style
 from chart_sweep import sweep_figure
 from chart_tail import tail_figure
-from sources import (
-    Source,
-    load_inprocess_source,
-    load_languages_source,
-    load_server_best_config_source,
-    load_server_source,
-    repo_root,
-)
+from narsil_servers import load_server_sources
+from sources import Source, load_inprocess_source, load_languages_source, repo_root
 
 
 def _server_charts(root: Path, source: Source, best: Source | None) -> list[Path]:
@@ -53,13 +47,8 @@ def render(root: Path, server: Source, best: Source | None, inprocess: Source, l
 
 def main() -> int:
     root = repo_root()
-    written = render(
-        root,
-        load_server_source(),
-        load_server_best_config_source(),
-        load_inprocess_source(),
-        load_languages_source(),
-    )
+    server, best = load_server_sources()
+    written = render(root, server, best, load_inprocess_source(), load_languages_source())
     sys.stdout.write(f"Rendered {len(written)} charts.\n")
     return 0
 
