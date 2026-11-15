@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from narsil_servers import DISPLAY_NAME_FIELD
 from render import engine_name, is_number
 
 TRACK_TITLES = {"keyword": "Keyword", "vector": "Vector", "hybrid": "Hybrid"}
@@ -113,7 +114,7 @@ def has_sweep(rows: list[dict]) -> bool:
 
 
 def row_label(row: dict, profile: str) -> str:
-    name = engine_name(row["engine"])
+    name = row.get(DISPLAY_NAME_FIELD) or engine_name(row["engine"])
     quantization = row.get("quantization")
     if profile == BEST_CONFIG and isinstance(quantization, str) and quantization:
         return f"{name} ({quantization})"

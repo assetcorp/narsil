@@ -17,6 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from chart_data import dataset_rows, peak_qps, tracks
+from narsil_servers import (
+    NARSIL_RUST,
+    NARSIL_TYPESCRIPT,
+    NOT_MEASURED_TEXT,
+    comparison_rows,
+    is_narsil_server,
+    is_unmeasured,
+)
 from render import and_join, dataset_name, decimal, engine_name, integer, is_number
 from sources import Source, repo_root
 
@@ -28,6 +36,7 @@ VECTOR_DATASETS_LARGEST_FIRST = (
     "beir/scifact/test",
 )
 BENCHMARK_CONFIG = "benchmarks/server/config/benchmark.toml"
+REPOSITORY_FILE_URL = "https://github.com/assetcorp/narsil/blob/main"
 _QUALITY_METRIC = "ndcg_cut_10"
 
 
@@ -39,7 +48,7 @@ class ReadmeTarget:
 
 README_TARGETS = (
     ReadmeTarget("README.md", "BENCHMARKS.md"),
-    ReadmeTarget("packages/ts/README.md", "https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md"),
+    ReadmeTarget("packages/ts/README.md", f"{REPOSITORY_FILE_URL}/BENCHMARKS.md"),
 )
 
 
@@ -90,30 +99,47 @@ def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     return sentences
 
 
+def _rust_sentence(rust: dict | None, queries: str) -> str:
+    if rust is None or is_unmeasured(rust):
+        return ""
+    rust_peak = peak_qps(rust)
+    if rust_peak is None:
+        return ""
+    if not _met_its_recall_target(rust):
+        return " Narsil's Rust server misses the recall target, so the comparison leaves its speed unranked."
+    return f" Narsil's Rust server answers {integer(rust_peak)} {queries} a second at its peak."
+
+
 def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
     """One sentence for Narsil's peak on a row, beside the fastest other engine that
     met the row's recall target, whether that engine leads Narsil or follows it."""
 
-    narsil = _row(rows, "narsil")
+    narsil = _row(rows, NARSIL_TYPESCRIPT)
     narsil_peak = peak_qps(narsil) if narsil is not None else None
     if narsil is None or narsil_peak is None:
         return None
+    rust = _row(rows, NARSIL_RUST)
+    subject = "Narsil" if rust is None else "Narsil's TypeScript server"
+    rust_sentence = _rust_sentence(rust, queries)
     if not _met_its_recall_target(narsil):
-        return f"{opening}, Narsil misses the recall target, so the comparison leaves its speed unranked."
+        return (
+            f"{opening}, {subject} misses the recall target, so the comparison leaves its speed unranked."
+            f"{rust_sentence}"
+        )
     others = [
         row
         for row in rows
-        if row.get("engine") != "narsil" and peak_qps(row) is not None and _met_its_recall_target(row)
+        if not is_narsil_server(row.get("engine")) and peak_qps(row) is not None and _met_its_recall_target(row)
     ]
-    sentence = f"{opening}, Narsil answers {integer(narsil_peak)} {queries} a second at its peak"
+    sentence = f"{opening}, {subject} answers {integer(narsil_peak)} {queries} a second at its peak"
     fastest = max(others, key=lambda row: peak_qps(row) or 0.0, default=None)
     if fastest is None:
-        return f"{sentence}."
+        return f"{sentence}.{rust_sentence}"
     fastest_peak = peak_qps(fastest) or 0.0
     name = engine_name(fastest.get("engine") or "")
     if fastest_peak > narsil_peak:
-        return f"{sentence}, while {name} leads with {integer(fastest_peak)}."
-    return f"{sentence}, and {name} follows with {integer(fastest_peak)}."
+        return f"{sentence}, while {name} leads with {integer(fastest_peak)}.{rust_sentence}"
+    return f"{sentence}, and {name} follows with {integer(fastest_peak)}.{rust_sentence}"
 
 
 def _largest_vector_dataset(comparison: dict) -> tuple[str, list[dict]] | None:
@@ -158,14 +184,15 @@ def _tally(comparison: dict) -> _Tally:
     for entry in tracks(comparison):
         for dataset in entry.get("datasets", []):
             rows = [row for row in dataset.get("rows", []) if peak_qps(row) is not None]
-            if len(rows) < 2 or _row(rows, "narsil") is None:
+            rivals = [row for row in rows if not is_narsil_server(row.get("engine"))]
+            if not rivals or _row(rows, NARSIL_TYPESCRIPT) is None:
                 continue
             compared += 1
             if entry.get("track") not in names:
                 names.append(entry.get("track"))
             ranked = [row for row in rows if _met_its_recall_target(row)]
             best = max(ranked, key=lambda row: peak_qps(row) or 0.0, default=None)
-            if best is not None and best.get("engine") == "narsil":
+            if best is not None and is_narsil_server(best.get("engine")):
                 led += 1
     return _Tally(led=led, compared=compared, tracks=tuple(names))
 
@@ -221,6 +248,19 @@ def _machine_sentence(comparison: dict) -> str:
     return f"{machine_type} hardware in {and_join(places)} hosted the engines."
 
 
+def _rust_unmeasured_sentence(comparison: dict, production: dict | None) -> str | None:
+    rust_rows = [
+        row
+        for source in (comparison, production)
+        if source is not None
+        for row in comparison_rows(source)
+        if row.get("engine") == NARSIL_RUST
+    ]
+    if not rust_rows or not all(is_unmeasured(row) for row in rust_rows):
+        return None
+    return f"Narsil's Rust server is {NOT_MEASURED_TEXT}."
+
+
 def headline_block(
     source: Source, benchmarks_link: str, reference: float | None, production: Source | None = None
 ) -> str:
@@ -239,6 +279,7 @@ def headline_block(
         _machine_sentence(comparison),
         f"You'll find every dataset, every engine's settings, and the full method in "
         f"[`BENCHMARKS.md`]({benchmarks_link}).",
+        _rust_unmeasured_sentence(comparison, production_comparison),
     ]
     return " ".join(sentence for sentence in sentences if sentence)
 

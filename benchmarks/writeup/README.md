@@ -37,6 +37,34 @@ them, and each figure prints the run id it came from. It draws five kinds of cha
 The script leaves out a chart whose data the harness did not record, and the page
 leaves out that figure with it.
 
+## Narsil's two servers
+
+The server suite can measure Narsil's TypeScript server under the engine id
+`narsil` and its Rust server under `narsil-rust`. While a run holds results for
+the TypeScript server alone, the page calls it Narsil. Once a run holds results
+for both servers, every server table and chart gives each server a separate row,
+labelled Narsil TypeScript and Narsil Rust, and a dataset that the run measured
+with only one of them lists the other as not measured yet. The README headline
+quotes the Rust server's peak in a separate sentence, and it never treats one
+Narsil server as a rival of the other.
+
+## Previewing the page
+
+Before a new benchmark run, you can render the page into one HTML file and review
+its layout first:
+
+```bash
+python3 -m pip install -e 'benchmarks/server[preview]'
+python3 benchmarks/writeup/preview.py --output /tmp/benchmarks-preview.html
+```
+
+The preview reads the newest recorded runs and gives both Narsil servers a row in
+every server table and chart, so a server that no run has measured shows as not
+measured yet, with no figure. The README headline appears above the page. The
+script inlines every figure and points every relative link at the repository on
+GitHub, so the file opens on any machine without the checkout. It writes the
+output file alone, which leaves the committed page and figures unchanged.
+
 Rewriting the page needs only the Python standard library. Drawing the charts needs
 matplotlib, pinned in the `charts` extra of `benchmarks/server/pyproject.toml`.
 `generate.py --check` imports it only where it is installed, so the page check runs
