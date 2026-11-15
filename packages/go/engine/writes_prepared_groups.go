@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/memory"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
@@ -68,11 +67,11 @@ func (write groupedWrite) refusePending(pending []pendingInsert, end int, err er
 		if at == 0 {
 			outcome.fail(insert.id, err)
 		} else {
-			outcome.fail(insert.id, memory.RefusedAfter(write.indexName, insert.id, outcome.refusedDocID))
+			outcome.fail(insert.id, laterRefusal(write.indexName, insert.id, err, outcome.refusedDocID))
 		}
 	}
 	for at := end; at < len(write.bounds.bounds); at++ {
 		id := write.idOf(at)
-		outcome.fail(id, memory.RefusedAfter(write.indexName, id, outcome.refusedDocID))
+		outcome.fail(id, laterRefusal(write.indexName, id, err, outcome.refusedDocID))
 	}
 }

@@ -35,6 +35,11 @@ func MemoryFull(indexName string, figures Figures) error {
 			"heapBytes": finiteOrNil(figures.HeapBytes), "heapLimitBytes": finiteOrNil(figures.HeapLimitBytes)})
 }
 
+func IsMemoryFull(err error) bool {
+	held, isEngineError := narsilerr.As(err)
+	return isEngineError && held.Code == narsilerr.CodeMemoryWriteBlocked && held.Details["reason"] == MemoryFullReason
+}
+
 func exceedsMemory(indexName string, bound, blockBytes float64) error {
 	return narsilerr.New(narsilerr.CodeMemoryWriteBlocked,
 		engineRefuser+" refuses this document for index '"+indexName+"' because indexing it can take up to "+

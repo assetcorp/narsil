@@ -77,7 +77,7 @@ func (n *Narsil) insertInGroups(ctx context.Context, holder indexHolder, entry *
 		if outcome.memoryRefusal != nil {
 			for at := end; at < len(documents); at++ {
 				id := idOf(at)
-				outcome.fail(id, memory.RefusedAfter(holder.name, id, outcome.refusedDocID))
+				outcome.fail(id, laterRefusal(holder.name, id, outcome.memoryRefusal, outcome.refusedDocID))
 			}
 			break
 		}
@@ -87,6 +87,13 @@ func (n *Narsil) insertInGroups(ctx context.Context, holder indexHolder, entry *
 
 func isMemoryRefusal(err error) bool {
 	return narsilerr.CodeOf(err) == narsilerr.CodeMemoryWriteBlocked
+}
+
+func laterRefusal(indexName, docID string, refusal error, refusedDocID string) error {
+	if memory.IsMemoryFull(refusal) {
+		return refusal
+	}
+	return memory.RefusedAfter(indexName, docID, refusedDocID)
 }
 
 func (n *Narsil) updateInGroups(ctx context.Context, holder indexHolder, entry *indexEntry, release func(),
@@ -105,7 +112,7 @@ func (n *Narsil) updateInGroups(ctx context.Context, holder indexHolder, entry *
 		case isMemoryRefusal(err):
 			outcome.fail(update.DocID, err)
 			for _, later := range updates[at+1:] {
-				outcome.fail(later.DocID, memory.RefusedAfter(holder.name, later.DocID, update.DocID))
+				outcome.fail(later.DocID, laterRefusal(holder.name, later.DocID, err, update.DocID))
 			}
 			return entry, release, nil
 		default:

@@ -85,19 +85,30 @@ func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end
 	reserved := process.reservedLocked()
 	heapRoom := block*figures.HeapLimitBytes - figures.HeapBytes - reserved
 	processRoom := block*figures.ProcessLimitBytes - figures.ProcessBytes - reserved
-	mostBurst := process.extraBurstLocked(burst(end - start))
-	taken := 0.0
+	prefix := make([]float64, end-start+1)
 	for position := start; position < end; position++ {
-		next := taken + bounds[position]
-		if next+mostBurst > heapRoom || next+mostBurst > processRoom {
-			withBurst := next + process.extraBurstLocked(burst(position-start+1))
-			if withBurst > heapRoom || withBurst > processRoom {
-				return position - start, position
-			}
-		}
-		taken = next
+		prefix[position-start+1] = prefix[position-start] + bounds[position]
 	}
-	return end - start, -1
+	fits := func(count int) bool {
+		taken := prefix[count] + process.extraBurstLocked(burst(count))
+		return taken <= heapRoom && taken <= processRoom
+	}
+	if fits(end - start) {
+		return end - start, -1
+	}
+	fitting, failing := 0, end-start
+	if !fits(0) {
+		return 0, start
+	}
+	for failing-fitting > 1 {
+		middle := fitting + (failing-fitting)/2
+		if fits(middle) {
+			fitting = middle
+		} else {
+			failing = middle
+		}
+	}
+	return fitting, start + fitting
 }
 
 func reserveLocked(bounds []float64, start, count int, burst Burst) *Reservation {
@@ -107,6 +118,7 @@ func reserveLocked(bounds []float64, start, count int, burst Burst) *Reservation
 	}
 	reservation := &Reservation{bytes: bytes, Count: count}
 	process.reservedBytes += bytes
+	process.admittedBytes += bytes + process.extraBurstLocked(burst)
 	if burst.Key != nil && burst.Bytes > 0 {
 		if process.bursts == nil {
 			process.bursts = map[any]*heldBurst{}
