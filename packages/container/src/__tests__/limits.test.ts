@@ -79,4 +79,17 @@ describe.each(['0', '2'])('result limits with %s workers', workers => {
     }
     expect((await call(node, 'GET', '/tasks?limit=4', { credential: ADMIN_KEY })).status).toBe(400)
   })
+
+  it('bounds the single group when the caller leaves out its fields', async () => {
+    for (const group of [{}, { fields: [] }, { fields: [], maxPerGroup: 3 }, { fields: [], limit: 0 }]) {
+      const answer = await call(node, 'POST', '/indexes/books/search', {
+        credential: ADMIN_KEY,
+        body: { term: 'garden', group },
+      })
+      expect(answer.status).toBe(200)
+      const groups = (answer.body as { groups: Array<{ hits: unknown[] }> }).groups
+      expect(groups).toHaveLength(group.limit === 0 ? 0 : 1)
+      if (group.limit !== 0) expect(groups[0]?.hits).toHaveLength(group.maxPerGroup ?? 1)
+    }
+  })
 })
