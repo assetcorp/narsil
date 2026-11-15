@@ -53,6 +53,9 @@
 {"method":"POST","path":"/indexes","body":{"name":"j2","config":{"schema":{"title":"string"},"required":[1]}}}
 {"method":"POST","path":"/indexes","body":{"name":"j3","config":{"schema":{"title":"string"},"required":["nope"]}}}
 {"method":"POST","path":"/indexes","body":{"name":"j4","config":{"schema":{"title":"string"},"required":null}}}
+{"method":"POST","path":"/indexes","body":{"name":"j5","config":{"schema":{"title":"string"},"required":{"a":1}}}}
+{"method":"POST","path":"/indexes","body":{"name":"j6","config":{"schema":{"title":"string"},"required":7}}}
+{"method":"POST","path":"/indexes","body":{"name":"h12","config":{"schema":{"title":"string"},"vectorPromotion":{"filterThreshold":"x"}}}}
 {"method":"POST","path":"/indexes","body":{"name":"k","config":{"schema":{"title":"string"},"patternValueLimit":"x"}}}
 {"method":"POST","path":"/indexes","body":{"name":"k2","config":{"schema":{"title":"string"},"patternValueLimit":null}}}
 {"method":"POST","path":"/indexes","body":{"name":"k3","config":{"schema":{"title":"string"},"patternValueLimit":-5}}}
