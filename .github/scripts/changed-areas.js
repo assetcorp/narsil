@@ -192,6 +192,9 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/src/',
       'packages/ts/scripts/',
       'packages/ts/etc/',
+      'packages/ts/LICENSE',
+      'packages/ts/NOTICE',
+      'packages/ts/examples/http-server/server.ts',
       'packages/embeddings-transformers/src/',
       'packages/embeddings-transformers/package.json',
       'packages/embeddings-transformers/tsconfig.json',
@@ -209,6 +212,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       ...BUILD_CONFIG_FILES,
     ],
     except: ['packages/ts/src/__tests__/', 'packages/embeddings-transformers/src/__tests__/'],
+    markdownInputs: ['packages/ts/etc/'],
   },
   cluster: {
     paths: [
@@ -270,8 +274,8 @@ const typescriptAreasOf = path => {
 const matchesAnyPath = (path, entries) =>
   entries.some(entry => (entry.endsWith('/') ? path.startsWith(entry) : path === entry))
 
-const touchesLanguageArea = (path, { paths, except = [], compiledMarkdown = [] }) => {
-  if (path.endsWith('.md')) return compiledMarkdown.includes(path)
+const touchesLanguageArea = (path, { paths, except = [], compiledMarkdown = [], markdownInputs = [] }) => {
+  if (path.endsWith('.md')) return compiledMarkdown.includes(path) || matchesAnyPath(path, markdownInputs)
   return matchesAnyPath(path, paths) && !matchesAnyPath(path, except)
 }
 
