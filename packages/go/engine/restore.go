@@ -26,6 +26,8 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 	if err != nil {
 		return err
 	}
+	ctx, publishWrites := n.deferWriteEvents(ctx)
+	defer publishWrites()
 	var notifications []model.Event
 	defer func() { n.events.emitAll(notifications) }()
 	defer n.emitWrite(indexName)

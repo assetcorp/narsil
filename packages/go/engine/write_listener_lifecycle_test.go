@@ -18,7 +18,7 @@ func TestWriteListenersCanCloseTheirIndex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, event := range []string{"write", "watermark", "promotion"} {
+		for _, event := range []string{"write", "watermark", "promotion", "restored-suggestions"} {
 			t.Run(event, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -46,31 +46,60 @@ func TestWriteListenersCanCloseTheirIndex(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	writtenIndex := callbackIndex
+	var archive []byte
+	if scenario == "restored-suggestions" {
+		writtenIndex, err = narsil.QuerySuggestions().AddSuggestion(ctx, callbackIndex,
+			engine.ManualQuerySuggestion{Group: "main", Query: "lighthouse", Count: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		archive = snapshotOf(t, narsil, writtenIndex)
+		if _, err := narsil.QuerySuggestions().UpdateBans(ctx, callbackIndex, []string{"lighthouse"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var called atomic.Bool
 	var callbackErr error
 	closeIndex := func() {
 		if !called.Swap(true) {
-			callbackErr = narsil.Close(ctx, callbackIndex)
+			callbackErr = narsil.Close(ctx, writtenIndex)
 		}
 	}
 	handlers := engine.EventHandlers{}
 	switch scenario {
-	case "write":
-		handlers.Write = func(engine.WriteEvent) { closeIndex() }
+	case "write", "restored-suggestions":
+		handlers.Write = func(event engine.WriteEvent) {
+			if event.IndexName == writtenIndex {
+				closeIndex()
+			}
+		}
 	case "watermark":
 		handlers.PartitionWatermark = func(engine.PartitionWatermarkEvent) { closeIndex() }
 	case "promotion":
 		handlers.WorkerPromote = func(engine.WorkerPromoteEvent) { closeIndex() }
 	}
 	unlisten := narsil.On(handlers)
-	if _, err := narsil.Insert(ctx, callbackIndex, engine.NewDocument().Set("title", "lighthouse"), "kept", engine.InsertOptions{}); err != nil {
-		t.Fatal(err)
+	if scenario == "restored-suggestions" {
+		if err := restoreArchive(narsil, writtenIndex, archive); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if _, err := narsil.Insert(ctx, callbackIndex, engine.NewDocument().Set("title", "lighthouse"), "kept", engine.InsertOptions{}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	unlisten()
 	if !called.Load() || callbackErr != nil {
 		t.Fatalf("listener called=%t, error=%v", called.Load(), callbackErr)
 	}
-	result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "lighthouse"})
+	result, err := narsil.Query(ctx, writtenIndex, engine.QueryParams{Term: "lighthouse"})
+	if scenario == "restored-suggestions" {
+		if err != nil || result.Count != 0 {
+			t.Fatalf("the banned suggestion returned %+v, %v", result, err)
+		}
+		return
+	}
 	if err != nil || len(result.Hits) != 1 || result.Hits[0].ID != "kept" {
 		t.Fatalf("the reopened index returned %+v, %v", result, err)
 	}
