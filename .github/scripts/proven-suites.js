@@ -49,15 +49,16 @@ async function proofOf(suiteName, head, lookup) {
   const suite = SUITES[suiteName]
   const releaseHash = lookup.inputHash(suiteName, suite, head)
   const runs = (await Promise.all(suite.workflows.map(workflow => lookup.runsOf(workflow)))).flat().sort(newestFirst)
+  const testsTheSameInputs = run => {
+    try {
+      return lookup.inputHash(suiteName, suite, run.head_sha) === releaseHash
+    } catch {
+      return false
+    }
+  }
   const matching = []
   for (const run of runs) {
-    let runHash = null
-    try {
-      runHash = lookup.inputHash(suiteName, suite, run.head_sha)
-    } catch {
-      continue
-    }
-    if (runHash !== releaseHash) continue
+    if (!testsTheSameInputs(run)) continue
     if (run.status !== 'completed') {
       return { proven: false, releaseHash, reason: `${run.html_url} is testing the same inputs and has not finished` }
     }
@@ -70,7 +71,7 @@ async function proofOf(suiteName, head, lookup) {
       return { proven: false, releaseHash, reason: `${run.html_url} failed this suite on the same inputs` }
     }
     if (run.conclusion !== 'success') continue
-    await lookup.requireUnchanged(suite.workflows, run)
+    await lookup.requireUnchanged(suite.workflows, run, testsTheSameInputs)
     return { proven: true, releaseHash, run }
   }
   return { proven: false, releaseHash, reason: 'no completed push run on main passed this suite on the same inputs' }
