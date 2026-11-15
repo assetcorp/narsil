@@ -5,6 +5,7 @@ import { admitDurableWrite } from '../partitioning/wal-routing'
 import type { QueuedWrite } from '../partitioning/write-ahead-queue'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
 import { deferMutationPublication } from '../persistence/durability/deferred-mutations'
+import { createIndexedDBDirectory } from '../persistence/durability/indexeddb-directory'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
 import type {
   CheckpointPublisher,
@@ -12,7 +13,7 @@ import type {
   MutationOutcome,
   MutationRecord,
 } from '../persistence/durability/types'
-import type { PersistenceAdapter } from '../types/adapters'
+import type { IndexedDBLocation, PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
@@ -23,7 +24,7 @@ import type { ApplyMutation } from './mutations/context'
 export type { ApplyMutation } from './mutations/context'
 
 export type DurabilityTier =
-  | { kind: 'wal'; config: DurabilityConfig }
+  | { kind: 'wal'; config: DurabilityConfig; indexedDB?: IndexedDBLocation }
   | { kind: 'snapshot'; config: DurabilityConfig; adapter: PersistenceAdapter }
 
 export interface DurableWrite {
@@ -131,7 +132,13 @@ export function createDurabilityIntegration(
 
   const manager =
     tier.kind === 'wal'
-      ? createDurabilityManager(tier.config, managerHooks)
+      ? createDurabilityManager(
+          tier.config,
+          managerHooks,
+          tier.indexedDB === undefined
+            ? undefined
+            : createIndexedDBDirectory(tier.indexedDB, { relaxedAppends: tier.config.mode === 'async' }),
+        )
       : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks, hooks.checkpointPublisher)
 
   async function recordMutation(

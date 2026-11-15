@@ -28,6 +28,7 @@ export interface SnapshotOnlyCheckpointCommitted {
   saved: StoredBytes
   documentCount: number
   partitionCount: number
+  positions: ReadonlyMap<number, number>
 }
 
 export interface SnapshotOnlyCheckpointInput {
@@ -126,6 +127,7 @@ async function writeCaptured(
     saved: committed.saved,
     documentCount: captured.documentCount,
     partitionCount: captured.partitionCount,
+    positions: captured.positions,
   })
   const garbage = await checkpointGarbage(store, input.indexName, committed.manifest)
   await removeCheckpointGarbage(store, await garbageThatNoFieldStillReads(store, input.vectorIndexes, garbage))
@@ -145,10 +147,7 @@ export async function saveCheckpointMetadata(
   hooks.recordCheckpoint?.(indexName, documentCount, partitionCount, saved.bytes)
 }
 
-export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointInput): Promise<{
-  positions: ReadonlyMap<number, number>
-  partitionCount: number
-}> {
+export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointInput): Promise<void> {
   const store = adapterCheckpointStore(input.adapter)
   const { prior, captured } = await whileGraphsStayComplete(input.vectorIndexes, async () => {
     const prior = await readCurrentManifest(store, input.indexName)
@@ -157,7 +156,6 @@ export async function writeSnapshotOnlyCheckpoint(input: SnapshotOnlyCheckpointI
   })
   try {
     await writeCaptured(input, store, prior, captured)
-    return { positions: captured.positions, partitionCount: captured.partitionCount }
   } finally {
     for (const plan of captured.plans.values()) plan.release()
   }

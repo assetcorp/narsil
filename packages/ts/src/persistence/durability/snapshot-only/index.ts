@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import { holdScheduledCheckpoint } from '../../../partitioning/checkpoint-hold'
 import { requireCheckpointLayout } from '../../../partitioning/manager/checkpoint-prefix'
 import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../serialization/envelope'
@@ -30,6 +31,7 @@ import { saveCheckpointMetadata, writeSnapshotOnlyCheckpoint } from './checkpoin
 import { createSnapshotIndexState, metadataKey, noteSnapshotCommitted, type SnapshotIndexState } from './index-state'
 import { createPendingRestores } from './restores'
 import { createSnapshotSavedSize } from './saved-size'
+import { saveUnsavedIndexes } from './shutdown-save'
 
 export function createSnapshotOnlyManager(
   adapter: PersistenceAdapter,
@@ -95,7 +97,7 @@ export function createSnapshotOnlyManager(
     const metadata = hooks.buildTermsMetadata(indexName)
     if (manager === undefined || metadata === undefined) return
 
-    const { positions, partitionCount } = await writeSnapshotOnlyCheckpoint({
+    await writeSnapshotOnlyCheckpoint({
       adapter,
       indexName,
       metadata,
@@ -104,12 +106,12 @@ export function createSnapshotOnlyManager(
       appliedSeqNoByPartition: indexState.appliedSeqNoByPartition,
       rewritesEveryPartition: fromMemory || hooks.mustRewriteTerms(indexName),
       onCommitted: async committed => {
+        noteSnapshotCommitted(indexState, committed.positions, committed.partitionCount)
         savedSize.record(indexName, committed.saved)
         hooks.onManifestCommitted(indexName, metadata.analysisGeneration ?? 0)
         await queueMetadataWrite(indexName, () => saveCheckpointMetadata(adapter, hooks, indexName, committed))
       },
     })
-    noteSnapshotCommitted(indexState, positions, partitionCount)
 
     if (publisher !== undefined) {
       const partitionIds: number[] = []
@@ -214,11 +216,13 @@ export function createSnapshotOnlyManager(
   }
 
   async function recordMutation(record: MutationRecord): Promise<number> {
+    if (shuttingDown) throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
     const indexState = getOrCreateIndexState(record.indexName)
     const buffered = indexState.applyChain.then(async () => {
       await record.apply()
       const appliedSeqNo = (indexState.appliedSeqNoByPartition.get(record.partitionId) ?? 0) + 1
       indexState.appliedSeqNoByPartition.set(record.partitionId, appliedSeqNo)
+      indexState.mutationsSinceCheckpoint += 1
       return appliedSeqNo
     })
     indexState.applyChain = buffered.then(
@@ -227,7 +231,6 @@ export function createSnapshotOnlyManager(
     )
     const appliedSeqNo = await buffered
 
-    indexState.mutationsSinceCheckpoint += 1
     startCheckpointTimer()
     if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
       void checkpointIndex(record.indexName).catch(err => {
@@ -384,12 +387,11 @@ export function createSnapshotOnlyManager(
         checkpointTimer = null
       }
       await restores.settleAll()
-      for (const indexState of indexes.values()) {
-        if (indexState.checkpointInFlight !== null) {
-          await indexState.checkpointInFlight.catch(() => undefined)
-        }
-      }
-      indexes.clear()
+      await saveUnsavedIndexes({
+        indexes,
+        checkpoint: (indexName, indexState) => performCheckpoint(indexName, indexState, false),
+        onFailure: hooks.onFatalError,
+      }).finally(() => indexes.clear())
     },
   }
 }
