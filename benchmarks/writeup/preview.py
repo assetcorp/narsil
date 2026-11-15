@@ -10,6 +10,7 @@ the output file, so the committed page and the committed figures stay as they ar
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -31,14 +32,26 @@ def _arguments(argv: list[str]) -> Path:
     output = parser.parse_args(argv).output
     if output.suffix != OUTPUT_SUFFIX:
         parser.error(f"--output must name a {OUTPUT_SUFFIX} file")
+    if output.is_dir():
+        parser.error("--output must name a file, not a directory")
     return output
 
 
 def _write(output: Path, document: str) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    partial = output.with_name(f"{output.name}.partial")
-    partial.write_text(document, encoding="utf-8")
-    partial.replace(output)
+    partial = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=output.parent, prefix=f".{output.name}.", suffix=".partial", delete=False
+        ) as handle:
+            partial = Path(handle.name)
+            handle.write(document)
+            handle.flush()
+            os.fsync(handle.fileno())
+        partial.replace(output)
+    finally:
+        if partial is not None:
+            partial.unlink(missing_ok=True)
 
 
 def main(argv: list[str]) -> int:
