@@ -32,6 +32,13 @@ function resolvedHead() {
   return head
 }
 
+function isHashedPath(suite, path) {
+  if (path === LOCKFILE || RELEASE_GENERATED.test(path)) return false
+  if (!matchesAnyPath(path, suite.paths)) return false
+  if (matchesAnyPath(path, suite.except ?? []) && !matchesAnyPath(path, suite.keptInsideExcept ?? [])) return false
+  return !path.endsWith('.md') || matchesAnyPath(path, suite.markdown ?? [])
+}
+
 function createInputHasher() {
   const trees = new Map()
   const blobs = new Map()
@@ -84,14 +91,12 @@ function createInputHasher() {
 
   return function inputHash(suiteName, suite, commit) {
     const entries = treeAt(commit)
-    const except = suite.except ?? []
     const versionless = suite.manifestsWithoutVersion ?? []
     const lockfile = entries.find(entry => entry.path === LOCKFILE)
     if (lockfile === undefined) throw new Error(`${commit} holds no ${LOCKFILE}`)
     const closure = closureOf(lockfile.object, suite)
     const files = entries
-      .filter(entry => matchesAnyPath(entry.path, suite.paths) && !matchesAnyPath(entry.path, except))
-      .filter(entry => !RELEASE_GENERATED.test(entry.path))
+      .filter(entry => isHashedPath(suite, entry.path))
       .map(entry => {
         const content = versionless.includes(entry.path) ? versionlessManifest(entry) : entry.object
         return `${entry.mode} ${entry.type} ${content}\t${entry.path}`
@@ -104,4 +109,4 @@ function createInputHasher() {
   }
 }
 
-module.exports = { createInputHasher, isAncestor, requireCommit, resolvedHead }
+module.exports = { createInputHasher, isAncestor, isHashedPath, requireCommit, resolvedHead }
