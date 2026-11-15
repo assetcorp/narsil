@@ -31,6 +31,7 @@ import { deserializeAllocationTable, deserializeNodeRegistration, serializeAlloc
 import { probeEtcd } from './start-probe'
 import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
+import { refusingUnreachableEtcdAsUnavailable } from './unreachable-etcd'
 import { isValidNodeId, validateNodeId, validatePartitionState } from './validation'
 import { createReplaceableWatchClient } from './watch-client'
 import { createWatchStreams } from './watch-stream'
@@ -375,5 +376,5 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     },
   }
 
-  return coordinator
+  return refusingUnreachableEtcdAsUnavailable(coordinator, etcd3Module.isRecoverableError)
 }
