@@ -45,24 +45,34 @@ func (n *Narsil) insertPreparedGroups(ctx context.Context, entry *indexEntry, ho
 		}
 		if len(pending) > 0 {
 			if err := n.memory.refuseWhileFull(entry.name); err != nil {
-				outcome.memoryRefusal, outcome.refusedDocID = err, pending[0].id
-				for at, insert := range pending {
-					if at == 0 {
-						outcome.fail(insert.id, err)
-					} else {
-						outcome.fail(insert.id, memory.RefusedAfter(entry.name, insert.id, outcome.refusedDocID))
-					}
-				}
-				for at := end; at < len(documents); at++ {
-					outcome.fail(idOf(at), memory.RefusedAfter(entry.name, idOf(at), outcome.refusedDocID))
-				}
+				write.refusePending(pending, end, err)
 				return false, nil
 			}
 		}
 		accepted, err := n.applyInsertChunk(ctx, entry, pending, outcome)
+		if isMemoryRefusal(err) {
+			write.refusePending(pending, end, err)
+			return false, nil
+		}
 		inserted = append(inserted, accepted...)
 		return err == nil, err
 	}
 	err := n.writeInGroups(ctx, func() *index.Index { return entry.index() }, write)
 	return inserted, err
+}
+
+func (write groupedWrite) refusePending(pending []pendingInsert, end int, err error) {
+	outcome := write.outcome
+	outcome.memoryRefusal, outcome.refusedDocID = err, pending[0].id
+	for at, insert := range pending {
+		if at == 0 {
+			outcome.fail(insert.id, err)
+		} else {
+			outcome.fail(insert.id, memory.RefusedAfter(write.indexName, insert.id, outcome.refusedDocID))
+		}
+	}
+	for at := end; at < len(write.bounds.bounds); at++ {
+		id := write.idOf(at)
+		outcome.fail(id, memory.RefusedAfter(write.indexName, id, outcome.refusedDocID))
+	}
 }

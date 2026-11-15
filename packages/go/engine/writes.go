@@ -138,6 +138,11 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 
 func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
 	error) {
+	reservation, err := n.memory.reserveWriteBurst(entry, []string{write.DocumentID})
+	if err != nil {
+		return persist.Commit{}, err
+	}
+	defer reservation.Release()
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || held {
 		return persist.Commit{}, cmp.Or(err, entry.alreadyExists(write.DocumentID))
 	}
@@ -249,6 +254,11 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 
 func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
 	error) {
+	reservation, err := n.memory.reserveWriteBurst(entry, []string{write.DocumentID})
+	if err != nil {
+		return persist.Commit{}, err
+	}
+	defer reservation.Release()
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || !held {
 		return persist.Commit{}, cmp.Or(err, documentNotFound(write.DocumentID))
 	}

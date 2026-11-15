@@ -96,7 +96,7 @@ func routedDocuments(docIDs []string, partitions int) ([]int, int) {
 }
 
 func (facts partitionFacts) growthFor(documents int) WriteGrowth {
-	growth := WriteGrowth{FreezingBytes: facts.freezing, CopiedBytes: facts.copied}
+	growth := WriteGrowth{FreezingBytes: facts.freezing}
 	for _, table := range facts.tables[:facts.tableCount] {
 		growth.TableBytes = max(growth.TableBytes, table.growthBytesFor(documents))
 	}
@@ -112,6 +112,7 @@ func (s *Sides) WriteBurst(docIDs []string, burstOf func(WriteGrowth) float64) f
 	total := 0.0
 	var reachable []float64
 	for at, facts := range *held {
+		total += burstOf(WriteGrowth{CopiedBytes: facts.copied})
 		burst := burstOf(facts.growthFor(routed[at] + unrouted))
 		switch {
 		case routed[at] > 0:

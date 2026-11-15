@@ -139,11 +139,20 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 
 func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pending []pendingInsert,
 	outcome *batchOutcome) ([]*model.InsertContext, error) {
+	if len(pending) == 0 {
+		return nil, nil
+	}
 	entry.writeMu.Lock()
 	ids := make([]string, len(pending))
 	for at, insert := range pending {
 		ids[at] = insert.id
 	}
+	reservation, err := n.memory.reserveWriteBurst(entry, ids)
+	if err != nil {
+		entry.writeMu.Unlock()
+		return nil, err
+	}
+	defer reservation.Release()
 	present, err := entry.presence(ctx, ids)
 	if err != nil {
 		entry.writeMu.Unlock()
