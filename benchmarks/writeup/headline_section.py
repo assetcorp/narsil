@@ -82,7 +82,8 @@ def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     narsil = _ndcg10(_row(rows, "narsil"))
     if narsil is None:
         return []
-    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, Narsil's BM25 ranking scores {decimal(narsil, 3)} nDCG@10"
+    subject = "Narsil's TypeScript server" if _row(rows, NARSIL_RUST) is not None else "Narsil"
+    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, {subject}'s BM25 ranking scores {decimal(narsil, 3)} nDCG@10"
     if reference is not None:
         sentence += (
             f", which is within {decimal(abs(narsil - reference), 3)} of the Anserini reference "
@@ -116,9 +117,10 @@ def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
 
     narsil = _row(rows, NARSIL_TYPESCRIPT)
     narsil_peak = peak_qps(narsil) if narsil is not None else None
-    if narsil is None or narsil_peak is None:
-        return None
     rust = _row(rows, NARSIL_RUST)
+    if narsil is None or narsil_peak is None:
+        sentence = _rust_sentence(rust, queries).strip()
+        return f"{opening}, {sentence}" if sentence else None
     subject = "Narsil" if rust is None else "Narsil's TypeScript server"
     rust_sentence = _rust_sentence(rust, queries)
     if not _met_its_recall_target(narsil):
@@ -145,7 +147,7 @@ def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
 def _largest_vector_dataset(comparison: dict) -> tuple[str, list[dict]] | None:
     for dataset_id in VECTOR_DATASETS_LARGEST_FIRST:
         rows = dataset_rows(comparison, "vector", dataset_id)
-        if _row(rows, "narsil") is not None:
+        if any(is_narsil_server(row.get("engine")) and peak_qps(row) is not None for row in rows):
             return dataset_id, rows
     return None
 
@@ -156,7 +158,14 @@ def _vector_sentence(comparison: dict) -> str | None:
         return None
     dataset_id, rows = largest
     target = (comparison.get("config") or {}).get("recall_target")
-    held = f" with every engine held at {decimal(target, 2)} recall" if is_number(target) else ""
+    measured = [row for row in rows if not is_unmeasured(row)]
+    held = ""
+    if is_number(target):
+        held = (
+            f" with every engine held at {decimal(target, 2)} recall"
+            if all(_met_its_recall_target(row) for row in measured)
+            else f" at a recall target of {decimal(target, 2)}"
+        )
     return _speed_sentence(rows, f"On {dataset_name(dataset_id)}{held}", "vector queries")
 
 
@@ -185,14 +194,16 @@ def _tally(comparison: dict) -> _Tally:
         for dataset in entry.get("datasets", []):
             rows = [row for row in dataset.get("rows", []) if peak_qps(row) is not None]
             rivals = [row for row in rows if not is_narsil_server(row.get("engine"))]
-            if not rivals or _row(rows, NARSIL_TYPESCRIPT) is None:
+            if not rivals or not any(is_narsil_server(row.get("engine")) for row in rows):
                 continue
             compared += 1
             if entry.get("track") not in names:
                 names.append(entry.get("track"))
             ranked = [row for row in rows if _met_its_recall_target(row)]
             best = max(ranked, key=lambda row: peak_qps(row) or 0.0, default=None)
-            if best is not None and is_narsil_server(best.get("engine")):
+            if best is not None and any(
+                is_narsil_server(row.get("engine")) and peak_qps(row) == peak_qps(best) for row in ranked
+            ):
                 led += 1
     return _Tally(led=led, compared=compared, tracks=tuple(names))
 
