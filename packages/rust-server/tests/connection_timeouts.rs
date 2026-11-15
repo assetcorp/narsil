@@ -144,10 +144,19 @@ async fn import(port: u16, lines: &str) {
     assert_eq!(reply.status, 200, "the server imports the documents");
 }
 
+fn whole_listing() -> String {
+    format!(r#"{{"limit":{EXPORT_DOCUMENTS}}}"#)
+}
+
 async fn stalled_reader_received(port: u16) -> Option<usize> {
     let mut stream = connect(port).await;
+    let body = whole_listing();
+    let request = format!(
+        "POST /indexes/articles/documents/_list HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
     stream
-        .write_all(b"GET /indexes/articles/export HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .write_all(request.as_bytes())
         .await
         .expect("the request goes out");
     tokio::time::sleep(STALLED_READER_PAUSE).await;
@@ -179,15 +188,21 @@ async fn a_body_sent_one_byte_a_second_is_cut_off_as_the_typescript_server_cuts_
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_client_that_stops_reading_an_export_is_disconnected_as_the_typescript_server_disconnects_it()
+async fn a_client_that_stops_reading_a_listing_is_disconnected_as_the_typescript_server_disconnects_it()
  {
     let servers = Servers::start().await;
     let lines = export_lines();
     let mut full_lengths = Vec::new();
     for (_, port) in servers.ports() {
         import(port, &lines).await;
-        let full = send(port, &Call::new("GET", "/indexes/articles/export")).await;
-        assert_eq!(full.status, 200);
+        let full = send(
+            port,
+            &Call::new("POST", "/indexes/articles/documents/_list")
+                .header("content-type", "application/json")
+                .raw(whole_listing()),
+        )
+        .await;
+        assert_eq!(full.status, 200, "the server lists every document");
         full_lengths.push(full.body.len());
     }
     let (rust, reference) = tokio::join!(
