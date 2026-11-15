@@ -49,7 +49,7 @@ export interface ThreadDeparture {
   track(res: ResponseSink, abort: ResponseAbort): () => void
   guardRoute(handler: RouteHandler, onMainThread?: RouteHandler): RouteHandler
   guardExecutor(executor: DirectExecutorExtensions): DirectExecutorExtensions
-  drain(): Promise<void>
+  drain(refuseNewRequests: boolean): Promise<void>
 }
 
 export interface ThreadDepartureOptions {
@@ -168,6 +168,7 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
   let finishing = false
   let draining = false
   let closing = false
+  let serverClosing = false
   let drained: Promise<void> | null = null
 
   function closeOnce(): void {
@@ -235,6 +236,10 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
     return closing ? CLOSING_REFUSAL : null
   }
 
+  function refusalOnConnection(): ErrorEnvelope | null {
+    return refusalOnArrival() ?? (serverClosing ? CLOSING_REFUSAL : null)
+  }
+
   function refusingOnceDeparting<A extends unknown[], R>(call: (...args: A) => R): (...args: A) => R {
     return (...args) => {
       if (departing) throw departedError()
@@ -244,8 +249,9 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
 
   return {
     accept(res) {
-      if (!leaving()) return true
-      refuseAndClose(res, 503, departing ? DEPARTURE_REFUSAL : CLOSING_REFUSAL)
+      const refusal = refusalOnConnection()
+      if (refusal === null) return true
+      refuseAndClose(res, 503, refusal)
       return false
     },
     respondThrough(res) {
@@ -304,7 +310,8 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
         listIndexes: refusingOnceDeparting(() => executor.listIndexes()),
       }
     },
-    drain() {
+    drain(refuseNewRequests) {
+      if (refuseNewRequests) serverClosing = true
       if (departing) return Promise.resolve()
       if (drained === null) drained = drainRunning()
       return drained

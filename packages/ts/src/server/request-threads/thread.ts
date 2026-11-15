@@ -252,10 +252,10 @@ export async function serveRequests(
   return { descriptor: child.getDescriptor() }
 }
 
-export async function drainRequestThread(): Promise<void> {
+export async function drainRequestThread(refuseNewRequests: boolean): Promise<void> {
   const serving = servingApp
   if (serving === null) return
-  await serving.departure.drain()
+  await serving.departure.drain(refuseNewRequests)
   closeRequestThread()
 }
 
