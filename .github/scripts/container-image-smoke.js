@@ -1,14 +1,15 @@
 const { execFileSync } = require('node:child_process')
+const { randomUUID } = require('node:crypto')
 
 const IMAGE = process.argv[2]
 const EXPECTED_VERSION = process.argv[3]
 const EXPECTED_GIT_SHA = process.argv[4]
-const CONTAINER = 'narsil-image-smoke'
-const HOST_PORT = 17_700
+const CONTAINER = `narsil-image-smoke-${randomUUID()}`
 const ADMIN_KEY = 'admin-key-for-the-container-image-smoke-check'
 const START_TIMEOUT_MS = 60_000
 const STOP_GRACE_SECONDS = 30
 const POLL_INTERVAL_MS = 250
+const REQUEST_TIMEOUT_MS = 5_000
 
 const docker = args => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
@@ -23,13 +24,13 @@ const fail = message => {
   process.exit(1)
 }
 
-const base = `http://127.0.0.1:${HOST_PORT}`
+let base
 
 const waitForLiveness = async () => {
   const deadline = Date.now() + START_TIMEOUT_MS
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${base}/livez`)).status === 200) return
+      if ((await fetch(`${base}/livez`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })).status === 200) return
     } catch {}
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
   }
@@ -43,6 +44,7 @@ const call = async (method, path, credential, body) => {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   return { status: response.status, body: await response.json().catch(() => null) }
 }
@@ -63,11 +65,13 @@ const main = async () => {
     '--name',
     CONTAINER,
     '--publish',
-    `127.0.0.1:${HOST_PORT}:7700`,
+    '127.0.0.1::7700',
     '--env',
     `NARSIL_ADMIN_KEY=${ADMIN_KEY}`,
     IMAGE,
   ])
+  const port = docker(['inspect', '--format', '{{(index (index .NetworkSettings.Ports "7700/tcp") 0).HostPort}}', CONTAINER])
+  base = `http://127.0.0.1:${port}`
   await waitForLiveness()
 
   const version = await call('GET', '/version')
