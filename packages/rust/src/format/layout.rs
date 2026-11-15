@@ -1,5 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::hash::{base36, fnv1a};
+use crate::value::Value;
 
 const SEGMENT_ID_WIDTH: usize = 16;
 pub(crate) const SEGMENTS_MARKER: &str = "/segments/";
@@ -35,7 +36,8 @@ fn encode_field_path(field_path: &str) -> Result<String> {
             format!(
                 "Vector field path \"{field_path}\" contains characters that cannot be encoded in a segment key"
             ),
-        ));
+        )
+        .with_details([("fieldPath", Value::from(field_path))]));
     }
     Ok(format!(
         "{}-{}",
@@ -60,7 +62,8 @@ fn require_generation(generation: u64) -> Result<()> {
     Err(NarsilError::new(
         ErrorCode::PERSISTENCE_SAVE_FAILED,
         format!("Vector graph generation {generation} must be a positive integer"),
-    ))
+    )
+    .with_details([("generation", Value::from(generation))]))
 }
 
 pub(crate) fn graph_part_key(
