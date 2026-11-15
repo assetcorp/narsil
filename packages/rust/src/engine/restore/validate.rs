@@ -34,7 +34,11 @@ fn require_schema_of_manifest(key: &str, schema: &Map, manifest: &SegmentManifes
             "The segment \"{key}\" gives field \"{field}\" the type \"{}\", while the manifest gives it \"{}\"",
             found.as_str().unwrap_or_default(),
             listed.as_str().unwrap_or_default()
-        )));
+        ))
+        .with_details([
+            ("key", Value::from(key)),
+            ("field", Value::from(field.as_str())),
+        ]));
     }
     Ok(())
 }
@@ -54,7 +58,12 @@ fn require_dimension(key: &str, found: usize, expected: Option<usize>) -> Result
     let shown = expected.map_or_else(|| "null".to_string(), |dimension| dimension.to_string());
     Err(load_failed(format!(
         "The vector file \"{key}\" holds vectors of {found} dimensions where the schema gives {shown}"
-    )))
+    ))
+    .with_details([
+        ("key", Value::from(key)),
+        ("found", Value::from(found)),
+        ("expected", Value::from(expected)),
+    ]))
 }
 
 fn require_payload_checksum(store: &dyn CheckpointStore, file: &FileRef) -> Result<()> {
@@ -75,7 +84,12 @@ fn require_payload_checksum(store: &dyn CheckpointStore, file: &FileRef) -> Resu
             "The checksum of the segment \"{}\" does not match its payload",
             file.key
         ),
-    ))
+    )
+    .with_details([
+        ("key", Value::from(file.key.as_str())),
+        ("expected", Value::from(file.checksum)),
+        ("computed", Value::from(computed)),
+    ]))
 }
 
 fn check_paged_segment(
@@ -146,7 +160,8 @@ fn check_vectors(store: &dyn CheckpointStore, manifest: &SegmentManifest) -> Res
                 return Err(load_failed(format!(
                     "The vector file \"{}\" names field \"{}\" where the manifest lists \"{}\"",
                     file.file.key, decoded.field_name, field.field_path
-                )));
+                ))
+                .with_details([("key", Value::from(file.file.key.as_str()))]));
             }
             require_dimension(&file.file.key, decoded.dimension, dimension)?;
         }
