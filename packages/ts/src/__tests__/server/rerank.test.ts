@@ -181,17 +181,29 @@ describe('reranking over HTTP with the published client', () => {
     expectSameOrder(walked, oracleRerank(fused, 20, scores))
   })
 
-  it.each<[string, unknown]>([
-    ['a string', 'overlap'],
-    ['an array', ['overlap']],
-    ['fields as an object', { adapter: 'overlap', fields: { title: true } }],
-    ['a window written as text', { adapter: 'overlap', fields: ['title'], window: '10' }],
-    ['a query that is not text', { adapter: 'overlap', fields: ['title'], query: 42 }],
-  ])('answers 400 for a rerank given as %s', async (_label, rerank) => {
+  it.each<[string, unknown, string]>([
+    ['a string', 'overlap', 'Field "rerank" must be an object'],
+    ['an array', ['overlap'], 'Field "rerank" must be an object'],
+    [
+      'fields as an object',
+      { adapter: 'overlap', fields: { title: true } },
+      'Field "rerank.fields" must be a list of strings',
+    ],
+    [
+      'a window written as text',
+      { adapter: 'overlap', fields: ['title'], window: '10' },
+      'Field "rerank.window" must be a number',
+    ],
+    [
+      'a query that is not text',
+      { adapter: 'overlap', fields: ['title'], query: 42 },
+      'Field "rerank.query" must be a string',
+    ],
+  ])('answers 400 for a rerank given as %s', async (_label, rerank, message) => {
     server = (await seeded(30, false)).server
     const reply = await postJson<ErrorBody>(server.base, `/indexes/${INDEX}/search`, { term: 'river', rerank })
     expect(reply.status).toBe(400)
-    expect(reply.body.error.code).toBe(ErrorCodes.RERANK_CONFIG_INVALID)
+    expect(reply.body.error).toEqual({ code: 'INVALID_REQUEST', message })
   })
 
   it.each([

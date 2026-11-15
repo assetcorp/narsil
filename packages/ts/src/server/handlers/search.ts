@@ -2,25 +2,19 @@ import { bindQuerySignal, clearQuerySignal } from '../../narsil/internals'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { readQueryBody } from '../query-body'
 import { encodeQueryResult } from '../query-response'
-import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
 import { requestSignal } from '../request-signal'
-import { validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
+import { validateSuggest, withServerRerankWindow } from '../validation'
 import type { ReadHandlerDeps } from './document-reads'
 
 export function createSearchHandlers(deps: ReadHandlerDeps) {
   const { engine, limits, allowRegex } = deps
 
   async function search(ctx: RouteContext): Promise<void> {
-    const params = parseJsonObject<QueryParams>(ctx, 'read')
+    const params = readQueryBody(ctx, limits, allowRegex, 'read')
     if (!params) return
-    const failure = validateQuery(params, limits)
-    if (failure) {
-      rejectInvalid(ctx, failure)
-      return
-    }
-    if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
       const query = withServerRerankWindow(params, limits)
       const result = await searchWithSignal(ctx, query)
@@ -40,14 +34,8 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   }
 
   async function preflight(ctx: RouteContext): Promise<void> {
-    const params = parseJsonObject<QueryParams>(ctx, 'read')
+    const params = readQueryBody(ctx, limits, allowRegex, 'read')
     if (!params) return
-    const failure = validateQuery(params, limits)
-    if (failure) {
-      rejectInvalid(ctx, failure)
-      return
-    }
-    if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
       bindQuerySignal(params, requestSignal(ctx.abort))
       try {

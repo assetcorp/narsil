@@ -10,15 +10,15 @@ import type { ResolvedLimits } from '../deps'
 import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { createDocumentReadHandlers } from '../handlers/document-reads'
 import { versionReport } from '../handlers/version'
+import { readQueryBody } from '../query-body'
 import { encodeQueryResult } from '../query-response'
-import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { requestSignal } from '../request-signal'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
 import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
 import type { CapabilitiesResponse, LivenessResponse } from '../types'
-import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
+import { type QueryLimits, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import { acknowledgeThreadClose, closeWhenTheProcessExits } from './close-at-exit'
 import { type ThreadFeedGateway, threadFeedGateway } from './feed-relay'
@@ -100,14 +100,8 @@ async function answerMoved(
 export function searchHandler(options: SearchHandlerOptions): RouteHandler {
   const { fallback, limits, allowRegex, staysOnThread, answer } = options
   return async ctx => {
-    const params = parseJsonObject<QueryParams>(ctx)
+    const params = readQueryBody(ctx, limits, allowRegex)
     if (!params) return
-    const failure = validateQuery(params, limits)
-    if (failure) {
-      rejectInvalid(ctx, failure)
-      return
-    }
-    if (refuseRegex(ctx, params.filters, allowRegex)) return
     if (!staysOnThread(ctx.params[0], params)) {
       await fallback(ctx)
       return
