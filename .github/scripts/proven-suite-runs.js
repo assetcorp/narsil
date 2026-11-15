@@ -3,6 +3,21 @@ const { isAncestor, requireCommit } = require('./suite-inputs.js')
 const MAIN_BRANCH = 'main'
 const PER_PAGE = 100
 const NEWEST_RUN_PAGES = 3
+const MAX_BLOCKING_RUN_PAGES = 10
+const BLOCKING_RUN_STATES = [
+  'in_progress',
+  'queued',
+  'requested',
+  'waiting',
+  'pending',
+  'action_required',
+  'cancelled',
+  'failure',
+  'neutral',
+  'skipped',
+  'stale',
+  'timed_out',
+]
 const MAX_JOB_PAGES = 5
 const REQUEST_TIMEOUT_MS = 30_000
 const REQUEST_ATTEMPTS = 3
@@ -112,7 +127,20 @@ function createRunLookup(head) {
   async function listRuns(workflow) {
     const path = `/repos/${REPOSITORY}/actions/workflows/${workflow}/runs?branch=${MAIN_BRANCH}&event=push`
     const runs = await pagesOf(path, 'workflow_runs', NEWEST_RUN_PAGES, { newestOnly: true })
-    return runs.filter(run => trustedRun(run, workflow))
+    const blocking = await Promise.all(
+      BLOCKING_RUN_STATES.map(async status => {
+        const entries = await pagesOf(`${path}&status=${status}`, 'workflow_runs', MAX_BLOCKING_RUN_PAGES)
+        if (entries.some(run => run.status !== status && run.conclusion !== status)) {
+          throw new Error(`${workflow} lists a run outside its ${status} filter`)
+        }
+        return entries
+      }),
+    )
+    const byId = new Map(runs.map(run => [run.id, run]))
+    for (const run of blocking.flat()) {
+      byId.set(run.id, run)
+    }
+    return [...byId.values()].filter(run => trustedRun(run, workflow))
   }
 
   async function runsOf(workflow) {
@@ -156,7 +184,14 @@ function createRunLookup(head) {
             `${entry.html_url} started or changed while this release read the runs that test the same inputs`,
           )
         }
+        statesBefore.delete(entry.id)
       }
+      await Promise.all(
+        [...statesBefore].map(async ([id, state]) => {
+          const current = await request(`/repos/${REPOSITORY}/actions/runs/${id}`)
+          if (runState(current) !== state) throw new Error(`run ${id} changed after leaving the lookup window`)
+        }),
+      )
     }
     const current = await request(`/repos/${REPOSITORY}/actions/runs/${run.id}`)
     if (runState(current) !== runState(run)) throw new Error(`run ${run.id} changed after its jobs were read`)
