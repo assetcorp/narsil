@@ -4,7 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from chart_data import PERCENTILE_LABELS, has_tail, profile_title, row_label, tail_profile, track_title
-from chart_legend import not_measured_entries
+from chart_legend import missing_measurements, not_measured_entries
 from chart_paths import server_chart_dir, tail_chart
 from chart_style import (
     BASE_FONT_POINTS,
@@ -54,6 +54,12 @@ def tail_figure(repo_root: Path, run_id: str, profile: str, track: str, datasets
         axes.tick_params(labelbottom=True)
         if index == 0:
             axes.set_ylabel("Server latency under load (ms)")
+        missing = missing_measurements(dataset["rows"], tail_profile, "server latency")
+        if missing:
+            axes.text(
+                0, 0, "\n".join(f"{row_label(row, profile)}, {status}" for row, status in missing),
+                transform=axes.transAxes, va="bottom", fontsize=BASE_FONT_POINTS - 1,
+            )
 
     caption(
         figure,
@@ -70,7 +76,9 @@ def tail_figure(repo_root: Path, run_id: str, profile: str, track: str, datasets
                 labels.append(label)
     every_row = [row for dataset in datasets for row in dataset["rows"]]
     drawn = {row["engine"] for row in every_row if tail_profile(row)}
-    for handle, label in not_measured_entries([row for row in every_row if row["engine"] not in drawn], profile):
+    for handle, label in not_measured_entries(
+        [row for row in every_row if row["engine"] not in drawn], profile, tail_profile, "server latency"
+    ):
         handles.append(handle)
         labels.append(label)
     figure.legend(handles, labels, loc="lower center", ncols=min(len(labels), 5), fontsize=BASE_FONT_POINTS - 1)

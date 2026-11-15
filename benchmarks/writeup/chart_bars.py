@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from chart_data import has_bars, number, peak_interval, peak_level, profile_title, row_label, track_title
 from chart_paths import bars_chart, server_chart_dir
+from chart_legend import missing_measurements
 from chart_style import (
     BASE_FONT_POINTS,
     ERROR_BAR_COLOUR,
@@ -18,7 +19,6 @@ from chart_style import (
 )
 from matplotlib.colors import to_rgba
 from matplotlib.ticker import FuncFormatter
-from narsil_servers import NOT_MEASURED_TEXT, is_unmeasured
 from render import dataset_name
 
 BAR_HEIGHT = 0.62
@@ -83,18 +83,18 @@ def _bar_panel(
     xlabel: str,
     formatter,
     below_target: list[bool] | None = None,
-    not_measured: list[tuple[str, str]] | None = None,
+    not_measured: list[tuple[str, str, str]] | None = None,
 ) -> None:
     positions = list(range(len(labels)))
     missing = not_measured or []
     missing_positions = list(range(len(labels), len(labels) + len(missing)))
     if missing:
-        axes.barh(missing_positions, [0.0] * len(missing), height=BAR_HEIGHT, color=[colour for _, colour in missing])
-        for position in missing_positions:
+        axes.barh(missing_positions, [0.0] * len(missing), height=BAR_HEIGHT, color=[colour for _, colour, _ in missing])
+        for position, (_, _, status) in zip(missing_positions, missing):
             axes.text(
                 0,
                 position,
-                f" {NOT_MEASURED_TEXT}",
+                f" {status}",
                 ha="left",
                 va="center",
                 fontsize=BASE_FONT_POINTS - 1,
@@ -114,7 +114,7 @@ def _bar_panel(
             patch.set_edgecolor(colour)
     style_axes(axes, "")
     axes.set_yticks([*positions, *missing_positions])
-    axes.set_yticklabels([*labels, *(label for label, _ in missing)], fontsize=BASE_FONT_POINTS)
+    axes.set_yticklabels([*labels, *(label for label, _, _ in missing)], fontsize=BASE_FONT_POINTS)
     axes.invert_yaxis()
     axes.set_xlim(left=0)
     axes.xaxis.set_major_formatter(FuncFormatter(formatter))
@@ -127,9 +127,18 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
         return None
     quality = _quality_entries(rows)
     throughput = _throughput_entries(rows)
-    not_measured = [(row_label(row, profile), engine_colour(row["engine"])) for row in rows if is_unmeasured(row)]
+    missing = [
+        [
+            (row_label(row, profile), engine_colour(row["engine"]), status)
+            for row, status in missing_measurements(rows, lambda row: row["engine"] in measured, metric)
+        ]
+        for measured, metric in (
+            ({row["engine"] for row, _ in quality}, "ranking quality"),
+            ({row["engine"] for row, *_ in throughput}, "throughput"),
+        )
+    ]
     panels = [entries for entries in (quality, throughput) if entries]
-    tallest = max(len(entries) for entries in panels) + len(not_measured)
+    tallest = max(len(entries) + len(absent) for entries, absent in zip((quality, throughput), missing) if entries)
     figure, axes_list = plt.subplots(
         1, len(panels), figsize=(FIGURE_WIDTH_INCHES, ROW_HEIGHT_INCHES * tallest + PANEL_MARGIN_INCHES), squeeze=False
     )
@@ -143,7 +152,7 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
             None,
             "nDCG@10 against the dataset's human judgements",
             lambda value, _position=0: f"{value:.2f}",
-            not_measured=not_measured,
+            not_measured=missing[0],
         )
     if throughput:
         _bar_panel(
@@ -155,9 +164,9 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
             "Peak queries per second, with 95% interval",
             rate_label,
             [_below_recall_target(row) for row, _, _, _ in throughput],
-            not_measured,
+            missing[1],
         )
-    measured = "ranking quality and peak throughput" if quality else "peak throughput"
+    measured = "ranking quality and peak throughput" if quality and throughput else "ranking quality" if quality else "peak throughput"
     caption(
         figure,
         f"{track_title(track)} track on {dataset_name(dataset_id)}",

@@ -140,3 +140,28 @@ def test_different_rankings_and_failed_recall_are_reported_from_the_rows(checkou
     assert "Narsil's Rust server misses the recall target, so the comparison leaves its speed unranked." in headline
     assert "with every engine held" not in headline
     assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in headline
+
+
+def test_charts_distinguish_missing_metrics_datasets_and_profiles(checkout):
+    typescript = row("narsil")
+    typescript["throughput"]["levels"][0]["server_latency_ms"] = {"p50_ms": 1, "p99_ms": 2}
+    typescript["operating_point"] = {"sweep": [{"recall": 0.99, "qps": 900}]}
+    rust = row("narsil-rust", 1500)
+    rust.pop("throughput")
+    data = comparison([typescript, rust], [{"dataset_id": NFCORPUS, "rows": [typescript]}])
+    data["tracks"][0]["track"] = "vector"
+    best = comparison([typescript])
+    best["tracks"][0]["track"] = "vector"
+    write_comparison(checkout, data, best)
+    completed = command(checkout, "charts.py")
+    assert completed.returncode == 0, completed.stderr
+    charts = checkout / "benchmarks/server/results/runs" / RUN / "charts"
+    bars = (charts / "equal-precision-vector-scifact-bars.svg").read_text()
+    assert bars.count("Narsil Rust") == 2
+    assert "no throughput recorded" in bars
+    recall = (charts / "vector-scifact-throughput-against-recall.svg").read_text()
+    assert "Narsil Rust, no recall sweep recorded, equal precision" in recall
+    assert "Narsil Rust, not measured yet, recommended production settings" in recall
+    tail = (charts / "equal-precision-vector-latency-profile.svg").read_text()
+    assert "Narsil Rust, no server latency recorded" in tail
+    assert "Narsil Rust, not measured yet" in tail

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from chart_data import EQUAL_PRECISION, dataset_rows, has_recall_curve, profile_title, recall_curve, row_label
-from chart_legend import legend_with_not_measured
+from chart_legend import not_measured_entries
 from chart_paths import recall_chart, server_chart_dir
 from chart_style import (
     BASE_FONT_POINTS,
@@ -51,10 +51,15 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
     axes.set_ylim(bottom=0)
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
-    legend_with_not_measured(
-        axes,
-        dataset_rows(comparisons.get(EQUAL_PRECISION), "vector", dataset_id),
-        EQUAL_PRECISION,
+    handles, labels = axes.get_legend_handles_labels()
+    for profile, comparison in comparisons.items():
+        for handle, label in not_measured_entries(
+            dataset_rows(comparison, "vector", dataset_id), profile, recall_curve, "recall sweep"
+        ):
+            handles.append(handle)
+            labels.append(f"{label}, {profile_title(profile)}")
+    axes.legend(
+        handles, labels,
         loc="upper center",
         bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
         ncols=LEGEND_COLUMNS,
