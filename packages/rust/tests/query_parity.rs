@@ -1,6 +1,9 @@
 mod support;
 
-use narsil::{IndexConfig, Map, Value, parse_json};
+use narsil::{
+    ErrorCode, IndexConfig, Map, Narsil, QueryParams, SortDirection, SortField, Value, parse_json,
+};
+use support::details_json;
 use support::parity::{ParitySpec, conformance_searches, crate_outcomes, reference_outcomes};
 use support::parity_cases::{
     answered_count, chosen_writes, index_config, query, require_same_outcomes,
@@ -8,6 +11,7 @@ use support::parity_cases::{
 
 const INDEX_NAME: &str = "bills";
 const LIMIT_CROSSING_COUNT: usize = 33;
+const RESULT_WINDOW: usize = 10_000;
 
 fn term_query(term: &str) -> Value {
     let mut map = Map::new();
@@ -200,4 +204,74 @@ fn partial_word_queries_after_writes_answer_exactly_as_the_reference_does() {
     };
     let found = crate_outcomes(&spec, crate_config);
     require_same_outcomes(&spec, &found, &wanted);
+}
+
+#[test]
+fn a_refused_query_carries_the_details_that_the_reference_reports() {
+    let engine = Narsil::new();
+    let schema =
+        parse_json(r#"{"title": "string", "price": "number"}"#).expect("the schema is JSON");
+    engine
+        .create_index(
+            INDEX_NAME,
+            IndexConfig {
+                schema,
+                ..IndexConfig::default()
+            },
+        )
+        .expect("the index is created");
+    let searched = |params: QueryParams| QueryParams {
+        term: Some("lamp".into()),
+        ..params
+    };
+    let cases = [
+        (
+            searched(QueryParams {
+                limit: Some(RESULT_WINDOW),
+                offset: Some(1),
+                ..QueryParams::default()
+            }),
+            ErrorCode::SEARCH_RESULT_WINDOW_EXCEEDED,
+            r#"{"limit":10000,"offset":1,"window":10000}"#,
+        ),
+        (
+            searched(QueryParams {
+                boost: Some(vec![("absent".into(), 2.0)]),
+                ..QueryParams::default()
+            }),
+            ErrorCode::SEARCH_INVALID_FIELD,
+            r#"{"field":"absent"}"#,
+        ),
+        (
+            searched(QueryParams {
+                boost: Some(vec![("price".into(), 2.0)]),
+                ..QueryParams::default()
+            }),
+            ErrorCode::SEARCH_INVALID_FIELD,
+            r#"{"field":"price","fieldType":"number"}"#,
+        ),
+        (
+            searched(QueryParams {
+                sort: Some(vec![SortField {
+                    field: "title".into(),
+                    direction: SortDirection::Asc,
+                    mode: None,
+                }]),
+                ..QueryParams::default()
+            }),
+            ErrorCode::SEARCH_INVALID_FIELD,
+            r#"{"field":"title","fieldType":"string"}"#,
+        ),
+    ];
+    for (params, code, details) in cases {
+        let refused = engine
+            .query(INDEX_NAME, &params)
+            .expect_err("the query is refused");
+        assert_eq!(
+            (refused.code(), details_json(&refused).as_deref()),
+            (code, Some(details)),
+            "{}",
+            refused.message()
+        );
+    }
 }

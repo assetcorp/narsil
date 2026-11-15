@@ -7,7 +7,7 @@ use narsil::{
     DurabilityConfig, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig, PartitionConfig,
     QueryParams, Value,
 };
-use support::{ScratchDirectory, rewrite_saved_file as rewrite};
+use support::{ScratchDirectory, details_json, rewrite_saved_file as rewrite};
 
 const INDEX: &str = "catalogue";
 const SAVED_PARTITIONS: u64 = 4;
@@ -199,9 +199,15 @@ fn an_index_without_max_partitions_rebalances_past_one_only_after_the_limit_rise
             .expect("the document is stored");
         model.insert(id, title_of(number));
     }
+    let refused = engine
+        .rebalance(INDEX, 2)
+        .expect_err("the rebalance is refused");
     assert_eq!(
-        rebalance_code(&engine, 2),
-        ErrorCode::PARTITION_CAPACITY_EXCEEDED
+        (refused.code(), details_json(&refused).as_deref()),
+        (
+            ErrorCode::PARTITION_CAPACITY_EXCEEDED,
+            Some(r#"{"targetPartitionCount":2,"maxPartitions":1}"#)
+        )
     );
     assert_eq!(
         engine
