@@ -56,7 +56,7 @@ services:
 
   elasticsearch:
     profiles: ["elasticsearch"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.6
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
@@ -78,7 +78,7 @@ services:
 
   opensearch:
     profiles: ["opensearch"]
-    image: opensearchproject/opensearch:3.8.0
+    image: opensearchproject/opensearch:3.9.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
@@ -95,7 +95,7 @@ services:
 
   qdrant:
     profiles: ["qdrant"]
-    image: qdrant/qdrant:v1.19.1
+    image: qdrant/qdrant:v1.20.1
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
@@ -107,13 +107,13 @@ services:
 
   weaviate:
     profiles: ["weaviate"]
-    image: cr.weaviate.io/semitechnologies/weaviate:1.39.5
+    image: cr.weaviate.io/semitechnologies/weaviate:1.40.5
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
-      DEFAULT_VECTORIZER_MODULE: "none"
+      LIMIT_RESOURCES: "true"
       QUERY_DEFAULTS_LIMIT: "25"
       CLUSTER_HOSTNAME: "node1"
     volumes:
@@ -134,7 +134,7 @@ services:
 
   meilisearch:
     profiles: ["meilisearch"]
-    image: getmeili/meilisearch:v1.54.0
+    image: getmeili/meilisearch:v1.56.2
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
