@@ -2,7 +2,8 @@ use bytes::Bytes;
 use narsil::{Map, Value, write_plain_json_into};
 use tokio::sync::mpsc;
 
-use super::constants::{RESPONSE_GROUP_DOCUMENTS, RESPONSE_STREAM_CHANNEL_CHUNKS};
+use super::constants::RESPONSE_STREAM_CHANNEL_CHUNKS;
+use crate::constants::RESPONSE_GROUP_DOCUMENTS;
 use crate::constants::{JSON_CONTENT_TYPE, RESPONSE_STREAM_CHUNK_BYTES};
 use crate::http::respond::{HttpResponse, json, stream};
 

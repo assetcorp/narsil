@@ -4,7 +4,6 @@ use super::constants::{
     MAX_SYNONYM_RULE_WORDS, MAX_SYNONYM_RULES, MAX_SYNONYM_WORD_BYTES, MAX_SYNONYM_WORDS,
     MIN_ONE_WAY_SYNONYMS, MIN_TWO_WAY_SYNONYM_WORDS,
 };
-use super::errors::config_invalid;
 use crate::errors::{Outcome, ServerError};
 use crate::handlers::common::object;
 
@@ -17,7 +16,7 @@ struct Tally {
 }
 
 fn rule_problem(rule: usize, message: String) -> ServerError {
-    config_invalid(message).with_detail("rule", Value::Number(rule as f64))
+    ServerError::config_invalid(message).with_detail("rule", Value::Number(rule as f64))
 }
 
 fn read_word(value: &Value, rule: usize, tally: &mut Tally) -> Outcome<String> {
@@ -39,13 +38,13 @@ fn read_word(value: &Value, rule: usize, tally: &mut Tally) -> Outcome<String> {
     tally.words = tally.words.saturating_add(1);
     tally.bytes = tally.bytes.saturating_add(word.len());
     if tally.words > MAX_SYNONYM_WORDS {
-        return Err(config_invalid(format!(
+        return Err(ServerError::config_invalid(format!(
             "A synonym set holds at most {MAX_SYNONYM_WORDS} words"
         ))
         .with_detail("maxWords", Value::Number(MAX_SYNONYM_WORDS as f64)));
     }
     if tally.bytes > MAX_SYNONYM_WORD_BYTES {
-        return Err(config_invalid(format!(
+        return Err(ServerError::config_invalid(format!(
             "The words of a synonym set hold at most {MAX_SYNONYM_WORD_BYTES} bytes in UTF-8"
         ))
         .with_detail("maxWordBytes", Value::Number(MAX_SYNONYM_WORD_BYTES as f64)));
@@ -127,10 +126,12 @@ fn read_rule(value: &Value, rule: usize, tally: &mut Tally) -> Outcome<SynonymRu
 
 pub(crate) fn synonym_rules_of(value: &Value) -> Outcome<Vec<SynonymRule>> {
     let Value::Array(rules) = value else {
-        return Err(config_invalid("A synonym set must be a list of rules"));
+        return Err(ServerError::config_invalid(
+            "A synonym set must be a list of rules",
+        ));
     };
     if rules.len() > MAX_SYNONYM_RULES {
-        return Err(config_invalid(format!(
+        return Err(ServerError::config_invalid(format!(
             "A synonym set holds at most {MAX_SYNONYM_RULES} rules"
         ))
         .with_detail("maxRules", Value::Number(MAX_SYNONYM_RULES as f64)));

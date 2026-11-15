@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use narsil::{ErrorCode, Narsil, NarsilError};
+use narsil::{Narsil, NarsilError};
 
 use crate::constants::{
     DEFAULT_IMPORT_BATCH_SIZE, DEFAULT_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION,
@@ -11,6 +11,7 @@ use crate::constants::{
     DEFAULT_MAX_TASK_PAGE_SIZE, MAX_BODY_BYTES_IN_FLIGHT_FRACTION, MAX_ENGINE_RERANK_WINDOW,
     MIN_COUNTED_SERVER_LIMIT,
 };
+use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
@@ -62,13 +63,9 @@ impl ServerState {
     }
 }
 
-fn config_invalid(message: String) -> NarsilError {
-    NarsilError::new(ErrorCode::CONFIG_INVALID, message)
-}
-
 fn check_counted(field: &str, value: Option<u64>) -> Result<(), NarsilError> {
     match value {
-        Some(value) if value < MIN_COUNTED_SERVER_LIMIT => Err(config_invalid(format!(
+        Some(value) if value < MIN_COUNTED_SERVER_LIMIT => Err(config_invalid_error(format!(
             "limits.{field} must be a whole number of at least {MIN_COUNTED_SERVER_LIMIT}; however, this configuration sets it to {value}"
         ))),
         _ => Ok(()),
@@ -87,7 +84,7 @@ pub(crate) fn check_limits(
     if let Some(fraction) = limits.max_body_bytes_in_flight_fraction
         && !(fraction.is_finite() && (0.0..=MAX_BODY_BYTES_IN_FLIGHT_FRACTION).contains(&fraction))
     {
-        return Err(config_invalid(format!(
+        return Err(config_invalid_error(format!(
             "limits.maxBodyBytesInFlightFraction must be a fraction from 0 to {MAX_BODY_BYTES_IN_FLIGHT_FRACTION}; however, this configuration sets it to {fraction}"
         )));
     }
@@ -95,7 +92,7 @@ pub(crate) fn check_limits(
     if let Some(window) = limits.max_rerank_window
         && window > cap
     {
-        return Err(config_invalid(format!(
+        return Err(config_invalid_error(format!(
             "limits.maxRerankWindow must be at most {cap}, the largest window that the engine accepts; however, this configuration sets it to {window}"
         )));
     }
@@ -160,7 +157,7 @@ pub(crate) fn check_secure_binding(host: &str, options: &ServerOptions) -> Resul
     if is_loopback(host) || options.on_request.is_some() || options.allow_insecure {
         return Ok(());
     }
-    Err(config_invalid(format!(
+    Err(config_invalid_error(format!(
         "Refusing to start: bound to a non-loopback address (\"{host}\") with no onRequest auth hook. The server exposes destructive admin endpoints (restore, drop, clear, rebalance, optimize). Resolve one of: (1) set options.onRequest to authenticate requests, (2) bind to 127.0.0.1, or (3) set options.allowInsecure: true if this address is on a trusted private network."
     )))
 }

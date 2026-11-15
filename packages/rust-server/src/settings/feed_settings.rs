@@ -1,10 +1,9 @@
 use narsil::{ChangesSetting, ChangesStatus, Map, SyncSetting, SyncStatus, Value};
 
-use super::errors::config_invalid;
-use super::js_text::{is_whole_number, string_of};
 use crate::constants::MAX_SAFE_INTEGER;
-use crate::errors::Outcome;
+use crate::errors::{Outcome, ServerError};
 use crate::handlers::common::object;
+use crate::script_values::{is_whole_number, script_text};
 
 #[derive(Clone, Copy)]
 enum Feature {
@@ -31,18 +30,18 @@ fn limit_of(feature: Feature, fields: Option<&Map>, name: &str) -> Outcome<Optio
         {
             Ok(Some(*number as u64))
         }
-        other => Err(config_invalid(format!(
+        other => Err(ServerError::config_invalid(format!(
             "The {} setting {name} must be a positive whole number",
             feature.name()
         ))
-        .with_detail(name, Value::String(string_of(other)))),
+        .with_detail(name, Value::String(script_text(other)))),
     }
 }
 
 fn enabled_of(feature: Feature, fields: Option<&Map>) -> Outcome<bool> {
     match fields.and_then(|fields| fields.get("enabled")) {
         Some(Value::Bool(enabled)) => Ok(*enabled),
-        _ => Err(config_invalid(format!(
+        _ => Err(ServerError::config_invalid(format!(
             "The {} setting needs enabled set to true or false",
             feature.name()
         ))),
@@ -53,7 +52,11 @@ pub(crate) fn sync_setting_of(body: &Value) -> Outcome<SyncSetting> {
     let fields = match body {
         Value::Object(fields) => Some(fields),
         Value::Array(_) => None,
-        _ => return Err(config_invalid("The sync setting must be an object")),
+        _ => {
+            return Err(ServerError::config_invalid(
+                "The sync setting must be an object",
+            ));
+        }
     };
     let enabled = enabled_of(Feature::Sync, fields)?;
     Ok(SyncSetting {
@@ -65,14 +68,16 @@ pub(crate) fn sync_setting_of(body: &Value) -> Outcome<SyncSetting> {
 
 pub(crate) fn changes_setting_of(body: &Value) -> Outcome<ChangesSetting> {
     let Value::Object(fields) = body else {
-        return Err(config_invalid("The changes setting must be an object"));
+        return Err(ServerError::config_invalid(
+            "The changes setting must be an object",
+        ));
     };
     let enabled = enabled_of(Feature::Changes, Some(fields))?;
     let previous_document = match fields.get("previousDocument") {
         None => false,
         Some(Value::Bool(flag)) => *flag,
         Some(_) => {
-            return Err(config_invalid(
+            return Err(ServerError::config_invalid(
                 "The changes setting previousDocument must be true or false",
             ));
         }

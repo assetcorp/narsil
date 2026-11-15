@@ -1,6 +1,8 @@
 use narsil::{Map, Value, decode_msgpack, encode_msgpack};
 
 use super::constants::MAX_CLOSE_REASON_BYTES;
+use crate::constants::MAX_SAFE_INTEGER;
+use crate::script_values::whole_number;
 
 pub(crate) const SYNC_SUBPROTOCOL: &str = "narsil.sync.v1";
 pub(crate) const CHANGES_SUBPROTOCOL: &str = "narsil.changes.v1";
@@ -13,7 +15,6 @@ pub(crate) const CLOSE_SETTING: u16 = 4409;
 pub(crate) const CLOSE_RESYNC: u16 = 4410;
 
 const MAX_UINT32: f64 = 4_294_967_295.0;
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const SYNC_EPOCH_DIGITS: usize = 32;
 const FIXARRAY_LIMIT: usize = 16;
 const ARRAY16_LIMIT: usize = 65_536;
@@ -48,15 +49,8 @@ pub(crate) enum SubscriberMessage {
     Ack(Vec<Position>),
 }
 
-fn whole_number(value: Option<&Value>, max: f64) -> Option<f64> {
-    match value {
-        Some(Value::Number(number))
-            if number.fract() == 0.0 && *number >= 0.0 && *number <= max =>
-        {
-            Some(*number)
-        }
-        _ => None,
-    }
+fn whole_number_up_to(value: Option<&Value>, max: f64) -> Option<f64> {
+    whole_number(value?).filter(|number| (0.0..=max).contains(number))
 }
 
 fn positions_of(raw: Option<&Value>) -> Option<Vec<Position>> {
@@ -68,8 +62,8 @@ fn positions_of(raw: Option<&Value>) -> Option<Vec<Position>> {
         let Value::Object(item) = item else {
             return None;
         };
-        let partition_id = whole_number(item.get("partitionId"), MAX_UINT32)?;
-        let seq_no = whole_number(item.get("seqNo"), MAX_SAFE_INTEGER)?;
+        let partition_id = whole_number_up_to(item.get("partitionId"), MAX_UINT32)?;
+        let seq_no = whole_number_up_to(item.get("seqNo"), MAX_SAFE_INTEGER as f64)?;
         positions.push(Position {
             partition_id: partition_id as u32,
             seq_no: seq_no as u64,
@@ -112,7 +106,7 @@ pub(crate) fn device_message_of(bytes: &[u8]) -> Option<DeviceMessage> {
             Some(DeviceMessage::Subscribe { epoch, positions })
         }
         "ack" => positions_of(record.get("positions")).map(DeviceMessage::Ack),
-        "checkpoint" => whole_number(record.get("id"), MAX_UINT32)
+        "checkpoint" => whole_number_up_to(record.get("id"), MAX_UINT32)
             .map(|id| DeviceMessage::Checkpoint(id as u32)),
         _ => None,
     }

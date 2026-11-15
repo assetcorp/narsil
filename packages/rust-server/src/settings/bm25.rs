@@ -1,9 +1,9 @@
-use narsil::{Bm25FieldParams, Bm25Params, Map, Narsil, NarsilError, Value};
+use narsil::{Bm25FieldParams, Bm25Params, ErrorCode, Map, Narsil, NarsilError, Value};
 
 use super::constants::{MAX_BM25_B, MAX_BM25_K1};
-use super::errors::{after_engine_checks, config_invalid};
-use super::js_text::{displayed, displayed_name, number_text};
+use super::errors::after_engine_checks;
 use crate::errors::{Outcome, ServerError};
+use crate::script_values::{displayed, displayed_name, script_text};
 
 const TOP_LEVEL_KEYS: [&str; 3] = ["k1", "b", "fields"];
 const FIELD_KEYS: [&str; 2] = ["k1", "b"];
@@ -20,7 +20,7 @@ enum Shape {
 }
 
 fn parameter_problem(label: &str, message: String) -> ServerError {
-    config_invalid(message).with_detail("parameter", Value::String(label.to_string()))
+    ServerError::config_invalid(message).with_detail("parameter", Value::String(label.to_string()))
 }
 
 fn value_of(label: &str, value: Option<&Value>, maximum: f64) -> Outcome<Option<f64>> {
@@ -35,7 +35,7 @@ fn value_of(label: &str, value: Option<&Value>, maximum: f64) -> Outcome<Option<
             label,
             format!(
                 "{label} must be a finite number from 0 to {}, and this request sets {}",
-                number_text(maximum),
+                script_text(&Value::Number(maximum)),
                 displayed(other)
             ),
         )),
@@ -73,7 +73,7 @@ fn field_pair(name: &str, pair: &Value) -> Outcome<Bm25FieldParams> {
 
 fn top_level(body: &Value) -> Outcome<(Option<f64>, Option<f64>, Option<&Map>)> {
     let Value::Object(fields) = body else {
-        return Err(config_invalid(
+        return Err(ServerError::config_invalid(
             "bm25 must be an object that sets k1, b, or fields",
         ));
     };
@@ -83,7 +83,7 @@ fn top_level(body: &Value) -> Outcome<(Option<f64>, Option<f64>, Option<&Map>)> 
     match fields.get("fields") {
         None => Ok((k1, b, None)),
         Some(Value::Object(named)) => Ok((k1, b, Some(named))),
-        Some(_) => Err(config_invalid(
+        Some(_) => Err(ServerError::config_invalid(
             "bm25.fields must be an object that maps a field to its parameters",
         )),
     }
@@ -121,8 +121,15 @@ fn shape_of(body: &Value) -> Shape {
     })
 }
 
+pub(crate) fn bm25_params_of(body: &Value) -> Outcome<Bm25Params> {
+    match shape_of(body) {
+        Shape::Valid(params) => Ok(params),
+        Shape::TopLevel(failure) | Shape::Field { failure, .. } => Err(failure),
+    }
+}
+
 fn provoked(raised: &NarsilError) -> bool {
-    raised.code().as_str() == "CONFIG_INVALID" && raised.message().ends_with(PROVOKED_SUFFIX)
+    raised.code() == ErrorCode::CONFIG_INVALID && raised.message().ends_with(PROVOKED_SUFFIX)
 }
 
 fn not_a_number() -> Bm25FieldParams {

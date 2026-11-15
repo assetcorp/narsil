@@ -1,8 +1,8 @@
 use narsil::{BatchResult, ErrorCode, Map, Narsil, NarsilError, Value};
 
 use super::bodies::{field, id_refusal, take_field};
-use super::script_values::script_type_name;
 use crate::errors::{Outcome, ServerError};
+use crate::script_values::script_type_name;
 
 const UPDATE_ENTRY_REFUSAL: &str = "Each entry of a batch update must be an object whose docId is a string and whose document is an object";
 

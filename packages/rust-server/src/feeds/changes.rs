@@ -11,11 +11,11 @@ use super::constants::{ENTRIES_MESSAGE_LIMIT_BYTES, FEED_HEAD_RETRY_MS};
 use super::core::Core;
 use super::hub::{CHANGES_OFF_REASON, PREVIOUS_DOCUMENT_REQUIRED};
 use super::outbox::Window;
-use super::regex::refused_regex;
 use super::wire::{
     CLOSE_POLICY, CLOSE_RESYNC, CLOSE_SETTING, Position, SubscriberMessage, message, position_list,
     seq_nos_by_partition, subscriber_message_of,
 };
+use crate::search::{refused_regex_field, regex_refusal_message};
 
 const INVALID_POSITIONS_REASON: &str = "The positions must hold each partition of the index once";
 
@@ -140,11 +140,11 @@ impl ChangesFeed {
         resume: Option<(String, Vec<Position>)>,
         filter: Option<Value>,
     ) {
-        if let Some(refusal) = filter
+        if let Some(field_path) = filter
             .as_ref()
-            .and_then(|filter| refused_regex(filter, core.hub.allow_regex))
+            .and_then(|filter| refused_regex_field(filter, core.hub.allow_regex))
         {
-            return core.close(CLOSE_POLICY, &refusal);
+            return core.close(CLOSE_POLICY, &regex_refusal_message(&field_path));
         }
         let filtered = filter.is_some();
         let (epoch, positions) = match resume {

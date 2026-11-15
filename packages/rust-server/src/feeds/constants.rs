@@ -15,4 +15,3 @@ pub(crate) const MAX_PENDING_CHECKPOINTS: usize = 64;
 pub(crate) const FEED_PING_INTERVAL_MS: u64 = 60_000;
 pub(crate) const FEED_CLOSE_HANDSHAKE_MS: u64 = 5_000;
 pub(crate) const FEED_CLOSE_DRAIN_DEADLINE_MS: u64 = 10_000;
-pub(crate) const MAX_FILTER_DEPTH: usize = 30;

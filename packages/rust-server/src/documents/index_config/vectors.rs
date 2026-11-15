@@ -2,8 +2,8 @@ use narsil::{HnswSettings, Map, Metric, Quantization, Storage, Value, VectorProm
 
 use super::config_refusal;
 use crate::documents::constants::{MAX_HNSW_M, MIN_HNSW_M};
-use crate::documents::script_values::{saturating_count, whole_number};
 use crate::errors::Outcome;
+use crate::script_values::{saturating_count, whole_number};
 
 fn positive_count(raw: &Map, key: &str, message: &str) -> Outcome<Option<f64>> {
     match raw.get(key) {

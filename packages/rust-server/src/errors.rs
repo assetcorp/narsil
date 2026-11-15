@@ -1,4 +1,8 @@
-use narsil::{Map, NarsilError, Value};
+use narsil::{ErrorCode, Map, NarsilError, Value};
+
+pub(crate) fn config_invalid_error(message: impl Into<String>) -> NarsilError {
+    NarsilError::new(ErrorCode::CONFIG_INVALID, message)
+}
 
 /// The codes that the server raises itself, beside the engine's [`narsil::ErrorCode`] values, spelled as the
 /// TypeScript server spells them.
@@ -197,6 +201,10 @@ impl ServerError {
 
     pub(crate) fn invalid(message: impl Into<String>) -> ServerError {
         ServerError::new(400, server_codes::INVALID_REQUEST, message)
+    }
+
+    pub(crate) fn config_invalid(message: impl Into<String>) -> ServerError {
+        ServerError::coded(ErrorCode::CONFIG_INVALID.as_str(), message)
     }
 
     pub(crate) fn internal() -> ServerError {

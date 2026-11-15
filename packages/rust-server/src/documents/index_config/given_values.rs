@@ -1,7 +1,7 @@
 use narsil::{ErrorCode, Map, Value};
 
-use crate::documents::script_values::script_text;
 use crate::errors::ServerError;
+use crate::script_values::script_text;
 
 const REQUIRED_FIELD_MESSAGE_START: &str = "Required field \"";
 

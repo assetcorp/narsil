@@ -1,7 +1,7 @@
-use super::js_text::javascript_trim;
+use crate::script_values::javascript_trim;
 
 const RANGE_UNIT_PREFIX: &str = "bytes=";
-const MAX_RANGE_DIGITS: usize = 20;
+const LONGEST_RANGE_NUMBER_DIGITS: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RangeAnswer {
@@ -24,7 +24,7 @@ fn if_range_matches(if_range: Option<&str>, entity_tag: &str) -> bool {
 }
 
 fn digits(text: &str) -> Option<&str> {
-    (text.len() <= MAX_RANGE_DIGITS && text.bytes().all(|byte| byte.is_ascii_digit()))
+    (text.len() <= LONGEST_RANGE_NUMBER_DIGITS && text.bytes().all(|byte| byte.is_ascii_digit()))
         .then_some(text)
 }
 

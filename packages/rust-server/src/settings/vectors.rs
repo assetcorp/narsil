@@ -1,11 +1,9 @@
-use narsil::{Narsil, Value, VectorMaintenanceStatus};
+use narsil::{ErrorCode, Narsil, Value, VectorMaintenanceStatus};
 
 use super::errors::after_engine_checks;
-use super::js_text::{is_falsy, string_of};
 use crate::errors::{Outcome, ServerError};
 use crate::handlers::common::object;
-
-const INDEX_NOT_FOUND: &str = "INDEX_NOT_FOUND";
+use crate::script_values::{script_text, script_truthy};
 
 pub(crate) enum CompactTarget {
     Every,
@@ -15,7 +13,7 @@ pub(crate) enum CompactTarget {
 }
 
 pub(crate) fn compact_target_of(body: &Value) -> CompactTarget {
-    if is_falsy(body) {
+    if !script_truthy(body) {
         return CompactTarget::Unreadable;
     }
     let Value::Object(fields) = body else {
@@ -30,7 +28,7 @@ pub(crate) fn compact_target_of(body: &Value) -> CompactTarget {
 
 fn field_not_found(index_name: &str, shown: &str, field: Value) -> ServerError {
     ServerError::coded(
-        INDEX_NOT_FOUND,
+        ErrorCode::INDEX_NOT_FOUND.as_str(),
         format!("Vector field \"{shown}\" not found in index \"{index_name}\""),
     )
     .with_detail("indexName", Value::String(index_name.to_string()))
@@ -46,7 +44,7 @@ pub(crate) fn compact(engine: &Narsil, index_name: &str, target: CompactTarget) 
             .compact_vectors(index_name, Some(&field))
             .map_err(ServerError::from),
         CompactTarget::Unnamable(field) => {
-            let failure = field_not_found(index_name, &string_of(&field), field);
+            let failure = field_not_found(index_name, &script_text(&field), field);
             Err(after_engine_checks(
                 engine,
                 failure,

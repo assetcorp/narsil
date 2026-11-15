@@ -17,17 +17,11 @@ where
         .unwrap_or_else(|_| Err(ServerError::internal()))
 }
 
-const CONFIG_INVALID: &str = "CONFIG_INVALID";
-
 pub(crate) fn preparing(failure: ServerError, preparing_code: &str) -> ServerError {
     if failure.code != preparing_code {
         return failure;
     }
     failure.with_header("retry-after", PREPARING_RETRY_AFTER_SECONDS.to_string())
-}
-
-pub(crate) fn config_invalid(message: impl Into<String>) -> ServerError {
-    ServerError::coded(CONFIG_INVALID, message)
 }
 
 pub(crate) fn after_engine_checks<T>(

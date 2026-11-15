@@ -33,22 +33,28 @@ fn regex_field_in(expression: &Value, depth: usize) -> Option<String> {
         .and_then(|negated| regex_field_in(negated, depth + 1))
 }
 
-pub(crate) fn refused_regex(filters: Option<&Value>, allow_regex: bool) -> Option<ServerError> {
+pub(crate) fn refused_regex_field(filter: &Value, allow_regex: bool) -> Option<String> {
     if allow_regex {
         return None;
     }
-    let field_path = regex_field_in(filters?, 0)?;
+    regex_field_in(filter, 0)
+}
+
+pub(crate) fn regex_refusal_message(field_path: &str) -> String {
+    format!(
+        "This server refuses every \"regex\" test, because its operator set the allowRegex server option to false. Test field \"{field_path}\" with \"contains\" or \"wildcard\""
+    )
+}
+
+pub(crate) fn refused_regex(filters: Option<&Value>, allow_regex: bool) -> Option<ServerError> {
+    let field_path = refused_regex_field(filters?, allow_regex)?;
+    let message = regex_refusal_message(&field_path);
     let mut details = Map::with_capacity(3);
-    details.insert("fieldPath", Value::String(field_path.clone()));
+    details.insert("fieldPath", Value::String(field_path));
     details.insert("operator", Value::String("regex".to_string()));
     details.insert("option", Value::String("allowRegex".to_string()));
     Some(
-        ServerError::coded(
-            ErrorCode::SEARCH_INVALID_FILTER.as_str(),
-            format!(
-                "This server refuses every \"regex\" test, because its operator set the allowRegex server option to false. Test field \"{field_path}\" with \"contains\" or \"wildcard\""
-            ),
-        )
-        .with_details(details),
+        ServerError::coded(ErrorCode::SEARCH_INVALID_FILTER.as_str(), message)
+            .with_details(details),
     )
 }
