@@ -3,10 +3,12 @@
 use std::path::Path;
 use std::time::Duration;
 
-use narsil::{IndexConfig, Map, Narsil, NarsilConfig, Value, parse_plain_json};
+use narsil::{IndexConfig, Map, Narsil, NarsilConfig, Value};
 use narsil_server::{FeedOptions, ServerOptions};
 
-use crate::support::{Call, ReferenceServer, Reply, RustServer, TOKEN, object, send, token_hook};
+use crate::support::{
+    Call, ReferenceServer, Reply, RustServer, TOKEN, decode_json, object, send, token_hook,
+};
 
 pub const INDEX: &str = "notes";
 pub const SCHEMA: &str =
@@ -42,7 +44,7 @@ pub fn note_id(at: usize) -> String {
 
 pub fn index_config() -> IndexConfig {
     IndexConfig {
-        schema: parse_plain_json(SCHEMA).expect("the schema is JSON"),
+        schema: decode_json(SCHEMA).expect("the schema is JSON"),
         ..IndexConfig::default()
     }
 }
@@ -99,7 +101,7 @@ pub fn reference_spec(directory: Option<&Path>, sync: bool, changes: bool) -> Va
 }
 
 pub async fn seed_reference(reference: &ReferenceServer, count: usize) {
-    let schema = parse_plain_json(SCHEMA).expect("the schema is JSON");
+    let schema = decode_json(SCHEMA).expect("the schema is JSON");
     let created = send(
         reference.port,
         &Call::new("POST", "/indexes")

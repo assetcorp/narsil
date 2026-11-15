@@ -2,9 +2,11 @@ mod support;
 
 use std::path::Path;
 
-use narsil::{Value, parse_plain_json};
+use narsil::Value;
 use narsil_server::{FeedOptions, ServerOptions};
-use support::{ReferenceServer, RustServer, ScratchDirectory, TOKEN, object, token_hook};
+use support::{
+    ReferenceServer, RustServer, ScratchDirectory, TOKEN, decode_json, object, token_hook,
+};
 use tokio::process::Command;
 
 async fn walk(port: u16) -> Vec<Value> {
@@ -23,7 +25,7 @@ async fn walk(port: u16) -> Vec<Value> {
         "the TypeScript client walk failed against port {port}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    match parse_plain_json(&String::from_utf8_lossy(&output.stdout)) {
+    match decode_json(&String::from_utf8_lossy(&output.stdout)) {
         Ok(Value::Array(steps)) => steps,
         other => panic!("the walk writes a list of steps, got {other:?}"),
     }

@@ -10,6 +10,7 @@ const INDEX = 'walk'
 const COPY = 'walk-copy'
 const IMPORTED = 'walk-imported'
 const LOADED = 'walk-loaded'
+const SYNCED = 'walk-synced'
 const DOCUMENTS = 60
 const WORDS = ['zorblat', 'quindle', 'mavrik', 'tessaly', 'brondo', 'ulvane']
 const TASK_DEADLINE_MS = 120_000
@@ -327,6 +328,9 @@ await attempt('rebalance', async () => finished(await client.rebalance(INDEX, 2)
 await attempt('partition config', () => client.updatePartitionConfig(INDEX, { maxPartitions: 8 }))
 await attempt('synonyms', () => client.updateSynonyms(INDEX, [{ words: ['zorblat', 'brondo'] }]))
 await attempt('read synonyms', () => client.getSynonyms(INDEX))
+await attempt('bm25', () => client.updateBM25(INDEX, { k1: 1.6, b: 0.5 }))
+await attempt('bm25 refused', () => client.updateBM25(INDEX, { k1: -1 }))
+await attempt('search after bm25', () => client.query(INDEX, { term: 'zorblat', limit: 100 }), scored)
 await attempt('rebuild analysis', async () => finished(await client.rebuildAnalysis(INDEX)), taskShape)
 await attempt(
   'change analysis',
@@ -342,6 +346,42 @@ await attempt(
   status => status.enabled ?? status,
 )
 await attempt('sync on', () => client.updateSync(INDEX, { enabled: true }))
+const download = await attempt(
+  'sync snapshot',
+  async () => {
+    const whole = await client.syncSnapshot(INDEX)
+    return { ...whole, bytes: await bytesOf(whole.stream) }
+  },
+  whole => ({ offset: whole.offset, sized: whole.totalBytes === whole.bytes.length }),
+)
+if (download !== undefined) {
+  const half = Math.floor(download.totalBytes / 2)
+  const rest = await attempt(
+    'sync snapshot resume',
+    async () => {
+      const part = await client.syncSnapshot(INDEX, { offset: half, entityTag: download.entityTag })
+      return { ...part, bytes: await bytesOf(part.stream) }
+    },
+    part => ({ fromHalf: part.offset === half, tag: part.entityTag === download.entityTag }),
+  )
+  assert.deepEqual(rest?.bytes, download.bytes.subarray(half), 'the resumed download holds the rest of the archive')
+  await attempt(
+    'restore synced',
+    async () => finished(await client.restore(SYNCED, new Uint8Array(download.bytes))),
+    taskShape,
+  )
+  const synced = await attempt('synced count', () => client.countDocuments(SYNCED))
+  assert.equal(synced, live.length, 'the synced archive holds every live document')
+}
+await attempt('sync snapshot of an index without sync', () => client.syncSnapshot(COPY))
+await attempt('create backup', async () => finished(await client.createBackup(INDEX, 'nightly')), taskShape)
+await attempt('list backups', () => client.listBackups())
+await attempt(
+  'restore backup',
+  async () => finished(await client.restoreBackup('nightly', { indexName: 'from-backup' })),
+  taskShape,
+)
+await attempt('delete backup', async () => finished(await client.deleteBackup('nightly')), taskShape)
 await attempt(
   'changes status',
   () => client.getChanges(INDEX),
@@ -385,7 +425,7 @@ await attempt('open', () => client.open(INDEX))
 await attempt('clear', () => client.clear(INDEX))
 const cleared = await attempt('count cleared', () => client.countDocuments(INDEX))
 assert.equal(cleared, 0, 'the cleared index holds no document')
-for (const name of [INDEX, COPY, IMPORTED, LOADED]) await attempt(`drop ${name}`, () => client.dropIndex(name))
+for (const name of [INDEX, COPY, IMPORTED, LOADED, SYNCED]) await attempt(`drop ${name}`, () => client.dropIndex(name))
 await attempt('drop missing', () => client.dropIndex('never-created'))
 await attempt(
   'list after drops',

@@ -4,12 +4,14 @@ mod support;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use narsil::{Map, Value, parse_plain_json};
+use narsil::{Map, Value};
 use settings_support::{
     INDEX, durable_engine, feed_options, field, finished_task, insert_notes, note, note_id,
     reference_spec, same_error, seed, seed_reference,
 };
-use support::{Call, ReferenceServer, Reply, RustServer, ScratchDirectory, TOKEN, send};
+use support::{
+    Call, ReferenceServer, Reply, RustServer, ScratchDirectory, TOKEN, decode_json, send,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -34,7 +36,7 @@ fn exported_documents(reply: &Reply) -> BTreeMap<String, Map> {
     assert_eq!(reply.header("content-type"), Some("application/x-ndjson"));
     let text = String::from_utf8(reply.body.to_vec()).expect("an export is UTF-8");
     let mut lines = text.lines();
-    let header = parse_plain_json(lines.next().expect("an export starts with a header"))
+    let header = decode_json(lines.next().expect("an export starts with a header"))
         .expect("the header is JSON");
     assert_eq!(
         field(&header, "format"),
@@ -43,7 +45,7 @@ fn exported_documents(reply: &Reply) -> BTreeMap<String, Map> {
     assert_eq!(field(&header, "version"), Some(&Value::Number(1.0)));
     let mut documents = BTreeMap::new();
     for line in lines {
-        let Ok(Value::Object(mut document)) = parse_plain_json(line) else {
+        let Ok(Value::Object(mut document)) = decode_json(line) else {
             panic!("each document line is a JSON object: {line}");
         };
         let Some(Value::String(id)) = document.remove("id") else {
