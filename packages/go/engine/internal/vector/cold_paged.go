@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
@@ -186,7 +187,7 @@ func (c *coldGraphField) searchPaged(ctx context.Context, field *core.PagedVecto
 	}
 	request.Meter = meter
 	stopped := make(chan struct{})
-	stopOnCancel := context.AfterFunc(ctx, func() {
+	stopOnCancel := callerctx.AfterFunc(ctx, func() {
 		meter.Stop()
 		close(stopped)
 	})

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
@@ -34,7 +35,7 @@ func (w *Work) open() {
 	if w.ctx.Done() != nil {
 		stopped := make(chan struct{})
 		w.stopped = stopped
-		w.unwatch = context.AfterFunc(w.ctx, func() {
+		w.unwatch = callerctx.AfterFunc(w.ctx, func() {
 			meter.Stop()
 			close(stopped)
 		})
