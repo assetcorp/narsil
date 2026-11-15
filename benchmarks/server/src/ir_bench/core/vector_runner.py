@@ -26,7 +26,6 @@ from .track_common import (
     verify_indexed,
 )
 from .types import (
-    BEST_CONFIG,
     EQUAL_PRECISION,
     HYBRID,
     SERVER_TIME_UNAVAILABLE,
@@ -152,8 +151,7 @@ def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, inde
     vec = config.vector
     assert vec is not None
     label = f"[{driver.name}:{spec.dataset_id}:vector:{profile}]"
-    grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
-    sample = sample_indices(len(qset.ids), vec.tuning_sample_queries)
+    sample =sample_indices(len(qset.ids), vec.tuning_sample_queries)
     sample_ids = [qset.ids[i] for i in sample]
 
     def hits_at(i: int, ef: int) -> list[str]:
@@ -180,7 +178,7 @@ def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, inde
         driver.set_rescore_oversample(None)
     print(f"{label} tuning to recall@{vec.recall_k} >= {vec.recall_target} on {len(sample_ids)} sampled queries", flush=True)
     return tune_operating_point(
-        driver, profile, vec, grid, truth, sample_ids, run_at_sample, run_at_sample_oversample, confirm, label
+        driver, profile, vec, vec.ef_search_grid, truth, sample_ids, run_at_sample, run_at_sample_oversample, confirm, label
     )
 
 
@@ -312,8 +310,7 @@ def run_hybrid_track(
     if hasattr(driver, "set_rescore_oversample"):
         driver.set_rescore_oversample(vector_oversample)
 
-    grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
-    operating_ef = vector_ef if vector_ef is not None else grid[-1]
+    operating_ef = vector_ef if vector_ef is not None else vec.ef_search_grid[-1]
     quality_ef = max(operating_ef, config.run_depth)
     metrics, run_file = _score_run(
         driver,
