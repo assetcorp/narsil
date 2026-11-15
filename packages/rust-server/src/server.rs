@@ -152,7 +152,7 @@ impl NarsilServer {
     }
 
     /// Stops accepting connections, closes every feed, and waits up to 30 seconds for the requests in progress,
-    /// leaving the engine open.
+    /// leaving the running tasks and the engine open.
     pub async fn close(&self) {
         self.state.ready.store(false, Ordering::Release);
         let Some(running) = self.running.lock().await.take() else {
@@ -161,16 +161,17 @@ impl NarsilServer {
         self.state.feeds.close();
         let _ = running.stop.send(true);
         let _ = running.accepting.await;
-        self.state.tasks.shutdown().await;
     }
 
-    /// Closes the server as [`NarsilServer::close`] does, then shuts the engine down.
+    /// Closes the server as [`NarsilServer::close`] does, stops every running task and waits for it, then shuts the
+    /// engine down.
     ///
     /// # Errors
     ///
     /// Returns the engine's error where its shutdown fails.
     pub async fn shutdown(&self) -> Result<(), NarsilError> {
         self.close().await;
+        self.state.tasks.shutdown().await;
         let engine = Arc::clone(&self.state.engine);
         tokio::task::spawn_blocking(move || engine.shutdown())
             .await
