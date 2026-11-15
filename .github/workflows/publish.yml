@@ -74,31 +74,165 @@ jobs:
       - name: Write each package with commits since its last release tag to the job summary
         run: node .github/scripts/release-status.js
 
+  release-proof:
+    name: Suites that main has passed on the same inputs
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      typescript_suite: ${{ steps.proof.outputs.typescript_suite }}
+      typescript_checks: ${{ steps.proof.outputs.typescript_checks }}
+      certutil: ${{ steps.proof.outputs.certutil }}
+      embedding_adapters: ${{ steps.proof.outputs.embedding_adapters }}
+      embedding_integration: ${{ steps.proof.outputs.embedding_integration }}
+      native_core: ${{ steps.proof.outputs.native_core }}
+      native_core_lint: ${{ steps.proof.outputs.native_core_lint }}
+      react_native_android: ${{ steps.proof.outputs.react_native_android }}
+      rust: ${{ steps.proof.outputs.rust }}
+      go_engine: ${{ steps.proof.outputs.go_engine }}
+      python_engine: ${{ steps.proof.outputs.python_engine }}
+      python_client: ${{ steps.proof.outputs.python_client }}
+      go_client: ${{ steps.proof.outputs.go_client }}
+      proven: ${{ steps.proof.outputs.proven }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Find the push run on main that passed each suite on the inputs of this commit
+        id: proof
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PACKAGE: ${{ inputs.package }}
+        run: node .github/scripts/proven-suites.js --package "$RELEASE_PACKAGE"
+
+  release-checks:
+    name: Lint, type-check, and build the engine and certutil
+    needs: release-proof
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (((inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.typescript_checks != 'true') || ((inputs.package == '@delali/narsil-certutil' || inputs.package == 'all') && needs.release-proof.outputs.certutil != 'true')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CHECKS_THE_ENGINE: ${{ (inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.typescript_checks != 'true' }}
+      CHECKS_CERTUTIL: ${{ (inputs.package == '@delali/narsil-certutil' || inputs.package == 'all') && needs.release-proof.outputs.certutil != 'true' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        if: env.CHECKS_THE_ENGINE == 'true'
+        run: pnpm nx run narsil-ts:lint
+
+      - name: Typecheck (incl. tests)
+        if: env.CHECKS_THE_ENGINE == 'true'
+        run: pnpm nx run narsil-ts:typecheck
+
+      - name: Build
+        if: env.CHECKS_THE_ENGINE == 'true'
+        run: pnpm nx run narsil-ts:build
+
+      - name: Lint, type-check, build, and test certutil
+        if: env.CHECKS_CERTUTIL == 'true'
+        run: pnpm nx run-many -t lint typecheck build test --projects=narsil-certutil
+
+  release-embeddings:
+    name: Test the embedding adapters
+    needs: [release-proof, release-checks]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (((inputs.package == '@delali/narsil-embeddings-transformers' || inputs.package == 'all') && needs.release-proof.outputs.embedding_adapters != 'true') || ((inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.embedding_integration != 'true')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      TESTS_THE_ADAPTERS: ${{ (inputs.package == '@delali/narsil-embeddings-transformers' || inputs.package == 'all') && needs.release-proof.outputs.embedding_adapters != 'true' }}
+      TESTS_THE_INTEGRATION: ${{ (inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.embedding_integration != 'true' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint, type-check, and test the embedding adapters
+        if: env.TESTS_THE_ADAPTERS == 'true'
+        run: pnpm nx run-many -t lint typecheck test --projects=narsil-embeddings-transformers
+
+      - name: Cache HuggingFace models
+        if: env.TESTS_THE_INTEGRATION == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-${{ hashFiles('packages/ts/src/__tests__/integration/embedding-e2e.test.ts') }}
+          restore-keys: |
+            hf-models-${{ runner.os }}-
+
+      - name: Build
+        if: env.TESTS_THE_INTEGRATION == 'true'
+        run: pnpm nx run narsil-ts:build
+
+      - name: Run embedding integration tests
+        if: env.TESTS_THE_INTEGRATION == 'true'
+        run: pnpm nx run narsil-ts:test:embeddings
+        timeout-minutes: 10
+
   engine:
     name: Engine
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true') }}
+    needs: [changes, release-proof]
+    if: ${{ !cancelled() && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == '@delali/narsil' || inputs.package == 'github.com/assetcorp/narsil/packages/go/engine' || inputs.package == 'delali-narsil' || inputs.package == 'delali-narsil on PyPI' || (inputs.package == 'narsil-client' && needs.release-proof.outputs.python_client != 'true') || ((inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes') && needs.release-proof.outputs.go_client != 'true')))) }}
     permissions:
       contents: read
     uses: ./.github/workflows/engine.yml
 
   native:
     name: Native search core
-    needs: [changes, engine]
-    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI')) }}
+    needs: [changes, engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
     permissions:
       contents: read
     uses: ./.github/workflows/native-core.yml
     with:
-      run-lint: ${{ github.event_name != 'push' }}
+      run-lint: ${{ github.event_name != 'push' && needs.release-proof.outputs.native_core_lint != 'true' }}
+      proven-on-main: ${{ github.event_name == 'workflow_dispatch' && needs.release-proof.outputs.native_core == 'true' }}
 
   react-native-checks:
     name: Build the React Native apps
-    needs: [changes, engine]
+    needs: [changes, engine, release-proof, release-embeddings]
     if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.react_native == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all'))) }}
     permissions:
       contents: read
     uses: ./.github/workflows/react-native.yml
+    with:
+      android: ${{ github.event_name != 'workflow_dispatch' || needs.release-proof.outputs.react_native_android != 'true' }}
 
   plan:
     name: Decide whether this push earns a prerelease
@@ -119,8 +253,8 @@ jobs:
 
   typescript-tests:
     name: TypeScript tests, part ${{ matrix.shard }} of 4
-    needs: [changes, engine]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    needs: [changes, engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.typescript_suite != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -172,8 +306,8 @@ jobs:
 
   typescript-suites-on-etcd:
     name: TypeScript suites on etcd and under a memory limit, part ${{ matrix.part }} of 2
-    needs: [changes, engine]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    needs: [changes, engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && ((github.event_name == 'push' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true')) || (github.event_name == 'workflow_dispatch' && (inputs.package == '@delali/narsil' || inputs.package == 'all') && needs.release-proof.outputs.typescript_suite != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -306,9 +440,13 @@ jobs:
 
   publish:
     name: Publish to npm
-    needs: [native, react-native-checks]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go' && inputs.package != 'github.com/assetcorp/narsil/packages/go/engine' && inputs.package != 'github.com/assetcorp/narsil/packages/go/changes' && inputs.package != 'delali-narsil' && inputs.package != 'delali-narsil on PyPI' && needs.native.result == 'success' && (needs.react-native-checks.result == 'success' || (needs.react-native-checks.result == 'skipped' && inputs.package != '@delali/narsil' && inputs.package != 'all')) }}
+    needs: [release-proof, release-checks, release-embeddings, native, react-native-checks, typescript-tests, typescript-suites-on-etcd]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == '@delali/narsil' || inputs.package == '@delali/narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil') && ((needs.native.result == 'success' && needs.react-native-checks.result == 'success') || (inputs.package != '@delali/narsil' && inputs.package != 'all')) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
     concurrency:
       group: publish-to-npm
       cancel-in-progress: false
@@ -316,20 +454,6 @@ jobs:
       RELEASE_PROJECTS: ${{ inputs.package == '@delali/narsil' && 'narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || 'narsil-ts,narsil-embeddings-transformers,narsil-certutil' }}
       RELEASES_NARSIL_TS: ${{ inputs.package == '@delali/narsil' || inputs.package == 'all' }}
       RELEASE_PROJECTS_WITHOUT_A_NATIVE_CORE: ${{ inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || inputs.package == 'all' && 'narsil-embeddings-transformers,narsil-certutil' || '' }}
-    services:
-      etcd:
-        image: gcr.io/etcd-development/etcd:v3.6.0
-        entrypoint: /usr/local/bin/etcd
-        command: >-
-          --name node1
-          --data-dir /etcd-data
-          --listen-client-urls http://0.0.0.0:2379
-          --advertise-client-urls http://127.0.0.1:2379
-          --listen-peer-urls http://0.0.0.0:2380
-          --initial-advertise-peer-urls http://127.0.0.1:2380
-          --initial-cluster node1=http://127.0.0.1:2380
-        ports:
-          - 2379:2379
 
     steps:
       - name: Checkout
@@ -338,7 +462,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require each suite that this release needs to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PACKAGE: ${{ inputs.package }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: |
+            typescript-suite ${{ needs.typescript-tests.result }} ${{ needs.typescript-suites-on-etcd.result }}
+            typescript-checks ${{ needs.release-checks.result }}
+            certutil ${{ needs.release-checks.result }}
+            embedding-adapters ${{ needs.release-embeddings.result }}
+            embedding-integration ${{ needs.release-embeddings.result }}
+            native-core ${{ needs.native.result }}
+            native-core-lint ${{ needs.native.result }}
+            react-native-android ${{ needs.react-native-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate "$RELEASE_PACKAGE"
+
       - name: Verify this run holds the tip of main
+        if: ${{ !inputs.dry-run }}
         run: |
           git fetch origin main
           CHECKED_OUT_SHA="$(git rev-parse HEAD)"
@@ -370,48 +511,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm nx run-many -t lint --projects="$RELEASE_PROJECTS"
-
-      - name: Typecheck (incl. tests)
-        run: pnpm nx run-many -t typecheck --projects="$RELEASE_PROJECTS"
-
-      - name: Build
-        run: pnpm nx run-many -t build --projects="$RELEASE_PROJECTS"
-
-      - name: Test
-        run: pnpm nx run-many -t test --projects="$RELEASE_PROJECTS"
-
-      - name: Test (frozen removals under a container memory limit)
-        if: env.RELEASES_NARSIL_TS == 'true'
-        run: pnpm nx run narsil-ts:test:container-memory
-
-      - name: Test (etcd integration)
-        if: env.RELEASES_NARSIL_TS == 'true'
-        env:
-          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
-        run: pnpm nx run narsil-ts:test:etcd
-
-      - name: Test (cluster node processes)
-        if: env.RELEASES_NARSIL_TS == 'true'
-        env:
-          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
-        run: pnpm nx run narsil-ts:test:cluster
-
-      - name: Cache HuggingFace models
-        if: env.RELEASES_NARSIL_TS == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/huggingface
-          key: hf-models-${{ runner.os }}-${{ hashFiles('packages/ts/src/__tests__/integration/embedding-e2e.test.ts') }}
-          restore-keys: |
-            hf-models-${{ runner.os }}-
-
-      - name: Test (embedding integration)
-        if: env.RELEASES_NARSIL_TS == 'true'
-        run: pnpm nx run narsil-ts:test:embeddings
-        timeout-minutes: 10
-
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -424,9 +523,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects="$RELEASE_PROJECTS" --skip-publish
 
-      - name: Build the versioned engine
-        if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
-        run: pnpm nx run narsil-ts:build
+      - name: Build the versioned packages
+        run: pnpm nx run-many -t build --projects="$RELEASE_PROJECTS"
 
       - name: Publish the packages that hold no native core
         if: ${{ !inputs.dry-run && env.RELEASE_PROJECTS_WITHOUT_A_NATIVE_CORE != '' }}
@@ -461,25 +559,29 @@ jobs:
         run: node .github/scripts/publish-react-native-package.js "$(node -p "require('./packages/ts/package.json').version")" latest
 
   client-checks:
-    name: Check the Python and Go clients
-    needs: engine
-    if: github.event_name == 'workflow_dispatch' && (inputs.package == 'narsil-client' || inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes')
+    name: Check the Python or Go client
+    needs: [engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && github.event_name == 'workflow_dispatch' && ((inputs.package == 'narsil-client' && needs.release-proof.outputs.python_client != 'true') || ((inputs.package == 'github.com/assetcorp/narsil/packages/go' || inputs.package == 'github.com/assetcorp/narsil/packages/go/changes') && needs.release-proof.outputs.go_client != 'true')) }}
     permissions:
       contents: read
     concurrency:
       group: clients-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/clients.yml
+    with:
+      python: ${{ inputs.package == 'narsil-client' }}
+      go: ${{ inputs.package != 'narsil-client' }}
 
   python-client:
     name: Publish narsil-client to PyPI
-    needs: client-checks
-    if: inputs.package == 'narsil-client'
+    needs: [release-proof, client-checks]
+    if: ${{ !cancelled() && inputs.package == 'narsil-client' && (needs.client-checks.result == 'success' || needs.client-checks.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       contents: write
       id-token: write
+      actions: read
     concurrency:
       group: publish-to-pypi
       cancel-in-progress: false
@@ -491,7 +593,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the client checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: python-client ${{ needs.client-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate narsil-client
+
       - name: Verify this run holds the tip of main
+        if: ${{ !inputs.dry-run }}
         run: |
           git fetch origin main
           CHECKED_OUT_SHA="$(git rev-parse HEAD)"
@@ -551,11 +661,12 @@ jobs:
 
   go-client:
     name: Tag the Go module
-    needs: client-checks
-    if: inputs.package == 'github.com/assetcorp/narsil/packages/go'
+    needs: [release-proof, client-checks]
+    if: ${{ !cancelled() && inputs.package == 'github.com/assetcorp/narsil/packages/go' && (needs.client-checks.result == 'success' || needs.client-checks.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: tag-go-module
       cancel-in-progress: false
@@ -567,13 +678,21 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the client checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: go-client ${{ needs.client-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate github.com/assetcorp/narsil/packages/go
+
       - name: Verify this run holds the tip of main and resolve the version
         id: resolve
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           git fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+          if [ "$DRY_RUN" != true ] && [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
             echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
             exit 1
           fi
@@ -596,11 +715,12 @@ jobs:
 
   go-changes:
     name: Tag the Go change feed module
-    needs: client-checks
-    if: inputs.package == 'github.com/assetcorp/narsil/packages/go/changes'
+    needs: [release-proof, client-checks]
+    if: ${{ !cancelled() && inputs.package == 'github.com/assetcorp/narsil/packages/go/changes' && (needs.client-checks.result == 'success' || needs.client-checks.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: tag-go-changes-module
       cancel-in-progress: false
@@ -612,13 +732,21 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the client checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: go-client ${{ needs.client-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate github.com/assetcorp/narsil/packages/go/changes
+
       - name: Verify this run holds the tip of main and resolve the versions
         id: resolve
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           git fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+          if [ "$DRY_RUN" != true ] && [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
             echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
             exit 1
           fi
@@ -673,22 +801,25 @@ jobs:
 
   go-engine-checks:
     name: Check the Go engine
-    needs: engine
-    if: github.event_name == 'workflow_dispatch' && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    needs: [engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine' }}
     permissions:
       contents: read
     concurrency:
       group: go-engine-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/go-engine.yml
+    with:
+      proven-on-main: ${{ needs.release-proof.outputs.go_engine == 'true' }}
 
   go-engine:
     name: Tag the Go engine module
-    needs: go-engine-checks
-    if: inputs.package == 'github.com/assetcorp/narsil/packages/go/engine'
+    needs: [release-proof, go-engine-checks]
+    if: ${{ !cancelled() && inputs.package == 'github.com/assetcorp/narsil/packages/go/engine' && needs.go-engine-checks.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: tag-go-engine-module
       cancel-in-progress: false
@@ -700,13 +831,21 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the Go engine checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: go-engine ${{ needs.go-engine-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate github.com/assetcorp/narsil/packages/go/engine
+
       - name: Verify this run holds the tip of main and resolve the version
         id: resolve
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           git fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+          if [ "$DRY_RUN" != true ] && [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
             echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
             exit 1
           fi
@@ -729,25 +868,28 @@ jobs:
 
   rust-checks:
     name: Check the Rust crate
-    needs: engine
-    if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil'
+    needs: [engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil' }}
     permissions:
       contents: read
     concurrency:
       group: rust-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/rust.yml
+    with:
+      proven-on-main: ${{ needs.release-proof.outputs.rust == 'true' }}
 
   rust:
     name: Publish delali-narsil to crates.io
-    needs: rust-checks
-    if: inputs.package == 'delali-narsil'
+    needs: [release-proof, rust-checks]
+    if: ${{ !cancelled() && inputs.package == 'delali-narsil' && needs.rust-checks.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: crates-io
     permissions:
       contents: write
       id-token: write
+      actions: read
     concurrency:
       group: publish-to-crates-io
       cancel-in-progress: false
@@ -759,7 +901,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the crate checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: rust ${{ needs.rust-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate delali-narsil
+
       - name: Verify this run holds the tip of main
+        if: ${{ !inputs.dry-run }}
         run: |
           git fetch origin main
           CHECKED_OUT_SHA="$(git rev-parse HEAD)"
@@ -831,23 +981,26 @@ jobs:
 
   python-engine-checks:
     name: Check the Python package on every platform
-    needs: engine
-    if: github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil on PyPI'
+    needs: [engine, release-proof]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.package == 'delali-narsil on PyPI' }}
     permissions:
       contents: read
     concurrency:
       group: python-engine-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     uses: ./.github/workflows/python-engine.yml
+    with:
+      proven-on-main: ${{ needs.release-proof.outputs.python_engine == 'true' }}
 
   python-engine-release:
     name: Version the Python package
-    needs: python-engine-checks
-    if: inputs.package == 'delali-narsil on PyPI'
+    needs: [release-proof, python-engine-checks]
+    if: ${{ !cancelled() && inputs.package == 'delali-narsil on PyPI' && needs.python-engine-checks.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
+      actions: read
     concurrency:
       group: release-python-engine
       cancel-in-progress: false
@@ -861,7 +1014,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Require the package checks to pass in this run or on main on the same inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REUSED_SUITES: ${{ needs.release-proof.outputs.proven }}
+          SUITE_RESULTS: python-engine ${{ needs.python-engine-checks.result }}
+        run: node .github/scripts/proven-suites.js --gate "delali-narsil on PyPI"
+
       - name: Verify this run holds the tip of main
+        if: ${{ !inputs.dry-run }}
         run: |
           git fetch origin main
           CHECKED_OUT_SHA="$(git rev-parse HEAD)"

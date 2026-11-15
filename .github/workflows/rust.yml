@@ -2,6 +2,12 @@ name: Rust crate
 
 on:
   workflow_call:
+    inputs:
+      proven-on-main:
+        description: 'Main has passed the push checks of the crate on the same inputs, so a release tests only the platforms that main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -9,6 +15,7 @@ permissions:
 jobs:
   lint:
     name: Format and Clippy
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -45,13 +52,36 @@ jobs:
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 3},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 4},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 5}
+          ]' || inputs.proven-on-main && '[
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "parts": 2, "shard": 1},
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "parts": 2, "shard": 2},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 1},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 2},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 3},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 1},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 2},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 3},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 4},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 5}
           ]' || '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
-          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "parts": 1, "shard": 1},
-          {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
-          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 1, "shard": 1},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 1, "shard": 1},
-          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 1, "shard": 1}
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "parts": 2, "shard": 1},
+          {"label": "linux-arm64", "runner": "ubuntu-24.04-arm", "parts": 2, "shard": 2},
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 2, "shard": 1},
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 2, "shard": 2},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 1},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 2},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "parts": 3, "shard": 3},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 2},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 3},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 4},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 5, "shard": 5},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 1},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 2},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 3},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 4},
+          {"label": "win32-arm64", "runner": "windows-11-arm", "parts": 5, "shard": 5}
           ]') }}
 
     env:
@@ -117,6 +147,9 @@ jobs:
             5/3) selection=listed names="$PART_3_TESTS" ;;
             5/4) selection=listed names="$PART_4_TESTS" ;;
             5/5) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS" ;;
+            3/1) selection=listed names="$PART_1_TESTS $PART_3_TESTS" ;;
+            3/2) selection=listed names="$PART_2_TESTS $PART_4_TESTS" ;;
+            3/3) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS $PART_4_TESTS" ;;
             2/1) selection=listed names="$PART_3_TESTS $PART_4_TESTS" ;;
             2/2) selection=unlisted names="$PART_3_TESTS $PART_4_TESTS" ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;

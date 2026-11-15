@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: true
+      proven-on-main:
+        description: 'Main has passed the push checks of the core on the same inputs, so a release builds every core and compares only the macOS cores, which main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,6 +24,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include: >-
           ${{ fromJSON(github.event_name == 'pull_request' && '[
@@ -82,13 +88,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: >-
-          ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
-          {"runner": "ubuntu-latest", "part": 1, "parts": 2},
-          {"runner": "ubuntu-latest", "part": 2, "parts": 2}
-          ]' || '[
-          {"runner": "macos-15", "part": 1, "parts": 1}
-          ]') }}
+        include:
+          - runner: ubuntu-latest
+            part: 1
+            parts: 2
+          - runner: ubuntu-latest
+            part: 2
+            parts: 2
 
     steps:
       - name: Checkout
@@ -118,6 +124,7 @@ jobs:
 
   sanitised:
     name: Test the core in C under the sanitisers on ${{ matrix.label }}
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -146,6 +153,7 @@ jobs:
 
   binding-sanitised:
     name: Test the Node binding under the sanitisers
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -184,6 +192,7 @@ jobs:
 
   fuzz:
     name: Fuzz every entry point that decodes caller or file bytes
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -235,9 +244,13 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          ${{ fromJSON(inputs.proven-on-main && '[
+          {"label": "darwin-arm64", "runner": "macos-15", "output": "packages/native/npm/darwin-arm64"},
+          {"label": "darwin-x64", "runner": "macos-15-intel", "output": "packages/native/npm/darwin-x64"}
+          ]' || github.event_name == 'pull_request' && '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"}
           ]' || github.event_name == 'push' && '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "output": "packages/native/npm/linux-x64"},
@@ -312,8 +325,8 @@ jobs:
 
   identity-musl:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
-    needs: build
-    if: github.event_name != 'pull_request'
+    needs: [build, identity]
+    if: ${{ github.event_name != 'pull_request' && !inputs.proven-on-main }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:

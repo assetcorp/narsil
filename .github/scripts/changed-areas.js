@@ -3,6 +3,8 @@ const { appendFileSync } = require('node:fs')
 
 const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
 const SHARED_ENGINE_WORKFLOW = '.github/workflows/engine.yml'
+const COMPOSITE_ACTIONS = '.github/actions/'
+const ENGINE_API_REPORTS = 'packages/ts/etc/'
 const MISSING_COMMIT = /^0+$/
 const TYPESCRIPT_JOB_AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness', 'benchmark_languages']
 const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
@@ -23,7 +25,7 @@ const AREAS_BY_PREFIX = [
   ['packages/go/engine/', []],
   ['packages/go/changes/', []],
   ['packages/react-native/', []],
-  ['packages/embeddings-transformers/', []],
+  ['packages/embeddings-transformers/', ['typescript', 'check']],
   ['packages/native/fuzz/', []],
   ['packages/native/test/', []],
   ['packages/conformance/samples/earlier-releases/', ['typescript', 'conformance']],
@@ -65,6 +67,26 @@ const FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE = [
   'packages/ts/src/invalidation/',
 ]
 
+const WORKSPACE_FILES = [
+  'package.json',
+  'pnpm-workspace.yaml',
+  '.npmrc',
+  'nx.json',
+  'tsconfig.json',
+  'biome.json',
+  'patches/',
+  '.pnpmfile.cjs',
+]
+
+const ENGINE_BUILD_FILES = [
+  'packages/ts/package.json',
+  'packages/ts/project.json',
+  'packages/ts/tsup.config.ts',
+  'packages/ts/tsconfig.json',
+]
+
+const BUILD_CONFIG_FILES = ['pnpm-lock.yaml', ...WORKSPACE_FILES, ...ENGINE_BUILD_FILES]
+
 const PATHS_BY_LANGUAGE_AREA = {
   rust: {
     paths: [
@@ -73,6 +95,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/native/include/',
       'packages/conformance/',
       'packages/ts/src/',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/rust.yml',
     ],
     except: FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
@@ -86,6 +109,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/native/include/',
       'packages/conformance/',
       'packages/ts/src/',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/python-engine.yml',
       ...README_EXAMPLE_SCRIPTS,
     ],
@@ -100,6 +124,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/conformance/',
       'packages/spec/',
       'packages/ts/src/',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/go-engine.yml',
       ...README_EXAMPLE_SCRIPTS,
     ],
@@ -128,7 +153,9 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/src/__tests__/core/keyword-score/',
       'packages/ts/src/__tests__/math/',
       'packages/ts/scripts/native-analysis/',
+      'packages/ts/snowball/native.ts',
       'packages/ts/wasm/',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/native-core.yml',
     ],
   },
@@ -137,13 +164,13 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/python/',
       'packages/go/',
       'packages/ts/openapi.json',
-      'packages/ts/src/server/',
-      'packages/ts/src/changes/',
+      'packages/ts/src/',
       'packages/ts/scripts/client-test-server.mjs',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/clients.yml',
       ...README_EXAMPLE_SCRIPTS,
     ],
-    except: ['packages/go/engine/'],
+    except: ['packages/go/engine/', 'packages/ts/src/__tests__/'],
     compiledMarkdown: ['packages/python/README.md', 'packages/go/README.md'],
   },
   react_native: {
@@ -152,9 +179,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/native/src/',
       'packages/native/include/',
       'packages/ts/src/',
-      'packages/ts/package.json',
-      'packages/ts/tsup.config.ts',
-      'pnpm-lock.yaml',
+      ...BUILD_CONFIG_FILES,
       '.github/workflows/react-native.yml',
     ],
     except: ['packages/ts/src/__tests__/', 'packages/ts/src/react/'],
@@ -209,7 +234,9 @@ const compilesInTheCheckJob = path =>
   path.startsWith('skills/')
 
 const typescriptAreasOf = path => {
-  if (path.endsWith('.md')) return compilesInTheCheckJob(path) ? ['check'] : []
+  if (path.endsWith('.md')) {
+    return compilesInTheCheckJob(path) || path.startsWith(ENGINE_API_REPORTS) ? ['check'] : []
+  }
   const rule = AREAS_BY_PREFIX.find(([prefix]) => path.startsWith(prefix))
   return rule === undefined ? TYPESCRIPT_AREAS : rule[1]
 }
@@ -250,7 +277,7 @@ const main = () => {
     const quotedFiles = files.map(path => JSON.stringify(path).replaceAll('##[', '##\\u005b'))
     console.log(`Changed files:\n${quotedFiles.join('\n')}`)
     for (const path of files) {
-      const areas = filesThatTouchEveryArea.has(path) ? AREAS : areasOf(path)
+      const areas = filesThatTouchEveryArea.has(path) || path.startsWith(COMPOSITE_ACTIONS) ? AREAS : areasOf(path)
       for (const area of areas) touched.add(area)
     }
   }
@@ -259,4 +286,17 @@ const main = () => {
   writeOutput('engine', String(CI_AREAS_THAT_LOAD_THE_ENGINE.some(area => touched.has(area))))
 }
 
-main()
+if (require.main === module) main()
+
+module.exports = {
+  BUILD_CONFIG_FILES,
+  COMPOSITE_ACTIONS,
+  ENGINE_API_REPORTS,
+  ENGINE_BUILD_FILES,
+  FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE,
+  MARKDOWN_THAT_THE_CHECK_JOB_COMPILES,
+  PATHS_BY_LANGUAGE_AREA,
+  README_EXAMPLE_SCRIPTS,
+  WORKSPACE_FILES,
+  matchesAnyPath,
+}
