@@ -381,6 +381,7 @@ export function createDurabilityManager(
     async shutdown(): Promise<void> {
       shuttingDown = true
       stopTimers()
+      await metadataWrites.settleAll()
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)
