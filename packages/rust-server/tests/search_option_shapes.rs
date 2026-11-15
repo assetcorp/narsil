@@ -1,8 +1,11 @@
 mod support;
 
-use narsil::{Map, Value, parse_plain_json, write_plain_json};
+use narsil::{Map, Value};
 use narsil_server::ServerOptions;
-use support::{Call, ReferenceServer, RustServer, object, parsed, repository_root, send};
+use support::{
+    Call, ReferenceServer, RustServer, decode_json, encode_json, object, parsed, repository_root,
+    send,
+};
 
 const SCHEMA: &str = r#"{"title":"string","tag":"enum","year":"number","embedding":"vector[2]"}"#;
 const NOTES: [(&str, &str); 3] = [
@@ -154,7 +157,7 @@ fn target_mut<'v>(body: &'v mut Value, path: &[&str]) -> &'v mut Map {
 fn hostile_bodies() -> Vec<Value> {
     let openapi_path = repository_root().join("packages/ts/openapi.json");
     let openapi = std::fs::read_to_string(&openapi_path).expect("openapi.json is readable");
-    let openapi = parse_plain_json(&openapi).expect("openapi.json is JSON");
+    let openapi = decode_json(&openapi).expect("openapi.json is JSON");
     let schemas = step(&openapi, "components")
         .and_then(|components| step(components, "schemas"))
         .expect("openapi.json defines its schemas");
@@ -199,11 +202,11 @@ async fn store_notes(port: u16) {
 
 fn answer_of(status: u16, body: &[u8]) -> String {
     let text = String::from_utf8_lossy(body);
-    let mut value = parse_plain_json(&text).unwrap_or(Value::String(text.to_string()));
+    let mut value = decode_json(&text).unwrap_or(Value::String(text.to_string()));
     if let Value::Object(map) = &mut value {
         map.remove("elapsed");
     }
-    format!("{status} {}", write_plain_json(&value))
+    format!("{status} {}", encode_json(&value))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -226,7 +229,7 @@ async fn every_search_option_of_every_type_answers_as_the_typescript_server_answ
             if theirs.starts_with("500 ") || mine != theirs {
                 differences.push(format!(
                     "{route} {}\n  rust:       {mine}\n  typescript: {theirs}",
-                    write_plain_json(body)
+                    encode_json(body)
                 ));
             }
         }

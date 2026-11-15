@@ -3,10 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use narsil::{IndexConfig, Map, Narsil, Value, parse_plain_json};
+use narsil::{IndexConfig, Map, Narsil, Value};
 use narsil_server::{NarsilServer, ServerOptions};
 
-use crate::support::{Call, object, parsed, send};
+use crate::support::{Call, decode_json, object, parsed, send};
 
 const TASK_DEADLINE: Duration = Duration::from_secs(120);
 const TASK_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -202,5 +202,5 @@ pub fn stored_ids(engine: &Narsil, index: &str, candidates: &[String]) -> Vec<St
 }
 
 pub fn json_of(text: &str) -> Value {
-    parse_plain_json(text).expect("the line is JSON")
+    decode_json(text).expect("the line is JSON")
 }

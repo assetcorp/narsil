@@ -5,14 +5,12 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use narsil::{
-    IndexConfig, Map, Narsil, NarsilConfig, QuerySuggestionsConfig, Value, write_plain_json,
-};
+use narsil::{IndexConfig, Map, Narsil, NarsilConfig, QuerySuggestionsConfig, Value};
 use narsil_server::{BoxError, QueryIdentity, RequestContext, ServerLimits, ServerOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
-use crate::support::{RustServer, ScratchDirectory, object, repository_root};
+use crate::support::{RustServer, ScratchDirectory, encode_json, object, repository_root};
 
 pub const INDEX: &str = "books";
 pub const SUGGESTIONS_KEY: &str = "a suggestions key of at least thirty-two bytes";
@@ -214,7 +212,7 @@ impl ReferenceSearchServer {
     async fn start(spec: Value) -> ReferenceSearchServer {
         let scratch = ScratchDirectory::new("reference-search-spec");
         let spec_path = scratch.path().join("spec.json");
-        std::fs::write(&spec_path, write_plain_json(&spec)).expect("the spec is written");
+        std::fs::write(&spec_path, encode_json(&spec)).expect("the spec is written");
         let script = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/search_support/reference_search_server.mjs");
         let mut child = Command::new("node")

@@ -2,7 +2,7 @@
 
 use narsil::{Map, Value};
 
-use crate::support::{Call, parsed, send};
+use crate::support::{Call, encode_json, parsed, send};
 
 pub const BODY_LIMIT_BYTES: usize = 4096;
 pub const FETCH_LIMIT_DOCUMENTS: u64 = 3;
@@ -31,7 +31,7 @@ pub fn cases(fixture: &str) -> Vec<Case> {
                 (Some(Value::String(raw)), _) => {
                     Some(raw.replace(OVERSIZED_PLACEHOLDER, &"x".repeat(BODY_LIMIT_BYTES)))
                 }
-                (_, Some(body)) => Some(narsil::write_plain_json(body)),
+                (_, Some(body)) => Some(encode_json(body)),
                 _ => None,
             };
             Case {

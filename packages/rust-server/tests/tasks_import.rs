@@ -3,7 +3,7 @@ mod tasks_common;
 
 use narsil::{Narsil, Value};
 use narsil_server::{ServerLimits, ServerOptions};
-use support::{Call, ReferenceServer, object, same_status_and_code, send};
+use support::{Call, ReferenceServer, decode_json, object, same_status_and_code, send};
 use tasks_common::{
     ARTICLE_SCHEMA, Served, article_lines, at, create_in_engine, create_over_http, json_of,
     keys_of, ndjson, ndjson_call, number_at, stored_ids, text_at, wait_for_task,
@@ -276,7 +276,7 @@ async fn an_asynchronous_import_finishes_as_a_task_with_the_inline_result() {
 
     let mut expected: Vec<String> = lines
         .iter()
-        .filter_map(|line| narsil::parse_plain_json(line).ok())
+        .filter_map(|line| decode_json(line).ok())
         .filter_map(|document| text_at(&document, &["id"]))
         .collect();
     expected.sort();

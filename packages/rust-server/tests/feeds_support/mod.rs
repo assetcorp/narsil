@@ -9,7 +9,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use narsil::{
     ChangesSetting, DurabilityConfig, IndexConfig, Map, Narsil, NarsilConfig, SyncSetting,
-    SynonymRule, Value, decode_msgpack, encode_msgpack, write_plain_json,
+    SynonymRule, Value, decode_msgpack, encode_msgpack,
 };
 use narsil_server::{
     BoxError, FeedOptions, NarsilServer, RequestContext, RequestDecision, RequestDenial,
@@ -24,7 +24,9 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as SocketError, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_with_config};
 
-use crate::support::{Call, ScratchDirectory, TOKEN, object, repository_root, send};
+use crate::support::{
+    Call, ScratchDirectory, TOKEN, decode_json, encode_json, object, repository_root, send,
+};
 
 pub const INDEX: &str = "notes";
 pub const EVENT_DEADLINE: Duration = Duration::from_secs(20);
@@ -164,8 +166,7 @@ impl ReferenceFeeds {
             spec.insert("grantMs", Value::Number(grant as f64));
         }
         let spec_path = directory.path().join("spec.json");
-        std::fs::write(&spec_path, write_plain_json(&Value::Object(spec)))
-            .expect("the spec is written");
+        std::fs::write(&spec_path, encode_json(&Value::Object(spec))).expect("the spec is written");
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/feeds_support/reference_feeds.mjs");
         let mut child = Command::new("node")
@@ -447,7 +448,8 @@ pub async fn open(
                 .body()
                 .as_ref()
                 .map(|bytes| {
-                    narsil::parse_plain_json(&String::from_utf8_lossy(bytes)).unwrap_or(Value::Null)
+                    let text = String::from_utf8_lossy(bytes).into_owned();
+                    decode_json(&text).unwrap_or(Value::String(text))
                 })
                 .unwrap_or(Value::Null);
             Err(Refusal { status, body })

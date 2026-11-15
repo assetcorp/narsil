@@ -10,13 +10,17 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::Request;
 use hyper_util::rt::TokioIo;
-use narsil::{Map, Narsil, NarsilConfig, Value, parse_plain_json, write_plain_json};
+use narsil::{Map, Narsil, NarsilConfig, Value};
 use narsil_server::{
     BoxError, NarsilServer, RequestContext, RequestDecision, RequestDenial, ServerOptions,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
+
+mod json;
+
+pub use json::{decode_json, encode_json};
 
 pub const TOKEN: &str = "test-token";
 const REFERENCE_START_DEADLINE: Duration = Duration::from_secs(60);
@@ -130,7 +134,7 @@ impl ReferenceServer {
     pub async fn start(spec: Value) -> ReferenceServer {
         let scratch = ScratchDirectory::new("reference-spec");
         let spec_path = scratch.path().join("spec.json");
-        std::fs::write(&spec_path, write_plain_json(&spec)).expect("the spec is written");
+        std::fs::write(&spec_path, encode_json(&spec)).expect("the spec is written");
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/reference_server.mjs");
         let mut child = Command::new("node")
@@ -179,7 +183,13 @@ pub struct Reply {
 
 impl Reply {
     pub fn json(&self) -> Value {
-        parse_plain_json(&String::from_utf8_lossy(&self.body)).unwrap_or(Value::Null)
+        let text = String::from_utf8_lossy(&self.body);
+        decode_json(&text)
+            .unwrap_or_else(|failure| panic!("the body {text:?} is not JSON: {failure}"))
+    }
+
+    fn decoded(&self) -> Option<Value> {
+        decode_json(&String::from_utf8_lossy(&self.body)).ok()
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
@@ -190,7 +200,7 @@ impl Reply {
     }
 
     pub fn error_code(&self) -> Option<String> {
-        match self.json() {
+        match self.decoded()? {
             Value::Object(body) => match body.get("error") {
                 Some(Value::Object(error)) => match error.get("code") {
                     Some(Value::String(code)) => Some(code.clone()),
@@ -234,7 +244,7 @@ impl<'a> Call<'a> {
     pub fn json(mut self, body: &Value) -> Call<'a> {
         self.headers
             .push(("content-type", "application/json".to_string()));
-        self.body = Bytes::from(write_plain_json(body));
+        self.body = Bytes::from(encode_json(body));
         self
     }
 
@@ -299,7 +309,7 @@ pub fn object(entries: Vec<(&str, Value)>) -> Value {
 }
 
 pub fn parsed(text: &str) -> Value {
-    parse_plain_json(text).expect("the test JSON is well formed")
+    decode_json(text).expect("the test JSON is well formed")
 }
 
 pub async fn same_status_and_code(rust: u16, reference: u16, call: &Call<'_>) -> (Reply, Reply) {

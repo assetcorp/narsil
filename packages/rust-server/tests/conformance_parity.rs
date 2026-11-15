@@ -6,9 +6,11 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use flate2::read::GzDecoder;
-use narsil::{Map, Value, parse_plain_json};
+use narsil::{Map, Value};
 use narsil_server::ServerOptions;
-use support::{Call, ReferenceServer, Reply, RustServer, ScratchDirectory, object, send};
+use support::{
+    Call, ReferenceServer, Reply, RustServer, ScratchDirectory, decode_json, object, send,
+};
 
 const INDEX: &str = "bills";
 const RESTORED_INDEX: &str = "bills-restored";
@@ -48,7 +50,7 @@ fn read_dataset_file(relative: &str) -> Vec<u8> {
 
 fn json_file(relative: &str) -> Value {
     let bytes = read_dataset_file(relative);
-    parse_plain_json(&String::from_utf8_lossy(&bytes)).expect("the file holds JSON")
+    decode_json(&String::from_utf8_lossy(&bytes)).expect("the file holds JSON")
 }
 
 fn at<'a>(value: &'a Value, path: &str) -> &'a Value {
@@ -86,8 +88,7 @@ fn documents_with_vectors() -> Vec<Value> {
         .lines()
         .zip(rows)
         .map(|(line, row)| {
-            let Value::Object(mut document) = parse_plain_json(line).expect("each line is JSON")
-            else {
+            let Value::Object(mut document) = decode_json(line).expect("each line is JSON") else {
                 panic!("each line holds an object");
             };
             let (elements, _) = row.as_chunks::<FLOAT32_BYTES>();
