@@ -24,7 +24,7 @@ from chart_data import (
     track,
 )
 from chart_paths import bars_chart, figure, recall_chart, server_chart_dir, sweep_chart, tail_chart
-from narsil_servers import NOT_MEASURED_TEXT, is_unmeasured, narsil_row
+from narsil_servers import DISPLAY_NAME_FIELD, NOT_MEASURED_TEXT, is_unmeasured, narsil_row
 from render import dataset_name, decimal, integer, table
 from server_setup import setup_block
 from sources import Source
@@ -55,7 +55,7 @@ def _qps_cell(row: dict) -> str:
         cell += f" ({integer(interval[0])} to {integer(interval[1])})"
     if _client_bound(row):
         cell += " (client-limited)"
-    if (row.get("operating_point") or {}).get("met_target") is False:
+    if DISPLAY_NAME_FIELD in row and (row.get("operating_point") or {}).get("met_target") is False:
         cell += " (below recall target)"
     return cell
 
