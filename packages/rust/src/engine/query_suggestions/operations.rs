@@ -25,8 +25,7 @@ use crate::engine::index::IndexState;
 use crate::error::Result;
 use crate::format::metadata_parts::config_invalid;
 
-const GROUP_FORMAT: &str =
-    "1 to 32 letters, digits, '_', and '-', starting with a letter or a digit";
+const GROUP_FORMAT: &str = "1 to 32 letters, digits, \"_\", and \"-\"";
 
 /// The popular query suggestions of an engine, which [`Narsil::query_suggestions`] returns.
 ///
@@ -244,9 +243,9 @@ impl QuerySuggestions<'_> {
             ));
         };
         if state.banned.contains(&phrase) {
-            return Err(config_invalid(format!(
-                "The ban list of index \"{index}\" holds this phrase"
-            )));
+            return Err(config_invalid(
+                "The ban list of the index holds this phrase",
+            ));
         }
         let marked = marked_suggestion_indexes(engine, index);
         if !marked.contains_key(&suggestion.group) && marked.len() >= setting.max_groups as usize {
