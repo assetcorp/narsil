@@ -353,6 +353,29 @@ fn the_feed_reader_returns_every_durable_entry_since_the_download_after_a_restar
     let wanted: Vec<u64> = (1..=written.len() as u64).collect();
     assert_eq!(read_all(&narsil, 0, 0, bounds.head), wanted);
     assert_eq!(read_all(&narsil, 0, 10, bounds.head), wanted[10..].to_vec());
+    let mut sizing = SyncCursor::after(0, 0);
+    let SyncRead::Entries(first) = narsil
+        .read_sync_entries(INDEX, &mut sizing, 2, usize::MAX)
+        .unwrap()
+    else {
+        panic!("the history holds the first two entries");
+    };
+    let two_entries: usize = first.iter().map(|entry| entry.payload.len()).sum();
+    for (budget, taken) in [(two_entries - 1, 1), (two_entries, 2)] {
+        let mut cursor = SyncCursor::after(0, 0);
+        let SyncRead::Entries(entries) = narsil
+            .read_sync_entries(INDEX, &mut cursor, bounds.head, budget)
+            .unwrap()
+        else {
+            panic!("the history holds every entry");
+        };
+        assert_eq!(
+            entries.len(),
+            taken,
+            "a read of {budget} bytes stops before the entry that would pass the budget"
+        );
+        assert_eq!(cursor.position(), taken as u64);
+    }
     let start = ChangePosition {
         partition_id: 0,
         seq_no: 0,

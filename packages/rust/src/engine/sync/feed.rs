@@ -159,9 +159,9 @@ impl Narsil {
     }
 
     /// Reads the entries of the cursor's partition above the cursor and at or below `up_to`, in sequence order,
-    /// until they hold `max_bytes`, and moves the cursor past them. A read takes at least one entry where one is
-    /// due, so a read can pass `max_bytes` by one entry. The read takes the entries from the log and history files
-    /// alone, so it leaves a closed index closed.
+    /// while their payloads stay within `max_bytes`, and moves the cursor past them. A read always takes the first
+    /// due entry, so a read of one entry can pass `max_bytes`. The read takes the entries from the log and history
+    /// files alone, so it leaves a closed index closed.
     ///
     /// Fails with `INDEX_NOT_FOUND` where the engine holds no index called `index`, with
     /// `SYNC_DURABILITY_REQUIRED` where the engine has no write-ahead log durability, and with

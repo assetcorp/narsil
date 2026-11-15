@@ -161,7 +161,7 @@ impl NarsilServer {
         let Some(running) = self.running.lock().await.take() else {
             return;
         };
-        self.state.feeds.close();
+        self.state.feeds.close().await;
         let _ = running.stop.send(true);
         let _ = running.accepting.await;
     }
