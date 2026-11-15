@@ -10,6 +10,26 @@ export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator 
   const refused = new Set<string>()
   let unreachable = false
   let eventDelayMs = 0
+
+  function behaviourOf(target: ClusterCoordinator, property: PropertyKey, value: (...args: never[]) => unknown) {
+    if (property === 'registerNode') {
+      return async (registration: NodeRegistration) => {
+        if (refused.has(registration.nodeId)) {
+          throw new Error(`the coordinator cannot reach ${registration.nodeId}`)
+        }
+        return target.registerNode(registration)
+      }
+    }
+    if (property === 'watchAllocation') {
+      return (handler: (event: AllocationEvent) => void) =>
+        target.watchAllocation(event => {
+          if (eventDelayMs === 0) handler(event)
+          else setTimeout(() => handler(event), eventDelayMs)
+        })
+    }
+    return (...args: never[]) => value.apply(target, args)
+  }
+
   return new Proxy(inner, {
     get(target, property, receiver) {
       if (property === 'refuseRegistrationOf') {
@@ -35,27 +55,14 @@ export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator 
         }
       }
       const value = Reflect.get(target, property, receiver)
-      if (unreachable && typeof value === 'function' && property !== 'shutdown') {
-        return async () => {
-          throw new Error(`the coordinator is unreachable, so ${String(property)} failed`)
+      if (typeof value !== 'function' || property === 'shutdown') return value
+      const behaviour = behaviourOf(target, property, value)
+      return (...args: never[]) => {
+        if (unreachable) {
+          return Promise.reject(new Error(`the coordinator is unreachable, so ${String(property)} failed`))
         }
+        return behaviour(...args)
       }
-      if (property === 'registerNode') {
-        return async (registration: NodeRegistration) => {
-          if (refused.has(registration.nodeId)) {
-            throw new Error(`the coordinator cannot reach ${registration.nodeId}`)
-          }
-          return target.registerNode(registration)
-        }
-      }
-      if (property === 'watchAllocation') {
-        return (handler: (event: AllocationEvent) => void) =>
-          target.watchAllocation(event => {
-            if (eventDelayMs === 0) handler(event)
-            else setTimeout(() => handler(event), eventDelayMs)
-          })
-      }
-      return value
     },
   }) as FaultyCoordinator
 }

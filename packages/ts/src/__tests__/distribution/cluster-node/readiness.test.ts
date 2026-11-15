@@ -133,8 +133,11 @@ describe('the readiness a node reports between registering and serving', () => {
     const coordinator: ClusterCoordinator = {
       ...backing,
       async listSchemas() {
-        markRegistered()
-        await registrationGate
+        const holdsRegistration = (await backing.listNodes()).some(registration => registration.nodeId === NODE_ID)
+        if (holdsRegistration) {
+          markRegistered()
+          await registrationGate
+        }
         return backing.listSchemas()
       },
     }
