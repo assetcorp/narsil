@@ -1,5 +1,4 @@
 import { bindQuerySignal, clearQuerySignal } from '../../narsil/internals'
-import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
@@ -7,7 +6,7 @@ import { encodeQueryResult } from '../query-response'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
 import { requestSignal } from '../request-signal'
-import { validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
+import { validateQuery, validateSuggest, withServerQueryLimits } from '../validation'
 import type { ReadHandlerDeps } from './document-reads'
 
 export function createSearchHandlers(deps: ReadHandlerDeps) {
@@ -23,10 +22,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      const query = withServerRerankWindow(
-        { ...params, limit: params.limit ?? Math.min(DEFAULT_PAGE_SIZE, limits.maxResultWindow) },
-        limits,
-      )
+      const query = withServerQueryLimits(params, limits)
       const result = await searchWithSignal(ctx, query)
       await respondAnswer(ctx, encodeQueryResult(result), 'hits', `a search on index '${ctx.params[0]}'`)
     } catch (err) {
@@ -53,11 +49,12 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      bindQuerySignal(params, requestSignal(ctx.abort))
+      const query = withServerQueryLimits(params, limits)
+      bindQuerySignal(query, requestSignal(ctx.abort))
       try {
-        respondJson(ctx, await engine.preflight(ctx.params[0], params))
+        respondJson(ctx, await engine.preflight(ctx.params[0], query))
       } finally {
-        clearQuerySignal(params)
+        clearQuerySignal(query)
       }
     } catch (err) {
       respondError(ctx, err)

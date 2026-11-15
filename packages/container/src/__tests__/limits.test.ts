@@ -16,7 +16,7 @@ beforeAll(async () => {
     (
       await call(node, 'POST', '/indexes', {
         credential: ADMIN_KEY,
-        body: { name: 'books', config: { schema: { title: 'string' } } },
+        body: { name: 'books', config: { schema: { title: 'string', category: 'string' } } },
       })
     ).status,
   ).toBe(201)
@@ -25,11 +25,33 @@ beforeAll(async () => {
       (
         await call(node, 'POST', '/indexes/books/documents', {
           credential: ADMIN_KEY,
-          body: { id: `book-${i}`, document: { title: 'garden' } },
+          body: { id: `book-${i}`, document: { title: 'garden', category: `category-${i}` } },
         })
       ).status,
     ).toBe(201)
   }
+})
+
+it('bounds grouped and faceted answers and rejects a string page size', async () => {
+  const malformed = await call(node, 'POST', '/indexes/books/search', {
+    credential: ADMIN_KEY,
+    body: { term: 'garden', limit: '8' },
+  })
+  expect(malformed.status).toBe(400)
+  const grouped = await call(node, 'POST', '/indexes/books/search', {
+    credential: ADMIN_KEY,
+    body: { term: 'garden', group: { fields: ['category'] } },
+  })
+  expect(grouped.status).toBe(200)
+  expect((grouped.body as { groups: unknown[] }).groups).toHaveLength(3)
+  const faceted = await call(node, 'POST', '/indexes/books/search', {
+    credential: ADMIN_KEY,
+    body: { term: 'garden', facets: { category: {} } },
+  })
+  expect(faceted.status).toBe(200)
+  expect(
+    Object.keys((faceted.body as { facets: { category: { values: object } } }).facets.category.values),
+  ).toHaveLength(3)
 })
 
 afterAll(async () => {

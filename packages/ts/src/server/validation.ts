@@ -1,6 +1,6 @@
 import { ANALYSIS_CHANGE_MEMBERS } from '../engine/constants'
 import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
-import { MAX_SORT_FIELDS } from '../search/constants'
+import { DEFAULT_PAGE_SIZE, MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import { DEFAULT_TASK_PAGE_SIZE } from './constants'
 import { TASK_STATUSES, TASK_TYPES } from './task-status'
@@ -32,6 +32,9 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 }
 
 function overWindow(field: string, value: unknown, maxWindow: number): ValidationFailure | null {
+  if (value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
+    return { message: `Field "${field}" must be a non-negative integer` }
+  }
   if (typeof value === 'number' && value > maxWindow) {
     return {
       message: `Field "${field}" exceeds the maximum result window of ${maxWindow}`,
@@ -39,6 +42,22 @@ function overWindow(field: string, value: unknown, maxWindow: number): Validatio
     }
   }
   return null
+}
+
+export function withServerQueryLimits(params: QueryParams, limits: QueryLimits): QueryParams {
+  const query = { ...params, limit: params.limit ?? Math.min(DEFAULT_PAGE_SIZE, limits.maxResultWindow) }
+  if (params.group && typeof params.group === 'object') {
+    query.group = { ...params.group, limit: params.group.limit ?? limits.maxResultWindow }
+  }
+  if (params.facets && typeof params.facets === 'object') {
+    query.facets = Object.fromEntries(
+      Object.entries(params.facets).map(([field, facet]) => [
+        field,
+        { ...facet, limit: facet?.limit === undefined || facet.limit === 0 ? limits.maxResultWindow : facet.limit },
+      ]),
+    )
+  }
+  return withServerRerankWindow(query, limits)
 }
 
 export interface QueryLimits {
