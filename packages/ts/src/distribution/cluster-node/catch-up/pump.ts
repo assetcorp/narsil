@@ -4,7 +4,7 @@ import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS } from '../constants'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
-import { admittedBeyondTable } from './admitted'
+import { admittedBeyondTable, forgetSettledAdmission, settledAdmissions } from './admitted'
 import { nextWireBatch, sendBatch } from './batches'
 import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
 import { forgetSyncSessions } from './sessions'
@@ -150,6 +150,32 @@ async function registeredNodes(deps: WriteRoutingDeps): Promise<RegisteredNodes>
   }
 }
 
+function settleAdmissionsInQueue(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  key: string,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  started: Promise<void>[],
+): void {
+  const settled = settledAdmissions(state, indexName, partitionId, assignment)
+  if (settled.length === 0 || state.settlingAdmissions.has(key)) return
+  state.settlingAdmissions.add(key)
+  const work: Promise<void> = enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
+    for (const [replicaNodeId, record] of settled) {
+      forgetSettledAdmission(state, indexName, partitionId, replicaNodeId, record)
+    }
+  })
+    .catch(() => {})
+    .finally(() => {
+      state.settlingAdmissions.delete(key)
+      state.replicaWork.delete(work)
+    })
+  state.replicaWork.add(work)
+  started.push(work)
+}
+
 async function pumpPartition(
   state: CatchUpState,
   deps: WriteRoutingDeps,
@@ -181,6 +207,7 @@ async function pumpPartition(
   }
 
   const admitted = new Set(admittedBeyondTable(state, indexName, partitionId, assignment, generationAtLiveRead))
+  settleAdmissionsInQueue(state, deps, key, indexName, partitionId, assignment, started)
   for (const [replicaNodeId, cursor] of [...replicas]) {
     if (state.stopped) {
       return
@@ -241,10 +268,9 @@ async function pumpPartition(
  * keeps the cursor of a replica that the controller has admitted until a live read that began after the admission
  * reply arrived, because only such a read can show whether the controller removed that replica after it admitted it,
  * and the write path stops sending to the replica once that read leaves it out of the in-sync set. Where that read
- * shows the replica in the in-sync set, the pump leaves the record of the admission in place, because a write that
- * read the allocation table before the admission sends its later chunks from that older table. The write path drops
- * the record once the table that a write reads shows the replica in the in-sync set or shows a later change to that
- * set. A tick that is
+ * shows the replica in the in-sync set, the pump drops the record of the admission only from inside the partition's
+ * write queue, because a write that read the allocation table before the admission sends its later chunks from that
+ * older table, and every write that the queue lets in afterwards reads a table that holds the admission. A tick that is
  * already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.

@@ -142,6 +142,31 @@ export function recordRemovalUnlessReadmitted(
   recordRemovedReplica(state, indexName, partitionId, replicaNodeId, primaryTerm)
 }
 
+export function settledAdmissions(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): Array<[string, AdmittedReplica]> {
+  const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
+  if (admitted === undefined) return []
+  return [...admitted].filter(
+    ([replicaNodeId, record]) =>
+      assignment.inSyncSet.includes(replicaNodeId) && record.primaryTerm === assignment.primaryTerm,
+  )
+}
+
+export function forgetSettledAdmission(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  record: AdmittedReplica,
+): void {
+  if (state.admittedReplicas.get(partitionKey(indexName, partitionId))?.get(replicaNodeId) !== record) return
+  forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
+}
+
 export function admittedBeyondTable(
   state: CatchUpState,
   indexName: string,
