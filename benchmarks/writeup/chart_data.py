@@ -15,6 +15,11 @@ def number(value: object) -> float | None:
     return float(value) if is_number(value) else None
 
 
+def recall_unrecorded(row: dict) -> bool:
+    point = row.get("operating_point") or {}
+    return "met_target" in point and point["met_target"] is None
+
+
 def levels(row: dict) -> list[dict]:
     block = row.get("throughput") or {}
     items = block.get("levels") or []

@@ -189,3 +189,23 @@ def test_zero_throughput_is_a_measurement_in_the_chart(checkout):
     assert "Narsil Rust" in text
     assert "Narsil Rust, no throughput recorded" not in text
     assert "No positive server latency recorded." in text
+
+
+def test_unknown_recall_never_becomes_a_throughput_win(checkout):
+    rust = row("narsil-rust", 1500)
+    rust["operating_point"] = {"met_target": None, "achieved_recall": None}
+    rival = row("qdrant", 1000)
+    rival["operating_point"] = {"met_target": True, "achieved_recall": 0.995}
+    data = comparison([row("narsil", 900), rust, rival])
+    data["tracks"][0]["track"] = "vector"
+    write_comparison(checkout, data)
+    page, headline = generate(checkout)
+    assert "Narsil's Rust server has no recorded recall result, so the comparison leaves its speed unranked." in headline
+    assert "Narsil's TypeScript server has no recorded recall result" in headline
+    assert "with every engine held" not in headline
+    assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in headline
+    assert "1,500 (recall not recorded)" in page
+    completed = command(checkout, "charts.py")
+    assert completed.returncode == 0, completed.stderr
+    chart = checkout / "benchmarks/server/results/runs" / RUN / "charts/equal-precision-vector-scifact-bars.svg"
+    assert "bars with unrecorded recall are unranked" in chart.read_text()

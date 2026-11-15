@@ -20,6 +20,7 @@ from chart_data import (
     peak_interval,
     peak_level,
     peak_qps,
+    recall_unrecorded,
     row_label,
     track,
 )
@@ -57,6 +58,8 @@ def _qps_cell(row: dict) -> str:
         cell += " (client-limited)"
     if DISPLAY_NAME_FIELD in row and (row.get("operating_point") or {}).get("met_target") is False:
         cell += " (below recall target)"
+    elif DISPLAY_NAME_FIELD in row and recall_unrecorded(row):
+        cell += " (recall not recorded)"
     return cell
 
 
