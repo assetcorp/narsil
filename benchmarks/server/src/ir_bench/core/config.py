@@ -17,6 +17,7 @@ DEFAULT_LATENCY_MIN_REPEATS = 1
 DEFAULT_LATENCY_MAX_REPEATS = 5
 DEFAULT_LATENCY_TOP_K = 10
 DEFAULT_TUNING_SAMPLE_QUERIES = 1000
+MAX_EF_SEARCH = 10_000
 ENGINE_ADDRESS_ENV = "BENCH_ENGINE_ADDRESS"
 
 
@@ -167,9 +168,11 @@ def _load_engines(raw: dict) -> dict[str, EngineConfig]:
 
 
 def _load_vector(raw: dict) -> VectorConfig | None:
-    vec = raw.get("vector")
-    if not vec:
+    if "vector" not in raw:
         return None
+    vec = raw["vector"]
+    if not isinstance(vec, dict):
+        raise ValueError("[vector] must be a table")
     metric = str(vec.get("metric", "cosine"))
     if "ef_search_grid_best_config" in vec:
         raise ValueError(
@@ -184,6 +187,11 @@ def _load_vector(raw: dict) -> VectorConfig | None:
     grid = tuple(sorted(set(grid_raw)))
     if grid[0] < 1:
         raise ValueError("[vector].ef_search_grid values must be positive")
+    if grid[-1] > MAX_EF_SEARCH:
+        raise ValueError(
+            f"[vector].ef_search_grid values must not exceed {MAX_EF_SEARCH}, "
+            "the Elasticsearch num_candidates limit for the shared grid"
+        )
     recall_k = int(vec.get("recall_k", 10))
     if recall_k < 1:
         raise ValueError("[vector].recall_k must be positive")
