@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { type BrowserContext, chromium, expect, type Page, test } from '@playwright/test'
 import { BROWSER_E2E_ORIGIN } from './settings'
-import type { LogScenario, ReadBack } from './write-ahead-log/page-engine'
+import type { LogScenario, LossReport, ReadBack } from './write-ahead-log/page-engine'
 
 const PAGE_ENGINE_MODULE = '/e2e/write-ahead-log/page-engine.ts'
 const ACKNOWLEDGED_BEFORE_THE_CRASH = 300
@@ -12,6 +12,9 @@ const ACKNOWLEDGEMENT_TIMEOUT_MS = 60_000
 interface PageEngine {
   startWriting(scenario: LogScenario, acknowledge: (docId: string, title: string) => Promise<void>): Promise<void>
   readBack(scenario: LogScenario, docIds: string[]): Promise<ReadBack>
+  openWatched(scenario: LogScenario): Promise<void>
+  insertAfterStorageCleared(): Promise<LossReport>
+  reportedErrors(): string[]
 }
 
 async function openProfile(profile: string): Promise<{ context: BrowserContext; page: Page }> {
@@ -81,4 +84,38 @@ test('a browser crash keeps every write that the log acknowledged in async mode 
     dbName: 'narsil-e2e-log-async',
     durability: { mode: 'async', flushIntervalMs: 600_000 },
   })
+})
+
+test('clearing the site data under a running engine refuses every later write and reports it', async () => {
+  const profile = await mkdtemp(path.join(tmpdir(), 'narsil-write-ahead-log-'))
+  try {
+    const { context, page } = await openProfile(profile)
+    const scenario: LogScenario = { dbName: 'narsil-e2e-log-cleared' }
+    await page.evaluate(
+      async ([modulePath, chosen]) => {
+        const engine = (await import(modulePath)) as PageEngine
+        await engine.openWatched(chosen)
+      },
+      [PAGE_ENGINE_MODULE, scenario] as const,
+    )
+    const session = await context.newCDPSession(page)
+    await session.send('Storage.clearDataForOrigin', { origin: BROWSER_E2E_ORIGIN, storageTypes: 'indexeddb' })
+
+    const report = await page.evaluate(async modulePath => {
+      const engine = (await import(modulePath)) as PageEngine
+      return engine.insertAfterStorageCleared()
+    }, PAGE_ENGINE_MODULE)
+    expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+    await expect
+      .poll(() =>
+        page.evaluate(async modulePath => {
+          const engine = (await import(modulePath)) as PageEngine
+          return engine.reportedErrors()
+        }, PAGE_ENGINE_MODULE),
+      )
+      .toContain('PERSISTENCE_SAVE_FAILED')
+    await context.close()
+  } finally {
+    await rm(profile, { recursive: true, force: true })
+  }
 })

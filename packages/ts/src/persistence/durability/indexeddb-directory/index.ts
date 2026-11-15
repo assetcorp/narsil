@@ -23,8 +23,8 @@ export function createIndexedDBDirectory(
   location: IndexedDBLocation,
   options: IndexedDBDirectoryOptions,
 ): DurableDirectory {
-  const SAVE = ErrorCodes.PERSISTENCE_SAVE_FAILED
-  const LOAD = ErrorCodes.PERSISTENCE_LOAD_FAILED
+  const saveFailed = ErrorCodes.PERSISTENCE_SAVE_FAILED
+  const loadFailed = ErrorCodes.PERSISTENCE_LOAD_FAILED
   const connection = openLogConnection(location)
   const openFiles = new Map<string, OpenFile>()
   const opening = new Map<string, Promise<OpenFile>>()
@@ -62,7 +62,7 @@ export function createIndexedDBDirectory(
 
   async function readContent(key: string): Promise<Uint8Array | null> {
     requireKey(key)
-    return connection.read({ code: LOAD, action: `read "${key}"` }, async store => {
+    return connection.read({ code: loadFailed, action: `read "${key}"` }, async store => {
       const records = await readRecords(store, key)
       return records === null ? null : contentOf(records)
     })
@@ -79,7 +79,7 @@ export function createIndexedDBDirectory(
 
     async markerHandle(key: string): Promise<MarkerHandle> {
       requireKey(key)
-      let current = await connection.write('strict', { code: SAVE, action: `open "${key}"` }, async store => {
+      let current = await connection.write('strict', { code: saveFailed, action: `open "${key}"` }, async store => {
         const records = await readRecords(store, key)
         if (records !== null) return contentOf(records)
         const empty = new Uint8Array(0)
@@ -107,7 +107,7 @@ export function createIndexedDBDirectory(
       requireKey(key)
       const bytes = joinBytes(Array.isArray(data) ? data : [data as Uint8Array])
       detach(key)
-      await connection.write('strict', { code: SAVE, action: `write "${key}"` }, store =>
+      await connection.write('strict', { code: saveFailed, action: `write "${key}"` }, store =>
         replaceRecords(store, key, { first: bytes, appended: [] }),
       )
     },
@@ -121,7 +121,7 @@ export function createIndexedDBDirectory(
     async readRange(key: string, offset: number, length: number): Promise<Uint8Array> {
       const content = await readContent(key)
       if (content === null || offset < 0 || length < 0 || offset + length > content.byteLength) {
-        throw new NarsilError(LOAD, `"${key}" ends before the bytes a read asked for`, { key, offset, length })
+        throw new NarsilError(loadFailed, `"${key}" ends before the bytes a read asked for`, { key, offset, length })
       }
       return content.slice(offset, offset + length)
     },
@@ -151,10 +151,13 @@ export function createIndexedDBDirectory(
         moving.key = to
         openFiles.set(to, moving)
       }
-      await connection.write('strict', { code: SAVE, action: `move "${from}" to "${to}"` }, async store => {
+      await connection.write('strict', { code: saveFailed, action: `move "${from}" to "${to}"` }, async store => {
         const records = await readRecords(store, from)
         if (records === null) {
-          throw new NarsilError(SAVE, `Failed to move "${from}" to "${to}": "${from}" holds nothing`, { from, to })
+          throw new NarsilError(saveFailed, `Failed to move "${from}" to "${to}": "${from}" holds nothing`, {
+            from,
+            to,
+          })
         }
         await replaceRecords(store, to, records)
         await removeRecords(store, from)
@@ -162,7 +165,9 @@ export function createIndexedDBDirectory(
     },
 
     async list(prefix: string): Promise<string[]> {
-      const keys = await connection.read({ code: LOAD, action: `list "${prefix}"` }, store => listKeys(store, prefix))
+      const keys = await connection.read({ code: loadFailed, action: `list "${prefix}"` }, store =>
+        listKeys(store, prefix),
+      )
       return keys.sort(compareCodePoints)
     },
 

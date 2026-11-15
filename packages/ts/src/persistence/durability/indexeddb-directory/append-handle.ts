@@ -49,14 +49,25 @@ function sizeOf(file: OpenFile): number {
   return size
 }
 
+function recordKeyOf(key: string, n: number): IDBValidKey {
+  return n === 0 ? key : appendKey(key, n)
+}
+
 function putRecords(store: IDBObjectStore, key: string, records: readonly AppendedRecord[]): Promise<unknown[]> {
-  return Promise.all(records.map(record => requestResult(store.put(record.bytes, appendKey(key, record.n)))))
+  return Promise.all(records.map(record => requestResult(store.put(record.bytes, recordKeyOf(key, record.n)))))
+}
+
+function holdsNoBytes(file: OpenFile): boolean {
+  return file.parts.length === 1 && file.parts[0].length === 0
 }
 
 export function createAppendHandle(file: OpenFile, deps: AppendHandleDeps): AppendHandle {
   const { connection } = deps
-  const SAVE = { code: ErrorCodes.PERSISTENCE_SAVE_FAILED, action: 'append to a log file' }
-  const FSYNC = { code: ErrorCodes.PERSISTENCE_FSYNC_FAILED, action: 'commit a log file with strict durability' }
+  const appendFailure = { code: ErrorCodes.PERSISTENCE_SAVE_FAILED, action: 'append to a log file' }
+  const strictCommitFailure = {
+    code: ErrorCodes.PERSISTENCE_FSYNC_FAILED,
+    action: 'commit a log file with strict durability',
+  }
   let closed = false
   file.handles += 1
 
@@ -82,7 +93,7 @@ export function createAppendHandle(file: OpenFile, deps: AppendHandleDeps): Appe
     const batch = file.unsynced.slice()
     if (batch.length === 0) return
     try {
-      await connection.write(durability, durability === 'strict' ? FSYNC : SAVE, store =>
+      await connection.write(durability, durability === 'strict' ? strictCommitFailure : appendFailure, store =>
         putRecords(store, file.key, batch),
       )
     } catch (error) {
@@ -104,11 +115,11 @@ export function createAppendHandle(file: OpenFile, deps: AppendHandleDeps): Appe
     const cut = kept[kept.length - 1]
     const cutLength = cut.length
     const cutIsPartial = cutLength < (file.parts[kept.length - 1]?.length ?? 0)
-    await connection.write('strict', FSYNC, async store => {
+    await connection.write('strict', strictCommitFailure, async store => {
       await putRecords(store, file.key, batch)
-      for (const part of dropped) await requestResult(store.delete(appendKey(file.key, part.n)))
+      for (const part of dropped) await requestResult(store.delete(recordKeyOf(file.key, part.n)))
       if (!cutIsPartial) return
-      const recordKey = cut.n === 0 ? file.key : appendKey(file.key, cut.n)
+      const recordKey = recordKeyOf(file.key, cut.n)
       const stored = await requestResult(store.get(recordKey))
       if (!(stored instanceof Uint8Array) || stored.byteLength < cutLength) {
         throw new NarsilError(
@@ -129,13 +140,19 @@ export function createAppendHandle(file: OpenFile, deps: AppendHandleDeps): Appe
   return {
     async append(bytes: Uint8Array): Promise<void> {
       requireUsable()
-      const record: AppendedRecord = { n: file.nextN, bytes: compactBytes(bytes) }
-      file.nextN += 1
-      file.parts.push({ n: record.n, length: record.bytes.byteLength })
+      if (bytes.byteLength === 0) return
+      const owned = compactBytes(bytes)
+      const record: AppendedRecord = holdsNoBytes(file) ? { n: 0, bytes: owned } : { n: file.nextN, bytes: owned }
+      if (record.n === 0) {
+        file.parts[0] = { n: 0, length: owned.byteLength }
+      } else {
+        file.nextN += 1
+        file.parts.push({ n: record.n, length: owned.byteLength })
+      }
       file.unsynced.push(record)
       if (!deps.relaxedAppends) return
       try {
-        await connection.write('relaxed', SAVE, store => putRecords(store, file.key, [record]))
+        await connection.write('relaxed', appendFailure, store => putRecords(store, file.key, [record]))
       } catch (error) {
         throw latch(error)
       }
