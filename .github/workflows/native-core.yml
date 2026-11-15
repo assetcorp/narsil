@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include: >-
           ${{ fromJSON(github.event_name == 'pull_request' && '[
@@ -87,13 +88,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: >-
-          ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[
-          {"runner": "ubuntu-latest", "part": 1, "parts": 2},
-          {"runner": "ubuntu-latest", "part": 2, "parts": 2}
-          ]' || '[
-          {"runner": "macos-15", "part": 1, "parts": 1}
-          ]') }}
+        include:
+          - runner: ubuntu-latest
+            part: 1
+            parts: 2
+          - runner: ubuntu-latest
+            part: 2
+            parts: 2
 
     steps:
       - name: Checkout
@@ -243,6 +244,7 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include: >-
           ${{ fromJSON(inputs.proven-on-main && '[
@@ -323,7 +325,7 @@ jobs:
 
   identity-musl:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
-    needs: build
+    needs: [build, identity]
     if: ${{ github.event_name != 'pull_request' && !inputs.proven-on-main }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10

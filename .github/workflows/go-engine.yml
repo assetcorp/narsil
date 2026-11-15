@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: ${{ matrix.parts == 1 && 40 || 20 }}
     strategy:
       fail-fast: false
+      max-parallel: 18
       matrix: >-
         ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '{"include": [
         {"parts": 2, "shard": 1, "target": {"platform": "linux-x64", "runner": "ubuntu-latest", "go": "1.26", "race": true}},
