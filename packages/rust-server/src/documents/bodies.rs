@@ -1,5 +1,6 @@
 use narsil::{ErrorCode, IndexConfig, Map, Value};
 
+pub(crate) use super::index_config::with_given_values;
 use super::index_config::{index_config_of, refusal};
 use super::script_values::{script_text, script_type_name};
 use crate::errors::{Outcome, ServerError};

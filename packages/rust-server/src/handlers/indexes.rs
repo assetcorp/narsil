@@ -4,7 +4,7 @@ use narsil::Value;
 
 use super::common::{engine_call, json_object_body, object};
 use crate::documents::answers::{index_info, index_stats, memory_stats, partition_stats};
-use crate::documents::bodies::create_index_request;
+use crate::documents::bodies::{create_index_request, field, with_given_values};
 use crate::errors::{Outcome, ServerError};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, json};
@@ -22,7 +22,12 @@ async fn create(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<Htt
     let body = json_object_body(context)?;
     let (name, config) = create_index_request(&body)?;
     let created = name.clone();
-    engine_call(state, move |engine| engine.create_index(&created, config)).await?;
+    engine_call(state, move |engine| engine.create_index(&created, config))
+        .await
+        .map_err(|error| match field(&body, "config") {
+            Some(Value::Object(given)) => with_given_values(error, given),
+            _ => error,
+        })?;
     Ok(json(201, &object(vec![("name", Value::String(name))])))
 }
 
