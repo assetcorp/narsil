@@ -97,5 +97,13 @@ export async function pagedListingOf(
       listed: ref.bytes,
     })
   }
-  return { key: ref.key, path: await directory.pathOf(ref.key), bytes: ref.bytes, checksum: ref.checksum }
+  return { key: ref.key, path: await filePathOf(directory, ref.key), bytes: ref.bytes, checksum: ref.checksum }
+}
+
+export function filePathOf(directory: DurableDirectory, key: string): Promise<string> {
+  const { pathOf } = directory
+  if (pathOf === undefined) {
+    return loadFailed(`The storage that holds "${key}" keeps no files, so a paged reader cannot open it`, { key })
+  }
+  return pathOf.call(directory, key)
 }

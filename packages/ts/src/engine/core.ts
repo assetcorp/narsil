@@ -113,7 +113,7 @@ export async function createEngineCore(
   }
   const durabilityWiring =
     durabilityTier === null ? null : (await Promise.all([loadStorageCode(), loadOptionalWrites()]))[0]
-  const filesystemDurability = durabilityTier?.kind === 'wal'
+  const filesystemDurability = durabilityTier?.kind === 'wal' && durabilityTier.indexedDB === undefined
   const executor: Executor & DirectExecutorExtensions & IndexReplacement = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,
     vectorStorage: filesystemDurability ? 'disk' : 'memory',
