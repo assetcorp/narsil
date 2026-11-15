@@ -211,6 +211,35 @@ impl Analyser {
         )
     }
 
+    pub(crate) fn custom_document_tokens(&self, text: &str) -> Option<Result<Vec<Token>>> {
+        let tokenizer = self.tokenizer.as_ref()?;
+        Some(tokens_in_position_order(
+            tokenizer.as_ref(),
+            text,
+            TokenSource::Document,
+        ))
+    }
+
+    pub(crate) fn visit_document_terms(
+        &self,
+        text: &str,
+        visit: &mut dyn FnMut(&str),
+    ) -> Result<()> {
+        if let Some(tokens) = self.custom_document_tokens(text) {
+            for token in &tokens? {
+                visit(&token.token);
+            }
+            return Ok(());
+        }
+        let options = TokenOptions {
+            stem: false,
+            remove_stop_words: false,
+            remove_diacritics: false,
+            collect_surfaces: false,
+        };
+        self.visit_tokens(text, options, &mut |term, _, _, _| visit(term))
+    }
+
     pub(crate) fn pack_text(
         &self,
         text: &str,

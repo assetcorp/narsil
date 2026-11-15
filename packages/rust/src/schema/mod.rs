@@ -4,8 +4,8 @@ mod field_type;
 
 pub(crate) use compiled::CompiledSchema;
 pub(crate) use document::{
-    DEFAULT_PATTERN_VALUE_LIMIT, require_document_within_size_limit, validate_document,
-    validate_document_strict, validate_required_fields,
+    DEFAULT_PATTERN_VALUE_LIMIT, MAX_DOCUMENT_NESTING_DEPTH, require_document_within_size_limit,
+    validate_document, validate_document_strict, validate_required_fields,
 };
 pub(crate) use field_type::MAX_VECTOR_DIMENSION;
 pub use field_type::{BaseType, FieldType, parse_field_type};

@@ -44,7 +44,9 @@ pub struct IndexLifecycleConfig {
 /// and on Windows the private working set. The limit is the cgroup's memory limit on Linux where one is set below
 /// the machine's memory, and otherwise the machine's memory, which Linux counts as the process's memory plus the
 /// memory available. A full engine refuses each insert and update with `MEMORY_WRITE_BLOCKED`, and keeps accepting
-/// removes, searches, and reads, so that removing documents frees memory.
+/// removes, searches, and reads, so that removing documents frees memory. An engine below the block fraction also
+/// refuses an insert or an update whose document can take enough memory to carry the process past that fraction
+/// while the engine indexes it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MemoryConfig {
     /// The engine counts as full once the process's memory passes this fraction of the limit: above
