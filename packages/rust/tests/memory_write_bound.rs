@@ -285,6 +285,11 @@ fn a_document_larger_than_the_block_is_refused_as_exceeding_memory() {
         "{details:?}"
     );
     drop(exceeding);
+    engine.shutdown().expect("stops");
+    drop(engine);
+    let Some(engine) = bounded_engine() else {
+        return;
+    };
     let batch = engine
         .insert_batch(INDEX, vec![with_id("exceeding", &text)])
         .expect("the batch answers");
