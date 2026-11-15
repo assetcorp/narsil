@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use narsil::{
@@ -29,7 +28,7 @@ fn score_value(score: f64) -> Value {
     }
 }
 
-fn numbers(record: BTreeMap<String, f64>) -> Value {
+fn numbers(record: Vec<(String, f64)>) -> Value {
     let mut map = Map::with_capacity(record.len());
     for (key, number) in record {
         map.insert(key, Value::Number(number));

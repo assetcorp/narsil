@@ -3,7 +3,6 @@ use std::process::Command;
 use narsil::{IndexConfig, Map, Narsil, PartitionConfig, Value, parse_json, write_json};
 
 use super::parity::{INSERT_BATCH_DOCUMENTS, dataset_documents};
-use super::shaping_compare::normalised_page;
 use super::shaping_json::{page_value, shaping_params};
 use super::{ScratchDirectory, repository_root};
 
@@ -279,11 +278,7 @@ pub fn reference_pages(spec: &ShapingSpec, documents: &[Map]) -> Vec<Vec<Value>>
         .and_then(Value::as_array)
         .expect("the reference lists its results")
         .iter()
-        .map(|pages| {
-            let mut pages = pages.as_array().expect("a list of pages").clone();
-            pages.iter_mut().for_each(normalised_page);
-            pages
-        })
+        .map(|pages| pages.as_array().expect("a list of pages").clone())
         .collect()
 }
 

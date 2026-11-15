@@ -281,15 +281,12 @@ pub fn ids(answer: &Value, key: &str) -> Vec<String> {
 
 pub fn without_elapsed(value: &Value) -> Value {
     match value {
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().filter(|key| *key != "elapsed").collect();
-            keys.sort();
-            let mut kept = Map::new();
-            for key in keys {
-                kept.insert(key.clone(), without_elapsed(field(value, key)));
-            }
-            Value::Object(kept)
-        }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(key, _)| *key != "elapsed")
+                .map(|(key, item)| (key.clone(), without_elapsed(item)))
+                .collect(),
+        ),
         Value::Array(items) => Value::Array(items.iter().map(without_elapsed).collect()),
         other => other.clone(),
     }

@@ -2,10 +2,11 @@ mod search_support;
 mod support;
 
 use narsil::Value;
+use narsil_server::ServerOptions;
 use search_support::{
     Book, INDEX, Setup, books, error_message, field, ids, items, text, without_elapsed,
 };
-use support::{Call, parsed, same_status_and_code, send};
+use support::{Call, ReferenceServer, RustServer, object, parsed, same_status_and_code, send};
 
 const EVERY_WORD: &str = "river stone quiet harbor lantern winter garden signal";
 
@@ -475,5 +476,73 @@ async fn the_server_limits_bound_every_page() {
         "a limit below one lists one book"
     );
 
+    rust.stop().await;
+}
+
+const NOTES: [(&str, &str); 4] = [
+    (
+        "a",
+        r#"{"title":"zebra harbor 2024","body":"apple stone harbor 7","tag":"harbor"}"#,
+    ),
+    (
+        "b",
+        r#"{"title":"apple 7 stone","body":"zebra 2024 harbour","tag":"stone"}"#,
+    ),
+    (
+        "c",
+        r#"{"title":"harbor","body":"apple apple zebra","tag":"2024 zebra"}"#,
+    ),
+    (
+        "d",
+        r#"{"title":"mango stone","body":"harbor 10 2 zebra","tag":"apple"}"#,
+    ),
+];
+
+async fn store_notes(port: u16) {
+    let created = send(
+        port,
+        &Call::new("POST", "/indexes").json(&parsed(
+            r#"{"name":"notes","config":{"schema":{"title":"string","body":"string","tag":"string"}}}"#,
+        )),
+    )
+    .await;
+    assert_eq!(created.status, 201, "the server creates the notes index");
+    for (id, fields) in NOTES {
+        let target = format!("/indexes/notes/documents/{id}");
+        let stored = send(
+            port,
+            &Call::new("PUT", &target).json(&object(vec![("document", parsed(fields))])),
+        )
+        .await;
+        assert_eq!(stored.status, 201, "the server stores note {id}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn highlights_and_score_components_list_their_keys_in_the_typescript_order() {
+    let rust = RustServer::in_memory(ServerOptions::default()).await;
+    let reference = ReferenceServer::start(object(vec![])).await;
+    store_notes(rust.port).await;
+    store_notes(reference.port).await;
+
+    for body in [
+        r#"{"term":"zebra apple harbor","includeScoreComponents":true}"#,
+        r#"{"term":"10 2 harbor 2024 7","includeScoreComponents":true}"#,
+        r#"{"term":"harbr zebr","tolerance":1,"includeScoreComponents":true}"#,
+        r#"{"term":"apple stone","fields":["tag","body","title"],"includeScoreComponents":true}"#,
+        r#"{"term":"harbor apple zebra","highlight":{"fields":["title","body","tag"]}}"#,
+        r#"{"term":"harbor apple zebra","highlight":{"fields":["tag","body","title"]}}"#,
+    ] {
+        let call = Call::new("POST", "/indexes/notes/search").json(&parsed(body));
+        let (mine, theirs) = same_status_and_code(rust.port, reference.port, &call).await;
+        assert_eq!(mine.status, 200, "{body} succeeds");
+        assert_eq!(
+            without_elapsed(&mine.json()),
+            without_elapsed(&theirs.json()),
+            "{body} lists every key in the order of the TypeScript server"
+        );
+    }
+
+    reference.stop().await;
     rust.stop().await;
 }

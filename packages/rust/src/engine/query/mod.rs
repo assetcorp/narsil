@@ -86,9 +86,9 @@ fn require_within_result_window(limit: usize, offset: usize) -> Result<()> {
 
 fn public_components(components: SegmentComponents) -> ScoreComponents {
     ScoreComponents {
-        term_frequencies: components.term_frequencies.into_iter().collect(),
-        field_lengths: components.field_lengths.into_iter().collect(),
-        idf: components.idf.into_iter().collect(),
+        term_frequencies: components.term_frequencies,
+        field_lengths: components.field_lengths,
+        idf: components.idf,
     }
 }
 
