@@ -82,7 +82,7 @@ export function verifyToken(token: string, keys: SigningKeys, nowMs: number): Ve
   if (payload === null) return null
   const nowSeconds = nowMs / 1000
   const { exp, nbf } = payload
-  if (!isFiniteNumber(exp) || exp <= nowSeconds) return null
+  if (!isFiniteNumber(exp) || !Number.isFinite(exp * 1000) || exp <= nowSeconds) return null
   if (nbf !== undefined && (!isFiniteNumber(nbf) || nbf > nowSeconds + NOT_BEFORE_LEEWAY_SECONDS)) return null
   const indexes = indexesOf(payload.indexes)
   const subject = optionalText(payload.sub)

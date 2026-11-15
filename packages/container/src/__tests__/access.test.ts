@@ -80,6 +80,7 @@ describe('the container node guards every route outside the probes', () => {
       await search(SHOP),
       await search(SHOP, OTHER_KEY),
       await call(node, 'GET', '/indexes'),
+      await call(node, 'GET', '/capabilities'),
       await call(node, 'GET', `/indexes/${SHOP}/export`),
     ]) {
       expect(answer.status).toBe(401)
@@ -146,6 +147,7 @@ describe('the container node guards every route outside the probes', () => {
       signToken(READ_KEY, { exp: secondsFromNow(-5) }),
       signToken(READ_KEY, { sub: 'no-expiry' }),
       signToken(READ_KEY, { exp: String(secondsFromNow(300)) }),
+      signToken(READ_KEY, { exp: 1e308 }),
       signToken(READ_KEY, { exp: secondsFromNow(300), nbf: secondsFromNow(600) }),
       signToken(OTHER_KEY, { exp: secondsFromNow(300) }),
       `${header}.${widened}.${signature}`,
