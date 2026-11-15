@@ -142,7 +142,7 @@ pub(crate) const ROUTES: &[RouteEntry] = entries![
     GET "/readyz" Readyz PROBE,
     GET "/health" Readyz PROBE,
     GET "/version" Version PROBE,
-    GET "/capabilities" Capabilities PROBE,
+    GET "/capabilities" Capabilities BARE,
     GET "/cluster" ClusterTopology BARE,
     GET "/cluster/health" ClusterHealth BARE,
     GET "/metrics" Metrics BARE,
