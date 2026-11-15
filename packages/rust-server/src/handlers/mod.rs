@@ -5,6 +5,7 @@ mod indexes;
 mod info;
 mod maintenance;
 mod search;
+mod settings;
 mod suggestions;
 mod sync;
 mod task_routes;
@@ -40,13 +41,21 @@ pub(crate) async fn dispatch(
         ListTasks | GetTask | CancelTask => task_routes::handle(state, route, context).await,
         CreateIndex | ListIndexes | DropIndex | IndexStats | IndexPartitions | ClearIndex
         | OpenIndex | CloseIndex | Count | Memory => indexes::handle(state, route, context).await,
-        Insert | Batch | List | MultiGet | ImportNdjson | WaitForWrites | Get | Exists | Put
-        | Patch | Remove => documents::handle(state, route, context).await,
-        Search | Preflight | Suggest => search::handle(state, route, context).await,
-        Checkpoint | RebuildAnalysis | ChangeAnalysis | Snapshot | VectorMaintenance | Compact
-        | Optimize | Rebalance | PartitionConfig | ReadSynonyms | ReplaceSynonyms | UpdateBm25
-        | Restore | ExportDocuments | ImportExport => {
-            maintenance::handle(state, route, context).await
+        Insert | Batch | MultiGet | WaitForWrites | Get | Exists | Put | Patch | Remove => {
+            documents::handle(state, route, context).await
+        }
+        Search | Preflight | Suggest | List => search::handle(state, route, context).await,
+        ImportNdjson
+        | RebuildAnalysis
+        | ChangeAnalysis
+        | Optimize
+        | Rebalance
+        | Restore
+        | ImportExport
+        | BuildQuerySuggestions => maintenance::handle(state, route, context).await,
+        Checkpoint | Snapshot | VectorMaintenance | Compact | PartitionConfig | ReadSynonyms
+        | ReplaceSynonyms | UpdateBm25 | ExportDocuments => {
+            settings::handle(state, route, context).await
         }
         GetSync | UpdateSync | SyncSnapshot | GetChanges | UpdateChanges => {
             sync::handle(state, route, context).await
@@ -54,7 +63,6 @@ pub(crate) async fn dispatch(
         UpdateQuerySuggestions
         | QuerySuggestionsStatus
         | RecordQuery
-        | BuildQuerySuggestions
         | PreviewQuerySuggestions
         | ReadQueryBans
         | ReplaceQueryBans
