@@ -7,6 +7,7 @@ use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
 use super::budget::BodyHold;
+use super::pace::{BodyPace, NextChunk};
 use crate::constants::{REFUSED_BODY_DRAIN_BYTES, REFUSED_BODY_DRAIN_MS};
 use crate::errors::{ServerError, server_codes};
 
@@ -55,15 +56,12 @@ pub(crate) async fn read_body(
     let capacity = usize::try_from(reserved).unwrap_or(0);
     let mut buffer = BytesMut::with_capacity(capacity);
     let mut total: u64 = 0;
+    let mut pace = BodyPace::new();
     loop {
-        let Some(frame) = body.frame().await else {
-            return BodyRead::Complete(buffer.freeze());
-        };
-        let Ok(frame) = frame else {
-            return BodyRead::Ended;
-        };
-        let Ok(chunk) = frame.into_data() else {
-            continue;
+        let chunk = match pace.next_chunk(&mut body).await {
+            NextChunk::Data(chunk) => chunk,
+            NextChunk::End => return BodyRead::Complete(buffer.freeze()),
+            NextChunk::Broken => return BodyRead::Ended,
         };
         total = total.saturating_add(chunk.len() as u64);
         if total > max_bytes {

@@ -33,6 +33,8 @@ pub const RUNNING_TASK_TTL_MS: u64 = 24 * 60 * 60 * 1_000;
 pub const TERMINAL_TASK_TTL_MS: u64 = 60 * 60 * 1_000;
 
 pub const SERVER_CLOSE_DRAIN_DEADLINE_MS: u64 = 30_000;
+pub const CONNECTION_IDLE_TIMEOUT_MS: u64 = 10_000;
+pub const MIN_BODY_BYTES_PER_IDLE_TIMEOUT: u64 = 16 * 1024 * 10;
 pub const CORS_PREFLIGHT_MAX_AGE_SECONDS: &str = "86400";
 pub const DEFAULT_CORS_METHODS: &str = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 pub const DEFAULT_CORS_HEADERS: &str = "Content-Type, Authorization";

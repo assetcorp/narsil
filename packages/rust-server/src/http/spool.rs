@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use tokio::io::AsyncWriteExt;
 
 use super::body::{drain_in_background, too_large};
+use super::pace::{BodyPace, NextChunk};
 use crate::errors::{ServerError, server_codes};
 use crate::ids::random_hex;
 
@@ -75,15 +75,12 @@ pub(crate) async fn spool_body(mut body: Incoming, max_bytes: u64) -> SpoolOutco
         drain_in_background(body);
         return SpoolOutcome::Refused(store_failure());
     };
+    let mut pace = BodyPace::new();
     loop {
-        let Some(frame) = body.frame().await else {
-            break;
-        };
-        let Ok(frame) = frame else {
-            return SpoolOutcome::Ended;
-        };
-        let Ok(chunk) = frame.into_data() else {
-            continue;
+        let chunk = match pace.next_chunk(&mut body).await {
+            NextChunk::Data(chunk) => chunk,
+            NextChunk::End => break,
+            NextChunk::Broken => return SpoolOutcome::Ended,
         };
         spooled.bytes = spooled.bytes.saturating_add(chunk.len() as u64);
         if max_bytes > 0 && spooled.bytes > max_bytes {
