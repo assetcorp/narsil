@@ -7,6 +7,7 @@ pub(crate) mod checkpoint_store;
 pub(crate) mod constants;
 pub(crate) mod earlier;
 pub(crate) mod envelope_sink;
+pub(crate) mod file_errors;
 pub(crate) mod files;
 pub(crate) mod index_state;
 pub(crate) mod lock;
