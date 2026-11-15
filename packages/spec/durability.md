@@ -206,7 +206,8 @@ A crash before step 4 leaves the previous content in place, and recovery then di
 
 A node that runs Tier 1 on IndexedDB must store the same keys and the same bytes that the filesystem layout holds, as records in the adapter's object store.
 
-- The node must store the first bytes of a file under the file's key, and each later append under the array key `[key, n]`, where `n` counts up from 1, so that the adapter's string-keyed `list` returns no append record.
+- The node must store the first record of a file under the file's key and every later record under the array key `[key, n]`, where `n` counts up from 1, so that the adapter's string-keyed `list` returns no other record.
+- A node may split an atomic write or an append across several records of any size, so that a range read fetches only the records that hold the range, and a reader must accept any split.
 - A file's content is its first record followed by its append records in order of `n`.
 - An fsync is the commit of a `readwrite` transaction that the node opens with the durability hint `"strict"`.
 - The node must perform each [atomic write](#atomic-write), and each rename, inside one transaction, so that a directory fsync needs no further step.
