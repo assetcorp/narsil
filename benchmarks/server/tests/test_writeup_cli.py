@@ -98,3 +98,21 @@ def test_best_config_alone_enables_both_server_labels(checkout):
     assert "| Narsil Rust | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 1,500 |" in page
     assert "| Narsil Rust | not measured yet |" in page
     assert "| Narsil TypeScript | not measured yet |" in page
+
+
+def test_duplicate_measurements_cannot_silently_replace_a_published_figure(checkout):
+    write_comparison(checkout, comparison([row("narsil"), row("narsil-rust", 1500), row("narsil-rust", 2)]))
+    before = (checkout / "BENCHMARKS.md").read_bytes()
+    completed = command(checkout, "generate.py")
+    assert completed.returncode != 0
+    assert "duplicate engine 'narsil-rust'" in completed.stderr
+    assert (checkout / "BENCHMARKS.md").read_bytes() == before
+
+
+def test_invalid_recall_status_cannot_publish_a_speed_as_ranked(checkout):
+    rust = row("narsil-rust", 1500)
+    rust["operating_point"] = {"met_target": "false"}
+    write_comparison(checkout, comparison([row("narsil"), rust]))
+    completed = command(checkout, "generate.py")
+    assert completed.returncode != 0
+    assert "met_target must be a boolean" in completed.stderr
