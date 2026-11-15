@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use narsil::Value;
 
-use super::common::{engine_call, json_body, object};
+use super::common::{engine_call, json_object_body, object};
 use crate::documents::answers::{index_info, index_stats, memory_stats, partition_stats};
 use crate::documents::bodies::create_index_request;
 use crate::errors::{Outcome, ServerError};
@@ -19,7 +19,7 @@ fn named(name: &str, key: &str, value: Value) -> Value {
 }
 
 async fn create(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
-    let body = json_body(context)?;
+    let body = json_object_body(context)?;
     let (name, config) = create_index_request(&body)?;
     let created = name.clone();
     engine_call(state, move |engine| engine.create_index(&created, config)).await?;

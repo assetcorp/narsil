@@ -28,12 +28,23 @@ pub(crate) fn json_body(context: &RouteContext) -> Outcome<Value> {
     }
 }
 
+fn body_other_than_an_object() -> ServerError {
+    ServerError::invalid("The request body must be an object")
+}
+
+pub(crate) fn json_object_body(context: &RouteContext) -> Outcome<Value> {
+    match json_body(context)? {
+        Value::Object(fields) => Ok(Value::Object(fields)),
+        _ => Err(body_other_than_an_object()),
+    }
+}
+
 pub(crate) fn optional_json_body(context: &RouteContext) -> Outcome<Value> {
     match context.body.as_deref() {
         None | Some([]) => Ok(Value::Object(Map::new())),
         Some(raw) => match parse_text(raw)? {
             Value::Object(fields) => Ok(Value::Object(fields)),
-            _ => Err(ServerError::invalid("The request body must be an object")),
+            _ => Err(body_other_than_an_object()),
         },
     }
 }

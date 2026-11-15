@@ -174,7 +174,7 @@ pub(crate) fn validate_suggest(params: &Map) -> Outcome<()> {
     }
 }
 
-pub(crate) fn list_sort_refusal() -> ServerError {
+fn list_sort_refusal() -> ServerError {
     ServerError::invalid(
         "Field \"sort\" must be an object keyed by field name, or a list of fields",
     )

@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use narsil::{Map, Value};
 
-use super::common::{engine_call, json_body};
+use super::common::{engine_call, json_object_body};
 use crate::errors::{Outcome, ServerError};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, json};
 use crate::http::routes::Route;
 use crate::search::{
-    Converted, default_list_limit, list_answer, list_params, list_sort_refusal, not_an_object,
-    preflight_value, query_answer, query_params, refused_regex, respond_answer, suggest_params,
-    suggest_value, validate_list, validate_query, validate_suggest, with_server_query_limits,
+    Converted, default_list_limit, list_answer, list_params, preflight_value, query_answer,
+    query_params, refused_regex, respond_answer, suggest_params, suggest_value, validate_list,
+    validate_query, validate_suggest, with_server_query_limits,
 };
 use crate::state::ServerState;
 
@@ -29,11 +29,10 @@ async fn checked_after_lookup<T>(
     }
 }
 
-fn query_body(body: Value) -> Outcome<Map> {
-    match body {
+fn object_body(context: &RouteContext) -> Outcome<Map> {
+    match json_object_body(context)? {
         Value::Object(params) => Ok(params),
-        Value::Array(_) => Ok(Map::new()),
-        _ => Err(not_an_object()),
+        _ => Err(ServerError::internal()),
     }
 }
 
@@ -49,7 +48,7 @@ async fn search(
     context: RouteContext,
     preflight: bool,
 ) -> Outcome<HttpResponse> {
-    let params = query_body(json_body(&context)?)?;
+    let params = object_body(&context)?;
     validate_query(&params, &state.limits)?;
     regex_check(&state, &params)?;
     let params = with_server_query_limits(params, &state.limits);
@@ -66,10 +65,7 @@ async fn search(
 }
 
 async fn suggest(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
-    let params = match json_body(&context)? {
-        Value::Object(params) => params,
-        _ => Map::new(),
-    };
+    let params = object_body(&context)?;
     validate_suggest(&params)?;
     let index = context.param(0).to_string();
     let suggestion = suggest_params(&params);
@@ -78,11 +74,7 @@ async fn suggest(state: Arc<ServerState>, context: RouteContext) -> Outcome<Http
 }
 
 async fn list(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
-    let params = match json_body(&context)? {
-        Value::Object(params) => params,
-        Value::Array(_) => return Err(list_sort_refusal()),
-        _ => Map::new(),
-    };
+    let params = object_body(&context)?;
     validate_list(&params, state.limits.max_fetch_documents)?;
     regex_check(&state, &params)?;
     let index = context.param(0).to_string();
