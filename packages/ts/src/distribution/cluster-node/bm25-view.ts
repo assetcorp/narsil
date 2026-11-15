@@ -82,28 +82,34 @@ export function createBm25View(deps: Bm25ViewDeps): Bm25View {
     if (next !== null && hold(indexName, next)) void applyToLocalCopy(indexName, next.indexUuid)
   }
 
+  async function current(indexName: string): Promise<HeldBm25Setting | null> {
+    const known = held.get(indexName)
+    if (known !== undefined) return known
+    const snapshot = await readIndexMetadataSnapshot(coordinator, indexName)
+    if (snapshot === null) return null
+    const read: HeldBm25Setting = {
+      indexUuid: snapshot.record.indexUuid,
+      bm25: snapshot.settings?.bm25,
+      revision: snapshot.settings?.bm25Revision,
+    }
+    const racing = held.get(indexName)
+    if (racing === undefined || (racing.indexUuid === read.indexUuid && isLaterThan(read, racing))) {
+      held.set(indexName, read)
+      return read
+    }
+    return racing
+  }
+
   return {
     held: indexName => held.get(indexName),
-    async current(indexName) {
-      const known = held.get(indexName)
-      if (known !== undefined) return known
-      const snapshot = await readIndexMetadataSnapshot(coordinator, indexName)
-      if (snapshot === null) return null
-      const read: HeldBm25Setting = {
-        indexUuid: snapshot.record.indexUuid,
-        bm25: snapshot.settings?.bm25,
-        revision: snapshot.settings?.bm25Revision,
-      }
-      const racing = held.get(indexName)
-      if (racing === undefined || (racing.indexUuid === read.indexUuid && isLaterThan(read, racing))) {
-        held.set(indexName, read)
-        return read
-      }
-      return racing
-    },
+    current,
     async start() {
       if (unwatch !== null) return
       unwatch = await coordinator.watchIndexMetadata(event => receive(event.indexName, event.metadata))
+      for (const indexName of await coordinator.listSchemas()) {
+        if (unwatch === null) return
+        await current(indexName).catch(onError)
+      }
     },
     stop() {
       unwatch?.()
