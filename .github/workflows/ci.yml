@@ -28,6 +28,7 @@ jobs:
       benchmark_harness: ${{ steps.areas.outputs.benchmark_harness }}
       benchmark_languages: ${{ steps.areas.outputs.benchmark_languages }}
       rust: ${{ steps.areas.outputs.rust }}
+      rust_server: ${{ steps.areas.outputs.rust_server }}
       python_engine: ${{ steps.areas.outputs.python_engine }}
       go_engine: ${{ steps.areas.outputs.go_engine }}
       native_core: ${{ steps.areas.outputs.native_core }}
@@ -497,6 +498,12 @@ jobs:
     needs: [changes, engine]
     if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     uses: ./.github/workflows/rust.yml
+
+  rust-server:
+    name: Rust server
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust_server == 'true') }}
+    uses: ./.github/workflows/rust-server.yml
 
   go-engine:
     name: Go engine
