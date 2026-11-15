@@ -7,9 +7,10 @@ use narsil::{IndexConfig, Narsil, Value};
 use narsil_server::ServerOptions;
 use support::{Call, ReferenceServer, RustServer, object, parsed, send};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpSocket, TcpStream};
 
 const SCHEMA: &str = r#"{"title":"string"}"#;
+const STALLED_READER_RECEIVE_BUFFER_BYTES: u32 = 64 * 1024;
 const IDLE_CLOSE_WITHIN: Duration = Duration::from_secs(20);
 const TRICKLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRICKLE_DECLARED_BYTES: usize = 100_000;
@@ -149,7 +150,14 @@ fn whole_listing() -> String {
 }
 
 async fn stalled_reader_received(port: u16) -> Option<usize> {
-    let mut stream = connect(port).await;
+    let socket = TcpSocket::new_v4().expect("a socket opens");
+    socket
+        .set_recv_buffer_size(STALLED_READER_RECEIVE_BUFFER_BYTES)
+        .expect("the receive buffer takes a fixed size");
+    let mut stream = socket
+        .connect(([127, 0, 0, 1], port).into())
+        .await
+        .expect("the server accepts a connection");
     let body = whole_listing();
     let request = format!(
         "POST /indexes/articles/documents/_list HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
