@@ -1,11 +1,14 @@
 use std::convert::Infallible;
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use http::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use http::{Response, StatusCode};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty, Full, StreamBody};
+use hyper::body::{Body, Frame, SizeHint};
 use narsil::{Value, write_plain_json};
 use tokio::sync::mpsc;
 use tokio_stream_shim::ReceiverStream;
@@ -85,6 +88,40 @@ pub(crate) fn error(failure: &ServerError) -> HttpResponse {
         insert_header(&mut response, name, value);
     }
     response
+}
+
+struct HeldBody<T> {
+    body: ResponseBody,
+    held: T,
+}
+
+impl<T: Unpin> Body for HeldBody<T> {
+    type Data = Bytes;
+    type Error = io::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
+        let this = self.get_mut();
+        let _ = &this.held;
+        Pin::new(&mut this.body).poll_frame(context)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+}
+
+pub(crate) fn held_until_sent<T: Send + Sync + Unpin + 'static>(
+    response: HttpResponse,
+    held: T,
+) -> HttpResponse {
+    response.map(|body| HeldBody { body, held }.boxed())
 }
 
 pub(crate) fn insert_header(response: &mut HttpResponse, name: &str, value: &str) {
