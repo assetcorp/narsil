@@ -1,8 +1,8 @@
 use narsil::{ChangesSetting, ChangesStatus, Map, SyncSetting, SyncStatus, Value};
 
-use super::constants::MAX_SAFE_INTEGER;
 use super::errors::config_invalid;
 use super::js_text::{is_whole_number, string_of};
+use crate::constants::MAX_SAFE_INTEGER;
 use crate::errors::Outcome;
 use crate::handlers::common::object;
 
@@ -27,7 +27,7 @@ fn limit_of(feature: Feature, fields: Option<&Map>, name: &str) -> Outcome<Optio
     };
     match value {
         Value::Number(number)
-            if is_whole_number(*number) && *number >= 1.0 && *number <= MAX_SAFE_INTEGER =>
+            if is_whole_number(*number) && *number >= 1.0 && *number <= MAX_SAFE_INTEGER as f64 =>
         {
             Ok(Some(*number as u64))
         }

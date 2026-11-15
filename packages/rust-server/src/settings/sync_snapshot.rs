@@ -5,7 +5,7 @@ use narsil::SyncSnapshot;
 
 use super::errors::{indexed, preparing};
 use super::range::{RangeAnswer, range_of};
-use super::stream::{ChunkBody, ChunkSender, chunk_channel, stream_cut_short};
+use super::stream::{Chunk, ChunkBody, ChunkSender, chunk_channel, deliver};
 use crate::constants::{RESPONSE_STREAM_CHUNK_BYTES, SNAPSHOT_ARCHIVE_CONTENT_TYPE};
 use crate::errors::{Outcome, ServerError, server_codes};
 use crate::handlers::common::engine_call;
@@ -41,20 +41,26 @@ fn read_chunk(snapshot: &SyncSnapshot, from: u64, end_exclusive: u64) -> narsil:
     Ok(Bytes::from(buffer))
 }
 
-fn send_rest(snapshot: &SyncSnapshot, sender: &ChunkSender, mut from: u64, end_exclusive: u64) {
+async fn send_rest(
+    snapshot: Arc<SyncSnapshot>,
+    sender: ChunkSender,
+    mut from: u64,
+    end_exclusive: u64,
+) {
     while from < end_exclusive {
-        let chunk = match read_chunk(snapshot, from, end_exclusive) {
-            Ok(chunk) if !chunk.is_empty() => chunk,
-            _ => {
-                let _ = sender.blocking_send(Err(stream_cut_short()));
-                return;
-            }
+        let reader = Arc::clone(&snapshot);
+        let read =
+            tokio::task::spawn_blocking(move || read_chunk(&reader, from, end_exclusive)).await;
+        let chunk = match read {
+            Ok(Ok(chunk)) if !chunk.is_empty() => chunk,
+            _ => return,
         };
         from = from.saturating_add(chunk.len() as u64);
-        if sender.blocking_send(Ok(chunk)).is_err() {
+        if !deliver(&sender, Chunk::Data(chunk)).await {
             return;
         }
     }
+    deliver(&sender, Chunk::End).await;
 }
 
 fn refused_range(length: u64, entity_tag: &str) -> HttpResponse {
@@ -105,7 +111,7 @@ pub(crate) async fn sync_snapshot(
     }
     let (sender, receiver) = chunk_channel();
     let after_first = start.saturating_add(first.len() as u64);
-    tokio::task::spawn_blocking(move || send_rest(&snapshot, &sender, after_first, end_exclusive));
+    tokio::spawn(send_rest(snapshot, sender, after_first, end_exclusive));
     let first = (!first.is_empty()).then_some(first);
     let body = ChunkBody::boxed(first, receiver, Some(end_exclusive.saturating_sub(start)));
     let mut response = with_body(status, SNAPSHOT_ARCHIVE_CONTENT_TYPE, body);

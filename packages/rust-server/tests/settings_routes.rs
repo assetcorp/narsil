@@ -8,6 +8,18 @@ use settings_support::{
 use support::{Call, ReferenceServer, ScratchDirectory, send};
 
 const NOTES: usize = 3;
+const FALSY_BODIES: [&str; 5] = ["null", "false", "0", "-0", "\"\""];
+
+async fn falsy_bodies_are_refused(rust: u16, path: &str) {
+    for body in FALSY_BODIES {
+        let reply = send(rust, &raw_call("POST", path, body)).await;
+        assert_eq!(
+            (reply.status, reply.error_code().as_deref()),
+            (400, Some("INVALID_REQUEST")),
+            "{path} refuses the body {body}, where the TypeScript server never answers"
+        );
+    }
+}
 
 fn raw_call<'a>(method: &'a str, path: &'a str, body: &str) -> Call<'a> {
     Call::new(method, path)
@@ -145,6 +157,7 @@ async fn hostile_partition_settings_get_the_answers_of_the_typescript_server() {
         &[r#"{"maxDocsPerPartition":"5"}"#, r#"{"watermark":0.5}"#, ""],
     )
     .await;
+    falsy_bodies_are_refused(rust.port, &path).await;
     reference.stop().await;
     rust.stop().await;
 }
@@ -261,6 +274,7 @@ async fn vector_upkeep_and_checkpoints_answer_as_the_typescript_server_does() {
         &["", r#"{"field":5}"#, r#"{"field":"embedding"}"#],
     )
     .await;
+    falsy_bodies_are_refused(rust.port, &path).await;
     for call in [
         Call::new("GET", "/indexes/ghost/vector-maintenance").authorized(),
         Call::new("POST", "/indexes/ghost/_checkpoint").authorized(),
