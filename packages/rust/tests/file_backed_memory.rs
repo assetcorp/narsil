@@ -301,18 +301,18 @@ fn wait_for_vector_files(engine: &Narsil) {
     loop {
         assert!(
             Instant::now() < deadline,
-            "the vector field finishes loading from its files"
+            "the vector field finishes loading from its files and empties its buffer"
         );
         engine
             .query(MAPPED_INDEX, &vector_query(0, None))
             .expect("the vector search answers");
         std::thread::sleep(LOAD_POLL);
-        let loading = engine
+        let settled = engine
             .vector_maintenance_status(MAPPED_INDEX)
             .expect("the field reports its maintenance")
             .iter()
-            .any(|field| field.loading_from_files);
-        if !loading {
+            .all(|field| !field.loading_from_files && field.buffer_size == 0);
+        if settled {
             break;
         }
     }
