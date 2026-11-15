@@ -124,6 +124,11 @@ async fn the_index_maintenance_routes_check_their_bodies_and_the_index_in_the_sa
     let pair = Pair::start().await;
     let refused = [
         json_call("/indexes/articles/_change-analysis", "[]"),
+        json_call("/indexes/articles/_change-analysis", "null"),
+        json_call("/indexes/articles/_rebalance", "false"),
+        json_call("/indexes/articles/vectors/_optimize", "null"),
+        json_call("/indexes/articles/vectors/_optimize", "0"),
+        json_call("/indexes/missing/vectors/_optimize", r#""text""#),
         json_call("/indexes/articles/_change-analysis", "not json"),
         json_call("/indexes/articles/_change-analysis", r#"{"colour":"red"}"#),
         json_call("/indexes/articles/_change-analysis", r#"{"language":5}"#),
