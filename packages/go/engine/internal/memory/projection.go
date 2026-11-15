@@ -47,6 +47,8 @@ type Burst struct {
 	Bytes float64
 }
 
+type BurstForCount func(count int) Burst
+
 func (c *figureCache) reservedLocked() float64 {
 	reserved := c.reservedBytes
 	for _, held := range c.bursts {
@@ -78,16 +80,20 @@ func (p *Projection) blockBytesOf(figures Figures) float64 {
 	return math.Floor(math.Min(block*figures.HeapLimitBytes, block*figures.ProcessLimitBytes))
 }
 
-func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end int, burst Burst) (int, int) {
+func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end int, burst BurstForCount) (int, int) {
 	block := p.monitor.fractions.Block
 	reserved := process.reservedLocked()
 	heapRoom := block*figures.HeapLimitBytes - figures.HeapBytes - reserved
 	processRoom := block*figures.ProcessLimitBytes - figures.ProcessBytes - reserved
-	taken := process.extraBurstLocked(burst)
+	mostBurst := process.extraBurstLocked(burst(end - start))
+	taken := 0.0
 	for position := start; position < end; position++ {
 		next := taken + bounds[position]
-		if next > heapRoom || next > processRoom {
-			return position - start, position
+		if next+mostBurst > heapRoom || next+mostBurst > processRoom {
+			withBurst := next + process.extraBurstLocked(burst(position-start+1))
+			if withBurst > heapRoom || withBurst > processRoom {
+				return position - start, position
+			}
 		}
 		taken = next
 	}
@@ -133,7 +139,7 @@ func (c countedPositions) count(position int, countExactly CountExactly) bool {
 	return true
 }
 
-func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDocuments int, burst Burst,
+func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDocuments int, burst BurstForCount,
 	countExactly CountExactly) (*Reservation, error) {
 	end := min(len(bounds), start+max(1, mostDocuments))
 	if start >= end {
@@ -144,7 +150,7 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 		process.mu.Lock()
 		measured, found := process.recentLocked(WriteFiguresMaxAge)
 		if !found {
-			reservation := reserveLocked(bounds, start, end-start, burst)
+			reservation := reserveLocked(bounds, start, end-start, burst(end-start))
 			process.mu.Unlock()
 			return reservation, nil
 		}
@@ -158,7 +164,7 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 		}
 		count, stoppedAt := p.fittingLocked(measured, bounds, start, end, burst)
 		if stoppedAt < 0 || (count > 0 && (countExactly == nil || counted.counted(stoppedAt))) {
-			reservation := reserveLocked(bounds, start, count, burst)
+			reservation := reserveLocked(bounds, start, count, burst(count))
 			process.mu.Unlock()
 			return reservation, nil
 		}
@@ -174,7 +180,7 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 	}
 }
 
-func (p *Projection) afterCollection(indexName string, bounds []float64, start, end int, burst Burst,
+func (p *Projection) afterCollection(indexName string, bounds []float64, start, end int, burst BurstForCount,
 	measured Figures) (*Reservation, *fillRefusal) {
 	collectionsBefore := p.monitor.Collections()
 	figures, found := p.monitor.MeasureWithoutGarbage()
@@ -187,11 +193,11 @@ func (p *Projection) afterCollection(indexName string, bounds []float64, start, 
 	}
 	count, _ := p.fittingLocked(figures, bounds, start, end, burst)
 	if count > 0 {
-		reservation := reserveLocked(bounds, start, count, burst)
+		reservation := reserveLocked(bounds, start, count, burst(count))
 		process.mu.Unlock()
 		return reservation, nil
 	}
-	projected := process.reservedLocked() + process.extraBurstLocked(burst)
+	projected := process.reservedLocked() + process.extraBurstLocked(burst(1))
 	process.mu.Unlock()
 	collected := p.monitor.Collections() != collectionsBefore
 	if collected {
