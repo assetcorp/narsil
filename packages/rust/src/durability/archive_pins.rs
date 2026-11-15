@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
 use crate::format::layout::manifest_key;
+use crate::value::Value;
 use crate::format::manifest::{
     DecodedManifest, SegmentManifest, decode_manifest_payload, open_manifest_payload,
 };
@@ -61,15 +62,17 @@ fn pin_checkpoint(
     let _turn = HeldTurn(state);
     let replacements_at_pin = state.replacements();
     let Some(manifest_bytes) = store.read_within(&manifest_key(index_name), MAX_FILE_BYTES)? else {
-        return Err(save_failed(format!(
-            "Index \"{index_name}\" holds no checkpoint"
-        )));
+        return Err(
+            save_failed(format!("Index \"{index_name}\" holds no checkpoint"))
+                .with_details([("indexName", Value::from(index_name))]),
+        );
     };
     let (_, raw) = open_manifest_payload(&manifest_bytes)?;
     let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, index_name)? else {
-        return Err(save_failed(format!(
-            "Index \"{index_name}\" holds an earlier layout"
-        )));
+        return Err(
+            save_failed(format!("Index \"{index_name}\" holds an earlier layout"))
+                .with_details([("indexName", Value::from(index_name))]),
+        );
     };
     let keys: Vec<String> = manifest_keys(&manifest).into_iter().collect();
     let pins = IndexState::pin(state, &keys)?;
