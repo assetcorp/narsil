@@ -2,6 +2,9 @@ services:
   narsil:
     ports:
       - "${BENCH_ENGINE_ADDRESS:?}:7700:7700"
+  narsil-rust:
+    ports:
+      - "${BENCH_ENGINE_ADDRESS:?}:7700:7700"
   elasticsearch:
     ports:
       - "${BENCH_ENGINE_ADDRESS:?}:9200:9200"
