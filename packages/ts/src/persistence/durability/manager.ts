@@ -381,7 +381,6 @@ export function createDurabilityManager(
     async shutdown(): Promise<void> {
       shuttingDown = true
       stopTimers()
-      await metadataWrites.settleAll()
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)
@@ -390,6 +389,7 @@ export function createDurabilityManager(
           await closeWriterReportingFailure(closePartitionWriter(partition))
         }
       }
+      await metadataWrites.settleAll()
       indexes.clear()
       terminateCheckpointWorker()
       await directoryWatch.release()
