@@ -60,7 +60,8 @@ pub(crate) fn require_head_checksum(head: &[u8], file: &FileRef) -> Result<()> {
             "The head of the file \"{}\" does not match its checksum",
             file.key
         ),
-    ))
+    )
+    .with_details([("key", Value::from(file.key.as_str()))]))
 }
 
 fn decoded_head(head: &[u8], key: &str) -> Result<Map> {
