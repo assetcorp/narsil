@@ -208,7 +208,7 @@ def _vector_intro(comparison: dict, config: dict) -> str:
             _metric(narsil, key) is not None and _metric(row, key) == _metric(narsil, key)
             for row in measured for key in ("ndcg_cut_10", "recall_100")
         )
-        if not same_ranking:
+        if not same_ranking or any(DISPLAY_NAME_FIELD in row for row in rows):
             sentences.append(f"{opening}. The tables report each engine's measured ranking quality.")
             continue
         sentences.append(

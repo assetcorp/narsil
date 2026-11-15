@@ -98,6 +98,8 @@ def test_best_config_alone_enables_both_server_labels(checkout):
     assert "| Narsil Rust | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 1,500 |" in page
     assert "| Narsil Rust | not measured yet |" in page
     assert "| Narsil TypeScript | not measured yet |" in page
+    assert "The harness has not measured Narsil Rust under equal settings" in page
+    assert "The harness has not measured Narsil Rust in this run" not in page
 
 
 def test_duplicate_measurements_cannot_silently_replace_a_published_figure(checkout):
