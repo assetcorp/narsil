@@ -17,6 +17,7 @@ DEFAULT_LATENCY_MIN_REPEATS = 1
 DEFAULT_LATENCY_MAX_REPEATS = 5
 DEFAULT_LATENCY_TOP_K = 10
 DEFAULT_TUNING_SAMPLE_QUERIES = 1000
+MAX_EF_SEARCH = 10_000
 ENGINE_ADDRESS_ENV = "BENCH_ENGINE_ADDRESS"
 
 
@@ -68,7 +69,6 @@ class VectorConfig:
     hnsw_m: int
     hnsw_ef_construction: int
     ef_search_grid: tuple[int, ...]
-    ef_search_grid_best_config: tuple[int, ...]
     recall_target: float
     recall_target_secondary: float
     recall_k: int
@@ -168,25 +168,30 @@ def _load_engines(raw: dict) -> dict[str, EngineConfig]:
 
 
 def _load_vector(raw: dict) -> VectorConfig | None:
-    vec = raw.get("vector")
-    if not vec:
+    if "vector" not in raw:
         return None
+    vec = raw["vector"]
+    if not isinstance(vec, dict):
+        raise ValueError("[vector] must be a table")
     metric = str(vec.get("metric", "cosine"))
-    grid_raw = vec.get("ef_search_grid", [16, 32, 64, 128, 256, 512])
+    if "ef_search_grid_best_config" in vec:
+        raise ValueError(
+            "[vector].ef_search_grid_best_config is not a setting; "
+            "both profiles sweep [vector].ef_search_grid for every engine"
+        )
+    grid_raw = _require(vec, "ef_search_grid", "[vector]")
     if not isinstance(grid_raw, list) or not grid_raw:
         raise ValueError("[vector].ef_search_grid must be a non-empty array of integers")
-    grid = tuple(sorted({int(value) for value in grid_raw}))
-    if any(value < 1 for value in grid):
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in grid_raw):
+        raise ValueError("[vector].ef_search_grid must hold integers only")
+    grid = tuple(sorted(set(grid_raw)))
+    if grid[0] < 1:
         raise ValueError("[vector].ef_search_grid values must be positive")
-    best_grid_raw = vec.get("ef_search_grid_best_config")
-    if best_grid_raw is None:
-        best_grid = grid
-    else:
-        if not isinstance(best_grid_raw, list) or not best_grid_raw:
-            raise ValueError("[vector].ef_search_grid_best_config must be a non-empty array of integers")
-        best_grid = tuple(sorted({int(value) for value in best_grid_raw}))
-        if any(value < 1 for value in best_grid):
-            raise ValueError("[vector].ef_search_grid_best_config values must be positive")
+    if grid[-1] > MAX_EF_SEARCH:
+        raise ValueError(
+            f"[vector].ef_search_grid values must not exceed {MAX_EF_SEARCH}, "
+            "the Elasticsearch num_candidates limit for the shared grid"
+        )
     recall_k = int(vec.get("recall_k", 10))
     if recall_k < 1:
         raise ValueError("[vector].recall_k must be positive")
@@ -201,7 +206,6 @@ def _load_vector(raw: dict) -> VectorConfig | None:
         hnsw_m=int(vec.get("hnsw_m", 16)),
         hnsw_ef_construction=int(vec.get("hnsw_ef_construction", 200)),
         ef_search_grid=grid,
-        ef_search_grid_best_config=best_grid,
         recall_target=float(vec.get("recall_target", 0.99)),
         recall_target_secondary=float(vec.get("recall_target_secondary", 0.95)),
         recall_k=recall_k,
