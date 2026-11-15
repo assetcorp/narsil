@@ -1,6 +1,6 @@
 # Narsil Container Specification
 
-This document defines how a container image serves one Narsil node over HTTP and takes every setting from environment variables. Every conforming image reads the same variables with the same meaning, whatever language its server is written in, so a deployment can switch images by changing the image name alone.
+This document defines how a container image serves one Narsil node over HTTP and takes every setting from environment variables. Every conforming image reads the same variables with the same meaning, whatever language its server is written in. Narsil publishes every conforming image under one name, where the tag `<version>` holds the TypeScript server and the tag `<version>-rust` holds the Rust server, so a deployment can switch servers by changing the tag alone. Only the TypeScript server can join a cluster, so a deployment that needs cluster mode must use a tag without the `-rust` suffix.
 
 An image holds the server and a startup program. The startup program must build the server's options from the variables below, the way a developer builds them in code, and it must serve every route that the server's OpenAPI document describes.
 

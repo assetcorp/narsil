@@ -4,7 +4,9 @@ This image serves one Narsil node over HTTP, and it takes every setting from an 
 
 ## Start a node
 
-Give the node an admin key of at least 32 characters, and mount a volume at `/data` so that your indexes survive a restart:
+[`compose.yaml`](compose.yaml) starts one node with Docker Compose, reads its admin key from an `.env` file, and keeps its data on a volume. The [container guide](../../docs/container-image.md) takes that node from `docker compose up` through adding documents, searching them, and connecting each client, and it restarts the node to show that the documents stay.
+
+To start a node without Compose, give it an admin key of at least 32 characters, and mount a volume at `/data` so that your indexes survive a restart:
 
 ```bash skip
 docker run --rm -p 7700:7700 \
@@ -33,8 +35,11 @@ The [HTTP server guide](../../docs/http-server.md) describes every route that th
 | `<version>` | One release, which never changes once it is published. |
 | `next` | The newest prerelease, which the publish workflow builds from each push to `main`. |
 | `sha-<commit>` | The image that the publish workflow built from that commit. |
+| `<version>-rust` | The Rust server of that release, which reads the same variables as the TypeScript server. |
 
-Pin a version in production, so that a new release reaches your cluster only when you change the tag:
+Every tag without the `-rust` suffix holds the TypeScript server. Only the TypeScript server can join a cluster, so a deployment that needs cluster mode must use one of those tags.
+
+Pin a version in production, so that a new release reaches your nodes only when you change the tag:
 
 <!-- release-version narsil-ts -->
 `docker pull ghcr.io/assetcorp/narsil:0.4.1`
