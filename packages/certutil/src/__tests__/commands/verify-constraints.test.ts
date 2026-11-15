@@ -11,7 +11,10 @@ import {
 } from '../support/cli'
 import { performMutualTlsHandshake } from '../support/tls'
 
-it('refuses a certificate outside the permitted DNS subtree of its CA, as Node TLS does', async () => {
+it.each([
+  'node.denied.example',
+  'Constrained CA',
+])('refuses %s outside the permitted DNS subtree of its CA, as Node TLS does', async deniedCommonName => {
   const directory = await createWorkspace()
   try {
     const authority = await createAuthority(directory, 'Constrained CA')
@@ -22,6 +25,7 @@ it('refuses a certificate outside the permitted DNS subtree of its CA, as Node T
     ])
     certificate.setExtensions([
       ...certificate.extensions,
+      { name: 'subjectKeyIdentifier' },
       {
         id: '2.5.29.30',
         value: toDer(
@@ -37,12 +41,15 @@ it('refuses a certificate outside the permitted DNS subtree of its CA, as Node T
       '--dns',
       'node.allowed.example',
     ])
-    const denied = await issueNodeCertificate(authority, directory, 'node.denied.example', [
-      '--dns',
-      'node.denied.example',
-    ])
+    const denied = await issueNodeCertificate(authority, directory, deniedCommonName, ['--dns', 'node.denied.example'])
     for (const identity of [allowed, denied]) {
       const leaf = forge.pki.certificateFromPem(identity.certPem)
+      if (deniedCommonName === 'Constrained CA') leaf.setSubject(certificate.subject.attributes)
+      leaf.setExtensions([
+        ...leaf.extensions,
+        { name: 'subjectKeyIdentifier' },
+        { name: 'authorityKeyIdentifier', keyIdentifier: certificate.generateSubjectKeyIdentifier().getBytes() },
+      ])
       for (const extension of leaf.extensions as Array<{ name?: string; critical?: boolean }>) {
         if (extension.name === 'subjectAltName' || extension.name === 'extKeyUsage') extension.critical = true
       }
