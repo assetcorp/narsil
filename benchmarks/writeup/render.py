@@ -13,6 +13,7 @@ GIBIBYTE_BYTES = 1024**3
 
 _ENGINE_NAMES = {
     "narsil": "Narsil",
+    "narsil-rust": "Narsil Rust",
     "elasticsearch": "Elasticsearch",
     "opensearch": "OpenSearch",
     "qdrant": "Qdrant",

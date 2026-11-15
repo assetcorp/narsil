@@ -3,12 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from chart_data import has_bars, number, peak_interval, peak_level, profile_title, row_label, track_title
+from chart_data import has_bars, number, peak_interval, peak_level, profile_title, recall_unrecorded, row_label, track_title
 from chart_paths import bars_chart, server_chart_dir
+from chart_legend import missing_measurements
 from chart_style import (
     BASE_FONT_POINTS,
     ERROR_BAR_COLOUR,
     FIGURE_WIDTH_INCHES,
+    REFERENCE_COLOUR,
     caption,
     engine_colour,
     rate_label,
@@ -32,6 +34,8 @@ def _below_recall_target(row: dict) -> bool:
 
 def _throughput_label(row: dict, profile: str) -> str:
     label = row_label(row, profile)
+    if recall_unrecorded(row):
+        return f"{label}\nrecall not recorded"
     return f"{label}\nbelow recall target" if _below_recall_target(row) else label
 
 
@@ -40,11 +44,12 @@ def _recall_target_note(rows: list[dict]) -> str:
         number((row.get("operating_point") or {}).get("target")) for row in rows if _below_recall_target(row)
     ]
     known = [target for target in targets if target is not None]
+    unknown = " · bars with unrecorded recall are unranked" if any(recall_unrecorded(row) for row in rows) else ""
     if not targets:
-        return ""
+        return unknown
     if known:
-        return f" · pale bars missed the {max(known):g} recall target, so no ranking counts them"
-    return " · pale bars missed the recall target, so no ranking counts them"
+        return f" · pale bars missed the {max(known):g} recall target, so no ranking counts them{unknown}"
+    return f" · pale bars missed the recall target, so no ranking counts them{unknown}"
 
 
 def _quality_entries(rows: list[dict]) -> list[tuple[dict, float]]:
@@ -81,8 +86,23 @@ def _bar_panel(
     xlabel: str,
     formatter,
     below_target: list[bool] | None = None,
+    not_measured: list[tuple[str, str, str]] | None = None,
 ) -> None:
     positions = list(range(len(labels)))
+    missing = not_measured or []
+    missing_positions = list(range(len(labels), len(labels) + len(missing)))
+    if missing:
+        axes.barh(missing_positions, [0.0] * len(missing), height=BAR_HEIGHT, color=[colour for _, colour, _ in missing])
+        for position, (_, _, status) in zip(missing_positions, missing):
+            axes.text(
+                0,
+                position,
+                f" {status}",
+                ha="left",
+                va="center",
+                fontsize=BASE_FONT_POINTS - 1,
+                color=REFERENCE_COLOUR,
+            )
     bars = axes.barh(
         positions,
         values,
@@ -96,8 +116,8 @@ def _bar_panel(
             patch.set_facecolor(to_rgba(colour, BELOW_TARGET_FILL_ALPHA))
             patch.set_edgecolor(colour)
     style_axes(axes, "")
-    axes.set_yticks(positions)
-    axes.set_yticklabels(labels, fontsize=BASE_FONT_POINTS)
+    axes.set_yticks([*positions, *missing_positions])
+    axes.set_yticklabels([*labels, *(label for label, _, _ in missing)], fontsize=BASE_FONT_POINTS)
     axes.invert_yaxis()
     axes.set_xlim(left=0)
     axes.xaxis.set_major_formatter(FuncFormatter(formatter))
@@ -110,8 +130,18 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
         return None
     quality = _quality_entries(rows)
     throughput = _throughput_entries(rows)
+    missing = [
+        [
+            (row_label(row, profile), engine_colour(row["engine"]), status)
+            for row, status in missing_measurements(rows, lambda row: row["engine"] in measured, metric)
+        ]
+        for measured, metric in (
+            ({row["engine"] for row, _ in quality}, "ranking quality"),
+            ({row["engine"] for row, *_ in throughput}, "throughput"),
+        )
+    ]
     panels = [entries for entries in (quality, throughput) if entries]
-    tallest = max(len(entries) for entries in panels)
+    tallest = max(len(entries) + len(absent) for entries, absent in zip((quality, throughput), missing) if entries)
     figure, axes_list = plt.subplots(
         1, len(panels), figsize=(FIGURE_WIDTH_INCHES, ROW_HEIGHT_INCHES * tallest + PANEL_MARGIN_INCHES), squeeze=False
     )
@@ -125,6 +155,7 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
             None,
             "nDCG@10 against the dataset's human judgements",
             lambda value, _position=0: f"{value:.2f}",
+            not_measured=missing[0],
         )
     if throughput:
         _bar_panel(
@@ -136,8 +167,9 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
             "Peak queries per second, with 95% interval",
             rate_label,
             [_below_recall_target(row) for row, _, _, _ in throughput],
+            missing[1],
         )
-    measured = "ranking quality and peak throughput" if quality else "peak throughput"
+    measured = "ranking quality and peak throughput" if quality and throughput else "ranking quality" if quality else "peak throughput"
     caption(
         figure,
         f"{track_title(track)} track on {dataset_name(dataset_id)}",
