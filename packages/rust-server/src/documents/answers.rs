@@ -107,11 +107,10 @@ fn worker_copy(info: &IndexInfo) -> Value {
 }
 
 pub(crate) fn memory_stats(stats: &MemoryStats, indexes: &[IndexInfo]) -> Value {
-    let open: Vec<&IndexInfo> = indexes
+    let closed = indexes
         .iter()
-        .filter(|info| info.state == IndexResidencyState::Open)
-        .collect();
-    let closed = indexes.len() - open.len();
+        .filter(|info| info.state != IndexResidencyState::Open)
+        .count();
     let reopens = indexes
         .iter()
         .fold(0u64, |total, info| total.saturating_add(info.reopen_count));
@@ -123,7 +122,7 @@ pub(crate) fn memory_stats(stats: &MemoryStats, indexes: &[IndexInfo]) -> Value 
     body.insert("reopenCount", count(reopens));
     body.insert(
         "workerCopies",
-        Value::Array(open.into_iter().map(worker_copy).collect()),
+        Value::Array(indexes.iter().map(worker_copy).collect()),
     );
     body.insert("heldCheckpoints", Value::Array(Vec::new()));
     body.insert("workers", Value::Array(Vec::new()));

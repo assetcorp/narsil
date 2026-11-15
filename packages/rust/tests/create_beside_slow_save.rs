@@ -173,7 +173,7 @@ fn calls_on_other_indexes_answer_while_a_create_waits_on_its_first_save() {
 
     assert_eq!(
         index_names(&engine),
-        vec![CREATED.to_string(), SERVING.to_string()]
+        vec![SERVING.to_string(), CREATED.to_string()]
     );
     engine.shutdown().expect("the engine shuts down");
 }

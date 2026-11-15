@@ -18,6 +18,7 @@ pub(crate) mod index;
 pub(crate) mod index_lifecycle;
 pub(crate) mod layout;
 mod lifecycle;
+mod listing_order;
 mod maintenance;
 pub(crate) mod memory;
 mod name_turns;
@@ -117,6 +118,7 @@ pub(crate) struct EngineInner {
     pub(crate) search_limits: SearchLimits,
     pub(crate) settings: EngineSettings,
     pub(crate) lifecycle: index_lifecycle::IndexLifecycle,
+    pub(crate) listing: listing_order::ListingOrder,
     pub(crate) memory: memory::MemoryGuard,
     pub(crate) rebuild_queue: stale_review::RebuildQueue,
     pub(crate) self_ref: Weak<EngineInner>,
@@ -244,6 +246,7 @@ impl Narsil {
                 plugins: plugins::PluginRegistry::default(),
                 search_limits: SearchLimits::new(pattern_work_cap),
                 lifecycle: index_lifecycle::IndexLifecycle::new(settings.lifecycle),
+                listing: listing_order::ListingOrder::default(),
                 memory: memory::MemoryGuard::new(settings.memory),
                 rebuild_queue: stale_review::RebuildQueue::default(),
                 settings,
@@ -267,6 +270,7 @@ impl Narsil {
                 let _ = durable.close();
                 return Err(error);
             }
+            listing_order::place_recovered(engine);
         }
         analysis_change::resume_interrupted_changes(engine);
         stale_review::review_stale(engine, engine.index_list());
