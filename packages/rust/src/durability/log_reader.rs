@@ -2,12 +2,14 @@ use std::fs::OpenOptions;
 
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
+use crate::value::Value;
 use crate::format::wal::{
     COMMIT_MARKER_FILE_BYTES, CommitMarker, LogEntry, SEGMENT_HEADER_BYTES, check_segment_header,
     read_commit_marker, read_durable_region, read_tail,
 };
 
-use super::files::{DurableDirectory, fsync_failed, write_failed};
+use super::file_errors::{fsync_failed, write_failed};
+use super::files::DurableDirectory;
 use super::log_segment::{ActiveTail, prepared_segment_key, wal_prefix};
 use super::marker::{MarkerFile, marker_key};
 use super::platform::sync_file;
@@ -78,6 +80,12 @@ fn durable_record_missing(
             marker.highest_durable_seq_no
         ),
     )
+    .with_details([
+        ("indexName", Value::from(index_name)),
+        ("partitionId", Value::from(partition_id)),
+        ("highestRead", Value::from(highest)),
+        ("highestDurable", Value::from(marker.highest_durable_seq_no)),
+    ])
 }
 
 fn read_segment(directory: &DurableDirectory, key: &str) -> Result<Option<Vec<u8>>> {
@@ -100,6 +108,10 @@ fn sealed_header_error(key: &str, error: NarsilError) -> NarsilError {
         error.code(),
         format!("Sealed WAL segment header invalid: {reason} (\"{key}\")"),
     )
+    .with_details([
+        ("key", Value::from(key)),
+        ("reason", Value::from(reason)),
+    ])
 }
 
 pub(crate) struct LogVisit<'a> {

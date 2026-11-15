@@ -46,6 +46,24 @@ pub(crate) fn invalid_manifest(message: impl AsRef<str>) -> NarsilError {
     )
 }
 
+pub(crate) fn invalid_manifest_with<K: Into<String>>(
+    message: impl AsRef<str>,
+    details: impl IntoIterator<Item = (K, Value)>,
+) -> NarsilError {
+    invalid_manifest(message).with_details(details)
+}
+
+pub(crate) fn listed_detail(
+    name: &'static str,
+    value: Option<&Value>,
+) -> Option<(&'static str, Value)> {
+    value.map(|value| (name, value.clone()))
+}
+
+fn field_path_detail(field_path: &str) -> [(&'static str, Value); 1] {
+    [("fieldPath", Value::from(field_path))]
+}
+
 pub(crate) fn id_of(value: Option<&Value>) -> Option<u64> {
     whole_number_up_to(value, MAX_SEGMENT_ID).map(|number| number as u64)
 }
@@ -57,16 +75,26 @@ pub(crate) fn read_file_ref(raw: &Map, expected_key: &str, what: &str) -> Result
             None => "undefined".to_string(),
             Some(other) => other.to_json(),
         };
-        return Err(invalid_manifest(format!(
-            "lists the {what} under the key \"{shown}\" where it belongs at \"{expected_key}\""
-        )));
+        let details = listed_detail("key", raw.get("key"))
+            .into_iter()
+            .chain([("expected", Value::from(expected_key))]);
+        return Err(invalid_manifest_with(
+            format!(
+                "lists the {what} under the key \"{shown}\" where it belongs at \"{expected_key}\""
+            ),
+            details,
+        ));
     }
     let bytes = whole_number_up_to(raw.get("bytes"), MAX_FILE_BYTES as f64)
         .filter(|bytes| *bytes >= HEADER_BYTES as f64)
         .ok_or_else(|| {
-            invalid_manifest(format!(
-                "gives the {what} \"{expected_key}\" an invalid length"
-            ))
+            let details = [("key", Value::from(expected_key))]
+                .into_iter()
+                .chain(listed_detail("bytes", raw.get("bytes")));
+            invalid_manifest_with(
+                format!("gives the {what} \"{expected_key}\" an invalid length"),
+                details,
+            )
         })? as u64;
     let checksum = uint32_of(raw.get("checksum")).ok_or_else(|| {
         invalid_manifest(format!(
@@ -86,14 +114,21 @@ pub(crate) fn read_file_ref(raw: &Map, expected_key: &str, what: &str) -> Result
         uint32_of(raw.get("headLength")),
         uint32_of(raw.get("headChecksum")),
     ) else {
-        return Err(invalid_manifest(format!(
-            "gives the {what} \"{expected_key}\" an invalid head"
-        )));
+        return Err(invalid_manifest_with(
+            format!("gives the {what} \"{expected_key}\" an invalid head"),
+            [("key", Value::from(expected_key))],
+        ));
     };
     if offset + length as u64 > bytes - HEADER_BYTES as u64 {
-        return Err(invalid_manifest(format!(
-            "ends the head of the {what} \"{expected_key}\" outside its payload"
-        )));
+        return Err(invalid_manifest_with(
+            format!("ends the head of the {what} \"{expected_key}\" outside its payload"),
+            [
+                ("key", Value::from(expected_key)),
+                ("headOffset", Value::from(offset)),
+                ("headLength", Value::from(length)),
+                ("bytes", Value::from(bytes)),
+            ],
+        ));
     }
     Ok(FileRef {
         key: expected_key.to_string(),
@@ -133,21 +168,30 @@ fn normalize_file(
     next_file_id: u64,
     seen: &mut Vec<u64>,
 ) -> Result<VectorFileRef> {
-    let map =
-        record(raw).ok_or_else(|| invalid_manifest("has an invalid vector file reference"))?;
-    let id = id_of(map.get("id"))
-        .ok_or_else(|| invalid_manifest("has an invalid vector file reference"))?;
+    let invalid_reference = || {
+        invalid_manifest_with(
+            "has an invalid vector file reference",
+            field_path_detail(field_path),
+        )
+    };
+    let map = record(raw).ok_or_else(invalid_reference)?;
+    let id = id_of(map.get("id")).ok_or_else(invalid_reference)?;
     if id >= next_file_id || seen.contains(&id) {
-        return Err(invalid_manifest(format!(
-            "lists vector file {id} of \"{field_path}\" twice or at its next file id"
-        )));
+        return Err(invalid_manifest_with(
+            format!("lists vector file {id} of \"{field_path}\" twice or at its next file id"),
+            field_path_detail(field_path),
+        ));
     }
     seen.push(id);
     let count =
         whole_number_up_to(map.get("count"), VECTOR_FILE_MAX_VECTORS as f64).ok_or_else(|| {
-            invalid_manifest(format!(
-                "gives vector file {id} of \"{field_path}\" an invalid count"
-            ))
+            let details = field_path_detail(field_path)
+                .into_iter()
+                .chain(listed_detail("count", map.get("count")));
+            invalid_manifest_with(
+                format!("gives vector file {id} of \"{field_path}\" an invalid count"),
+                details,
+            )
         })? as u32;
     let dead = match map.get("dead") {
         None | Some(Value::Null) => None,
@@ -180,9 +224,10 @@ fn normalize_graph_parts(
     generation: u64,
 ) -> Result<Vec<FileRef>> {
     let Some(Value::Array(parts)) = raw else {
-        return Err(invalid_manifest(format!(
-            "gives \"{field_path}\" no list of graph parts"
-        )));
+        return Err(invalid_manifest_with(
+            format!("gives \"{field_path}\" no list of graph parts"),
+            field_path_detail(field_path),
+        ));
     };
     if !parts.is_empty() && generation == 0 {
         return Err(invalid_manifest(format!(
@@ -192,7 +237,10 @@ fn normalize_graph_parts(
     let mut out = Vec::with_capacity(parts.len());
     for (at, part) in parts.iter().enumerate() {
         let map = record(part).ok_or_else(|| {
-            invalid_manifest(format!("has an invalid graph part of \"{field_path}\""))
+            invalid_manifest_with(
+                format!("has an invalid graph part of \"{field_path}\""),
+                field_path_detail(field_path),
+            )
         })?;
         let key = graph_part_key(index_name, field_path, generation, at as u64)
             .map_err(|error| invalid_manifest(error.message()))?;
@@ -218,23 +266,29 @@ pub(crate) fn normalize_vector_fields(
             .and_then(Value::as_str)
             .ok_or_else(|| invalid_manifest("has an invalid vector reference"))?;
         if seen_fields.contains(&field_path) {
-            return Err(invalid_manifest(format!(
-                "lists the vector field \"{field_path}\" twice"
-            )));
+            return Err(invalid_manifest_with(
+                format!("lists the vector field \"{field_path}\" twice"),
+                field_path_detail(field_path),
+            ));
         }
         seen_fields.push(field_path);
         let next_file_id = id_of(map.get("nextFileId")).ok_or_else(|| {
-            invalid_manifest(format!("gives \"{field_path}\" an invalid next file id"))
+            invalid_manifest_with(
+                format!("gives \"{field_path}\" an invalid next file id"),
+                field_path_detail(field_path),
+            )
         })?;
         let Some(Value::Array(files)) = map.get("files") else {
-            return Err(invalid_manifest(format!(
-                "gives \"{field_path}\" no list of vector files"
-            )));
+            return Err(invalid_manifest_with(
+                format!("gives \"{field_path}\" no list of vector files"),
+                field_path_detail(field_path),
+            ));
         };
         let graph_generation = id_of(map.get("graphGeneration")).ok_or_else(|| {
-            invalid_manifest(format!(
-                "gives \"{field_path}\" an invalid graph generation"
-            ))
+            invalid_manifest_with(
+                format!("gives \"{field_path}\" an invalid graph generation"),
+                field_path_detail(field_path),
+            )
         })?;
         let mut seen_ids = Vec::new();
         let files = files

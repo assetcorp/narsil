@@ -7,8 +7,10 @@ use crate::format::wal::{
     check_segment_header, decode_entry,
 };
 use crate::util::hash::crc32;
+use crate::value::Value;
 
-use super::files::{DurableDirectory, read_failed};
+use super::file_errors::read_failed;
+use super::files::DurableDirectory;
 use super::log_reader::list_segments;
 use super::store::DurabilityStore;
 use super::sync_files::list_history;
@@ -89,6 +91,7 @@ fn damaged(key: &str, reason: &str) -> NarsilError {
         ErrorCode::PERSISTENCE_WAL_CORRUPT,
         format!("The log segment \"{key}\" {reason}"),
     )
+    .with_details([("key", Value::from(key))])
 }
 
 fn open_segment(

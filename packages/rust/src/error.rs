@@ -242,6 +242,21 @@ pub(crate) fn instance_shut_down() -> NarsilError {
     )
 }
 
+pub(crate) fn fail_with<T, K: Into<String>>(
+    code: ErrorCode,
+    message: impl Into<String>,
+    details: impl IntoIterator<Item = (K, Value)>,
+) -> Result<T> {
+    Err(NarsilError::new(code, message).with_details(details))
+}
+
 pub(crate) fn load_failed<T>(message: impl Into<String>) -> Result<T> {
     fail(ErrorCode::PERSISTENCE_LOAD_FAILED, message)
+}
+
+pub(crate) fn load_failed_with<T, K: Into<String>>(
+    message: impl Into<String>,
+    details: impl IntoIterator<Item = (K, Value)>,
+) -> Result<T> {
+    fail_with(ErrorCode::PERSISTENCE_LOAD_FAILED, message, details)
 }

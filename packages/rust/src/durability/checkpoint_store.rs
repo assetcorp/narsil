@@ -5,9 +5,11 @@ use crate::adapters::AdapterError;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::{Expectation, MAX_FILE_BYTES, open_checksummed};
 use crate::format::manifest_refs::FileRef;
+use crate::value::Value;
 
 use super::calling_threads::CallingThreads;
-use super::files::{DurableDirectory, range_outside};
+use super::file_errors::range_outside;
+use super::files::DurableDirectory;
 use super::persistence::PersistenceAdapter;
 use super::staged_file::StagedFile;
 
@@ -139,7 +141,11 @@ fn adapter_failure(code: ErrorCode, verb: &str, key: &str, error: AdapterError) 
         Err(error) => NarsilError::new(
             code,
             format!("The persistence adapter failed to {verb} \"{key}\": {error}"),
-        ),
+        )
+        .with_details([
+            ("key", Value::from(key)),
+            ("cause", Value::from(error.to_string())),
+        ]),
     }
 }
 
@@ -165,12 +171,14 @@ impl CheckpointStore for AdapterStore {
     fn read_range(&self, key: &str, offset: u64, length: u64) -> Result<Vec<u8>> {
         let bytes = self
             .read_within(key, MAX_FILE_BYTES)?
-            .ok_or_else(|| range_outside(key))?;
+            .ok_or_else(|| range_outside(key, offset, length))?;
         let range = usize::try_from(offset).ok().and_then(|start| {
             let end = start.checked_add(usize::try_from(length).ok()?)?;
             bytes.get(start..end)
         });
-        range.map(<[u8]>::to_vec).ok_or_else(|| range_outside(key))
+        range
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| range_outside(key, offset, length))
     }
 
     fn length(&self, _key: &str) -> Result<FileLength> {
@@ -234,6 +242,7 @@ fn missing_file(what: &str, key: &str) -> NarsilError {
         ErrorCode::PERSISTENCE_LOAD_FAILED,
         format!("The {what} \"{key}\" that the manifest lists is missing"),
     )
+    .with_details([("key", Value::from(key))])
 }
 
 fn listed_length_differs(what: &str, key: &str, found: u64, listed: u64) -> NarsilError {
@@ -241,6 +250,11 @@ fn listed_length_differs(what: &str, key: &str, found: u64, listed: u64) -> Nars
         ErrorCode::PERSISTENCE_LOAD_FAILED,
         format!("The {what} \"{key}\" holds {found} bytes where the manifest lists {listed}"),
     )
+    .with_details([
+        ("key", Value::from(key)),
+        ("bytes", Value::from(found)),
+        ("listed", Value::from(listed)),
+    ])
 }
 
 fn require_listed_length(store: &dyn CheckpointStore, file: &FileRef, what: &str) -> Result<()> {
@@ -287,7 +301,12 @@ fn require_listed_checksum(what: &str, key: &str, found: u32, listed: u32) -> Re
     Err(NarsilError::new(
         ErrorCode::PERSISTENCE_LOAD_FAILED,
         format!("The {what} \"{key}\" carries checksum {found} where the manifest lists {listed}"),
-    ))
+    )
+    .with_details([
+        ("key", Value::from(key)),
+        ("checksum", Value::from(found)),
+        ("listed", Value::from(listed)),
+    ]))
 }
 
 pub(crate) fn read_listed_payload(
