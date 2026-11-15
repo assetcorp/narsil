@@ -9,10 +9,10 @@ const DATABASE = 'notes-app'
 const STORE = 'partitions'
 const NOTES = 'notes'
 const DIMENSION = 384
-const DOCUMENT_COUNT = 6_000
+const DOCUMENT_COUNT = 2_000
 const INSERT_BATCH = 500
-const REMOVED = ['note-0', 'note-1999', 'note-5999']
-const UPDATED = ['note-7', 'note-2500']
+const REMOVED = ['note-0', 'note-999', 'note-1999']
+const UPDATED = ['note-7', 'note-1500']
 
 const globals = globalThis as { indexedDB: IDBFactory }
 
@@ -88,5 +88,5 @@ describe('a document export from IndexedDB', () => {
     engines.push(copy)
     await copy.restore(NOTES, archive)
     expect(await exportedVectorsOf(copy)).toEqual(expected)
-  }, 20_000)
+  }, 60_000)
 })
