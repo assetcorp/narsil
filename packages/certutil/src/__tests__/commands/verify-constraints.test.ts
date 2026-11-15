@@ -27,6 +27,17 @@ it.each([
       ...certificate.extensions,
       { name: 'subjectKeyIdentifier' },
       {
+        id: '2.5.29.32',
+        critical: true,
+        value: toDer(
+          create(Class.UNIVERSAL, Type.SEQUENCE, true, [
+            create(Class.UNIVERSAL, Type.SEQUENCE, true, [
+              create(Class.UNIVERSAL, Type.OID, false, forge.asn1.oidToDer('2.5.29.32.0').getBytes()),
+            ]),
+          ]),
+        ).getBytes(),
+      },
+      {
         id: '2.5.29.30',
         value: toDer(
           create(Class.UNIVERSAL, Type.SEQUENCE, true, [create(Class.CONTEXT_SPECIFIC, 0, true, [subtree])]),
@@ -86,6 +97,29 @@ it.each([
       expect(parseEnvelope<{ chainValid: boolean }>(result.stdout).data?.chainValid).toBe(expected)
       expect(result.stderr).not.toContain(await readFile(authority.keyPath, 'utf8'))
     }
+
+    certificate.setExtensions([
+      ...certificate.extensions,
+      { id: '2.5.29.7', critical: true, value: toDer(subtree).getBytes() },
+    ])
+    certificate.sign(forge.pki.privateKeyFromPem(authority.keyPem), forge.md.sha256.create())
+    authority.certPem = forge.pki.certificateToPem(certificate)
+    await writeFile(authority.certPath, authority.certPem)
+    const unsupported = { ...client, ca: authority.certPem }
+    await expect(
+      performMutualTlsHandshake({ server: unsupported, client: unsupported, servername: 'node.allowed.example' }),
+    ).rejects.toThrow(/unhandled critical extension/)
+    const refused = await runCli([
+      'verify',
+      '--cert',
+      allowed.certPath,
+      '--ca-cert',
+      authority.certPath,
+      '--output',
+      'json',
+    ])
+    expect(refused.code).toBe(1)
+    expect(parseEnvelope<{ chainValid: boolean }>(refused.stdout).data?.chainValid).toBe(false)
   } finally {
     await removeWorkspace(directory)
   }
