@@ -37,6 +37,9 @@ The image serves one node, and cluster mode works only on the TypeScript server.
 | `<version>` | One release, which never changes once it is published. |
 | `next` | The newest prerelease, which the publish workflow builds from each push to `main`. |
 | `sha-<commit>` | The image that the publish workflow built from that commit. |
+| `latest-rust`, `<version>-rust`, and each tag above with `-rust` added | The same release served by the Rust server, which reads the same variables. |
+
+You can switch a node between the TypeScript server and the Rust server by changing the tag alone. The Rust server can't join a cluster, so a node that needs cluster mode has to use a tag without `-rust`. The Rust image also leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable asks for that kind.
 
 Pin a version in production, so that a new release reaches your nodes only when you change the tag:
 
@@ -68,7 +71,7 @@ With `filesystem` storage, the node keeps four folders inside `/data`. It keeps 
 
 The image sets `NODE_OPTIONS=--max-old-space-size-percentage=75`, so the engine's heap can grow to three quarters of the memory that you give the container. Node ends the process once an index outgrows that limit, so size the container memory for the indexes that you expect. The image also loads jemalloc through `LD_PRELOAD`, because jemalloc returns the memory that the server's threads free to the system, while glibc's allocator can hold on to it.
 
-The server process works as the `node` user, with user ID 1000, so a volume that you mount at `/data` has to be writable by that user.
+The server process works as the `node` user, with user ID 1000, so a volume that you mount at `/data` has to be writable by that user. The Rust image serves as the `narsil` user under the same user ID, so one volume works with both images, and it preloads jemalloc in the same way.
 
 ## Events
 
@@ -80,6 +83,12 @@ Build from the root of this repository, because the image compiles the engine, t
 
 ```bash skip
 docker build -f packages/container/Dockerfile -t narsil:local .
+```
+
+Build the Rust image from the root of the repository too, through its separate Dockerfile:
+
+```bash skip
+docker build -f packages/rust-container/Dockerfile -t narsil:local-rust .
 ```
 
 Pass `--build-arg NARSIL_BUILD_VERSION=<version>` and `--build-arg NARSIL_BUILD_GIT_SHA=<commit>` to set what `GET /version` reports.
