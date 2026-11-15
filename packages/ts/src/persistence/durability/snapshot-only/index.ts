@@ -31,7 +31,7 @@ import { saveCheckpointMetadata, writeSnapshotOnlyCheckpoint } from './checkpoin
 import { createSnapshotIndexState, metadataKey, noteSnapshotCommitted, type SnapshotIndexState } from './index-state'
 import { createPendingRestores } from './restores'
 import { createSnapshotSavedSize } from './saved-size'
-import { saveUnsavedIndexes } from './shutdown-save'
+import { saveAndReleaseIndexes } from './shutdown-save'
 
 export function createSnapshotOnlyManager(
   adapter: PersistenceAdapter,
@@ -387,11 +387,13 @@ export function createSnapshotOnlyManager(
         checkpointTimer = null
       }
       await restores.settleAll()
-      await saveUnsavedIndexes({
+      await saveAndReleaseIndexes({
         indexes,
         checkpoint: (indexName, indexState) => performCheckpoint(indexName, indexState, false),
         onFailure: hooks.onFatalError,
-      }).finally(() => indexes.clear())
+        settleMetadataWrites: () => metadataWrites.settleAll(),
+        release: () => indexes.clear(),
+      })
     },
   }
 }

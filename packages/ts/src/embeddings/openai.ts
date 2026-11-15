@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { buildSignal, postJsonWithRetry, resolveApiKey } from '../http-retry'
+import { type ApiKeySource, buildSignal, postJsonWithRetry, resolveApiKey } from '../http-retry'
 import type { EmbeddingAdapter } from '../types/adapters'
 import { DEFAULT_REQUEST_TIMEOUT_MS, MAX_INPUTS_PER_REQUEST } from './constants'
 
@@ -11,8 +11,12 @@ import { DEFAULT_REQUEST_TIMEOUT_MS, MAX_INPUTS_PER_REQUEST } from './constants'
 export interface OpenAIEmbeddingConfig {
   /** This points the adapter at OpenAI, at Azure, or at a compatible service you host. */
   baseUrl: string
-  /** This holds the key, or a function returning it, which is how you rotate a key or fetch a short-lived token per request. */
-  apiKey: string | (() => string | Promise<string>)
+  /**
+   * This holds the key, or a function returning it, which is how you rotate a key or fetch a short-lived token per
+   * request. Leave it out for a service that you host without a key, and the adapter then sends no `Authorization`
+   * header.
+   */
+  apiKey?: string | (() => string | Promise<string>)
   /** The adapter embeds with this model. */
   model: string
   /** The model returns vectors this long, which must match the schema's `vector[N]`. */
@@ -28,28 +32,45 @@ interface OpenAIEmbeddingItem {
   embedding: number[]
 }
 
-function parseEmbeddingItems(data: unknown): OpenAIEmbeddingItem[] {
+function parseEmbeddingItems(data: unknown, count: number, dimensions: number): OpenAIEmbeddingItem[] {
   if (!Array.isArray(data)) {
     throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI response missing "data" array')
   }
+  if (data.length !== count) {
+    throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `OpenAI returned ${data.length} embeddings for ${count} inputs`)
+  }
   const items: OpenAIEmbeddingItem[] = []
+  const indexes = new Set<number>()
   for (let i = 0; i < data.length; i++) {
     const item = data[i] as Record<string, unknown> | undefined
     if (item === undefined || item === null || typeof item !== 'object') {
       throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `OpenAI response item at position ${i} is not an object`)
     }
-    if (typeof item.index !== 'number') {
+    if (
+      typeof item.index !== 'number' ||
+      !Number.isSafeInteger(item.index) ||
+      item.index < 0 ||
+      item.index >= count ||
+      indexes.has(item.index)
+    ) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI response item at position ${i} missing numeric "index"`,
+        `OpenAI response item at position ${i} has an invalid or duplicate index`,
       )
     }
-    if (!Array.isArray(item.embedding)) {
+    if (
+      !Array.isArray(item.embedding) ||
+      item.embedding.length !== dimensions ||
+      item.embedding.some(
+        value => typeof value !== 'number' || !Number.isFinite(value) || !Number.isFinite(Math.fround(value)),
+      )
+    ) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI response item at position ${i} missing "embedding" array`,
+        `OpenAI response item at position ${i} has an invalid embedding`,
       )
     }
+    indexes.add(item.index)
     items.push({ index: item.index, embedding: item.embedding as number[] })
   }
   return items
@@ -99,7 +120,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
   if (typeof config.apiKey === 'string' && config.apiKey.trim().length === 0) {
     throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'OpenAI embedding adapter requires a non-empty apiKey')
   }
-  if (typeof config.apiKey !== 'string' && typeof config.apiKey !== 'function') {
+  if (config.apiKey !== undefined && typeof config.apiKey !== 'string' && typeof config.apiKey !== 'function') {
     throw new NarsilError(
       ErrorCodes.EMBEDDING_CONFIG_INVALID,
       'OpenAI embedding adapter apiKey must be a string or a function returning a string',
@@ -111,6 +132,11 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
   const dimensionCount = config.dimensions
   const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS
   const maxRetries = config.maxRetries ?? 3
+  const apiKeySource: ApiKeySource | undefined = config.apiKey
+  const currentApiKey = (): Promise<string | null> =>
+    apiKeySource === undefined
+      ? Promise.resolve(null)
+      : resolveApiKey(apiKeySource, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
 
   return {
     get dimensions(): number {
@@ -118,7 +144,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     },
 
     async embed(input: string, _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array> {
-      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
+      const apiKey = await currentApiKey()
       const body = JSON.stringify({ input: [input], model, dimensions: dimensionCount })
       const combinedSignal = buildSignal(signal, timeoutMs)
       const result = await postJsonWithRetry({
@@ -126,12 +152,12 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
         body,
         apiKey,
         maxRetries,
-        signal: combinedSignal,
+        signal: combinedSignal.signal,
         service: 'OpenAI',
         failureCode: ErrorCodes.EMBEDDING_FAILED,
-      })
+      }).finally(combinedSignal.dispose)
 
-      const items = parseEmbeddingItems(result.data)
+      const items = parseEmbeddingItems(result.data, 1, dimensionCount)
       if (items.length === 0) {
         throw new NarsilError(
           ErrorCodes.EMBEDDING_FAILED,
@@ -145,7 +171,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     async embedBatch(inputs: string[], _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]> {
       if (inputs.length === 0) return []
 
-      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
+      const apiKey = await currentApiKey()
       const combinedSignal = buildSignal(signal, timeoutMs)
 
       const executeChunk = async (chunk: string[]): Promise<Float32Array[]> => {
@@ -155,37 +181,34 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
           body,
           apiKey,
           maxRetries,
-          signal: combinedSignal,
+          signal: combinedSignal.signal,
           service: 'OpenAI',
           failureCode: ErrorCodes.EMBEDDING_FAILED,
         })
 
-        const items = parseEmbeddingItems(result.data)
-        if (items.length !== chunk.length) {
-          throw new NarsilError(
-            ErrorCodes.EMBEDDING_FAILED,
-            `OpenAI returned ${items.length} embeddings for ${chunk.length} inputs`,
-            { expected: chunk.length, actual: items.length },
-          )
-        }
+        const items = parseEmbeddingItems(result.data, chunk.length, dimensionCount)
 
         const sorted = items.slice().sort((a, b) => a.index - b.index)
         return sorted.map(item => new Float32Array(item.embedding))
       }
 
-      if (inputs.length <= MAX_INPUTS_PER_REQUEST) {
-        return executeChunk(inputs)
-      }
-
-      const results: Float32Array[] = []
-      for (let start = 0; start < inputs.length; start += MAX_INPUTS_PER_REQUEST) {
-        const chunk = inputs.slice(start, start + MAX_INPUTS_PER_REQUEST)
-        const chunkResults = await executeChunk(chunk)
-        for (const vec of chunkResults) {
-          results.push(vec)
+      try {
+        if (inputs.length <= MAX_INPUTS_PER_REQUEST) {
+          return await executeChunk(inputs)
         }
+
+        const results: Float32Array[] = []
+        for (let start = 0; start < inputs.length; start += MAX_INPUTS_PER_REQUEST) {
+          const chunk = inputs.slice(start, start + MAX_INPUTS_PER_REQUEST)
+          const chunkResults = await executeChunk(chunk)
+          for (const vec of chunkResults) {
+            results.push(vec)
+          }
+        }
+        return results
+      } finally {
+        combinedSignal.dispose()
       }
-      return results
     },
 
     async shutdown(): Promise<void> {},

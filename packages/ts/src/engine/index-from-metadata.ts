@@ -19,6 +19,7 @@ import {
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
+import type { LanguageModule } from '../types/language'
 import type { SchemaDefinition } from '../types/schema'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
@@ -31,6 +32,7 @@ function isRecoveryConfigError(err: unknown): err is NarsilError {
   return (
     err instanceof NarsilError &&
     (err.code === ErrorCodes.CONFIG_INVALID ||
+      err.code === ErrorCodes.LANGUAGE_NOT_SUPPORTED ||
       err.code === ErrorCodes.SCHEMA_INVALID_TYPE ||
       err.code === ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION)
   )
@@ -125,8 +127,9 @@ export async function createIndexFromMetadata(
     return
   }
   const indexConfig = reconstructSchemaFromMetadata(metadata)
-  const language = getLanguage(indexConfig.language ?? 'english')
+  let language: LanguageModule
   try {
+    language = getLanguage(indexConfig.language ?? 'english')
     indexConfig.schema = validateSchema(indexConfig.schema)
     validatePatternValueLimit(indexConfig.patternValueLimit)
     requireSurfaceFormsForPartialFields(indexConfig.schema, indexConfig.surfaceForms)

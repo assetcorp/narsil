@@ -9,7 +9,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
 
 // @public
 export interface OpenAIEmbeddingConfig {
-    apiKey: string | (() => string | Promise<string>);
+    apiKey?: string | (() => string | Promise<string>);
     baseUrl: string;
     dimensions: number;
     maxRetries?: number;
