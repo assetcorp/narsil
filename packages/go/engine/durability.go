@@ -107,7 +107,7 @@ func (n *Narsil) persistSettings() (persist.Settings, model.DurabilityTier, bool
 	}
 	directory := durabilityDirectory(config)
 	settings := persist.Settings{
-		FlushInterval:               durability.FlushInterval.Or(0),
+		FlushInterval:               durability.FlushInterval.Or(persist.DefaultAsyncFlushInterval),
 		CheckpointInterval:          durability.CheckpointInterval.Or(persist.DefaultCheckpointInterval),
 		CheckpointMutationThreshold: int64(durability.CheckpointMutationThreshold.Or(0)),
 		SegmentMaxBytes:             durability.SegmentMaxBytes.Or(0),
