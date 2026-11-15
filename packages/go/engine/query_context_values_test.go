@@ -29,10 +29,6 @@ func (c *checkpointValueContext) Value(key any) any {
 	return c.Context.Value(key)
 }
 
-func (c *checkpointValueContext) Err() error {
-	panic("the search called the caller's Err method")
-}
-
 func TestCancellableContextValueCanCheckpoint(t *testing.T) {
 	if os.Getenv("NARSIL_CONTEXT_VALUE_CHILD") == "" {
 		executable, err := os.Executable()
